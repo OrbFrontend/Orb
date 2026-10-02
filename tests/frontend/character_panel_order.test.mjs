@@ -33,4 +33,9 @@ test('the character panel never reorders before a page refresh', async () => {
   cards = [card('g', '2026-10-01'), ...cards.filter((c) => c.id !== 'b')];
   await loadCharacters();
   assert.deepEqual(panel(), ['A', 'C2', 'D', 'E', 'G']);
+
+  // Opening F from the library takes the least recently active slot (D's).
+  S.activeCharId = 'f';
+  refreshCharacters();
+  assert.deepEqual(panel(), ['A', 'C2', 'F', 'E', 'G']);
 });

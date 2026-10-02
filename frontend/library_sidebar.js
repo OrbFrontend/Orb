@@ -39,11 +39,22 @@ function rankRecentCharacters(characters, conversations) {
 
 /** The panel never reorders before a page refresh: reloads refresh each card in
  * place, a deleted card leaves, and only an empty slot at the bottom takes the
- * next most recent character. */
+ * next most recent character. The open character always has a slot; opened from
+ * outside the panel, it takes the least recently active one's place. */
 function panelCharacters(characters, conversations) {
   const byId = new Map(characters.map((c) => [c.id, c]));
   const order = (_panelOrder || []).filter((id) => byId.has(id));
-  for (const c of rankRecentCharacters(characters, conversations)) {
+  const ranked = rankRecentCharacters(characters, conversations);
+  const active = S.activeCharId;
+  if (byId.has(active) && !order.includes(active)) {
+    if (order.length < PANEL_LIMIT) order.push(active);
+    else {
+      const rank = new Map(ranked.map((c, i) => [c.id, i]));
+      const stalest = order.reduce((a, b) => (rank.get(b) > rank.get(a) ? b : a));
+      order[order.indexOf(stalest)] = active;
+    }
+  }
+  for (const c of ranked) {
     if (order.length >= PANEL_LIMIT) break;
     if (!order.includes(c.id)) order.push(c.id);
   }

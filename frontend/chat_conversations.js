@@ -140,7 +140,7 @@ export async function selectChar(id, source = "recent") {
   S._selectCharLock = true;
   try {
     S.activeCharId = id;
-    renderCharacters();
+    refreshCharacters();
     const existing = S.conversations.find((c) => c.character_card_id === id);
     if (existing) {
       if (source === "library") {
