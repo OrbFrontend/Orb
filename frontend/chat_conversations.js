@@ -9,7 +9,7 @@ import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
-import { reflectConversationWorldActivation } from "./lorebooks.js";
+import { reflectConversationWorldActivation, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./modal.js";
 import { begin, finish, ownsView, runningFor } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
@@ -132,6 +132,7 @@ export function resetChatUI() {
   renderGroupCast();
   renderMessages();
   renderInspector();
+  renderWorldsSidebar();
   updateUserBtn(); // no active character → drop any locked-to-character icon
 }
 
