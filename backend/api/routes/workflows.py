@@ -246,21 +246,17 @@ async def api_trigger_workflow(
     The hook runs as a workflow job, so Stop can cancel a long on-demand render
     such as speech; a streaming result is stopped by closing its stream.
     """
-    result = await _finished_job(
-        start_workflow_job(
-            cid,
-            _trigger(cid, workflow_id, body),
-            job=job,
-            message_id=body.get("message_id"),
-        )
-    )
+    # The body is free-form; only an integer message id names a source a message delete must stop.
+    source = body.get("message_id")
+    message_id = source if type(source) is int else None
+    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job, message_id=message_id))
     # A streaming result is wrapped by the API layer -- the workflow returns a
     # transport-neutral WorkflowEventStream, never an HTTP response. The response
     # is built after the workflow locks release: the event iterator is lazy, so
     # the hook's DB/prefix prep ran under the locks while the stream itself runs
     # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
     if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result, cid=cid, job=job, message_id=body.get("message_id"))
+        return _workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
     return result
 
 

@@ -119,7 +119,6 @@ from .queries.library_dedupe import (
     list_cards_for_dedupe,
     list_stale_avatar_ids,
     read_avatar_b64,
-    relink_card,
     remove_dismissals,
     resolve_duplicate_cards,
 )
@@ -413,7 +412,6 @@ __all__ = [
     "open_wal_anchor",
     "replace_vocabulary",
     "read_avatar_b64",
-    "relink_card",
     "resolve_duplicate_cards",
     "remove_dismissals",
     "reject_sheet_proposal",

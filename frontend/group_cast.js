@@ -100,8 +100,8 @@ export function unansweredHint() {
     : "Nobody has answered that yet — press Send with an empty box to continue from it.";
 }
 
-export function overrideIsOneShot() {
-  return S.groupCast?.turn_mode !== "manual";
+export function overrideIsOneShot(cast = S.groupCast) {
+  return cast?.turn_mode !== "manual";
 }
 
 export function groupRootId(conv) {

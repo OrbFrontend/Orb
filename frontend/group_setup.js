@@ -750,11 +750,12 @@ export function renderGroupCast() {
   if (input) input.placeholder = grouped ? "Write what happens next…" : "Write your message...";
 }
 
-export function consumeSpeakerOverride() {
-  if (!S.groupCast || !overrideIsOneShot()) return;
-  if (!S.pinnedSpeakerId || S.pinnedSpeakerId !== S.consumedSpeakerId) return;
-  S.pinnedSpeakerId = null;
-  renderGroupCast();
+/** Clear a one-shot pin in the conversation whose exchange used it, shown or not. */
+export function consumeSpeakerOverride(state = S) {
+  if (!state.groupCast || !overrideIsOneShot(state.groupCast)) return;
+  if (!state.pinnedSpeakerId || state.pinnedSpeakerId !== state.consumedSpeakerId) return;
+  state.pinnedSpeakerId = null;
+  if (state.activeConvId === S.activeConvId) renderGroupCast();
 }
 
 let _groupSearch = "";

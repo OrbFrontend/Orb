@@ -142,7 +142,32 @@ test('a closed duplicate scan settles before a reopened panel can start another'
   old.remove(); next.remove();
 });
 
-test('media refresh across A to B to A only caches its original response', async (t) => {
+test('a peer tab media notice repaints without echoing back to the sender', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const posted = [];
+  class FakeChannel {
+    constructor() { FakeChannel.last = this; }
+    postMessage(message) { posted.push(message.type); }
+  }
+  const original = globalThis.BroadcastChannel;
+  globalThis.BroadcastChannel = FakeChannel;
+  t.after(() => { globalThis.BroadcastChannel = original; });
+  const { initTabLock } = await import('../../frontend/tabLock.js');
+  const { initWorkflowMutationListener } = await import('../../frontend/chat_workflow.js');
+  initTabLock();
+  initWorkflowMutationListener();
+  t.mock.method(globalThis, 'fetch', async () => Response.json([{ id: 93, role: 'user', content: 'peer render' }]));
+  S.activeConvId = 'a';
+  S.documentMode = false;
+  S.conversationViewToken++;
+  posted.length = 0;
+  FakeChannel.last.onmessage({ data: { type: 'WORKFLOW_MUTATION', tabId: 'peer', payload: { convId: 'a', msgId: 93 } } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(S.messages[0].id, 93);
+  assert.ok(!posted.includes('WORKFLOW_MUTATION'));
+});
+
+test('media refresh across A to B to A leaves the newer view alone', async (t) => {
   const { refreshConversationMessages } = await import('../../frontend/chat_workflow.js');
   const fetched = deferred();
   t.mock.method(globalThis, 'fetch', () => fetched.promise);
@@ -157,7 +182,6 @@ test('media refresh across A to B to A only caches its original response', async
   fetched.resolve(Response.json([{ id: 91, role: 'user', content: 'old response' }]));
   await refresh;
   assert.equal(S.messages[0].id, 92);
-  assert.equal(S.conversationCache.get('a')[0].id, 91);
 });
 
 test('saved inspection leaves live reasoning and pass selection intact', async (t) => {
@@ -222,6 +246,37 @@ test('compression Cancel and a late summary never stop or replace an unrelated r
   S.isStreaming = false;
 });
 
+test('saving an applied patch keeps the audit run current for another patch', async (t) => {
+  documents.initDocumentMode();
+  const audit = await import('../../frontend/document_audit.js');
+  let row = { id: 'audit-a', title: 'A', revision: 4, content: 'First draft.', generated_spans: [] };
+  let patches = 0;
+  t.mock.method(globalThis, 'fetch', async (url, opts = {}) => {
+    const path = String(url);
+    if (path.endsWith('/patch')) {
+      patches++;
+      return Response.json({ patch_count: 1, patched_draft: `Patched ${patches}.`, report_after: { total_issues: 1 } });
+    }
+    if (opts.method === 'PUT') {
+      const body = JSON.parse(opts.body);
+      row = { ...row, ...body, revision: row.revision + 1 };
+      return Response.json(row);
+    }
+    return Response.json(row);
+  });
+  S.docDirty = false;
+  S.documents = [row];
+  await documents.openDocument('audit-a');
+  S.docAuditResults = { docId: 'audit-a', runStart: 0, draft: 'First draft.', report: { total_issues: 1 } };
+  S.docAuditBusy = false;
+  await audit.runPatch();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(S.documentSessions.get('audit-a').row.revision, 5);
+  await audit.runPatch();
+  assert.equal(patches, 2);
+  assert.equal(document.getElementById('doc-page').textContent, 'Patched 2.');
+});
+
 test('a delayed patch cannot edit another document with identical text and offset', async (t) => {
   documents.initDocumentMode();
   const audit = await import('../../frontend/document_audit.js');
@@ -239,7 +294,7 @@ test('a delayed patch cannot edit another document with identical text and offse
   S.docDirty = false;
   S.documents = Object.values(rows);
   await documents.openDocument('patch-a');
-  const run = { docId: 'patch-a', revision: 4, runStart: 0, draft: content, report: { total_issues: 1 } };
+  const run = { docId: 'patch-a', runStart: 0, draft: content, report: { total_issues: 1 } };
   S.docAuditResults = run;
   S.docAuditBusy = false;
   const patch = audit.runPatch();
@@ -292,4 +347,16 @@ test('a disconnected document run keeps its partial draft and blocks replacement
   assert.equal(S.operations.has(record.id), false);
   assert.match(row.content, /kept partial/);
   assert.equal(S.docDirty, false);
+});
+
+test('a background group exchange consumes its own one-shot speaker pin only', async () => {
+  const { conversationState } = await import('../../frontend/state.js');
+  const { consumeSpeakerOverride } = await import('../../frontend/group_setup.js');
+  const background = conversationState('pin-background');
+  Object.assign(background, { groupCast: { turn_mode: 'auto', members: [] }, pinnedSpeakerId: 3, consumedSpeakerId: 3 });
+  S.activeConvId = 'pin-visible';
+  Object.assign(conversationState('pin-visible'), { groupCast: { turn_mode: 'auto', members: [] }, pinnedSpeakerId: 3, consumedSpeakerId: null });
+  consumeSpeakerOverride(background);
+  assert.equal(background.pinnedSpeakerId, null);
+  assert.equal(S.pinnedSpeakerId, 3);
 });

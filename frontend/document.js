@@ -770,14 +770,7 @@ export function docStop() {
 function applyPatchedRun(run, newText) {
   const { runStart, draft: oldText } = run;
   const page = $("doc-page");
-  if (
-    !page ||
-    S.activeDocId !== run.docId ||
-    S.docAuditResults !== run ||
-    S.docStreaming ||
-    S.documentSessions.get(run.docId)?.row.revision !== run.revision
-  )
-    return false;
+  if (!page || S.activeDocId !== run.docId || S.docAuditResults !== run || S.docStreaming) return false;
   const { content, spans } = serializeEditor(page);
   if (content.slice(runStart, runStart + oldText.length) !== oldText) return false;
   docCheckpoint();
@@ -809,13 +802,7 @@ function applyPatchedRun(run, newText) {
 
 function docSwapToken(run, tokenIndex, alt, target) {
   if (S.docStreaming || !S.activeDocId) return;
-  if (
-    target &&
-    (target.id !== S.activeDocId ||
-      target.token !== S.documentViewToken ||
-      target.revision !== S.documentSessions.get(target.id)?.row.revision)
-  )
-    return;
+  if (target && (target.id !== S.activeDocId || target.token !== S.documentViewToken)) return;
   const page = $("doc-page");
   const { content, spans } = serializeEditor(page);
 
@@ -880,15 +867,10 @@ export function initDocumentMode() {
     getDocId: () => S.activeDocId,
     isStreaming: () => S.docStreaming,
     requestSwap: docSwapToken,
-    getTarget: () => ({
-      id: S.activeDocId,
-      token: S.documentViewToken,
-      revision: S.documentSessions.get(S.activeDocId)?.row.revision,
-    }),
+    getTarget: () => ({ id: S.activeDocId, token: S.documentViewToken }),
   });
   initDocAudit({
     getContent: () => serializeEditor($("doc-page")).content,
-    getRevision: () => S.documentSessions.get(S.activeDocId)?.row.revision,
     applyPatchedRun,
   });
   page.addEventListener("input", onEditorInput);

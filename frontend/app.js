@@ -12,6 +12,7 @@ import {
   createCheckpoint,
   deleteConversationFromModal,
   deleteMessage,
+  discardQueuedEdit,
   generateCompressionSummary,
   handleMagicKey,
   handleTitleEditKey,
@@ -28,6 +29,7 @@ import {
   regenerate,
   regenerateFromUser,
   renderMessages,
+  retryQueuedEdits,
   rewriteMessageProse,
   saveEdit,
   saveEditPending,
@@ -449,6 +451,8 @@ registerAction("expression-playback", "advance", advanceExpressionPlayback);
 registerAction("chat-compression", "generate", generateCompressionSummary);
 registerAction("chat-compression", "cancel", cancelCompression);
 registerAction("chat-compression", "apply", applyCompression);
+registerAction("queued-edit", "retry", retryQueuedEdits);
+registerAction("queued-edit", "discard", discardQueuedEdit);
 document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();

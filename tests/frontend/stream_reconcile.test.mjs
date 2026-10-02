@@ -433,14 +433,18 @@ it("queued edits hold Send through settlement and a failed edit remains retryabl
   assert.equal(document.getElementById("send-btn").disabled, true);
   assert.match(document.getElementById("chat-messages").textContent, /Edit not saved/);
   t.mock.method(globalThis, "fetch", (url, options) => String(url).endsWith("/edit") ? Response.json({}) : originalFetch(url, options));
-  await stream.saveQueuedEdits();
+  const { registerAction } = await import("../../frontend/workflow_api.js");
+  let retried;
+  registerAction("queued-edit", "retry", () => { retried = stream.retryQueuedEdits(); return retried; });
+  document.querySelector('[data-wf-action="queued-edit:retry"]').click();
+  await retried;
   assert.deepEqual(S.queuedEdits, {});
   assert.equal(S.messages.find((m) => m.id === 1).content, "corrected");
   assert.equal(document.getElementById("send-btn").disabled, false);
 });
 
 it("two conversations keep independent buffers, reasoning, drafts, and targeted Stop", async (t) => {
-  const { conversationState, subscribe } = await import("../../frontend/state.js");
+  const { conversationState } = await import("../../frontend/state.js");
   const originalFetch = globalThis.fetch;
   const encoder = new TextEncoder();
   const channels = new Map();
@@ -478,10 +482,9 @@ it("two conversations keep independent buffers, reasoning, drafts, and targeted 
     return originalFetch(url, options);
   });
   const send = (cid, event, data) => channels.get(cid).enqueue(encoder.encode(`event: ${event}\ndata: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`));
-  const waitState = (predicate) => new Promise((resolve) => {
-    if (predicate()) { resolve(); return; }
-    const off = subscribe('operations', () => { if (predicate()) { off(); resolve(); } });
-  });
+  const waitState = async (predicate) => {
+    while (!predicate()) await new Promise((resolve) => setTimeout(resolve, 0));
+  };
   S.documentMode = false;
   S.settings.expression_rendering = 'classic';
   S.activeConvId = 'parallel-a';

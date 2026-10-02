@@ -29,8 +29,11 @@ async def dataset_maintenance():
                     "work": busy,
                 },
             )
-        yield
-        await regenerate_dataset_epoch()
+        try:
+            yield
+        finally:
+            # Even a failed replacement may have changed rows: open tabs must refresh.
+            await regenerate_dataset_epoch()
     finally:
         _maintenance = False
 
@@ -45,45 +48,44 @@ class DatasetAdmissionMiddleware:
             await self.app(scope, receive, send)
             return
         method = scope["method"]
-        headers = dict(scope.get("headers", []))
-        mutating = method not in {"GET", "HEAD", "OPTIONS"}
-        exempt = path.endswith("/stop") or path.endswith("/in-flight")
-        library = path.startswith("/api/presets/") and (path.endswith("/export") or path.endswith("/import"))
-        replacing = path.startswith("/api/presets/") and (path.endswith("/apply") or path.endswith("/restore"))
+        presets = path.startswith("/api/presets/")
+        guarded = (
+            method not in {"GET", "HEAD", "OPTIONS"}
+            and not path.endswith(("/stop", "/in-flight"))
+            and not (presets and path.endswith(("/export", "/import")))
+        )
+        replacing = presets and path.endswith(("/apply", "/restore"))
         key = object()
-        # Reserve synchronously before the first DB await: replacement sees even
-        # a request still loading its epoch, not only requests inside a route.
-        blocked = mutating and not exempt and not library and _maintenance
-        if mutating and not exempt and not library and not replacing and not blocked:
+        # Reserve synchronously before the first await: replacement sees even a
+        # request still loading its epoch, not only requests inside a route.
+        if guarded and not replacing and not _maintenance:
             _mutations[key] = f"{method} {path}"
         try:
             epoch = await get_dataset_epoch()
-            reason = None
-            if mutating and not exempt and not library:
-                if blocked or _maintenance:
-                    reason = {"message": "Dataset maintenance is running"}
-                elif headers.get(b"x-orb-epoch", epoch.encode()).decode() != epoch:
-                    reason = {"message": "The dataset changed; refresh required", "code": "refresh_required"}
-                parts = path.split("/")
-                if len(parts) > 3 and parts[2] in {"conversations", "documents"}:
-                    try:
-                        require_resource_available(("doc:" if parts[2] == "documents" else "") + parts[3])
-                    except HTTPException as exc:
-                        reason = {"message": str(exc.detail)}
+            reason = _refusal(path, dict(scope.get("headers", [])), epoch) if guarded else None
             if reason:
                 await JSONResponse({"detail": reason}, status_code=409, headers={"X-Orb-Epoch": epoch})(scope, receive, send)
-                _mutations.pop(key, None)
                 return
-        except BaseException:
-            _mutations.pop(key, None)
-            raise
 
-        async def epoch_send(message):
-            if message["type"] == "http.response.start":
-                message.setdefault("headers", []).append((b"x-orb-epoch", (await get_dataset_epoch()).encode()))
-            await send(message)
+            async def epoch_send(message):
+                if message["type"] == "http.response.start":
+                    message.setdefault("headers", []).append((b"x-orb-epoch", (await get_dataset_epoch()).encode()))
+                await send(message)
 
-        try:
             await self.app(scope, receive, epoch_send)
         finally:
             _mutations.pop(key, None)
+
+
+def _refusal(path: str, headers: dict[bytes, bytes], epoch: str) -> dict[str, str] | None:
+    parts = path.split("/")
+    if len(parts) > 3 and parts[2] in {"conversations", "documents"}:
+        try:
+            require_resource_available(("doc:" if parts[2] == "documents" else "") + parts[3])
+        except HTTPException as exc:
+            return {"message": str(exc.detail)}
+    if _maintenance:
+        return {"message": "Dataset maintenance is running"}
+    if headers.get(b"x-orb-epoch", epoch.encode()).decode() != epoch:
+        return {"message": "The dataset changed; refresh required", "code": "refresh_required"}
+    return None

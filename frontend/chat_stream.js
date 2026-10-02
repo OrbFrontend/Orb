@@ -472,6 +472,8 @@ export async function afterStream(op, { settled = true } = {}) {
     state.currentSpeaker = null;
     state.speakingPlan = null;
     state.expressionBuffering = false;
+    if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride(state);
+    state.completedExchangeMessageIds = [];
     return;
   }
   setStreaming(false);
@@ -516,7 +518,7 @@ export async function afterStream(op, { settled = true } = {}) {
   state.currentExchangeId = null;
   state.currentSpeaker = null;
   state.speakingPlan = null;
-  if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride();
+  if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride(state);
   state.completedExchangeMessageIds = [];
   renderGroupCast();
   if (wasGroupExchange && state.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
@@ -577,6 +579,8 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     state.reasoningUserOverride = false;
   };
 
+  // The status strip shows the step label; repaint it when that changes, not per token.
+  let shownStep = state.generationStep;
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
     if (event === "done" || event === "error") terminalReceived = true;
     if (event === "speaking_plan") {
@@ -658,7 +662,10 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     };
     try {
       handleSSEEvent(event, data, holder.el, onToken, onRewrite, state, visible);
-      notify("operations");
+      if (state.generationStep !== shownStep) {
+        shownStep = state.generationStep;
+        notify("operations");
+      }
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -1183,18 +1190,30 @@ export async function saveQueuedEdits(convId = S.activeConvId) {
       state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
 }
 
-document.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-queued-edit]");
-  if (!button) return;
+// "Edit not saved" controls: Retry saves every pending edit in order; Discard
+// drops one and shows the saved text again.
+async function resolveQueuedEdit(change) {
   const cid = S.activeConvId;
   const token = S.conversationViewToken;
   const state = conversationState(cid);
-  if (button.dataset.queuedEdit === "discard") {
-    const msgs = await api.get(convUrl(cid, "messages"));
-    delete state.queuedEdits[button.dataset.msgId];
-    setMessages(msgs, state);
-  } else await saveQueuedEdits(cid);
+  try {
+    await change(cid, state);
+  } catch (error) {
+    toast(`Could not update the edit: ${error.message}`, true);
+  }
   if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
   $("send-btn").disabled = state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
   renderMessages();
-});
+}
+
+export function retryQueuedEdits() {
+  return resolveQueuedEdit((cid) => saveQueuedEdits(cid));
+}
+
+export function discardQueuedEdit(button) {
+  return resolveQueuedEdit(async (cid, state) => {
+    const msgs = await api.get(convUrl(cid, "messages"));
+    delete state.queuedEdits[button.dataset.msgId];
+    setMessages(msgs, state);
+  });
+}

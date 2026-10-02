@@ -139,21 +139,16 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
         return await get_world(world_id)
 
 
-async def get_effective_world_ids(cid: str, character_ids: Sequence[str] | None = None) -> list[str]:
+async def get_effective_world_ids(cid: str) -> list[str]:
     """Explicit scene choices override global and cast-linked defaults."""
     async with get_db() as db:
-        if character_ids is None:
-            cards = "SELECT character_card_id FROM conversations WHERE id = ? UNION SELECT character_card_id FROM group_members WHERE conversation_id = ? AND active = 1"
-            params: list[Any] = [cid, cid, cid]
-        else:
-            cards = "SELECT id FROM character_cards WHERE id IN (" + ",".join("?" for _ in character_ids) + ")"
-            params = [cid, *character_ids]
         rows = await db.execute_fetchall(
             "SELECT w.id FROM worlds w LEFT JOIN conversation_worlds cw ON cw.world_id = w.id AND cw.conversation_id = ? "
             "WHERE COALESCE(cw.enabled, w.is_global = 1 OR w.id IN (SELECT world_id FROM character_cards WHERE id IN ("
-            + cards
-            + "))) = 1 ORDER BY w.id",
-            params,
+            "SELECT character_card_id FROM conversations WHERE id = ? "
+            "UNION SELECT character_card_id FROM group_members WHERE conversation_id = ? AND active = 1"
+            "))) = 1 ORDER BY w.id",
+            (cid, cid, cid),
         )
         return [str(row[0]) for row in rows]
 

@@ -169,27 +169,14 @@ async def get_relink_impact(from_id: str, to_id: str) -> dict[str, int]:
     return {key: int(row[key]) for key in ("solo", "groups", "conversations", "collisions")}
 
 
-async def relink_card(from_id: str, to_id: str, *, idle_guard: Callable | None = None) -> dict[str, int]:
+async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str) -> dict[str, int]:
     """Move a doomed card's conversations and group slots to a keeper.
 
     The group-member unique index permits only one active card per conversation.
     If both cards are already active in a group, the keeper already has a
     speaking slot, so the doomed row is removed instead of triggering an
-    integrity error.  Every rewrite happens under one immediate transaction.
+    integrity error. The caller owns the immediate transaction.
     """
-    if from_id == to_id:
-        raise ValueError("A card cannot be relinked to itself")
-    async with AsyncExitStack() as fence, immediate_tx() as db:
-        if idle_guard:
-            rows = await db.execute_fetchall(
-                "SELECT id, title FROM conversations WHERE character_card_id IN (?, ?) OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN (?, ?))",
-                (from_id, to_id, from_id, to_id),
-            )
-            fence.enter_context(idle_guard([dict(row) for row in rows]))
-        return await _relink_card_in_tx(db, from_id, to_id)
-
-
-async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str) -> dict[str, int]:
     keeper_rows = list(
         await db.execute_fetchall(
             "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",

@@ -394,7 +394,7 @@ function _messageHtml(m, num, avatars, playback) {
   const branchHtml = swipeNavHtml(m);
   const pendingEdit =
     m.id in S.queuedEdits && !S.isStreaming
-      ? `<div class="msg-edit-unsaved">Edit not saved <button data-queued-edit="retry" data-msg-id="${m.id}">Retry</button> <button data-queued-edit="discard" data-msg-id="${m.id}">Discard</button></div>`
+      ? `<div class="msg-edit-unsaved">Edit not saved <button data-wf-action="queued-edit:retry">Retry</button> <button data-wf-action="queued-edit:discard" data-msg-id="${m.id}">Discard</button></div>`
       : "";
   const toolbar = isEditing ? pendingEdit : `${pendingEdit}<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
   const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;

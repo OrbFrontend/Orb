@@ -8,7 +8,6 @@ export function begin(kind, target) {
     target: Object.freeze({ ...target }),
     phase: "running",
     stop: null,
-    outcome: null,
   };
   S.operations.set(op.id, op);
   notify("operations");
@@ -19,7 +18,6 @@ export function finish(op, outcome = "settled") {
   if (!op) return;
   if (S.operations.get(op.id) !== op) return;
   op.phase = outcome;
-  op.outcome = outcome;
   if (outcome !== "unknown") S.operations.delete(op.id);
   notify("operations");
 }

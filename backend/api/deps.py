@@ -186,8 +186,6 @@ def start_workflow_job(
     if cid in _deleting_resources:
         coro.close()
         require_resource_available(cid)
-    if type(message_id) is not int:
-        message_id = None
     if message_id in _deleting_messages:
         coro.close()
         raise HTTPException(status_code=409, detail="This message is being deleted")

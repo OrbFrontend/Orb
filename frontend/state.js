@@ -10,7 +10,6 @@ export const S = {
   documentSessions: new Map(),
   activeWorldIds: new Set(),
   attachmentInvalidations: new Map(),
-  conversationCache: new Map(),
   inspectedReasoningSelected: 0,
   inspectedReasoning: {},
   conversations: [],

@@ -15,7 +15,11 @@ export function createDocumentSaveQueue(row, { put, acknowledged = () => {}, fai
     async save(snapshot) {
       queue.draft = { ...(queue.draft || {}), ...snapshot };
       pending = queue.draft;
-      if (conflict) throw conflict;
+      if (conflict) {
+        // Re-offer the unresolved choice; a silent refusal would trap the user in this document.
+        failed(conflict);
+        throw conflict;
+      }
       if (!draining) {
         draining = Promise.resolve()
           .then(async () => {

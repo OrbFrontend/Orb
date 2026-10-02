@@ -136,31 +136,40 @@ class ManagedLlamaServerHost:
                 self._last_used = time.monotonic()
                 self._idle.notify_all()
 
-    async def _drain(self, timeout: float = 120.0) -> None:
+    async def _drain(self, timeout: float = 120.0) -> bool:
+        """Wait, bounded, for in-flight users; whether every one finished."""
         deadline = time.monotonic() + timeout
         async with self._idle:
             while self._inflight and time.monotonic() < deadline:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._idle.wait(), timeout=0.25)
-            if self._inflight:
-                raise TimeoutError("Local model is still in use; drain timed out")
+            return not self._inflight
+
+    async def _release_locked(self) -> None:
+        if self.server is not None:
+            await self.server.stop()
+            self.server = None
+            self.state = "idle"
+        self._stale = True
 
     @contextlib.asynccontextmanager
     async def exclusive_release(self):
-        """Drain users and keep admission closed through a model file mutation."""
+        """Drain users and keep admission closed through a model file mutation.
+
+        Unlike a swap or a plain release, a file mutation refuses rather than
+        stopping a child someone is still using.
+        """
         async with self._lock:
-            await self._drain()
-            if self.server is not None:
-                await self.server.stop()
-                self.server = None
-            self.state = "idle"
-            self._stale = True
+            if not await self._drain():
+                raise TimeoutError("Local model is still in use; drain timed out")
+            await self._release_locked()
             yield
 
     async def release(self) -> None:
         """Release the current child and reload it on demand."""
-        async with self.exclusive_release():
-            pass
+        async with self._lock:
+            await self._drain()
+            await self._release_locked()
 
     async def shutdown(self) -> None:
         """Stop the child and the idle watcher. Reached from the app lifespan

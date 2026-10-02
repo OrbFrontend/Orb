@@ -35,13 +35,17 @@ test('a conflict retains the local draft and blocks writes until explicit rebase
   const error = Object.assign(new Error('conflict'), { status: 409 });
   const bodies = [];
   let conflict = true;
+  const failures = [];
   const queue = createDocumentSaveQueue({ id: 'A', revision: 0 }, {
     put: async body => { bodies.push(body); if (conflict) throw error; return { id: 'A', revision: 5, content: body.content }; },
+    failed: failure => failures.push(failure),
   });
   await assert.rejects(queue.save({ content: 'local' }), /conflict/);
   await assert.rejects(queue.save({ content: 'newer local' }), /conflict/);
   assert.equal(queue.draft.content, 'newer local');
   assert.equal(bodies.length, 1);
+  // The blocked save re-offers the conflict instead of failing silently.
+  assert.deepEqual(failures, [error, error]);
   queue.rebase({ id: 'A', revision: 4, content: 'remote' });
   conflict = false;
   await queue.save(queue.draft);

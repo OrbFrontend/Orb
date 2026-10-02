@@ -614,7 +614,6 @@ async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
     console.warn("sync after stopping a workflow render failed", e);
     return;
   }
-  S.conversationCache.set(convId, msgs);
   if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
   _showSiblings(convId, msgId, rootId, msgs, _siblingLanded(msgs, msgId, rootId, before), onLanded);
 }
@@ -835,15 +834,18 @@ function _inFlightMsgIds() {
   ]);
 }
 
+// Another tab's notice repaints this tab only; announcing it again would echo between the tabs forever.
 export function initWorkflowMutationListener() {
-  setWorkflowMutationCallback(({ convId, msgId }) => refreshConversationMessages(msgId, convId));
+  setWorkflowMutationCallback(({ convId, msgId }) => {
+    if (convId !== S.activeConvId || (msgId != null && _inFlightMsgIds().has(msgId))) return;
+    refreshConversationMessages(null, convId, { announce: false });
+  });
 }
 
 // A workflow can finish a render while the reply still streams. Merge only its
 // attachments then: replacing the conversation would overwrite live prose and
 // rebuilding a message would detach the stream's DOM nodes.
 function _applyWorkflowMessages(msgs, convId = S.activeConvId, token = S.conversationViewToken) {
-  S.conversationCache.set(convId, msgs);
   if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
   if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null) {
     S.attachmentInvalidations.set(convId, new Set(msgs.map((msg) => msg.id)));
@@ -883,16 +885,15 @@ function _applyWorkflowMessages(msgs, convId = S.activeConvId, token = S.convers
   _refreshWorkflowViewportObserver();
 }
 
-export async function refreshConversationMessages(msgId = null, convId = S.activeConvId) {
+export async function refreshConversationMessages(msgId = null, convId = S.activeConvId, { announce = true } = {}) {
   if (!convId) return false;
   const token = S.conversationViewToken;
   try {
     const msgs = await api.get(convUrl(convId, "messages"));
-    S.conversationCache.set(convId, msgs);
     if (S.activeConvId !== convId || S.conversationViewToken !== token) return false;
     _applyWorkflowMessages(msgs, convId);
     if (msgId != null) _scrollArtifactIntoView(msgId);
-    broadcastWorkflowMutation({ convId, msgId });
+    if (announce) broadcastWorkflowMutation({ convId, msgId });
     return true;
   } catch (e) {
     console.warn("refreshConversationMessages failed", e);
@@ -904,7 +905,7 @@ export function replayAttachmentInvalidations() {
   const cid = S.activeConvId;
   if (S.attachmentInvalidations.has(cid)) {
     S.attachmentInvalidations.delete(cid);
-    return refreshConversationMessages(null, cid);
+    return refreshConversationMessages(null, cid, { announce: false });
   }
 }
 
