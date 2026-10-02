@@ -254,29 +254,27 @@ results, tokens carry the visible draft, internal events stay server-side, and
 
 ## Concurrent ownership and deletion
 
-`S.operations` owns running chat, document, media and library operations. Targets
-and operation IDs are reserved before the first asynchronous step. Conversation
-buffers, reasoning, drafts, pending edits, group exchange/speaker state and Stop
-handles live in `S.conversationStates`; visible `S` properties project that chat.
-A user can browse away or generate in another chat while the first continues.
-Selection uses a monotonic view token, and Send stays disabled until history loads.
-Background completions reconcile their origin and suppress automatic audio and
-expression playback. The task strip keeps each operation's status and Stop visible.
-A silent initial request shows “Waiting for the model”.
+`S.operations` (`operations.js`) registers each running chat, document, media and
+library operation before its first await. Per-chat buffers, reasoning, drafts,
+queued edits, group speaker state and the Stop handle live in
+`S.conversationStates`; the conversation keys on `S` read the chat in view. A
+reply keeps streaming while the user browses or generates elsewhere; a background
+completion reconciles its own chat and paints nothing. Selection bumps a view
+token, and Send stays disabled until history loads.
 
-Streams carry `?operation_id=...`; Stop carries that same ID. A stale Stop returns
-`active: false, settled: true` without aborting a newer request. Document generation
-and library scans use this settlement protocol too. An unknown settlement stays in
-the registry with Check status, and blocks a replacement run for its resource.
+Streams carry `?operation_id=`, and Stop sends the same id, so a stale Stop
+answers `active: false, settled: true` without aborting a newer request.
+`beginStream`/`streamEvents`/`settle` give document generation, summaries and
+library scans the same settlement protocol as chat. A run is released once
+settled, or once settlement is given up on; the server lane lock still refuses a
+second run on the same resource.
 
-Queued history edits save in order after the reply and before Send is available.
-Failures remain on their message with Retry and Discard. Inspecting an older reply
-uses separate saved reasoning and selection fields. Media refreshes use the
-origin-aware attachment merge, with deferred invalidations while editing.
+Queued history edits save in order after the reply and before Send returns; a
+failed one stays on its message with Retry and Discard. Media refreshes merge into
+their origin chat and wait while a message is being edited.
 
-Conversation/group/document deletion closes admission, stops registered work,
-waits for settlement and holds the affected turn lanes through deletion. A timeout
-returns 409 without deleting. Message deletion settles media for the sibling
-subtrees it removes. Card deletion and duplicate relinking refuse busy referencing
-chats and fence them through their transaction; a cluster is checked before any
-card is deleted. These in-memory fences target one localhost uvicorn process.
+Conversation, group and document deletion closes admission, stops registered work,
+waits for it to settle and holds the turn lanes through the delete; a timeout
+answers 409 and deletes nothing. Message deletion settles the media of the
+subtrees it removes. Card deletion and duplicate resolution refuse busy chats and
+fence them until commit. These in-memory fences assume one uvicorn process.

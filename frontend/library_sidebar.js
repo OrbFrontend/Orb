@@ -1,7 +1,7 @@
 // Recent-character sidebar data and rendering, shared by chat and the library.
 import { api } from "./api.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
-import { runningChatIds } from "./operations.js";
+import { syncActivity } from "./operations.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr } from "./utils.js";
 
@@ -81,7 +81,7 @@ export function renderCharacters() {
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
       return `<div class="char-item${isActive ? " active" : ""}" onclick="selectChar('${c.id}', 'recent')">
-      <div class="chat-activity" data-activity-card-id="${escAttr(c.id)}"><div class="char-avatar-sm${c.has_expressions ? " avatar-halo" : ""}">${av}</div></div>
+      <div class="chat-activity" data-activity="${escAttr(c.id)}"><div class="char-avatar-sm${c.has_expressions ? " avatar-halo" : ""}">${av}</div></div>
       <div class="char-item-info">
         <div class="char-item-name">${esc(c.name)}</div>
         <div class="char-item-meta">${meta}</div>
@@ -98,14 +98,6 @@ export function renderCharacters() {
 
 // A character whose one-on-one chat is generating wears the busy dot.
 function syncCharacterActivity() {
-  const running = runningChatIds();
-  const busy = new Set();
-  for (const conv of S.conversations || []) {
-    if (conv.character_card_id && running.has(conv.id)) busy.add(conv.character_card_id);
-  }
-  for (const el of document.querySelectorAll("#char-list [data-activity-card-id]")) {
-    el.classList.toggle("busy", busy.has(el.dataset.activityCardId));
-  }
+  syncActivity("#char-list [data-activity]", (conv) => conv.character_card_id);
 }
-
 subscribe("operations", syncCharacterActivity);

@@ -1,4 +1,4 @@
-import { configureApiConcurrency } from "./api.js";
+import { onRefreshRequired } from "./api.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
   applyCompression,
@@ -517,15 +517,9 @@ async function initAll() {
 
 initAll();
 
-configureApiConcurrency({
-  getEpoch: () => S.datasetEpoch,
-  setEpoch: (value) => {
-    S.datasetEpoch = value;
-  },
-  refresh: () => {
-    const input = document.getElementById("chat-input");
-    if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
-    // The reload fires the real beforeunload, which flushes document drafts.
-    window.location.reload();
-  },
+onRefreshRequired(() => {
+  const input = document.getElementById("chat-input");
+  if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
+  // The reload fires the real beforeunload, which flushes document drafts.
+  window.location.reload();
 });

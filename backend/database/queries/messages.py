@@ -695,10 +695,7 @@ async def get_message_subtree_ids(cid: str, msg_id: int) -> set[int]:
     """The ids :func:`delete_message_with_descendants` would remove."""
     async with get_db() as db:
         rows = list(
-            await db.execute_fetchall(
-                "SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?",
-                (msg_id, cid),
-            )
+            await db.execute_fetchall("SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, cid))
         )
         if not rows:
             return set()

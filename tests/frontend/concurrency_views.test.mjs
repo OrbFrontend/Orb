@@ -308,59 +308,6 @@ test('a delayed patch cannot edit another document with identical text and offse
   assert.equal(S.documentSessions.get('patch-b').row.revision, 4);
 });
 
-test('a disconnected document run keeps its partial draft and blocks replacement until status is confirmed', async (t) => {
-  let row = { id: 'disconnected-doc', title: 'Offline', revision: 0, content: 'Start', generated_spans: [] };
-  const started = deferred();
-  let channel, generateCalls = 0, offline = true;
-  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    const path = String(url).split('?')[0];
-    if (path.endsWith('/stop')) {
-      if (offline) throw new Error('offline');
-      return Response.json({ active: false, settled: true });
-    }
-    if (path.endsWith('/generate')) {
-      generateCalls++;
-      started.resolve();
-      return new Response(new ReadableStream({ start(value) { channel = value; } }));
-    }
-    if (options.method === 'PUT') {
-      const body = JSON.parse(options.body);
-      assert.equal(body.expected_revision, row.revision);
-      row = { ...row, ...body, revision: row.revision + 1 };
-    }
-    return Response.json(row);
-  });
-  await documents.openDocument(row.id);
-  const run = documents.docGenerate();
-  await started.promise;
-  channel.enqueue(new TextEncoder().encode('event: token\ndata:  kept partial\n\n'));
-  channel.close();
-  await run;
-  const record = [...S.operations.values()].find(op => op.target.documentId === row.id);
-  assert.equal(record.phase, 'unknown');
-  assert.equal(row.content, 'Start');
-  assert.match(JSON.parse(localStorage.getItem(`orb-doc-draft:${row.id}`)).content, /kept partial/);
-  await documents.docGenerate();
-  assert.equal(generateCalls, 1);
-  offline = false;
-  await record.stop();
-  assert.equal(S.operations.has(record.id), false);
-  assert.match(row.content, /kept partial/);
-  assert.equal(S.docDirty, false);
-});
-
-test('a background group exchange consumes its own one-shot speaker pin only', async () => {
-  const { conversationState } = await import('../../frontend/state.js');
-  const { consumeSpeakerOverride } = await import('../../frontend/group_setup.js');
-  const background = conversationState('pin-background');
-  Object.assign(background, { groupCast: { turn_mode: 'auto', members: [] }, pinnedSpeakerId: 3, consumedSpeakerId: 3 });
-  S.activeConvId = 'pin-visible';
-  Object.assign(conversationState('pin-visible'), { groupCast: { turn_mode: 'auto', members: [] }, pinnedSpeakerId: 3, consumedSpeakerId: null });
-  consumeSpeakerOverride(background);
-  assert.equal(background.pinnedSpeakerId, null);
-  assert.equal(S.pinnedSpeakerId, 3);
-});
-
 test('state written with no chat selected never seeds a later conversation', async () => {
   const { conversationState } = await import('../../frontend/state.js');
   S.activeConvId = null;
@@ -370,22 +317,6 @@ test('state written with no chat selected never seeds a later conversation', asy
   assert.equal(conversationState('fresh-after-idle').activeWorldIds.size, 0);
   delete S.queuedEdits[7];
   S.activeWorldIds.clear();
-});
-
-test('saving queued edits keeps Send off while a stopped reply is unconfirmed', async (t) => {
-  const { conversationState } = await import('../../frontend/state.js');
-  const { saveQueuedEdits } = await import('../../frontend/chat_stream.js');
-  S.activeConvId = 'unconfirmed';
-  Object.assign(conversationState('unconfirmed'), {
-    turnSettlementUnknown: true,
-    queuedEdits: { 5: 'fixed' },
-    messages: [{ id: 5, role: 'user', content: 'old' }],
-  });
-  document.getElementById('send-btn').disabled = false;
-  t.mock.method(globalThis, 'fetch', async () => Response.json({}));
-  await saveQueuedEdits('unconfirmed');
-  assert.deepEqual(S.queuedEdits, {});
-  assert.equal(document.getElementById('send-btn').disabled, true);
 });
 
 test('a full local draft store never blocks the document save it backs up', async (t) => {
@@ -419,10 +350,8 @@ test('a conversation left behind drops its retained view unless it still holds w
   conversationState('still-open');
   conversationState('idle-left').messages = [{ id: 1, role: 'user', content: 'hi' }];
   Object.assign(conversationState('drafted-left'), { draft: 'half a thought' });
-  Object.assign(conversationState('unconfirmed-left'), { turnSettlementUnknown: true });
-  for (const cid of ['idle-left', 'drafted-left', 'unconfirmed-left', 'still-open']) releaseConversationState(cid);
+  for (const cid of ['idle-left', 'drafted-left', 'still-open']) releaseConversationState(cid);
   assert.equal(S.conversationStates.has('idle-left'), false);
   assert.equal(S.conversationStates.has('drafted-left'), true);
-  assert.equal(S.conversationStates.has('unconfirmed-left'), true);
   assert.equal(S.conversationStates.has('still-open'), true);
 });

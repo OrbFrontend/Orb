@@ -392,9 +392,7 @@ async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] |
         return True
 
 
-async def get_active_lorebook_entries(
-    world_ids: Sequence[str],
-) -> list[ActiveLorebookEntryRow]:
+async def get_active_lorebook_entries(world_ids: Sequence[str]) -> list[ActiveLorebookEntryRow]:
     """Enabled, non-archived entries from enabled worlds -- **both** layers.
 
     Joins ``w.name AS world_name`` so callers (the agentic-lorebook catalog) can

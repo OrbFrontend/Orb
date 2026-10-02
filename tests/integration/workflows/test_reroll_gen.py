@@ -315,13 +315,7 @@ async def test_late_reroll_keeps_user_variant_and_old_source(client):
     cid, mid, aid = await _seed_with_metadata(client)
     sibling = await insert_workflow_attachment_row(
         mid,
-        {
-            "filename": "chosen.png",
-            "mime": "image/png",
-            "data": b"chosen",
-            "workflow_id": "img",
-            "parent_attachment_id": aid,
-        },
+        {"filename": "chosen.png", "mime": "image/png", "data": b"chosen", "workflow_id": "img", "parent_attachment_id": aid},
     )
     base = f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}"
     await client.post(base + "/activate", json={"sibling_id": aid})

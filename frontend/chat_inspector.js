@@ -100,10 +100,11 @@ function _buildReasoningHtml() {
   const saved = S.inspectedMsgId != null && S.inspectedDirectorData;
   const streamIdx = saved ? S.inspectedReasoningSelected : S.reasoningPassActive;
   const selectedIdx = saved ? S.inspectedReasoningSelected : S.reasoningPassSelected;
+  // A saved reply's reasoning is kept apart from the live turn's.
+  const textOf = (key) =>
+    (saved ? S.inspectedReasoning[key] : S[`reasoning${key.charAt(0).toUpperCase()}${key.slice(1)}`]) || "";
   const dotsHtml = REASONING_PASSES.map((p, i) => {
-    const hasText = !!(saved
-      ? S.inspectedReasoning[p.key]
-      : S[`reasoning${p.key.charAt(0).toUpperCase()}${p.key.slice(1)}`]);
+    const hasText = !!textOf(p.key);
     const isStreaming = i === streamIdx;
     const isSelected = i === selectedIdx;
     const lit = hasText || isStreaming;
@@ -129,10 +130,7 @@ function _buildReasoningHtml() {
   }).join("");
 
   const selectedPass = REASONING_PASSES[selectedIdx];
-  const currentText =
-    (saved
-      ? S.inspectedReasoning[selectedPass.key]
-      : S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`]) || "";
+  const currentText = textOf(selectedPass.key);
 
   const key = selectedPass.key;
   const prefillHtml =

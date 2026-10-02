@@ -2,7 +2,6 @@
 
 export const S = {
   operations: new Map(),
-  datasetEpoch: null,
   docOperation: null,
   conversationViewToken: 0,
   conversationLoading: false,
@@ -97,7 +96,6 @@ export const S = {
   contextSize: null,
   pendingRefineDiff: null, // writer/editor diff for the current stream
   editorDraftBaseline: null, // writer text before the editor pass
-  turnSettlementUnknown: false,
   turnError: null, // current turn error
   worldProposalArrived: false,
 
@@ -168,67 +166,20 @@ export const S = {
 };
 
 // UI reads the selected conversation; asynchronous operations retain this object.
-const conversationKeys = [
-  "conversationLoading",
-  "workflowPhases",
-  "castSetupBusy",
-  "messages",
-  "queuedEdits",
-  "editingMsgId",
-  "forkEditMsgId",
-  "magicInputMsgId",
-  "editingPendingUserMsg",
-  "pendingUserMsgEdit",
-  "renderWindowStart",
-  "liveGroupReplies",
-  "isStreaming",
-  "proseRewriteMsgId",
-  "streamingBodyEl",
-  "streamCutoffIndex",
-  "streamOp",
-  "streamingContent",
-  "expressionBuffering",
-  "expressionPlayback",
-  "pendingUserMsg",
-  "attachments",
-  "generationStep",
-  "pendingGenerationStep",
-  "hideStreamingBox",
-  "contextSize",
-  "pendingRefineDiff",
-  "editorDraftBaseline",
-  "turnError",
-  "turnSettlementUnknown",
-  "worldProposalArrived",
-  "groupCast",
-  "pinnedSpeakerId",
-  "consumedSpeakerId",
-  "speakingPlan",
-  "currentSpeaker",
-  "currentExchangeId",
-  "completedExchangeMessageIds",
-  "directorState",
-  "lastDirectorData",
-  "reasoningDirector",
-  "reasoningWriter",
-  "reasoningEditor",
-  "lastFeedback",
-  "lastState",
-  "lastDecisions",
-  "reasoningPassActive",
-  "reasoningPassSelected",
-  "reasoningUserOverride",
-  "inspectedMsgId",
-  "inspectedDirectorData",
-  "inspectedReasoning",
-  "inspectedReasoningSelected",
-  "reasoningByPass",
-  "sceneIntro",
-  "cardMoodFragments",
-  "cardInteractiveFragments",
-  "rejectedWorkflowAtts",
-  "activeWorldIds",
-];
+const conversationKeys = `
+  conversationLoading workflowPhases castSetupBusy messages queuedEdits editingMsgId forkEditMsgId
+  magicInputMsgId editingPendingUserMsg pendingUserMsgEdit renderWindowStart liveGroupReplies isStreaming
+  proseRewriteMsgId streamingBodyEl streamCutoffIndex streamOp streamingContent expressionBuffering
+  expressionPlayback pendingUserMsg attachments generationStep pendingGenerationStep hideStreamingBox
+  contextSize pendingRefineDiff editorDraftBaseline turnError worldProposalArrived groupCast pinnedSpeakerId
+  consumedSpeakerId speakingPlan currentSpeaker currentExchangeId completedExchangeMessageIds directorState
+  lastDirectorData reasoningDirector reasoningWriter reasoningEditor lastFeedback lastState lastDecisions
+  reasoningPassActive reasoningPassSelected reasoningUserOverride inspectedMsgId inspectedDirectorData
+  inspectedReasoning inspectedReasoningSelected reasoningByPass sceneIntro cardMoodFragments
+  cardInteractiveFragments rejectedWorkflowAtts activeWorldIds
+`
+  .trim()
+  .split(/\s+/);
 const defaults = Object.fromEntries(conversationKeys.map((key) => [key, S[key]]));
 // Deep copies: the idle view is written while no chat is selected, and must
 // never seed the defaults a later conversation starts from.
@@ -255,7 +206,7 @@ export function conversationState(cid) {
 
 /** Forget a conversation's retained view once a fresh load would rebuild all of it.
  *
- * Kept while it still holds work, an unconfirmed stop, or the user's own
+ * Kept while it still holds work or the user's own
  * intent (a draft, unsaved edits, a speaker pin): only the server's data goes.
  */
 export function releaseConversationState(cid) {
@@ -265,7 +216,6 @@ export function releaseConversationState(cid) {
     state.isStreaming ||
     state.proseRewriteMsgId ||
     state.castSetupBusy ||
-    state.turnSettlementUnknown ||
     state.draft ||
     state.pinnedSpeakerId != null ||
     Object.keys(state.queuedEdits).length ||

@@ -1,30 +1,22 @@
+// The dataset this page loaded from; a preset restore replaces it, and a write
+// carrying the old one is refused with `refresh_required`.
 let _epoch = null;
-let readEpoch = () => _epoch;
-let writeEpoch = (value) => {
-  _epoch = value;
-};
-let onRefresh = () => {};
+let _onRefreshRequired = () => {};
 
-export function configureApiConcurrency({ getEpoch, setEpoch, refresh }) {
-  readEpoch = getEpoch;
-  writeEpoch = setEpoch;
-  onRefresh = refresh;
+export function onRefreshRequired(fn) {
+  _onRefreshRequired = fn;
 }
 
 export async function apiFetch(path, opts = {}) {
-  const epoch = readEpoch();
-  const headers = { ...opts.headers, ...(epoch ? { "X-Orb-Epoch": epoch } : {}) };
+  const headers = { ...opts.headers, ...(_epoch && { "X-Orb-Epoch": _epoch }) };
   const response = await fetch(path, { ...opts, headers });
-  const current = response.headers?.get("X-Orb-Epoch");
-  if (!readEpoch() && current) writeEpoch(current);
+  _epoch ||= response.headers?.get("X-Orb-Epoch") || null;
   if (response.status === 409 && response.clone) {
     const body = await response
       .clone()
       .json()
       .catch(() => null);
-    if (body?.detail?.code === "refresh_required") {
-      onRefresh();
-    }
+    if (body?.detail?.code === "refresh_required") _onRefreshRequired();
   }
   return response;
 }

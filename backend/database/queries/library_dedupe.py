@@ -179,8 +179,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
     """
     keeper_rows = list(
         await db.execute_fetchall(
-            "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",
-            (to_id,),
+            "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?", (to_id,)
         )
     )
     if not keeper_rows:
@@ -207,8 +206,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
 
     member_rows = list(
         await db.execute_fetchall(
-            "SELECT id, conversation_id FROM group_members WHERE character_card_id = ? ORDER BY id",
-            (from_id,),
+            "SELECT id, conversation_id FROM group_members WHERE character_card_id = ? ORDER BY id", (from_id,)
         )
     )
     collisions = 0
@@ -234,32 +232,31 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
     return {**impact, "collisions": collisions}
 
 
+def _card_chats_sql(count: int) -> str:
+    """The chats *count* cards speak in, solo or in a group; binds the ids twice."""
+    marks = ",".join("?" * count)
+    return (
+        f"FROM conversations WHERE character_card_id IN ({marks}) "  # nosec B608 -- placeholders only
+        f"OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN ({marks}))"
+    )
+
+
 async def resolve_duplicate_cards(remove_ids: list[str], keep_id: str, *, relink: bool, idle_guard: Callable) -> dict[str, int]:
     """Check, relink and remove a whole choice atomically, fencing its chats until commit."""
     if not remove_ids or keep_id in remove_ids or len(set(remove_ids)) != len(remove_ids):
         raise ValueError("Choose distinct cards to remove and keep")
     ids = [keep_id, *remove_ids]
-    marks = ",".join("?" for _ in ids)
     totals = {"solo": 0, "groups": 0, "conversations": 0, "collisions": 0}
     async with AsyncExitStack() as fence, immediate_tx() as db:
-        cards = list(await db.execute_fetchall(f"SELECT id FROM character_cards WHERE id IN ({marks})", ids))
+        marks = ",".join("?" * len(ids))
+        cards = list(await db.execute_fetchall(f"SELECT id FROM character_cards WHERE id IN ({marks})", ids))  # nosec B608
         if len(cards) != len(ids):
             raise ValueError("A card changed or was removed; review the duplicates again")
-        chats = await db.execute_fetchall(
-            f"SELECT id, title, character_card_id FROM conversations WHERE character_card_id IN ({marks}) "
-            f"OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN ({marks}))",
-            (*ids, *ids),
-        )
+        chats = await db.execute_fetchall(f"SELECT id, title {_card_chats_sql(len(ids))}", (*ids, *ids))
         fence.enter_context(idle_guard([dict(row) for row in chats]))
-        if not relink:
-            doomed = ",".join("?" for _ in remove_ids)
-            linked = await db.execute_fetchall(
-                f"SELECT 1 FROM conversations WHERE character_card_id IN ({doomed}) "
-                f"OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN ({doomed})) LIMIT 1",
-                (*remove_ids, *remove_ids),
-            )
-            if linked:
-                raise ValueError("These cards now have conversations. Relink them before deleting them.")
+        doomed = (*remove_ids, *remove_ids)
+        if not relink and await db.execute_fetchall(f"SELECT 1 {_card_chats_sql(len(remove_ids))} LIMIT 1", doomed):
+            raise ValueError("These cards now have conversations. Relink them before deleting them.")
         for card_id in remove_ids:
             if relink:
                 impact = await _relink_card_in_tx(db, card_id, keep_id)

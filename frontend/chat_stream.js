@@ -1,4 +1,4 @@
-import { api, apiFetch } from "./api.js";
+import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
@@ -48,20 +48,19 @@ import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
-import { begin, finish } from "./operations.js";
+import { beginStream, finish } from "./operations.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import {
   conversationState,
   effectiveWorkflowEnabled,
   isViewing,
-  notify,
   releaseConversationState,
   S,
   streamingHidden,
 } from "./state.js";
 import { refreshState } from "./state_panel.js";
-import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
+import { settledReply, streamAnchor } from "./stream_settle.js";
 import {
   $,
   convUrl,
@@ -75,38 +74,19 @@ import {
   toast,
 } from "./utils.js";
 
-// POST /stop answers once the stopped stream has saved and let go of the
-// conversation: `{active, settled}`.
-async function requestStop(target, signal) {
-  const convId = target.convId || target;
-  const query = target.operationId ? `?operation_id=${target.operationId}` : "";
-  const resp = await apiFetch(`/api/conversations/${convId}/stop${query}`, { method: "POST", signal });
-  if (!resp.ok) throw new Error(`Orb returned HTTP ${resp.status}`);
-  return resp.json();
-}
-
-export function stopConversation(convId) {
-  return requestStop(convId).catch(() => null);
-}
-
 /** Start the conversation's one stoppable stream; the stop button drives it. */
 export function beginStreamOperation(convId) {
-  const record = begin("chat", { conversationId: convId });
-  const op = createStreamOperation({ convId, target: { convId, operationId: record.id }, requestStop });
-  op.record = record;
-  op.viewToken = S.conversationViewToken;
-  record.stop = () => op.stop();
-  op.state = conversationState(convId);
-  record.state = op.state;
+  const record = beginStream("chat", { conversationId: convId }, `/conversations/${convId}/stop`);
+  const op = Object.assign(record.stream, { convId, record, state: conversationState(convId) });
   S.streamOp = op;
   return op;
 }
 
 /** Give up the stop button, unless a newer operation already owns it. */
-export function endStreamOperation(op, outcome = "settled") {
+export function endStreamOperation(op) {
   if (S.streamOp === op) S.streamOp = null;
   if (op.state?.streamOp === op) op.state.streamOp = null;
-  finish(op.record, outcome);
+  finish(op.record);
 }
 
 // Once Stop is pressed the bubble holds still until the saved reply replaces it.
@@ -262,12 +242,11 @@ function finalizeStreamingDiv(lastMsg) {
   return true;
 }
 
-/** Send waits for this conversation's running work, unconfirmed stop, load and unsaved edits. */
+/** Send waits for this conversation's running work, its load and its unsaved edits. */
 export function syncSendButton(state = S) {
   $("send-btn").disabled =
     state.isStreaming ||
     !!state.proseRewriteMsgId ||
-    state.turnSettlementUnknown ||
     state.conversationLoading ||
     Object.keys(state.queuedEdits).length > 0;
 }
@@ -461,23 +440,7 @@ export async function afterStream(op, { settled = true } = {}) {
   }
 
   state.isStreaming = false;
-  state.turnSettlementUnknown = !settled;
-  if (!settled && op.record) {
-    op.record.stop = async () => {
-      const reply = await requestStop(op.target).catch(() => null);
-      if (!reply?.settled) return;
-      state.turnSettlementUnknown = false;
-      finish(op.record);
-      const msgs = await api.get(convUrl(op.convId, "messages")).catch(() => null);
-      if (msgs) setMessages(msgs, state);
-      if (isViewing(state)) {
-        syncSendButton(state);
-        renderMessages();
-      }
-    };
-  }
-  endStreamOperation(op, settled ? "settled" : "unknown");
-  notify("operations");
+  endStreamOperation(op);
   if (!isViewing(state)) {
     state.streamingBodyEl = null;
     state.currentExchangeId = null;
@@ -553,22 +516,6 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     dispatchErrorToasted = false;
   let terminalReceived = false;
 
-  state.pendingRefineDiff = null;
-  state.pendingGenerationStep = null;
-  state.editorDraftBaseline = null;
-
-  state.reasoningDirector = "";
-  state.reasoningWriter = "";
-  state.reasoningEditor = "";
-  state.lastFeedback = null;
-  state.lastState = null;
-  // Reset once per exchange; later speakers reuse its result.
-  state.lastDecisions = null;
-  state.reasoningByPass = {};
-  state.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
-  state.reasoningPassSelected = 0; // tracks what the user is viewing
-  state.reasoningUserOverride = false; // true when user has manually clicked a dot
-
   const resetSpeakerTurnState = () => {
     state.pendingGenerationStep = null;
     fullResponse = "";
@@ -584,10 +531,13 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     state.lastFeedback = null;
     state.lastState = null;
     state.reasoningByPass = {};
-    state.reasoningPassActive = 0;
-    state.reasoningPassSelected = 0;
-    state.reasoningUserOverride = false;
+    state.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
+    state.reasoningPassSelected = 0; // tracks what the user is viewing
+    state.reasoningUserOverride = false; // true when user has manually clicked a dot
   };
+  resetSpeakerTurnState();
+  // Reset once per exchange; later speakers reuse its result.
+  state.lastDecisions = null;
 
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
     if (event === "done" || event === "error") terminalReceived = true;

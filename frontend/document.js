@@ -24,13 +24,12 @@ import {
 import { createDocumentSaveQueue } from "./document_saves.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showConfirmModal } from "./modal.js";
-import { begin, finish, runningFor } from "./operations.js";
+import { beginStream, finish, streamEvents } from "./operations.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
-import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
+import { unescapeSSE } from "./sse.js";
 import { S } from "./state.js";
-import { createStreamOperation } from "./stream_settle.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
@@ -53,22 +52,12 @@ let anchorTextNode = null; // text node receiving generated tokens
 let docAssisted = false; // Raw vs Assisted mode
 let docProbsOn = false; // capture token alternatives
 
-// The local draft is a crash backup: storage that is full or blocked must never
-// stop the server save it backs up.
-function stashDraft(id, { content, spans }, baseRevision) {
+// The local draft is a crash backup (null drops it): storage that is full or
+// blocked must never stop the server save it backs up.
+function keepDraft(id, draft) {
   try {
-    localStorage.setItem(
-      draftKey(id),
-      JSON.stringify({ content, generated_spans: spans, base_revision: baseRevision }),
-    );
-  } catch {
-    /* No backup this time; the server save still runs. */
-  }
-}
-
-function dropDraft(id) {
-  try {
-    localStorage.removeItem(draftKey(id));
+    if (draft) localStorage.setItem(draftKey(id), JSON.stringify(draft));
+    else localStorage.removeItem(draftKey(id));
   } catch {}
 }
 
@@ -370,7 +359,7 @@ export async function openDocument(id) {
         draft.content === doc.content &&
         JSON.stringify(draft.generated_spans || []) === JSON.stringify(doc.generated_spans || [])
       ) {
-        dropDraft(id);
+        keepDraft(id, null);
         return;
       }
       showConfirmModal(
@@ -483,7 +472,7 @@ function createSession(row) {
     put: (body) => api.put(`/documents/${id}`, body),
     acknowledged(saved, snapshot, latest) {
       updateDocInList(saved);
-      if (latest) dropDraft(id);
+      if (latest) keepDraft(id, null);
       if (S.activeDocId !== id) return;
       const current = serializeEditor($("doc-page"));
       const matches =
@@ -532,7 +521,7 @@ function showSaveConflict(id, session, current) {
       session.discard(current);
       renderEditor($("doc-page"), current.content, current.generated_spans);
       S.docDirty = false;
-      dropDraft(id);
+      keepDraft(id, null);
       setSaveState("Saved");
       closeModal();
     });
@@ -549,7 +538,7 @@ async function flushSave({ keepalive = false } = {}) {
   if (!session) return false;
   const { content, spans } = serializeEditor($("doc-page"));
   const snapshot = { content, generated_spans: spans };
-  stashDraft(id, { content, spans }, session.row.revision);
+  keepDraft(id, { ...snapshot, base_revision: session.row.revision });
   if (keepalive) {
     apiFetch(`/api/documents/${id}`, {
       method: "PUT",
@@ -610,41 +599,27 @@ let stopRequested = false;
 let genFinish = ""; // finish reason from the SSE done event
 let genErrored = false;
 
-export async function docGenerate() {
-  if (!S.activeDocId || S.docStreaming) return;
+export function docGenerate() {
   const did = S.activeDocId;
-  if (runningFor("documentId", did).some((op) => op.phase === "unknown")) {
-    toast("The previous generation has not confirmed settlement; check its status first", true);
-    return;
-  }
-  const record = begin("document", { documentId: did, revision: S.documentSessions.get(did)?.row.revision });
+  if (!did || S.docStreaming) return;
+  // Reserved before the dirty save, so a second click cannot start another run.
+  const record = beginStream("document", { documentId: did }, `/documents/${did}/stop`);
   S.docStreaming = true;
   S.docOperation = record;
-  record.assisted = docAssisted;
-  record.probs = docProbsOn;
-  let complete;
-  record.completion = new Promise((resolve) => {
-    complete = resolve;
-  });
   // Waiters on `completion` (open another, delete) see the operation already released.
-  const release = (outcome) => {
-    finish(record, outcome);
+  record.completion = generate(record, did, docAssisted, docProbsOn).finally(() => {
+    finish(record);
     if (S.docOperation === record) S.docOperation = null;
-    complete();
-  };
-  const op = createStreamOperation({
-    target: { did, operationId: record.id },
-    requestStop: (target, signal) =>
-      api.post(`/documents/${target.did}/stop?operation_id=${target.operationId}`, {}, { signal }),
   });
-  record.stop = () => op.stop();
-  record.stream = op;
+  return record.completion;
+}
+
+async function generate(record, did, assisted, probs) {
   const page = $("doc-page");
   hideProbPopup();
-  if ((S.docDirty && !(await flushSave())) || S.activeDocId !== did || op.stopping) {
-    await op.settle();
+  if ((S.docDirty && !(await flushSave())) || S.activeDocId !== did || record.stream.stopping) {
+    await record.stream.settle();
     S.docStreaming = false;
-    release("failed");
     return;
   }
   docCheckpoint();
@@ -668,15 +643,9 @@ export async function docGenerate() {
   updateUndoButton();
   startFlushInterval();
 
-  let terminalReceived = false;
   try {
-    const resp = await streamPost(
-      `/documents/${did}/generate?operation_id=${record.id}`,
-      { prompt, assisted: record.assisted, token_probs: record.probs },
-      op.signal,
-    );
-    if (!resp.ok) throw new Error(await resp.text());
-    for await (const { event, data } of sseEvents(resp.body, { signal: op.signal })) {
+    const body = { prompt, assisted, token_probs: probs };
+    for await (const { event, data } of streamEvents(record, `/documents/${did}/generate`, body, "Generation")) {
       if (event === "token") {
         const delta = unescapeSSE(data);
         anchorTextNode.appendData(delta);
@@ -688,12 +657,10 @@ export async function docGenerate() {
           addToken(JSON.parse(data));
         } catch {}
       } else if (event === "error") {
-        terminalReceived = true;
         genErrored = true;
         toast(unescapeSSE(data) || "Generation error", true);
         break;
       } else if (event === "done") {
-        terminalReceived = true;
         try {
           genFinish = JSON.parse(data).finish || "";
         } catch {
@@ -702,29 +669,19 @@ export async function docGenerate() {
         break;
       }
     }
-    if (!terminalReceived && !op.stopping) throw new Error("Generation stream ended before completion");
   } catch (e) {
-    if (!terminalReceived) op.disconnect();
     if (e.name !== "AbortError") {
       genErrored = true;
       toast(`Generation failed: ${e.message}`, true);
     }
   } finally {
-    const settled = await op.settle();
-    if (S.docOperation === record) await finalizeGeneration(settled);
-    if (!settled) {
-      record.stop = async () => {
-        const reply = await api.post(`/documents/${did}/stop?operation_id=${record.id}`, {}).catch(() => null);
-        if (!reply?.settled) return;
-        finish(record);
-        if (S.activeDocId === did) await flushSave();
-      };
-    }
-    release(settled ? "settled" : "unknown");
+    // The server only streams; whatever arrived is saved under the revision check.
+    await record.stream.settle();
+    if (S.docOperation === record) await finalizeGeneration();
   }
 }
 
-async function finalizeGeneration(settled) {
+async function finalizeGeneration() {
   stopFlushInterval();
   anchorTextNode = null;
   const page = $("doc-page");
@@ -753,11 +710,7 @@ async function finalizeGeneration(settled) {
   }
   if (MOBILE.matches) $("doc-page").blur();
   S.docDirty = true;
-  if (settled) await flushSave();
-  else {
-    stashDraft(S.activeDocId, serializeEditor(page), S.documentSessions.get(S.activeDocId)?.row.revision);
-    setSaveState("Settlement unknown — partial draft unsaved");
-  }
+  await flushSave();
   S.docStreaming = false;
   updateTokenCount();
   docCheckpoint();

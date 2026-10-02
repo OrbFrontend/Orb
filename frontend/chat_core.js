@@ -46,10 +46,6 @@ export function setWorkflowMessagePresentation({ renderArtifacts, renderRejectio
 }
 
 export function canStartGeneration() {
-  if (S.turnSettlementUnknown) {
-    toast("The previous reply has not confirmed settlement; check its status first", true);
-    return false;
-  }
   if (S.conversationLoading) {
     toast("Conversation is still loading", true);
     return false;

@@ -525,7 +525,11 @@ async def variant_on_show(root_id: int) -> int | None:
         return await _variant_on_show_on(db, root_id)
 
 
-async def _source_current_on(db, message_id: int, attachment: Mapping[str, Any]) -> bool:
+async def _may_activate_on(db, message_id: int, attachment: Mapping[str, Any], on_show: int | None, shown: int | None) -> bool:
+    """Whether a new variant may take the screen: the user has not paged to
+    another one since *shown*, and the message still reads as it was rendered."""
+    if shown is not None and on_show != shown:
+        return False
     metadata = attachment.get("generation_metadata")
     source = metadata.get("source_text") if isinstance(metadata, Mapping) else None
     if source is None:
@@ -548,8 +552,7 @@ async def insert_workflow_attachment(
             and mark_active
             and isinstance(parent_id, int)
             and not isinstance(parent_id, bool)
-            and (shown is None or on_show == shown)
-            and await _source_current_on(db, message_id, attachment)
+            and await _may_activate_on(db, message_id, attachment, on_show, shown)
         ):
             await _set_active_sibling_on(db, parent_id, new_id)
         await db.commit()
@@ -580,8 +583,7 @@ async def insert_workflow_variant(
             if (
                 new_id is not None
                 and root_id is not None
-                and (shown is None or on_show == shown)
-                and await _source_current_on(db, message_id, attachment)
+                and await _may_activate_on(db, message_id, attachment, on_show, shown)
             ):
                 await _set_active_sibling_on(db, root_id, new_id)
             await db.commit()
@@ -807,8 +809,7 @@ async def insert_workflow_attachments(
                 if (
                     isinstance(parent_id, int)
                     and not isinstance(parent_id, bool)
-                    and (shown is None or initial_selection.get(parent_id) == shown)
-                    and await _source_current_on(conn, message_id, att)
+                    and await _may_activate_on(conn, message_id, att, initial_selection.get(parent_id), shown)
                 ):
                     await _set_active_sibling_on(conn, parent_id, new_ids_by_input_idx[i])
 

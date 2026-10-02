@@ -11,19 +11,11 @@ import { renderInteractiveFragments, renderMoodFragments } from "./library_fragm
 import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./modal.js";
-import { begin, finish, ownsView, runningFor } from "./operations.js";
+import { begin, beginStream, finish, ownsView, runningFor, settle, streamEvents } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
-import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import {
-  charactersView,
-  conversationState,
-  notify,
-  releaseConversationState,
-  S,
-  upgradeLegacyFragment,
-} from "./state.js";
+import { unescapeSSE } from "./sse.js";
+import { charactersView, conversationState, releaseConversationState, S, upgradeLegacyFragment } from "./state.js";
 import { refreshState } from "./state_panel.js";
-import { createStreamOperation } from "./stream_settle.js";
 import {
   $,
   avatarCell,
@@ -479,7 +471,7 @@ export function showCompressModal() {
     return;
   }
   if (runningFor("conversationId", S.activeConvId).some((op) => op.kind.startsWith("compression"))) {
-    toast("Wait for the previous summary to settle; its status and Stop are below", true);
+    toast("Wait for the previous summary to settle", true);
     return;
   }
   _compressConvId = S.activeConvId;
@@ -522,19 +514,10 @@ export function cancelCompression() {
 }
 
 export async function generateCompressionSummary() {
-  if (_compressOperation || !_compressConvId) return;
-  if (runningFor("conversationId", _compressConvId).some((op) => op.kind === "compression")) return;
-  const record = begin("compression", { conversationId: _compressConvId, dialogToken: _compressDialogToken });
-  const op = createStreamOperation({
-    target: record.target,
-    requestStop: (target, signal) =>
-      api.post(`/conversations/${target.conversationId}/stop?operation_id=${record.id}`, {}, { signal }),
-  });
-  record.stop = () => {
-    record.phase = "stopping";
-    notify("operations");
-    op.stop();
-  };
+  const cid = _compressConvId;
+  if (_compressOperation || !cid) return;
+  const dialog = _compressDialogToken;
+  const record = beginStream("compression", { conversationId: cid }, `/conversations/${cid}/stop`);
   _compressOperation = record;
 
   const selectEl = document.getElementById("compress-keep-select");
@@ -568,70 +551,29 @@ export async function generateCompressionSummary() {
   setModalDismiss(cancelCompression);
 
   let summaryText = "";
-  let succeeded = false;
-  let terminalReceived = false;
-
   try {
-    const resp = await streamPost(
-      `/conversations/${record.target.conversationId}/summarize?operation_id=${record.id}`,
-      { keep_count: _compressKeepCount, custom_instructions: customInstructions },
-      op.signal,
-    );
-    if (!resp.ok) {
-      const detail = await resp.text();
-      throw new Error(detail);
-    }
-
-    for await (const { event, data } of sseEvents(resp.body, { signal: op.signal })) {
+    const body = { keep_count: _compressKeepCount, custom_instructions: customInstructions };
+    for await (const { event, data } of streamEvents(record, `/conversations/${cid}/summarize`, body, "Summary")) {
       if (event === "token") {
         summaryText += unescapeSSE(data);
         if (textarea) textarea.value = summaryText;
       } else if (event === "error") {
-        terminalReceived = true;
         throw new Error(data);
-      } else if (event === "done") {
-        terminalReceived = true;
       }
     }
-    if (!terminalReceived && !op.stopping) throw new Error("Summary stream ended before completion");
-
-    succeeded = true;
+    if (statusEl) statusEl.textContent = "Review and edit the summary, then create the new conversation.";
   } catch (e) {
-    if (!terminalReceived) op.disconnect();
-    if (e.name === "AbortError") return;
-    if (statusEl) statusEl.textContent = `Error: ${e.message}`;
-    toast(`Summary generation failed: ${e.message}`, true);
+    if (e.name !== "AbortError") {
+      if (statusEl) statusEl.textContent = `Error: ${e.message}`;
+      toast(`Summary generation failed: ${e.message}`, true);
+    }
   } finally {
-    const settled = await op.settle();
-    if (!settled) {
-      record.stop = async () => {
-        try {
-          const result = await api.post(
-            `/conversations/${record.target.conversationId}/stop?operation_id=${record.id}`,
-          );
-          if (result.settled) {
-            finish(record);
-            if (_compressDialogToken === record.target.dialogToken) {
-              if (regenBtn) regenBtn.disabled = false;
-              if (applyBtn) applyBtn.disabled = !summaryText.trim();
-              if (statusEl) statusEl.textContent = "Review the kept summary, or regenerate it.";
-            }
-          }
-        } catch (error) {
-          toast(`Summary status unavailable: ${error.message}`, true);
-        }
-      };
-    }
-    finish(record, settled ? "settled" : "unknown");
-    if (_compressDialogToken === record.target.dialogToken) {
-      if (!settled && statusEl) statusEl.textContent = "Settlement unknown — partial summary kept. Check status below.";
-      else if (succeeded && statusEl)
-        statusEl.textContent = "Review and edit the summary, then create the new conversation.";
-      if (regenBtn) regenBtn.disabled = !settled;
-      if (applyBtn) applyBtn.disabled = !settled || !summaryText.trim();
-    }
-    if (_compressOperation === record) {
-      _compressOperation = null;
+    // A Stop from a closed dialog still settles before this chat can summarize again.
+    await settle(record);
+    if (_compressOperation === record) _compressOperation = null;
+    if (dialog === _compressDialogToken) {
+      if (regenBtn) regenBtn.disabled = false;
+      if (applyBtn) applyBtn.disabled = !summaryText.trim();
     }
   }
 }
@@ -639,7 +581,6 @@ export async function generateCompressionSummary() {
 export async function applyCompression() {
   if (_compressOperation) return;
   const cid = _compressConvId;
-  if (runningFor("conversationId", cid).some((op) => op.kind.startsWith("compression"))) return;
   const dialogToken = _compressDialogToken;
   const viewToken = S.conversationViewToken;
   const textarea = document.getElementById("compress-textarea");
@@ -654,7 +595,7 @@ export async function applyCompression() {
   const regenBtn = document.getElementById("compress-regen-btn");
   if (applyBtn) applyBtn.disabled = true;
   if (regenBtn) regenBtn.disabled = true;
-  const record = begin("compression-apply", { conversationId: cid, dialogToken });
+  const record = begin("compression-apply", { conversationId: cid });
   _compressOperation = record;
 
   try {

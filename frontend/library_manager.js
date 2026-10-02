@@ -1,14 +1,12 @@
-import { begin, finish } from "./operations.js";
 // Character Library manager tools.
 
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { TAG_ICON } from "./icons.js";
 import { cardGeneratorToolHtml, mountCardGenerator } from "./library_card_generator.js";
-import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount, unmountLibraryDedupe } from "./library_dedupe.js";
+import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount } from "./library_dedupe.js";
 import { showSubConfirmModal } from "./modal.js";
-import { sseEvents, streamPost } from "./sse.js";
-import { createStreamOperation } from "./stream_settle.js";
+import { beginStream, settle, streamEvents } from "./operations.js";
 import { $, esc, toast } from "./utils.js";
 
 const MAX_VOCABULARY = 64;
@@ -86,13 +84,6 @@ export function renderLibraryManager(container, callbacks = {}) {
       ${cardGeneratorToolHtml()}
     </div>`;
 
-  const observer = new MutationObserver(() => {
-    if (!container.isConnected) {
-      unmountLibraryDedupe();
-      observer.disconnect();
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
   container.addEventListener("click", onPanelClick);
   container.addEventListener("change", onPanelChange);
   mountLibraryDedupe(container.querySelector('[data-tool="duplicates"]'), callbacks);
@@ -111,7 +102,7 @@ function onPanelClick(e) {
   const action = e.target.closest("[data-action]")?.dataset.action;
   if (action === "save-vocab") saveVocabulary();
   else if (action === "run") confirmRun();
-  else if (action === "cancel") _controller?.abort();
+  else if (action === "cancel") _controller?.stop();
 }
 
 function chipInput() {
@@ -298,15 +289,8 @@ function confirmRun() {
 
 async function startRun(force = false) {
   if (_controller) return;
-  const record = begin("tagging", { library: true });
-  const controller = createStreamOperation({
-    requestStop: (_, signal) => api.post(`/library/auto-tag/stop?operation_id=${record.id}`, {}, { signal }),
-  });
-  record.signal = controller.signal;
-  record.abort = () => record.stop?.();
+  const record = beginStream("tagging", { library: true }, "/library/auto-tag/stop");
   _controller = record;
-  const owner = _controller;
-  record.stop = () => controller.stop();
   const total = force ? _total : _pending;
   const reasoning = !!$("lib-run-reasoning")?.checked;
   const lane = _lane;
@@ -314,16 +298,8 @@ async function startRun(force = false) {
   paint();
 
   let failed = 0;
-  let terminalReceived = false;
   try {
-    const response = await streamPost(
-      `/library/auto-tag/run?operation_id=${record.id}`,
-      { lane, reasoning, force },
-      _controller.signal,
-    );
-    if (!response.ok) throw new Error(`run returned ${response.status}`);
-    for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
-      if (event.event === "done" || event.event === "error") terminalReceived = true;
+    for await (const event of streamEvents(record, "/library/auto-tag/run", { lane, reasoning, force }, "Tagging")) {
       let data = {};
       try {
         data = event.data ? JSON.parse(event.data) : {};
@@ -339,28 +315,15 @@ async function startRun(force = false) {
         toast(typeof data === "string" ? data : data.message || "Tagging failed", true);
       }
     }
-    if (!terminalReceived && !controller.stopping) throw new Error("Tagging stream ended before completion");
   } catch (e) {
-    if (!terminalReceived) controller.disconnect();
     if (e?.name !== "AbortError") toast(`Tagging failed: ${e.message}`, true);
   } finally {
-    const settled = await controller.settle();
-    if (!settled) {
-      record.stop = async () => {
-        if (!(await controller.settle())) return;
-        finish(record);
-        if (_controller === owner) _controller = null;
-        await refresh();
-        await _callbacks.onRunComplete?.();
-      };
-    }
-    finish(record, settled ? "settled" : "unknown");
-    if (settled && _controller === owner) _controller = null;
+    await settle(record);
+    _controller = null;
     hideProgress();
     await refresh();
     await _callbacks.onRunComplete?.();
-    if (failed && settled)
-      toast(`${failed} character${failed === 1 ? "" : "s"} could not be tagged; press again to retry`, true);
+    if (failed) toast(`${failed} character${failed === 1 ? "" : "s"} could not be tagged; press again to retry`, true);
   }
 }
 

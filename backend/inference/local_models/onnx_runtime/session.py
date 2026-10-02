@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from contextlib import contextmanager
 from functools import wraps
 from typing import TYPE_CHECKING, Any
@@ -13,8 +12,7 @@ if TYPE_CHECKING:
     import onnxruntime as ort
 
 _SESSIONS: dict[str, Any] = {}
-_ACTIVE = 0
-_LEASE = threading.local()
+_ACTIVE = 0  # running leased inference calls
 _RELEASING = False
 _LOCK = threading.Condition()  # sessions load off the event loop, from worker threads
 
@@ -54,47 +52,40 @@ def using(fn):
     @wraps(fn)
     def leased(*args, **kwargs):
         global _ACTIVE
-        outer = getattr(_LEASE, "depth", 0) == 0
-        if outer:
-            with _LOCK:
-                if _RELEASING:
-                    raise RuntimeError("Local model is being released")
-                _ACTIVE += 1
-        _LEASE.depth = getattr(_LEASE, "depth", 0) + 1
+        with _LOCK:
+            if _RELEASING:
+                raise RuntimeError("Local model is being released")
+            _ACTIVE += 1
         try:
             return fn(*args, **kwargs)
         finally:
-            _LEASE.depth -= 1
-            if outer:
-                with _LOCK:
-                    _ACTIVE -= 1
-                    _LOCK.notify_all()
+            with _LOCK:
+                _ACTIVE -= 1
+                _LOCK.notify_all()
 
     return leased
 
 
 @contextmanager
-def exclusive_release(timeout: float = 15.0, path: str | None = None):
-    """Block new use until a file mutation completes; refuse an incomplete drain."""
+def exclusive_release(timeout: float = 15.0):
+    """Drop every session and refuse new use until a model file mutation completes.
+
+    Running inference is waited for, bounded; an incomplete drain refuses.
+    """
     global _RELEASING
     with _LOCK:
         if _RELEASING:
             raise TimeoutError("Local model maintenance is already running")
         _RELEASING = True
     try:
-        deadline = time.monotonic() + timeout
         with _LOCK:
-            while _ACTIVE:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError("Local model is still in use")
-                _LOCK.wait(remaining)
-            _drop(path)
+            if not _LOCK.wait_for(lambda: not _ACTIVE, timeout):
+                raise TimeoutError("Local model is still in use")
+            _SESSIONS.clear()
         yield
     finally:
         with _LOCK:
             _RELEASING = False
-            _LOCK.notify_all()
 
 
 def release(path: str | None = None) -> None:
@@ -104,14 +95,10 @@ def release(path: str | None = None) -> None:
     that call ends. Before a model *file* changes, use :func:`exclusive_release`.
     """
     with _LOCK:
-        _drop(path)
-
-
-def _drop(path: str | None) -> None:
-    if path is None:
-        _SESSIONS.clear()
-    else:
+        if path is None:
+            _SESSIONS.clear()
+            return
         _SESSIONS.pop(os.path.normpath(path), None)
 
 
-__all__ = ["load", "release", "runtime_ok", "using", "exclusive_release"]
+__all__ = ["exclusive_release", "load", "release", "runtime_ok", "using"]

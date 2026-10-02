@@ -53,8 +53,8 @@ def test_active_lease_refuses_release_and_keeps_cached_session():
     finally:
         release.set()
         thread.join(5)
-    with session.exclusive_release(timeout=0, path="leased.onnx"):
-        assert "leased.onnx" not in session._SESSIONS
+    with session.exclusive_release(timeout=0):
+        assert not session._SESSIONS
 
 
 def test_cache_release_never_waits_for_running_inference():

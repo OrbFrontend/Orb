@@ -48,12 +48,7 @@ async def test_busy_card_and_cluster_resolution_leave_every_card(client):
     try:
         assert (await client.delete(f"/api/characters/{cards[2]}")).status_code == 409
         resolved = await client.post(
-            "/api/library/duplicates/resolve-group",
-            json={
-                "keep_id": cards[0],
-                "remove_ids": cards[1:],
-                "relink": True,
-            },
+            "/api/library/duplicates/resolve-group", json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True}
         )
         assert resolved.status_code == 409
         assert all([(await client.get(f"/api/characters/{card}")).status_code == 200 for card in cards])
@@ -78,8 +73,7 @@ async def test_cluster_resolution_rolls_back_if_a_later_member_fails(client, mon
 
     monkeypatch.setattr(library_dedupe, "_relink_card_in_tx", fail_later)
     result = await client.post(
-        "/api/library/duplicates/resolve-group",
-        json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True},
+        "/api/library/duplicates/resolve-group", json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True}
     )
     assert result.status_code == 409
     assert all([(await client.get(f"/api/characters/{card}")).status_code == 200 for card in cards])

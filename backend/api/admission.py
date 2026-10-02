@@ -7,7 +7,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ..database.queries.dataset import get_dataset_epoch, regenerate_dataset_epoch
-from .deps import active_work, require_resource_available
+from .deps import active_work, resource_deleting
 
 _maintenance = False
 _mutations: dict[object, str] = {}
@@ -22,13 +22,7 @@ async def dataset_maintenance():
     try:
         busy = list(dict.fromkeys([*active_work(), *_mutations.values()]))
         if busy:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "Running work must finish before restore",
-                    "work": busy,
-                },
-            )
+            raise HTTPException(status_code=409, detail={"message": "Running work must finish before restore", "work": busy})
         try:
             yield
         finally:
@@ -80,10 +74,8 @@ class DatasetAdmissionMiddleware:
 def _refusal(path: str, headers: dict[bytes, bytes], epoch: str) -> dict[str, str] | None:
     parts = path.split("/")
     if len(parts) > 3 and parts[2] in {"conversations", "documents"}:
-        try:
-            require_resource_available(("doc:" if parts[2] == "documents" else "") + parts[3])
-        except HTTPException as exc:
-            return {"message": str(exc.detail)}
+        if resource_deleting(("doc:" if parts[2] == "documents" else "") + parts[3]):
+            return {"message": "This resource is being deleted"}
     if _maintenance:
         return {"message": "Dataset maintenance is running"}
     if headers.get(b"x-orb-epoch", epoch.encode()).decode() != epoch:

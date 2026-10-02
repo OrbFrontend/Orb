@@ -217,10 +217,7 @@ async def delete_conversation(cid: str) -> bool:
 async def group_family_ids(root_cid: str) -> list[str]:
     """Ids :func:`delete_group_family` would delete."""
     async with get_db() as db:
-        rows = await db.execute_fetchall(
-            "SELECT id FROM conversations WHERE id = ? OR group_root_id = ?",
-            (root_cid, root_cid),
-        )
+        rows = await db.execute_fetchall("SELECT id FROM conversations WHERE id = ? OR group_root_id = ?", (root_cid, root_cid))
         return [str(row[0]) for row in rows]
 
 

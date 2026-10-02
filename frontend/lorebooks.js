@@ -7,7 +7,6 @@ import { $, boolFlag, downloadBlob, esc, fromMessageBody, plural, toast } from "
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
 let _worlds = [];
-let _createWorldTarget = null;
 let _worldSearch = "";
 let _worldsExpanded = false; // show all Worlds instead of recent ones
 const RECENT_LIMIT = 5; // Worlds shown before search is needed
@@ -203,6 +202,15 @@ export function reflectConversationWorldActivation(worldIds) {
   renderWorldsSidebar();
 }
 
+/** Change the World choices of the chat in view; show the result if it still is. */
+async function updateSceneWorlds(change) {
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
+  if (!cid) return;
+  const { world_ids } = await change(cid);
+  if (S.activeConvId === cid && S.conversationViewToken === token) reflectConversationWorldActivation(world_ids);
+}
+
 export function showRenameWorldModal(worldId) {
   const world = _getWorld(worldId);
   if (!world) return;
@@ -245,7 +253,6 @@ export async function renameWorld(worldId) {
 }
 
 export async function showCreateWorldModal() {
-  _createWorldTarget = { cid: S.activeConvId, token: S.conversationViewToken };
   showModal(
     `
     <h2>New world</h2>
@@ -270,13 +277,8 @@ export async function createWorld() {
     return;
   }
   try {
-    const { cid, token } = _createWorldTarget;
     const w = await api.post("/worlds", { name });
-    if (cid) {
-      const choice = await api.put(`/conversations/${cid}/worlds/${w.id}`, { enabled: true });
-      if (S.activeConvId === cid && S.conversationViewToken === token)
-        reflectConversationWorldActivation(choice.world_ids);
-    }
+    await updateSceneWorlds((cid) => api.put(`/conversations/${cid}/worlds/${w.id}`, { enabled: true }));
     _worlds.push(w);
     renderWorldsSidebar();
     if (input.isConnected) {
@@ -290,12 +292,7 @@ export async function createWorld() {
 
 export async function toggleWorldEnabled(worldId, enabled) {
   try {
-    const cid = S.activeConvId;
-    const token = S.conversationViewToken;
-    if (!cid) return;
-    const choice = await api.put(`/conversations/${cid}/worlds/${worldId}`, { enabled });
-    if (S.activeConvId === cid && S.conversationViewToken === token)
-      reflectConversationWorldActivation(choice.world_ids);
+    await updateSceneWorlds((cid) => api.put(`/conversations/${cid}/worlds/${worldId}`, { enabled }));
   } catch (_e) {
     toast("Failed to update world", true);
   }
@@ -513,16 +510,9 @@ function renderLorebookDrawer() {
   const exportBtn = drawer.querySelector(".lb-export-btn");
   if (exportBtn) exportBtn.onclick = () => lbExportJson("authored");
   $("lb-global-toggle")?.addEventListener("change", async (event) => {
-    const worldId = world.id;
-    const cid = S.activeConvId;
-    const token = S.conversationViewToken;
     try {
-      _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { is_global: event.target.checked }));
-      if (cid) {
-        const choice = await api.get(`/conversations/${cid}/worlds`);
-        if (S.activeConvId === cid && S.conversationViewToken === token)
-          reflectConversationWorldActivation(choice.world_ids);
-      }
+      _mergeWorld(world.id, await api.put(`/worlds/${world.id}`, { is_global: event.target.checked }));
+      await updateSceneWorlds((cid) => api.get(`/conversations/${cid}/worlds`));
     } catch (error) {
       toast(error.message, true);
     }

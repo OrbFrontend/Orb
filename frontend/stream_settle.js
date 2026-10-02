@@ -18,7 +18,6 @@ const STOP_TIMEOUT_MS = 20000;
  */
 export function createStreamOperation({
   convId,
-  target = convId,
   requestStop,
   closeGraceMs = CLOSE_GRACE_MS,
   stopTimeoutMs = STOP_TIMEOUT_MS,
@@ -36,7 +35,7 @@ export function createStreamOperation({
       }, stopTimeoutMs);
     });
     try {
-      return await Promise.race([Promise.resolve().then(() => requestStop(target, requestController.signal)), timeout]);
+      return await Promise.race([Promise.resolve().then(() => requestStop(convId, requestController.signal)), timeout]);
     } finally {
       clearTimeout(timer);
     }
@@ -44,7 +43,6 @@ export function createStreamOperation({
 
   const op = {
     convId,
-    target,
     signal: controller.signal,
     stopping: false,
     // The browser dropped the stream, so the server may still be saving.

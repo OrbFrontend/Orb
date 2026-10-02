@@ -30,8 +30,7 @@ async def regenerate_dataset_epoch() -> str:
     epoch = uuid.uuid4().hex
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO dataset_meta (id, epoch) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET epoch = excluded.epoch",
-            (epoch,),
+            "INSERT INTO dataset_meta (id, epoch) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET epoch = excluded.epoch", (epoch,)
         )
         await db.commit()
     _cached = (connection.DB_PATH, epoch)

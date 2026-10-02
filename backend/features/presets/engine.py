@@ -143,10 +143,9 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
         else:
             kind = "stable"
 
-        owner = next(
-            (f for f in fks if f.kind == "ownership" and f.from_col == ps.OWNERSHIP_COLUMNS.get(name)),
-            None,
-        ) or next((f for f in fks if f.kind == "ownership"), None)
+        owner = next((f for f in fks if f.kind == "ownership" and f.from_col == ps.OWNERSHIP_COLUMNS.get(name)), None) or next(
+            (f for f in fks if f.kind == "ownership"), None
+        )
         tables[name] = _Table(name, cols, pk, kind, fks, owner)
 
     # Second pass: resolve implicit FK targets now that every PK is known, so the
