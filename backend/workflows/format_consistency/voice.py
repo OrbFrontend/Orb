@@ -50,7 +50,7 @@ _POV_RANK = {"third": 1, "second": 2, "first": 3}
 def _content_digest(text: str) -> str:
     """Identify the message and the narration-extraction and reading policy that
     labeled it."""
-    return hashlib.sha256(b"whole-narration-v3\0" + text.encode()).hexdigest()
+    return hashlib.sha256(b"whole-narration-v4\0" + text.encode()).hexdigest()
 
 
 def combine(windows: Sequence[VoiceLabels]) -> VoiceLabels:
@@ -59,8 +59,16 @@ def combine(windows: Sequence[VoiceLabels]) -> VoiceLabels:
     POV is a precedence rule over the pronouns anywhere in the narration, so the
     highest-ranked window decides it. Tense is the windows' stable majority, so one
     flashback window does not flip it.
+
+    `first` must also hold a third of the confident windows. Deep third person
+    carries unmarked inner monologue ("If I look, I'll see the disgust"), which reads
+    `first` in a window or two of an otherwise third-person reply; first-person
+    narration puts "I" in at least a third of its windows even when most of them
+    describe "you". On the app DB the two sides split at that share.
     """
     povs = [pov for pov, _ in windows if pov in _POV_RANK]
+    if 3 * povs.count("first") < len(povs):
+        povs = [pov for pov in povs if pov != "first"]
     pov = max(povs, key=_POV_RANK.__getitem__) if povs else UNKNOWN
     return pov, stable_label([tense for _, tense in windows], UNKNOWN)
 

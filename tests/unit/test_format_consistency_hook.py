@@ -172,6 +172,7 @@ async def test_the_aggregate_convention_only_reaches_the_markup_target(monkeypat
 
 THIRD_PAST = ("third", "past")
 SECOND_PRESENT = ("second", "present")
+THIRD_PRESENT = ("third", "present")
 
 VOICE_DRIFTING_DRAFT = 'You step closer, watching him carefully. "Are you sure about this?"'
 VOICE_DRIFTING_NARRATION = "You step closer, watching him carefully."
@@ -416,6 +417,23 @@ async def test_one_window_that_addresses_you_drifts_from_third_whatever_the_rest
 
     assert len(calls) == 1
     assert "third person throughout" in calls[0]["tail_messages"][0]["content"]
+
+
+async def test_inner_monologue_in_a_third_person_row_is_not_first_person(monkeypatch):
+    """A thought paragraph ("If I look, I'll see the disgust") reads `first` in one
+    window of a deep-third reply. That must not vote the baseline into first person
+    and send a third-person draft to be rewritten as "I"."""
+    _voice_on(monkeypatch)
+    _classifier(
+        monkeypatch,
+        {VOICE_DRIFTING_NARRATION: THIRD_PRESENT},
+        chunks={QUOTED_BASELINE_NARRATION: [THIRD_PRESENT] * 3 + [("first", "present"), THIRD_PRESENT] * 2},
+    )
+    calls = _forced_call(monkeypatch, "should not be used")
+
+    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
+
+    assert calls == []
 
 
 async def test_a_tense_flip_in_one_window_is_not_drift(monkeypatch):
