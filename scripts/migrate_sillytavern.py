@@ -562,7 +562,7 @@ def write_world(conn: sqlite3.Connection, name: str, entries: list[dict], enable
     """Create a World and its entries, bumping content_revision once for the book."""
     world_id = world_id_for(name)
     conn.execute(
-        """INSERT INTO worlds (id, name, enabled, dynamic_enabled, content_revision, created_at, updated_at)
+        """INSERT INTO worlds (id, name, is_global, dynamic_enabled, content_revision, created_at, updated_at)
            VALUES (?, ?, ?, 0, 0, ?, ?)""",
         (world_id, name, 1 if enabled else 0, now, now),
     )

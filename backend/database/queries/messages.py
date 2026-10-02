@@ -558,6 +558,25 @@ async def set_workflow_message_state(message_id: int, workflow_id: str, payload:
     await _set_workflow_slot("messages", "id", message_id, workflow_id, payload)
 
 
+async def _sibling_subtree_on(db, cid: str, parent_id: int | None) -> list[tuple[int, int]]:
+    """``(depth, id)`` of every child of *parent_id* (root messages for None) and their descendants."""
+    sibling_cond, sibling_params = ("parent_id = ?", (parent_id,)) if parent_id is not None else ("parent_id IS NULL", ())
+    rows = await db.execute_fetchall(
+        f"""
+        WITH RECURSIVE subtree(id, depth) AS (
+            SELECT id, 0 FROM messages WHERE conversation_id = ? AND {sibling_cond}
+            UNION ALL
+            SELECT m.id, s.depth + 1 FROM messages m
+            INNER JOIN subtree s ON m.parent_id = s.id
+            WHERE {_SAME_CONVERSATION}
+        )
+        SELECT id, depth FROM subtree
+        """,
+        (cid, *sibling_params, cid),
+    )
+    return [(int(r["depth"]), int(r["id"])) for r in rows]
+
+
 async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
     """Delete a message, all its siblings, and all their descendants. Updates active_leaf_id if the active branch is affected."""
     async with get_db() as db:
@@ -570,32 +589,7 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
         if not rows:
             return False
         parent_id = rows[0]["parent_id"]
-
-        # Collect all siblings (messages with the same parent_id) and their descendants via recursive CTE
-        # For root messages (parent_id IS NULL), match other root messages
-        if parent_id is not None:
-            sibling_cond = "parent_id = ?"
-            sibling_params = (parent_id,)
-        else:
-            sibling_cond = "parent_id IS NULL"
-            sibling_params = ()
-
-        desc_rows = list(
-            await db.execute_fetchall(
-                f"""
-            WITH RECURSIVE subtree(id, depth) AS (
-                SELECT id, 0 FROM messages WHERE conversation_id = ? AND {sibling_cond}
-                UNION ALL
-                SELECT m.id, s.depth + 1 FROM messages m
-                INNER JOIN subtree s ON m.parent_id = s.id
-                WHERE {_SAME_CONVERSATION}
-            )
-            SELECT id, depth FROM subtree
-        """,
-                (cid, *sibling_params, cid),
-            )
-        )
-        subtree = [(int(r["depth"]), int(r["id"])) for r in desc_rows]
+        subtree = await _sibling_subtree_on(db, cid, parent_id)
         deleted_ids = {mid for _, mid in subtree}
 
         if not deleted_ids:
@@ -695,3 +689,14 @@ async def get_message_delete_preview(cid: str, msg_id: int) -> dict[str, int] | 
         )
         row = counts[0]
         return {"message_count": int(row["message_count"]), "assistant_count": int(row["assistant_count"] or 0)}
+
+
+async def get_message_subtree_ids(cid: str, msg_id: int) -> set[int]:
+    """The ids :func:`delete_message_with_descendants` would remove."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall("SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, cid))
+        )
+        if not rows:
+            return set()
+        return {mid for _, mid in await _sibling_subtree_on(db, cid, rows[0]["parent_id"])}

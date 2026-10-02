@@ -49,9 +49,20 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
         "mime": mime,
         "data": audio,
         "seed": compute_seed(text, profile, blocks),
-        "generation_metadata": build_generation_metadata(text, profile, blocks),
-        "consumption_metadata": {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks)},
+        "generation_metadata": {**build_generation_metadata(text, profile, blocks), "source_text": text},
+        "consumption_metadata": {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks), "source_text": text},
     }
+
+
+async def pre_pipeline(ctx):
+    """Freeze this turn's voice before any model call; playback remains live."""
+    if ctx.character_id:
+        ctx.turn_scratch.setdefault("tts_profiles", {})[ctx.character_id] = normalize_profile(
+            await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+        )
+    # Snapshot-only hook: conform to the async event-iterator contract.
+    if False:
+        yield {}
 
 
 async def post_pipeline(ctx):
@@ -65,7 +76,10 @@ async def post_pipeline(ctx):
     """
     if not ctx.character_id:
         return
-    profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
+    profiles = ctx.turn_scratch.get("tts_profiles", {})
+    profile = profiles.get(ctx.character_id)
+    if profile is None:
+        profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID))
     if not profile.get("enabled"):
         return
     text = ctx.draft or ""

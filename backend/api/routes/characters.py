@@ -51,6 +51,7 @@ from ...workflows.tts.engine import builtin_spark_adapter
 from ..deps import (
     _normalise_lorebook_entry,
     cached_image_response,
+    idle_chats_guard,
     image_not_modified,
     lorebook_to_book,
     profile_draft_failures,
@@ -243,7 +244,7 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
 
 @router.delete("/api/characters/{card_id}")
 async def api_delete_character(card_id: str, delete_conversations: bool = False):
-    if not await delete_character_card(card_id, delete_conversations):
+    if not await delete_character_card(card_id, delete_conversations, idle_guard=idle_chats_guard):
         raise HTTPException(status_code=404, detail="Character card not found")
     return {"ok": True}
 

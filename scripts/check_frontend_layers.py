@@ -37,6 +37,7 @@ FE = ROOT / "frontend"
 LAYERS = {
     # L0 core leaves — import nothing.
     "api.js": 0,
+    "document_saves.js": 0,
     "sse.js": 0,
     "validate.js": 0,
     "scroll_follow.js": 0,
@@ -65,6 +66,7 @@ LAYERS = {
     "crop_geometry.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
+    "operations.js": 1,
     # The decision-fragment vocabulary: the cached /api/decisions/config read,
     # the outcome-space rule, and the wording for each machine reason the stage
     # reports. Imports only api.js, so it sits with the other shared helpers and

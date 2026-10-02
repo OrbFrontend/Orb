@@ -641,6 +641,10 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         async def keep(attachment: dict) -> int:
             # The first render starts the group and each revision joins it, so the
             # client can page through them while the run goes on.
+            attachment["generation_metadata"] = {
+                **(attachment.get("generation_metadata") or {}),
+                "source_text": message["content"],
+            }
             new_id, rejected = await insert_workflow_variant(mid, attachment, group=kept, shown=kept[-1] if kept else None)
             if new_id is None:
                 raise ImageGenerationError((rejected or {}).get("reason") or "attachment rejected")

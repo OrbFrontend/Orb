@@ -251,3 +251,30 @@ committed before Stop.
 In one sentence: one request opens the stream, named events carry progress and
 results, tokens carry the visible draft, internal events stay server-side, and
 `done` is followed by a server refetch.
+
+## Concurrent ownership and deletion
+
+`S.operations` (`operations.js`) registers each running chat, document, media and
+library operation before its first await. Per-chat buffers, reasoning, drafts,
+queued edits, group speaker state and the Stop handle live in
+`S.conversationStates`; the conversation keys on `S` read the chat in view. A
+reply keeps streaming while the user browses or generates elsewhere; a background
+completion reconciles its own chat and paints nothing. Selection bumps a view
+token, and Send stays disabled until history loads.
+
+Streams carry `?operation_id=`, and Stop sends the same id, so a stale Stop
+answers `active: false, settled: true` without aborting a newer request.
+`beginStream`/`streamEvents`/`settle` give document generation, summaries and
+library scans the same settlement protocol as chat. A run is released once
+settled, or once settlement is given up on; the server lane lock still refuses a
+second run on the same resource.
+
+Queued history edits save in order after the reply and before Send returns; a
+failed one stays on its message with Retry and Discard. Media refreshes merge into
+their origin chat and wait while a message is being edited.
+
+Conversation, group and document deletion closes admission, stops registered work,
+waits for it to settle and holds the turn lanes through the delete; a timeout
+answers 409 and deletes nothing. Message deletion settles the media of the
+subtrees it removes. Card deletion and duplicate resolution refuse busy chats and
+fence them until commit. These in-memory fences assume one uvicorn process.

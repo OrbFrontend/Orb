@@ -157,7 +157,8 @@ POST    /api/conversations/{cid}/convert-to-group
 POST    /api/conversations/{cid}/group-conversation
 DELETE  /api/conversations/{cid}/group
 POST    /api/conversations/{cid}/speak
-POST    /api/conversations/{cid}/activate
+GET     /api/conversations/{cid}/worlds
+PUT     /api/conversations/{cid}/worlds/{world_id}
 POST    /api/conversations/{cid}/members/scene-profile/generate
 ```
 

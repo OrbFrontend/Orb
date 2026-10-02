@@ -112,3 +112,23 @@ nullable source references. Branch changes do not affect it.
 Exports are authored by default. The effective view must be requested explicitly
 (`?view=effective` or `?world_view=effective`). Preset backups include dynamic
 entries and changeset history with the World.
+
+## Conversation-scoped World choices
+
+Navigation reads `GET /conversations/{cid}/worlds` and never writes World state.
+`worlds.is_global` supplies an on default in every chat; a card-linked World also
+defaults on for that conversation's cast, including every active group member.
+`conversation_worlds(conversation_id, world_id, enabled)` overrides either default.
+Saving a choice equal to its current default removes the override. Entry `enabled`
+flags remain properties of the entries themselves.
+
+`get_effective_world_ids` resolves this rule once for turn context. Lore selection,
+off-turn workflow prefixes and context-size estimates use those IDs. The proposal
+stage retains its initial candidate set and rereads deletion, Dynamic World opt-in
+and that conversation's choices; switching chats has no effect, while turning a
+World off in the originating chat suppresses its proposal.
+
+Forks copy overrides. Presets assign the two-parent table to the chats domain and
+drop choices referencing missing Worlds on a partial import. Migration 0076 turns
+linked legacy Worlds into non-global defaults and preserves floating Worlds'
+previous activation as `is_global`.

@@ -19,7 +19,8 @@ import {
 } from "./group_cast.js";
 import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
-import { charactersView, notify, S } from "./state.js";
+import { syncActivity } from "./operations.js";
+import { charactersView, notify, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
 // Both group setup views use this shared context explanation.
@@ -750,11 +751,12 @@ export function renderGroupCast() {
   if (input) input.placeholder = grouped ? "Write what happens next…" : "Write your message...";
 }
 
-export function consumeSpeakerOverride() {
-  if (!S.groupCast || !overrideIsOneShot()) return;
-  if (!S.pinnedSpeakerId || S.pinnedSpeakerId !== S.consumedSpeakerId) return;
-  S.pinnedSpeakerId = null;
-  renderGroupCast();
+/** Clear a one-shot pin in the conversation whose exchange used it, shown or not. */
+export function consumeSpeakerOverride(state = S) {
+  if (!state.groupCast || !overrideIsOneShot(state.groupCast)) return;
+  if (!state.pinnedSpeakerId || state.pinnedSpeakerId !== state.consumedSpeakerId) return;
+  state.pinnedSpeakerId = null;
+  if (state.activeConvId === S.activeConvId) renderGroupCast();
 }
 
 let _groupSearch = "";
@@ -792,7 +794,7 @@ function _groupItemHtml({ rootId, root, shown, open, members }) {
   const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
   return `<div class="group-chat-item${open ? " active" : ""}">
       <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
-        <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
+        <span class="group-chat-avatar-stack chat-activity" data-activity="${escAttr(rootId)}" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
         <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
         ${countBadge}
       </button>
@@ -832,7 +834,14 @@ export function renderGroupList() {
     }
   }
   list.innerHTML = html;
+  syncGroupActivity();
 }
+
+// A group with a reply generating in any of its conversations wears the busy dot.
+function syncGroupActivity() {
+  syncActivity("#group-chat-list [data-activity]", (conv) => conv.kind === "group" && groupRootId(conv));
+}
+subscribe("operations", syncGroupActivity);
 
 async function fetchSheetProposals(cid) {
   try {
@@ -852,6 +861,7 @@ function speakerNameMap(rows) {
 }
 
 export async function loadGroupCast(conv) {
+  const token = S.conversationViewToken;
   if (conv?.kind !== "group") {
     const hadCast = S.groupCast !== null;
     S.groupCast = null;
@@ -868,7 +878,7 @@ export async function loadGroupCast(conv) {
     api.get(`${convUrl(conv.id, "members")}?include_inactive=true`),
     fetchSheetProposals(conv.id),
   ]);
-  if (S.activeConvId !== conv.id) return;
+  if (S.activeConvId !== conv.id || S.conversationViewToken !== token) return;
   const members = roster.filter((member) => member.active !== 0);
   S.groupCast = {
     members,

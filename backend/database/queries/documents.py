@@ -5,8 +5,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import DocumentListRow, DocumentRow
+
+
+class DocumentConflict(Exception):
+    """A draft was based on a document revision that is no longer current."""
+
+    def __init__(self, document: DocumentRow):
+        self.document = document
+        super().__init__("Document changed since this draft was loaded")
 
 
 async def get_documents() -> list[DocumentListRow]:
@@ -18,14 +26,18 @@ async def get_documents() -> list[DocumentListRow]:
         return [cast(DocumentListRow, dict(r)) for r in rows]
 
 
+async def _document_on(db, document_id: str) -> DocumentRow | None:
+    rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
+    if not rows:
+        return None
+    d = dict(rows[0])
+    d["generated_spans"] = json.loads(d["generated_spans"]) if d.get("generated_spans") else []
+    return cast(DocumentRow, d)
+
+
 async def get_document(document_id: str) -> DocumentRow | None:
     async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
-        if not rows:
-            return None
-        d = dict(rows[0])
-        d["generated_spans"] = json.loads(d["generated_spans"]) if d.get("generated_spans") else []
-        return cast(DocumentRow, d)
+        return await _document_on(db, document_id)
 
 
 async def create_document(data: dict) -> DocumentRow:
@@ -50,16 +62,22 @@ async def create_document(data: dict) -> DocumentRow:
 
 
 async def update_document(document_id: str, data: dict) -> DocumentRow | None:
-    async with get_db() as db:
+    async with immediate_tx() as db:
         allowed = ["title", "content", "generated_spans"]
         sets, vals = _build_set_clause(allowed, data, json_fields={"generated_spans"})
         if sets:
+            sets.append("revision = revision + 1")
             sets.append("updated_at = ?")
             vals.append(datetime.now(UTC).isoformat())
             vals.append(document_id)
-            await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", vals)  # nosec B608
-            await db.commit()
-        return await get_document(document_id)
+            where = "id = ?"
+            if data.get("expected_revision") is not None:
+                where += " AND revision = ?"
+                vals.append(data["expected_revision"])
+            cur = await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE {where}", vals)  # nosec B608
+            if cur.rowcount == 0 and (current := await _document_on(db, document_id)) is not None:
+                raise DocumentConflict(current)
+        return await _document_on(db, document_id)
 
 
 async def delete_document(document_id: str) -> bool:

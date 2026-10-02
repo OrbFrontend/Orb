@@ -219,3 +219,45 @@ async def test_a_gpu_request_a_build_cannot_honour_is_logged(host, monkeypatch, 
         await host.ensure(_profile(gpu_layers=999))
 
     assert "reports no GPU device" in caplog.text
+
+
+async def test_a_busy_model_deletion_refuses_and_keeps_the_child(host, monkeypatch):
+    """Deleting a model must not pull the file from under a request still decoding."""
+    profile = _profile()
+    host.server = server = _StoppableServer(profile)
+    host.state = "ready"
+    host.profile = profile
+    host._stale = False
+    monkeypatch.setattr(host, "_drain", lambda: ManagedLlamaServerHost._drain(host, 0.01))
+    host._inflight = 1
+
+    with pytest.raises(TimeoutError):
+        async with host.exclusive_release():
+            pytest.fail("the deletion ran while the model was in use")
+
+    assert server.stopped is False
+    assert host.server is server
+
+
+async def test_a_swap_whose_drain_times_out_never_serves_the_old_model(host, slow_boot, monkeypatch):
+    """A settings swap that outwaits a stuck request still replaces the child:
+    handing the old model back under the new profile would be silently wrong."""
+    old = _StoppableServer(_profile(parallel=4))
+    host.server = old
+    host.state = "ready"
+    host.profile = old.profile
+    host._stale = False
+    monkeypatch.setattr(host, "_drain", lambda: ManagedLlamaServerHost._drain(host, 0.01))
+    host._inflight = 1
+
+    loading = asyncio.create_task(host.ensure(_profile(parallel=2)))
+    while not slow_boot and not loading.done():
+        await asyncio.sleep(0)
+    assert slow_boot, "the swap gave up instead of replacing the child"
+    slow_boot[0].started_at, slow_boot[0].port = 0.0, 0
+    slow_boot[0].booted.set()
+    served = await loading
+    await host.shutdown()
+
+    assert old.stopped is True
+    assert served is slow_boot[0]

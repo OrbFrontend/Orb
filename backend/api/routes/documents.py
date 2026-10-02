@@ -16,9 +16,15 @@ from ...database import (
     get_settings,
     update_document,
 )
+from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
-from ..deps import _CleanupStreamingResponse, _sse_stream, stop_active_stream
+from ..deps import (
+    _CleanupStreamingResponse,
+    _sse_stream,
+    deleting_resources,
+    stop_active_stream,
+)
 from ..schemas import (
     DocumentAuditRequest,
     DocumentAuditResponse,
@@ -55,13 +61,17 @@ async def api_get_document(did: str):
 async def api_update_document(did: str, data: DocumentUpdate):
     if not await get_document(did):
         raise HTTPException(status_code=404, detail="Document not found")
-    return await update_document(did, data.model_dump(exclude_unset=True))
+    try:
+        return await update_document(did, data.model_dump(exclude_unset=True))
+    except DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc), "document": exc.document}) from exc
 
 
 @router.delete("/api/documents/{did}")
 async def api_delete_document(did: str):
-    if not await delete_document(did):
-        raise HTTPException(status_code=404, detail="Document not found")
+    async with deleting_resources([f"doc:{did}"]):
+        if not await delete_document(did):
+            raise HTTPException(status_code=404, detail="Document not found")
     return {"ok": True}
 
 
@@ -116,9 +126,9 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
 
 
 @router.post("/api/documents/{did}/stop")
-async def api_stop_document(did: str):
+async def api_stop_document(did: str, operation_id: str | None = None):
     """Abort the active continuation for this document, if any, and wait for it to settle."""
-    result = await stop_active_stream(f"doc:{did}")
+    result = await stop_active_stream(f"doc:{did}", operation_id=operation_id)
     if result["active"]:
         logger.info("Stop requested for document %s — abort signalled", scrub_log(did))
     return {"ok": True, **result}

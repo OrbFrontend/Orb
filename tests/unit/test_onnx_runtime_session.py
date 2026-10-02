@@ -28,3 +28,53 @@ def test_release_drops_cached_sessions(monkeypatch):
 
 def test_releasing_something_never_loaded_is_not_an_error():
     onnx_runtime.release("/never/loaded.onnx")
+
+
+def test_active_lease_refuses_release_and_keeps_cached_session():
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+    cached = object()
+    session._SESSIONS["leased.onnx"] = cached
+
+    @session.using
+    def infer():
+        entered.set()
+        assert release.wait(5)
+
+    thread = threading.Thread(target=infer)
+    thread.start()
+    assert entered.wait(5)
+    try:
+        with pytest.raises(TimeoutError):
+            with session.exclusive_release(timeout=0):
+                pytest.fail("must not permit file deletion")
+        assert session._SESSIONS["leased.onnx"] is cached
+    finally:
+        release.set()
+        thread.join(5)
+    with session.exclusive_release(timeout=0):
+        assert not session._SESSIONS
+
+
+def test_cache_release_never_waits_for_running_inference():
+    """Feature toggles and enrollment cleanup drop the cache; only a file delete drains."""
+    import threading
+
+    entered, finish = threading.Event(), threading.Event()
+    session._SESSIONS["busy.onnx"] = object()
+
+    @session.using
+    def infer():
+        entered.set()
+        assert finish.wait(5)
+
+    thread = threading.Thread(target=infer)
+    thread.start()
+    assert entered.wait(5)
+    try:
+        onnx_runtime.release("busy.onnx")
+        assert "busy.onnx" not in session._SESSIONS
+    finally:
+        finish.set()
+        thread.join(5)

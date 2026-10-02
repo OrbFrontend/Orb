@@ -366,7 +366,9 @@ function _alignmentFor(msgId) {
   const attachment = ttsAttachmentForMessage(msgId);
   if (_blockMap.msgId === msgId && _blockMap.content === content && _blockMap.attachment === attachment)
     return _blockMap;
-  const built = msg ? computeBlockMap(msg) : { map: {}, wordIndices: {}, ready: true };
+  const source = attachment?.consumption_metadata?.source_text;
+  const matches = source == null || source === content;
+  const built = msg && matches ? computeBlockMap(msg) : { map: {}, wordIndices: {}, ready: true };
   if (built.ready) _blockMap = { msgId, content, attachment, map: built.map, wordIndices: built.wordIndices };
   return built.ready ? _blockMap : { map: built.map, wordIndices: built.wordIndices };
 }
@@ -436,13 +438,13 @@ async function create(msgId, btn) {
   if (running) return running.stop();
   const convId = getActiveConvId();
   if (!convId || !canMutate()) return;
-  const job = startWorkflowJob({ convId, title: "Stop generating speech" });
+  const job = startWorkflowJob({ convId, messageId: msgId, title: "Stop generating speech" });
   creating.set(msgId, job);
   job.show(btn);
   const ch = `workflow:tts:create:${msgId}`;
   let created = false;
   try {
-    setWorkflowPhase(ch, "Synthesizing speech...");
+    setWorkflowPhase(ch, "Synthesizing speech...", convId);
     const res = await api.post(job.url(convUrl(convId, "workflows", WORKFLOW_ID, "trigger")), {
       action: "create",
       message_id: msgId,
@@ -453,17 +455,17 @@ async function create(msgId, btn) {
     if (!job.stopping) console.error("tts create failed", e);
   } finally {
     creating.delete(msgId);
-    clearWorkflowPhase(ch);
+    clearWorkflowPhase(ch, convId);
     job.end();
   }
   // A stopped synthesis answers 409 unless its speech was already being saved,
   // so the saved rows decide.
   if (job.stopping) {
-    await refreshConversationMessages(msgId);
+    await refreshConversationMessages(msgId, convId);
   } else if (created) {
     // Until the refetch swaps in the speech chip, the button must not start a second one.
     if (btn) btn.disabled = true;
-    await refreshConversationMessages(msgId);
+    await refreshConversationMessages(msgId, convId);
   }
 }
 

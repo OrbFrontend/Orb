@@ -270,6 +270,7 @@ function _sortedAlts(token) {
 }
 
 function _render(run, at) {
+  const target = _ctx.getTarget?.();
   const token = run.tokens[at.index];
   _popup.textContent = "";
   let currentMarked = false;
@@ -288,7 +289,7 @@ function _render(run, at) {
     pctSpan.className = "prob-pct";
     pctSpan.textContent = `${(alt.p * 100).toFixed(2)}%`;
     btn.append(tokSpan, pctSpan);
-    btn.addEventListener("click", () => _ctx.requestSwap?.(run, at.index, alt));
+    btn.addEventListener("click", () => _ctx.requestSwap?.(run, at.index, alt, target));
     _popup.appendChild(btn);
   }
   _position(at);

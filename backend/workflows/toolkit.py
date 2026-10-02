@@ -51,6 +51,7 @@ from ..database import (
     get_character_card,
     get_conversation,
     get_director_state,
+    get_effective_world_ids,
     get_group_member_scripts,
     get_interactive_fragments,
     get_message_by_id,
@@ -370,7 +371,9 @@ async def build_offturn_prefix(
         history,
         macros,
         user_description,
-        constant_lorebook_block=_compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
+        constant_lorebook_block=_compute_constant_lorebook_block(
+            await get_active_lorebook_entries(await get_effective_world_ids(conversation_id)), macros
+        ),
         cast=turn_cast,
         speaker_names=speaker_names,
         scripts=CardScripts.from_extensions(card.get("extensions") if card else None),

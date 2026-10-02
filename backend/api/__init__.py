@@ -14,6 +14,7 @@ from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
+from .admission import DatasetAdmissionMiddleware
 from .cache_control import CacheControlMiddleware
 from .compression import TextGZipMiddleware
 from .deps import FRONTEND_DIR
@@ -96,6 +97,7 @@ def build_app() -> FastAPI:
     # ~20% more CPU for a body about 1% smaller.
     app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
     app.add_middleware(CacheControlMiddleware)
+    app.add_middleware(DatasetAdmissionMiddleware)
 
     for router in ROUTERS:
         app.include_router(router)

@@ -11,7 +11,7 @@ import {
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
 import { _avatarBust, loadCharacters } from "./library_sidebar.js";
-import { loadWorlds } from "./lorebooks.js";
+import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
@@ -553,6 +553,7 @@ export async function saveCharEdit(id, exportAfter = false) {
       }
     }
     await loadCharacters();
+    renderWorldsSidebar(); // a changed World link moves the linked World to the top
     await loadConversations();
     const activeConv = S.conversations.find((c) => c.id === S.activeConvId);
     if (activeConv && activeConv.character_card_id === id) {

@@ -133,7 +133,7 @@ async def test_a_pending_proposal_is_not_lore_yet(client, llm_mock):
     await _drain(handle_turn("conv-dw-2", "I cross"))
 
     assert await _effective_names(client, world_id) == ["The Bridge"]
-    active = (await client.get("/api/lorebook-entries/active")).json()
+    active = (await client.get("/api/lorebook-entries/active", params={"cid": "conv-dw-2"})).json()
     assert [e["name"] for e in active] == ["The Bridge"]
 
 
@@ -155,7 +155,7 @@ async def test_an_opted_in_world_proposes_without_a_character_linking_it(client,
     A World that is enabled is feeding this turn's lore, so the exchange is
     evidence about it whether or not the speaking character's card points at it.
     """
-    world = (await client.post("/api/worlds", json={"name": "Shared"})).json()
+    world = (await client.post("/api/worlds", json={"name": "Shared", "is_global": True})).json()
     await client.post(f"/api/worlds/{world['id']}/entries", json=_ENTRY)
     await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
     card = (await client.post("/api/characters", json={"name": "Loner"})).json()
@@ -171,8 +171,8 @@ async def test_an_opted_in_world_proposes_without_a_character_linking_it(client,
 async def test_a_disabled_world_is_never_a_target(client, llm_mock):
     """It fed nothing into the prompt, so nothing in the reply is about it."""
     world_id, card_id = await _world_with_character(client)
-    await client.put(f"/api/worlds/{world_id}", json={"enabled": False})
     await _conversation("conv-dw-4c", card_id)
+    await client.put(f"/api/conversations/conv-dw-4c/worlds/{world_id}", json={"enabled": False})
     llm_mock.enqueue_writer("It falls.")
 
     await _drain(handle_turn("conv-dw-4c", "I cross"))
@@ -184,7 +184,7 @@ async def test_a_disabled_world_is_never_a_target(client, llm_mock):
 async def test_one_call_proposes_to_every_opted_in_world(client, llm_mock):
     """Several Worlds, one judgement -- split into one changeset each."""
     gorge_id, card_id = await _world_with_character(client, name="Gorge")
-    guild = (await client.post("/api/worlds", json={"name": "Guild"})).json()
+    guild = (await client.post("/api/worlds", json={"name": "Guild", "is_global": True})).json()
     await client.put(f"/api/worlds/{guild['id']}/dynamic", json={"enabled": True})
     await _conversation("conv-dw-4d", card_id)
 
@@ -943,7 +943,7 @@ async def test_re_evaluation_with_no_operations_still_retires_the_original(clien
 async def test_effective_view_matches_prompt_when_a_replacement_is_disabled(
     client,
 ):
-    world = (await client.post("/api/worlds", json={"name": "Projection"})).json()
+    world = (await client.post("/api/worlds", json={"name": "Projection", "is_global": True})).json()
     authored = (
         await client.post(
             f"/api/worlds/{world['id']}/entries",
@@ -968,7 +968,8 @@ async def test_effective_view_matches_prompt_when_a_replacement_is_disabled(
     )
 
     effective = (await client.get(f"/api/worlds/{world['id']}/entries", params={"view": "effective"})).json()
-    active = (await client.get("/api/lorebook-entries/active")).json()
+    conv = (await client.post("/api/conversations", json={})).json()
+    active = (await client.get("/api/lorebook-entries/active", params={"cid": conv["id"]})).json()
 
     assert [(e["id"], e["content"]) for e in effective] == [(authored["id"], "The bridge stands.")]
     assert [(e["id"], e["content"]) for e in active] == [(authored["id"], "The bridge stands.")]

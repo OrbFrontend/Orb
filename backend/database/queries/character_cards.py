@@ -3,7 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -564,15 +565,14 @@ async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old
         await db.commit()
 
 
-async def delete_character_card(card_id: str, delete_conversations: bool = False) -> bool:
-    async with get_db() as db:
+async def delete_character_card(card_id: str, delete_conversations: bool, *, idle_guard: Callable) -> bool:
+    """Delete a card; *idle_guard* refuses its busy chats and fences them until commit."""
+    chats = "FROM conversations WHERE character_card_id = ? OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id = ?)"
+    async with AsyncExitStack() as fence, immediate_tx() as db:
+        rows = await db.execute_fetchall(f"SELECT id, title {chats}", (card_id, card_id))  # nosec B608 -- constant fragment
+        fence.enter_context(idle_guard([dict(row) for row in rows]))
         if delete_conversations:
-            await db.execute(
-                """DELETE FROM conversations
-                   WHERE character_card_id = ?
-                      OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id = ?)""",
-                (card_id, card_id),
-            )
+            await db.execute(f"DELETE {chats}", (card_id, card_id))  # nosec B608 -- constant fragment
         # When keeping conversations, character_card_id is intentionally left as-is.
         # The dangling reference acts as a pending-relink marker: re-importing the
         # same card (which produces the same stable ID) restores the association

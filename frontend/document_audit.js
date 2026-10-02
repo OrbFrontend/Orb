@@ -265,7 +265,7 @@ export async function runPatch() {
     });
     if (S.docAuditResults !== r) return;
     if (res.patch_count > 0 && res.patched_draft !== r.draft) {
-      if (_ctx.applyPatchedRun(r.runStart, r.draft, res.patched_draft)) r.draft = res.patched_draft;
+      if (runIsCurrent(r) && _ctx.applyPatchedRun(r, res.patched_draft)) r.draft = res.patched_draft;
     }
     r.report = res.report_after;
     r.patchedCount = res.patch_count;

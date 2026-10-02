@@ -66,6 +66,7 @@ from ...workflows.attachment_cache import (
     rehydrate_attachment,
     set_active_sibling,
     validate_workflow_attachment_shape,
+    variant_on_show,
 )
 from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.errors import WorkflowUserFacingError
@@ -245,14 +246,17 @@ async def api_trigger_workflow(
     The hook runs as a workflow job, so Stop can cancel a long on-demand render
     such as speech; a streaming result is stopped by closing its stream.
     """
-    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job))
+    # The body is free-form; only an integer message id names a source a message delete must stop.
+    source = body.get("message_id")
+    message_id = source if type(source) is int else None
+    result = await _finished_job(start_workflow_job(cid, _trigger(cid, workflow_id, body), job=job, message_id=message_id))
     # A streaming result is wrapped by the API layer -- the workflow returns a
     # transport-neutral WorkflowEventStream, never an HTTP response. The response
     # is built after the workflow locks release: the event iterator is lazy, so
     # the hook's DB/prefix prep ran under the locks while the stream itself runs
     # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
     if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result)
+        return _workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
     return result
 
 
@@ -356,6 +360,7 @@ async def api_regenerate_attachment(
             emit=lambda event, data: updates.put_nowait((event, data)),
         ),
         job=job,
+        message_id=mid,
     )
     if "text/event-stream" not in request.headers.get("accept", ""):
         return await _finished_job(task)
@@ -447,18 +452,26 @@ async def _regenerate(
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
         card_id, card = await _resolve_workflow_character(conv, list(msgs), target_message=anchor)
+        initially_shown = await variant_on_show(root_id)
         kept: list[int] = []
         rejections: list[dict] = []
 
+        def candidate_of(attachment: dict, **extra: Any) -> dict:
+            # Stamped with the text it renders: an edit made meanwhile keeps it from auto-activating.
+            metadata = {**(attachment.get("generation_metadata") or {}), "source_text": anchor["content"]}
+            return {**attachment, "workflow_id": sub.workflow_id, **extra, "generation_metadata": metadata}
+
         async def keep(attachment: dict) -> int | None:
-            candidate = {**attachment, "workflow_id": sub.workflow_id}
+            candidate = candidate_of(attachment)
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
                 rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
                 return None
             # The group lock is held, so the root cannot move; `shown` leaves a user
             # who paged away from the previous render where they are.
-            new_id, rejected = await insert_workflow_variant(mid, candidate, group=[root_id], shown=kept[-1] if kept else None)
+            new_id, rejected = await insert_workflow_variant(
+                mid, candidate, group=[root_id], shown=kept[-1] if kept else initially_shown
+            )
             if rejected is not None:
                 rejections.append(project_rejected_attachment(rejected, root_id))
             if new_id is None:
@@ -504,7 +517,7 @@ async def _regenerate(
             if not isinstance(d, dict):
                 logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
                 continue
-            candidate = {**d, "workflow_id": sub.workflow_id, "parent_attachment_id": root_id}
+            candidate = candidate_of(d, parent_attachment_id=root_id)
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
                 rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
@@ -521,7 +534,9 @@ async def _regenerate(
 
         try:
             with committing_workflow_job():
-                new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
+                new_ids, helper_rejected = await insert_workflow_attachments(
+                    mid, fixed, shown=kept[-1] if kept else initially_shown
+                )
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
             raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
@@ -655,7 +670,9 @@ async def api_reroll_gen_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
-    return await _finished_job(start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot), job=job))
+    return await _finished_job(
+        start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot), job=job, message_id=mid)
+    )
 
 
 async def _reroll_gen(
@@ -665,7 +682,12 @@ async def _reroll_gen(
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock
     # snapshot and root id are read under the same lock the write will hold.
     async with locked_attachment_group(aid, mid) as (att, root_id):
+        initially_shown = await variant_on_show(root_id)
         params = _decode_generation_params(att)
+        anchor = await get_message_by_id(mid)
+        if anchor is None or anchor["conversation_id"] != cid:
+            raise HTTPException(status_code=404, detail="Message not found in conversation")
+        source_text = params.pop("source_text", anchor["content"])
         _apply_param_overrides(params, body)
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
@@ -689,13 +711,13 @@ async def _reroll_gen(
             "mime": att.get("mime_type") or "application/octet-stream",
             "data": bytes(data),
             "seed": seed,
-            "generation_metadata": params,
+            "generation_metadata": {**params, "source_text": source_text},
             "consumption_metadata": new_consumption_metadata,
             "annotation": att.get("annotation"),
         }
         try:
             with committing_workflow_job():
-                new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
+                new_id, rejected = await insert_workflow_attachment(mid, new_attachment, shown=initially_shown)
         except (ValueError, LookupError, OSError):
             logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
             raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None
@@ -780,7 +802,9 @@ async def api_rehydrate_attachment(
         action="rehydrate",
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
-    return await _finished_job(start_workflow_job(cid, _rehydrate(cid, mid, aid, seed, settings_snapshot), job=job))
+    return await _finished_job(
+        start_workflow_job(cid, _rehydrate(cid, mid, aid, seed, settings_snapshot), job=job, message_id=mid)
+    )
 
 
 async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Mapping[str, Any]) -> dict:

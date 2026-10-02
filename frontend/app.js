@@ -1,3 +1,4 @@
+import { onRefreshRequired } from "./api.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
   applyCompression,
@@ -11,6 +12,7 @@ import {
   createCheckpoint,
   deleteConversationFromModal,
   deleteMessage,
+  discardQueuedEdit,
   generateCompressionSummary,
   handleMagicKey,
   handleTitleEditKey,
@@ -27,6 +29,7 @@ import {
   regenerate,
   regenerateFromUser,
   renderMessages,
+  retryQueuedEdits,
   rewriteMessageProse,
   saveEdit,
   saveEditPending,
@@ -116,7 +119,6 @@ import {
   closeLorebook,
   collapseWorlds,
   createWorld,
-  deactivateLinkedWorlds,
   deleteWorld,
   expandWorlds,
   initWorldProposalActions,
@@ -445,6 +447,11 @@ initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
 registerAction("expression-playback", "advance", advanceExpressionPlayback);
+registerAction("chat-compression", "generate", generateCompressionSummary);
+registerAction("chat-compression", "cancel", cancelCompression);
+registerAction("chat-compression", "apply", applyCompression);
+registerAction("queued-edit", "retry", retryQueuedEdits);
+registerAction("queued-edit", "discard", discardQueuedEdit);
 document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();
@@ -483,7 +490,7 @@ async function initAll() {
     // Conversations first: loadCharacters fetches the (large) conversation list
     // itself when S.conversations is not set yet.
     startupStep("load conversations", loadConversations).then(() => startupStep("load characters", loadCharacters)),
-    startupStep("deactivate linked worlds", deactivateLinkedWorlds).then(() => startupStep("load worlds", loadWorlds)),
+    startupStep("load worlds", loadWorlds),
     // These render against state loadSettings fills in (the Agent switch and
     // enabled tools gate the fragment lists), so they wait for it.
     settings.then(() =>
@@ -509,3 +516,10 @@ async function initAll() {
 }
 
 initAll();
+
+onRefreshRequired(() => {
+  const input = document.getElementById("chat-input");
+  if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
+  // The reload fires the real beforeunload, which flushes document drafts.
+  window.location.reload();
+});

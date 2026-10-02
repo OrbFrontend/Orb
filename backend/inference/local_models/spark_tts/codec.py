@@ -11,6 +11,7 @@ from .tokens import SEMANTIC_COUNT, validate_speaker_tokens
 SAMPLE_RATE = 16000
 
 
+@onnx_runtime.using
 def decode(semantic: Sequence[int], speaker_tokens: Sequence[int], *, trim: bool = True) -> bytes:
     """Decode semantic and speaker tokens to 16-bit mono PCM."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime

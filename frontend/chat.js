@@ -58,9 +58,11 @@ export {
 } from "./chat_messages.js";
 export {
   continueFromUser,
+  discardQueuedEdit,
   handleMagicKey,
   regenerate,
   regenerateFromUser,
+  retryQueuedEdits,
   sendMessage,
   stopGeneration,
   submitMagicRewrite,

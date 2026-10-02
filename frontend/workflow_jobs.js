@@ -1,4 +1,6 @@
 import { api } from "./api.js";
+import { begin, finish } from "./operations.js";
+import { S } from "./state.js";
 import { convUrl, escAttr } from "./utils.js";
 
 // A workflow render the button that started it can stop. While it runs, that
@@ -14,13 +16,10 @@ import { convUrl, escAttr } from "./utils.js";
 // A double click's second press is not a Stop.
 const STOP_ARM_MS = 400;
 
-// Live jobs by id, so a control the framework did not render can stop one.
-const _live = new Map();
-
-export function startWorkflowJob({ convId = null, title, controller = null }) {
+export function startWorkflowJob({ convId = null, title, controller = null, messageId = null, attachmentId = null }) {
   const startedAt = performance.now();
-  const job = {
-    id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`,
+  const record = begin("media", { conversationId: convId, messageId, attachmentId });
+  const job = Object.assign(record, {
     title,
     // Set from the first Stop press; a request that then fails was stopped.
     stopping: false,
@@ -57,7 +56,7 @@ export function startWorkflowJob({ convId = null, title, controller = null }) {
       for (const btn of _buttons(job)) btn.disabled = false;
     },
     end() {
-      _live.delete(job.id);
+      finish(job);
       for (const btn of _buttons(job)) {
         btn.classList.remove("wf-running");
         btn.title = btn.dataset.idleTitle || "";
@@ -68,14 +67,13 @@ export function startWorkflowJob({ convId = null, title, controller = null }) {
         btn.disabled = false;
       }
     },
-  };
-  _live.set(job.id, job);
+  });
   return job;
 }
 
 /** Stop the live job *jobId*; an id that ended, or never ran, is ignored. */
 export function stopWorkflowJob(jobId) {
-  return _live.get(jobId)?.stop();
+  return S.operations.get(jobId)?.stop();
 }
 
 function _buttons(job) {

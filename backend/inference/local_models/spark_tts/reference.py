@@ -143,6 +143,7 @@ def select_excerpt(wav: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(np.concatenate([audio[start:end] for start, end in excerpt_ranges(audio)]))
 
 
+@onnx_runtime.using
 def semantic_tokens(signal: np.ndarray) -> list[int]:
     """Encode an excerpt as BiCodec semantic tokens."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime

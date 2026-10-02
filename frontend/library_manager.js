@@ -6,7 +6,7 @@ import { TAG_ICON } from "./icons.js";
 import { cardGeneratorToolHtml, mountCardGenerator } from "./library_card_generator.js";
 import { dedupeToolHtml, mountLibraryDedupe, setDedupeCharacterCount } from "./library_dedupe.js";
 import { showSubConfirmModal } from "./modal.js";
-import { sseEvents, streamPost } from "./sse.js";
+import { beginStream, settle, streamEvents } from "./operations.js";
 import { $, esc, toast } from "./utils.js";
 
 const MAX_VOCABULARY = 64;
@@ -102,7 +102,7 @@ function onPanelClick(e) {
   const action = e.target.closest("[data-action]")?.dataset.action;
   if (action === "save-vocab") saveVocabulary();
   else if (action === "run") confirmRun();
-  else if (action === "cancel") _controller?.abort();
+  else if (action === "cancel") _controller?.stop();
 }
 
 function chipInput() {
@@ -289,7 +289,8 @@ function confirmRun() {
 
 async function startRun(force = false) {
   if (_controller) return;
-  _controller = new AbortController();
+  const record = beginStream("tagging", { library: true }, "/library/auto-tag/stop");
+  _controller = record;
   const total = force ? _total : _pending;
   const reasoning = !!$("lib-run-reasoning")?.checked;
   const lane = _lane;
@@ -298,9 +299,7 @@ async function startRun(force = false) {
 
   let failed = 0;
   try {
-    const response = await streamPost("/library/auto-tag/run", { lane, reasoning, force }, _controller.signal);
-    if (!response.ok) throw new Error(`run returned ${response.status}`);
-    for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
+    for await (const event of streamEvents(record, "/library/auto-tag/run", { lane, reasoning, force }, "Tagging")) {
       let data = {};
       try {
         data = event.data ? JSON.parse(event.data) : {};
@@ -319,6 +318,7 @@ async function startRun(force = false) {
   } catch (e) {
     if (e?.name !== "AbortError") toast(`Tagging failed: ${e.message}`, true);
   } finally {
+    await settle(record);
     _controller = null;
     hideProgress();
     await refresh();

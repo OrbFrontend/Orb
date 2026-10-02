@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, apiFetch } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import { renderTurnError } from "./chat_error.js";
 import { reconcileChildren } from "./dom_reconcile.js";
@@ -26,6 +26,7 @@ import {
   escHandlerArg,
   formatBytes,
   resolvePlaceholders,
+  toast,
   userAttachmentSrc,
 } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
@@ -45,6 +46,14 @@ export function setWorkflowMessagePresentation({ renderArtifacts, renderRejectio
 }
 
 export function canStartGeneration() {
+  if (S.conversationLoading) {
+    toast("Conversation is still loading", true);
+    return false;
+  }
+  if (Object.keys(S.queuedEdits).length) {
+    toast("Save or discard pending edits first", true);
+    return false;
+  }
   if (S.isStreaming || S.proseRewriteMsgId) return false;
   return requestSendPermission();
 }
@@ -74,16 +83,16 @@ function normalizeMessages(msgs) {
   return msgs;
 }
 
-export function setMessages(serverMsgs) {
+export function setMessages(serverMsgs, state = S) {
   const normalized = normalizeMessages(serverMsgs);
-  if (S.isStreaming) {
-    const pending = S.messages.filter((m) => !m.id);
-    S.messages = pending.length ? [...normalized, ...pending] : normalized;
+  if (state.isStreaming) {
+    const pending = state.messages.filter((m) => !m.id);
+    state.messages = pending.length ? [...normalized, ...pending] : normalized;
   } else {
-    S.messages = normalized;
+    state.messages = normalized;
   }
-  const liveIds = new Set(S.messages.map((m) => m.id).filter((id) => id != null));
-  S.rejectedWorkflowAtts = S.rejectedWorkflowAtts.filter((r) => liveIds.has(r.message_id));
+  const liveIds = new Set(state.messages.map((m) => m.id).filter((id) => id != null));
+  state.rejectedWorkflowAtts = state.rejectedWorkflowAtts.filter((r) => liveIds.has(r.message_id));
 }
 
 export const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">${EDIT_ICON_PATHS}</svg>`;
@@ -379,7 +388,11 @@ function _messageHtml(m, num, avatars, playback) {
   const isEditing =
     (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
   const branchHtml = swipeNavHtml(m);
-  const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
+  const pendingEdit =
+    m.id in S.queuedEdits && !S.isStreaming
+      ? `<div class="msg-edit-unsaved">Edit not saved <button data-wf-action="queued-edit:retry">Retry</button> <button data-wf-action="queued-edit:discard" data-msg-id="${m.id}">Discard</button></div>`
+      : "";
+  const toolbar = isEditing ? pendingEdit : `${pendingEdit}<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
   const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
   const [cancelCall, commitCall, commitLabel] = isForkEditing
     ? [`cancelForkEdit()`, `saveForkEdit(${m.id})`, "Fork"]
@@ -565,7 +578,7 @@ export function updateContextCounter() {
 }
 
 async function getContextSize(convId) {
-  const r = await fetch(`/api/conversations/${convId}/context-size`);
+  const r = await apiFetch(`/api/conversations/${convId}/context-size`);
   if (!r.ok) return null;
   return r.json();
 }
@@ -573,7 +586,10 @@ async function getContextSize(convId) {
 async function fetchContextSize() {
   if (!S.activeConvId) return;
   try {
-    const data = await getContextSize(S.activeConvId);
+    const cid = S.activeConvId;
+    const token = S.conversationViewToken;
+    const data = await getContextSize(cid);
+    if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
     if (data) {
       S.contextSize = data;
       renderContextSize();

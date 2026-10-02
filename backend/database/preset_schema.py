@@ -10,6 +10,8 @@ from __future__ import annotations
 #
 # A *root* owns no other table: nothing points at it via ``ON DELETE CASCADE``.
 # Non-root tables join their root's domain by following ownership edges upward.
+OWNERSHIP_COLUMNS: dict[str, str] = {"conversation_worlds": "conversation_id"}
+
 DOMAIN_ROOTS: dict[str, str] = {
     "conversations": "chats",
     "character_cards": "characters",
@@ -35,7 +37,7 @@ DOMAIN_ROOTS: dict[str, str] = {
 #   * schema_migrations    -- migration bookkeeping (stamped separately)
 #   * message_attachments  -- legacy, empty post-0020; gone from schema.py but still
 #     present (empty) in DBs upgraded under older builds whose init_db recreated it
-EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments"})
+EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"})
 
 # Touch when: a migration adds a column holding a key, the user's identity, or their
 # prompts (the coverage test will fail and point you here); drop an entry only when

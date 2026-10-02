@@ -16,7 +16,6 @@ from ...database import (
     add_dismissals,
     apply_auto_tags,
     apply_avatar_dhash,
-    delete_character_card,
     get_auto_tag_counts,
     get_card_activity,
     get_character_card,
@@ -29,9 +28,9 @@ from ...database import (
     list_pending_auto_tag_ids,
     list_stale_avatar_ids,
     read_avatar_b64,
-    relink_card,
     remove_dismissals,
     replace_vocabulary,
+    resolve_duplicate_cards,
 )
 from ...features.card_generator import (
     CardGenerationUnavailable,
@@ -68,7 +67,12 @@ from ...inference import (
     provider_sentence,
 )
 from ...pipeline import resolve_judge_config
-from ..deps import _CleanupStreamingResponse, _sse_stream
+from ..deps import (
+    _CleanupStreamingResponse,
+    _sse_stream,
+    idle_chats_guard,
+    stop_active_stream,
+)
 from ..schemas import (
     AutoTagRunRequest,
     CardGeneratorRunRequest,
@@ -299,7 +303,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
 
     return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token),
+        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"),
         media_type="text/event-stream",
     )
 
@@ -460,7 +464,7 @@ async def api_scan_library_duplicates(request: Request):
             yield {"event": "done", "data": report}
 
     return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token),
+        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"),
         media_type="text/event-stream",
     )
 
@@ -523,16 +527,6 @@ async def api_restore_library_duplicates(data: DuplicateDismissRequest):
     return {"restored": await remove_dismissals(data.pairs)}
 
 
-async def _resolve_one(remove_id: str, keep_id: str, relink: bool) -> dict[str, int]:
-    """Relink and delete a single doomed card. The caller already holds the lock."""
-    impact = await get_relink_impact(remove_id, keep_id)
-    if relink:
-        impact = await relink_card(remove_id, keep_id)
-    if not await delete_character_card(remove_id):
-        raise HTTPException(status_code=404, detail="Character card not found")
-    return impact
-
-
 @router.post("/api/library/duplicates/resolve")
 async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
     """Delete a duplicate, blocking history loss unless the caller chooses relink."""
@@ -551,7 +545,12 @@ async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
                     "impact": impact,
                 },
             )
-        impact = await _resolve_one(data.remove_id, data.keep_id, data.relink)
+        try:
+            impact = await resolve_duplicate_cards(
+                [data.remove_id], data.keep_id, relink=data.relink, idle_guard=idle_chats_guard
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ok": True, "relinked": data.relink, "impact": impact}
 
 
@@ -582,11 +581,18 @@ async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest
                     "impact": {"conversations": linked},
                 },
             )
-        totals = {"solo": 0, "groups": 0, "conversations": 0, "collisions": 0}
-        for card_id in data.remove_ids:
-            # Recomputed per card rather than reused from the pre-flight pass:
-            # relinking one member moves rows that change the next one's counts.
-            impact = await _resolve_one(card_id, data.keep_id, data.relink)
-            for key in totals:
-                totals[key] += int(impact.get(key, 0))
+        try:
+            totals = await resolve_duplicate_cards(
+                data.remove_ids, data.keep_id, relink=data.relink, idle_guard=idle_chats_guard
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ok": True, "removed": len(data.remove_ids), "relinked": data.relink, "impact": totals}
+
+
+@router.post("/api/library/{tool}/stop")
+async def api_stop_library_tool(tool: str, operation_id: str | None = None):
+    key = {"duplicates": "library:duplicates", "auto-tag": "library:tagging"}.get(tool)
+    if key is None:
+        raise HTTPException(status_code=404, detail="Unknown library tool")
+    return await stop_active_stream(key, operation_id=operation_id)

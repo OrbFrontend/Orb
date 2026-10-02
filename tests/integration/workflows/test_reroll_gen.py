@@ -78,7 +78,7 @@ async def test_happy_path_inserts_new_sibling_with_fresh_seed_and_same_params(cl
     new_row = await must_get_workflow_attachment(new_id)
     assert new_row["parent_attachment_id"] == aid
     assert new_row["workflow_id"] == "img"
-    assert json.loads(new_row["generation_metadata"]) == {"steps": 4}
+    assert json.loads(new_row["generation_metadata"]) == {"steps": 4, "source_text": "scene"}
     assert new_row["seed"] != "ORIG-SEED"
     assert isinstance(new_row["seed"], str) and len(new_row["seed"]) == 32
     params_passed, seed_passed = captured[0]
@@ -275,7 +275,9 @@ async def _reroll_with_overrides(client, stored: dict, body: dict) -> tuple[dict
         )
     assert resp.status_code == 200
     new_row = await must_get_workflow_attachment(resp.json()["attachment_id"])
-    return captured[0], json.loads(new_row["generation_metadata"])
+    stored = json.loads(new_row["generation_metadata"])
+    assert stored.pop("source_text") == "x"
+    return captured[0], stored
 
 
 async def test_override_reaches_the_hook_and_lands_in_the_new_sibling(client):
@@ -305,3 +307,38 @@ async def test_overrides_cannot_invent_or_retype_params(client):
 async def test_a_non_dict_params_body_is_ignored(client):
     seen, _ = await _reroll_with_overrides(client, {"prompt": "original"}, {"params": "edited"})
     assert seen == {"prompt": "original"}
+
+
+async def test_late_reroll_keeps_user_variant_and_old_source(client):
+    import asyncio
+
+    cid, mid, aid = await _seed_with_metadata(client)
+    sibling = await insert_workflow_attachment_row(
+        mid,
+        {"filename": "chosen.png", "mime": "image/png", "data": b"chosen", "workflow_id": "img", "parent_attachment_id": aid},
+    )
+    base = f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}"
+    await client.post(base + "/activate", json={"sibling_id": aid})
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def reroll(ctx, params, seed):
+        entered.set()
+        await release.wait()
+        return b"late result"
+
+    with register_for_test(make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)):
+        running = asyncio.create_task(client.post(base + "/reroll-gen", json={}))
+        await entered.wait()
+        assert (await client.post(base + "/activate", json={"sibling_id": sibling})).status_code == 200
+        assert (
+            await client.post(
+                f"/api/conversations/{cid}/messages/{mid}/edit", json={"content": "new source", "regenerate": False}
+            )
+        ).status_code == 200
+        release.set()
+        result = await running
+    assert result.status_code == 200
+    root = await must_get_workflow_attachment(aid)
+    assert root["active_sibling_id"] == sibling
+    new_row = await must_get_workflow_attachment(result.json()["attachment_id"])
+    assert json.loads(new_row["generation_metadata"])["source_text"] == "scene"

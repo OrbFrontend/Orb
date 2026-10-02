@@ -4,12 +4,13 @@ import { api } from "./api.js";
 import { COPY_ICON } from "./icons.js";
 import { combinations, compareHtml, duplicateResultsHtml, memberMeta } from "./library_dedupe_view.js";
 import { showSubConfirmModal } from "./modal.js";
-import { sseEvents, streamPost } from "./sse.js";
+import { beginStream, settle, streamEvents } from "./operations.js";
 import { esc, toast } from "./utils.js";
 
 let _root = null;
 let _callbacks = {};
-let _controller = null;
+let _scan = null; // the running scan, until the server has settled it
+let _mount = 0;
 let _report = null;
 let _comparison = null;
 let _compareMarks = {};
@@ -43,9 +44,9 @@ export function dedupeToolHtml() {
 
 /** Mount a fresh Manager-panel instance. Closing the panel intentionally drops results. */
 export function mountLibraryDedupe(root, callbacks = {}) {
+  unmountLibraryDedupe();
   _root = root;
   _callbacks = callbacks;
-  _controller = null;
   _report = null;
   _comparison = null;
   _compareMarks = {};
@@ -70,7 +71,7 @@ function onClick(event) {
   if (!button || !_root?.contains(button)) return;
   const action = button.dataset.dupeAction;
   if (action === "scan") startScan();
-  else if (action === "cancel") _controller?.abort();
+  else if (action === "cancel") _scan?.stop();
   else if (action === "compare") {
     loadCompare(button.dataset.dupeA, button.dataset.dupeB, {
       a: button.dataset.dupeMarkA,
@@ -108,7 +109,7 @@ function resultSummary() {
 
 function paint() {
   if (!_root) return;
-  const running = !!_controller;
+  const running = !!_scan;
   const status = _root.querySelector("[data-dupe-status]");
   if (status) {
     status.textContent = running
@@ -157,16 +158,21 @@ function hideProgress() {
   if (progress) progress.hidden = true;
 }
 
-async function startScan() {
-  if (_controller) return;
-  _controller = new AbortController();
+function startScan() {
+  if (_scan) return;
+  // A panel closed mid-scan keeps it registered, so a reopened panel waits for it.
+  _scan = beginStream("duplicate-scan", { library: true }, "/library/duplicates/stop");
+  _scan.completion = scan(_scan, _mount);
+  return _scan.completion;
+}
+
+async function scan(record, mount) {
   _comparison = null;
   showProgress(0, 0, "");
   paint();
   try {
-    const response = await streamPost("/library/duplicates/scan", {}, _controller.signal);
-    if (!response.ok) throw new Error(`scan returned ${response.status}`);
-    for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
+    for await (const event of streamEvents(record, "/library/duplicates/scan", {}, "Scan")) {
+      if (_mount !== mount) continue;
       let data = event.data;
       try {
         data = event.data ? JSON.parse(event.data) : {};
@@ -184,16 +190,22 @@ async function startScan() {
   } catch (error) {
     if (error?.name !== "AbortError") toast(`Duplicate scan failed: ${error.message}`, true);
   } finally {
-    _controller = null;
-    hideProgress();
+    await settle(record);
+    _scan = null;
+    if (_mount === mount) hideProgress();
     paint();
   }
 }
 
 async function loadCompare(a, b, marks) {
   if (!a || !b) return;
+  const mount = _mount;
   try {
-    _comparison = await api.get(`/library/duplicates/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    const comparison = await api.get(
+      `/library/duplicates/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    );
+    if (_mount !== mount) return;
+    _comparison = comparison;
     _compareMarks = { a: marks?.a || "A", b: marks?.b || "B" };
     paint();
   } catch (error) {
@@ -326,4 +338,11 @@ async function afterResolve(removed) {
   await _callbacks.onRunComplete?.();
   await startScan();
   toast(removed === 1 ? "Duplicate removed" : `${removed} duplicates removed`);
+}
+
+export function unmountLibraryDedupe() {
+  _mount++;
+  _scan?.stop();
+  _root?.removeEventListener("click", onClick);
+  _root = null;
 }

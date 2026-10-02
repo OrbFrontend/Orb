@@ -95,12 +95,12 @@ async def get_world_by_name(name: str) -> WorldRow | None:
 async def _insert_world(db, data: Mapping[str, Any], now: str) -> str:
     world_id = data.get("id") or str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO worlds (id, name, enabled, dynamic_enabled, content_revision, created_at, updated_at)"
+        "INSERT INTO worlds (id, name, is_global, dynamic_enabled, content_revision, created_at, updated_at)"
         " VALUES (?, ?, ?, ?, 0, ?, ?)",
         (
             world_id,
             data["name"],
-            1 if data.get("enabled", True) else 0,
+            1 if data.get("is_global", False) else 0,
             1 if data.get("dynamic_enabled", False) else 0,
             now,
             now,
@@ -125,7 +125,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
     lore, so none of them invalidates a pending proposal (see module docstring).
     """
     async with get_db() as db:
-        allowed = ["name", "enabled", "dynamic_enabled"]
+        allowed = ["name", "is_global", "dynamic_enabled"]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
@@ -139,46 +139,48 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
         return await get_world(world_id)
 
 
-async def disable_character_linked_worlds() -> list[str]:
-    """Disable Worlds linked to character cards."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id FROM worlds WHERE enabled = 1"
-                " AND id IN (SELECT world_id FROM character_cards WHERE world_id IS NOT NULL)"
-            )
-        )
-        ids = [str(r[0]) for r in rows]
-        if ids:
-            await db.execute(
-                f"UPDATE worlds SET enabled = 0 WHERE id IN ({', '.join('?' * len(ids))})",  # nosec B608 — placeholders only, values parameterised
-                ids,
-            )
-            await db.commit()
-        return ids
+# Whether World ``w`` is on by default in a conversation: global, or linked to
+# its card or an active group member's. Binds the conversation id twice.
+_DEFAULT_ON_SQL = (
+    "(w.is_global = 1 OR w.id IN (SELECT world_id FROM character_cards WHERE id IN ("
+    "SELECT character_card_id FROM conversations WHERE id = ? "
+    "UNION SELECT character_card_id FROM group_members WHERE conversation_id = ? AND active = 1)))"
+)
 
 
-async def activate_character_linked_worlds(character_ids: Sequence[str]) -> list[str]:
-    """Enable Worlds linked to *character_ids* without recency/revision stamps."""
-    if not character_ids:
-        return []
-    placeholders = ", ".join("?" * len(character_ids))
+async def get_effective_world_ids(cid: str) -> list[str]:
+    """Explicit scene choices override global and cast-linked defaults."""
     async with get_db() as db:
+        rows = await db.execute_fetchall(
+            "SELECT w.id FROM worlds w LEFT JOIN conversation_worlds cw ON cw.world_id = w.id AND cw.conversation_id = ? "
+            f"WHERE COALESCE(cw.enabled, {_DEFAULT_ON_SQL}) = 1 ORDER BY w.id",  # nosec B608 -- constant fragment
+            (cid, cid, cid),
+        )
+        return [str(row[0]) for row in rows]
+
+
+async def set_conversation_world(cid: str, world_id: str, enabled: bool) -> None:
+    """Store only overrides, so future default changes reach the scene."""
+    async with immediate_tx() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT DISTINCT world_id FROM character_cards "  # nosec B608 -- placeholders only
-                f"WHERE id IN ({placeholders}) AND world_id IS NOT NULL ORDER BY world_id",
-                list(character_ids),
+                f"SELECT {_DEFAULT_ON_SQL} FROM worlds w WHERE w.id = ?",  # nosec B608 -- constant fragment
+                (cid, cid, world_id),
             )
         )
-        ids = [str(row[0]) for row in rows]
-        if ids:
+        if not rows:
+            return
+        if int(enabled) == rows[0][0]:
             await db.execute(
-                f"UPDATE worlds SET enabled = 1 WHERE id IN ({', '.join('?' * len(ids))})",  # nosec B608
-                ids,
+                "DELETE FROM conversation_worlds WHERE conversation_id = ? AND world_id = ?",
+                (cid, world_id),
             )
-            await db.commit()
-    return ids
+        else:
+            await db.execute(
+                "INSERT INTO conversation_worlds (conversation_id, world_id, enabled) VALUES (?, ?, ?) "
+                "ON CONFLICT(conversation_id, world_id) DO UPDATE SET enabled = excluded.enabled",
+                (cid, world_id, int(enabled)),
+            )
 
 
 async def delete_world(world_id: str) -> bool:
@@ -390,7 +392,7 @@ async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] |
         return True
 
 
-async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
+async def get_active_lorebook_entries(world_ids: Sequence[str]) -> list[ActiveLorebookEntryRow]:
     """Enabled, non-archived entries from enabled worlds -- **both** layers.
 
     Joins ``w.name AS world_name`` so callers (the agentic-lorebook catalog) can
@@ -402,15 +404,18 @@ async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
     that hides it. Resolving that is ``prompting.lorebook`` -- the projection
     lives in the lore layer, which ``database/`` sits below and may not import.
     """
+    if not world_ids:
+        return []
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                """
+                f"""
             SELECT le.*, w.name AS world_name FROM lorebook_entries le
             JOIN worlds w ON le.world_id = w.id
-            WHERE le.enabled = 1 AND w.enabled = 1 AND le.archived = 0
+            WHERE le.enabled = 1 AND w.id IN ({",".join("?" for _ in world_ids)}) AND le.archived = 0
             ORDER BY le.priority DESC, le.sort_order ASC, le.id ASC
-            """
+            """,
+                list(world_ids),  # nosec B608 -- placeholders only
             )
         )
         return [cast(ActiveLorebookEntryRow, _parse_lorebook_entry(r)) for r in rows]

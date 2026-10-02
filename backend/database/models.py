@@ -451,7 +451,7 @@ class WorldRow(TypedDict):
 
     id: str
     name: str
-    enabled: int
+    is_global: int
     dynamic_enabled: int
     content_revision: int
     created_at: str
@@ -761,3 +761,4 @@ class DocumentRow(DocumentListRow):
 
     content: str
     generated_spans: list
+    revision: int

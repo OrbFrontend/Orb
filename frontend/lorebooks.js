@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, isModalOpen, showConfirmModal, showModal } from "./modal.js";
-import { charactersView } from "./state.js";
+import { charactersView, S } from "./state.js";
 import { $, boolFlag, downloadBlob, esc, fromMessageBody, plural, toast } from "./utils.js";
 import { changesetRowHtml, isOpen, operationEditHtml, readOperationEdit } from "./world_proposals.js";
 
@@ -88,14 +88,23 @@ async function _loadEntries(worldId) {
   _entries[worldId] = await api.get(`/worlds/${worldId}/entries`);
 }
 
-const _isWorldEnabled = (w) => boolFlag(w.enabled);
+const _isWorldEnabled = (w) => S.activeConvId != null && S.activeWorldIds.has(w.id);
 const _worldRecencyTs = (w) => Date.parse(w.updated_at || w.created_at || "") || 0;
 const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
 
+// The selected character's linked World leads the panel, enabled or not.
+function _linkedWorld() {
+  const worldId = S.activeCharId && charactersView().find((c) => c.id === S.activeCharId)?.world_id;
+  return (worldId && _worlds.find((w) => w.id === worldId)) || null;
+}
+
 function _visibleWorlds() {
   const q = _worldSearch.trim().toLowerCase();
-  const active = _worlds.filter(_isWorldEnabled).sort(_byRecency);
-  const inactive = _worlds.filter((w) => !_isWorldEnabled(w)).sort(_byRecency);
+  const linked = _linkedWorld();
+  const rest = _worlds.filter((w) => w !== linked);
+  const pinned = linked ? [linked] : [];
+  const active = [...pinned, ...rest.filter(_isWorldEnabled).sort(_byRecency)];
+  const inactive = rest.filter((w) => !_isWorldEnabled(w)).sort(_byRecency);
   if (q) {
     const match = (w) => w.name.toLowerCase().includes(q);
     return { shown: [...active.filter(match), ...inactive.filter(match)], hidden: 0 };
@@ -125,7 +134,7 @@ function _worldItemHtml(w) {
     </div>
     <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
       <label class="tog" for="${toggleId}">
-        <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
+        <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""} ${!S.activeConvId ? "disabled" : ""}
                onchange="toggleWorldEnabled('${w.id}', this.checked)">
         <span class="tog-slider"></span>
       </label>
@@ -188,57 +197,18 @@ export function collapseWorlds() {
   renderWorldsSidebar();
 }
 
-export async function activateAndPrioritizeWorld(worldId) {
-  const world = _getWorld(worldId);
-  if (!world) return;
-  if (!boolFlag(world.enabled)) {
-    try {
-      _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled: true }));
-    } catch (e) {
-      console.error("Failed to enable world:", e);
-      return;
-    }
-  }
-  const [w] = _worlds.splice(
-    _worlds.findIndex((x) => x.id === worldId),
-    1,
-  );
-  _worlds.unshift(w);
-  renderWorldsSidebar();
-}
-
 export function reflectConversationWorldActivation(worldIds) {
-  const active = new Set(worldIds || []);
-  const linked = new Set(
-    charactersView()
-      .map((card) => card.world_id)
-      .filter(Boolean),
-  );
-  for (const world of _worlds) {
-    if (linked.has(world.id)) world.enabled = active.has(world.id) ? 1 : 0;
-  }
-  for (const worldId of [...active].reverse()) {
-    const index = _worlds.findIndex((world) => world.id === worldId);
-    if (index >= 0) _worlds.unshift(_worlds.splice(index, 1)[0]);
-  }
+  S.activeWorldIds = new Set(worldIds || []);
   renderWorldsSidebar();
 }
 
-export async function deactivateLinkedWorlds() {
-  await api.post("/worlds/deactivate-linked", {});
-}
-
-export async function deactivateWorld(worldId) {
-  const world = _getWorld(worldId);
-  if (!world) return;
-  const enabled = boolFlag(world.enabled);
-  if (!enabled) return;
-  try {
-    _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled: false }));
-    renderWorldsSidebar();
-  } catch (e) {
-    console.error("Failed to deactivate world:", e);
-  }
+/** Change the World choices of the chat in view; show the result if it still is. */
+async function updateSceneWorlds(change) {
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
+  if (!cid) return;
+  const { world_ids } = await change(cid);
+  if (S.activeConvId === cid && S.conversationViewToken === token) reflectConversationWorldActivation(world_ids);
 }
 
 export function showRenameWorldModal(worldId) {
@@ -300,17 +270,21 @@ export async function showCreateWorldModal() {
 }
 
 export async function createWorld() {
-  const name = $("world-name-inp")?.value?.trim();
+  const input = $("world-name-inp");
+  const name = input?.value?.trim();
   if (!name) {
     toast("Name is required", true);
     return;
   }
   try {
     const w = await api.post("/worlds", { name });
+    await updateSceneWorlds((cid) => api.put(`/conversations/${cid}/worlds/${w.id}`, { enabled: true }));
     _worlds.push(w);
-    closeModal();
     renderWorldsSidebar();
-    _openDrawer(w.id);
+    if (input.isConnected) {
+      closeModal();
+      _openDrawer(w.id);
+    }
   } catch (_e) {
     toast("Failed to create world", true);
   }
@@ -318,7 +292,7 @@ export async function createWorld() {
 
 export async function toggleWorldEnabled(worldId, enabled) {
   try {
-    _mergeWorld(worldId, await api.put(`/worlds/${worldId}`, { enabled }));
+    await updateSceneWorlds((cid) => api.put(`/conversations/${cid}/worlds/${worldId}`, { enabled }));
   } catch (_e) {
     toast("Failed to update world", true);
   }
@@ -495,6 +469,7 @@ function renderLorebookDrawer() {
           <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook" aria-label="Rename lorebook">${EDIT_ICON}</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
+        <div class="lb-dynamic-row"><label>Use in every chat <input type="checkbox" id="lb-global-toggle" ${boolFlag(world.is_global) ? "checked" : ""}></label></div>
         <div class="lb-dynamic-row">
           <span class="lb-dynamic-label" title="Let the Agent propose world changes from what happens in play">Dynamic World</span>
           ${dynamicCount ? `<button type="button" class="btn btn-sm lb-reset-btn" title="Retire every Agent-managed entry">Reset</button>` : ""}
@@ -534,6 +509,14 @@ function renderLorebookDrawer() {
 
   const exportBtn = drawer.querySelector(".lb-export-btn");
   if (exportBtn) exportBtn.onclick = () => lbExportJson("authored");
+  $("lb-global-toggle")?.addEventListener("change", async (event) => {
+    try {
+      _mergeWorld(world.id, await api.put(`/worlds/${world.id}`, { is_global: event.target.checked }));
+      await updateSceneWorlds((cid) => api.get(`/conversations/${cid}/worlds`));
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
   const dynamicToggle = $("lb-dynamic-toggle");
   if (dynamicToggle) dynamicToggle.onchange = (e) => toggleWorldDynamic(_focusWorldId, e.target.checked);
   const resetBtn = drawer.querySelector(".lb-reset-btn");

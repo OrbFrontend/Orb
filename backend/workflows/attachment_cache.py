@@ -520,15 +520,40 @@ async def _check_flat_parent_on(db, parent_id: int, expected_message_id: int) ->
         )
 
 
+async def variant_on_show(root_id: int) -> int | None:
+    async with get_db() as db:
+        return await _variant_on_show_on(db, root_id)
+
+
+async def _may_activate_on(db, message_id: int, attachment: Mapping[str, Any], on_show: int | None, shown: int | None) -> bool:
+    """Whether a new variant may take the screen: the user has not paged to
+    another one since *shown*, and the message still reads as it was rendered."""
+    if shown is not None and on_show != shown:
+        return False
+    metadata = attachment.get("generation_metadata")
+    source = metadata.get("source_text") if isinstance(metadata, Mapping) else None
+    if source is None:
+        return True
+    rows = list(await db.execute_fetchall("SELECT content FROM messages WHERE id = ?", (message_id,)))
+    return bool(rows and rows[0][0] == source)
+
+
 async def insert_workflow_attachment(
-    message_id: int, attachment: dict, *, mark_active: bool = True
+    message_id: int, attachment: dict, *, mark_active: bool = True, shown: int | None = None
 ) -> tuple[int | None, dict | None]:
     """Cache and insert one workflow attachment."""
     parent_id = attachment.get("parent_attachment_id")
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
+        on_show = await _variant_on_show_on(db, parent_id) if shown is not None and isinstance(parent_id, int) else None
         new_id, rejected = await _insert_one_on(db, message_id, attachment)
-        if new_id is not None and mark_active and isinstance(parent_id, int) and not isinstance(parent_id, bool):
+        if (
+            new_id is not None
+            and mark_active
+            and isinstance(parent_id, int)
+            and not isinstance(parent_id, bool)
+            and await _may_activate_on(db, message_id, attachment, on_show, shown)
+        ):
             await _set_active_sibling_on(db, parent_id, new_id)
         await db.commit()
     return new_id, rejected
@@ -555,7 +580,11 @@ async def insert_workflow_variant(
             root_id = await _surviving_root_on(db, message_id, group)
             on_show = await _variant_on_show_on(db, root_id) if root_id is not None else None
             new_id, rejected = await _insert_one_on(db, message_id, {**attachment, "parent_attachment_id": root_id})
-            if new_id is not None and root_id is not None and (shown is None or on_show == shown):
+            if (
+                new_id is not None
+                and root_id is not None
+                and await _may_activate_on(db, message_id, attachment, on_show, shown)
+            ):
                 await _set_active_sibling_on(db, root_id, new_id)
             await db.commit()
         return new_id, rejected
@@ -668,6 +697,7 @@ async def insert_workflow_attachments(
     *,
     db=None,
     mark_active: bool = True,
+    shown: int | None = None,
 ) -> tuple[list[int], list[dict]]:
     """Cache and insert workflow attachments atomically."""
     if not attachments:
@@ -718,6 +748,7 @@ async def insert_workflow_attachments(
             seen_parents.add(pid)
             await _check_flat_parent_on(conn, pid, message_id)
 
+        initial_selection = {pid: await _variant_on_show_on(conn, pid) for pid in seen_parents} if shown is not None else {}
         budget = await _get_budget_bytes_on(conn)
         existing = await _byte_bearing_candidates_on(conn)
         occupied = sum(c["size"] for c in existing)
@@ -775,7 +806,11 @@ async def insert_workflow_attachments(
                 if i not in new_ids_by_input_idx:
                     continue
                 parent_id = att.get("parent_attachment_id")
-                if isinstance(parent_id, int) and not isinstance(parent_id, bool):
+                if (
+                    isinstance(parent_id, int)
+                    and not isinstance(parent_id, bool)
+                    and await _may_activate_on(conn, message_id, att, initial_selection.get(parent_id), shown)
+                ):
                     await _set_active_sibling_on(conn, parent_id, new_ids_by_input_idx[i])
 
         return new_ids, rejected_atts

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from . import session
-from .session import load, release, runtime_ok
+from .session import exclusive_release, load, release, runtime_ok, using
 
 __all__ = [
     "load",
+    "using",
+    "exclusive_release",
     "release",
     "runtime_ok",
     "session",

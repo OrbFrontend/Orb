@@ -312,12 +312,17 @@ class DecisionConfigUpdate(BaseModel):
 
 
 class WorldCreate(BaseModel):
+    is_global: bool = False
     name: str
+
+
+class ConversationWorldUpdate(BaseModel):
+    enabled: bool
 
 
 class WorldUpdate(BaseModel):
     name: str | None = None
-    enabled: bool | None = None
+    is_global: bool | None = None
     dynamic_enabled: bool | None = None
 
 
@@ -519,6 +524,7 @@ class DocumentCreate(BaseModel):
 
 
 class DocumentUpdate(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=0)
     title: str | None = None
     content: str | None = None
     generated_spans: list[DocumentSpan] | None = None
@@ -531,6 +537,8 @@ class DocumentUpdate(BaseModel):
         # content="" still counts as "provided".
         if "generated_spans" in self.model_fields_set and "content" not in self.model_fields_set:
             raise ValueError("generated_spans requires content in the same update")
+        if "content" in self.model_fields_set and self.expected_revision is None:
+            raise ValueError("content updates require expected_revision")
         return self
 
 

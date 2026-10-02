@@ -13,7 +13,7 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { patchHtml } from "./dom_reconcile.js";
 import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { conversationState, effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
 import { startWorkflowJob, stopButtonState } from "./workflow_jobs.js";
@@ -338,30 +338,27 @@ const _workflowRehydrateInFlight = new Map();
 
 window.workflowRehydrate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
+  const convId = S.activeConvId;
   const running = _workflowRehydrateInFlight.get(attId);
   if (running) return running.job.stop();
   if (!requestSendPermission()) return;
-  const job = startWorkflowJob({ convId: S.activeConvId, title: "Stop restoring" });
+  const job = startWorkflowJob({ convId, title: "Stop restoring", messageId: msgId, attachmentId: attId });
   _workflowRehydrateInFlight.set(attId, { msgId, job });
   job.show(btn);
   const container = btn.closest(".workflow-artifact-swipe, [data-root-id]");
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:rehydrate:${attId}`;
   try {
-    setWorkflowPhase(ch, workflowPhaseLabel(wid, "restoring..."));
-    await api.post(job.url(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "rehydrate")), {});
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-    _reapplyInFlightSwipes();
-    renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    setWorkflowPhase(ch, workflowPhaseLabel(wid, "restoring..."), conversationState(convId));
+    await api.post(job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "rehydrate")), {});
+    await refreshConversationMessages(msgId, convId);
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
     // A 409 is a stop, or a restore another request already made: the saved row decides.
     if (e?.status === 409 || job.stopping) {
       try {
-        setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-        _reapplyInFlightSwipes();
-        renderMessages();
-        broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+        await refreshConversationMessages(msgId, convId);
+        broadcastWorkflowMutation({ convId, msgId });
       } catch (e2) {
         console.warn("Rehydrate post-409 refetch failed", e2);
       }
@@ -375,7 +372,7 @@ window.workflowRehydrate = async (msgId, attId, btn) => {
       }
     }
   } finally {
-    clearWorkflowPhase(ch);
+    clearWorkflowPhase(ch, conversationState(convId));
     _workflowRehydrateInFlight.delete(attId);
     job.end();
   }
@@ -400,8 +397,9 @@ function _resolveWorkflowId(msgId, attId) {
   return att?.workflow_id || null;
 }
 
-export function _mergeWorkflowRejections(msgId, originatingId, incoming) {
-  S.rejectedWorkflowAtts = S.rejectedWorkflowAtts
+export function _mergeWorkflowRejections(msgId, originatingId, incoming, convId = S.activeConvId) {
+  const state = conversationState(convId);
+  state.rejectedWorkflowAtts = state.rejectedWorkflowAtts
     .filter((r) => !(r.message_id === msgId && r.originating_attachment_id === originatingId))
     .concat(incoming.map((e) => ({ ...e, message_id: msgId })));
 }
@@ -485,7 +483,8 @@ function _siblingLanded(msgs, msgId, rootId, before) {
 // Show a fetched conversation; a sibling that *landed* is scrolled to and announced.
 function _showSiblings(convId, msgId, rootId, msgs, landed, onLanded) {
   if (landed) onLanded?.();
-  _applyWorkflowMessages(msgs);
+  _applyWorkflowMessages(msgs, convId);
+  if (S.activeConvId !== convId) return;
   if (landed) {
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
@@ -506,7 +505,6 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess,
   let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
-    if (S.activeConvId !== convId) return true;
     let msgs;
     try {
       msgs = await api.get(convUrl(convId, "messages"));
@@ -515,7 +513,7 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess,
     }
     if (_siblingLanded(msgs, msgId, rootId, seen)) {
       if (!follow) {
-        if (S.activeConvId === convId) _showSiblings(convId, msgId, rootId, msgs, true, onSuccess);
+        _showSiblings(convId, msgId, rootId, msgs, true, onSuccess);
         return true;
       }
       landed = true;
@@ -542,7 +540,6 @@ async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
   let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
-    if (S.activeConvId !== convId) return true;
     let msgs;
     try {
       msgs = await api.get(convUrl(convId, "messages"));
@@ -555,15 +552,16 @@ async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
       else if (++idle >= 2) return false;
       continue;
     }
-    if (S.activeConvId !== convId) return true;
-    setMessages(msgs);
+    _applyWorkflowMessages(msgs, convId);
     if (!_rootSiblingIds(msg, rootId).size) {
       _workflowMinimized.delete(rootId);
       _persistWorkflowMinimized();
-      _mergeWorkflowRejections(msgId, rootId, []);
+      _mergeWorkflowRejections(msgId, rootId, [], convId);
     }
-    _reapplyInFlightSwipes();
-    renderMessages();
+    if (S.activeConvId === convId) {
+      _reapplyInFlightSwipes();
+      renderMessages();
+    }
     broadcastWorkflowMutation({ convId, msgId });
     return true;
   }
@@ -608,7 +606,7 @@ function _scrollArtifactIntoView(msgId, rootId = null) {
 // Stop cancels the render server-side; the request then answers 409, or with
 // the sibling if it was already being saved. Either way the saved rows decide.
 async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
-  if (S.activeConvId !== convId) return;
+  const token = S.conversationViewToken;
   let msgs;
   try {
     msgs = await api.get(convUrl(convId, "messages"));
@@ -616,7 +614,7 @@ async function _syncAfterStop(convId, msgId, rootId, before, onLanded) {
     console.warn("sync after stopping a workflow render failed", e);
     return;
   }
-  if (S.activeConvId !== convId) return;
+  if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
   _showSiblings(convId, msgId, rootId, msgs, _siblingLanded(msgs, msgId, rootId, before), onLanded);
 }
 
@@ -629,7 +627,7 @@ function _startWorkflowAction(msgId, attId, btn, kind, title) {
     return null;
   }
   if (!requestSendPermission()) return null;
-  const job = startWorkflowJob({ convId: S.activeConvId, title });
+  const job = startWorkflowJob({ convId: S.activeConvId, title, messageId: msgId, attachmentId: rootId });
   _workflowActionInFlight.set(rootId, { msgId, kind, job });
   job.show(btn);
   return { rootId, job };
@@ -652,10 +650,11 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   // first is scrolled to, so a user who scrolled away to read is left there.
   let landed = 0;
   const showLanded = async (fetched = null) => {
+    const token = S.conversationViewToken;
     try {
       const msgs = fetched || (await api.get(convUrl(convId, "messages")));
-      if (S.activeConvId !== convId) return;
-      _applyWorkflowMessages(msgs);
+      _applyWorkflowMessages(msgs, convId, token);
+      if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
       if (!landed++) _scrollArtifactIntoView(msgId, rootId);
       broadcastWorkflowMutation({ convId, msgId });
     } catch (e) {
@@ -663,18 +662,17 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     }
   };
   try {
-    setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
+    setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."), conversationState(convId));
     const result = await _regenerateStreamed(
       job.url(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate")),
       wid,
-      (label) => setWorkflowPhase(ch, label),
+      (label) => setWorkflowPhase(ch, label, conversationState(convId)),
       showLanded,
     );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
-    _mergeWorkflowRejections(msgId, rootId, incoming);
-    const msgs = await api.get(convUrl(convId, "messages"));
+    _mergeWorkflowRejections(msgId, rootId, incoming, convId);
+    await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
-    _applyWorkflowMessages(msgs);
     if (!landed) _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
@@ -688,7 +686,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
       _showActionFailure(container, "workflow-regen-error", "Regenerate", e);
     }
   } finally {
-    clearWorkflowPhase(ch);
+    clearWorkflowPhase(ch, conversationState(convId));
     _workflowActionInFlight.delete(rootId);
     job.end();
     _notifyWorkflowRegenerateSettled(wid, msgId, rootId);
@@ -709,7 +707,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
     rootId,
   );
   try {
-    setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
+    setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."), conversationState(convId));
     let extra = null;
     try {
       extra = S.workflowRerollParams[wid]?.(msgId, attId) || null;
@@ -722,10 +720,9 @@ window.workflowReroll = async (msgId, attId, btn) => {
     );
     if (result?.attachment_id != null) _notifyWorkflowRerollSuccess(wid, msgId, attId);
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
-    _mergeWorkflowRejections(msgId, rootId, incoming);
-    setMessages(await api.get(convUrl(convId, "messages")));
-    _reapplyInFlightSwipes();
-    renderMessages();
+    _mergeWorkflowRejections(msgId, rootId, incoming, convId);
+    await refreshConversationMessages(msgId, convId);
+    if (S.activeConvId !== convId) return;
     _scrollArtifactIntoView(msgId, rootId);
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
@@ -744,7 +741,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
       _showActionFailure(container, "workflow-reroll-error", "Reroll", e);
     }
   } finally {
-    clearWorkflowPhase(ch);
+    clearWorkflowPhase(ch, conversationState(convId));
     _workflowActionInFlight.delete(rootId);
     job.end();
   }
@@ -767,7 +764,8 @@ window.workflowDeleteAttachment = (instanceId) => {
   const active = group.atts[idx];
   const total = group.atts.length;
   const label = esc(_workflowLabel(active));
-  const remove = (scope) => () => _deleteWorkflowAttachment(msgId, rootId, active.id, scope);
+  const convId = S.activeConvId;
+  const remove = (scope) => () => _deleteWorkflowAttachment(msgId, rootId, active.id, scope, convId);
   if (total <= 1) {
     showConfirmModal(
       {
@@ -789,17 +787,16 @@ window.workflowDeleteAttachment = (instanceId) => {
   });
 };
 
-async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
-  if (!S.activeConvId) return;
+async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope, convId) {
+  if (!convId) return;
   if (!requestSendPermission()) return;
   if (_workflowDeleteInFlight.has(rootId)) return;
   _workflowDeleteInFlight.set(rootId, msgId);
   const aid = scope === "group" ? rootId : activeId;
   const wid = _resolveWorkflowId(msgId, activeId);
   const ch = `workflow:${wid || "op"}:delete:${rootId}`;
-  const convId = S.activeConvId;
   try {
-    setWorkflowPhase(ch, workflowPhaseLabel(wid, "deleting..."));
+    setWorkflowPhase(ch, workflowPhaseLabel(wid, "deleting..."), conversationState(convId));
     const res = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", aid, "delete"), {
       scope,
     });
@@ -811,10 +808,9 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
       _workflowMinimized.add(res.root_id);
       _persistWorkflowMinimized();
     }
-    if (res?.group_empty) _mergeWorkflowRejections(msgId, rootId, []);
-    setMessages(await api.get(convUrl(convId, "messages")));
-    _reapplyInFlightSwipes();
-    renderMessages();
+    if (res?.group_empty) _mergeWorkflowRejections(msgId, rootId, [], convId);
+    await refreshConversationMessages(msgId, convId);
+    if (S.activeConvId !== convId) return;
     broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
     if (_isNetworkError(e) && (await _recoverWorkflowDeletion(convId, msgId, rootId, aid))) {
@@ -823,7 +819,7 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
       toast("Delete failed", true);
     }
   } finally {
-    clearWorkflowPhase(ch);
+    clearWorkflowPhase(ch, conversationState(convId));
     _workflowDeleteInFlight.delete(rootId);
   }
 }
@@ -838,27 +834,23 @@ function _inFlightMsgIds() {
   ]);
 }
 
+// Another tab's notice repaints this tab only; announcing it again would echo between the tabs forever.
 export function initWorkflowMutationListener() {
-  setWorkflowMutationCallback(async ({ convId, msgId }) => {
-    if (convId !== S.activeConvId) return;
-    if (S.isStreaming) return;
-    if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
-      return;
-    if (_inFlightMsgIds().has(msgId)) return;
-    try {
-      setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-      _reapplyInFlightSwipes();
-      renderMessages();
-    } catch (e) {
-      console.warn("cross-tab workflow refetch failed", e);
-    }
+  setWorkflowMutationCallback(({ convId, msgId }) => {
+    if (convId !== S.activeConvId || (msgId != null && _inFlightMsgIds().has(msgId))) return;
+    refreshConversationMessages(null, convId, { announce: false });
   });
 }
 
 // A workflow can finish a render while the reply still streams. Merge only its
 // attachments then: replacing the conversation would overwrite live prose and
 // rebuilding a message would detach the stream's DOM nodes.
-function _applyWorkflowMessages(msgs) {
+function _applyWorkflowMessages(msgs, convId = S.activeConvId, token = S.conversationViewToken) {
+  if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
+  if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null) {
+    S.attachmentInvalidations.set(convId, new Set(msgs.map((msg) => msg.id)));
+    return;
+  }
   if (!S.isStreaming) {
     setMessages(msgs);
     _reapplyInFlightSwipes();
@@ -893,22 +885,27 @@ function _applyWorkflowMessages(msgs) {
   _refreshWorkflowViewportObserver();
 }
 
-export async function refreshConversationMessages(msgId = null) {
-  if (!S.activeConvId) return false;
-  if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
-    return false;
-  if (msgId != null && _inFlightMsgIds().has(msgId)) return false;
-  const convId = S.activeConvId;
+export async function refreshConversationMessages(msgId = null, convId = S.activeConvId, { announce = true } = {}) {
+  if (!convId) return false;
+  const token = S.conversationViewToken;
   try {
     const msgs = await api.get(convUrl(convId, "messages"));
-    if (S.activeConvId !== convId) return false;
-    _applyWorkflowMessages(msgs);
+    if (S.activeConvId !== convId || S.conversationViewToken !== token) return false;
+    _applyWorkflowMessages(msgs, convId);
     if (msgId != null) _scrollArtifactIntoView(msgId);
-    broadcastWorkflowMutation({ convId, msgId });
+    if (announce) broadcastWorkflowMutation({ convId, msgId });
     return true;
   } catch (e) {
     console.warn("refreshConversationMessages failed", e);
     return false;
+  }
+}
+
+export function replayAttachmentInvalidations() {
+  const cid = S.activeConvId;
+  if (S.attachmentInvalidations.has(cid)) {
+    S.attachmentInvalidations.delete(cid);
+    return refreshConversationMessages(null, cid, { announce: false });
   }
 }
 
