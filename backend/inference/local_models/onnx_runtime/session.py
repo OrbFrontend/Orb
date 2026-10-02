@@ -89,10 +89,7 @@ def exclusive_release(timeout: float = 15.0, path: str | None = None):
                 if remaining <= 0:
                     raise TimeoutError("Local model is still in use")
                 _LOCK.wait(remaining)
-            if path is None:
-                _SESSIONS.clear()
-            else:
-                _SESSIONS.pop(os.path.normpath(path), None)
+            _drop(path)
         yield
     finally:
         with _LOCK:
@@ -101,8 +98,20 @@ def exclusive_release(timeout: float = 15.0, path: str | None = None):
 
 
 def release(path: str | None = None) -> None:
-    with exclusive_release(path=path):
-        pass
+    """Drop cached sessions without waiting for running inference.
+
+    A running call keeps its own reference, so this only frees the graph once
+    that call ends. Before a model *file* changes, use :func:`exclusive_release`.
+    """
+    with _LOCK:
+        _drop(path)
+
+
+def _drop(path: str | None) -> None:
+    if path is None:
+        _SESSIONS.clear()
+    else:
+        _SESSIONS.pop(os.path.normpath(path), None)
 
 
 __all__ = ["load", "release", "runtime_ok", "using", "exclusive_release"]

@@ -531,10 +531,7 @@ async def api_restore_library_duplicates(data: DuplicateDismissRequest):
 async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
     """Delete a duplicate, blocking history loss unless the caller chooses relink."""
     if _run_lock.locked():
-        raise HTTPException(
-            status_code=409,
-            detail="The library is busy; wait for the current run to finish",
-        )
+        raise HTTPException(status_code=409, detail="The library is busy; wait for the current run to finish")
     async with _run_lock:
         keeper, doomed = await asyncio.gather(get_character_card(data.keep_id), get_character_card(data.remove_id))
         if keeper is None or doomed is None:
@@ -567,14 +564,10 @@ async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest
     untouched rather than half-applied.
     """
     if _run_lock.locked():
-        raise HTTPException(
-            status_code=409,
-            detail="The library is busy; wait for the current run to finish",
-        )
+        raise HTTPException(status_code=409, detail="The library is busy; wait for the current run to finish")
     async with _run_lock:
         cards = await asyncio.gather(
-            get_character_card(data.keep_id),
-            *(get_character_card(card_id) for card_id in data.remove_ids),
+            get_character_card(data.keep_id), *(get_character_card(card_id) for card_id in data.remove_ids)
         )
         if any(card is None for card in cards):
             raise HTTPException(status_code=404, detail="Character card not found")
@@ -594,12 +587,7 @@ async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {
-            "ok": True,
-            "removed": len(data.remove_ids),
-            "relinked": data.relink,
-            "impact": totals,
-        }
+        return {"ok": True, "removed": len(data.remove_ids), "relinked": data.relink, "impact": totals}
 
 
 @router.post("/api/library/{tool}/stop")

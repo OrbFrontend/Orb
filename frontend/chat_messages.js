@@ -8,13 +8,19 @@ import {
   setMessages,
 } from "./chat_core.js";
 import { clearInspectedMessage, clearWorkflowPhase, inspectMessage, setWorkflowPhase } from "./chat_inspector.js";
-import { beginStreamOperation, endStreamOperation, runStreamRequest, turnPayload } from "./chat_stream.js";
+import {
+  beginStreamOperation,
+  endStreamOperation,
+  runStreamRequest,
+  syncSendButton,
+  turnPayload,
+} from "./chat_stream.js";
 import { replayAttachmentInvalidations } from "./chat_workflow.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { conversationState, S } from "./state.js";
+import { conversationState, isViewing, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
@@ -140,7 +146,6 @@ export async function rewriteMessageProse(msgId) {
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
   const op = beginStreamOperation(S.activeConvId);
   const state = op.state;
-  const visible = () => S.activeConvId === op.convId && !S.documentMode;
   const sendBtn = $("send-btn");
   const stopBtn = $("stop-btn");
   // The server's final word: the saved text, and whether the replacement committed.
@@ -169,7 +174,7 @@ export async function rewriteMessageProse(msgId) {
         // Previews hold still once Stop is pressed; the saved row replaces them.
         if (op.stopping) continue;
         try {
-          if (visible()) applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
+          if (isViewing(state)) applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
         } catch (_) {}
       } else if (event === "prose_rewrite_done") {
         result = JSON.parse(data);
@@ -199,16 +204,16 @@ export async function rewriteMessageProse(msgId) {
       const token = S.conversationViewToken;
       const msgs = await api.get(convUrl(op.convId, "messages"));
       setMessages(msgs, state);
-      if (visible() && token === S.conversationViewToken) renderMessages();
+      if (isViewing(state) && token === S.conversationViewToken) renderMessages();
     } catch (error) {
       toast(`Failed to sync messages: ${error.message}`, true);
-      if (visible()) applyProseRewriteSnapshot(msgId, result && !result.aborted ? result.content : source);
+      if (isViewing(state)) applyProseRewriteSnapshot(msgId, result && !result.aborted ? result.content : source);
     }
     endStreamOperation(op);
     state.proseRewriteMsgId = null;
     clearWorkflowPhase(PROSE_REWRITE_CHANNEL, state);
-    if (visible()) {
-      sendBtn.disabled = state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+    if (isViewing(state)) {
+      syncSendButton(state);
       sendBtn.style.display = "flex";
       stopBtn.style.display = "none";
       stopBtn.title = "Stop generation";

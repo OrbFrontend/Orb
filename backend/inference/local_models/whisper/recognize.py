@@ -112,10 +112,7 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     vocabulary = Vocabulary.load(files.vocab)
 
     features = log_mel(audio, int(config["num_mel_bins"]))
-    hidden = np.asarray(
-        onnx_runtime.load(files.encoder).run(None, {"input_features": features[None]})[0],
-        dtype=np.float32,
-    )
+    hidden = np.asarray(onnx_runtime.load(files.encoder).run(None, {"input_features": features[None]})[0], dtype=np.float32)
     decoder = _Decoder(onnx_runtime.load(files.decoder), hidden, config)
 
     start = int(generation["decoder_start_token_id"])

@@ -36,7 +36,7 @@ import {
   prewarmExpressionLabels,
   startExpressionPlayback,
 } from "./expression_playback.js";
-import { generationStepLabel } from "./generation_status.js";
+import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import {
   consumeSpeakerOverride,
@@ -51,7 +51,15 @@ import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
 import { begin, finish } from "./operations.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { conversationState, effectiveWorkflowEnabled, notify, S, streamingHidden } from "./state.js";
+import {
+  conversationState,
+  effectiveWorkflowEnabled,
+  isViewing,
+  notify,
+  releaseConversationState,
+  S,
+  streamingHidden,
+} from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
@@ -254,11 +262,20 @@ function finalizeStreamingDiv(lastMsg) {
   return true;
 }
 
+/** Send waits for this conversation's running work, unconfirmed stop, load and unsaved edits. */
+export function syncSendButton(state = S) {
+  $("send-btn").disabled =
+    state.isStreaming ||
+    !!state.proseRewriteMsgId ||
+    state.turnSettlementUnknown ||
+    state.conversationLoading ||
+    Object.keys(state.queuedEdits).length > 0;
+}
+
 export function setStreaming(active) {
   S.isStreaming = active;
   const stoppable = active || !!S.proseRewriteMsgId;
-  $("send-btn").disabled =
-    stoppable || S.turnSettlementUnknown || S.conversationLoading || Object.keys(S.queuedEdits).length > 0;
+  syncSendButton();
   $("send-btn").style.display = stoppable ? "none" : "flex";
   $("stop-btn").style.display = stoppable ? "flex" : "none";
   const cm = $("chat-messages");
@@ -360,15 +377,12 @@ function settleRefineDiff(reply) {
   S.pendingRefineDiff = { original, ops: sentenceDiff(original, source(reply.content)), msgId: reply.id };
 }
 
-// Group replies that streamed visibly before a speaker with expressions began
-// holding the turn; playback starts after them.
-// Number of group replies revealed before expression buffering is owned by the turn.
-
 export async function afterStream(op, { settled = true } = {}) {
   const state = op.state || conversationState(op.convId);
-  const visible = () => S.activeConvId === op.convId && !S.documentMode;
-  if (visible()) cancelStreamingPaint();
-  if (visible()) followStreamingMessage(null);
+  if (isViewing(state)) {
+    cancelStreamingPaint();
+    followStreamingMessage(null);
+  }
   const wasGroupExchange = state.currentExchangeId != null;
   const groupExchangeId = state.currentExchangeId;
   const inFlightSpeaker = state.currentSpeaker;
@@ -378,14 +392,14 @@ export async function afterStream(op, { settled = true } = {}) {
   const pendingUserMsg = state.pendingUserMsg || null;
   const lastCompletedId = state.completedExchangeMessageIds.at(-1) ?? null;
   const buffered = state.expressionBuffering;
-  if (visible()) endExpressionPrewarm();
+  if (isViewing(state)) endExpressionPrewarm();
   state.streamCutoffIndex = null;
   state.streamingContent = null;
   state.pendingUserMsg = null;
   state.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
   state.generationStep = null;
   state.pendingGenerationStep = null;
-  if (visible()) setGenerationStep(null);
+  if (isViewing(state)) setGenerationStep(null);
 
   let synced = true;
   try {
@@ -395,7 +409,7 @@ export async function afterStream(op, { settled = true } = {}) {
     ]);
     setMessages(msgs, state);
     state.directorState = directorState;
-    const conv = state.conversations?.find((c) => c.id === op.convId);
+    const conv = S.conversations?.find((c) => c.id === op.convId);
     if (conv) conv.updated_at = new Date().toISOString();
   } catch (e) {
     synced = false;
@@ -456,15 +470,15 @@ export async function afterStream(op, { settled = true } = {}) {
       finish(op.record);
       const msgs = await api.get(convUrl(op.convId, "messages")).catch(() => null);
       if (msgs) setMessages(msgs, state);
-      if (visible()) {
-        $("send-btn").disabled = state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+      if (isViewing(state)) {
+        syncSendButton(state);
         renderMessages();
       }
     };
   }
   endStreamOperation(op, settled ? "settled" : "unknown");
   notify("operations");
-  if (!visible()) {
+  if (!isViewing(state)) {
     state.streamingBodyEl = null;
     state.currentExchangeId = null;
     state.currentSpeaker = null;
@@ -472,11 +486,10 @@ export async function afterStream(op, { settled = true } = {}) {
     state.expressionBuffering = false;
     if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride(state);
     state.completedExchangeMessageIds = [];
+    releaseConversationState(op.convId);
     return;
   }
   setStreaming(false);
-  $("send-btn").disabled =
-    state.turnSettlementUnknown || S.conversationLoading || Object.keys(state.queuedEdits).length > 0;
 
   settleRefineDiff(
     wasGroupExchange && !inFlightSpeaker ? state.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
@@ -524,14 +537,13 @@ export async function afterStream(op, { settled = true } = {}) {
   const latestReply = state.messages.findLast((message) => message.role === "assistant" && message.id);
   if (latestReply) await inspectMessage(latestReply.id);
   else clearInspectedMessage();
-  if (!visible()) return;
+  if (!isViewing(state)) return;
   refreshState();
   scrollToBottom(true);
   refreshCharacters();
 }
 
 export async function processSSEStream(resp, container, holder, signal, state = S) {
-  const visible = () => S.activeConvId === state.activeConvId && !S.documentMode;
   // Writer tokens, the last announced rewrite, and the last cosmetic preview are
   // kept apart: only the first two are ever what the turn saves.
   let fullResponse = "",
@@ -585,7 +597,7 @@ export async function processSSEStream(resp, container, holder, signal, state = 
         state.currentExchangeId = parsed.exchange_id;
         state.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
         if (!state.speakingPlan.length) toast(restNotice());
-        if (visible()) renderGroupCast();
+        if (isViewing(state)) renderGroupCast();
       } catch (_) {}
       continue;
     }
@@ -594,20 +606,22 @@ export async function processSSEStream(resp, container, holder, signal, state = 
         const parsed = JSON.parse(data);
         state.currentExchangeId = parsed.exchange_id;
         state.currentSpeaker = parsed;
-        if (visible() && bufferExpressionReply(parsed.member_id))
-          S.liveGroupReplies = state.completedExchangeMessageIds.length;
+        const viewing = isViewing(state);
+        if (viewing && bufferExpressionReply(parsed.member_id))
+          state.liveGroupReplies = state.completedExchangeMessageIds.length;
         resetSpeakerTurnState();
-        state.generationStep = "Waiting for the model";
-        if (visible()) setGenerationStep(state.generationStep);
-        if (visible()) holder.el = createStreamingDiv(parsed.name, parsed.member_id);
-        else {
+        state.generationStep = WAITING_LABEL;
+        if (viewing) {
+          setGenerationStep(state.generationStep);
+          holder.el = createStreamingDiv(parsed.name, parsed.member_id);
+          if (!streamingHidden()) container.appendChild(holder.el);
+          onTurnStart();
+          renderGroupCast();
+          scrollToBottom();
+        } else {
           holder.el = null;
           state.streamingBodyEl = null;
         }
-        if (visible() && holder.el && !streamingHidden()) container.appendChild(holder.el);
-        if (visible()) onTurnStart();
-        if (visible()) renderGroupCast();
-        if (visible()) scrollToBottom();
       } catch (_) {}
       continue;
     }
@@ -615,25 +629,29 @@ export async function processSSEStream(resp, container, holder, signal, state = 
       try {
         const parsed = JSON.parse(data);
         if (parsed.message_id) state.completedExchangeMessageIds.push(parsed.message_id);
-        if (visible()) finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
+        const viewing = isViewing(state);
+        if (viewing) finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
         state.streamingBodyEl = null;
         holder.el = null;
         state.currentSpeaker = null;
-        if (visible()) renderGroupCast();
+        if (viewing) renderGroupCast();
       } catch (_) {}
       continue;
     }
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (visible() && holder.el && !holder.el.isConnected && !streamingHidden()) container.appendChild(holder.el);
+        if (isViewing(state) && holder.el && !holder.el.isConnected && !streamingHidden())
+          container.appendChild(holder.el);
         if (state.streamingBodyEl) state.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
       state.streamingContent = rewrittenResponse || fullResponse;
-      if (visible()) prewarmExpressionLabels(state.streamingContent, state.currentSpeaker?.member_id);
-      if (visible() && state.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
-      else if (visible()) scrollToBottom();
+      if (isViewing(state)) {
+        prewarmExpressionLabels(state.streamingContent, state.currentSpeaker?.member_id);
+        if (state.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
+        else scrollToBottom();
+      }
     };
     const onRewrite = (text, { preview = false } = {}) => {
       if (preview) {
@@ -642,9 +660,9 @@ export async function processSSEStream(resp, container, holder, signal, state = 
         rewrittenResponse = text;
         previewResponse = null;
         state.streamingContent = text;
-        if (visible()) prewarmExpressionLabels(text, state.currentSpeaker?.member_id);
+        if (isViewing(state)) prewarmExpressionLabels(text, state.currentSpeaker?.member_id);
       }
-      if (!visible() || previewFrozen() || state.expressionBuffering) return;
+      if (!isViewing(state) || previewFrozen() || state.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
       if (state.streamingBodyEl) {
         const html =
@@ -653,11 +671,11 @@ export async function processSSEStream(resp, container, holder, signal, state = 
             : renderMessageHtml(streamingDisplaySource(text));
         smoothUpdateBody(state.streamingBodyEl, html, scrollToBottom);
       } else {
-        if (visible()) scrollToBottom();
+        if (isViewing(state)) scrollToBottom();
       }
     };
     try {
-      handleSSEEvent(event, data, holder.el, onToken, onRewrite, state, visible);
+      handleSSEEvent(event, data, holder.el, onToken, onRewrite, state);
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -701,28 +719,30 @@ function parseFailure(data) {
   return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
 }
 
-function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visible = () => true) {
+function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
   if ((event === "token" || event === "reasoning") && state.pendingGenerationStep) {
     state.generationStep = state.pendingGenerationStep;
     state.pendingGenerationStep = null;
-    if (visible()) setGenerationStep(state.generationStep);
+    if (isViewing(state)) setGenerationStep(state.generationStep);
   }
   switch (event) {
     case "director_start":
       state.pendingGenerationStep = generationStepLabel("director");
-      state.generationStep = "Waiting for the model";
-      if (visible()) setGenerationStep(state.generationStep);
+      state.generationStep = WAITING_LABEL;
+      if (isViewing(state)) setGenerationStep(state.generationStep);
       state.lastDirectorData = null;
       state.inspectedMsgId = null;
       state.inspectedDirectorData = null;
-      if (visible()) renderInspector();
+      if (isViewing(state)) renderInspector();
       break;
     case "director_done": {
       try {
         state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
-      if (visible()) _advanceReasoningPass(1); // director done → move to Writer dot
-      if (visible()) renderInspector();
+      if (isViewing(state)) {
+        _advanceReasoningPass(1); // director done → move to Writer dot
+        renderInspector();
+      }
       break;
     }
     case "step_start": {
@@ -731,8 +751,8 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         const label = generationStepLabel(step);
         if (label) {
           state.pendingGenerationStep = step === "writer" ? label : null;
-          state.generationStep = step === "writer" ? "Waiting for the model" : label;
-          if (visible()) setGenerationStep(state.generationStep);
+          state.generationStep = step === "writer" ? WAITING_LABEL : label;
+          if (isViewing(state)) setGenerationStep(state.generationStep);
         }
       } catch (_) {}
       break;
@@ -747,7 +767,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
       } catch (_) {}
       break;
     case "writer_rewrite":
-      if (visible()) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (isViewing(state)) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}
@@ -762,10 +782,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
           state[stateKey] = (state[stateKey] || "") + delta;
           state.reasoningPassActive = Math.max(state.reasoningPassActive, builtinIdx);
-          const rebuilt = visible() && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
+          const rebuilt = isViewing(state) && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
           const viewingThisPass = state.reasoningPassSelected === builtinIdx;
           const box = document.getElementById("reasoning-box");
-          if (visible() && state.inspectedMsgId == null && box && viewingThisPass) {
+          if (isViewing(state) && state.inspectedMsgId == null && box && viewingThisPass) {
             if (!rebuilt) appendReasoningDelta(box, delta);
           }
           break;
@@ -774,9 +794,9 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         if (pipeline) {
           const firstDelta = !state.reasoningByPass[passKey];
           state.reasoningByPass[passKey] = (state.reasoningByPass[passKey] || "") + delta;
-          if (visible() && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          if (isViewing(state) && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
           const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
-          if (visible() && wbox && wbox.dataset.passId === passKey) {
+          if (isViewing(state) && wbox && wbox.dataset.passId === passKey) {
             appendReasoningDelta(wbox, delta);
           }
           break;
@@ -788,7 +808,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
     case "decisions": {
       try {
         state.lastDecisions = JSON.parse(data);
-        if (visible()) renderInspector();
+        if (isViewing(state)) renderInspector();
         // Show new skips once; inherited results did not ask again.
         const notice = state.lastDecisions.inherited ? "" : skipNoticeText(state.lastDecisions.skipped);
         if (notice) toast(notice);
@@ -799,14 +819,14 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
       try {
         const d = JSON.parse(data);
         state.lastFeedback = { values: d.values || {} };
-        if (visible()) renderInspector();
+        if (isViewing(state)) renderInspector();
       } catch (_) {}
       break;
     }
     case "state": {
       try {
         state.lastState = JSON.parse(data);
-        if (visible()) renderInspector();
+        if (isViewing(state)) renderInspector();
       } catch (_) {}
       break;
     }
@@ -817,7 +837,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         const label = typeof d.label === "string" ? d.label.trim() : "";
         if (label && d.state !== "done") {
           state.generationStep = label;
-          if (visible()) setGenerationStep(label);
+          if (isViewing(state)) setGenerationStep(label);
         }
       } catch (_) {}
       break;
@@ -828,7 +848,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         if (d.tool_calls?.length) {
           if (!state.lastDirectorData) state.lastDirectorData = {};
           state.lastDirectorData.tool_calls = [...(state.lastDirectorData.tool_calls || []), ...d.tool_calls];
-          if (visible()) renderInspector();
+          if (isViewing(state)) renderInspector();
         }
       } catch (_) {}
       break;
@@ -855,15 +875,17 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         if (state.editingPendingUserMsg) {
           state.editingPendingUserMsg = false;
           state.editingMsgId = realId;
-          if (visible()) renderMessages();
-          const ta = $(`edit-textarea-${realId}`);
-          if (visible() && ta) {
-            ta.focus();
-            ta.selectionStart = ta.selectionEnd = ta.value.length;
+          if (isViewing(state)) {
+            renderMessages();
+            const ta = $(`edit-textarea-${realId}`);
+            if (ta) {
+              ta.focus();
+              ta.selectionStart = ta.selectionEnd = ta.value.length;
+            }
           }
         } else {
           const rewritten = resolved !== null && resolved !== prevContent ? resolved : null;
-          if (visible()) adoptPendingUserMessage({ id: realId, role: "user" }, rewritten);
+          if (isViewing(state)) adoptPendingUserMessage({ id: realId, role: "user" }, rewritten);
         }
       } catch (_) {}
       break;
@@ -896,7 +918,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
         const msgIdNum = Number(parsed.message_id);
         const rejected = Array.isArray(parsed.rejected) ? parsed.rejected : [];
         if (Number.isFinite(msgIdNum) && rejected.length) {
-          if (visible()) _mergeWorkflowRejections(msgIdNum, null, rejected);
+          if (isViewing(state)) _mergeWorkflowRejections(msgIdNum, null, rejected);
         }
       } catch (e) {
         console.warn("workflow_attachments_rejected parse failed", e);
@@ -905,7 +927,12 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visi
     }
     default: {
       const entry = state.workflowEventHandlers[event];
-      if (visible() && entry && typeof entry.handler === "function" && effectiveWorkflowEnabled(entry.workflowId)) {
+      if (
+        isViewing(state) &&
+        entry &&
+        typeof entry.handler === "function" &&
+        effectiveWorkflowEnabled(entry.workflowId)
+      ) {
         let parsed = data;
         try {
           parsed = JSON.parse(data);
@@ -935,15 +962,13 @@ export async function runStreamRequest(
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
   const state = conversationState(S.activeConvId);
-  const visible = () => S.activeConvId === state.activeConvId && !S.documentMode;
   cancelExpressionPlayback();
   beginExpressionPrewarm();
   state.liveGroupReplies = 0;
   if (!state.groupCast) bufferExpressionReply();
   state.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
-  setGenerationStep("Waiting for the model");
-  $("send-btn").disabled = true;
+  setGenerationStep(WAITING_LABEL);
   state.turnError = null; // this attempt supersedes the last failure
   // Before the optimistic rows go in: what this request adds is what is new.
   const anchor = streamAnchor(state.messages);
@@ -1011,7 +1036,7 @@ export async function runStreamRequest(
   }
   const settled = await op.settle();
   await afterStream(op, { settled });
-  if (afterDone && visible()) await afterDone();
+  if (afterDone && isViewing(state)) await afterDone();
 }
 
 export async function continueFromUser() {
@@ -1177,9 +1202,7 @@ export async function saveQueuedEdits(convId = S.activeConvId) {
       break;
     }
   }
-  if (S.activeConvId === convId)
-    $("send-btn").disabled =
-      state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+  if (S.activeConvId === convId) syncSendButton(state);
 }
 
 // "Edit not saved" controls: Retry saves every pending edit in order; Discard
@@ -1194,7 +1217,7 @@ async function resolveQueuedEdit(change) {
     toast(`Could not update the edit: ${error.message}`, true);
   }
   if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
-  $("send-btn").disabled = state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+  syncSendButton(state);
   renderMessages();
 }
 

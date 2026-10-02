@@ -54,6 +54,7 @@ from ...database import (
     get_state_events_for_messages,
     get_user_persona,
     get_world,
+    group_family_ids,
     group_root_of,
     insert_alternate_greeting_swipes,
     list_conversations,
@@ -404,8 +405,7 @@ async def api_delete_group(cid: str, conv: ConversationRow = Depends(require_con
     if conv.get("kind", "solo") != "group":
         raise HTTPException(status_code=409, detail="Conversation is not a group")
     root_id = group_root_of(conv)
-    keys = [row["id"] for row in await list_conversations() if row["id"] == root_id or row.get("group_root_id") == root_id]
-    async with deleting_resources(keys):
+    async with deleting_resources(await group_family_ids(root_id)):
         deleted = await delete_group_family(root_id)
     await mark_orphaned_changesets_stale()
     return {"ok": True, "deleted": deleted}
@@ -417,8 +417,12 @@ async def api_conversation_worlds(cid: str, conv: ConversationRow = Depends(requ
 
 
 @router.put("/api/conversations/{cid}/worlds/{world_id}")
-async def api_set_conversation_world(cid: str, world_id: str, data: ConversationWorldUpdate):
-    await require_conversation(cid)
+async def api_set_conversation_world(
+    cid: str,
+    world_id: str,
+    data: ConversationWorldUpdate,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     if not await get_world(world_id):
         raise HTTPException(status_code=404, detail="World not found")
     await set_conversation_world(cid, world_id, data.enabled)
@@ -733,19 +737,12 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # collision), so the estimate cannot bill a different fragment set.
     card_moods, card_interactive, _card_sources = await cast_embedded_fragments(card, turn_cast)
     director_frags = merge_fragments_by_id(
-        [f for f in await get_interactive_fragments() if f.get("enabled", True)],
-        card_interactive,
+        [f for f in await get_interactive_fragments() if f.get("enabled", True)], card_interactive
     )
     mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
     lorebook_entries = await get_active_lorebook_entries(await get_effective_world_ids(cid))
     macro_char, cast_names = macro_identity(conv, turn_cast)
-    macros, user_desc = persona_macros(
-        settings,
-        macro_char,
-        active_persona,
-        seed=conversation_macro_seed(conv),
-        card=card,
-    )
+    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card)
     macros = macros._replace(cast=cast_names)
 
     # Resolve character context

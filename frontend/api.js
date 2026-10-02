@@ -60,8 +60,13 @@ export const api = {
   get(p) {
     return this._req(p);
   },
-  post(p, b) {
-    return this._req(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+  post(p, b, { signal } = {}) {
+    return this._req(p, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(b),
+      signal,
+    });
   },
   put(p, b) {
     return this._req(p, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });

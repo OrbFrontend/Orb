@@ -197,18 +197,16 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     spec = _require(feature)
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
+    onnx = spec.runtime == "onnx"
+    controller = None if onnx else _MANAGEMENT.get(feature)
+
+    def remove():
+        with onnx_runtime.exclusive_release() if onnx else nullcontext():
+            return assets.delete_model(feature, variant)
+
     async with _download_lock:
-        controller = _MANAGEMENT.get(feature)
         try:
-
-            def remove():
-                with onnx_runtime.exclusive_release() if spec.runtime == "onnx" else nullcontext():
-                    return assets.delete_model(feature, variant)
-
-            if spec.runtime != "onnx" and controller is not None:
-                async with controller.model_deletion():
-                    removed = await asyncio.to_thread(remove)
-            else:
+            async with controller.model_deletion() if controller is not None else nullcontext():
                 removed = await asyncio.to_thread(remove)
         except TimeoutError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -218,12 +216,7 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     # After the unlink, so the sweep reads the disk as it now is: deleting the
     # selected checkpoint hands the selection to another one that is present.
     config = await _sync_selection(feature)
-    return {
-        "ok": True,
-        "removed": removed,
-        "present": assets.present(feature),
-        "local_ml_config": config,
-    }
+    return {"ok": True, "removed": removed, "present": assets.present(feature), "local_ml_config": config}
 
 
 @router.post("/api/local-ml/{feature}/config")

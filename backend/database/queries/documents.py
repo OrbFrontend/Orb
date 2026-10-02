@@ -26,14 +26,18 @@ async def get_documents() -> list[DocumentListRow]:
         return [cast(DocumentListRow, dict(r)) for r in rows]
 
 
+async def _document_on(db, document_id: str) -> DocumentRow | None:
+    rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
+    if not rows:
+        return None
+    d = dict(rows[0])
+    d["generated_spans"] = json.loads(d["generated_spans"]) if d.get("generated_spans") else []
+    return cast(DocumentRow, d)
+
+
 async def get_document(document_id: str) -> DocumentRow | None:
     async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
-        if not rows:
-            return None
-        d = dict(rows[0])
-        d["generated_spans"] = json.loads(d["generated_spans"]) if d.get("generated_spans") else []
-        return cast(DocumentRow, d)
+        return await _document_on(db, document_id)
 
 
 async def create_document(data: dict) -> DocumentRow:
@@ -71,19 +75,9 @@ async def update_document(document_id: str, data: dict) -> DocumentRow | None:
                 where += " AND revision = ?"
                 vals.append(data["expected_revision"])
             cur = await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE {where}", vals)  # nosec B608
-            if cur.rowcount == 0:
-                rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
-                current = dict(rows[0]) if rows else None
-                if current is not None:
-                    current["generated_spans"] = json.loads(current["generated_spans"])
-                if current is not None:
-                    raise DocumentConflict(cast(DocumentRow, current))
-        rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
-        if not rows:
-            return None
-        result = dict(rows[0])
-        result["generated_spans"] = json.loads(result["generated_spans"])
-        return cast(DocumentRow, result)
+            if cur.rowcount == 0 and (current := await _document_on(db, document_id)) is not None:
+                raise DocumentConflict(current)
+        return await _document_on(db, document_id)
 
 
 async def delete_document(document_id: str) -> bool:

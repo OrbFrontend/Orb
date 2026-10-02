@@ -132,11 +132,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     speaker_scripts = await db.get_group_member_scripts(conversation_id, members=all_group_members) if cast.grouped else {}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    (
-        card_moods,
-        card_interactive,
-        card_fragment_sources,
-    ) = await db.cast_embedded_fragments(card, cast)
+    card_moods, card_interactive, card_fragment_sources = await db.cast_embedded_fragments(card, cast)
     mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):

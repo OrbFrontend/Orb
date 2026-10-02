@@ -49,15 +49,8 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
         "mime": mime,
         "data": audio,
         "seed": compute_seed(text, profile, blocks),
-        "generation_metadata": {
-            **build_generation_metadata(text, profile, blocks),
-            "source_text": text,
-        },
-        "consumption_metadata": {
-            "duration_ms": duration_ms,
-            "blocks": consumption_blocks(blocks),
-            "source_text": text,
-        },
+        "generation_metadata": {**build_generation_metadata(text, profile, blocks), "source_text": text},
+        "consumption_metadata": {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks), "source_text": text},
     }
 
 
@@ -92,13 +85,7 @@ async def post_pipeline(ctx):
     text = ctx.draft or ""
     if not text.strip():
         return
-    yield {
-        "event": "phase_status",
-        "data": {
-            "channel": f"workflow:{WORKFLOW_ID}",
-            "label": "Synthesizing speech...",
-        },
-    }
+    yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "label": "Synthesizing speech..."}}
     try:
         audio, mime, blocks = await synthesize_blocks(text, profile, settings=ctx.settings)
     except Exception:
@@ -108,10 +95,7 @@ async def post_pipeline(ctx):
     att = _attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)
     att["source"] = f"workflow:{WORKFLOW_ID}"
     yield {"type": "attach_artifact", "attachment": att}
-    yield {
-        "event": "phase_status",
-        "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"},
-    }
+    yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}
 
     if normalize_config(await get_workflow_config(WORKFLOW_ID))["auto_play"]:
         yield {"event": "tts_autoplay", "data": {}}

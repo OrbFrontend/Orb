@@ -80,7 +80,7 @@ export const S = {
   queuedEdits: {}, // edits saved after the current stream ends
   renderWindowStart: 0, // first rendered message index
 
-  liveGroupReplies: 0,
+  liveGroupReplies: 0, // group replies shown live before an expressive speaker began buffering
   isStreaming: false,
   proseRewriteMsgId: null,
   streamingBodyEl: null,
@@ -230,8 +230,15 @@ const conversationKeys = [
   "activeWorldIds",
 ];
 const defaults = Object.fromEntries(conversationKeys.map((key) => [key, S[key]]));
-const idleView = { ...defaults };
+// Deep copies: the idle view is written while no chat is selected, and must
+// never seed the defaults a later conversation starts from.
+const idleView = structuredClone(defaults);
 S.conversationStates = new Map();
+
+/** Is *state*'s conversation the one on screen? A background turn keeps its data but paints nothing. */
+export function isViewing(state) {
+  return S.activeConvId === state.activeConvId && !S.documentMode;
+}
 
 export function conversationState(cid) {
   if (cid == null) return idleView;
@@ -240,17 +247,33 @@ export function conversationState(cid) {
     const data = structuredClone(defaults);
     data.activeConvId = cid;
     data.draft = "";
-    state = new Proxy(data, {
-      get: (target, key) => (key in target ? target[key] : S[key]),
-      set(target, key, value) {
-        target[key] = value;
-        return true;
-      },
-    });
+    state = new Proxy(data, { get: (target, key) => (key in target ? target[key] : S[key]) });
     S.conversationStates.set(cid, state);
   }
   return state;
 }
+
+/** Forget a conversation's retained view once a fresh load would rebuild all of it.
+ *
+ * Kept while it still holds work, an unconfirmed stop, or the user's own
+ * intent (a draft, unsaved edits, a speaker pin): only the server's data goes.
+ */
+export function releaseConversationState(cid) {
+  const state = S.conversationStates.get(cid);
+  if (!state || cid === S.activeConvId) return;
+  const holds =
+    state.isStreaming ||
+    state.proseRewriteMsgId ||
+    state.castSetupBusy ||
+    state.turnSettlementUnknown ||
+    state.draft ||
+    state.pinnedSpeakerId != null ||
+    Object.keys(state.queuedEdits).length ||
+    Object.keys(state.workflowPhases).length ||
+    [...S.operations.values()].some((op) => op.target.conversationId === cid);
+  if (!holds) S.conversationStates.delete(cid);
+}
+
 for (const key of conversationKeys) {
   Object.defineProperty(S, key, {
     enumerable: true,

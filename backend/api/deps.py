@@ -106,7 +106,8 @@ def require_resource_available(cid: str) -> None:
 def require_chats_idle(rows: Sequence[Mapping[str, Any]]) -> None:
     for row in rows:
         cid = str(row["id"])
-        if cid in _active_streams or _workflow_jobs.get(cid) or _conversation_stream_locks.get(cid, asyncio.Lock()).locked():
+        lane = _conversation_stream_locks.get(cid)
+        if cid in _active_streams or _workflow_jobs.get(cid) or (lane is not None and lane.locked()):
             raise HTTPException(
                 status_code=409,
                 detail=f"Stop running work in {row.get('title') or cid} first",
@@ -183,12 +184,10 @@ def start_workflow_job(
     message_id: int | None = None,
 ) -> asyncio.Task[_T]:
     """Run *coro* as a job that `stop_workflow_jobs(cid)` can cancel, filed under *job*."""
-    if cid in _deleting_resources:
+    if cid in _deleting_resources or message_id in _deleting_messages:
         coro.close()
-        require_resource_available(cid)
-    if message_id in _deleting_messages:
-        coro.close()
-        raise HTTPException(status_code=409, detail="This message is being deleted")
+        what = "resource" if cid in _deleting_resources else "message"
+        raise HTTPException(status_code=409, detail=f"This {what} is being deleted")
     task = asyncio.create_task(coro)
     jobs = _workflow_jobs.setdefault(cid, {})
     jobs[task] = job
@@ -648,7 +647,13 @@ def _workflow_event_stream_response(
     job: str | None = None,
     message_id: int | None = None,
 ) -> _CleanupStreamingResponse:
-    """Keep lazy on-demand renders registered until their generator settles."""
+    """Keep lazy on-demand renders registered until their generator settles.
+
+    Without *cid* the caller already runs the work as a job, so the frames are
+    encoded straight through.
+    """
+    if cid is None:
+        return _CleanupStreamingResponse(_encode_workflow_event_stream(stream.events), media_type="text/event-stream")
 
     async def tracked():
         queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -660,12 +665,10 @@ def _workflow_event_stream_response(
             finally:
                 queue.put_nowait(None)
 
-        task = start_workflow_job(cid, consume(), job=job, message_id=message_id) if cid else asyncio.create_task(consume())
+        task = start_workflow_job(cid, consume(), job=job, message_id=message_id)
         try:
             while (frame := await queue.get()) is not None:
                 yield frame
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
         finally:
             if not task.done():
                 task.cancel()

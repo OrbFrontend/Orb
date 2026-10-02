@@ -203,10 +203,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
     )
     impact = {key: int(impact_rows[0][key]) for key in ("solo", "groups", "conversations")}
 
-    await db.execute(
-        "UPDATE conversations SET character_card_id = ? WHERE character_card_id = ?",
-        (to_id, from_id),
-    )
+    await db.execute("UPDATE conversations SET character_card_id = ? WHERE character_card_id = ?", (to_id, from_id))
 
     member_rows = list(
         await db.execute_fetchall(
@@ -224,10 +221,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
             await db.execute("DELETE FROM group_members WHERE id = ?", (member["id"],))
             collisions += 1
         else:
-            await db.execute(
-                "UPDATE group_members SET character_card_id = ? WHERE id = ?",
-                (to_id, member["id"]),
-            )
+            await db.execute("UPDATE group_members SET character_card_id = ? WHERE id = ?", (to_id, member["id"]))
 
     # Mirror sync_conversations_for_card() inside this transaction.  The
     # reassigned conversations must use the keeper's denormalized fields,
@@ -235,12 +229,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
     await db.execute(
         "UPDATE conversations SET character_name = ?, character_scenario = ?, post_history_instructions = ? "
         "WHERE character_card_id = ?",
-        (
-            keeper["name"],
-            keeper["scenario"],
-            keeper["post_history_instructions"],
-            to_id,
-        ),
+        (keeper["name"], keeper["scenario"], keeper["post_history_instructions"], to_id),
     )
     return {**impact, "collisions": collisions}
 

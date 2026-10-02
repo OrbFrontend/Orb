@@ -541,7 +541,7 @@ async def insert_workflow_attachment(
     parent_id = attachment.get("parent_attachment_id")
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
-        on_show = await _variant_on_show_on(db, parent_id) if isinstance(parent_id, int) else None
+        on_show = await _variant_on_show_on(db, parent_id) if shown is not None and isinstance(parent_id, int) else None
         new_id, rejected = await _insert_one_on(db, message_id, attachment)
         if (
             new_id is not None
@@ -557,11 +557,7 @@ async def insert_workflow_attachment(
 
 
 async def insert_workflow_variant(
-    message_id: int,
-    attachment: dict,
-    *,
-    group: Sequence[int] = (),
-    shown: int | None = None,
+    message_id: int, attachment: dict, *, group: Sequence[int] = (), shown: int | None = None
 ) -> tuple[int | None, dict | None]:
     """Insert one render of a run that is still producing them.
 
@@ -750,7 +746,7 @@ async def insert_workflow_attachments(
             seen_parents.add(pid)
             await _check_flat_parent_on(conn, pid, message_id)
 
-        initial_selection = {pid: await _variant_on_show_on(conn, pid) for pid in seen_parents}
+        initial_selection = {pid: await _variant_on_show_on(conn, pid) for pid in seen_parents} if shown is not None else {}
         budget = await _get_budget_bytes_on(conn)
         existing = await _byte_bearing_candidates_on(conn)
         occupied = sum(c["size"] for c in existing)

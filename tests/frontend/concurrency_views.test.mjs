@@ -360,3 +360,69 @@ test('a background group exchange consumes its own one-shot speaker pin only', a
   assert.equal(background.pinnedSpeakerId, null);
   assert.equal(S.pinnedSpeakerId, 3);
 });
+
+test('state written with no chat selected never seeds a later conversation', async () => {
+  const { conversationState } = await import('../../frontend/state.js');
+  S.activeConvId = null;
+  S.queuedEdits[7] = 'idle';
+  S.activeWorldIds.add('idle-world');
+  assert.deepEqual(conversationState('fresh-after-idle').queuedEdits, {});
+  assert.equal(conversationState('fresh-after-idle').activeWorldIds.size, 0);
+  delete S.queuedEdits[7];
+  S.activeWorldIds.clear();
+});
+
+test('saving queued edits keeps Send off while a stopped reply is unconfirmed', async (t) => {
+  const { conversationState } = await import('../../frontend/state.js');
+  const { saveQueuedEdits } = await import('../../frontend/chat_stream.js');
+  S.activeConvId = 'unconfirmed';
+  Object.assign(conversationState('unconfirmed'), {
+    turnSettlementUnknown: true,
+    queuedEdits: { 5: 'fixed' },
+    messages: [{ id: 5, role: 'user', content: 'old' }],
+  });
+  document.getElementById('send-btn').disabled = false;
+  t.mock.method(globalThis, 'fetch', async () => Response.json({}));
+  await saveQueuedEdits('unconfirmed');
+  assert.deepEqual(S.queuedEdits, {});
+  assert.equal(document.getElementById('send-btn').disabled, true);
+});
+
+test('a full local draft store never blocks the document save it backs up', async (t) => {
+  documents.initDocumentMode();
+  let row = { id: 'quota-doc', title: 'Q', revision: 1, content: 'Saved.', generated_spans: [] };
+  const puts = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts = {}) => {
+    if (opts.method === 'PUT') {
+      puts.push(JSON.parse(opts.body));
+      row = { ...row, ...puts.at(-1), revision: row.revision + 1 };
+    }
+    return Response.json(row);
+  });
+  S.docDirty = false;
+  S.documents = [row];
+  await documents.openDocument('quota-doc');
+  t.mock.method(window.Storage.prototype, 'setItem', () => {
+    throw new window.DOMException('full', 'QuotaExceededError');
+  });
+  document.getElementById('doc-page').textContent = 'Edited.';
+  S.docDirty = true;
+  document.getElementById('doc-page').dispatchEvent(new window.Event('blur'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(puts.at(-1)?.content, 'Edited.');
+  assert.equal(S.docDirty, false);
+});
+
+test('a conversation left behind drops its retained view unless it still holds work or intent', async () => {
+  const { conversationState, releaseConversationState } = await import('../../frontend/state.js');
+  S.activeConvId = 'still-open';
+  conversationState('still-open');
+  conversationState('idle-left').messages = [{ id: 1, role: 'user', content: 'hi' }];
+  Object.assign(conversationState('drafted-left'), { draft: 'half a thought' });
+  Object.assign(conversationState('unconfirmed-left'), { turnSettlementUnknown: true });
+  for (const cid of ['idle-left', 'drafted-left', 'unconfirmed-left', 'still-open']) releaseConversationState(cid);
+  assert.equal(S.conversationStates.has('idle-left'), false);
+  assert.equal(S.conversationStates.has('drafted-left'), true);
+  assert.equal(S.conversationStates.has('unconfirmed-left'), true);
+  assert.equal(S.conversationStates.has('still-open'), true);
+});

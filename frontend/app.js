@@ -525,7 +525,7 @@ configureApiConcurrency({
   refresh: () => {
     const input = document.getElementById("chat-input");
     if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
-    window.dispatchEvent(new Event("beforeunload"));
+    // The reload fires the real beforeunload, which flushes document drafts.
     window.location.reload();
   },
 });

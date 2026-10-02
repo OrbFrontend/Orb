@@ -456,15 +456,13 @@ async def _regenerate(
         kept: list[int] = []
         rejections: list[dict] = []
 
+        def candidate_of(attachment: dict, **extra: Any) -> dict:
+            # Stamped with the text it renders: an edit made meanwhile keeps it from auto-activating.
+            metadata = {**(attachment.get("generation_metadata") or {}), "source_text": anchor["content"]}
+            return {**attachment, "workflow_id": sub.workflow_id, **extra, "generation_metadata": metadata}
+
         async def keep(attachment: dict) -> int | None:
-            candidate = {
-                **attachment,
-                "workflow_id": sub.workflow_id,
-                "generation_metadata": {
-                    **(attachment.get("generation_metadata") or {}),
-                    "source_text": anchor["content"],
-                },
-            }
+            candidate = candidate_of(attachment)
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
                 rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
@@ -482,12 +480,7 @@ async def _regenerate(
             landed(new_id)
             return new_id
 
-        with _hook_failures(
-            "regenerate hook",
-            wid,
-            aid,
-            defect="Regenerate handler raised; see server logs",
-        ):
+        with _hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
             regen_ctx = RegenCtx(
                 conversation_id=cid,
                 message_id=mid,
@@ -524,15 +517,7 @@ async def _regenerate(
             if not isinstance(d, dict):
                 logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
                 continue
-            candidate = {
-                **d,
-                "workflow_id": sub.workflow_id,
-                "parent_attachment_id": root_id,
-                "generation_metadata": {
-                    **(d.get("generation_metadata") or {}),
-                    "source_text": anchor["content"],
-                },
-            }
+            candidate = candidate_of(d, parent_attachment_id=root_id)
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
                 rejections.append(_shape_rejection(candidate, reason, sub.workflow_id, root_id))
@@ -554,10 +539,7 @@ async def _regenerate(
                 )
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
-            raise HTTPException(
-                status_code=500,
-                detail="Regenerate batch insert failed; see server logs",
-            ) from None
+            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
 
         helper_rejected_projected = [project_rejected_attachment(a, root_id) for a in helper_rejected]
         return {
@@ -689,22 +671,12 @@ async def api_reroll_gen_attachment(
     )
 
     return await _finished_job(
-        start_workflow_job(
-            cid,
-            _reroll_gen(cid, mid, aid, body, sub, settings_snapshot),
-            job=job,
-            message_id=mid,
-        )
+        start_workflow_job(cid, _reroll_gen(cid, mid, aid, body, sub, settings_snapshot), job=job, message_id=mid)
     )
 
 
 async def _reroll_gen(
-    cid: str,
-    mid: int,
-    aid: int,
-    body: dict,
-    sub: Subscription,
-    settings_snapshot: Mapping[str, Any],
+    cid: str, mid: int, aid: int, body: dict, sub: Subscription, settings_snapshot: Mapping[str, Any]
 ) -> dict:
     wid = sub.workflow_id
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock
@@ -720,12 +692,7 @@ async def _reroll_gen(
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
 
-        with _hook_failures(
-            "reroll_gen hook",
-            wid,
-            aid,
-            defect="reroll_gen handler raised; see server logs",
-        ):
+        with _hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
             # Not a replay: this route promises another variant of the same subject,
             # not the stored image back, so a workflow whose configuration has moved
             # renders on today's.
@@ -836,12 +803,7 @@ async def api_rehydrate_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
     return await _finished_job(
-        start_workflow_job(
-            cid,
-            _rehydrate(cid, mid, aid, seed, settings_snapshot),
-            job=job,
-            message_id=mid,
-        )
+        start_workflow_job(cid, _rehydrate(cid, mid, aid, seed, settings_snapshot), job=job, message_id=mid)
     )
 
 

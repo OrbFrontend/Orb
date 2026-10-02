@@ -300,8 +300,7 @@ async function startRun(force = false) {
   if (_controller) return;
   const record = begin("tagging", { library: true });
   const controller = createStreamOperation({
-    requestStop: (_, signal) =>
-      api._req(`/library/auto-tag/stop?operation_id=${record.id}`, { method: "POST", signal }),
+    requestStop: (_, signal) => api.post(`/library/auto-tag/stop?operation_id=${record.id}`, {}, { signal }),
   });
   record.signal = controller.signal;
   record.abort = () => record.stop?.();

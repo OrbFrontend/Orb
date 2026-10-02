@@ -37,6 +37,7 @@ const LS_MODE = "orb-doc-mode";
 const LS_ACTIVE = "orb-active-doc";
 const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) or Assisted (1)
 const LS_PROBS = "orb-doc-probs"; // capture token alternatives
+const draftKey = (id) => `orb-doc-draft:${id}`;
 const SAVE_DEBOUNCE_MS = 1500;
 const STREAM_FLUSH_MS = 5000; // save interval during streaming
 const HISTORY_DEBOUNCE_MS = 800; // one undo step per typing burst
@@ -51,6 +52,25 @@ let flushInterval = null;
 let anchorTextNode = null; // text node receiving generated tokens
 let docAssisted = false; // Raw vs Assisted mode
 let docProbsOn = false; // capture token alternatives
+
+// The local draft is a crash backup: storage that is full or blocked must never
+// stop the server save it backs up.
+function stashDraft(id, { content, spans }, baseRevision) {
+  try {
+    localStorage.setItem(
+      draftKey(id),
+      JSON.stringify({ content, generated_spans: spans, base_revision: baseRevision }),
+    );
+  } catch {
+    /* No backup this time; the server save still runs. */
+  }
+}
+
+function dropDraft(id) {
+  try {
+    localStorage.removeItem(draftKey(id));
+  } catch {}
+}
 
 function setSaveState(text) {
   const el = $("doc-save-state");
@@ -342,7 +362,7 @@ export async function openDocument(id) {
   setSaveState("Saved");
   updateTokenCount();
   renderDocuments();
-  const recovered = localStorage.getItem(`orb-doc-draft:${id}`);
+  const recovered = localStorage.getItem(draftKey(id));
   if (recovered) {
     try {
       const draft = JSON.parse(recovered);
@@ -350,7 +370,7 @@ export async function openDocument(id) {
         draft.content === doc.content &&
         JSON.stringify(draft.generated_spans || []) === JSON.stringify(doc.generated_spans || [])
       ) {
-        localStorage.removeItem(`orb-doc-draft:${id}`);
+        dropDraft(id);
         return;
       }
       showConfirmModal(
@@ -463,7 +483,7 @@ function createSession(row) {
     put: (body) => api.put(`/documents/${id}`, body),
     acknowledged(saved, snapshot, latest) {
       updateDocInList(saved);
-      if (latest) localStorage.removeItem(`orb-doc-draft:${id}`);
+      if (latest) dropDraft(id);
       if (S.activeDocId !== id) return;
       const current = serializeEditor($("doc-page"));
       const matches =
@@ -512,7 +532,7 @@ function showSaveConflict(id, session, current) {
       session.discard(current);
       renderEditor($("doc-page"), current.content, current.generated_spans);
       S.docDirty = false;
-      localStorage.removeItem(`orb-doc-draft:${id}`);
+      dropDraft(id);
       setSaveState("Saved");
       closeModal();
     });
@@ -529,7 +549,7 @@ async function flushSave({ keepalive = false } = {}) {
   if (!session) return false;
   const { content, spans } = serializeEditor($("doc-page"));
   const snapshot = { content, generated_spans: spans };
-  localStorage.setItem(`orb-doc-draft:${id}`, JSON.stringify({ ...snapshot, base_revision: session.row.revision }));
+  stashDraft(id, { content, spans }, session.row.revision);
   if (keepalive) {
     apiFetch(`/api/documents/${id}`, {
       method: "PUT",
@@ -606,10 +626,16 @@ export async function docGenerate() {
   record.completion = new Promise((resolve) => {
     complete = resolve;
   });
+  // Waiters on `completion` (open another, delete) see the operation already released.
+  const release = (outcome) => {
+    finish(record, outcome);
+    if (S.docOperation === record) S.docOperation = null;
+    complete();
+  };
   const op = createStreamOperation({
     target: { did, operationId: record.id },
     requestStop: (target, signal) =>
-      api._req(`/documents/${target.did}/stop?operation_id=${target.operationId}`, { method: "POST", signal }),
+      api.post(`/documents/${target.did}/stop?operation_id=${target.operationId}`, {}, { signal }),
   });
   record.stop = () => op.stop();
   record.stream = op;
@@ -618,9 +644,7 @@ export async function docGenerate() {
   if ((S.docDirty && !(await flushSave())) || S.activeDocId !== did || op.stopping) {
     await op.settle();
     S.docStreaming = false;
-    finish(record, "failed");
-    if (S.docOperation === record) S.docOperation = null;
-    complete();
+    release("failed");
     return;
   }
   docCheckpoint();
@@ -640,8 +664,6 @@ export async function docGenerate() {
   page.setAttribute("contenteditable", "false");
   page.classList.add("generating");
   docScrollFollow?.setFollowing(true);
-  S.docStreaming = true;
-
   swapGenButtons(true);
   updateUndoButton();
   startFlushInterval();
@@ -698,15 +720,12 @@ export async function docGenerate() {
         if (S.activeDocId === did) await flushSave();
       };
     }
-    finish(record, settled ? "settled" : "unknown");
-    complete();
-    if (S.docOperation === record) S.docOperation = null;
+    release(settled ? "settled" : "unknown");
   }
 }
 
 async function finalizeGeneration(settled) {
   stopFlushInterval();
-
   anchorTextNode = null;
   const page = $("doc-page");
   page.setAttribute("contenteditable", "true");
@@ -736,15 +755,7 @@ async function finalizeGeneration(settled) {
   S.docDirty = true;
   if (settled) await flushSave();
   else {
-    const snapshot = serializeEditor(page);
-    localStorage.setItem(
-      `orb-doc-draft:${S.activeDocId}`,
-      JSON.stringify({
-        content: snapshot.content,
-        generated_spans: snapshot.spans,
-        base_revision: S.documentSessions.get(S.activeDocId)?.row.revision,
-      }),
-    );
+    stashDraft(S.activeDocId, serializeEditor(page), S.documentSessions.get(S.activeDocId)?.row.revision);
     setSaveState("Settlement unknown — partial draft unsaved");
   }
   S.docStreaming = false;

@@ -173,8 +173,7 @@ async function startScan() {
   const mount = _mount;
   const record = begin("duplicate-scan", { library: true });
   const controller = createStreamOperation({
-    requestStop: (_, signal) =>
-      api._req(`/library/duplicates/stop?operation_id=${record.id}`, { method: "POST", signal }),
+    requestStop: (_, signal) => api.post(`/library/duplicates/stop?operation_id=${record.id}`, {}, { signal }),
   });
   record.stop = () => controller.stop();
   let completed;

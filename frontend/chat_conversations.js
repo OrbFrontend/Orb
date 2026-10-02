@@ -3,7 +3,7 @@ import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
 import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
 import { inspectMessage } from "./chat_messages.js";
-import { cancelStreamingPaint, restoreStreamingView, setStreaming } from "./chat_stream.js";
+import { cancelStreamingPaint, restoreStreamingView, setStreaming, syncSendButton } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
@@ -14,7 +14,14 @@ import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./moda
 import { begin, finish, ownsView, runningFor } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { charactersView, conversationState, notify, S, upgradeLegacyFragment } from "./state.js";
+import {
+  charactersView,
+  conversationState,
+  notify,
+  releaseConversationState,
+  S,
+  upgradeLegacyFragment,
+} from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation } from "./stream_settle.js";
 import {
@@ -201,15 +208,17 @@ export async function newConversationHere() {
 
 export async function selectConversation(id) {
   cancelStreamingPaint();
-  if (S.activeConvId) {
+  const previousId = S.activeConvId;
+  if (previousId) {
     const draft = $("chat-input").value;
-    conversationState(S.activeConvId).draft = draft;
-    localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, draft);
+    conversationState(previousId).draft = draft;
+    localStorage.setItem(`orb-chat-draft:${previousId}`, draft);
   }
   const token = ++S.conversationViewToken;
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   S.activeConvId = id;
+  if (previousId !== id) releaseConversationState(previousId);
   S.conversationLoading = true;
   try {
     if (!S.isStreaming) {
@@ -266,8 +275,7 @@ export async function selectConversation(id) {
     if (!ownsView(token, id)) return;
     S.conversationLoading = false;
     $("chat-input").disabled = false;
-    $("send-btn").disabled =
-      S.isStreaming || S.turnSettlementUnknown || !!S.proseRewriteMsgId || Object.keys(S.queuedEdits).length > 0;
+    syncSendButton();
     if (activation) reflectConversationWorldActivation(activation.world_ids);
     setMessages(msgs);
     S.directorState = directorState;
@@ -520,7 +528,7 @@ export async function generateCompressionSummary() {
   const op = createStreamOperation({
     target: record.target,
     requestStop: (target, signal) =>
-      api._req(`/conversations/${target.conversationId}/stop?operation_id=${record.id}`, { method: "POST", signal }),
+      api.post(`/conversations/${target.conversationId}/stop?operation_id=${record.id}`, {}, { signal }),
   });
   record.stop = () => {
     record.phase = "stopping";
