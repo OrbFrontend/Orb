@@ -577,8 +577,6 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     state.reasoningUserOverride = false;
   };
 
-  // The status strip shows the step label; repaint it when that changes, not per token.
-  let shownStep = state.generationStep;
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
     if (event === "done" || event === "error") terminalReceived = true;
     if (event === "speaking_plan") {
@@ -601,9 +599,6 @@ export async function processSSEStream(resp, container, holder, signal, state = 
         resetSpeakerTurnState();
         state.generationStep = "Waiting for the model";
         if (visible()) setGenerationStep(state.generationStep);
-        // A new speaker renames this chat in the status strip.
-        shownStep = state.generationStep;
-        notify("operations");
         if (visible()) holder.el = createStreamingDiv(parsed.name, parsed.member_id);
         else {
           holder.el = null;
@@ -663,10 +658,6 @@ export async function processSSEStream(resp, container, holder, signal, state = 
     };
     try {
       handleSSEEvent(event, data, holder.el, onToken, onRewrite, state, visible);
-      if (state.generationStep !== shownStep) {
-        shownStep = state.generationStep;
-        notify("operations");
-      }
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {

@@ -14,7 +14,7 @@ import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./moda
 import { begin, finish, ownsView, runningFor } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { conversationState, notify, S, upgradeLegacyFragment } from "./state.js";
+import { charactersView, conversationState, notify, S, upgradeLegacyFragment } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation } from "./stream_settle.js";
 import {
@@ -250,7 +250,7 @@ export async function selectConversation(id) {
     } else {
       av.textContent = CHAT_AVATAR_ICON;
     }
-    const expressive = (cardId) => Boolean((S.characters || []).find((c) => c.id === cardId)?.has_expressions);
+    const expressive = (cardId) => Boolean(charactersView().find((c) => c.id === cardId)?.has_expressions);
     const hasExpr = conv?.kind === "group" ? sceneCardIds(conv).some(expressive) : expressive(conv?.character_card_id);
     av.classList.toggle("avatar-halo", hasExpr);
 
@@ -396,7 +396,7 @@ export async function showConvHistoryModal(scope = null) {
   }
   const scopeName = target.groupRootId
     ? convs.find((c) => c.id === target.groupRootId)?.title || convs[0].title || "Group"
-    : S.characters.find((c) => c.id === target.charId)?.name || "Character";
+    : charactersView().find((c) => c.id === target.charId)?.name || "Character";
   const rootAttr = target.groupRootId || "";
   const items = convs
     .map((c) => {

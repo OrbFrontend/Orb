@@ -327,6 +327,35 @@
 
 .char-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
 
+/* A sidebar avatar whose chat is generating a reply, in view or not. */
+.chat-activity {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-activity.busy::after {
+  content: "";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--bg-primary);
+  border-radius: 50%;
+  background: var(--accent);
+  animation: chat-activity-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes chat-activity-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 5px 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-activity.busy::after { animation: none; }
+}
+
 .avatar-halo,
 .world-avatar.avatar-halo {
   border-color: transparent;

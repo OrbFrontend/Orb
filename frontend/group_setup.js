@@ -19,7 +19,8 @@ import {
 } from "./group_cast.js";
 import { CLOSE_ICON, GRIP_ICON } from "./icons.js";
 import { closeModal, setModalCloseGuard, showModal, switchTab } from "./modal.js";
-import { charactersView, notify, S } from "./state.js";
+import { runningChatIds } from "./operations.js";
+import { charactersView, notify, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, convUrl, esc, escAttr, toast } from "./utils.js";
 
 // Both group setup views use this shared context explanation.
@@ -793,7 +794,7 @@ function _groupItemHtml({ rootId, root, shown, open, members }) {
   const title = `Cast: ${memberLine}${members.length > 1 ? `\n${members.length} conversations — open the group, then ☰ › Conversations` : ""}`;
   return `<div class="group-chat-item${open ? " active" : ""}">
       <button type="button" class="group-chat-select" data-group-conversation-id="${escAttr(shown.id)}" title="${escAttr(title)}">
-        <span class="group-chat-avatar-stack" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
+        <span class="group-chat-avatar-stack chat-activity" data-activity-root-id="${escAttr(rootId)}" aria-hidden="true">${avatarStack}${remaining ? `<span class="group-chat-avatar group-chat-overflow">+${remaining}</span>` : ""}</span>
         <span class="group-chat-details"><span class="group-chat-title">${esc(root.title)}</span><span class="group-chat-members">${esc(memberLine)}</span></span>
         ${countBadge}
       </button>
@@ -833,7 +834,22 @@ export function renderGroupList() {
     }
   }
   list.innerHTML = html;
+  syncGroupActivity();
 }
+
+// A group with a reply generating in any of its conversations wears the busy dot.
+function syncGroupActivity() {
+  const running = runningChatIds();
+  const busy = new Set();
+  for (const conv of S.conversations || []) {
+    if (conv.kind === "group" && running.has(conv.id)) busy.add(groupRootId(conv));
+  }
+  for (const el of document.querySelectorAll("#group-chat-list [data-activity-root-id]")) {
+    el.classList.toggle("busy", busy.has(el.dataset.activityRootId));
+  }
+}
+
+subscribe("operations", syncGroupActivity);
 
 async function fetchSheetProposals(cid) {
   try {

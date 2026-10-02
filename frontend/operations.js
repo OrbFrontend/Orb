@@ -31,3 +31,12 @@ export function ownsView(token, id, kind = "conversation") {
     ? S.documentViewToken === token && S.activeDocId === id
     : S.conversationViewToken === token && S.activeConvId === id;
 }
+
+/** Conversations with a reply generating right now, in view or not. */
+export function runningChatIds() {
+  const ids = new Set();
+  for (const op of S.operations.values()) {
+    if (op.kind === "chat" && op.phase !== "unknown") ids.add(op.target.conversationId);
+  }
+  return ids;
+}

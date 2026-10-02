@@ -21,7 +21,14 @@ import {
 } from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { conversationState, effectiveWorkflowEnabled, restingCooldowns, S, subscribe } from "./state.js";
+import {
+  charactersView,
+  conversationState,
+  effectiveWorkflowEnabled,
+  restingCooldowns,
+  S,
+  subscribe,
+} from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
@@ -330,26 +337,11 @@ function _renderWorkflowPhasesPill() {
   el.title = el.textContent;
 }
 
-// One running reply shows its step. With several, each is named by its speaker
-// (or character) so the strip says which chat is where. Null means nothing runs.
-function generationStatusText() {
-  const chats = [...S.operations.values()].filter((op) => op.kind === "chat" && op.phase !== "unknown");
-  if (chats.length < 2) return S.generationStep === null ? null : S.generationStep || WAITING_LABEL;
-  return chats
-    .map((op) => {
-      const cid = op.target.conversationId;
-      const state = conversationState(cid);
-      const conv = S.conversations?.find((c) => c.id === cid);
-      const name = state.currentSpeaker?.name || conv?.character_name || conv?.title || "Chat";
-      return `${name}: ${state.generationStep || WAITING_LABEL}`;
-    })
-    .join(" · ");
-}
-
 export function _syncGenerationStatus() {
   const el = $("generation-status");
   if (!el) return;
-  const label = generationStatusText();
+  // Empty means waiting; null means no active turn.
+  const label = S.generationStep === null ? null : S.generationStep || WAITING_LABEL;
   const text = el.querySelector(".gen-text");
   // Keep the last label while the strip collapses.
   if (text && label !== null) text.textContent = label;
@@ -626,7 +618,6 @@ async function _expressionTick() {
 }
 
 subscribe("expression-playback", () => void _expressionTick());
-subscribe("operations", _syncGenerationStatus);
 
 export async function showAvatarPopup() {
   const charId = expressionCharId();
@@ -639,7 +630,7 @@ export async function showAvatarPopup() {
   }
   const img = document.getElementById("avatar-popup-image");
   if (!img) return;
-  const hasExpr = (S.characters || []).find((c) => c.id === charId)?.has_expressions;
+  const hasExpr = charactersView().find((c) => c.id === charId)?.has_expressions;
   if (!hasExpr) img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`;
   popup.classList.remove("hidden");
   img._exprCharId = null;
