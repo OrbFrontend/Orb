@@ -1,3 +1,4 @@
+import { begin, finish } from "./operations.js";
 // Character Library duplicate finder controller.
 
 import { api } from "./api.js";
@@ -5,11 +6,14 @@ import { COPY_ICON } from "./icons.js";
 import { combinations, compareHtml, duplicateResultsHtml, memberMeta } from "./library_dedupe_view.js";
 import { showSubConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
+import { createStreamOperation } from "./stream_settle.js";
 import { esc, toast } from "./utils.js";
 
 let _root = null;
 let _callbacks = {};
 let _controller = null;
+let _scan = null;
+let _mount = 0;
 let _report = null;
 let _comparison = null;
 let _compareMarks = {};
@@ -43,9 +47,10 @@ export function dedupeToolHtml() {
 
 /** Mount a fresh Manager-panel instance. Closing the panel intentionally drops results. */
 export function mountLibraryDedupe(root, callbacks = {}) {
+  unmountLibraryDedupe();
+  _mount++;
   _root = root;
   _callbacks = callbacks;
-  _controller = null;
   _report = null;
   _comparison = null;
   _compareMarks = {};
@@ -70,7 +75,7 @@ function onClick(event) {
   if (!button || !_root?.contains(button)) return;
   const action = button.dataset.dupeAction;
   if (action === "scan") startScan();
-  else if (action === "cancel") _controller?.abort();
+  else if (action === "cancel") _scan?.stop();
   else if (action === "compare") {
     loadCompare(button.dataset.dupeA, button.dataset.dupeB, {
       a: button.dataset.dupeMarkA,
@@ -111,15 +116,18 @@ function paint() {
   const running = !!_controller;
   const status = _root.querySelector("[data-dupe-status]");
   if (status) {
-    status.textContent = running
-      ? "Scanning character content and checking cached avatars…"
-      : !_report
-        ? _characterCount
-          ? "Algorithmically scan the library, no API calls."
-          : "No characters to scan yet."
-        : resultCount()
-          ? resultSummary()
-          : "No duplicates found.";
+    status.textContent =
+      _scan?.phase === "unknown"
+        ? "Settlement unknown — check status before starting another scan."
+        : running
+          ? "Scanning character content and checking cached avatars…"
+          : !_report
+            ? _characterCount
+              ? "Algorithmically scan the library, no API calls."
+              : "No characters to scan yet."
+            : resultCount()
+              ? resultSummary()
+              : "No duplicates found.";
   }
   const scan = _root.querySelector('[data-dupe-action="scan"]');
   if (scan) {
@@ -131,7 +139,10 @@ function paint() {
     scan.disabled = running || !_characterCount;
   }
   const cancel = _root.querySelector('[data-dupe-action="cancel"]');
-  if (cancel) cancel.hidden = !running;
+  if (cancel) {
+    cancel.hidden = !running;
+    cancel.textContent = _scan?.phase === "unknown" ? "Check status" : "Cancel";
+  }
   const results = _root.querySelector("[data-dupe-results]");
   if (results) {
     const undo = _lastDismissed
@@ -159,14 +170,29 @@ function hideProgress() {
 
 async function startScan() {
   if (_controller) return;
-  _controller = new AbortController();
+  const mount = _mount;
+  const record = begin("duplicate-scan", { library: true });
+  const controller = createStreamOperation({
+    requestStop: (_, signal) =>
+      api._req(`/library/duplicates/stop?operation_id=${record.id}`, { method: "POST", signal }),
+  });
+  record.stop = () => controller.stop();
+  let completed;
+  record.completion = new Promise((resolve) => {
+    completed = resolve;
+  });
+  _scan = record;
+  _controller = controller;
   _comparison = null;
   showProgress(0, 0, "");
   paint();
+  let terminalReceived = false;
   try {
-    const response = await streamPost("/library/duplicates/scan", {}, _controller.signal);
+    const response = await streamPost(`/library/duplicates/scan?operation_id=${record.id}`, {}, controller.signal);
     if (!response.ok) throw new Error(`scan returned ${response.status}`);
-    for await (const event of sseEvents(response.body, { signal: _controller.signal })) {
+    for await (const event of sseEvents(response.body, { signal: controller.signal })) {
+      if (event.event === "done" || event.event === "error") terminalReceived = true;
+      if (_mount !== mount || _scan !== record) continue;
       let data = event.data;
       try {
         data = event.data ? JSON.parse(event.data) : {};
@@ -181,19 +207,46 @@ async function startScan() {
         toast(typeof data === "string" ? data : data?.message || "Duplicate scan failed", true);
       }
     }
+    if (!terminalReceived && !controller.stopping) throw new Error("Scan stream ended before completion");
   } catch (error) {
+    if (!terminalReceived) controller.disconnect();
     if (error?.name !== "AbortError") toast(`Duplicate scan failed: ${error.message}`, true);
   } finally {
-    _controller = null;
-    hideProgress();
-    paint();
+    const settled = await controller.settle();
+    if (!settled) {
+      record.stop = async () => {
+        if (!(await controller.settle())) return;
+        finish(record);
+        if (_scan === record) {
+          _scan = null;
+          _controller = null;
+          paint();
+        }
+      };
+    }
+    finish(record, settled ? "settled" : "unknown");
+    completed();
+    if (settled && _scan === record) {
+      _scan = null;
+      _controller = null;
+      paint();
+    }
+    if (_mount === mount) {
+      hideProgress();
+      paint();
+    }
   }
 }
 
 async function loadCompare(a, b, marks) {
   if (!a || !b) return;
+  const mount = _mount;
   try {
-    _comparison = await api.get(`/library/duplicates/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+    const comparison = await api.get(
+      `/library/duplicates/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    );
+    if (_mount !== mount) return;
+    _comparison = comparison;
     _compareMarks = { a: marks?.a || "A", b: marks?.b || "B" };
     paint();
   } catch (error) {
@@ -326,4 +379,11 @@ async function afterResolve(removed) {
   await _callbacks.onRunComplete?.();
   await startScan();
   toast(removed === 1 ? "Duplicate removed" : `${removed} duplicates removed`);
+}
+
+export function unmountLibraryDedupe() {
+  _mount++;
+  _scan?.stop();
+  _root?.removeEventListener("click", onClick);
+  _root = null;
 }

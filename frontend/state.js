@@ -1,6 +1,18 @@
 // Shared client state; keep new keys initialized here.
 
 export const S = {
+  operations: new Map(),
+  datasetEpoch: null,
+  docOperation: null,
+  conversationViewToken: 0,
+  conversationLoading: false,
+  documentViewToken: 0,
+  documentSessions: new Map(),
+  activeWorldIds: new Set(),
+  attachmentInvalidations: new Map(),
+  conversationCache: new Map(),
+  inspectedReasoningSelected: 0,
+  inspectedReasoning: {},
   conversations: [],
   activeConvId: null,
   activeCharId: null,
@@ -69,6 +81,7 @@ export const S = {
   queuedEdits: {}, // edits saved after the current stream ends
   renderWindowStart: 0, // first rendered message index
 
+  liveGroupReplies: 0,
   isStreaming: false,
   proseRewriteMsgId: null,
   streamingBodyEl: null,
@@ -80,10 +93,12 @@ export const S = {
   pendingUserMsg: null,
   attachments: [],
   generationStep: null, // empty while waiting; null when idle
+  pendingGenerationStep: null,
   hideStreamingBox: false,
   contextSize: null,
   pendingRefineDiff: null, // writer/editor diff for the current stream
   editorDraftBaseline: null, // writer text before the editor pass
+  turnSettlementUnknown: false,
   turnError: null, // current turn error
   worldProposalArrived: false,
 
@@ -127,7 +142,6 @@ export const S = {
   activeDocId: null,
   documentMode: false, // show the document editor instead of chat
   docStreaming: false,
-  docAbortController: null,
   docDirty: false, // unsaved editor changes
   docAuditResults: null,
   docAuditBusy: false, // document audit or patch is in flight
@@ -153,6 +167,100 @@ export const S = {
 
   rejectedWorkflowAtts: [],
 };
+
+// UI reads the selected conversation; asynchronous operations retain this object.
+const conversationKeys = [
+  "conversationLoading",
+  "workflowPhases",
+  "castSetupBusy",
+  "messages",
+  "queuedEdits",
+  "editingMsgId",
+  "forkEditMsgId",
+  "magicInputMsgId",
+  "editingPendingUserMsg",
+  "pendingUserMsgEdit",
+  "renderWindowStart",
+  "liveGroupReplies",
+  "isStreaming",
+  "proseRewriteMsgId",
+  "streamingBodyEl",
+  "streamCutoffIndex",
+  "streamOp",
+  "streamingContent",
+  "expressionBuffering",
+  "expressionPlayback",
+  "pendingUserMsg",
+  "attachments",
+  "generationStep",
+  "pendingGenerationStep",
+  "hideStreamingBox",
+  "contextSize",
+  "pendingRefineDiff",
+  "editorDraftBaseline",
+  "turnError",
+  "turnSettlementUnknown",
+  "worldProposalArrived",
+  "groupCast",
+  "pinnedSpeakerId",
+  "consumedSpeakerId",
+  "speakingPlan",
+  "currentSpeaker",
+  "currentExchangeId",
+  "completedExchangeMessageIds",
+  "directorState",
+  "lastDirectorData",
+  "reasoningDirector",
+  "reasoningWriter",
+  "reasoningEditor",
+  "lastFeedback",
+  "lastState",
+  "lastDecisions",
+  "reasoningPassActive",
+  "reasoningPassSelected",
+  "reasoningUserOverride",
+  "inspectedMsgId",
+  "inspectedDirectorData",
+  "inspectedReasoning",
+  "inspectedReasoningSelected",
+  "reasoningByPass",
+  "sceneIntro",
+  "cardMoodFragments",
+  "cardInteractiveFragments",
+  "rejectedWorkflowAtts",
+  "activeWorldIds",
+];
+const defaults = Object.fromEntries(conversationKeys.map((key) => [key, S[key]]));
+const idleView = { ...defaults };
+S.conversationStates = new Map();
+
+export function conversationState(cid) {
+  if (cid == null) return idleView;
+  let state = S.conversationStates.get(cid);
+  if (!state) {
+    const data = structuredClone(defaults);
+    data.activeConvId = cid;
+    data.draft = "";
+    state = new Proxy(data, {
+      get: (target, key) => (key in target ? target[key] : S[key]),
+      set(target, key, value) {
+        target[key] = value;
+        return true;
+      },
+    });
+    S.conversationStates.set(cid, state);
+  }
+  return state;
+}
+for (const key of conversationKeys) {
+  Object.defineProperty(S, key, {
+    enumerable: true,
+    get: () => conversationState(S.activeConvId)[key],
+    set: (value) => {
+      conversationState(S.activeConvId)[key] = value;
+    },
+  });
+}
 
 /** Is a Local ML feature usable right now (downloaded, on, deps installed)?
  *
@@ -231,6 +339,7 @@ export function restingCooldowns(msgId) {
 }
 
 const TOPICS = new Set([
+  "operations",
   "messages",
   "conversations",
   "settings",

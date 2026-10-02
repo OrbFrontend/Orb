@@ -1,4 +1,5 @@
 // Shared reader for server-sent event streams.
+import { apiFetch } from "./api.js";
 
 const FRAME_SEP = "\n\n";
 const EVENT_PREFIX = "event: ";
@@ -53,7 +54,7 @@ export function unescapeSSE(data) {
 }
 
 export function streamPost(path, body, signal) {
-  return fetch(`/api${path}`, {
+  return apiFetch(`/api${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),

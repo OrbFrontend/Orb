@@ -167,6 +167,12 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
             persona_lock_id=source.get("persona_lock_id"),
             macro_seed=source.get("macro_seed") or source["id"],
         )
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO conversation_worlds SELECT ?, world_id, enabled FROM conversation_worlds WHERE conversation_id = ?",
+            (new_cid, source["id"]),
+        )
+        await db.commit()
     return new_cid
 
 

@@ -5,8 +5,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import _build_set_clause, get_db, immediate_tx
 from ..models import DocumentListRow, DocumentRow
+
+
+class DocumentConflict(Exception):
+    """A draft was based on a document revision that is no longer current."""
+
+    def __init__(self, document: DocumentRow):
+        self.document = document
+        super().__init__("Document changed since this draft was loaded")
 
 
 async def get_documents() -> list[DocumentListRow]:
@@ -50,16 +58,32 @@ async def create_document(data: dict) -> DocumentRow:
 
 
 async def update_document(document_id: str, data: dict) -> DocumentRow | None:
-    async with get_db() as db:
+    async with immediate_tx() as db:
         allowed = ["title", "content", "generated_spans"]
         sets, vals = _build_set_clause(allowed, data, json_fields={"generated_spans"})
         if sets:
+            sets.append("revision = revision + 1")
             sets.append("updated_at = ?")
             vals.append(datetime.now(UTC).isoformat())
             vals.append(document_id)
-            await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", vals)  # nosec B608
-            await db.commit()
-        return await get_document(document_id)
+            where = "id = ?"
+            if data.get("expected_revision") is not None:
+                where += " AND revision = ?"
+                vals.append(data["expected_revision"])
+            cur = await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE {where}", vals)  # nosec B608
+            if cur.rowcount == 0:
+                rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
+                current = dict(rows[0]) if rows else None
+                if current is not None:
+                    current["generated_spans"] = json.loads(current["generated_spans"])
+                if current is not None:
+                    raise DocumentConflict(cast(DocumentRow, current))
+        rows = list(await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (document_id,)))
+        if not rows:
+            return None
+        result = dict(rows[0])
+        result["generated_spans"] = json.loads(result["generated_spans"])
+        return cast(DocumentRow, result)
 
 
 async def delete_document(document_id: str) -> bool:

@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, apiFetch } from "./api.js";
 import { initDocAudit, onGenerationEnd, renderDocAuditPane } from "./document_audit.js";
 import {
   caretAfter,
@@ -21,13 +21,16 @@ import {
   swapRunToken,
   syncContent,
 } from "./document_probs.js";
+import { createDocumentSaveQueue } from "./document_saves.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
-import { confirmDelete, showConfirmModal } from "./modal.js";
+import { closeModal, confirmDelete, showConfirmModal } from "./modal.js";
+import { begin, finish, runningFor } from "./operations.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { S } from "./state.js";
+import { createStreamOperation } from "./stream_settle.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
@@ -137,6 +140,7 @@ function setDocumentMode(on) {
   S.documentMode = on;
   document.getElementById("app")?.classList.toggle("document-mode", on);
   localStorage.setItem(LS_MODE, on ? "1" : "0");
+  if (!on) document.dispatchEvent(new window.Event("chat-view-resumed"));
   if (on) {
     const body = $("documents-section");
     body?.classList.remove("collapsed");
@@ -289,12 +293,26 @@ export async function createDocument() {
 }
 
 export async function openDocument(id) {
+  if (S.activeDocId === id && !S.docStreaming) return;
   if (S.docStreaming) {
-    toast("Stop generation first", true);
+    showConfirmModal(
+      {
+        title: "Stop document generation?",
+        message: "Stop and save the current run before opening another document.",
+        confirmText: "Stop and open",
+      },
+      async () => {
+        docStop();
+        await S.docOperation?.completion;
+        if (!S.docStreaming) await openDocument(id);
+      },
+    );
     return;
   }
+  const token = ++S.documentViewToken;
   hideProbPopup();
-  if (S.activeDocId && S.activeDocId !== id && S.docDirty) await flushSave();
+  if (S.activeDocId && S.activeDocId !== id && S.docDirty && !(await flushSave())) return;
+  if (token !== S.documentViewToken) return;
   let doc;
   try {
     doc = await api.get(`/documents/${id}`);
@@ -302,7 +320,12 @@ export async function openDocument(id) {
     toast(`Failed to open: ${e.message}`, true);
     return;
   }
+  if (token !== S.documentViewToken) return;
   S.activeDocId = id;
+  let session = S.documentSessions.get(id);
+  if (!session?.draft) session = createSession(doc);
+  else if (session.row.revision !== doc.revision) session.rebase(doc);
+  S.documentSessions.set(id, session);
   localStorage.setItem(LS_ACTIVE, id);
   $("app")?.classList.add("doc-open");
   if (!S.documentMode) setDocumentMode(true);
@@ -319,6 +342,37 @@ export async function openDocument(id) {
   setSaveState("Saved");
   updateTokenCount();
   renderDocuments();
+  const recovered = localStorage.getItem(`orb-doc-draft:${id}`);
+  if (recovered) {
+    try {
+      const draft = JSON.parse(recovered);
+      if (
+        draft.content === doc.content &&
+        JSON.stringify(draft.generated_spans || []) === JSON.stringify(doc.generated_spans || [])
+      ) {
+        localStorage.removeItem(`orb-doc-draft:${id}`);
+        return;
+      }
+      showConfirmModal(
+        {
+          title: draft.base_revision === doc.revision ? "Recover unsaved draft?" : "Recover conflicting draft?",
+          message: "A local draft was kept before the page closed. Recover it into the editor?",
+          confirmText: "Recover",
+          cancelText: "Use saved",
+        },
+        () => {
+          if (S.activeDocId !== id || token !== S.documentViewToken) return;
+          renderEditor(page, draft.content, draft.generated_spans || []);
+          S.docDirty = true;
+          setSaveState("Recovered draft — unsaved");
+          if (draft.base_revision !== doc.revision) showSaveConflict(id, session, doc);
+          else flushSave();
+        },
+      );
+    } catch {
+      /* A malformed local draft cannot replace the saved document. */
+    }
+  }
 }
 
 function clearEditor() {
@@ -353,7 +407,13 @@ export function renameDocument(id) {
       const val = $("doc-rename-input")?.value.trim();
       if (!val) return;
       try {
-        const row = await api.put(`/documents/${id}`, { title: val });
+        let session = S.documentSessions.get(id);
+        if (!session) {
+          session = createSession(await api.get(`/documents/${id}`));
+          S.documentSessions.set(id, session);
+        }
+        await session.save({ title: val });
+        const row = session.row;
         updateDocInList(row);
         if (S.activeDocId === id) $("doc-title-text").textContent = row.title;
       } catch (e) {
@@ -368,22 +428,28 @@ export function renameActiveDocument() {
 }
 
 export function deleteDocument(id) {
-  if (S.docStreaming) {
-    toast("Stop generation first", true);
-    return;
-  }
   const doc = S.documents.find((d) => d.id === id);
-  confirmDelete("document", `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone.`, async () => {
-    try {
-      await api.del(`/documents/${id}`);
-      S.documents = S.documents.filter((d) => d.id !== id);
-      if (S.activeDocId === id) clearEditor();
-      renderDocuments();
-      toast("Deleted");
-    } catch (e) {
-      toast(e.message, true);
-    }
-  });
+  confirmDelete(
+    "document",
+    `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone. ${S.docStreaming && S.activeDocId === id ? "Document generation will be stopped and settled first." : ""}`,
+    async () => {
+      try {
+        if (S.docStreaming && S.activeDocId === id) {
+          const operation = S.docOperation;
+          operation?.stop();
+          await operation?.completion;
+          if (S.docStreaming) throw new Error("Document generation has not settled yet");
+        }
+        await api.del(`/documents/${id}`);
+        S.documents = S.documents.filter((d) => d.id !== id);
+        if (S.activeDocId === id) clearEditor();
+        renderDocuments();
+        toast("Deleted");
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
+  );
 }
 
 function scheduleSave() {
@@ -391,30 +457,94 @@ function scheduleSave() {
   saveTimer = setTimeout(() => flushSave(), SAVE_DEBOUNCE_MS);
 }
 
+function createSession(row) {
+  const id = row.id;
+  return createDocumentSaveQueue(row, {
+    put: (body) => api.put(`/documents/${id}`, body),
+    acknowledged(saved, snapshot, latest) {
+      updateDocInList(saved);
+      if (latest) localStorage.removeItem(`orb-doc-draft:${id}`);
+      if (S.activeDocId !== id) return;
+      const current = serializeEditor($("doc-page"));
+      const matches =
+        current.content === snapshot.content &&
+        JSON.stringify(current.spans) === JSON.stringify(snapshot.generated_spans);
+      if (latest && matches) {
+        S.docDirty = false;
+        setSaveState("Saved");
+      }
+    },
+    failed(error) {
+      if (S.activeDocId !== id) return;
+      S.docDirty = true;
+      setSaveState(error.status === 409 ? "Save conflict — draft kept" : "Save failed — draft kept");
+      if (error.status === 409) {
+        const current = JSON.parse(error.body)?.detail?.document;
+        if (current) showSaveConflict(id, S.documentSessions.get(id), current);
+      }
+    },
+  });
+}
+
+function showSaveConflict(id, session, current) {
+  const token = S.documentViewToken;
+  showConfirmModal(
+    {
+      title: "Document changed",
+      message: "Your draft is kept. Keep mine replaces the latest saved version; Reload opens it.",
+      confirmText: "Keep mine",
+      cancelText: "Keep draft",
+    },
+    async () => {
+      if (S.activeDocId !== id || S.documentViewToken !== token) return;
+      session.rebase(current);
+      await flushSave();
+    },
+  );
+  // Use a separate explicit Reload control: dismissing the dialog keeps the draft.
+  const actions = document.querySelector("#modal-root .modal-actions");
+  if (actions) {
+    const reload = document.createElement("button");
+    reload.textContent = "Reload saved version";
+    reload.className = "btn";
+    reload.addEventListener("click", () => {
+      if (S.activeDocId !== id || S.documentViewToken !== token) return;
+      session.discard(current);
+      renderEditor($("doc-page"), current.content, current.generated_spans);
+      S.docDirty = false;
+      localStorage.removeItem(`orb-doc-draft:${id}`);
+      setSaveState("Saved");
+      closeModal();
+    });
+    actions.appendChild(reload);
+  }
+}
+
 async function flushSave({ keepalive = false } = {}) {
   clearTimeout(saveTimer);
   saveTimer = null;
-  if (!S.activeDocId || !S.docDirty) return;
-  const page = $("doc-page");
-  const { content, spans } = serializeEditor(page);
-  S.docDirty = false;
+  const id = S.activeDocId;
+  if (!id || !S.docDirty) return true;
+  const session = S.documentSessions.get(id);
+  if (!session) return false;
+  const { content, spans } = serializeEditor($("doc-page"));
+  const snapshot = { content, generated_spans: spans };
+  localStorage.setItem(`orb-doc-draft:${id}`, JSON.stringify({ ...snapshot, base_revision: session.row.revision }));
   if (keepalive) {
-    fetch(`/api/documents/${S.activeDocId}`, {
+    apiFetch(`/api/documents/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, generated_spans: spans }),
+      body: JSON.stringify({ ...snapshot, expected_revision: session.row.revision }),
       keepalive: true,
     }).catch(() => {});
-    return;
+    return false;
   }
   setSaveState("Saving…");
   try {
-    const row = await api.put(`/documents/${S.activeDocId}`, { content, generated_spans: spans });
-    setSaveState("Saved");
-    updateDocInList(row);
+    await session.save(snapshot);
+    return !S.docDirty || S.activeDocId !== id;
   } catch {
-    S.docDirty = true;
-    setSaveState("Save failed");
+    return false;
   }
 }
 
@@ -434,8 +564,8 @@ function startFlushInterval() {
   stopFlushInterval();
   flushInterval = setInterval(() => {
     if (!S.activeDocId) return;
-    const { content, spans } = serializeEditor($("doc-page"));
-    api.put(`/documents/${S.activeDocId}`, { content, generated_spans: spans }).catch(() => {});
+    S.docDirty = true;
+    flushSave();
   }, STREAM_FLUSH_MS);
 }
 function stopFlushInterval() {
@@ -462,9 +592,37 @@ let genErrored = false;
 
 export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
+  const did = S.activeDocId;
+  if (runningFor("documentId", did).some((op) => op.phase === "unknown")) {
+    toast("The previous generation has not confirmed settlement; check its status first", true);
+    return;
+  }
+  const record = begin("document", { documentId: did, revision: S.documentSessions.get(did)?.row.revision });
+  S.docStreaming = true;
+  S.docOperation = record;
+  record.assisted = docAssisted;
+  record.probs = docProbsOn;
+  let complete;
+  record.completion = new Promise((resolve) => {
+    complete = resolve;
+  });
+  const op = createStreamOperation({
+    target: { did, operationId: record.id },
+    requestStop: (target, signal) =>
+      api._req(`/documents/${target.did}/stop?operation_id=${target.operationId}`, { method: "POST", signal }),
+  });
+  record.stop = () => op.stop();
+  record.stream = op;
   const page = $("doc-page");
   hideProbPopup();
-  if (S.docDirty) await flushSave();
+  if ((S.docDirty && !(await flushSave())) || S.activeDocId !== did || op.stopping) {
+    await op.settle();
+    S.docStreaming = false;
+    finish(record, "failed");
+    if (S.docOperation === record) S.docOperation = null;
+    complete();
+    return;
+  }
   docCheckpoint();
 
   const caret = computeCaretOffset(page);
@@ -483,19 +641,20 @@ export async function docGenerate() {
   page.classList.add("generating");
   docScrollFollow?.setFollowing(true);
   S.docStreaming = true;
-  S.docAbortController = new AbortController();
+
   swapGenButtons(true);
   updateUndoButton();
   startFlushInterval();
 
+  let terminalReceived = false;
   try {
     const resp = await streamPost(
-      `/documents/${S.activeDocId}/generate`,
-      { prompt, assisted: docAssisted, token_probs: docProbsOn },
-      S.docAbortController.signal,
+      `/documents/${did}/generate?operation_id=${record.id}`,
+      { prompt, assisted: record.assisted, token_probs: record.probs },
+      op.signal,
     );
     if (!resp.ok) throw new Error(await resp.text());
-    for await (const { event, data } of sseEvents(resp.body, { signal: S.docAbortController.signal })) {
+    for await (const { event, data } of sseEvents(resp.body, { signal: op.signal })) {
       if (event === "token") {
         const delta = unescapeSSE(data);
         anchorTextNode.appendData(delta);
@@ -507,10 +666,12 @@ export async function docGenerate() {
           addToken(JSON.parse(data));
         } catch {}
       } else if (event === "error") {
+        terminalReceived = true;
         genErrored = true;
         toast(unescapeSSE(data) || "Generation error", true);
         break;
       } else if (event === "done") {
+        terminalReceived = true;
         try {
           genFinish = JSON.parse(data).finish || "";
         } catch {
@@ -519,20 +680,33 @@ export async function docGenerate() {
         break;
       }
     }
+    if (!terminalReceived && !op.stopping) throw new Error("Generation stream ended before completion");
   } catch (e) {
+    if (!terminalReceived) op.disconnect();
     if (e.name !== "AbortError") {
       genErrored = true;
       toast(`Generation failed: ${e.message}`, true);
     }
   } finally {
-    finalizeGeneration();
+    const settled = await op.settle();
+    if (S.docOperation === record) await finalizeGeneration(settled);
+    if (!settled) {
+      record.stop = async () => {
+        const reply = await api.post(`/documents/${did}/stop?operation_id=${record.id}`, {}).catch(() => null);
+        if (!reply?.settled) return;
+        finish(record);
+        if (S.activeDocId === did) await flushSave();
+      };
+    }
+    finish(record, settled ? "settled" : "unknown");
+    complete();
+    if (S.docOperation === record) S.docOperation = null;
   }
 }
 
-function finalizeGeneration() {
+async function finalizeGeneration(settled) {
   stopFlushInterval();
-  S.docStreaming = false;
-  S.docAbortController = null;
+
   anchorTextNode = null;
   const page = $("doc-page");
   page.setAttribute("contenteditable", "true");
@@ -560,7 +734,20 @@ function finalizeGeneration() {
   }
   if (MOBILE.matches) $("doc-page").blur();
   S.docDirty = true;
-  flushSave();
+  if (settled) await flushSave();
+  else {
+    const snapshot = serializeEditor(page);
+    localStorage.setItem(
+      `orb-doc-draft:${S.activeDocId}`,
+      JSON.stringify({
+        content: snapshot.content,
+        generated_spans: snapshot.spans,
+        base_revision: S.documentSessions.get(S.activeDocId)?.row.revision,
+      }),
+    );
+    setSaveState("Settlement unknown — partial draft unsaved");
+  }
+  S.docStreaming = false;
   updateTokenCount();
   docCheckpoint();
   if (committedText != null && !genErrored && S.activeDocId) {
@@ -577,13 +764,20 @@ function finalizeGeneration() {
 export function docStop() {
   if (!S.docStreaming) return;
   stopRequested = true;
-  S.docAbortController?.abort();
-  fetch(`/api/documents/${S.activeDocId}/stop`, { method: "POST" }).catch(() => {});
+  S.docOperation?.stop();
 }
 
-function applyPatchedRun(runStart, oldText, newText) {
+function applyPatchedRun(run, newText) {
+  const { runStart, draft: oldText } = run;
   const page = $("doc-page");
-  if (!page || !S.activeDocId || S.docStreaming) return false;
+  if (
+    !page ||
+    S.activeDocId !== run.docId ||
+    S.docAuditResults !== run ||
+    S.docStreaming ||
+    S.documentSessions.get(run.docId)?.row.revision !== run.revision
+  )
+    return false;
   const { content, spans } = serializeEditor(page);
   if (content.slice(runStart, runStart + oldText.length) !== oldText) return false;
   docCheckpoint();
@@ -613,8 +807,15 @@ function applyPatchedRun(runStart, oldText, newText) {
   return true;
 }
 
-function docSwapToken(run, tokenIndex, alt) {
+function docSwapToken(run, tokenIndex, alt, target) {
   if (S.docStreaming || !S.activeDocId) return;
+  if (
+    target &&
+    (target.id !== S.activeDocId ||
+      target.token !== S.documentViewToken ||
+      target.revision !== S.documentSessions.get(target.id)?.row.revision)
+  )
+    return;
   const page = $("doc-page");
   const { content, spans } = serializeEditor(page);
 
@@ -679,9 +880,15 @@ export function initDocumentMode() {
     getDocId: () => S.activeDocId,
     isStreaming: () => S.docStreaming,
     requestSwap: docSwapToken,
+    getTarget: () => ({
+      id: S.activeDocId,
+      token: S.documentViewToken,
+      revision: S.documentSessions.get(S.activeDocId)?.row.revision,
+    }),
   });
   initDocAudit({
     getContent: () => serializeEditor($("doc-page")).content,
+    getRevision: () => S.documentSessions.get(S.activeDocId)?.row.revision,
     applyPatchedRun,
   });
   page.addEventListener("input", onEditorInput);

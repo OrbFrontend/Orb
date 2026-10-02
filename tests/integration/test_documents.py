@@ -55,7 +55,12 @@ async def test_document_crud_lifecycle(client):
     # update content + title + spans together
     r = await client.put(
         "/api/documents/" + did,
-        json={"title": "My Doc", "content": "hello world", "generated_spans": [{"start": 6, "end": 11}]},
+        json={
+            "expected_revision": 0,
+            "title": "My Doc",
+            "content": "hello world",
+            "generated_spans": [{"start": 6, "end": 11}],
+        },
     )
     assert r.status_code == 200
 
@@ -71,7 +76,7 @@ async def test_document_crud_lifecycle(client):
 async def test_span_json_roundtrip_multiple(client):
     did = (await client.post("/api/documents", json={"title": "Spans"})).json()["id"]
     spans = [{"start": 0, "end": 3}, {"start": 10, "end": 25}]
-    await client.put("/api/documents/" + did, json={"content": "abc...", "generated_spans": spans})
+    await client.put("/api/documents/" + did, json={"expected_revision": 0, "content": "abc...", "generated_spans": spans})
     got = (await client.get("/api/documents/" + did)).json()
     assert got["generated_spans"] == spans
 
@@ -446,3 +451,16 @@ async def test_patch_text_mode_assisted_rerenders_generation(client, llm_mock):
     gen_messages, prefill = build_generation_messages(ctx, assisted=True, completion_mode="text")
     assert llm_mock.render_calls == [{"messages": gen_messages, "prefill": prefill, "reasoning": False}]
     assert llm_mock.raw_calls[-1]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")
+
+
+async def test_document_revision_conflict_keeps_latest_content(client):
+    doc = (await client.post("/api/documents", json={})).json()
+    path = f"/api/documents/{doc['id']}"
+    saved = await client.put(path, json={"content": "new", "expected_revision": doc["revision"]})
+    assert saved.json()["revision"] == 1
+    stale = await client.put(path, json={"content": "old", "expected_revision": doc["revision"]})
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["document"]["content"] == "new"
+    renamed = await client.put(path, json={"title": "Renamed"})
+    assert renamed.json()["content"] == "new"
+    assert (await client.get(path)).json()["revision"] == 2

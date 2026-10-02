@@ -9,11 +9,12 @@ import {
 } from "./chat_core.js";
 import { clearInspectedMessage, clearWorkflowPhase, inspectMessage, setWorkflowPhase } from "./chat_inspector.js";
 import { beginStreamOperation, endStreamOperation, runStreamRequest, turnPayload } from "./chat_stream.js";
+import { replayAttachmentInvalidations } from "./chat_workflow.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
-import { S } from "./state.js";
+import { conversationState, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { requestSendPermission } from "./tabLock.js";
 import {
@@ -42,6 +43,7 @@ export function startEdit(msgId) {
 export function cancelEdit() {
   const msgId = S.editingMsgId;
   S.editingMsgId = null;
+  replayAttachmentInvalidations();
   S.editingPendingUserMsg = false;
   renderMessages();
   if (msgId != null) scrollToMessage(msgId);
@@ -50,6 +52,7 @@ export function cancelEdit() {
 export function startForkEdit(msgId) {
   S.forkEditMsgId = msgId;
   S.editingMsgId = null;
+  replayAttachmentInvalidations();
   S.editingPendingUserMsg = false;
   ensureIndexInWindow(S.messages.findIndex((m) => m.id === msgId));
   renderMessages();
@@ -92,23 +95,31 @@ function focusEditTextarea(ta, onEscape) {
 }
 
 export async function deleteMessage(msgId) {
-  if (S.isStreaming) return;
+  if (S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
+  const state = conversationState(cid);
   let detail = "Delete this message, all its siblings, and all their children?";
   if (S.groupCast) {
     try {
-      const preview = await api.get(convUrl(S.activeConvId, "messages", msgId, "delete-preview"));
+      const preview = await api.get(convUrl(cid, "messages", msgId, "delete-preview"));
       const count = preview.assistant_count || 0;
       detail = `Delete this message, all its siblings, and all their children? This removes ${count} group ${count === 1 ? "reply" : "replies"}.`;
     } catch (_e) {}
   }
   confirmDelete("message", detail, async () => {
     try {
-      setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
+      if (state.isStreaming || state.proseRewriteMsgId) return;
+      const msgs = await api.del(convUrl(cid, "messages", msgId));
+      setMessages(msgs, state);
+      if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
       S.lastDirectorData = null;
       S.lastFeedback = null;
       S.lastState = null;
-      S.directorState = await api.get(convUrl(S.activeConvId, "director"));
+      const directorState = await api.get(convUrl(cid, "director"));
+      if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
+      S.directorState = directorState;
       renderMessages();
       clearInspectedMessage();
       await refreshState();
@@ -128,6 +139,8 @@ export async function rewriteMessageProse(msgId) {
   if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
   const op = beginStreamOperation(S.activeConvId);
+  const state = op.state;
+  const visible = () => S.activeConvId === op.convId && !S.documentMode;
   const sendBtn = $("send-btn");
   const stopBtn = $("stop-btn");
   // The server's final word: the saved text, and whether the replacement committed.
@@ -140,7 +153,11 @@ export async function rewriteMessageProse(msgId) {
   renderMessages();
   setWorkflowPhase(PROSE_REWRITE_CHANNEL, "Rewriting prose…");
   try {
-    const response = await streamPost(convUrl(op.convId, "messages", msgId, "prose-rewrite"), {}, op.signal);
+    const response = await streamPost(
+      `${convUrl(op.convId, "messages", msgId, "prose-rewrite")}?operation_id=${op.record.id}`,
+      {},
+      op.signal,
+    );
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       const error = new Error(body || `Orb returned HTTP ${response.status}`);
@@ -152,7 +169,7 @@ export async function rewriteMessageProse(msgId) {
         // Previews hold still once Stop is pressed; the saved row replaces them.
         if (op.stopping) continue;
         try {
-          applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
+          if (visible()) applyProseRewriteSnapshot(msgId, JSON.parse(data).draft);
         } catch (_) {}
       } else if (event === "prose_rewrite_done") {
         result = JSON.parse(data);
@@ -178,25 +195,26 @@ export async function rewriteMessageProse(msgId) {
     // Whether or not the replacement committed before the stream ended, the
     // saved row decides what the message shows once the server has settled.
     await op.settle();
-    let synced = false;
-    if (S.activeConvId === op.convId) {
-      try {
-        setMessages(await api.get(convUrl(op.convId, "messages")));
-        synced = true;
-      } catch (e) {
-        toast(`Failed to sync messages: ${e.message}`, true);
-      }
-      if (!synced) applyProseRewriteSnapshot(msgId, result && !result.aborted ? result.content : source);
+    try {
+      const token = S.conversationViewToken;
+      const msgs = await api.get(convUrl(op.convId, "messages"));
+      setMessages(msgs, state);
+      if (visible() && token === S.conversationViewToken) renderMessages();
+    } catch (error) {
+      toast(`Failed to sync messages: ${error.message}`, true);
+      if (visible()) applyProseRewriteSnapshot(msgId, result && !result.aborted ? result.content : source);
     }
     endStreamOperation(op);
-    S.proseRewriteMsgId = null;
-    sendBtn.disabled = false;
-    sendBtn.style.display = "flex";
-    stopBtn.style.display = "none";
-    stopBtn.title = "Stop generation";
-    clearWorkflowPhase(PROSE_REWRITE_CHANNEL);
-    renderMessages();
-    if (result) scrollToMessage(msgId);
+    state.proseRewriteMsgId = null;
+    clearWorkflowPhase(PROSE_REWRITE_CHANNEL, state);
+    if (visible()) {
+      sendBtn.disabled = state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+      sendBtn.style.display = "flex";
+      stopBtn.style.display = "none";
+      stopBtn.title = "Stop generation";
+      renderMessages();
+      if (result) scrollToMessage(msgId);
+    }
   }
 }
 
@@ -214,9 +232,11 @@ function applyProseRewriteSnapshot(msgId, content) {
 let _branchSwitchSeq = 0;
 
 export async function switchBranch(msgId) {
-  if (!msgId || S.isStreaming) return;
+  if (!msgId || S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const seq = ++_branchSwitchSeq;
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
   try {
     const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
     const anchorMsgId = currentBranchMsg?.parent_id ?? null;
@@ -227,7 +247,7 @@ export async function switchBranch(msgId) {
     const scrollTop = ct ? ct.scrollTop : 0;
 
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
-    if (seq !== _branchSwitchSeq) return;
+    if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
 
     // Paint the new branch and settle the scroll in one task. Awaiting anything
     // in between lets the browser paint the rebuilt list at the pre-restore
@@ -248,7 +268,7 @@ export async function switchBranch(msgId) {
     S.lastFeedback = null;
     S.lastState = null;
     const directorState = await api.get(convUrl(S.activeConvId, "director"));
-    if (seq !== _branchSwitchSeq) return;
+    if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
     S.directorState = directorState;
     await inspectMessage(msgId);
     await refreshState();
@@ -395,6 +415,7 @@ export async function saveEdit(msgId, _role) {
   const content = readEditDraft(`edit-textarea-${msgId}`);
   if (content === null) return;
   S.editingMsgId = null;
+  replayAttachmentInvalidations();
   S.editingPendingUserMsg = false;
 
   if (S.isStreaming) {
@@ -461,6 +482,7 @@ export async function saveForkEdit(msgId) {
 export function startEditPending() {
   S.editingPendingUserMsg = true;
   S.editingMsgId = null;
+  replayAttachmentInvalidations();
   S.forkEditMsgId = null;
   renderMessages();
   focusEditTextarea($("edit-textarea-pending"), cancelEditPending);

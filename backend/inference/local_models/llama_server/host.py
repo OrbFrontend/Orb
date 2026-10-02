@@ -142,18 +142,25 @@ class ManagedLlamaServerHost:
             while self._inflight and time.monotonic() < deadline:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._idle.wait(), timeout=0.25)
+            if self._inflight:
+                raise TimeoutError("Local model is still in use; drain timed out")
+
+    @contextlib.asynccontextmanager
+    async def exclusive_release(self):
+        """Drain users and keep admission closed through a model file mutation."""
+        async with self._lock:
+            await self._drain()
+            if self.server is not None:
+                await self.server.stop()
+                self.server = None
+            self.state = "idle"
+            self._stale = True
+            yield
 
     async def release(self) -> None:
         """Release the current child and reload it on demand."""
-        async with self._lock:
-            if self.server is None:
-                self._stale = True
-                return
-            await self._drain()
-            await self.server.stop()
-            self.server = None
-            self.state = "idle"
-            self._stale = True
+        async with self.exclusive_release():
+            pass
 
     async def shutdown(self) -> None:
         """Stop the child and the idle watcher. Reached from the app lifespan

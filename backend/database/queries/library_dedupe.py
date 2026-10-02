@@ -9,9 +9,12 @@ that loading a stale library in a single query can consume gigabytes of memory.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from typing import Any
+
+import aiosqlite
 
 from ..connection import get_db, immediate_tx
 
@@ -166,7 +169,7 @@ async def get_relink_impact(from_id: str, to_id: str) -> dict[str, int]:
     return {key: int(row[key]) for key in ("solo", "groups", "conversations", "collisions")}
 
 
-async def relink_card(from_id: str, to_id: str) -> dict[str, int]:
+async def relink_card(from_id: str, to_id: str, *, idle_guard: Callable | None = None) -> dict[str, int]:
     """Move a doomed card's conversations and group slots to a keeper.
 
     The group-member unique index permits only one active card per conversation.
@@ -176,59 +179,115 @@ async def relink_card(from_id: str, to_id: str) -> dict[str, int]:
     """
     if from_id == to_id:
         raise ValueError("A card cannot be relinked to itself")
-    async with immediate_tx() as db:
-        keeper_rows = list(
-            await db.execute_fetchall(
-                "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",
-                (to_id,),
+    async with AsyncExitStack() as fence, immediate_tx() as db:
+        if idle_guard:
+            rows = await db.execute_fetchall(
+                "SELECT id, title FROM conversations WHERE character_card_id IN (?, ?) OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN (?, ?))",
+                (from_id, to_id, from_id, to_id),
             )
-        )
-        if not keeper_rows:
-            raise ValueError("Keeper card not found")
-        keeper = keeper_rows[0]
+            fence.enter_context(idle_guard([dict(row) for row in rows]))
+        return await _relink_card_in_tx(db, from_id, to_id)
 
-        impact_rows = list(
-            await db.execute_fetchall(
-                """SELECT
-                     (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
-                     (SELECT COUNT(DISTINCT conversation_id) FROM group_members WHERE character_card_id = ?) AS groups,
-                     (SELECT COUNT(DISTINCT conversation_id)
-                      FROM (
-                        SELECT id AS conversation_id FROM conversations WHERE character_card_id = ?
-                        UNION
-                        SELECT conversation_id FROM group_members WHERE character_card_id = ?
-                      )) AS conversations""",
-                (from_id, from_id, from_id, from_id),
+
+async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str) -> dict[str, int]:
+    keeper_rows = list(
+        await db.execute_fetchall(
+            "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",
+            (to_id,),
+        )
+    )
+    if not keeper_rows:
+        raise ValueError("Keeper card not found")
+    keeper = keeper_rows[0]
+
+    impact_rows = list(
+        await db.execute_fetchall(
+            """SELECT
+                 (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
+                 (SELECT COUNT(DISTINCT conversation_id) FROM group_members WHERE character_card_id = ?) AS groups,
+                 (SELECT COUNT(DISTINCT conversation_id)
+                  FROM (
+                    SELECT id AS conversation_id FROM conversations WHERE character_card_id = ?
+                    UNION
+                    SELECT conversation_id FROM group_members WHERE character_card_id = ?
+                  )) AS conversations""",
+            (from_id, from_id, from_id, from_id),
+        )
+    )
+    impact = {key: int(impact_rows[0][key]) for key in ("solo", "groups", "conversations")}
+
+    await db.execute(
+        "UPDATE conversations SET character_card_id = ? WHERE character_card_id = ?",
+        (to_id, from_id),
+    )
+
+    member_rows = list(
+        await db.execute_fetchall(
+            "SELECT id, conversation_id FROM group_members WHERE character_card_id = ? ORDER BY id",
+            (from_id,),
+        )
+    )
+    collisions = 0
+    for member in member_rows:
+        keeper_exists = await db.execute_fetchall(
+            "SELECT 1 FROM group_members WHERE conversation_id = ? AND character_card_id = ? AND active = 1 LIMIT 1",
+            (member["conversation_id"], to_id),
+        )
+        if keeper_exists:
+            await db.execute("DELETE FROM group_members WHERE id = ?", (member["id"],))
+            collisions += 1
+        else:
+            await db.execute(
+                "UPDATE group_members SET character_card_id = ? WHERE id = ?",
+                (to_id, member["id"]),
             )
-        )
-        impact = {key: int(impact_rows[0][key]) for key in ("solo", "groups", "conversations")}
 
-        await db.execute("UPDATE conversations SET character_card_id = ? WHERE character_card_id = ?", (to_id, from_id))
-
-        member_rows = list(
-            await db.execute_fetchall(
-                "SELECT id, conversation_id FROM group_members WHERE character_card_id = ? ORDER BY id",
-                (from_id,),
-            )
-        )
-        collisions = 0
-        for member in member_rows:
-            keeper_exists = await db.execute_fetchall(
-                "SELECT 1 FROM group_members WHERE conversation_id = ? AND character_card_id = ? AND active = 1 LIMIT 1",
-                (member["conversation_id"], to_id),
-            )
-            if keeper_exists:
-                await db.execute("DELETE FROM group_members WHERE id = ?", (member["id"],))
-                collisions += 1
-            else:
-                await db.execute("UPDATE group_members SET character_card_id = ? WHERE id = ?", (to_id, member["id"]))
-
-        # Mirror sync_conversations_for_card() inside this transaction.  The
-        # reassigned conversations must use the keeper's denormalized fields,
-        # not the deleted card's old name and scenario.
-        await db.execute(
-            "UPDATE conversations SET character_name = ?, character_scenario = ?, post_history_instructions = ? "
-            "WHERE character_card_id = ?",
-            (keeper["name"], keeper["scenario"], keeper["post_history_instructions"], to_id),
-        )
+    # Mirror sync_conversations_for_card() inside this transaction.  The
+    # reassigned conversations must use the keeper's denormalized fields,
+    # not the deleted card's old name and scenario.
+    await db.execute(
+        "UPDATE conversations SET character_name = ?, character_scenario = ?, post_history_instructions = ? "
+        "WHERE character_card_id = ?",
+        (
+            keeper["name"],
+            keeper["scenario"],
+            keeper["post_history_instructions"],
+            to_id,
+        ),
+    )
     return {**impact, "collisions": collisions}
+
+
+async def resolve_duplicate_cards(remove_ids: list[str], keep_id: str, *, relink: bool, idle_guard: Callable) -> dict[str, int]:
+    """Check, relink and remove a whole choice atomically, fencing its chats until commit."""
+    if not remove_ids or keep_id in remove_ids or len(set(remove_ids)) != len(remove_ids):
+        raise ValueError("Choose distinct cards to remove and keep")
+    ids = [keep_id, *remove_ids]
+    marks = ",".join("?" for _ in ids)
+    totals = {"solo": 0, "groups": 0, "conversations": 0, "collisions": 0}
+    async with AsyncExitStack() as fence, immediate_tx() as db:
+        cards = list(await db.execute_fetchall(f"SELECT id FROM character_cards WHERE id IN ({marks})", ids))
+        if len(cards) != len(ids):
+            raise ValueError("A card changed or was removed; review the duplicates again")
+        chats = await db.execute_fetchall(
+            f"SELECT id, title, character_card_id FROM conversations WHERE character_card_id IN ({marks}) "
+            f"OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN ({marks}))",
+            (*ids, *ids),
+        )
+        fence.enter_context(idle_guard([dict(row) for row in chats]))
+        if not relink:
+            doomed = ",".join("?" for _ in remove_ids)
+            linked = await db.execute_fetchall(
+                f"SELECT 1 FROM conversations WHERE character_card_id IN ({doomed}) "
+                f"OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id IN ({doomed})) LIMIT 1",
+                (*remove_ids, *remove_ids),
+            )
+            if linked:
+                raise ValueError("These cards now have conversations. Relink them before deleting them.")
+        for card_id in remove_ids:
+            if relink:
+                impact = await _relink_card_in_tx(db, card_id, keep_id)
+                for key in totals:
+                    totals[key] += impact[key]
+            await db.execute("DELETE FROM character_cards WHERE id = ?", (card_id,))
+    return totals

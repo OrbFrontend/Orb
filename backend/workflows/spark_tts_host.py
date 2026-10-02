@@ -192,6 +192,9 @@ class _LlmManagement:
         if not enabled:
             await service.HOST.release()
 
+    def model_deletion(self):
+        return service.HOST.exclusive_release()
+
     async def release_host(self) -> None:
         """Release the mmap and child process before deleting the GGUF."""
         await service.HOST.release()

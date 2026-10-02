@@ -251,3 +251,32 @@ committed before Stop.
 In one sentence: one request opens the stream, named events carry progress and
 results, tokens carry the visible draft, internal events stay server-side, and
 `done` is followed by a server refetch.
+
+## Concurrent ownership and deletion
+
+`S.operations` owns running chat, document, media and library operations. Targets
+and operation IDs are reserved before the first asynchronous step. Conversation
+buffers, reasoning, drafts, pending edits, group exchange/speaker state and Stop
+handles live in `S.conversationStates`; visible `S` properties project that chat.
+A user can browse away or generate in another chat while the first continues.
+Selection uses a monotonic view token, and Send stays disabled until history loads.
+Background completions reconcile their origin and suppress automatic audio and
+expression playback. The task strip keeps each operation's status and Stop visible.
+A silent initial request shows “Waiting for the model”.
+
+Streams carry `?operation_id=...`; Stop carries that same ID. A stale Stop returns
+`active: false, settled: true` without aborting a newer request. Document generation
+and library scans use this settlement protocol too. An unknown settlement stays in
+the registry with Check status, and blocks a replacement run for its resource.
+
+Queued history edits save in order after the reply and before Send is available.
+Failures remain on their message with Retry and Discard. Inspecting an older reply
+uses separate saved reasoning and selection fields. Media refreshes use the
+origin-aware attachment merge, with deferred invalidations while editing.
+
+Conversation/group/document deletion closes admission, stops registered work,
+waits for settlement and holds the affected turn lanes through deletion. A timeout
+returns 409 without deleting. Message deletion settles media for the sibling
+subtrees it removes. Card deletion and duplicate relinking refuse busy referencing
+chats and fence them through their transaction; a cluster is checked before any
+card is deleted. These in-memory fences target one localhost uvicorn process.

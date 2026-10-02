@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, apiFetch } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
@@ -48,9 +48,10 @@ import { refreshCharacters } from "./library_sidebar.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageDiffHtml, renderMessageHtml } from "./message_html.js";
 import { REASONING_PASSES, rememberBoxScrolls } from "./message_inspector.js";
+import { begin, finish } from "./operations.js";
 import { ensurePersonaPinned } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { effectiveWorkflowEnabled, S, streamingHidden } from "./state.js";
+import { conversationState, effectiveWorkflowEnabled, notify, S, streamingHidden } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { createStreamOperation, settledReply, streamAnchor } from "./stream_settle.js";
 import {
@@ -68,8 +69,10 @@ import {
 
 // POST /stop answers once the stopped stream has saved and let go of the
 // conversation: `{active, settled}`.
-async function requestStop(convId, signal) {
-  const resp = await fetch(`/api/conversations/${convId}/stop`, { method: "POST", signal });
+async function requestStop(target, signal) {
+  const convId = target.convId || target;
+  const query = target.operationId ? `?operation_id=${target.operationId}` : "";
+  const resp = await apiFetch(`/api/conversations/${convId}/stop${query}`, { method: "POST", signal });
   if (!resp.ok) throw new Error(`Orb returned HTTP ${resp.status}`);
   return resp.json();
 }
@@ -80,14 +83,22 @@ export function stopConversation(convId) {
 
 /** Start the conversation's one stoppable stream; the stop button drives it. */
 export function beginStreamOperation(convId) {
-  const op = createStreamOperation({ convId, requestStop });
+  const record = begin("chat", { conversationId: convId });
+  const op = createStreamOperation({ convId, target: { convId, operationId: record.id }, requestStop });
+  op.record = record;
+  op.viewToken = S.conversationViewToken;
+  record.stop = () => op.stop();
+  op.state = conversationState(convId);
+  record.state = op.state;
   S.streamOp = op;
   return op;
 }
 
 /** Give up the stop button, unless a newer operation already owns it. */
-export function endStreamOperation(op) {
+export function endStreamOperation(op, outcome = "settled") {
   if (S.streamOp === op) S.streamOp = null;
+  if (op.state?.streamOp === op) op.state.streamOp = null;
+  finish(op.record, outcome);
 }
 
 // Once Stop is pressed the bubble holds still until the saved reply replaces it.
@@ -127,10 +138,16 @@ function streamingDisplaySource(content) {
 
 function paintStreamingBody(text) {
   if (previewFrozen() || S.expressionBuffering) return;
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
   _paintPending = text;
   if (_paintFrame) return;
   _paintFrame = requestAnimationFrame(() => {
     _paintFrame = 0;
+    if (S.activeConvId !== cid || S.conversationViewToken !== token) {
+      _paintPending = null;
+      return;
+    }
     const pending = _paintPending;
     _paintPending = null;
     const body = S.streamingBodyEl;
@@ -158,7 +175,7 @@ function followStreamingMessage(div) {
 }
 
 /** Cancel a queued streaming paint. */
-function cancelStreamingPaint() {
+export function cancelStreamingPaint() {
   if (_paintFrame) cancelAnimationFrame(_paintFrame);
   _paintFrame = 0;
   _paintPending = null;
@@ -241,8 +258,11 @@ function finalizeStreamingDiv(lastMsg) {
 
 export function setStreaming(active) {
   S.isStreaming = active;
-  $("send-btn").style.display = active ? "none" : "flex";
-  $("stop-btn").style.display = active ? "flex" : "none";
+  const stoppable = active || !!S.proseRewriteMsgId;
+  $("send-btn").disabled =
+    stoppable || S.turnSettlementUnknown || S.conversationLoading || Object.keys(S.queuedEdits).length > 0;
+  $("send-btn").style.display = stoppable ? "none" : "flex";
+  $("stop-btn").style.display = stoppable ? "flex" : "none";
   const cm = $("chat-messages");
   if (cm) cm.classList.toggle("streaming", active);
   if (active && !S.groupCast) onTurnStart();
@@ -273,6 +293,26 @@ export function createStreamingDiv(name = null, memberId = null) {
   S.streamingBodyEl = div.querySelector(".msg-body");
   followStreamingMessage(div);
   return div;
+}
+
+/** Rebuild the selected view from the retained turn, including a background speaker. */
+export function restoreStreamingView() {
+  if (!S.isStreaming || !S.streamOp) return;
+  setGenerationStep(S.generationStep);
+  if (S.groupCast && !S.currentSpeaker) return;
+  const div =
+    S.streamingBodyEl?.closest(".message") || createStreamingDiv(S.currentSpeaker?.name, S.currentSpeaker?.member_id);
+  if (S.streamOp.holder) S.streamOp.holder.el = div;
+  if (S.streamingContent != null) {
+    if (S.pendingRefineDiff && S.editorDraftBaseline != null) {
+      const original = streamingDisplaySource(S.editorDraftBaseline);
+      S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(S.streamingContent)) };
+    }
+    S.streamingBodyEl.innerHTML =
+      S.pendingRefineDiff && S.showEditorDiff
+        ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+        : renderMessageHtml(streamingDisplaySource(S.streamingContent));
+  }
 }
 
 // The user's bubble is on screen before the server has an id for it. The SSE ack
@@ -324,39 +364,30 @@ function settleRefineDiff(reply) {
 
 // Group replies that streamed visibly before a speaker with expressions began
 // holding the turn; playback starts after them.
-let _liveGroupReplies = 0;
+// Number of group replies revealed before expression buffering is owned by the turn.
 
 export async function afterStream(op, { settled = true } = {}) {
-  cancelStreamingPaint();
-  followStreamingMessage(null);
-  const wasGroupExchange = S.currentExchangeId != null;
-  const groupExchangeId = S.currentExchangeId;
-  const inFlightSpeaker = S.currentSpeaker;
+  const state = op.state || conversationState(op.convId);
+  const visible = () => S.activeConvId === op.convId && !S.documentMode;
+  if (visible()) cancelStreamingPaint();
+  if (visible()) followStreamingMessage(null);
+  const wasGroupExchange = state.currentExchangeId != null;
+  const groupExchangeId = state.currentExchangeId;
+  const inFlightSpeaker = state.currentSpeaker;
   // The text the turn last made authoritative (Writer tokens or an announced
   // rewrite), never a cosmetic preview.
-  const preservedContent = S.streamingContent;
-  const pendingUserMsg = S.pendingUserMsg || null;
-  const lastCompletedId = S.completedExchangeMessageIds.at(-1) ?? null;
-  const buffered = S.expressionBuffering;
-  endExpressionPrewarm();
-  endStreamOperation(op);
-  S.streamCutoffIndex = null;
-  S.streamingContent = null;
-  S.pendingUserMsg = null;
-  S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
-  setGenerationStep(null);
-
-  // The conversation this operation belonged to is gone from view.
-  if (!S.activeConvId || S.activeConvId !== op.convId) {
-    S.expressionBuffering = false;
-    S.streamingBodyEl = null;
-    S.pendingRefineDiff = null;
-    setStreaming(false);
-    $("send-btn").disabled = false;
-    renderMessages();
-    clearInspectedMessage();
-    return;
-  }
+  const preservedContent = state.streamingContent;
+  const pendingUserMsg = state.pendingUserMsg || null;
+  const lastCompletedId = state.completedExchangeMessageIds.at(-1) ?? null;
+  const buffered = state.expressionBuffering;
+  if (visible()) endExpressionPrewarm();
+  state.streamCutoffIndex = null;
+  state.streamingContent = null;
+  state.pendingUserMsg = null;
+  state.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
+  state.generationStep = null;
+  state.pendingGenerationStep = null;
+  if (visible()) setGenerationStep(null);
 
   let synced = true;
   try {
@@ -364,9 +395,9 @@ export async function afterStream(op, { settled = true } = {}) {
       api.get(convUrl(op.convId, "messages")),
       api.get(convUrl(op.convId, "director")),
     ]);
-    setMessages(msgs);
-    S.directorState = directorState;
-    const conv = S.conversations?.find((c) => c.id === op.convId);
+    setMessages(msgs, state);
+    state.directorState = directorState;
+    const conv = state.conversations?.find((c) => c.id === op.convId);
     if (conv) conv.updated_at = new Date().toISOString();
   } catch (e) {
     synced = false;
@@ -376,41 +407,34 @@ export async function afterStream(op, { settled = true } = {}) {
 
   if (pendingUserMsg) {
     const present = pendingUserMsg.id
-      ? S.messages.some((m) => m.id === pendingUserMsg.id)
-      : S.messages.some((m) => m.role === "user" && m.content === pendingUserMsg.content);
+      ? state.messages.some((m) => m.id === pendingUserMsg.id)
+      : state.messages.some((m) => m.role === "user" && m.content === pendingUserMsg.content);
     if (!present) {
-      if (S.pendingUserMsgEdit != null) pendingUserMsg.content = S.pendingUserMsgEdit;
-      S.messages.push(pendingUserMsg);
+      if (state.pendingUserMsgEdit != null) pendingUserMsg.content = state.pendingUserMsgEdit;
+      state.messages.push(pendingUserMsg);
     }
   }
 
-  if (S.pendingUserMsgEdit != null) {
+  if (state.pendingUserMsgEdit != null) {
     const target = pendingUserMsg?.id
-      ? S.messages.find((m) => m.id === pendingUserMsg.id)
-      : S.messages.findLast((m) => m.role === "user" && m.id);
-    if (target?.id && !(target.id in S.queuedEdits)) S.queuedEdits[target.id] = S.pendingUserMsgEdit;
+      ? state.messages.find((m) => m.id === pendingUserMsg.id)
+      : state.messages.findLast((m) => m.role === "user" && m.id);
+    if (target?.id && !(target.id in state.queuedEdits)) state.queuedEdits[target.id] = state.pendingUserMsgEdit;
   }
-  S.pendingUserMsgEdit = null;
+  state.pendingUserMsgEdit = null;
 
-  for (const [id, content] of Object.entries(S.queuedEdits)) {
-    const target = S.messages.find((m) => m.id === Number(id));
-    if (target) target.content = content;
-    api
-      .post(convUrl(op.convId, "messages", Number(id), "edit"), { content, regenerate: false })
-      .catch((e) => toast(`Failed to save edit: ${e.message}`, true));
-  }
-  S.queuedEdits = {};
+  await saveQueuedEdits(op.convId);
 
   // This operation's own saved reply: never one that was on screen before it
   // started, such as the branch a regeneration replaces.
   const speakerMatch =
     wasGroupExchange && inFlightSpeaker ? { exchangeId: groupExchangeId, memberId: inFlightSpeaker.member_id } : {};
-  const saved = settledReply(S.messages, op.anchor, speakerMatch);
+  const saved = settledReply(state.messages, op.anchor, speakerMatch);
   // Text the server did not confirm stays on screen, unsaved, rather than lost.
-  const unconfirmed = !synced || !settled || !!S.turnError;
+  const unconfirmed = !synced || !settled || !!state.turnError;
   if (!saved && preservedContent?.trim() && unconfirmed && (!wasGroupExchange || inFlightSpeaker)) {
-    const parent = S.messages[S.messages.length - 1];
-    S.messages.push(
+    const parent = state.messages[state.messages.length - 1];
+    state.messages.push(
       unsavedReply(
         preservedContent,
         wasGroupExchange
@@ -424,17 +448,44 @@ export async function afterStream(op, { settled = true } = {}) {
     );
   }
 
+  state.isStreaming = false;
+  state.turnSettlementUnknown = !settled;
+  if (!settled && op.record) {
+    op.record.stop = async () => {
+      const reply = await requestStop(op.target).catch(() => null);
+      if (!reply?.settled) return;
+      state.turnSettlementUnknown = false;
+      finish(op.record);
+      const msgs = await api.get(convUrl(op.convId, "messages")).catch(() => null);
+      if (msgs) setMessages(msgs, state);
+      if (visible()) {
+        $("send-btn").disabled = state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+        renderMessages();
+      }
+    };
+  }
+  endStreamOperation(op, settled ? "settled" : "unknown");
+  notify("operations");
+  if (!visible()) {
+    state.streamingBodyEl = null;
+    state.currentExchangeId = null;
+    state.currentSpeaker = null;
+    state.speakingPlan = null;
+    state.expressionBuffering = false;
+    return;
+  }
   setStreaming(false);
-  $("send-btn").disabled = false;
+  $("send-btn").disabled =
+    state.turnSettlementUnknown || S.conversationLoading || Object.keys(state.queuedEdits).length > 0;
 
   settleRefineDiff(
-    wasGroupExchange && !inFlightSpeaker ? S.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
+    wasGroupExchange && !inFlightSpeaker ? state.messages.find((m) => m.id != null && m.id === lastCompletedId) : saved,
   );
 
   // Install the buffer before any saved-message repaint can reveal its text.
   if (buffered && synced && settled) {
-    const streamedLive = new Set(S.completedExchangeMessageIds.slice(0, _liveGroupReplies));
-    const replies = S.messages.filter(
+    const streamedLive = new Set(state.completedExchangeMessageIds.slice(0, state.liveGroupReplies));
+    const replies = state.messages.filter(
       (msg) =>
         msg.role === "assistant" &&
         msg.id &&
@@ -445,16 +496,16 @@ export async function afterStream(op, { settled = true } = {}) {
     void startExpressionPlayback(replies);
   }
 
-  const finalized = !wasGroupExchange && !S.worldProposalArrived && !!saved && finalizeStreamingDiv(saved);
-  S.expressionBuffering = false;
-  S.worldProposalArrived = false;
-  S.streamingBodyEl = null;
+  const finalized = !wasGroupExchange && !state.worldProposalArrived && !!saved && finalizeStreamingDiv(saved);
+  state.expressionBuffering = false;
+  state.worldProposalArrived = false;
+  state.streamingBodyEl = null;
 
   if (finalized) {
     if (pendingUserMsg) patchPendingUserMessage(pendingUserMsg);
     updateContextCounter();
     const ct = $("chat-messages");
-    if (ct.querySelectorAll(".message[data-msg-id]").length < S.messages.length) {
+    if (ct.querySelectorAll(".message[data-msg-id]").length < state.messages.length) {
       renderMessages();
     } else {
       renderTurnError(ct);
@@ -462,23 +513,25 @@ export async function afterStream(op, { settled = true } = {}) {
   } else {
     renderMessages();
   }
-  S.currentExchangeId = null;
-  S.currentSpeaker = null;
-  S.speakingPlan = null;
-  if (wasGroupExchange && S.completedExchangeMessageIds.length) consumeSpeakerOverride();
-  S.completedExchangeMessageIds = [];
+  state.currentExchangeId = null;
+  state.currentSpeaker = null;
+  state.speakingPlan = null;
+  if (wasGroupExchange && state.completedExchangeMessageIds.length) consumeSpeakerOverride();
+  state.completedExchangeMessageIds = [];
   renderGroupCast();
-  if (wasGroupExchange && S.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
-  S.lastDirectorData = null;
-  const latestReply = S.messages.findLast((message) => message.role === "assistant" && message.id);
+  if (wasGroupExchange && state.groupCast?.sheet_updates) refreshSheetProposals().then(renderGroupCast);
+  state.lastDirectorData = null;
+  const latestReply = state.messages.findLast((message) => message.role === "assistant" && message.id);
   if (latestReply) await inspectMessage(latestReply.id);
   else clearInspectedMessage();
+  if (!visible()) return;
   refreshState();
   scrollToBottom(true);
   refreshCharacters();
 }
 
-export async function processSSEStream(resp, container, holder, signal) {
+export async function processSSEStream(resp, container, holder, signal, state = S) {
+  const visible = () => S.activeConvId === state.activeConvId && !S.documentMode;
   // Writer tokens, the last announced rewrite, and the last cosmetic preview are
   // kept apart: only the first two are ever what the turn saves.
   let fullResponse = "",
@@ -488,38 +541,40 @@ export async function processSSEStream(resp, container, holder, signal) {
     dispatchErrorToasted = false;
   let terminalReceived = false;
 
-  S.pendingRefineDiff = null;
-  S.editorDraftBaseline = null;
+  state.pendingRefineDiff = null;
+  state.pendingGenerationStep = null;
+  state.editorDraftBaseline = null;
 
-  S.reasoningDirector = "";
-  S.reasoningWriter = "";
-  S.reasoningEditor = "";
-  S.lastFeedback = null;
-  S.lastState = null;
+  state.reasoningDirector = "";
+  state.reasoningWriter = "";
+  state.reasoningEditor = "";
+  state.lastFeedback = null;
+  state.lastState = null;
   // Reset once per exchange; later speakers reuse its result.
-  S.lastDecisions = null;
-  S.reasoningByPass = {};
-  S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
-  S.reasoningPassSelected = 0; // tracks what the user is viewing
-  S.reasoningUserOverride = false; // true when user has manually clicked a dot
+  state.lastDecisions = null;
+  state.reasoningByPass = {};
+  state.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
+  state.reasoningPassSelected = 0; // tracks what the user is viewing
+  state.reasoningUserOverride = false; // true when user has manually clicked a dot
 
   const resetSpeakerTurnState = () => {
+    state.pendingGenerationStep = null;
     fullResponse = "";
     rewrittenResponse = null;
     previewResponse = null;
     firstToken = true;
-    S.streamingContent = null;
-    S.pendingRefineDiff = null;
-    S.editorDraftBaseline = null;
-    S.reasoningDirector = "";
-    S.reasoningWriter = "";
-    S.reasoningEditor = "";
-    S.lastFeedback = null;
-    S.lastState = null;
-    S.reasoningByPass = {};
-    S.reasoningPassActive = 0;
-    S.reasoningPassSelected = 0;
-    S.reasoningUserOverride = false;
+    state.streamingContent = null;
+    state.pendingRefineDiff = null;
+    state.editorDraftBaseline = null;
+    state.reasoningDirector = "";
+    state.reasoningWriter = "";
+    state.reasoningEditor = "";
+    state.lastFeedback = null;
+    state.lastState = null;
+    state.reasoningByPass = {};
+    state.reasoningPassActive = 0;
+    state.reasoningPassSelected = 0;
+    state.reasoningUserOverride = false;
   };
 
   for await (const { event, data } of sseEvents(resp.body, { signal })) {
@@ -527,52 +582,58 @@ export async function processSSEStream(resp, container, holder, signal) {
     if (event === "speaking_plan") {
       try {
         const parsed = JSON.parse(data);
-        S.currentExchangeId = parsed.exchange_id;
-        S.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
-        if (!S.speakingPlan.length) toast(restNotice());
-        renderGroupCast();
+        state.currentExchangeId = parsed.exchange_id;
+        state.speakingPlan = Array.isArray(parsed.plan) ? parsed.plan : [];
+        if (!state.speakingPlan.length) toast(restNotice());
+        if (visible()) renderGroupCast();
       } catch (_) {}
       continue;
     }
     if (event === "speaker_start") {
       try {
         const parsed = JSON.parse(data);
-        S.currentExchangeId = parsed.exchange_id;
-        S.currentSpeaker = parsed;
-        if (bufferExpressionReply(parsed.member_id)) _liveGroupReplies = S.completedExchangeMessageIds.length;
+        state.currentExchangeId = parsed.exchange_id;
+        state.currentSpeaker = parsed;
+        if (visible() && bufferExpressionReply(parsed.member_id))
+          S.liveGroupReplies = state.completedExchangeMessageIds.length;
         resetSpeakerTurnState();
-        setGenerationStep("");
-        holder.el = createStreamingDiv(parsed.name, parsed.member_id);
-        if (!streamingHidden()) container.appendChild(holder.el);
-        onTurnStart();
-        renderGroupCast();
-        scrollToBottom();
+        state.generationStep = "Waiting for the model";
+        if (visible()) setGenerationStep(state.generationStep);
+        if (visible()) holder.el = createStreamingDiv(parsed.name, parsed.member_id);
+        else {
+          holder.el = null;
+          state.streamingBodyEl = null;
+        }
+        if (visible() && holder.el && !streamingHidden()) container.appendChild(holder.el);
+        if (visible()) onTurnStart();
+        if (visible()) renderGroupCast();
+        if (visible()) scrollToBottom();
       } catch (_) {}
       continue;
     }
     if (event === "speaker_done") {
       try {
         const parsed = JSON.parse(data);
-        if (parsed.message_id) S.completedExchangeMessageIds.push(parsed.message_id);
-        finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
-        S.streamingBodyEl = null;
+        if (parsed.message_id) state.completedExchangeMessageIds.push(parsed.message_id);
+        if (visible()) finalizeStreamingDiv({ ...parsed, id: parsed.message_id, role: "assistant" });
+        state.streamingBodyEl = null;
         holder.el = null;
-        S.currentSpeaker = null;
-        renderGroupCast();
+        state.currentSpeaker = null;
+        if (visible()) renderGroupCast();
       } catch (_) {}
       continue;
     }
     const onToken = () => {
       if (firstToken) {
         firstToken = false;
-        if (holder.el && !holder.el.isConnected && !streamingHidden()) container.appendChild(holder.el);
-        if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
+        if (visible() && holder.el && !holder.el.isConnected && !streamingHidden()) container.appendChild(holder.el);
+        if (state.streamingBodyEl) state.streamingBodyEl.innerHTML = "";
       }
       fullResponse += unescapeSSE(data);
-      S.streamingContent = rewrittenResponse || fullResponse;
-      prewarmExpressionLabels(S.streamingContent, S.currentSpeaker?.member_id);
-      if (S.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
-      else scrollToBottom();
+      state.streamingContent = rewrittenResponse || fullResponse;
+      if (visible()) prewarmExpressionLabels(state.streamingContent, state.currentSpeaker?.member_id);
+      if (visible() && state.streamingBodyEl) paintStreamingBody(previewResponse || rewrittenResponse || fullResponse);
+      else if (visible()) scrollToBottom();
     };
     const onRewrite = (text, { preview = false } = {}) => {
       if (preview) {
@@ -580,23 +641,24 @@ export async function processSSEStream(resp, container, holder, signal) {
       } else {
         rewrittenResponse = text;
         previewResponse = null;
-        S.streamingContent = text;
-        prewarmExpressionLabels(text, S.currentSpeaker?.member_id);
+        state.streamingContent = text;
+        if (visible()) prewarmExpressionLabels(text, state.currentSpeaker?.member_id);
       }
-      if (previewFrozen() || S.expressionBuffering) return;
+      if (!visible() || previewFrozen() || state.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
-      if (S.streamingBodyEl) {
+      if (state.streamingBodyEl) {
         const html =
-          S.pendingRefineDiff && S.showEditorDiff
-            ? renderMessageDiffHtml(S.pendingRefineDiff.ops)
+          state.pendingRefineDiff && state.showEditorDiff
+            ? renderMessageDiffHtml(state.pendingRefineDiff.ops)
             : renderMessageHtml(streamingDisplaySource(text));
-        smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
+        smoothUpdateBody(state.streamingBodyEl, html, scrollToBottom);
       } else {
-        scrollToBottom();
+        if (visible()) scrollToBottom();
       }
     };
     try {
-      handleSSEEvent(event, data, holder.el, onToken, onRewrite);
+      handleSSEEvent(event, data, holder.el, onToken, onRewrite, state, visible);
+      notify("operations");
     } catch (e) {
       console.error(`SSE handler for "${event}" threw:`, e);
       if (!dispatchErrorToasted) {
@@ -609,10 +671,10 @@ export async function processSSEStream(resp, container, holder, signal) {
   if (!terminalReceived) throw new Error("Generation stream ended before completion");
 }
 
-function swapStreamingDraft(text, onRewrite, options) {
-  if (S.editorDraftBaseline === null) S.editorDraftBaseline = S.streamingContent || "";
-  const original = streamingDisplaySource(S.editorDraftBaseline);
-  S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
+function swapStreamingDraft(text, onRewrite, options, state = S) {
+  if (state.editorDraftBaseline === null) state.editorDraftBaseline = state.streamingContent || "";
+  const original = streamingDisplaySource(state.editorDraftBaseline);
+  state.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
   onRewrite(text, options);
 }
 
@@ -640,27 +702,39 @@ function parseFailure(data) {
   return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
 }
 
-function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
+function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S, visible = () => true) {
+  if ((event === "token" || event === "reasoning") && state.pendingGenerationStep) {
+    state.generationStep = state.pendingGenerationStep;
+    state.pendingGenerationStep = null;
+    if (visible()) setGenerationStep(state.generationStep);
+  }
   switch (event) {
     case "director_start":
-      setGenerationStep(generationStepLabel("director"));
-      S.lastDirectorData = null;
-      S.inspectedMsgId = null;
-      S.inspectedDirectorData = null;
-      renderInspector();
+      state.pendingGenerationStep = generationStepLabel("director");
+      state.generationStep = "Waiting for the model";
+      if (visible()) setGenerationStep(state.generationStep);
+      state.lastDirectorData = null;
+      state.inspectedMsgId = null;
+      state.inspectedDirectorData = null;
+      if (visible()) renderInspector();
       break;
     case "director_done": {
       try {
-        S.lastDirectorData = JSON.parse(data);
+        state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
-      _advanceReasoningPass(1); // director done → move to Writer dot
-      renderInspector();
+      if (visible()) _advanceReasoningPass(1); // director done → move to Writer dot
+      if (visible()) renderInspector();
       break;
     }
     case "step_start": {
       try {
-        const label = generationStepLabel(JSON.parse(data).step);
-        if (label) setGenerationStep(label);
+        const step = JSON.parse(data).step;
+        const label = generationStepLabel(step);
+        if (label) {
+          state.pendingGenerationStep = step === "writer" ? label : null;
+          state.generationStep = step === "writer" ? "Waiting for the model" : label;
+          if (visible()) setGenerationStep(state.generationStep);
+        }
       } catch (_) {}
       break;
     }
@@ -670,13 +744,13 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
     case "draft_update":
       try {
         const draft = JSON.parse(data).draft;
-        if (draft !== S.streamingContent) swapStreamingDraft(draft, onRewrite, { preview: true });
+        if (draft !== state.streamingContent) swapStreamingDraft(draft, onRewrite, { preview: true }, state);
       } catch (_) {}
       break;
     case "writer_rewrite":
-      _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (visible()) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
-        swapStreamingDraft(JSON.parse(data).refined_text, onRewrite);
+        swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}
       break;
     case "reasoning": {
@@ -687,22 +761,23 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         const builtinIdx = REASONING_PASSES.findIndex((p) => p.key === passKey);
         if (builtinIdx >= 0) {
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
-          S[stateKey] = (S[stateKey] || "") + delta;
-          const rebuilt = _advanceReasoningPass(builtinIdx);
-          const viewingThisPass = S.reasoningPassSelected === builtinIdx;
+          state[stateKey] = (state[stateKey] || "") + delta;
+          state.reasoningPassActive = Math.max(state.reasoningPassActive, builtinIdx);
+          const rebuilt = visible() && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
+          const viewingThisPass = state.reasoningPassSelected === builtinIdx;
           const box = document.getElementById("reasoning-box");
-          if (box && viewingThisPass) {
+          if (visible() && state.inspectedMsgId == null && box && viewingThisPass) {
             if (!rebuilt) appendReasoningDelta(box, delta);
           }
           break;
         }
-        const pipeline = S.workflowPipelines.find((p) => p.passes.some((pp) => pp.id === passKey));
+        const pipeline = state.workflowPipelines.find((p) => p.passes.some((pp) => pp.id === passKey));
         if (pipeline) {
-          const firstDelta = !S.reasoningByPass[passKey];
-          S.reasoningByPass[passKey] = (S.reasoningByPass[passKey] || "") + delta;
-          if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          const firstDelta = !state.reasoningByPass[passKey];
+          state.reasoningByPass[passKey] = (state.reasoningByPass[passKey] || "") + delta;
+          if (visible() && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
           const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
-          if (wbox && wbox.dataset.passId === passKey) {
+          if (visible() && wbox && wbox.dataset.passId === passKey) {
             appendReasoningDelta(wbox, delta);
           }
           break;
@@ -713,10 +788,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
     }
     case "decisions": {
       try {
-        S.lastDecisions = JSON.parse(data);
-        renderInspector();
+        state.lastDecisions = JSON.parse(data);
+        if (visible()) renderInspector();
         // Show new skips once; inherited results did not ask again.
-        const notice = S.lastDecisions.inherited ? "" : skipNoticeText(S.lastDecisions.skipped);
+        const notice = state.lastDecisions.inherited ? "" : skipNoticeText(state.lastDecisions.skipped);
         if (notice) toast(notice);
       } catch (_) {}
       break;
@@ -724,15 +799,15 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
     case "feedback": {
       try {
         const d = JSON.parse(data);
-        S.lastFeedback = { values: d.values || {} };
-        renderInspector();
+        state.lastFeedback = { values: d.values || {} };
+        if (visible()) renderInspector();
       } catch (_) {}
       break;
     }
     case "state": {
       try {
-        S.lastState = JSON.parse(data);
-        renderInspector();
+        state.lastState = JSON.parse(data);
+        if (visible()) renderInspector();
       } catch (_) {}
       break;
     }
@@ -741,7 +816,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         const d = JSON.parse(data);
         // Turn workflow steps use the primary status line.
         const label = typeof d.label === "string" ? d.label.trim() : "";
-        if (label && d.state !== "done") setGenerationStep(label);
+        if (label && d.state !== "done") {
+          state.generationStep = label;
+          if (visible()) setGenerationStep(label);
+        }
       } catch (_) {}
       break;
     }
@@ -749,9 +827,9 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       try {
         const d = JSON.parse(data);
         if (d.tool_calls?.length) {
-          if (!S.lastDirectorData) S.lastDirectorData = {};
-          S.lastDirectorData.tool_calls = [...(S.lastDirectorData.tool_calls || []), ...d.tool_calls];
-          renderInspector();
+          if (!state.lastDirectorData) state.lastDirectorData = {};
+          state.lastDirectorData.tool_calls = [...(state.lastDirectorData.tool_calls || []), ...d.tool_calls];
+          if (visible()) renderInspector();
         }
       } catch (_) {}
       break;
@@ -761,32 +839,32 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         const d = JSON.parse(data);
         const realId = d.id;
         if (!realId) break;
-        const pendingIdx = S.messages.findLastIndex((m) => m.role === "user" && !m.id);
-        const prevContent = pendingIdx >= 0 ? S.messages[pendingIdx].content : null;
+        const pendingIdx = state.messages.findLastIndex((m) => m.role === "user" && !m.id);
+        const prevContent = pendingIdx >= 0 ? state.messages[pendingIdx].content : null;
         if (pendingIdx >= 0) {
-          S.messages[pendingIdx].id = realId;
+          state.messages[pendingIdx].id = realId;
         }
-        if (S.pendingUserMsg) {
-          S.pendingUserMsg.id = realId;
+        if (state.pendingUserMsg) {
+          state.pendingUserMsg.id = realId;
         }
-        const editing = S.editingPendingUserMsg || S.pendingUserMsgEdit != null;
+        const editing = state.editingPendingUserMsg || state.pendingUserMsgEdit != null;
         const resolved = typeof d.content === "string" && !editing ? d.content : null;
         if (resolved !== null) {
-          if (pendingIdx >= 0) S.messages[pendingIdx].content = resolved;
-          if (S.pendingUserMsg) S.pendingUserMsg.content = resolved;
+          if (pendingIdx >= 0) state.messages[pendingIdx].content = resolved;
+          if (state.pendingUserMsg) state.pendingUserMsg.content = resolved;
         }
-        if (S.editingPendingUserMsg) {
-          S.editingPendingUserMsg = false;
-          S.editingMsgId = realId;
-          renderMessages();
+        if (state.editingPendingUserMsg) {
+          state.editingPendingUserMsg = false;
+          state.editingMsgId = realId;
+          if (visible()) renderMessages();
           const ta = $(`edit-textarea-${realId}`);
-          if (ta) {
+          if (visible() && ta) {
             ta.focus();
             ta.selectionStart = ta.selectionEnd = ta.value.length;
           }
         } else {
           const rewritten = resolved !== null && resolved !== prevContent ? resolved : null;
-          adoptPendingUserMessage({ id: realId, role: "user" }, rewritten);
+          if (visible()) adoptPendingUserMessage({ id: realId, role: "user" }, rewritten);
         }
       } catch (_) {}
       break;
@@ -794,10 +872,10 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
     case "error":
       {
         const f = parseFailure(data);
-        S.turnError = {
+        state.turnError = {
           ...f,
           headline: f.headline || "Generation failed.",
-          convId: S.activeConvId,
+          convId: state.activeConvId,
           stage: f.stage || phaseStage(),
           at: Date.now(),
         };
@@ -810,7 +888,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       }
       break;
     case "world_change_proposed": {
-      S.worldProposalArrived = true;
+      state.worldProposalArrived = true;
       break;
     }
     case "workflow_attachments_rejected": {
@@ -819,7 +897,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
         const msgIdNum = Number(parsed.message_id);
         const rejected = Array.isArray(parsed.rejected) ? parsed.rejected : [];
         if (Number.isFinite(msgIdNum) && rejected.length) {
-          _mergeWorkflowRejections(msgIdNum, null, rejected);
+          if (visible()) _mergeWorkflowRejections(msgIdNum, null, rejected);
         }
       } catch (e) {
         console.warn("workflow_attachments_rejected parse failed", e);
@@ -827,8 +905,8 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite) {
       break;
     }
     default: {
-      const entry = S.workflowEventHandlers[event];
-      if (entry && typeof entry.handler === "function" && effectiveWorkflowEnabled(entry.workflowId)) {
+      const entry = state.workflowEventHandlers[event];
+      if (visible() && entry && typeof entry.handler === "function" && effectiveWorkflowEnabled(entry.workflowId)) {
         let parsed = data;
         try {
           parsed = JSON.parse(data);
@@ -857,36 +935,39 @@ export async function runStreamRequest(
   body,
   { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
 ) {
+  const state = conversationState(S.activeConvId);
+  const visible = () => S.activeConvId === state.activeConvId && !S.documentMode;
   cancelExpressionPlayback();
   beginExpressionPrewarm();
-  _liveGroupReplies = 0;
-  if (!S.groupCast) bufferExpressionReply();
-  S.consumedSpeakerId = body?.speaker_member_id || null;
+  state.liveGroupReplies = 0;
+  if (!state.groupCast) bufferExpressionReply();
+  state.consumedSpeakerId = body?.speaker_member_id || null;
   setStreaming(true);
-  setGenerationStep("");
+  setGenerationStep("Waiting for the model");
   $("send-btn").disabled = true;
-  S.turnError = null; // this attempt supersedes the last failure
+  state.turnError = null; // this attempt supersedes the last failure
   // Before the optimistic rows go in: what this request adds is what is new.
-  const anchor = streamAnchor(S.messages);
+  const anchor = streamAnchor(state.messages);
 
   if (cutoffMsgId != null) {
-    const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
-    S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
+    const idx = state.messages.findIndex((m) => m.id === cutoffMsgId);
+    state.streamCutoffIndex = idx >= 0 ? idx : state.messages.length;
     setChatFollowing(true);
   }
 
   if (beforeRender) beforeRender();
 
-  S.lastDirectorData = null;
+  state.lastDirectorData = null;
   clearInspectedMessage();
   renderMessages();
-  const op = beginStreamOperation(S.activeConvId);
+  const op = beginStreamOperation(state.activeConvId);
   op.anchor = anchor;
   const ct = $("chat-messages");
   const holder = { el: null };
-  if (S.groupCast) {
-    S.currentExchangeId = "pending";
-    S.completedExchangeMessageIds = [];
+  op.holder = holder;
+  if (state.groupCast) {
+    state.currentExchangeId = "pending";
+    state.completedExchangeMessageIds = [];
   } else {
     holder.el = createStreamingDiv();
     if (!streamingHidden()) ct.appendChild(holder.el);
@@ -894,27 +975,31 @@ export async function runStreamRequest(
     else scrollToBottom();
   }
   try {
-    const resp = await streamPost(path, body, op.signal);
+    const resp = await streamPost(
+      `${path}${path.includes("?") ? "&" : "?"}operation_id=${op.record.id}`,
+      body,
+      op.signal,
+    );
     if (!resp.ok) {
       const raw = await resp.text().catch(() => "");
       const f = parseFailure(raw);
-      S.turnError = {
+      state.turnError = {
         ...f,
         status: resp.status,
-        convId: S.activeConvId,
+        convId: state.activeConvId,
         stage: f.stage || phaseStage(),
         at: Date.now(),
       };
-      if (!S.turnError.headline) S.turnError.headline = `Orb returned HTTP ${resp.status}.`;
+      if (!state.turnError.headline) state.turnError.headline = `Orb returned HTTP ${resp.status}.`;
     } else {
-      await processSSEStream(resp, ct, holder, op.signal);
+      await processSSEStream(resp, ct, holder, op.signal, state);
     }
   } catch (e) {
     // An AbortError is this operation dropping its own connection (a Stop the
     // server could not confirm); settling below waits out the server's cleanup.
     if (e.name !== "AbortError") {
       console.error("Stream failed client-side:", e);
-      S.turnError = {
+      state.turnError = {
         headline: "Lost connection to Orb.",
         sentence: e.message,
         kind: "transport",
@@ -927,7 +1012,7 @@ export async function runStreamRequest(
   }
   const settled = await op.settle();
   await afterStream(op, { settled });
-  if (afterDone) await afterDone();
+  if (afterDone && visible()) await afterDone();
 }
 
 export async function continueFromUser() {
@@ -970,6 +1055,8 @@ export async function sendMessage() {
   content = resolvePlaceholders(content);
   inp.value = "";
   inp.style.height = "auto";
+  conversationState(S.activeConvId).draft = "";
+  localStorage.removeItem(`orb-chat-draft:${S.activeConvId}`);
 
   const attachments = [...S.attachments];
   S.attachments.length = 0;
@@ -1077,3 +1164,37 @@ export async function submitMagicRewrite(msgId) {
     },
   );
 }
+
+export async function saveQueuedEdits(convId = S.activeConvId) {
+  const state = conversationState(convId);
+  for (const [id, content] of Object.entries(state.queuedEdits)) {
+    const target = state.messages.find((m) => m.id === Number(id));
+    if (target) target.content = content;
+    try {
+      await api.post(convUrl(convId, "messages", Number(id), "edit"), { content, regenerate: false });
+      if (state.queuedEdits[id] === content) delete state.queuedEdits[id];
+    } catch (error) {
+      toast(`Edit not saved: ${error.message}`, true);
+      break;
+    }
+  }
+  if (S.activeConvId === convId)
+    $("send-btn").disabled =
+      state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-queued-edit]");
+  if (!button) return;
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
+  const state = conversationState(cid);
+  if (button.dataset.queuedEdit === "discard") {
+    const msgs = await api.get(convUrl(cid, "messages"));
+    delete state.queuedEdits[button.dataset.msgId];
+    setMessages(msgs, state);
+  } else await saveQueuedEdits(cid);
+  if (S.activeConvId !== cid || S.conversationViewToken !== token) return;
+  $("send-btn").disabled = state.isStreaming || state.conversationLoading || Object.keys(state.queuedEdits).length > 0;
+  renderMessages();
+});

@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from contextlib import contextmanager
+from functools import wraps
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import onnxruntime as ort
 
 _SESSIONS: dict[str, Any] = {}
-_LOCK = threading.Lock()  # sessions load off the event loop, from worker threads
+_ACTIVE = 0
+_LEASE = threading.local()
+_RELEASING = False
+_LOCK = threading.Condition()  # sessions load off the event loop, from worker threads
 
 
 def runtime_ok() -> bool:
@@ -42,18 +48,61 @@ def load(path: str) -> ort.InferenceSession:
         return _SESSIONS[key]
 
 
-def release(path: str | None = None) -> None:
-    """Drop cached sessions so their files can be deleted or replaced.
+def using(fn):
+    """Lease the runtime for the full inference call, including session loads."""
 
-    Called before a model delete for the same reason the llama-server host is
-    released first: on Windows an open handle makes the unlink fail outright,
-    and everywhere else it leaves the old graph resident.
-    """
+    @wraps(fn)
+    def leased(*args, **kwargs):
+        global _ACTIVE
+        outer = getattr(_LEASE, "depth", 0) == 0
+        if outer:
+            with _LOCK:
+                if _RELEASING:
+                    raise RuntimeError("Local model is being released")
+                _ACTIVE += 1
+        _LEASE.depth = getattr(_LEASE, "depth", 0) + 1
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _LEASE.depth -= 1
+            if outer:
+                with _LOCK:
+                    _ACTIVE -= 1
+                    _LOCK.notify_all()
+
+    return leased
+
+
+@contextmanager
+def exclusive_release(timeout: float = 15.0, path: str | None = None):
+    """Block new use until a file mutation completes; refuse an incomplete drain."""
+    global _RELEASING
     with _LOCK:
-        if path is None:
-            _SESSIONS.clear()
-            return
-        _SESSIONS.pop(os.path.normpath(path), None)
+        if _RELEASING:
+            raise TimeoutError("Local model maintenance is already running")
+        _RELEASING = True
+    try:
+        deadline = time.monotonic() + timeout
+        with _LOCK:
+            while _ACTIVE:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Local model is still in use")
+                _LOCK.wait(remaining)
+            if path is None:
+                _SESSIONS.clear()
+            else:
+                _SESSIONS.pop(os.path.normpath(path), None)
+        yield
+    finally:
+        with _LOCK:
+            _RELEASING = False
+            _LOCK.notify_all()
 
 
-__all__ = ["load", "release", "runtime_ok"]
+def release(path: str | None = None) -> None:
+    with exclusive_release(path=path):
+        pass
+
+
+__all__ = ["load", "release", "runtime_ok", "using", "exclusive_release"]

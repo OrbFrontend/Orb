@@ -39,3 +39,28 @@ the current schema or bootstrap seeds. The regression gates cover both direction
 
 Keep the historical fixture frozen. Updating it to match the current schema would
 hide missing migrations for existing installations.
+
+## Concurrent saves and dataset replacement
+
+Document content writes require `expected_revision`. The database compares and
+increments `documents.revision` in one conditional update and reads the response
+inside the same transaction. A mismatch returns 409 with the current document.
+Title-only writes preserve content and generated spans.
+
+`dataset_meta` stores a persistent dataset epoch, excluded from preset merging.
+Admission tracks mutating HTTP requests through response cleanup, alongside detached
+workflow jobs and registered streams. Apply/restore closes mutation admission and
+refuses with a list of running work before modifying the dataset; export/download
+remain available. Successful apply/restore regenerates the epoch. Browser API and
+raw SSE/keepalive writes carry `X-Orb-Epoch`; a stale value returns 409 with
+`refresh_required`, prompting draft preservation and a reload.
+
+Local model deletion also holds the download lock. Managed llama hosts retain their
+admission lock from active-use drain through unlink; ONNX inference holds a lease,
+and exclusive release drains leases before file mutation. A drain timeout returns
+409 and keeps the file.
+
+Card deletion checks referencing chats inside its write transaction. Duplicate
+resolution validates every card and affected chat, then relinks and removes the
+whole cluster in one transaction. Chat admission stays fenced through commit;
+any refusal rolls back all members of the choice.

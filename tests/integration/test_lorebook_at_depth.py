@@ -57,14 +57,14 @@ _ST_PAYLOAD = {
 
 
 async def _import_v20(client) -> str:
-    world = (await client.post("/api/worlds", json={"name": "V20"})).json()
+    world = (await client.post("/api/worlds", json={"is_global": True, "name": "V20"})).json()
     imp = await client.post(f"/api/worlds/{world['id']}/import", json=_ST_PAYLOAD)
     assert imp.status_code == 200
     return world["id"]
 
 
 async def _make_conversation(client) -> str:
-    card = await client.post("/api/characters", json={"name": "Aria", "description": "An elf ranger."})
+    card = await client.post("/api/characters", json={"is_global": True, "name": "Aria", "description": "An elf ranger."})
     assert card.status_code == 200
     conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
     assert conv.status_code == 200
@@ -135,7 +135,7 @@ async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
     assert with_world["breakdown"]["lorebook_depth"]["chars"] > 0
     assert with_world["breakdown"]["lorebook_constant"]["chars"] > 0
 
-    assert (await client.put(f"/api/worlds/{world_id}", json={"enabled": False})).status_code == 200
+    assert (await client.put(f"/api/worlds/{world_id}", json={"is_global": False})).status_code == 200
     without = (await client.get(f"/api/conversations/{cid}/context-size")).json()
     assert without["breakdown"]["lorebook_depth"]["chars"] == 0
     assert without["total_chars"] < with_world["total_chars"]

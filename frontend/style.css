@@ -22,3 +22,17 @@
 @import "css/document.css";
 @import "css/group.css";
 @import "css/decisions.css";
+/* Task controls remain reachable across chat, document, and library views. */
+.operation-status {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1200;
+  max-width: min(420px, 90vw);
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+.operation-status > div { display: flex; gap: 12px; align-items: center; }
+.operation-status button { margin-left: auto; }

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from ...core import maintenance_lock
 from ...features.presets import engine as presets
+from ..admission import dataset_maintenance
 from ..schemas import PresetExportRequest
 
 router = APIRouter()
@@ -66,7 +67,7 @@ async def api_import_preset(file: Annotated[UploadFile, File(...)]):
 
 @router.post("/api/presets/{name}/apply")
 async def api_apply_preset(name: str):
-    async with maintenance_lock():
+    async with dataset_maintenance(), maintenance_lock():
         try:
             path = presets._library_path(name)
             backup = await asyncio.to_thread(presets.create_snapshot, f"before applying {name}")
@@ -78,7 +79,7 @@ async def api_apply_preset(name: str):
 
 @router.post("/api/presets/{name}/restore")
 async def api_restore_preset(name: str):
-    async with maintenance_lock():
+    async with dataset_maintenance(), maintenance_lock():
         try:
             path = presets._library_path(name)
             meta = presets.read_meta(path) or {}

@@ -99,6 +99,7 @@ class _Decoder:
         return self._run([token], cached=True)
 
 
+@onnx_runtime.using
 def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     """Transcribe up to 30 s of 16 kHz mono audio."""
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
@@ -111,7 +112,10 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     vocabulary = Vocabulary.load(files.vocab)
 
     features = log_mel(audio, int(config["num_mel_bins"]))
-    hidden = np.asarray(onnx_runtime.load(files.encoder).run(None, {"input_features": features[None]})[0], dtype=np.float32)
+    hidden = np.asarray(
+        onnx_runtime.load(files.encoder).run(None, {"input_features": features[None]})[0],
+        dtype=np.float32,
+    )
     decoder = _Decoder(onnx_runtime.load(files.decoder), hidden, config)
 
     start = int(generation["decoder_start_token_id"])

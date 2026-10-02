@@ -134,7 +134,16 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
             parent, from_col, to_col, on_delete = r[2], r[3], r[4], r[6]
             # to_col may be None (implicit reference to the parent's PK); it is
             # resolved in a second pass below, once every table's PK is known.
-            fks.append(_FK(name, from_col, parent, to_col, on_delete, notnull.get(from_col, False)))
+            fks.append(
+                _FK(
+                    name,
+                    from_col,
+                    parent,
+                    to_col,
+                    on_delete,
+                    notnull.get(from_col, False),
+                )
+            )
 
         if _SINGLETON_RE.search(ddl[name]):
             kind = "singleton"
@@ -143,7 +152,10 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
         else:
             kind = "stable"
 
-        owner = next((f for f in fks if f.kind == "ownership"), None)
+        owner = next(
+            (f for f in fks if f.kind == "ownership" and f.from_col == ps.OWNERSHIP_COLUMNS.get(name)),
+            None,
+        ) or next((f for f in fks if f.kind == "ownership"), None)
         tables[name] = _Table(name, cols, pk, kind, fks, owner)
 
     # Second pass: resolve implicit FK targets now that every PK is known, so the
@@ -500,7 +512,7 @@ def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
 
 # Excluded tables that may legitimately hold rows (bookkeeping, not domain data).
 # Every *other* excluded table must stay empty, or its data would ship in no backup.
-_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations"})
+_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations", "dataset_meta"})
 
 
 def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:

@@ -695,3 +695,15 @@ async def get_message_delete_preview(cid: str, msg_id: int) -> dict[str, int] | 
         )
         row = counts[0]
         return {"message_count": int(row["message_count"]), "assistant_count": int(row["assistant_count"] or 0)}
+
+
+async def get_message_subtree_ids(cid: str, msg_id: int) -> set[int]:
+    async with get_db() as db:
+        rows = await db.execute_fetchall(
+            "WITH RECURSIVE target(parent_id) AS (SELECT parent_id FROM messages WHERE conversation_id = ? AND id = ?), "
+            "subtree(id) AS (SELECT m.id FROM messages m JOIN target t ON m.parent_id IS t.parent_id WHERE m.conversation_id = ? "
+            "UNION ALL SELECT m.id FROM messages m JOIN subtree s ON m.parent_id = s.id WHERE m.conversation_id = ?) "
+            "SELECT id FROM subtree",
+            (cid, msg_id, cid, cid),
+        )
+        return {int(row[0]) for row in rows}

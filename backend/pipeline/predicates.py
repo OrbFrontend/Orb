@@ -21,7 +21,7 @@ def agent_enabled(settings: Mapping[str, Any]) -> bool:
 
 def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) -> bool:
     """Return whether this turn may propose changes to *world*."""
-    return agent_on and bool(world and world.get("enabled") and world.get("dynamic_enabled"))
+    return agent_on and bool(world and world.get("dynamic_enabled"))
 
 
 def resolve_persona_id(

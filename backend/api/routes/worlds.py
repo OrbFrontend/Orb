@@ -15,8 +15,8 @@ from ...database import (
     create_lorebook_entry,
     create_world,
     delete_world,
-    disable_character_linked_worlds,
     get_active_lorebook_entries,
+    get_effective_world_ids,
     get_lorebook_entries,
     get_world,
     get_world_changesets,
@@ -68,18 +68,6 @@ async def api_list_worlds():
 @router.post("/api/worlds")
 async def api_create_world(data: WorldCreate):
     return await create_world(data.model_dump())
-
-
-@router.post("/api/worlds/deactivate-linked")
-async def api_deactivate_linked_worlds():
-    """Turn off every enabled World a character card links to. The client's boot sweep.
-
-    A linked World is on loan to the character in play; a fresh page has nobody
-    in play, so carrying one over from the last session would leak that
-    character's lore into whatever chat is opened next. Floating Worlds are
-    global lore and keep whatever state the user left them in.
-    """
-    return {"disabled": await disable_character_linked_worlds()}
 
 
 @router.put("/api/worlds/{world_id}")
@@ -211,9 +199,9 @@ async def api_export_lorebook(world_id: str, view: Literal["authored", "effectiv
 
 
 @router.get("/api/lorebook-entries/active")
-async def api_get_active_lorebook_entries():
+async def api_get_active_lorebook_entries(cid: str):
     """The enabled entries of enabled Worlds, projected to what the prompt sees."""
-    return lorebook.select_effective_entries(await get_active_lorebook_entries())
+    return lorebook.select_effective_entries(await get_active_lorebook_entries(await get_effective_world_ids(cid)))
 
 
 # Dynamic Worlds — changesets ──

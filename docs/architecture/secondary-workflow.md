@@ -466,3 +466,14 @@ message refreshes resume.
 | Produce an attachment | `attach_artifact` and `attachment_cache.py` |
 | Add a custom stream event | Hook event plus `registerWorkflowEventHandler` |
 | Add UI | `workflow_api.js` registrars and `registerAction` |
+
+
+## Media ownership across edits
+
+Media generation stores its source text in generation metadata. A commit for an
+older source keeps the artifact but does not activate it; conditional sibling
+activation also preserves a variant selected during rendering. Speech consumption
+metadata carries its own text and blocks, and karaoke against changed message text
+is disabled. The automatic TTS hook snapshots the voice profile before generation,
+while playback preferences remain live. API event streams stay registered as
+workflow jobs until they settle, so deletion and restore account for their renders.

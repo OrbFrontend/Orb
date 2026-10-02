@@ -1,3 +1,4 @@
+import { configureApiConcurrency } from "./api.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
   applyCompression,
@@ -116,7 +117,6 @@ import {
   closeLorebook,
   collapseWorlds,
   createWorld,
-  deactivateLinkedWorlds,
   deleteWorld,
   expandWorlds,
   initWorldProposalActions,
@@ -143,6 +143,7 @@ import {
 import { initMessageHtmlActions } from "./message_html.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import { closeModal, closeSubModal, showConfirmModal, switchTab } from "./modal.js";
+import { initOperationStatus } from "./operation_status.js";
 import {
   applyPreset,
   deletePreset,
@@ -445,6 +446,9 @@ initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
 registerAction("expression-playback", "advance", advanceExpressionPlayback);
+registerAction("chat-compression", "generate", generateCompressionSummary);
+registerAction("chat-compression", "cancel", cancelCompression);
+registerAction("chat-compression", "apply", applyCompression);
 document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();
@@ -483,7 +487,7 @@ async function initAll() {
     // Conversations first: loadCharacters fetches the (large) conversation list
     // itself when S.conversations is not set yet.
     startupStep("load conversations", loadConversations).then(() => startupStep("load characters", loadCharacters)),
-    startupStep("deactivate linked worlds", deactivateLinkedWorlds).then(() => startupStep("load worlds", loadWorlds)),
+    startupStep("load worlds", loadWorlds),
     // These render against state loadSettings fills in (the Agent switch and
     // enabled tools gate the fragment lists), so they wait for it.
     settings.then(() =>
@@ -509,3 +513,18 @@ async function initAll() {
 }
 
 initAll();
+
+initOperationStatus();
+
+configureApiConcurrency({
+  getEpoch: () => S.datasetEpoch,
+  setEpoch: (value) => {
+    S.datasetEpoch = value;
+  },
+  refresh: () => {
+    const input = document.getElementById("chat-input");
+    if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
+    window.dispatchEvent(new Event("beforeunload"));
+    window.location.reload();
+  },
+});

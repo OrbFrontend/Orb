@@ -57,7 +57,7 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     )
     persona = await create_user_persona({"name": "Chi", "description": "A curious visitor."})
     await update_settings({"active_persona_id": persona["id"]})
-    world = await create_world({"name": "Archive"})
+    world = await create_world({"name": "Archive", "is_global": True})
     await create_lorebook_entry(
         world["id"],
         {"name": "Canon", "content": "The moon is shattered.", "constant": True},

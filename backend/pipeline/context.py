@@ -132,7 +132,11 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     speaker_scripts = await db.get_group_member_scripts(conversation_id, members=all_group_members) if cast.grouped else {}
     # Card-embedded fragments merge into the global lists for this turn only
     # (the context is rebuilt per turn); on id collision the global wins.
-    card_moods, card_interactive, card_fragment_sources = await db.cast_embedded_fragments(card, cast)
+    (
+        card_moods,
+        card_interactive,
+        card_fragment_sources,
+    ) = await db.cast_embedded_fragments(card, cast)
     mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
@@ -145,8 +149,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments = [row for row in defined_fragments if row.get("enabled", True)]
     decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
-    lorebook_entries = await db.get_active_lorebook_entries()
-    worlds = await db.get_worlds()
+    world_ids = await db.get_effective_world_ids(conversation_id)
+    lorebook_entries = await db.get_active_lorebook_entries(world_ids)
+    worlds = [world for world in await db.get_worlds() if world["id"] in world_ids]
     client = client_from_settings(settings, abort_token=abort_token)
 
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)

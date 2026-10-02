@@ -1,3 +1,34 @@
+let _epoch = null;
+let readEpoch = () => _epoch;
+let writeEpoch = (value) => {
+  _epoch = value;
+};
+let onRefresh = () => {};
+
+export function configureApiConcurrency({ getEpoch, setEpoch, refresh }) {
+  readEpoch = getEpoch;
+  writeEpoch = setEpoch;
+  onRefresh = refresh;
+}
+
+export async function apiFetch(path, opts = {}) {
+  const epoch = readEpoch();
+  const headers = { ...opts.headers, ...(epoch ? { "X-Orb-Epoch": epoch } : {}) };
+  const response = await fetch(path, { ...opts, headers });
+  const current = response.headers?.get("X-Orb-Epoch");
+  if (!readEpoch() && current) writeEpoch(current);
+  if (response.status === 409 && response.clone) {
+    const body = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    if (body?.detail?.code === "refresh_required") {
+      onRefresh();
+    }
+  }
+  return response;
+}
+
 function _detail(body) {
   try {
     const parsed = JSON.parse(body);
@@ -16,7 +47,7 @@ function _detail(body) {
 
 export const api = {
   async _req(path, opts = {}) {
-    const r = await fetch(`/api${path}`, opts);
+    const r = await apiFetch(`/api${path}`, opts);
     if (!r.ok) {
       const body = await r.text();
       const err = new Error(_detail(body) || body);

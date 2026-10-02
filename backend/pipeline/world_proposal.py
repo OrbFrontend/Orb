@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 async def _load_targets(
     world_ids: Sequence[str],
+    conversation_id: str,
 ) -> tuple[list[WorldRow], list[Mapping[str, Any]]]:
     """Re-read every target World and pool their rows, in the given order.
 
@@ -36,9 +37,10 @@ async def _load_targets(
     """
     worlds: list[WorldRow] = []
     entries: list[Mapping[str, Any]] = []
+    active_ids = await db.get_effective_world_ids(conversation_id)
     for world_id in world_ids:
         world = await db.get_world(world_id)
-        if world is None or not world.get("enabled") or not dynamic_enabled(world):
+        if world is None or world_id not in active_ids or not dynamic_enabled(world):
             continue
         worlds.append(world)
         entries.extend(await db.get_lorebook_entries(world_id))
@@ -65,7 +67,7 @@ async def world_proposal_stage(
     never be able to cost the user their reply.
     """
     try:
-        worlds, entries = await _load_targets(turn.world_ids)
+        worlds, entries = await _load_targets(turn.world_ids, turn.conversation_id)
     except Exception:
         logger.exception(
             "World-change stage could not load worlds %s; proposing nothing",

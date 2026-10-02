@@ -97,6 +97,7 @@ def _seeded(path: Path) -> sqlite3.Connection:
 def _upgraded(tmp_path: Path) -> sqlite3.Connection:
     conn = _seeded(tmp_path / "old.db")
     _MIGRATION.migrate(conn)
+    importlib.import_module("backend.database.migrations.0077_conversation_worlds").migrate(conn)
     conn.commit()
     return conn
 

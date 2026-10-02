@@ -21,7 +21,6 @@ from ...database import (
     PROPOSAL_STATUSES,
     REVIEW_STATUSES,
     SheetProposalConflict,
-    activate_character_linked_worlds,
     add_conversation_log,
     add_message,
     apply_sheet_proposal,
@@ -33,7 +32,6 @@ from ...database import (
     decision_evaluations_of,
     delete_conversation,
     delete_group_family,
-    disable_character_linked_worlds,
     fold_path_state,
     fork_conversation,
     get_active_lorebook_entries,
@@ -43,6 +41,7 @@ from ...database import (
     get_conversation_logs,
     get_director_logs_for_messages,
     get_director_state,
+    get_effective_world_ids,
     get_group_member_scripts,
     get_group_members,
     get_interactive_fragments,
@@ -54,6 +53,7 @@ from ...database import (
     get_speaker_names,
     get_state_events_for_messages,
     get_user_persona,
+    get_world,
     group_root_of,
     insert_alternate_greeting_swipes,
     list_conversations,
@@ -64,6 +64,7 @@ from ...database import (
     resolve_cast,
     resolve_char_context,
     set_active_leaf,
+    set_conversation_world,
     set_workflow_message_state,
     snapshot_state_to_message,
     sync_group_members,
@@ -99,6 +100,7 @@ from ...prompting import (
 from ..deps import (
     _CleanupStreamingResponse,
     _sse_stream,
+    deleting_resources,
     profile_draft_failures,
     require_conversation,
     rows_response,
@@ -109,6 +111,7 @@ from ..schemas import (
     CompressRequest,
     ConversationCreate,
     ConversationUpdate,
+    ConversationWorldUpdate,
     GroupRosterUpdate,
     SceneProfileDraft,
     SceneProfileGenerateRequest,
@@ -400,28 +403,33 @@ async def api_delete_group(cid: str, conv: ConversationRow = Depends(require_con
     """
     if conv.get("kind", "solo") != "group":
         raise HTTPException(status_code=409, detail="Conversation is not a group")
-    deleted = await delete_group_family(group_root_of(conv))
+    root_id = group_root_of(conv)
+    keys = [row["id"] for row in await list_conversations() if row["id"] == root_id or row.get("group_root_id") == root_id]
+    async with deleting_resources(keys):
+        deleted = await delete_group_family(root_id)
     await mark_orphaned_changesets_stale()
     return {"ok": True, "deleted": deleted}
 
 
-@router.post("/api/conversations/{cid}/activate")
-async def api_activate_conversation(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
-    """Activate every linked World in the selected cast while preserving floating Worlds."""
-    await disable_character_linked_worlds()
-    card_ids: list[str] = []
-    if conv.get("kind", "solo") == "group":
-        card_ids = [str(card_id) for m in await get_group_members(cid) if (card_id := m.get("character_card_id"))]
-    elif card_id := conv.get("character_card_id"):
-        card_ids = [card_id]
-    enabled = await activate_character_linked_worlds(card_ids)
-    return {"ok": True, "world_ids": enabled}
+@router.get("/api/conversations/{cid}/worlds")
+async def api_conversation_worlds(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    return {"world_ids": await get_effective_world_ids(cid)}
+
+
+@router.put("/api/conversations/{cid}/worlds/{world_id}")
+async def api_set_conversation_world(cid: str, world_id: str, data: ConversationWorldUpdate):
+    await require_conversation(cid)
+    if not await get_world(world_id):
+        raise HTTPException(status_code=404, detail="World not found")
+    await set_conversation_world(cid, world_id, data.enabled)
+    return {"world_ids": await get_effective_world_ids(cid)}
 
 
 @router.delete("/api/conversations/{cid}")
 async def api_delete_conversation(cid: str):
-    if not await delete_conversation(cid):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    async with deleting_resources([cid]):
+        if not await delete_conversation(cid):
+            raise HTTPException(status_code=404, detail="Conversation not found")
     # The cascade NULLed the source pointers of every changeset raised in this
     # chat. Unreviewed proposals lose the evidence they were derived from and go
     # stale; applied ones stay canon, carrying their denormalised labels.
@@ -690,7 +698,7 @@ async def api_checkpoint_conversation(
 
 
 @router.post("/api/conversations/{cid}/stop")
-async def api_stop_generation(cid: str):
+async def api_stop_generation(cid: str, operation_id: str | None = None):
     """Stop the conversation's active stream and wait, bounded, for it to settle.
 
     ``settled`` means the stream has finished saving what it keeps and released
@@ -698,7 +706,7 @@ async def api_stop_generation(cid: str):
     means nothing was registered when this arrived, which a client whose own
     request is still in flight must not read as "stopped".
     """
-    result = await stop_active_stream(cid)
+    result = await stop_active_stream(cid, operation_id=operation_id)
     if result["active"]:
         logger.info(
             "Stop Generation requested for conversation %s — %s",
@@ -725,12 +733,19 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # collision), so the estimate cannot bill a different fragment set.
     card_moods, card_interactive, _card_sources = await cast_embedded_fragments(card, turn_cast)
     director_frags = merge_fragments_by_id(
-        [f for f in await get_interactive_fragments() if f.get("enabled", True)], card_interactive
+        [f for f in await get_interactive_fragments() if f.get("enabled", True)],
+        card_interactive,
     )
     mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
-    lorebook_entries = await get_active_lorebook_entries()
+    lorebook_entries = await get_active_lorebook_entries(await get_effective_world_ids(cid))
     macro_char, cast_names = macro_identity(conv, turn_cast)
-    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card)
+    macros, user_desc = persona_macros(
+        settings,
+        macro_char,
+        active_persona,
+        seed=conversation_macro_seed(conv),
+        card=card,
+    )
     macros = macros._replace(cast=cast_names)
 
     # Resolve character context

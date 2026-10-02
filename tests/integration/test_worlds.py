@@ -154,50 +154,41 @@ async def test_lorebook_export_missing_world_404(client, db):
     assert resp.status_code == 404
 
 
-async def test_deactivate_linked_worlds_spares_floating_ones(client, db):
-    """A page load retires character-linked lorebooks; floating ones survive it.
-
-    A linked World is enabled by the client only while its character is in play,
-    and nothing is in play on a fresh page — so a reload must not carry one over.
-    A floating World is the user's own global lore and has no character to scope
-    it, so it keeps whatever state it was left in.
-    """
+async def test_reading_scene_worlds_preserves_other_scenes_and_recency(client):
     linked = (await client.post("/api/worlds", json={"name": "Elsinore"})).json()
-    linked_off = (await client.post("/api/worlds", json={"name": "Verona"})).json()
-    floating_on = (await client.post("/api/worlds", json={"name": "House Rules"})).json()
-    floating_off = (await client.post("/api/worlds", json={"name": "Retired Lore"})).json()
-
-    await client.post("/api/characters", json={"name": "Hamlet", "world_id": linked["id"]})
-    await client.post("/api/characters", json={"name": "Juliet", "world_id": linked_off["id"]})
-    await client.put(f"/api/worlds/{linked_off['id']}", json={"enabled": False})
-    await client.put(f"/api/worlds/{floating_off['id']}", json={"enabled": False})
-
-    resp = await client.post("/api/worlds/deactivate-linked")
-    assert resp.status_code == 200
-    assert resp.json()["disabled"] == [linked["id"]]  # already-off linked worlds aren't re-reported
-
-    by_id = {w["id"]: w for w in (await client.get("/api/worlds")).json()}
-    assert not by_id[linked["id"]]["enabled"]
-    assert not by_id[linked_off["id"]]["enabled"]
-    assert by_id[floating_on["id"]]["enabled"]
-    assert not by_id[floating_off["id"]]["enabled"]
-
-    # Idempotent: a second reload has nothing left to turn off.
-    assert (await client.post("/api/worlds/deactivate-linked")).json()["disabled"] == []
+    global_world = (await client.post("/api/worlds", json={"name": "Global", "is_global": True})).json()
+    card = (await client.post("/api/characters", json={"name": "Hamlet", "world_id": linked["id"]})).json()
+    a = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()
+    b = (await client.post("/api/conversations", json={})).json()
+    before = (await client.get("/api/worlds")).json()
+    assert set((await client.get(f"/api/conversations/{a['id']}/worlds")).json()["world_ids"]) == {
+        linked["id"],
+        global_world["id"],
+    }
+    assert (await client.get(f"/api/conversations/{b['id']}/worlds")).json()["world_ids"] == [global_world["id"]]
+    assert (await client.get("/api/worlds")).json() == before
 
 
-async def test_deactivate_linked_worlds_keeps_sidebar_recency(client, db):
-    """The sweep is not user activity: it must not stamp `updated_at`.
+async def test_choices_override_defaults_copy_on_fork_and_survive_partial_preset(client, db):
+    from backend.database import fork_conversation, get_conversation
 
-    The worlds sidebar orders by recency, so a boot sweep that touched every
-    linked World's timestamp would reshuffle the list on every page load.
-    """
-    world = (await client.post("/api/worlds", json={"name": "Elsinore"})).json()
-    await client.post("/api/characters", json={"name": "Hamlet", "world_id": world["id"]})
-
-    before = (await client.get("/api/worlds")).json()[0]
-    await client.post("/api/worlds/deactivate-linked")
-    after = (await client.get("/api/worlds")).json()[0]
-
-    assert after["updated_at"] == before["updated_at"]
-    assert after["content_revision"] == before["content_revision"]
+    global_world = (await client.post("/api/worlds", json={"name": "Global", "is_global": True})).json()["id"]
+    floating = (await client.post("/api/worlds", json={"name": "Floating"})).json()["id"]
+    cid = (await client.post("/api/conversations", json={})).json()["id"]
+    await client.put(f"/api/conversations/{cid}/worlds/{global_world}", json={"enabled": False})
+    await client.put(f"/api/conversations/{cid}/worlds/{floating}", json={"enabled": True})
+    assert (await client.get(f"/api/conversations/{cid}/worlds")).json()["world_ids"] == [floating]
+    # Matching the default removes the override, so future default changes apply.
+    await client.put(f"/api/conversations/{cid}/worlds/{floating}", json={"enabled": False})
+    assert not await db.execute_fetchall(
+        "SELECT 1 FROM conversation_worlds WHERE conversation_id = ? AND world_id = ?", (cid, floating)
+    )
+    source = await get_conversation(cid)
+    assert source is not None
+    fork = await fork_conversation(source, "Fork")
+    assert (await client.get(f"/api/conversations/{fork}/worlds")).json()["world_ids"] == []
+    name = (await client.post("/api/presets/export", json={"domains": ["chats"]})).json()["name"]
+    await client.delete(f"/api/worlds/{global_world}")
+    applied = await client.post(f"/api/presets/{name}/apply")
+    assert applied.status_code == 200
+    assert not await db.execute_fetchall("SELECT 1 FROM conversation_worlds WHERE world_id = ?", (global_world,))

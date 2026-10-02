@@ -3,7 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -564,8 +565,19 @@ async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old
         await db.commit()
 
 
-async def delete_character_card(card_id: str, delete_conversations: bool = False) -> bool:
-    async with get_db() as db:
+async def delete_character_card(
+    card_id: str,
+    delete_conversations: bool = False,
+    *,
+    idle_guard: Callable | None = None,
+) -> bool:
+    async with AsyncExitStack() as fence, immediate_tx() as db:
+        if idle_guard:
+            rows = await db.execute_fetchall(
+                "SELECT id, title FROM conversations WHERE character_card_id = ? OR id IN (SELECT conversation_id FROM group_members WHERE character_card_id = ?)",
+                (card_id, card_id),
+            )
+            fence.enter_context(idle_guard([dict(row) for row in rows]))
         if delete_conversations:
             await db.execute(
                 """DELETE FROM conversations

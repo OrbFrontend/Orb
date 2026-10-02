@@ -191,6 +191,10 @@ async def on_enabled(enabled: bool) -> None:
     _apply(await _stored_profile(await get_settings()))
 
 
+def model_deletion():
+    return HOST.exclusive_release()
+
+
 async def release_host() -> None:
     """Release the mmap and child process before deleting a model file."""
     await HOST.release()
@@ -205,6 +209,7 @@ __all__ = [
     "on_enabled",
     "post_pipeline",
     "release_host",
+    "model_deletion",
     "resolve_config",
     "rewrite_events",
     "status_extra",

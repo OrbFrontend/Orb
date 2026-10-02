@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any, Protocol
 
 from fastapi import APIRouter, Body, HTTPException
@@ -41,7 +42,7 @@ class _FeatureManagement(Protocol):
 
     async def on_enabled(self, enabled: bool) -> None: ...
 
-    async def release_host(self) -> None: ...
+    def model_deletion(self) -> AbstractAsyncContextManager[None]: ...
 
 
 #: The features that have management behaviour of their own. A feature absent
@@ -196,22 +197,33 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
     spec = _require(feature)
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
-    controller = _MANAGEMENT.get(feature)
-    if spec.runtime == "onnx":
-        # Sessions keep model files open on Windows, and the cache is global to
-        # the runtime rather than to this one Spark codec.
-        onnx_runtime.release()
-    elif controller is not None:
-        await controller.release_host()
-    try:
-        removed = await asyncio.to_thread(assets.delete_model, feature, variant)
-    except OSError:
-        logger.exception("local-ml delete %r (%s) failed", feature, variant)
-        raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
+    async with _download_lock:
+        controller = _MANAGEMENT.get(feature)
+        try:
+
+            def remove():
+                with onnx_runtime.exclusive_release() if spec.runtime == "onnx" else nullcontext():
+                    return assets.delete_model(feature, variant)
+
+            if spec.runtime != "onnx" and controller is not None:
+                async with controller.model_deletion():
+                    removed = await asyncio.to_thread(remove)
+            else:
+                removed = await asyncio.to_thread(remove)
+        except TimeoutError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError:
+            logger.exception("local-ml delete %r (%s) failed", feature, variant)
+            raise HTTPException(status_code=500, detail="Delete failed; see server logs") from None
     # After the unlink, so the sweep reads the disk as it now is: deleting the
     # selected checkpoint hands the selection to another one that is present.
     config = await _sync_selection(feature)
-    return {"ok": True, "removed": removed, "present": assets.present(feature), "local_ml_config": config}
+    return {
+        "ok": True,
+        "removed": removed,
+        "present": assets.present(feature),
+        "local_ml_config": config,
+    }
 
 
 @router.post("/api/local-ml/{feature}/config")

@@ -307,8 +307,8 @@ async def test_lorebooks_land_with_orb_field_semantics(st_install: Path, db_path
     worlds = {w["name"]: w for w in (await client.get("/api/worlds")).json()}
     assert set(worlds) == {"Testworld", "Harbour Lore"}
     # Only what ST had globally selected arrives enabled.
-    assert worlds["Testworld"]["enabled"] == 1
-    assert worlds["Harbour Lore"]["enabled"] == 0
+    assert worlds["Testworld"]["is_global"] == 1
+    assert worlds["Harbour Lore"]["is_global"] == 0
 
     entries = {e["name"]: e for e in (await client.get(f"/api/worlds/{worlds['Testworld']['id']}/entries")).json()}
     lighthouse = entries["The Lighthouse"]

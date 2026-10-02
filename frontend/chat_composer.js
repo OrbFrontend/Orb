@@ -1,7 +1,8 @@
+import { apiFetch } from "./api.js";
 import { sendMessage } from "./chat_stream.js";
 import { refreshCastRailIntent } from "./group_setup.js";
 import { CLOSE_ICON } from "./icons.js";
-import { S } from "./state.js";
+import { conversationState, S } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -20,6 +21,9 @@ function handleAttachmentSelect(e) {
     return;
   }
 
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
+  const state = conversationState(cid);
   for (const file of files) {
     const fileValidation = validate.validateImageFile(file, 10 * 1024 * 1024, [
       "image/png",
@@ -34,13 +38,13 @@ function handleAttachmentSelect(e) {
     const reader = new FileReader();
     reader.onload = (event) => {
       const b64 = event.target.result.split(",")[1]; // strip data:image/...;base64,
-      S.attachments.push({
+      state.attachments.push({
         b64,
         mime: file.type,
         filename: file.name,
         size: file.size,
       });
-      updateAttachmentPreview();
+      if (S.activeConvId === cid && S.conversationViewToken === token) updateAttachmentPreview();
     };
     reader.readAsDataURL(file);
   }
@@ -167,7 +171,8 @@ async function _requestGhost() {
   if (_ghostAbort) _ghostAbort.abort();
   _ghostAbort = new AbortController();
   try {
-    const r = await fetch(`/api/conversations/${cid}/autocomplete`, {
+    const token = S.conversationViewToken;
+    const r = await apiFetch(`/api/conversations/${cid}/autocomplete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ draft }),
@@ -179,6 +184,7 @@ async function _requestGhost() {
     }
     if (!r.ok) return;
     const { completion } = await r.json();
+    if (S.activeConvId !== cid || S.conversationViewToken !== token || _ghostAbort?.signal.aborted) return;
     if (inp.value !== draft) return;
     _ghostText = completion || "";
     _renderGhost();
@@ -186,6 +192,11 @@ async function _requestGhost() {
 }
 
 function onComposerInput() {
+  if (S.activeConvId) {
+    const draft = $("chat-input").value;
+    conversationState(S.activeConvId).draft = draft;
+    localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, draft);
+  }
   _scheduleResize();
   clearGhost();
   scheduleGhost();

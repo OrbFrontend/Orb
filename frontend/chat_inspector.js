@@ -21,7 +21,7 @@ import {
 } from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { effectiveWorkflowEnabled, restingCooldowns, S, subscribe } from "./state.js";
+import { conversationState, effectiveWorkflowEnabled, restingCooldowns, S, subscribe } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
 import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
@@ -30,23 +30,26 @@ let inspectionRequest = 0;
 export async function inspectMessage(msgId) {
   if (!S.activeConvId) return;
   const conversationId = S.activeConvId;
+  const viewToken = S.conversationViewToken;
   const request = ++inspectionRequest;
   S.inspectedMsgId = msgId;
   S.inspectedDirectorData = null;
   renderInspector();
   const isCurrent = () =>
-    request === inspectionRequest && S.activeConvId === conversationId && S.inspectedMsgId === msgId;
+    request === inspectionRequest &&
+    S.activeConvId === conversationId &&
+    S.conversationViewToken === viewToken &&
+    S.inspectedMsgId === msgId;
   try {
     const data = await api.get(convUrl(conversationId, "messages", msgId, "director-log"));
     if (!isCurrent()) return;
     S.inspectedDirectorData = data;
-    S.reasoningDirector = S.inspectedDirectorData.reasoning_director || "";
-    S.reasoningWriter = S.inspectedDirectorData.reasoning_writer || "";
-    S.reasoningEditor = S.inspectedDirectorData.reasoning_editor || "";
-    const highestPassIdx = S.reasoningEditor ? 2 : S.reasoningWriter ? 1 : 0;
-    S.reasoningPassActive = highestPassIdx;
-    S.reasoningPassSelected = highestPassIdx;
-    S.reasoningUserOverride = false;
+    S.inspectedReasoning = {
+      director: data.reasoning_director || "",
+      writer: data.reasoning_writer || "",
+      editor: data.reasoning_editor || "",
+    };
+    S.inspectedReasoningSelected = S.inspectedReasoning.editor ? 2 : S.inspectedReasoning.writer ? 1 : 0;
     rememberInspection(msgId, data);
     renderInspector();
     refreshInlineInspector(msgId);
@@ -87,10 +90,13 @@ export function _advanceReasoningPass(targetIdx) {
 }
 
 function _buildReasoningHtml() {
-  const streamIdx = S.reasoningPassActive;
-  const selectedIdx = S.reasoningPassSelected;
+  const saved = S.inspectedMsgId != null && S.inspectedDirectorData;
+  const streamIdx = saved ? S.inspectedReasoningSelected : S.reasoningPassActive;
+  const selectedIdx = saved ? S.inspectedReasoningSelected : S.reasoningPassSelected;
   const dotsHtml = REASONING_PASSES.map((p, i) => {
-    const hasText = !!S[`reasoning${p.key.charAt(0).toUpperCase()}${p.key.slice(1)}`];
+    const hasText = !!(saved
+      ? S.inspectedReasoning[p.key]
+      : S[`reasoning${p.key.charAt(0).toUpperCase()}${p.key.slice(1)}`]);
     const isStreaming = i === streamIdx;
     const isSelected = i === selectedIdx;
     const lit = hasText || isStreaming;
@@ -116,7 +122,10 @@ function _buildReasoningHtml() {
   }).join("");
 
   const selectedPass = REASONING_PASSES[selectedIdx];
-  const currentText = S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`] || "";
+  const currentText =
+    (saved
+      ? S.inspectedReasoning[selectedPass.key]
+      : S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`]) || "";
 
   const key = selectedPass.key;
   const prefillHtml =
@@ -172,8 +181,11 @@ document.addEventListener("click", (e) => {
 });
 
 export function selectReasoningPass(idx) {
-  S.reasoningPassSelected = idx;
-  S.reasoningUserOverride = true;
+  if (S.inspectedMsgId != null) S.inspectedReasoningSelected = idx;
+  else {
+    S.reasoningPassSelected = idx;
+    S.reasoningUserOverride = true;
+  }
   _refreshReasoningSection();
 }
 
@@ -328,20 +340,24 @@ export function _syncGenerationStatusVisibility() {
   syncGenerationStatusMarquee(el);
 }
 
-export function setWorkflowPhase(channel, label) {
+export function setWorkflowPhase(channel, label, state = S) {
+  if (typeof state === "string") state = conversationState(state);
   if (typeof channel === "string" && channel.startsWith("workflow:")) {
     const wid = channel.split(":")[1];
     if (wid && !effectiveWorkflowEnabled(wid)) return;
   }
-  if (label?.trim()) S.workflowPhases[channel] = label;
-  else delete S.workflowPhases[channel];
+  if (label?.trim()) state.workflowPhases[channel] = label;
+  else delete state.workflowPhases[channel];
+  if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
   _syncGenerationStatusVisibility();
 }
 
-export function clearWorkflowPhase(channel) {
-  if (channel === undefined) S.workflowPhases = {};
-  else delete S.workflowPhases[channel];
+export function clearWorkflowPhase(channel, state = S) {
+  if (typeof state === "string") state = conversationState(state);
+  if (channel === undefined) state.workflowPhases = {};
+  else delete state.workflowPhases[channel];
+  if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
   _syncGenerationStatusVisibility();
 }

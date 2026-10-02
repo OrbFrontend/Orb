@@ -852,6 +852,7 @@ function speakerNameMap(rows) {
 }
 
 export async function loadGroupCast(conv) {
+  const token = S.conversationViewToken;
   if (conv?.kind !== "group") {
     const hadCast = S.groupCast !== null;
     S.groupCast = null;
@@ -868,7 +869,7 @@ export async function loadGroupCast(conv) {
     api.get(`${convUrl(conv.id, "members")}?include_inactive=true`),
     fetchSheetProposals(conv.id),
   ]);
-  if (S.activeConvId !== conv.id) return;
+  if (S.activeConvId !== conv.id || S.conversationViewToken !== token) return;
   const members = roster.filter((member) => member.active !== 0);
   S.groupCast = {
     members,

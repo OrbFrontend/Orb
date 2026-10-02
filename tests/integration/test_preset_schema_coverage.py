@@ -442,6 +442,7 @@ SIGNATURE_TABLES = frozenset(
         "library_tags",
         "user_personas",
         "conversations",
+        "conversation_worlds",
         "group_members",
         "messages",
         "director_state",
@@ -507,6 +508,7 @@ def _signature(path: str) -> dict:
                 "JOIN character_cards cc ON ce.character_card_id = cc.id"
             ),
             "conversations": q("SELECT id, title FROM conversations"),
+            "conversation_worlds": q("SELECT conversation_id, world_id, enabled FROM conversation_worlds"),
             "conv_persona": q(
                 "SELECT c.id, up.name FROM conversations c LEFT JOIN user_personas up ON c.persona_lock_id = up.id"
             ),
@@ -533,7 +535,7 @@ def _signature(path: str) -> dict:
                 "SELECT e.conversation_id, m.content, e.fragment_id, e.entry_id, e.op, e.text, e.source "
                 "FROM fragment_state_events e JOIN messages m ON e.message_id = m.id"
             ),
-            "worlds": q("SELECT id, name, dynamic_enabled, content_revision FROM worlds"),
+            "worlds": q("SELECT id, name, is_global, dynamic_enabled, content_revision FROM worlds"),
             # Overlay metadata is part of a lorebook's identity: a preset that
             # restored the rows but flattened their layer would silently turn
             # Agent-managed state into authored lore.
@@ -564,7 +566,7 @@ def _signature(path: str) -> dict:
             "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
-            "documents": q("SELECT title, content, generated_spans FROM documents"),
+            "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
         }
     finally:
         conn.close()
@@ -615,6 +617,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     # a chat tree, persona-locked, with an active leaf to remap.
     _insert_conv_tree(path, "conv-keep", p1)
+    await client.put(f"/api/conversations/conv-keep/worlds/{w1}", json={"enabled": True})
 
     # Dynamic Worlds: an overlay row replacing an authored entry, plus one
     # applied changeset (source pointers into the chat above -- a nullable

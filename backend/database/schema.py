@@ -345,11 +345,18 @@ CREATE TABLE IF NOT EXISTS model_configs (
 CREATE TABLE IF NOT EXISTS worlds (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    enabled BOOLEAN NOT NULL DEFAULT 1,
+    is_global INTEGER NOT NULL DEFAULT 0,
     dynamic_enabled INTEGER NOT NULL DEFAULT 0,
     content_revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS conversation_worlds (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL,
+    PRIMARY KEY (conversation_id, world_id)
 );
 
 CREATE TABLE IF NOT EXISTS lorebook_entries (
@@ -459,11 +466,17 @@ CREATE TABLE IF NOT EXISTS fragment_state_events (
 CREATE INDEX IF NOT EXISTS idx_state_event_message ON fragment_state_events(message_id);
 CREATE INDEX IF NOT EXISTS idx_state_event_conversation ON fragment_state_events(conversation_id, fragment_id);
 
+CREATE TABLE IF NOT EXISTS dataset_meta (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    epoch TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL DEFAULT 'Untitled',
     content TEXT NOT NULL DEFAULT '',
     generated_spans TEXT NOT NULL DEFAULT '[]',
+    revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

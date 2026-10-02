@@ -685,7 +685,7 @@ async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding
     because they extend the speaker's frozen base. Asserted, not assumed: a
     step that rebuilt its own prefix would show up here as a second system
     message on the same lane."""
-    world = (await client.post("/api/worlds", json={"name": "Gorge"})).json()
+    world = (await client.post("/api/worlds", json={"name": "Gorge", "is_global": True})).json()
     await client.post(f"/api/worlds/{world['id']}/entries", json={"name": "Bridge", "content": "It groans.", "keywords": []})
     await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
     await client.put("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
@@ -1130,14 +1130,14 @@ async def test_group_activation_enables_cast_worlds_and_preserves_floating_world
     aria_world = (await client.post("/api/worlds", json={"name": "Aria lore"})).json()
     kael_world = (await client.post("/api/worlds", json={"name": "Kael lore"})).json()
     other_world = (await client.post("/api/worlds", json={"name": "Other character lore"})).json()
-    floating_on = (await client.post("/api/worlds", json={"name": "Global lore"})).json()
+    floating_on = (await client.post("/api/worlds", json={"name": "Global lore", "is_global": True})).json()
     floating_off = (await client.post("/api/worlds", json={"name": "Retired global lore"})).json()
     aria = await _card(client, "Aria", world_id=aria_world["id"])
     kael = await _card(client, "Kael", world_id=kael_world["id"])
     await _card(client, "Other", world_id=other_world["id"])
-    await client.put(f"/api/worlds/{aria_world['id']}", json={"enabled": False})
-    await client.put(f"/api/worlds/{kael_world['id']}", json={"enabled": False})
-    await client.put(f"/api/worlds/{floating_off['id']}", json={"enabled": False})
+    await client.put(f"/api/worlds/{aria_world['id']}", json={"is_global": False})
+    await client.put(f"/api/worlds/{kael_world['id']}", json={"is_global": False})
+    await client.put(f"/api/worlds/{floating_off['id']}", json={"is_global": False})
     conv = (
         await client.post(
             "/api/conversations",
@@ -1146,14 +1146,11 @@ async def test_group_activation_enables_cast_worlds_and_preserves_floating_world
     ).json()
     before = {world["id"]: world for world in (await client.get("/api/worlds")).json()}
 
-    response = await client.post(f"/api/conversations/{conv['id']}/activate")
+    response = await client.get(f"/api/conversations/{conv['id']}/worlds")
     assert response.status_code == 200
-    assert set(response.json()["world_ids"]) == {aria_world["id"], kael_world["id"]}
+    assert set(response.json()["world_ids"]) == {aria_world["id"], kael_world["id"], floating_on["id"]}
     after = {world["id"]: world for world in (await client.get("/api/worlds")).json()}
-    assert after[aria_world["id"]]["enabled"] and after[kael_world["id"]]["enabled"]
-    assert not after[other_world["id"]]["enabled"]
-    assert after[floating_on["id"]]["enabled"]
-    assert not after[floating_off["id"]]["enabled"]
+    assert after == before, "Reading scene Worlds never changes defaults"
     for world_id in after:
         assert after[world_id]["updated_at"] == before[world_id]["updated_at"]
         assert after[world_id]["content_revision"] == before[world_id]["content_revision"]

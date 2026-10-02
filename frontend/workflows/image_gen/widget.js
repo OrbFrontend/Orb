@@ -170,16 +170,17 @@ async function generate(msgId, button) {
   const running = inFlight.get(msgId);
   if (running) return running.stop();
   if (!getActiveConvId() || !canMutate()) return;
+  const convId = getActiveConvId();
   const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
-  const job = startWorkflowJob({ title: "Stop image generation", controller });
+  const job = startWorkflowJob({ convId, messageId: msgId, title: "Stop image generation", controller });
   inFlight.set(msgId, job);
   job.show(button);
   const channel = `workflow:image_gen:generate:${msgId}`;
   try {
-    setWorkflowPhase(channel, "Composing image prompt...");
+    setWorkflowPhase(channel, "Composing image prompt...", convId);
     const response = await streamPost(
-      convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"),
+      job.url(convUrl(convId, "workflows", WORKFLOW_ID, "trigger")),
       { action: "generate", message_id: msgId, style_id: styleId },
       controller.signal,
     );
@@ -195,10 +196,10 @@ async function generate(msgId, button) {
       } catch {
         data = {};
       }
-      if (event.event === "phase_status" && data.label) setWorkflowPhase(channel, data.label);
+      if (event.event === "phase_status" && data.label) setWorkflowPhase(channel, data.label, convId);
       // Each refinement render lands as it is made; only the first is scrolled to,
       // so a user who scrolled away to read is left there.
-      if (event.event === "image_gen_render") await refreshConversationMessages(landed++ ? null : msgId);
+      if (event.event === "image_gen_render") await refreshConversationMessages(landed++ ? null : msgId, convId);
       if (event.event === "image_gen_error") failure = data.message || "Image generation failed";
       if (event.event === "image_gen_done") {
         attachmentId = data.attachment_id;
@@ -207,34 +208,33 @@ async function generate(msgId, button) {
     }
     // Stop cancels the reader, so a stopped stream usually ends here instead of throwing.
     if (controller.signal.aborted) {
-      await refreshConversationMessages();
+      await refreshConversationMessages(null, convId);
       return;
     }
     if (!terminated && !failure) failure = "Image generation did not complete";
     if (failure) toast(failure, "error");
-    if (attachmentId) await refreshConversationMessages(landed ? null : msgId);
+    if (attachmentId) await refreshConversationMessages(landed ? null : msgId, convId);
   } catch (e) {
     // Stopped: the renders saved so far stay, and the saved rows decide what shows.
-    if (e?.name === "AbortError") await refreshConversationMessages();
+    if (e?.name === "AbortError") await refreshConversationMessages(null, convId);
     else {
       console.warn("image generation stream dropped; polling for the result", e);
-      if (!(await pollForAttachment(msgId, controller.signal)) && !controller.signal.aborted)
+      if (!(await pollForAttachment(msgId, controller.signal, convId)) && !controller.signal.aborted)
         toast("Image generation failed", "error");
     }
   } finally {
     inFlight.delete(msgId);
-    clearWorkflowPhase(channel);
+    clearWorkflowPhase(channel, convId);
     job.end();
     // The button outlived the first render only as this run's Stop.
     requestRepaint();
   }
 }
 
-async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
-  const convId = getActiveConvId();
+async function pollForAttachment(msgId, signal, convId, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (signal.aborted || getActiveConvId() !== convId) return false;
+    if (signal.aborted) return false;
     await new Promise((r) => setTimeout(r, intervalMs));
     let msgs;
     try {
@@ -244,7 +244,7 @@ async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalM
     }
     const msg = msgs.find((m) => m.id === msgId);
     if (msg && hasAttachment(msg)) {
-      if (!signal.aborted && getActiveConvId() === convId) await refreshConversationMessages(msgId);
+      if (!signal.aborted) await refreshConversationMessages(msgId, convId);
       return true;
     }
   }

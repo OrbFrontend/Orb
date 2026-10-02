@@ -11,10 +11,10 @@ propose new entries, revisions, and retractions. The two features work separatel
 Open the World and turn on **Dynamic World**. Proposals are generated only when:
 
 - The global **Agent** toggle is on
-- The World is enabled
+- The World is on in this conversation
 - **Dynamic World** is enabled for that World
 
-Every enabled Dynamic World can receive a proposal. The feature is not limited to
+Every Dynamic World on in this conversation can receive a proposal. The feature is not limited to
 the World linked to the active character.
 
 ## Proposal types

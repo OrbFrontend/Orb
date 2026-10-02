@@ -3,7 +3,7 @@ import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
 import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
 import { inspectMessage } from "./chat_messages.js";
-import { stopConversation } from "./chat_stream.js";
+import { cancelStreamingPaint, restoreStreamingView, setStreaming } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
@@ -11,10 +11,12 @@ import { renderInteractiveFragments, renderMoodFragments } from "./library_fragm
 import { avatarBustQuery, refreshCharacters, renderCharacters } from "./library_sidebar.js";
 import { reflectConversationWorldActivation } from "./lorebooks.js";
 import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./modal.js";
+import { begin, finish, ownsView, runningFor } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
-import { S, upgradeLegacyFragment } from "./state.js";
+import { conversationState, notify, S, upgradeLegacyFragment } from "./state.js";
 import { refreshState } from "./state_panel.js";
+import { createStreamOperation } from "./stream_settle.js";
 import {
   $,
   avatarCell,
@@ -43,6 +45,12 @@ document.addEventListener("group-created", async (event) => {
 document.addEventListener("group-selected", (event) => selectConversation(event.detail));
 document.addEventListener("group-delete-request", (event) => _deleteGroupFamily(event.detail));
 document.addEventListener("group-cast-updated", () => refreshSceneCardFragments());
+document.addEventListener("chat-view-resumed", () => {
+  restoreStreamingView();
+  setStreaming(S.isStreaming);
+  renderMessages();
+  renderInspector();
+});
 
 export function stashSceneCards(cards) {
   const list = (Array.isArray(cards) ? cards : [cards]).filter(Boolean);
@@ -93,10 +101,11 @@ function sceneCardIds(conv) {
 
 export async function refreshSceneCardFragments() {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  const token = S.conversationViewToken;
   const cards = await Promise.all(
     sceneCardIds(conv).map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
   );
-  stashSceneCards(cards);
+  if (ownsView(token, conv?.id)) stashSceneCards(cards);
 }
 
 export function resetChatUI() {
@@ -127,10 +136,6 @@ export function resetChatUI() {
 }
 
 export async function selectChar(id, source = "recent") {
-  if (S.isStreaming) {
-    toast("Stop generation before switching characters", true);
-    return;
-  }
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
@@ -163,10 +168,6 @@ export async function selectChar(id, source = "recent") {
 }
 
 export async function newConvForChar(id) {
-  if (S.isStreaming) {
-    toast("Stop generation before switching characters", true);
-    return;
-  }
   try {
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
@@ -188,10 +189,6 @@ export async function newConversationHere() {
     await newConvForChar(S.activeCharId);
     return;
   }
-  if (S.isStreaming) {
-    toast("Stop generation before starting a new conversation", true);
-    return;
-  }
   try {
     const fresh = await api.post(convUrl(conv.id, "group-conversation"));
     await loadConversations();
@@ -202,79 +199,104 @@ export async function newConversationHere() {
 }
 
 export async function selectConversation(id) {
-  if (S.isStreaming) {
-    toast("Stop generation before switching conversations", true);
-    return;
+  cancelStreamingPaint();
+  if (S.activeConvId) {
+    const draft = $("chat-input").value;
+    conversationState(S.activeConvId).draft = draft;
+    localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, draft);
   }
+  const token = ++S.conversationViewToken;
+  $("chat-input").disabled = true;
+  $("send-btn").disabled = true;
   S.activeConvId = id;
-  S.lastDirectorData = null;
-  S.lastFeedback = null;
-  S.lastState = null;
-  S.lastDecisions = null;
-  S.reasoningDirector = "";
-  S.reasoningWriter = "";
-  S.reasoningEditor = "";
-  S.reasoningByPass = {};
-  S.reasoningPassActive = 0;
-  S.reasoningPassSelected = 0;
-  const conv = S.conversations.find((c) => c.id === id);
-  await loadGroupCast(conv);
-  const prevCharId = S.activeCharId;
-  if (conv?.kind === "group") S.activeCharId = null;
-  else if (conv?.character_card_id) S.activeCharId = conv.character_card_id;
-  if (S.activeCharId !== prevCharId) renderCharacters();
-  renderGroupList();
-  updateUserBtn();
-  $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
-  const av = $("chat-avatar");
-  av.style.cursor = conv?.kind === "group" ? "pointer" : "";
-  if (conv?.kind === "group") {
-    av.textContent = "👥";
-  } else if (conv?.character_card_id) {
-    // The library's bust token, not a fresh timestamp: an avatar edit bumps it,
-    // and otherwise the header reuses the cached image instead of downloading
-    // it again on every switch.
-    av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
-      icon: CHAT_AVATAR_ICON,
-      attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
-    });
-  } else {
-    av.textContent = CHAT_AVATAR_ICON;
-  }
-  const expressive = (cardId) => Boolean((S.characters || []).find((c) => c.id === cardId)?.has_expressions);
-  const hasExpr = conv?.kind === "group" ? sceneCardIds(conv).some(expressive) : expressive(conv?.character_card_id);
-  av.classList.toggle("avatar-halo", hasExpr);
-  $("chat-input").disabled = false;
-  $("send-btn").disabled = false;
+  S.conversationLoading = true;
+  try {
+    if (!S.isStreaming) {
+      S.lastDirectorData = null;
+      S.lastFeedback = null;
+      S.lastState = null;
+      S.lastDecisions = null;
+      S.reasoningDirector = "";
+      S.reasoningWriter = "";
+      S.reasoningEditor = "";
+      S.reasoningByPass = {};
+      S.reasoningPassActive = 0;
+      S.reasoningPassSelected = 0;
+    }
+    $("chat-input").value = conversationState(id).draft || localStorage.getItem(`orb-chat-draft:${id}`) || "";
+    setStreaming(S.isStreaming);
+    const conv = S.conversations.find((c) => c.id === id);
+    await loadGroupCast(conv);
+    if (!ownsView(token, id)) return;
+    const prevCharId = S.activeCharId;
+    if (conv?.kind === "group") S.activeCharId = null;
+    else if (conv?.character_card_id) S.activeCharId = conv.character_card_id;
+    if (S.activeCharId !== prevCharId) renderCharacters();
+    renderGroupList();
+    updateUserBtn();
+    $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
+    const av = $("chat-avatar");
+    av.style.cursor = conv?.kind === "group" ? "pointer" : "";
+    if (conv?.kind === "group") {
+      av.textContent = "👥";
+    } else if (conv?.character_card_id) {
+      // The library's bust token, not a fresh timestamp: an avatar edit bumps it,
+      // and otherwise the header reuses the cached image instead of downloading
+      // it again on every switch.
+      av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
+        icon: CHAT_AVATAR_ICON,
+        attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
+      });
+    } else {
+      av.textContent = CHAT_AVATAR_ICON;
+    }
+    const expressive = (cardId) => Boolean((S.characters || []).find((c) => c.id === cardId)?.has_expressions);
+    const hasExpr = conv?.kind === "group" ? sceneCardIds(conv).some(expressive) : expressive(conv?.character_card_id);
+    av.classList.toggle("avatar-halo", hasExpr);
 
-  // Activation only toggles linked Worlds, which none of the reads below
-  // depend on, so it runs alongside them rather than ahead of them.
-  const cardIds = sceneCardIds(conv);
-  const [activation, msgs, directorState, ...cards] = await Promise.all([
-    conv ? api.post(convUrl(id, "activate")) : null,
-    api.get(convUrl(id, "messages")),
-    api.get(convUrl(id, "director")),
-    ...cardIds.map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
-  ]);
-  if (activation) reflectConversationWorldActivation(activation.world_ids);
-  setMessages(msgs);
-  S.directorState = directorState;
-  stashSceneCards(cards);
-  resetRenderWindow();
-  S.editingMsgId = null;
-  S.magicInputMsgId = null;
-  resetWorkflowViewportState();
-  clearTextEffect();
-  onConvSwitch();
-  setChatFollowing(true);
-  renderMessages(true);
-  scrollToBottom();
-  if (conv?.kind === "group" && !S.messages.length) $("chat-input").focus();
-  const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
-  if (lastAsst) {
-    inspectMessage(lastAsst.id);
-  } else {
-    clearInspectedMessage();
+    // Navigation reads scene choices without changing any World defaults.
+    const cardIds = sceneCardIds(conv);
+    const [activation, msgs, directorState, ...cards] = await Promise.all([
+      conv ? api.get(convUrl(id, "worlds")) : null,
+      api.get(convUrl(id, "messages")),
+      api.get(convUrl(id, "director")),
+      ...cardIds.map((cardId) => api.get(`/characters/${cardId}`).catch(() => null)),
+    ]);
+    if (!ownsView(token, id)) return;
+    S.conversationLoading = false;
+    $("chat-input").disabled = false;
+    $("send-btn").disabled =
+      S.isStreaming || S.turnSettlementUnknown || !!S.proseRewriteMsgId || Object.keys(S.queuedEdits).length > 0;
+    if (activation) reflectConversationWorldActivation(activation.world_ids);
+    setMessages(msgs);
+    S.directorState = directorState;
+    stashSceneCards(cards);
+    resetRenderWindow();
+    S.editingMsgId = null;
+    S.magicInputMsgId = null;
+    resetWorkflowViewportState();
+    clearTextEffect();
+    onConvSwitch();
+    setChatFollowing(true);
+    restoreStreamingView();
+    renderMessages(true);
+    scrollToBottom();
+    if (conv?.kind === "group" && !S.messages.length) $("chat-input").focus();
+    const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
+    if (S.isStreaming) {
+      renderInspector();
+    } else if (lastAsst) {
+      inspectMessage(lastAsst.id);
+    } else {
+      clearInspectedMessage();
+    }
+  } catch (error) {
+    if (ownsView(token, id)) {
+      S.conversationLoading = true;
+      $("chat-input").disabled = true;
+      $("send-btn").disabled = true;
+      toast(`Conversation failed to load: ${error.message}`, true);
+    }
   }
 }
 
@@ -283,7 +305,9 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
   showConfirmModal(
     {
       title: "Delete conversation",
-      message: `Delete ${what}? This cannot be undone.`,
+      message: `Delete ${what}? This cannot be undone. ${runningFor("conversationId", id)
+        .map((op) => `${op.kind} will be stopped and settled first.`)
+        .join(" ")}`,
       confirmText: "Delete",
     },
     async () => {
@@ -325,7 +349,10 @@ async function _deleteGroupFamily(rootId) {
   showConfirmModal(
     {
       title: "Delete group",
-      message: `Delete "${esc(root.title)}" and its ${scale}? This cannot be undone.`,
+      message: `Delete "${esc(root.title)}" and its ${scale}? This cannot be undone. ${family
+        .flatMap((conv) => runningFor("conversationId", conv.id))
+        .map((op) => `${op.kind} will be stopped and settled first.`)
+        .join(" ")}`,
       confirmText: "Delete",
     },
     async () => {
@@ -412,18 +439,22 @@ export async function createCheckpoint() {
     toast("Stop generation before creating a checkpoint", true);
     return;
   }
+  const cid = S.activeConvId;
+  const token = S.conversationViewToken;
   try {
-    const conv = await api.post(`/conversations/${S.activeConvId}/checkpoint`, {});
+    const conv = await api.post(`/conversations/${cid}/checkpoint`, {});
     await loadConversations();
     toast(`Checkpoint created: ${conv.title}`);
-    await showConvHistoryModal();
+    if (ownsView(token, cid)) await showConvHistoryModal();
   } catch (e) {
     toast(`Failed to create checkpoint: ${e.message}`, true);
   }
 }
 
 let _compressKeepCount = 4;
-let _compressAbort = null;
+let _compressConvId = null;
+let _compressOperation = null;
+let _compressDialogToken = 0;
 
 export function showCompressModal() {
   if (!S.activeConvId) {
@@ -434,6 +465,17 @@ export function showCompressModal() {
     toast("Not enough messages to compress", true);
     return;
   }
+  if (S.isStreaming) {
+    toast("Wait for the reply before compressing", true);
+    return;
+  }
+  if (runningFor("conversationId", S.activeConvId).some((op) => op.kind.startsWith("compression"))) {
+    toast("Wait for the previous summary to settle; its status and Stop are below", true);
+    return;
+  }
+  _compressConvId = S.activeConvId;
+  _compressDialogToken++;
+  _compressOperation = null;
   const totalMsgs = (S.messages || []).length;
   const validOptions = [2, 4, 6, 8].filter((n) => n < totalMsgs);
   const defaultKeep = validOptions.includes(_compressKeepCount)
@@ -456,27 +498,35 @@ export function showCompressModal() {
     <p id="compress-status" class="modal-subtitle" style="display:none"></p>
     <textarea id="compress-textarea" class="modal-textarea-lg" spellcheck="false" placeholder="Summary will appear here..." style="display:none"></textarea>
     <div class="modal-actions">
-      <button class="btn" onclick="cancelCompression()">Cancel</button>
-      <button class="btn" id="compress-regen-btn" onclick="generateCompressionSummary()" style="display:none" disabled>Regenerate</button>
-      <button class="btn btn-accent" id="compress-apply-btn" onclick="applyCompression()" style="display:none" disabled>Create New Conversation</button>
-      <button class="btn btn-accent" id="compress-gen-btn" onclick="generateCompressionSummary()">Generate</button>
+      <button class="btn" data-wf-action="chat-compression:cancel">Cancel</button>
+      <button class="btn" id="compress-regen-btn" data-wf-action="chat-compression:generate" style="display:none" disabled>Regenerate</button>
+      <button class="btn btn-accent" id="compress-apply-btn" data-wf-action="chat-compression:apply" style="display:none" disabled>Create New Conversation</button>
+      <button class="btn btn-accent" id="compress-gen-btn" data-wf-action="chat-compression:generate">Generate</button>
     </div>`);
+  setModalDismiss(cancelCompression);
 }
 
 export function cancelCompression() {
-  if (_compressAbort) {
-    _compressAbort.abort();
-    _compressAbort = null;
-  }
-  if (S.activeConvId) stopConversation(S.activeConvId);
+  _compressDialogToken++;
+  _compressOperation?.stop?.();
   closeModal();
 }
 
 export async function generateCompressionSummary() {
-  if (_compressAbort) {
-    _compressAbort.abort();
-    _compressAbort = null;
-  }
+  if (_compressOperation || !_compressConvId) return;
+  if (runningFor("conversationId", _compressConvId).some((op) => op.kind === "compression")) return;
+  const record = begin("compression", { conversationId: _compressConvId, dialogToken: _compressDialogToken });
+  const op = createStreamOperation({
+    target: record.target,
+    requestStop: (target, signal) =>
+      api._req(`/conversations/${target.conversationId}/stop?operation_id=${record.id}`, { method: "POST", signal }),
+  });
+  record.stop = () => {
+    record.phase = "stopping";
+    notify("operations");
+    op.stop();
+  };
+  _compressOperation = record;
 
   const selectEl = document.getElementById("compress-keep-select");
   if (selectEl) _compressKeepCount = parseInt(selectEl.value, 10);
@@ -508,43 +558,81 @@ export async function generateCompressionSummary() {
 
   setModalDismiss(cancelCompression);
 
-  _compressAbort = new AbortController();
   let summaryText = "";
+  let succeeded = false;
+  let terminalReceived = false;
 
   try {
     const resp = await streamPost(
-      `/conversations/${S.activeConvId}/summarize`,
+      `/conversations/${record.target.conversationId}/summarize?operation_id=${record.id}`,
       { keep_count: _compressKeepCount, custom_instructions: customInstructions },
-      _compressAbort.signal,
+      op.signal,
     );
     if (!resp.ok) {
       const detail = await resp.text();
       throw new Error(detail);
     }
 
-    for await (const { event, data } of sseEvents(resp.body, { signal: _compressAbort.signal })) {
+    for await (const { event, data } of sseEvents(resp.body, { signal: op.signal })) {
       if (event === "token") {
         summaryText += unescapeSSE(data);
         if (textarea) textarea.value = summaryText;
       } else if (event === "error") {
+        terminalReceived = true;
         throw new Error(data);
+      } else if (event === "done") {
+        terminalReceived = true;
       }
     }
+    if (!terminalReceived && !op.stopping) throw new Error("Summary stream ended before completion");
 
-    if (statusEl) statusEl.textContent = "Review and edit the summary, then create the new conversation.";
-    if (regenBtn) regenBtn.disabled = false;
-    if (applyBtn) applyBtn.disabled = false;
+    succeeded = true;
   } catch (e) {
+    if (!terminalReceived) op.disconnect();
     if (e.name === "AbortError") return;
     if (statusEl) statusEl.textContent = `Error: ${e.message}`;
     toast(`Summary generation failed: ${e.message}`, true);
-    if (regenBtn) regenBtn.disabled = false;
   } finally {
-    _compressAbort = null;
+    const settled = await op.settle();
+    if (!settled) {
+      record.stop = async () => {
+        try {
+          const result = await api.post(
+            `/conversations/${record.target.conversationId}/stop?operation_id=${record.id}`,
+          );
+          if (result.settled) {
+            finish(record);
+            if (_compressDialogToken === record.target.dialogToken) {
+              if (regenBtn) regenBtn.disabled = false;
+              if (applyBtn) applyBtn.disabled = !summaryText.trim();
+              if (statusEl) statusEl.textContent = "Review the kept summary, or regenerate it.";
+            }
+          }
+        } catch (error) {
+          toast(`Summary status unavailable: ${error.message}`, true);
+        }
+      };
+    }
+    finish(record, settled ? "settled" : "unknown");
+    if (_compressDialogToken === record.target.dialogToken) {
+      if (!settled && statusEl) statusEl.textContent = "Settlement unknown — partial summary kept. Check status below.";
+      else if (succeeded && statusEl)
+        statusEl.textContent = "Review and edit the summary, then create the new conversation.";
+      if (regenBtn) regenBtn.disabled = !settled;
+      if (applyBtn) applyBtn.disabled = !settled || !summaryText.trim();
+    }
+    if (_compressOperation === record) {
+      _compressOperation = null;
+    }
   }
 }
 
 export async function applyCompression() {
+  if (_compressOperation) return;
+  const cid = _compressConvId;
+  if (runningFor("conversationId", cid).some((op) => op.kind.startsWith("compression"))) return;
+  const dialogToken = _compressDialogToken;
+  const viewToken = S.conversationViewToken;
   const textarea = document.getElementById("compress-textarea");
   if (!textarea) return;
   const summary = textarea.value.trim();
@@ -557,20 +645,26 @@ export async function applyCompression() {
   const regenBtn = document.getElementById("compress-regen-btn");
   if (applyBtn) applyBtn.disabled = true;
   if (regenBtn) regenBtn.disabled = true;
+  const record = begin("compression-apply", { conversationId: cid, dialogToken });
+  _compressOperation = record;
 
   try {
-    const result = await api.post(`/conversations/${S.activeConvId}/compress`, {
+    const result = await api.post(`/conversations/${cid}/compress`, {
       summary,
       keep_count: _compressKeepCount,
     });
-    closeModal();
+    if (dialogToken === _compressDialogToken) closeModal();
     await loadConversations();
+    if (dialogToken !== _compressDialogToken || !ownsView(viewToken, cid)) return;
     await selectConversation(result.new_conversation_id);
     toast("New conversation created from compression");
   } catch (e) {
     toast(`Failed to apply compression: ${e.message}`, true);
     if (applyBtn) applyBtn.disabled = false;
     if (regenBtn) regenBtn.disabled = false;
+  } finally {
+    finish(record);
+    if (_compressOperation === record) _compressOperation = null;
   }
 }
 

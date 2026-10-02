@@ -36,6 +36,7 @@ from ...database import (
     update_message_content,
 )
 from ...database.models import ConversationRow
+from ...database.queries.messages import get_message_subtree_ids
 from ...features import autocomplete
 from ...inference import (
     AbortToken,
@@ -66,6 +67,7 @@ from ..deps import (
     _conversation_stream_lock,
     _pipeline_sse_response,
     attachment_content_response,
+    deleting_message_sources,
     require_conversation,
     rows_response,
     stream_idle_lock,
@@ -235,7 +237,7 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
     # DELETE CASCADE on messages.parent_id would otherwise wipe the
     # in-flight assistant row mid-INSERT (IntegrityError) or right after
     # commit (silent disappearance).
-    async with _conversation_stream_lock(cid):
+    async with _conversation_stream_lock(cid), deleting_message_sources(cid, await get_message_subtree_ids(cid, msg_id)):
         if not await delete_message_with_descendants(cid, msg_id):
             raise HTTPException(status_code=404, detail="Message not found")
         # The cascade has already NULLed every changeset pointer into the deleted

@@ -109,7 +109,11 @@ async def test_proposal_stage_drops_only_the_world_that_opted_out(monkeypatch):
     monkeypatch.setattr(proposal_module.db, "get_world", get_world)
     monkeypatch.setattr(proposal_module.db, "get_lorebook_entries", get_entries)
 
-    loaded, entries = await proposal_module._load_targets(("w1", "w2", "w3"))
+    async def effective(cid):
+        return ["w1", "w3"]
+
+    monkeypatch.setattr(proposal_module.db, "get_effective_world_ids", effective)
+    loaded, entries = await proposal_module._load_targets(("w1", "w2", "w3"), "c1")
 
     assert [w["id"] for w in loaded] == ["w3"]
     assert read == ["w3"]
