@@ -129,6 +129,6 @@ and that conversation's choices; switching chats has no effect, while turning a
 World off in the originating chat suppresses its proposal.
 
 Forks copy overrides. Presets assign the two-parent table to the chats domain and
-drop choices referencing missing Worlds on a partial import. Migration 0077 turns
+drop choices referencing missing Worlds on a partial import. Migration 0076 turns
 linked legacy Worlds into non-global defaults and preserves floating Worlds'
 previous activation as `is_global`.

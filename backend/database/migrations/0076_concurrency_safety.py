@@ -1,4 +1,4 @@
-"""Move World activation from navigation to conversation settings."""
+"""Add document revisions, conversation-scoped Worlds, and a persistent dataset epoch."""
 
 import sqlite3
 
@@ -6,6 +6,10 @@ from backend.database.schema import table_create_sql
 
 
 def migrate(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+    if columns and "revision" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+
     columns = {row[1] for row in conn.execute("PRAGMA table_info(worlds)")}
     if "enabled" in columns:
         conn.commit()
@@ -37,3 +41,4 @@ def migrate(conn: sqlite3.Connection) -> None:
         "world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,"
         "enabled INTEGER NOT NULL, PRIMARY KEY (conversation_id, world_id))"
     )
+    conn.execute("CREATE TABLE IF NOT EXISTS dataset_meta (id INTEGER PRIMARY KEY CHECK (id = 1), epoch TEXT NOT NULL)")
