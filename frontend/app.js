@@ -145,7 +145,6 @@ import {
 import { initMessageHtmlActions } from "./message_html.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import { closeModal, closeSubModal, showConfirmModal, switchTab } from "./modal.js";
-import { initOperationStatus } from "./operation_status.js";
 import {
   applyPreset,
   deletePreset,
@@ -517,8 +516,6 @@ async function initAll() {
 }
 
 initAll();
-
-initOperationStatus();
 
 configureApiConcurrency({
   getEpoch: () => S.datasetEpoch,

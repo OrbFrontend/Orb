@@ -67,7 +67,6 @@ LAYERS = {
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,
-    "operation_status.js": 1,
     # The decision-fragment vocabulary: the cached /api/decisions/config read,
     # the outcome-space rule, and the wording for each machine reason the stage
     # reports. Imports only api.js, so it sits with the other shared helpers and

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
 import { expressionLabels, expressionPlaybackCue } from "./expression_playback.js";
-import { syncGenerationStatusMarquee } from "./generation_status.js";
+import { syncGenerationStatusMarquee, WAITING_LABEL } from "./generation_status.js";
 import { sectionHtml } from "./inspector_section.js";
 import { avatarBustQuery } from "./library_sidebar.js";
 import {
@@ -330,10 +330,30 @@ function _renderWorkflowPhasesPill() {
   el.title = el.textContent;
 }
 
-export function _syncGenerationStatusVisibility() {
+// One running reply shows its step. With several, each is named by its speaker
+// (or character) so the strip says which chat is where. Null means nothing runs.
+function generationStatusText() {
+  const chats = [...S.operations.values()].filter((op) => op.kind === "chat" && op.phase !== "unknown");
+  if (chats.length < 2) return S.generationStep === null ? null : S.generationStep || WAITING_LABEL;
+  return chats
+    .map((op) => {
+      const cid = op.target.conversationId;
+      const state = conversationState(cid);
+      const conv = S.conversations?.find((c) => c.id === cid);
+      const name = state.currentSpeaker?.name || conv?.character_name || conv?.title || "Chat";
+      return `${name}: ${state.generationStep || WAITING_LABEL}`;
+    })
+    .join(" · ");
+}
+
+export function _syncGenerationStatus() {
   const el = $("generation-status");
   if (!el) return;
-  const turnActive = S.generationStep !== null;
+  const label = generationStatusText();
+  const text = el.querySelector(".gen-text");
+  // Keep the last label while the strip collapses.
+  if (text && label !== null) text.textContent = label;
+  const turnActive = label !== null;
   const pillActive = Object.keys(S.workflowPhases).length > 0;
   el.classList.toggle("hidden", !(turnActive || pillActive));
   el.classList.toggle("pill-only", !turnActive && pillActive);
@@ -350,7 +370,7 @@ export function setWorkflowPhase(channel, label, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatusVisibility();
+  _syncGenerationStatus();
 }
 
 export function clearWorkflowPhase(channel, state = S) {
@@ -359,7 +379,7 @@ export function clearWorkflowPhase(channel, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatusVisibility();
+  _syncGenerationStatus();
 }
 
 export function workflowPhaseLabel(wid, verb) {
@@ -606,6 +626,7 @@ async function _expressionTick() {
 }
 
 subscribe("expression-playback", () => void _expressionTick());
+subscribe("operations", _syncGenerationStatus);
 
 export async function showAvatarPopup() {
   const charId = expressionCharId();

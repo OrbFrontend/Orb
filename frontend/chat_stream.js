@@ -19,7 +19,7 @@ import { renderTurnError } from "./chat_error.js";
 import {
   _advanceReasoningPass,
   _relightWorkflowPipelinePass,
-  _syncGenerationStatusVisibility,
+  _syncGenerationStatus,
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
@@ -36,7 +36,7 @@ import {
   prewarmExpressionLabels,
   startExpressionPlayback,
 } from "./expression_playback.js";
-import { generationStepLabel, WAITING_LABEL } from "./generation_status.js";
+import { generationStepLabel } from "./generation_status.js";
 import { restNotice, speakerAvatarCell, unansweredHint } from "./group_cast.js";
 import {
   consumeSpeakerOverride,
@@ -114,9 +114,7 @@ function phaseStage() {
 // Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
-  const text = $("generation-status")?.querySelector(".gen-text");
-  if (text && label !== null) text.textContent = label || WAITING_LABEL;
-  _syncGenerationStatusVisibility();
+  _syncGenerationStatus();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -297,8 +295,8 @@ export function createStreamingDiv(name = null, memberId = null) {
 
 /** Rebuild the selected view from the retained turn, including a background speaker. */
 export function restoreStreamingView() {
+  _syncGenerationStatus();
   if (!S.isStreaming || !S.streamOp) return;
-  setGenerationStep(S.generationStep);
   if (S.groupCast && !S.currentSpeaker) return;
   const div =
     S.streamingBodyEl?.closest(".message") || createStreamingDiv(S.currentSpeaker?.name, S.currentSpeaker?.member_id);
@@ -603,6 +601,9 @@ export async function processSSEStream(resp, container, holder, signal, state = 
         resetSpeakerTurnState();
         state.generationStep = "Waiting for the model";
         if (visible()) setGenerationStep(state.generationStep);
+        // A new speaker renames this chat in the status strip.
+        shownStep = state.generationStep;
+        notify("operations");
         if (visible()) holder.el = createStreamingDiv(parsed.name, parsed.member_id);
         else {
           holder.el = null;
