@@ -18,10 +18,7 @@
   margin-bottom: 8px;
 }
 
-/* ── Sections ──
-   One shape for every section, in the panel and in each reply's block. Content is
-   never framed and sections are kept apart by space alone; frames are left to what
-   can be acted on, inputs and chips. */
+/* Shared Inspector sections: separate content with space; reserve frames for controls. */
 
 .inspector-block { margin-bottom: 18px; }
 .inspector-block:last-child { margin-bottom: 0; }

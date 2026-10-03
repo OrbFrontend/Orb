@@ -12,16 +12,10 @@ from .config import WORKFLOW_ID, normalize_profile
 
 @dataclass(frozen=True)
 class Subject:
-    """One addressable person in this render.
+    """One addressable render subject.
 
-    `card_id` is what a `character:` reference origin is keyed by, so a primary with
-    no card is described in the prompt and never pictured -- a narrator member, or a
-    group member whose card was deleted.
-
-    `name` is what the *conversation* calls them: a group member's local display
-    name, not the card's own, because the transcript the analyzer reads attributes
-    replies by display name and the composer binds a subject to an analyzed cast
-    entry by matching that name.
+    card_id keys character references; cardless subjects are described only.
+    name is the conversation display name used by transcript analysis and composition.
     """
 
     member_id: str

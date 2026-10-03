@@ -1,24 +1,5 @@
-"""Deleting a message must stay linear in the size of the subtree.
-
-Deleting a message deletes its siblings and every descendant, so on a long chat
-with swipes the subtree *is* most of the conversation. Two properties keep that
-affordable, and both are invisible in a small-fixture correctness test -- they
-only show up as seconds of wall clock on a real chat:
-
-1. Every foreign key that a message delete cascades through is indexed. SQLite
-   enforces ``ON DELETE`` by searching the *child* table for referencing rows;
-   without an index on the child key that search is a full table scan, repeated
-   per deleted row.
-2. The subtree walk seeks on ``parent_id`` rather than re-scanning the whole
-   conversation at every level, and the delete runs deepest-first so SQLite
-   never has to cascade down a chain itself.
-
-Measured on a 3,000-message chat (500 turns x 5 swipes), deleting ~2,700 of
-them with ``delete_message_with_descendants``:
-
-* neither property ....... 6,315 ms   (and 7,058 ms with attachments attached)
-* deepest-first only .......  431 ms   (1,641 ms)
-* both (shipped) ...........   63 ms   (  257 ms)
+"""Guard linear subtree deletion through indexed FK child keys, parent_id seeks
+and deepest-first deletes; small correctness fixtures cannot expose scan costs.
 """
 
 from __future__ import annotations

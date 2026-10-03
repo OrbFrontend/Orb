@@ -309,9 +309,7 @@ export function restoreStreamingView() {
   }
 }
 
-// The user's bubble is on screen before the server has an id for it. The SSE ack
-// and the post-stream sync both promote that same node, so the promotion — id,
-// toolbar, and any content the server rewrote — is written once.
+// SSE ack and post-stream sync promote the same optimistic user node through this helper.
 function adoptPendingUserMessage(msg, content = null) {
   const div = document.querySelector('.message.user[data-msg-id="null"]');
   if (!div) return;
@@ -1060,10 +1058,8 @@ export async function sendMessage() {
   );
 }
 
-// The regenerate button on a user row lands here, and picks its target now
-// rather than at paint time: the reply may have been deleted or swiped to
-// another branch since the row was drawn (buildMsgToolbar). With no reply left
-// under the message, regenerating it means continuing from it.
+// Resolve the reply target now because it may have been deleted or swiped since paint.
+// With no reply left, continue from the user message.
 export async function regenerateFromUser(userMsgId) {
   const reply = S.messages.find((m) => m.role === "assistant" && m.id && m.parent_id === userMsgId);
   if (reply) {

@@ -1,19 +1,5 @@
-"""
-test_lorebook_at_depth.py — ``@ Depth`` lorebook entries, real stack.
-
-The community's "RPG-lite" lorebooks (V20 stat checks and friends) are always-on
-rule blocks that ship a pre-rolled dice pool: the frontend resolves N ×
-``{{roll::1d10}}`` per turn so the model consumes real entropy instead of
-inventing a number. That only works if the entry is re-rendered *outside* the
-cached prefix, which is what ``at_depth`` buys — ``position: 4`` on the wire.
-
-Drives ``POST /api/worlds/{id}/import`` with the shape those files actually use,
-then two real ``POST /send`` turns, and asserts on the bytes each pass shipped:
-the depth block rides the tail after the user message with fresh dice per turn,
-the plain constant entry still rides the system prefix, and ``{{//}}`` author
-comments never reach the model. The ``llm_mock`` teardown adds the KV check for
-free — a depth block that leaked into the system message would change its bytes
-turn-over-turn and fail the invariant.
+"""Import @ Depth lore and drive two turns to verify fresh tail rolls, constant
+system lore and removal of inline comments. Teardown checks prefix stability.
 """
 
 from __future__ import annotations

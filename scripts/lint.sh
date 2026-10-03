@@ -3,10 +3,7 @@ set -e
 
 source "$(dirname "$0")/_venv.sh"
 
-# The frontend checks need the pinned devDependencies (Biome, jsdom), so
-# bootstrap them the same way the venv is bootstrapped. Keyed on the directory,
-# so the install cost is paid once; `npm ci` rather than `npm install` when a
-# lockfile exists, to match it exactly and leave it unmodified.
+# Install missing frontend dev dependencies; use npm ci with a lockfile to preserve pins.
 if [ ! -d "node_modules" ] && [ -f "package.json" ]; then
     echo "Installing frontend dev dependencies..."
     if [ -f "package-lock.json" ]; then
@@ -37,9 +34,5 @@ node_modules/.bin/biome check frontend/
 
 echo ""
 echo "Running frontend unit tests (node --test)..."
-# Let bash expand the glob so node receives explicit file paths. Node's own
-# handling of positionals is not portable across versions: patterns need v22+,
-# and v25 no longer expands a directory argument -- it loads the directory
-# itself as a test file and fails. Explicit paths work on every version, and
-# under Git Bash on Windows too, since bash does the expansion, not node.
+# Expand test paths in Bash; Node glob/directory handling varies by version.
 node --test tests/frontend/*.test.mjs

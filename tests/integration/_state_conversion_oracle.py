@@ -1,23 +1,8 @@
-"""Oracle for migration 0067: every branch tip keeps its state.
+"""Read-only oracle for migration 0067 state at each historical branch tip.
 
-For each leaf of each conversation, the state folded from ``fragment_state_events``
-must equal the legacy state on its path:
-
-* every progressive value of the most recent assistant snapshot on the path, as
-  a one-entry fragment -- except where that snapshot is empty (a partial save or a
-  turn without ``direct_scene``), in which case the conversion deliberately keeps
-  the last non-empty snapshot instead; those leaves are counted as *restored*;
-* every saved direction note on the path, in branch order, as entries of its
-  fragment -- user-authored notes as entries of the Notes fragment, prefixed with
-  their label unless it was the default "Note".
-
-It also lists converted lists that start above the active-entry cap: they match,
-but the Agent cannot add to them until enough entries are retired.
-
-The upgrade test builds a pre-0067 database, runs 0067, and holds the result to
-this independent reading of the legacy columns. It opens the database read-only.
-A leaf whose path gained messages after the migration ran, and events written
-after it, are left out: they are new state, with no legacy counterpart.
+Compare folded events with the latest non-empty progressive snapshot and
+ordered direction notes, retaining user labels. Report lists above the cap.
+Exclude messages/events added after migration because they have no legacy source.
 """
 
 from __future__ import annotations

@@ -204,19 +204,10 @@ def is_gemini_openai_surface(url: str) -> bool:
 
 
 def _gemini_reasoning_off(body: dict) -> str | None:
-    """Ask Gemini to stop thinking when the call turned reasoning off.
+    """Request reasoning_effort=none when Gemini reasoning is off.
 
-    Orb's reasoning-off shape is three fields none of which Gemini's
-    compatibility layer reads (``reasoning``, ``chat_template_kwargs``,
-    ``thinking``); they are silently ignored, so the model kept thinking on its
-    default budget and the user paid for tokens they had disabled. The layer's
-    own control is ``reasoning_effort``, whose accepted set includes ``none``.
-
-    Families that cannot disable thinking at all (2.5 Pro, the 3 series) answer
-    400 to ``none``; :func:`recover_from_error` learns that from the rejection
-    and drops the field for the rest of the session, the same posture as every
-    other capability fact here. An explicit effort already in the body wins --
-    that call asked for thinking.
+    Its compatibility layer ignores Orb's other off flags. Explicit effort wins;
+    rejected none values are learned and omitted for the session.
     """
     if "reasoning_effort" in body:
         return None
@@ -336,16 +327,9 @@ def resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
 def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRoute]:
     """Return bounded same-host routes in request order.
 
-    Explicit resource shapes are authoritative. Ambiguous URLs keep Orb's
-    historical ``{configured}/chat/completions`` request first, followed by its
-    Messages sibling and the conventional host-root resources. Candidates are only
-    attempted when :func:`should_probe_route` recognizes the response body as a
-    route mismatch.
-
-    The ``/v1beta/openai`` candidate is last because it is the narrowest guess
-    and costs a further prompt upload; it is still worth making, because a
-    Gemini-compat proxy configured at its bare root exposes that resource and
-    no other, and the two ``/v1`` guesses ahead of it cannot reach it.
+    Explicit resource URLs win; ambiguous URLs try the configured chat route,
+    Messages sibling and conventional host-root routes, then /v1beta/openai.
+    Probe alternatives only for recognized route-mismatch responses.
     """
     primary = resolve_endpoint(endpoint_url, model)
     if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES or (endpoint_url, "") in _RESOLVED_ROUTES:

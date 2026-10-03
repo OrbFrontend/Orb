@@ -30,14 +30,9 @@ class _WorkflowAttachmentPersister(Protocol):
     async def __call__(self, message_id: int, attachments: list[dict], *, db: Any = None) -> tuple[list[int], list[dict]]: ...
 
 
-# Dependency-inversion seam. ``add_message`` must insert workflow attachments
-# inside its own write transaction (the cache layer's read->evict->insert runs
-# under the same lock as the message INSERT), yet the database layer must never
-# import "up" into ``backend.workflows``. So the workflow layer registers its
-# persister here at import time and ``add_message`` calls through this slot.
-# Left None in DB-only contexts that never produce workflow attachments; in
-# that state a workflow attachment reaching ``add_message`` is a wiring bug, so
-# we fail loudly rather than silently dropping bytes.
+# Workflow persistence callback avoids importing workflows into database.
+# Insert attachments in the message transaction, sharing its write lock.
+# Unset is valid for DB-only use; receiving attachments then is a wiring error.
 _workflow_attachment_persister: _WorkflowAttachmentPersister | None = None
 
 
@@ -50,17 +45,9 @@ def register_workflow_attachment_persister(fn: _WorkflowAttachmentPersister) -> 
     _workflow_attachment_persister = fn
 
 
-#: The recursive step's conversation guard, with SQLite's ``+`` no-index
-#: operator on it.
-#:
-#: Every message subtree walk constrains the recursive step by ``parent_id``
-#: *and* ``conversation_id``. Left alone, the planner has no statistics for the
-#: recursive table and picks the ``conversation_id`` index, which turns each
-#: step into "scan every message in the conversation, then scan the rows found
-#: so far" -- quadratic in the conversation. ``+`` makes that term unindexable,
-#: so the only usable constraint is ``parent_id`` and the step becomes a seek.
-#: The guard still runs as a filter, so the query means exactly what it did
-#: before. Measured on a 3,000-message chat: 716 ms -> 2.2 ms.
+# Use SQLite unary + to keep the recursive conversation guard unindexed.
+# This forces parent_id seeks rather than full-conversation scans at every
+# subtree step; the conversation check still runs as a filter.
 _SAME_CONVERSATION = "+m.conversation_id = ?"
 
 #: SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is 999 on older builds.
@@ -217,14 +204,9 @@ async def get_messages(cid: str) -> list[MessageWithAttachments]:
 
 
 async def get_messages_before(cid: str, message_id: int) -> list[MessageWithAttachments]:
-    """Return active-path messages strictly before ``message_id``.
+    """Return root-to-leaf messages before message_id, with both attachment kinds loaded.
 
-    The result is shaped to pass through ``format_message_with_attachments``
-    unchanged: both ``user_attachments`` and ``workflow_attachments`` are
-    populated, and the order is root-to-leaf so prefix builders can splice
-    it onto history without reordering.
-
-    Returns [] for missing, foreign-conversation, or root anchors.
+    Missing, foreign-conversation and root anchors return [].
     """
     async with get_db() as db:
         rows = list(
@@ -298,13 +280,8 @@ async def get_messages_with_branch_info(cid: str) -> list[MessageListing]:
 
 
 def user_attachment_payloads(msg: Mapping[str, Any]) -> list[dict] | None:
-    """Map a loaded message's ``user_attachments`` into ``add_message`` payloads.
-
-    Conversation-fork flows (Compress History, Checkpoint) re-append messages
-    onto a copy and must carry the user uploads while dropping regenerable
-    workflow attachments. Returns ``None`` when there are no uploads, matching
-    ``add_message``'s ``attachments`` default so the result passes straight
-    through.
+    """Convert loaded user uploads for add_message during forks; omit regenerable
+    workflow attachments. Return None when no uploads exist.
     """
     atts = msg.get("user_attachments") or []
     if not atts:
@@ -466,14 +443,8 @@ async def update_message_content(msg_id: int, content: str) -> None:
 
 
 async def clear_writer_draft(msg_id: int) -> None:
-    """Drop the retained pre-rewriter draft for one message.
-
-    Called when a human rewrites the row by hand: the retained draft then
-    describes text that no longer exists, and the on-demand prose rewriter —
-    which prefers the draft over the saved content — would restore it over the
-    edit and call that a rewrite. Cleared rather than replaced with the edit,
-    because "there is no pre-rewriter draft for this row" is the true statement;
-    the rewriter's fallback then works from the saved text.
+    """Clear a retained draft after a manual edit so on-demand rewriting uses
+    the edited content instead of restoring the old source.
     """
     async with get_db() as db:
         await db.execute("UPDATE messages SET writer_draft = NULL WHERE id = ?", (msg_id,))
@@ -604,14 +575,8 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
                 (new_leaf, cid),
             )
 
-        # Deepest-first, one statement per depth level. Order is the whole point:
-        # ``messages.parent_id`` cascades, so deleting a parent before its child
-        # makes SQLite walk the subtree itself, recursing once per level of the
-        # chat -- 6.3 s of the 6.4 s a 3,000-message delete used to take. Leaves
-        # first means every cascade lookup finds nothing, and
-        # ``idx_messages_parent`` makes that lookup a seek instead of a scan.
-        # Rows at one depth are never ancestors of each other, so order within a
-        # level is free -- which is what lets each level go out in one statement.
+        # Delete deepest levels first so parent cascades find no remaining children.
+        # Rows at one depth can share a statement; indexed parent lookups avoid scans.
         for level_ids in _levels_deepest_first(subtree):
             for chunk in _chunked(level_ids, _SQL_PARAM_CHUNK):
                 placeholders = ",".join("?" * len(chunk))

@@ -111,25 +111,10 @@ _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
     "leave operations empty when no durable change occurred."
 )
 
-# The Dynamic Worlds proposal tool. Like `select_lorebook`, a fixed schema
-# registered statically and enabled per-turn by a feature gate, never by the
-# user's tool toggles. It chooses only between `constant` and `keywords`
-# activation -- every other lorebook field keeps a safe default the user can
-# edit afterwards through the normal reviewed path, which keeps this schema (and
-# therefore the shared per-turn tool blob) small and stable.
-#
-# Every field is one more thing a model can get wrong, so this asks only for
-# what the model alone knows: `op` offers three verbs rather than the five the
-# table stores (`validate_proposal` derives the stored one from the target row),
-# and `rationale` comes first so a model emitting properties in schema order
-# writes the justification before the change it justifies rather than after.
-#
-# Property order is load-bearing the other way round at the top level:
-# `operations` precedes `summary`. The call is forced, so a model that writes a
-# summary first has already declared a proposal exists, and an empty operations
-# list then contradicts the sentence it just wrote -- it fills one in. Enumerate
-# first, describe second, and proposing nothing stays available all the way
-# through the call.
+# Fixed, feature-gated Dynamic Worlds schema. Expose activation choices only;
+# other fields use reviewed defaults. validate_proposal derives stored verbs.
+# Keep rationale before each change and operations before summary, allowing
+# an empty proposal without a precommitted summary.
 PROPOSE_WORLD_CHANGES_TOOL = {
     "type": "function",
     "function": {

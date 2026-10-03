@@ -58,18 +58,11 @@ from .workflow_bridge import iterate_pre_pipeline_hooks
 
 @dataclass(frozen=True, slots=True)
 class PipelineContext:
-    """Per-conversation data loaded once and threaded through every entry point.
+    """Per-conversation data loaded once for all entry points.
 
-    Frozen so field bindings are immutable. ``card`` and ``active_persona`` are
-    None when absent. ``agent_client`` and ``agent_system_prompt`` are both None
-    unless a separate agent endpoint is configured. ``director`` is a mutable
-    dict deliberately mutated in place — the regenerate paths reset its
-    ``active_moods`` and folded ``fragment_state`` to the branch baseline, which the
-    frozen dataclass allows (it guards rebinding, not mutating the pointed-at dict).
-
-    ``state_contract`` is the state-fragment configuration captured with the
-    fragments, so every step of the turn reads one contract even if a setting
-    is edited while the turn runs.
+    Frozen field bindings still permit in-place director resets to branch state.
+    Agent fields are None without a separate endpoint. state_contract snapshots
+    fragment config so concurrent settings edits cannot change the running turn.
     """
 
     settings: SettingsRow

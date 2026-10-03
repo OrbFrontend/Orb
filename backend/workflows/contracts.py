@@ -36,16 +36,10 @@ EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
 
 @dataclass
 class ToolSpec:
-    """A tool a workflow contributes to the global tool catalog.
+    """Workflow-contributed tool; name must match schema.function.name.
 
-    ``name`` must equal ``schema["function"]["name"]``. ``choice`` is the
-    pre-built ``tool_choice`` payload (almost always
-    ``{"type": "function", "function": {"name": name}}``) so forced-call
-    sites can pass it directly to ``client.complete(tool_choice=...)``.
-    ``standalone`` defaults to True: workflow tools stay out of the pipeline
-    union and are only reachable via direct forced calls. Setting False
-    merges the tool into ``enabled_schemas(...)``'s output (subject to the
-    workflow's ``enable_tools`` yields gating it per turn).
+    choice is a ready tool_choice payload. Standalone tools default to direct
+    forced calls only; standalone=False joins enabled_schemas, gated per turn.
     """
 
     name: str
@@ -229,17 +223,11 @@ class WorkflowEventStream:
 
 
 def public_event_error(ev: object) -> str | None:
-    """Validate a public workflow event; return ``None`` if valid, else a short reason.
+    """Validate public {event, data}; return None or a rejection reason.
 
-    A public event is a dict ``{"event": <name>, "data": <payload>}`` where
-    ``name`` is a non-empty, single-line string that does not start with ``_``
-    (the reserved prefix for internal control events) and ``payload`` is a
-    string or a JSON-serializable (``allow_nan=False``) dict. ``data`` defaults
-    to ``""`` when absent.
-
-    One definition of the wire shape, shared by the pipeline bridge (pre/post
-    hook pass-through events) and the API on-demand SSE encoder, so the two
-    consumers cannot drift into subtly different notions of a valid event.
+    Event names must be non-empty, single-line and not start with _. Data defaults
+    to empty text and accepts strings or strict JSON-serializable dicts. Shared
+    by pipeline hooks and on-demand SSE.
     """
     if not isinstance(ev, dict):
         return f"not a dict (type={type(ev).__name__})"

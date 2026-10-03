@@ -83,17 +83,9 @@ class TTSAdapter(ABC):
         pitch: float = 1.0,
         **kwargs: Any,
     ) -> SynthesisResult:
-        """Synthesize speakable chunks into complete audio.
+        """Synthesize chunks into complete audio using backend-specific voice/language.
 
-        Args:
-            chunks: Speakable text segments with emotion/prosody hints.
-            voice_id: Backend-specific voice identifier.
-            language: Language code (e.g. 'en-US').
-            rate: Speech rate multiplier (1.0 = normal).
-            pitch: Pitch multiplier (1.0 = normal).
-
-        Returns:
-            SynthesisResult with complete audio bytes.
+        Rate and pitch are multipliers; 1.0 is normal.
         """
         ...
 

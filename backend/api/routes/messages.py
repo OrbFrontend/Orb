@@ -305,15 +305,10 @@ async def _stream_prose_rewrite_message(
     abort_token: AbortToken,
     settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
-    """Stream an assistant row's retained draft — or saved text — through the local rewriter.
+    """Stream the retained draft or saved text through the local rewriter.
 
-    The shared prose step provides whole-draft snapshots in visible document
-    order. Unlike the in-turn caller, this stream persists only after its
-    final ``rewritten`` event, so a disconnected or failed request leaves the
-    saved message byte-identical. This generator begins only after the SSE
-    layer acquires the conversation lock, so loading the row here prevents a
-    pre-stream edit from being overwritten with stale content — which is also
-    why the source is resolved here and not carried in from the route.
+    Load after acquiring the conversation lock to avoid stale edits. Persist only
+    after the final rewritten event; failures and disconnects leave the row unchanged.
     """
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid or message["role"] != "assistant":
@@ -548,15 +543,9 @@ async def api_autocomplete(
     persona = await get_user_persona(persona_id) if persona_id else None
     user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
 
-    # A group is a scene, not a character: {{char}} is its title, the "who am I
-    # talking to" summary is the roster, and each replayed line is labelled with
-    # the member who actually said it — the same three substitutions the pipeline
-    # makes. Without them the typeahead completes against one nameless character.
-    #
-    # Read straight off the roster rather than through `resolve_cast`: this route
-    # fires on a typing debounce, and all it needs are names — not the card behind
-    # each one. `{{cast}}` stays empty in a solo chat, exactly as `prepare_turn`
-    # leaves it, so a draft resolves here the way it will in the turn itself.
+    # For groups, resolve {{char}} to the scene title and label history by speaker.
+    # Read roster names directly to avoid loading cards on the typing debounce.
+    # Solo {{cast}} stays empty, matching prepare_turn.
     speaker_names: dict[str, str] = {}
     cast_names = ""
     if conv.get("kind", "solo") == "group":

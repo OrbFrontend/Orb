@@ -1,12 +1,5 @@
-"""
-0040_retry_on_error -- add the transient-error retry settings.
-
-`retry_enabled` (default 0/off) toggles re-issuing a completion that failed with
-a temporary server-side error; `retry_count` (default 10) is the number of
-retries after the initial attempt; `retry_delay_seconds` (default 5) is the wait
-between attempts. Fresh installs get these from schema.py; this backfills
-existing DBs. The retryable status-code set is a code constant (inference/retry.py),
-not a column.
+"""Add transient retry settings: disabled, 10 retries, 5s delay by default.
+Retryable status codes remain in inference/retry.py.
 """
 
 from __future__ import annotations

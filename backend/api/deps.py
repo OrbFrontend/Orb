@@ -48,21 +48,9 @@ _T = TypeVar("_T")
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend")
 
 
-# Per-root_id serialization for mutations of workflow_attachments groups.
-# Regenerate, reroll-gen, rehydrate, and delete all mutate the sibling tree.
-# BEGIN IMMEDIATE prevents data corruption, but commit order across
-# concurrent transactions is indeterminate; the loser's API response can name
-# a sibling whose active-pointer status the winner has already overwritten.
-# The lock turns concurrent requests into sequential ones so the loser
-# proceeds against post-winner state. /activate stays out of it: these holders
-# run for the whole render, and queuing a swipe behind one blocks artifact
-# navigation for its duration (see api_activate_workflow_attachment).
-#
-# Dict grows over the process lifetime, bounded by distinct root_ids the
-# user has interacted with. Single-user localhost app, so cap is small
-# and process restart resets. dict.setdefault is a single CPython
-# bytecode with no await between read and write, so no guard lock is
-# needed around the dict itself.
+# Serialize sibling-tree mutations through commit, preserving response ordering.
+# /activate uses its own transaction so swipes do not wait for long renders.
+# Locks persist per interacted root until restart; setdefault has no intervening await.
 _workflow_root_locks: dict[int, asyncio.Lock] = {}
 
 
@@ -74,15 +62,10 @@ async def _workflow_root_lock(root_id: int):
 
 
 def workflow_group_in_flight(root_id: int) -> bool:
-    """Whether a request currently holds this group's root lock.
+    """Whether an operation holds this group's root lock through commit.
 
-    Every operation that can add or remove a sibling holds the lock for its
-    whole duration and releases it only after its write commits, so False means
-    nothing in flight can still change this group -- the question a client is
-    left with when its own request dies on the wire mid-render.
-
-    False also covers "queued, but not yet at the lock", so a caller must see it
-    more than once before treating an operation as over.
+    False may also mean queued before lock acquisition; require repeated idle
+    samples before treating a dropped request as finished.
     """
     lock = _workflow_root_locks.get(root_id)
     return lock is not None and lock.locked()
@@ -248,15 +231,9 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
             return
 
 
-# Per-conversation serialization for the streaming pipeline. The five chat
-# streaming routes refuse a second POST against a held lock with an in-band
-# SSE error event; /edit, /delete, and /switch-branch share the same lock
-# but block on the stream instead of erroring, since they have no SSE
-# channel for an "already running" reply and the user expects them to take
-# effect rather than fail. The lock prevents doubled-LLM cost on concurrent
-# /send, FK cascade on mid-stream /delete, terminal set_active_leaf clobber
-# of a mid-stream /switch-branch, and pre-edit-prefix vs post-edit-DB skew on
-# mid-stream /edit. Dict growth shape matches _workflow_root_locks.
+# Serialize streams and mutations per conversation. Streaming routes reject
+# a second stream via SSE; edit, delete and branch-switch wait for settlement
+# to avoid changing the history or active leaf while a turn writes.
 _conversation_stream_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -312,13 +289,11 @@ STOP_SETTLE_SECS = 15.0
 async def stop_active_stream(
     key: str, *, operation_id: str | None = None, timeout: float = STOP_SETTLE_SECS
 ) -> dict[str, bool]:
-    """Abort the stream registered under *key* and wait, bounded, for it to settle.
+    """Abort the currently registered stream and wait boundedly for settlement.
 
-    ``active`` says whether a stream was registered when the request arrived;
-    ``settled`` that it has since finished saving and released the lock. A
-    stream registered after this call is not waited on: it is a new operation.
-    Returning ``active: False`` is not proof that a request still in flight can
-    never start, which is why the client falls back to dropping its connection.
+    ``active`` records initial registration; ``settled`` confirms save and lock
+    release. Later registrations are not awaited. Inactive does not rule out
+    a request still in flight, so the client may need to disconnect.
     """
     active = _active_streams.get(key)
     if active is None or (operation_id is not None and active.operation_id != operation_id):
@@ -346,13 +321,9 @@ async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
 
 
 class CleanupStreamingResponse(StreamingResponse):
-    """StreamingResponse that guarantees the body async generator is closed
-    even when the client disconnects mid-stream.
+    """Close the body generator on disconnect so pipeline cleanup and fallback saves run.
 
-    Starlette's default StreamingResponse does NOT close the body iterator
-    when send() fails due to client disconnect. This subclass ensures proper
-    cleanup so that orchestrator finally blocks (which save incomplete messages
-    on abort) always execute.
+    Starlette's default StreamingResponse does not close it when send() fails.
     """
 
     async def __call__(self, scope, receive, send):
@@ -366,39 +337,17 @@ class CleanupStreamingResponse(StreamingResponse):
                 await _safe_aclose(cast(AsyncGenerator[Any, None], self.body_iterator))
 
 
-# Seconds of stream silence after which we emit an SSE comment to keep the
-# connection warm. A turn has long token-free stretches — the reasoning-off
-# director pass, and (worst) the text-mode editor's prefill loop, which fires
-# many forced /completion calls back-to-back while emitting nothing to the
-# browser. Two separate timers kill a silent stream, and the shorter one sets
-# this value:
-#
-# 1. The browser. When the OS reports a network change (on Linux, a
-#    NetworkManager state change over D-Bus), Firefox re-verifies traffic on
-#    every *active* connection and closes the ones that moved zero bytes inside
-#    network.http.network-changed.timeout — 5s by default — with
-#    NS_ERROR_NET_RESET. Loopback is not exempt. The page sees its fetch body
-#    fail ("Error in input stream"), never a clean end, so the turn dies with
-#    nothing logged on this side. A DHCPv6 lease renewal is such a change, and a
-#    router handing out a short T1 fires one every minute: a 15s heartbeat left
-#    gaps wide enough that turns died mid-generation several times an hour.
-# 2. An idle-timeout proxy in front of Orb (nginx proxy_read_timeout defaults to
-#    60s) tears down the same silent SSE, which strands the still-running
-#    backend and drops the frontend to a stale draft.
-#
-# 3s keeps every gap inside the browser's verification window and far under
-# common proxy timeouts, for ~4 bytes/s on an otherwise idle stream.
+# Emit keepalives every 3s during token-free passes. Firefox network-change
+# verification can close connections silent for 5s, including loopback;
+# this also stays below common proxy idle timeouts.
 _SSE_KEEPALIVE_SECS = 3
 
 
 async def _drain_after_stop(gen_iter: AsyncIterator[Any], pending: asyncio.Future | None, budget: float) -> None:
-    """Run a stopped generator to its end, discarding events, within *budget* seconds.
+    """Drain a stopped generator within *budget*, discarding events.
 
-    Its client is gone, but the turn still has to save what it accepted. Every
-    stage checks the abort token and winds down on its own; running it out lets
-    the normal save keep the Editor's and workflows' finished work, which
-    cancelling it mid-stage would lose. Past the budget the pending step is
-    cancelled, and the pipeline's fallback save keeps the live draft instead.
+    Normal settlement preserves completed Editor/workflow work. On timeout,
+    cancel the pending step and let the pipeline fallback save the live draft.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + budget
@@ -664,14 +613,7 @@ _PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
 
 
 def rows_response(rows: Sequence[Mapping[str, Any]]) -> JSONResponse:
-    """Render database rows as JSON without FastAPI's ``jsonable_encoder`` pass.
-
-    A route without a response model has its return value walked by
-    ``jsonable_encoder``, which rebuilds every dict and list. Rows read from
-    SQLite and decoded with ``json.loads`` already hold only JSON types, so the
-    walk changes nothing, and on the large listings it costs more than
-    rendering: 16 ms of the 958-conversation list's 55 ms.
-    """
+    """Render already JSON-compatible database rows without jsonable_encoder's copy pass."""
     return JSONResponse(rows)
 
 
@@ -706,18 +648,11 @@ _BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 
 
 def attachment_content_response(data_b64: str, mime: str | None, request: Request) -> Response:
-    """Serve one stored attachment's bytes, revalidated by ETag, with byte ranges.
+    """Serve attachment bytes with ETag revalidation and byte ranges.
 
-    The message listing carries attachments without their bytes; each one's
-    bytes load from here. ``no-cache`` rather than a max-age because rehydrate
-    refills an evicted row with regenerated bytes under the same id, so a cached
-    copy may be reused only once the server confirms it still matches. Ranges
-    because media elements seek with them, and Safari will not play video
-    without them.
-
-    The MIME type is whatever the client or workflow stored. An ill-formed one
-    is served as opaque bytes, and ``nosniff`` plus a sandbox CSP keep a stored
-    ``text/html`` payload inert if the URL is opened directly.
+    Use no-cache because rehydration can change bytes under the same id. Ranges
+    support media seeking. Invalid MIME types become opaque bytes; nosniff and
+    a sandbox CSP keep stored HTML inert when opened directly.
     """
     try:
         data = base64.b64decode(data_b64)

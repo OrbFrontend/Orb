@@ -1,11 +1,6 @@
-"""
-0018_legacy_pre_migration_columns -- catch-all for schema changes that were
-historically applied inline by ``init_db()`` before the migration system
-existed (or before we started numbering them).
+"""Backfill schema changes formerly applied inline by init_db.
 
-Each block is idempotent so it stays safe to run on a database that has been
-upgraded incrementally over time. On a fresh install ``CREATE_TABLES_SQL``
-already creates the latest shape, so every check below short-circuits.
+Each block is idempotent for incrementally upgraded databases.
 """
 
 from __future__ import annotations

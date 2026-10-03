@@ -54,17 +54,10 @@ def _content_digest(text: str) -> str:
 
 
 def combine(windows: Sequence[VoiceLabels]) -> VoiceLabels:
-    """Return one message's (POV, tense) from its windows' labels.
+    """Combine window labels into message POV/tense.
 
-    POV is a precedence rule over the pronouns anywhere in the narration, so the
-    highest-ranked window decides it. Tense is the windows' stable majority, so one
-    flashback window does not flip it.
-
-    `first` must also hold a third of the confident windows. Deep third person
-    carries unmarked inner monologue ("If I look, I'll see the disgust"), which reads
-    `first` in a window or two of an otherwise third-person reply; first-person
-    narration puts "I" in at least a third of its windows even when most of them
-    describe "you". On the app DB the two sides split at that share.
+    POV uses precedence, tense a stable majority. First person also requires
+    a third of confident windows to avoid unmarked inner-monologue false positives.
     """
     povs = [pov for pov, _ in windows if pov in _POV_RANK]
     if 3 * povs.count("first") < len(povs):

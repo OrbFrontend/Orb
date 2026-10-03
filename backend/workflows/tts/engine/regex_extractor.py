@@ -265,18 +265,10 @@ def regex_extract(
     legacy: bool = False,
     input_prepared: bool = False,
 ) -> list[SpeakableChunk]:
-    """Extract speakable dialogue from RP text using regex/heuristics.
+    """Extract RP speech into SpeakableChunks with backend-specific emotion handling.
 
-    Args:
-        text: Raw RP message text (writer output).
-        backend_type: TTS backend name (for tag/emotion decisions).
-        supports_emotion_tags: Whether the backend supports inline tags
-            like [laugh], [sigh]. If False, audible beats become pauses.
-        input_prepared: text is already the speech_input used for classification.
-            Ignored for legacy replay, which always uses the original text.
-
-    Returns:
-        List of SpeakableChunks ready for TTS synthesis.
+    Without emotion-tag support, audible beats become pauses. input_prepared
+    requires the classified speech_input; legacy replay always reads original text.
     """
     if not text or not text.strip():
         return []

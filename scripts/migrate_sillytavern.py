@@ -1,34 +1,15 @@
 #!/usr/bin/env python3
-"""Migrate a SillyTavern install into Orb's database.
+"""Migrate SillyTavern characters, expressions, lorebooks, chats, personas and groups
+into Orb SQLite, using pure backend parsers and enforcing query-layer invariants.
 
-Reads an unmodified SillyTavern data directory and writes characters (with their
-expression sprites and embedded lorebooks), standalone lorebooks, chat history,
-personas, and group chats into Orb's SQLite file.
-
-This is the one job Orb's HTTP API cannot do: no route inserts a message without
-running the LLM, so chat history has to be written to the tables directly. The
-script therefore owns its own connection and its own INSERTs, and reproduces the
-invariants the query layer would otherwise enforce (see ``check_schema`` and the
-per-dataset comments). It imports pure helpers from ``backend/`` -- card parsing,
-lorebook field mapping, expression labelling -- rather than restating them, so
-the two cannot drift apart.
-
-Deliberately NOT migrated, because Orb has nothing to map them onto:
-  * prompts and generation settings (context/, instruct/, sysprompt/, */Settings/,
-    reasoning/, QuickReplies/) -- Orb assembles prompts through the
-    Director/Writer/Editor pipeline with a cache-stable prefix
-  * endpoints and API keys (secrets.json) -- configure those in Orb
-  * UI chrome (themes/, backgrounds/, movingUI/, assets/, thumbnails/, backups/)
-  * per-message generation metadata (reasoning traces, token counts, gen ids)
-  * author's notes, and the ST tag taxonomy
-  * ST-only lorebook knobs: recursion, probability, sticky/cooldown/delay,
-    inclusion groups, roles, per-entry scan depth (docs/features/lorebooks.md)
+Skip generation settings/prompts, endpoints/keys, UI assets, generation metadata,
+author notes, tag taxonomy and unsupported lorebook controls.
 
 Usage:
     python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern --dry-run
     python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern
 
-Stop Orb before running: it is single-user, single-tab by design.
+Stop Orb before running.
 """
 
 from __future__ import annotations

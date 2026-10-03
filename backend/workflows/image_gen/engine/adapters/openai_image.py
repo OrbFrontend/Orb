@@ -160,17 +160,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             # record carrying it is authoritative and only a record with no scalar at all
             # falls back to the style.
             source = replayed_reference_source(replay, source)
-        # Whether this target can carry a reference *at all*, and how many -- a fact
-        # about the provider's dialect, derived from the reference encoding because that
-        # is the only thing that genuinely constrains it. *Which* images fill it is the
-        # render's answer, not this one: `resolve_target` has no conversation access, so
-        # it declares the array and `references.plan_slots` fills it from who is in the
-        # picture.
-        #
-        # Deliberately not asked of the model: whether *this* model reads a reference is
-        # the model's to answer, at render time, by refusing. Declaring no slot on the
-        # model's behalf is how a capability the user is paying for goes missing with
-        # nothing on screen to say so.
+        # Reference encoding determines target slots/capacity; references.plan_slots
+        # chooses who fills them. Let the model reject unsupported references at render
+        # time rather than preemptively hiding a capability.
         usable = preset is not None and takes_references(preset)
         capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if usable and preset is not None else 0
         template = (

@@ -152,20 +152,10 @@ async def propose_sheet_update(
     transcript: str,
     settings: Mapping[str, Any],
 ) -> SheetUpdate | None:
-    """One forced ``update_character_sheet`` call, drained and contract-checked.
+    """Drain and validate one forced sheet-update call; None means no durable change.
 
-    Returns ``None`` when the model reports no durable change — the common case,
-    and the one that must be cheap to express, or a model with a tool it has to
-    call will invent a change to fill it.
-
-    The budget is the agent lane's configured Max Tokens; temperature is fixed
-    rather than read from the user's preset — see
-    :func:`backend.inference.drafting.forced_draft`.
-
-    A reply cut at that budget is rejected, never cleaned: a truncated sheet is
-    the one bad output the contract cannot catch — it is non-empty, brace-free,
-    under the ceiling and different from the base, so it would pass every check
-    while having quietly deleted the character's last paragraph.
+    Use the Agent token budget with fixed temperature. Reject truncated output:
+    an incomplete sheet can pass shape checks while silently losing content.
     """
     try:
         args = await forced_draft(

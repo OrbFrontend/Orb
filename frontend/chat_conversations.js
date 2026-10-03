@@ -76,13 +76,7 @@ export function stashSceneCards(cards) {
   refreshState();
 }
 
-// The Scenario and Creator's Note ride the same card read the fragments do, so
-// the blocks above the opening line refresh on every path that can change them:
-// opening a conversation, a cast edit, and a card save.
-//
-// A group is left out on purpose. Its premise is a scene field, edited in Group
-// settings rather than carried by any one card, and several members' notes
-// stacked above the opening line would bury the scene instead of framing it.
+// Refresh solo-card framing with the card. Groups use their scene settings instead.
 function sceneIntroFrom(cards) {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
   if (!conv || conv.kind === "group") return null;

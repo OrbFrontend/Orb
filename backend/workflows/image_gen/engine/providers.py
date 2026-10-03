@@ -231,21 +231,9 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # snapping to a menu the next model does not share is a worse answer than
         # the one the provider itself picks. See `gaps`.
         dimension_mode="size",
-        # Everything else is left at its default-off, and each one was measured
-        # rather than read off the catalogue:
-        #
-        # `supports_seed`: the image models all list `seed` in `supported_parameters`
-        # -- that is the *chat* schema, and this endpoint is a shim over it. Two
-        # calls at one seed returned different images on `gemini-2.5-flash-image`
-        # *and* on `gpt-5-image-mini`, so it is a provider fact, not a per-model
-        # hole, and `seed_honored` would be a claim the user cannot check.
-        #
-        # `supports_references`: the image models declare `image` among their input
-        # modalities -- true of `/chat/completions`, not of this path. `image`,
-        # `images` and `image_url` were each sent with an unmistakable reference
-        # (magenta field, black circle) and a keep-the-background prompt; all three
-        # answered 200 having rendered the prompt alone. Unknown fields are accepted
-        # silently here, so "no error" is never evidence a field was read.
+        # This image shim does not honour seed or reference fields despite the chat
+        # catalog advertising them. Unknown fields can return 200 while being ignored,
+        # so successful requests alone do not establish support.
         default_model="google/gemini-2.5-flash-image",
         # Verified: 52,812 characters accepted. The real wall is the chosen model's
         # context, which is far past anything Orb assembles, so this is headroom.
@@ -706,16 +694,10 @@ def takes_references(preset: ProviderPreset) -> bool:
 
 
 def reference_capacity(preset: ProviderPreset, ceiling: int) -> int:
-    """How many references this provider's dialect can physically carry, capped.
+    """Derive reference capacity from encoding, capped by the caller's ceiling.
 
-    Derived from the encoding rather than declared, because the encoding is the only
-    thing that actually constrains it: a list field takes a list, a scalar field takes
-    one, and no amount of measurement changes either. Whether the model *reads* every
-    element is a different question, and one this deliberately does not try to answer
-    -- guessing high costs an upload, and the prompt no longer depends on the guess.
-
-    `ceiling` is the caller's (`MAX_REFERENCE_SLOTS`), passed in so this module keeps
-    knowing nothing about the picker or the config it is stored under.
+    Lists carry multiple references, scalars one. Capacity does not claim that
+    a model reads every supplied image.
     """
     if not preset.supports_references:
         return 0

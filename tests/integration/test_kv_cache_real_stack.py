@@ -1,27 +1,8 @@
-"""
-test_kv_cache_real_stack.py — KV-cache invariants through the REAL turn stack.
+"""Check KV invariants across two real HTTP send turns, including prefix construction,
+fragment-schema ordering and persistence.
 
-The unit-level alarm (tests/unit/test_kv_cache_invariants.py) feeds
-``run_pipeline`` a hand-built ``prefix`` list. That proves the passes don't
-mutate the bottom of the stack — but it sits *above* the real client and
-*below* the prefix builder, so two whole layers go untested:
-
-  • prefix CONSTRUCTION — ``build_prefix`` + persona/scenario/example-dialogue
-    assembly + the DB persistence round-trip that reconstructs the next turn's
-    history. A reformat, trim, or non-append-only rebuild there busts the
-    cross-turn cache and the unit test cannot see it (it fakes the next prefix).
-  • the dynamic director schema rebuilt each turn from ``get_interactive_fragments()``
-    — if that query's row order is unstable, the tools blob drifts turn-over-turn.
-
-These tests drive the genuine ``POST /send`` path (HTTP → handle_turn →
-build_prefix → run_pipeline → persistence) twice and assert the cache
-invariants on the EXACT messages/tools each pass handed to ``complete()``,
-captured at the ``LLMClient`` boundary by ``FakeLLMClient.captured``.
-
-OUT OF SCOPE (cannot be caught here): the fake replaces ``LLMClient.complete``
-wholesale, so ``profile.apply(body)`` and httpx's wire serialization never run;
-and the inference server's own chat-template rendering is unknowable locally
-(provider ``usage`` is the only ground truth for that — see kv-cache.md §8).
+FakeLLMClient captures messages/tools; profile serialization and provider
+template/cache behavior remain outside this test.
 """
 
 from __future__ import annotations

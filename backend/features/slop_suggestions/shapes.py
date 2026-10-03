@@ -1,15 +1,8 @@
-"""Sentence keys: the units the slop miner counts across characters.
+"""Build narration (n) and speech (d) sentence keys.
 
-Each block of a reply is tagged ``n`` (narration, including ``*emphasis*``) or
-``d`` (speech), and each sentence in it is abstracted into a skeleton: function
-words and punctuation stay literal, pronouns become ``P``, and each run of
-content words becomes one ``X``. ``No hate, no anger, just... despair.`` is
-``^ no X , no X , just … X .``.
-
-A sentence yields *shape keys* (skeleton n-grams such as ``n:no X , no X ,
-just``) and, when it is at most six words long, one *literal key* (``n:= a
-beat``). Keys carry their tag so narration is compared with card narration and
-speech with card speech.
+Skeletons retain function words/punctuation, replace pronouns with P and
+content-word runs with X. Yield skeleton n-grams and literal keys for
+sentences of at most six words; tags keep speech/narration corpora separate.
 """
 
 from __future__ import annotations

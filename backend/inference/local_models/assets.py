@@ -95,17 +95,10 @@ def missing_files(feature: str) -> list[str]:
 
 
 def prune_stale(root: str | None = None) -> None:
-    """Delete any .gguf under data/models/ that no current MODELS spec claims.
+    """Prune unclaimed managed artifacts after downloads, preserving other extensions.
 
-    Runs after every download so bumping a model (e.g. v2 typeahead) doesn't leave
-    the old weights eating disk. Only touches the extensions the catalog itself
-    writes (``MANAGED_SUFFIXES``) — hf's .cache bookkeeping and manual drops of
-    anything else are left alone.
-
-    Claim is by *basename*, not full path: comparing paths meant a model sitting in
-    a legacy mirrored subdir read as unclaimed and got deleted the moment any other
-    feature downloaded — and on a case-insensitive filesystem, where ``GGUF/`` and
-    ``gguf/`` are one directory, that fired on a model we had just fetched.
+    Compare basenames so legacy mirrored paths and case-insensitive directories
+    do not make current weights appear unclaimed.
     """
     root = root or model_dir()
     # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A

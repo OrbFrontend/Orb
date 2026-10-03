@@ -119,10 +119,7 @@ export function buildMsgToolbar(m) {
       ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
       : "";
 
-  // A user row resolves its target when the button is clicked, not when the row
-  // is painted. The reply it regenerates can be deleted or swiped to another
-  // branch without the row's own markup changing, and the reconciler then keeps
-  // the node as it stands -- a baked id would outlive the message it names.
+  // Resolve the reply target on click: branch changes can leave a reused user row with a stale id.
   const regenAction = isAssistant
     ? m.id
       ? `regenerate(${m.id})`
@@ -198,10 +195,7 @@ function renderUserAttachments(userAtts) {
   if (!userAtts || userAtts.length === 0) return "";
   const items = userAtts
     .map((att) => {
-      // The API takes the filename and MIME the client sent, so both are
-      // untrusted and both land inside an attribute: escAttr, never esc. A
-      // filename that closes the attribute early would otherwise write an
-      // event handler onto the image.
+      // Filename and MIME are untrusted attribute values; escape quotes with escAttr.
       const src = escAttr(userAttachmentSrc(att));
       const filename = escAttr(att.filename || "image");
       const size = Number.isFinite(att.size) && att.size > 0 ? att.size : 0;
@@ -230,10 +224,7 @@ function formatStatNum(n) {
   return String(n);
 }
 
-// renderMessages repaints the home screen for reasons unrelated to the stats --
-// settings and local-model status both land during page load -- and each repaint
-// refetched them: two aggregate queries per load, and a spotlight that could swap
-// characters mid-load. A fetch is reused for a window just long enough to cover that.
+// Reuse stats across home-screen repaints during page load, keeping the spotlight stable.
 const HOME_STATS_REUSE_MS = 10_000;
 let homeStatsFetch = null; // { at, promise }
 
@@ -347,14 +338,8 @@ export function msgNumHtml(n) {
   return `<span class="msg-num">#${n}</span>`;
 }
 
-// The card's framing, above the opening line: what the scene is, and what its
-// author wanted the reader to know before it starts. Neither has another home
-// in the chat pane.
-//
-// These are card metadata, not turns. They carry no id, so nothing in the
-// message paths can address them, and no toolbar, branch pager or avatar -- the
-// blocks take the bubble's shape and nothing else. They render only when the
-// window starts at the top of the conversation, where the greeting is.
+// Card metadata above the greeting, shown only at the conversation start.
+// These blocks have no message id or toolbar.
 const SCENE_INTRO_BLOCKS = [
   ["notes", "Creator's Note", "creatorNotes"],
   ["scenario", "Scenario", "scenario"],
@@ -440,10 +425,7 @@ function syncStreamingAvatar(el, avatars) {
   }
 }
 
-// content-visibility hides an off-screen bubble's real height, so a node has to
-// be forced visible before it can be measured. Batch the whole set: add the
-// class to every node, read every height, then write. Interleaving a read and a
-// write per node costs one forced layout per message instead of one in total.
+// Force off-screen bubbles visible before measuring. Batch reads and writes to avoid per-message layouts.
 function _measureIntrinsicSizes(nodes) {
   if (!nodes.length) return;
   for (const el of nodes) el.classList.add("msg-measuring");
@@ -535,13 +517,7 @@ export function renderMessages(forceBottom = false) {
 setInlineInspectorRepaint(() => renderMessages());
 
 export function applyWorkflowTextSegments(bodyEl, msg) {
-  // Segmentation wraps every word of the message in its own span, so it is only
-  // worth paying for where something will use one. A *registered* text effect is
-  // not that: TTS registers karaoke at boot and may never play a clip, and until
-  // it does the spans are pure weight on every bubble on screen. Effects segment
-  // their own target when they start (workflow_text_effects.js). Click handlers
-  // are the exception — the affordance has to be painted before the click — so
-  // they still segment up front.
+  // Segment click targets up front; text effects segment on activation to avoid unused word spans.
   if (!S.workflowClickHandlers.length && bodyEl.dataset.segApplied !== "1") return;
   segmentBody(bodyEl);
   markClickable(bodyEl, msg);
@@ -565,10 +541,7 @@ function _segmentRenderedMessages(renderedMsgs) {
 
 let _contextCounterTimer = null;
 
-// Every repaint asks for this, and the endpoint re-renders the whole prompt to
-// estimate it — a burst of swipes would otherwise queue one of the most
-// expensive requests in the app behind each click. Coalesce them; the counter
-// is a display, so only the last answer matters.
+// Coalesce expensive prompt-size estimates across repaints; only the latest answer matters.
 export function updateContextCounter() {
   if (_contextCounterTimer) clearTimeout(_contextCounterTimer);
   _contextCounterTimer = setTimeout(() => {

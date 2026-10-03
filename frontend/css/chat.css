@@ -178,17 +178,11 @@
   border-color: var(--accent-dim);
 }
 
-/* The card's framing above the opening line: the Creator's Note and the
-   Scenario. Neither is a turn -- there is nothing to edit, regenerate or swipe
-   -- so the block keeps the bubble's shape, whatever a theme makes of it, and
-   only steps back in colour. */
+/* Card metadata keeps the bubble shape, with subdued colour and no turn controls. */
 .message.scene-intro .msg-role { color: var(--accent-dim); }
 .message.scene-intro .msg-body { color: var(--text-secondary); }
 
-/* A turn's spacing below it comes from its toolbar strip, which sits in the DOM
-   at opacity 0 whether or not it is being hovered. These blocks have no toolbar
-   to space them, so they reserve that height themselves: 4px above a 25px icon
-   button, the same rhythm as the messages under them. */
+/* Reserve the missing toolbar's height: 4px gap plus a 25px button. */
 .message.scene-intro { margin-bottom: 29px; }
 
 .message .msg-body p { margin-bottom: .6em; }
@@ -336,16 +330,10 @@
   padding-bottom: .3em;
 }
 
-/* Card CSS and card inline styles both land inside this wrapper, and it is the
-   one place their reach is bounded. Paint containment makes the wrapper the
-   containing block for `position: fixed` and clips what overflows it, so a card
-   overlay covers its own bubble rather than the app; it also opens a stacking
-   context, which is what keeps a card's `z-index` under Orb's chrome however
-   large it is. Style containment keeps a card's counters out of the app's, and
-   is a second declaration so an engine without it still gets the first.
-   `!important` because card CSS can write `!important` too: this is the
-   invariant the CSS policy rests on, not a look. Card rules are always
-   `.msg-body .msg-s… <descendant>`, so none of them can name this element. */
+/* Paint containment bounds fixed overlays and z-index to the bubble.
+   Separate style containment isolates counters without losing fallback support.
+   !important protects this invariant from card styles; scoped selectors
+   target descendants only and cannot reach the wrapper. */
 .msg-css-scope {
   position: relative !important;
   isolation: isolate !important;
@@ -353,10 +341,8 @@
   contain: layout paint style !important;
 }
 
-/* A card written for a desktop window collapses to zero width in a phone-width
-   bubble, and `contain: paint` above then clips it away silently. message_fit.js
-   hands the collapsed block its own width back and puts it in here, so the card
-   lays out as written and pans inside the bubble instead of disappearing. */
+/* message_fit.js restores collapsed desktop layouts inside a pannable wrapper
+   before paint containment clips them. */
 .message .msg-body .msg-pan {
   overflow-x: auto;
   max-width: 100%;
@@ -1178,10 +1164,8 @@
   margin-top: 2px;
 }
 
-/* Message avatar gutter. The row reaches --msg-avatar-shift into the chat
-   area's side padding so the avatar can grow without narrowing the bubble. The
-   right padding mirrors what is left of the avatar column, so the bubbles stay
-   centred in the chat area rather than shifted right by it. */
+/* Extend avatars into side padding; mirror the remaining gutter on the right
+   to keep bubbles centred. */
 #chat-messages[data-avatars="on"] {
   --msg-avatar-size: 40px;
   --msg-avatar-shift: 8px;

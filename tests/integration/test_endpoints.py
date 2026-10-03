@@ -65,7 +65,6 @@ async def test_discover_available_models_surfaces_provider_error_without_key(cli
 
 
 async def test_delete_endpoint_removes_from_db(client, db):
-    """Test DELETE /api/endpoints/{id} removes endpoint"""
     # Create an endpoint
     create_resp = await client.post(
         "/api/endpoints",
@@ -97,14 +96,12 @@ async def test_delete_endpoint_removes_from_db(client, db):
 
 
 async def test_delete_nonexistent_endpoint_returns_error(client, db):
-    """Test deleting a non-existent endpoint returns appropriate error"""
     resp = await client.delete("/api/endpoints/99999")
     # Should return 404 or 400 depending on implementation
     assert resp.status_code in (404, 400)
 
 
 async def test_create_model_config_persists_to_db(client, db):
-    """Test creating a model config via POST /api/endpoints/{id}/models"""
     # First create an endpoint
     endpoint_resp = await client.post(
         "/api/endpoints",
@@ -180,7 +177,6 @@ async def test_create_model_config_rejects_unknown_role(client):
 
 
 async def test_list_model_configs_for_endpoint(client, db):
-    """Test GET /api/endpoints/{id}/models returns model configs"""
     # Create an endpoint
     endpoint_resp = await client.post(
         "/api/endpoints",
@@ -213,7 +209,6 @@ async def test_list_model_configs_for_endpoint(client, db):
 
 
 async def test_delete_model_config_removes_from_db(client, db):
-    """Test DELETE /api/models/{config_id} removes model config"""
     # Create endpoint and model config
     endpoint_resp = await client.post(
         "/api/endpoints",
@@ -252,7 +247,6 @@ async def test_delete_model_config_removes_from_db(client, db):
 
 
 async def test_cannot_create_model_config_for_nonexistent_endpoint(client, db):
-    """Test creating model config for non-existent endpoint returns error"""
     resp = await client.post(
         "/api/endpoints/99999/models",
         json={"model_name": "test", "temperature": 0.5},
@@ -411,7 +405,6 @@ async def test_model_config_rejects_malformed_extra_body(client, db):
 
 
 async def test_endpoint_crud_workflow(client, db):
-    """Test complete CRUD workflow for endpoints"""
     # 1. Create endpoint
     create_resp = await client.post(
         "/api/endpoints",

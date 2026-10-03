@@ -52,15 +52,8 @@ DOC_AUDIT_CONTEXT_CHARS = 8000
 # carrying one is template markup, not prose.
 _TEMPLATE_TOKEN_RE = re.compile(r"<\|[^<>]*\|>")
 
-# The patch contract, transport-neutral: text mode never renders the tool
-# schema and chat mode forces via response_format (no tools in the prompt), so
-# this description is the only shape the model ever sees.
-#
-# Findings are addressed by the id the numbered report gives them rather than by
-# a `search` string copied out of the continuation. That is also what keeps the
-# "patch only the continuation" rule structural instead of advisory: every id
-# resolves to an offset inside the draft core, so the earlier document text is
-# unreachable by construction.
+# Transport-neutral patch shape: text uses grammar, chat uses response_format.
+# Finding ids resolve only inside draft_core, making earlier document text unreachable.
 _PATCH_JSON_INSTRUCTION = (
     "The audited text needs fixes. Respond with a JSON object of the form "
     '{"patches": [{"id": 1, "replace": "..."}]} — one patch per numbered issue. '
@@ -92,13 +85,8 @@ def trim_incomplete_tail(draft: str) -> tuple[str, str]:
 
 
 def clean_context(context: str, assisted: bool) -> str:
-    """Strip prompt scaffolding from the preceding-document *context*, mode-aware.
-
-    Assisted documents carry ``### SYSTEM/USER/ASSISTANT:`` note lines; Raw
-    documents may carry chat-template marker lines (``<|…|>``). Both are
-    instructions, not prose — auditing them would flag scaffold "sentences".
-    Chat+raw documents are plain prose, so the heuristics are no-ops there.
-    Capped to the trailing DOC_AUDIT_CONTEXT_CHARS.
+    """Remove mode-specific prompt scaffolding from audit context, capped to
+    DOC_AUDIT_CONTEXT_CHARS. Chat+raw prose is unchanged.
     """
     if assisted:
         lines = [ln for ln in context.split("\n") if not ROLE_MACRO_RE.match(ln)]
@@ -138,27 +126,20 @@ def build_fix_instruction(report_text: str) -> str:
 
 
 def build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
-    """Text-transport patch prompt: a byte-extension of the generation prompt.
+    """Byte-extend the exact rendered generation prompt with draft_core and audit suffix.
 
-    *base* is the exact prompt string the generation call sent (the verbatim
-    document in raw mode; the re-run ``/apply-template`` render in assisted
-    mode). ``base + draft_core`` concatenate with no joiner — the draft
-    continued directly from those bytes, so this string extends the exact
-    token prefix the generation call left in the server's KV slot; only the
-    audit suffix is new work.
+    Do not insert a joiner: the draft continued directly from base, preserving KV parity.
     """
     return f"{base}{draft_core}\n\n----\n[Prose audit]\n{build_fix_instruction(report_text)}\n"
 
 
 def build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
-    """The patch conversation for the CHAT-transport shapes: the generation
-    messages replayed verbatim (byte parity — see ``build_generation_messages``),
-    the draft closed as the model's own turn (so the numbered issues read as
-    edits to its own text), and the fix request as a pure suffix. Text mode never uses this — it
-    byte-extends the rendered generation prompt instead (see ``patch_document``),
-    because a closed assistant turn can render differently from the open
-    generation prompt the draft actually followed (e.g. Qwen's injected
-    ``<think></think>`` block)."""
+    """Replay chat-generation messages verbatim, close the draft as an assistant turn,
+    and append the fix request.
+
+    Text mode byte-extends the rendered prompt instead; closing an open assistant
+    turn can alter template output.
+    """
     gen_messages, _ = build_generation_messages(context, assisted=assisted, completion_mode="chat")
     return [
         *gen_messages,

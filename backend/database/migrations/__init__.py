@@ -1,11 +1,6 @@
-"""
-backend/database/migrations/__init__.py — lightweight migration runner.
+"""Run numbered migrations once, recording them in schema_migrations.
 
-To add a new migration, create backend/database/migrations/NNNN_description.py
-with a migrate(conn) function.
-
-Applied migrations are recorded in the `schema_migrations` table so each runs
-exactly once, even across restarts.
+Add migrations as NNNN_description.py with a migrate(conn) function.
 """
 
 from __future__ import annotations

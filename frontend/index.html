@@ -119,10 +119,7 @@
       </div>
     </div>
     <div id="group-speaking-plan" class="group-speaking-plan" hidden></div>
-        <!-- role="log" so a screen reader announces arriving replies as they
-             land. aria-live="polite" waits for a pause rather than cutting in,
-             and aria-relevant="additions" keeps a mid-stream repaint from
-             re-reading the whole conversation. -->
+        <!-- Announce arriving replies politely; additions-only avoids rereading streamed updates. -->
         <div id="chat-messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
     <div id="generation-status" class="gen-status hidden" role="status" aria-live="polite" aria-atomic="true">
       <div class="gen-bar"></div>

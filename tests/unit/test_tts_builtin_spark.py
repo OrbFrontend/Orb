@@ -1,5 +1,3 @@
-"""Tests for the built-in Spark cloner profile and adapter."""
-
 from __future__ import annotations
 
 import pytest

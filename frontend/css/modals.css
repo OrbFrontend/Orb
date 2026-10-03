@@ -327,11 +327,7 @@
   margin-top: 12px;
 }
 
-/* Per-card regex editor and preserved import metadata.
-
-   Every block inside a script row is spaced by one grid gap rather than by its
-   own margin, so a row that hides its warning or its preserved-data drawer
-   closes the space with it instead of leaving a hole. */
+/* Use one grid gap so hidden script warnings and metadata drawers leave no empty space. */
 .ce-scripts-editor { margin-bottom: 16px; }
 
 .ce-script-list {
@@ -359,10 +355,8 @@
 
 .ce-script-body > .field { margin-bottom: 0; }
 
-/* A card can carry dozens of scripts, so a row stands collapsed to its header
-   and a one-line preview of what it does. The controls stay in the markup and
-   the draft is read from the model behind it, so opening a row is a class flip
-   and an open row survives being reordered. */
+/* Collapse scripts to a header and preview. Keep controls mounted and drafts
+   in the model so expansion survives reordering. */
 .ce-script-row.is-collapsed > .ce-script-body { display: none; }
 .ce-script-row:not(.is-collapsed) > .ce-script-summary { display: none; }
 

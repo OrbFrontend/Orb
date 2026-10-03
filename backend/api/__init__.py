@@ -30,20 +30,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     migrated = await init_db()
     db_path = current_db_path()
-    # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
-    # DROP TABLE) leaves the old table's pages on the freelist, and the live
-    # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
-    # bloated by the rebuilt tables' size (~25 -> ~39 MiB) until the next
-    # restore happens to VACUUM. restore_full already reclaims on its private
-    # copy (see presets.restore_full); this is the same reclaim for the
-    # normal startup-migration path.
-    #
-    # The second arm covers dead space that arrives without a migration --
-    # deleted conversations, cleaned-up Agent logs, a cleanup whose own
-    # VACUUM lost its race with a live reader. Without it those pages are
-    # stranded until a migration happens to come along. Both arms are gated so
-    # an ordinary boot never rewrites the whole file. Safe here: we're before
-    # `yield`, so no request connection is open to contend with the VACUUM.
+    # Reclaim pages from rebuild migrations or accumulated deletions. Gate VACUUM
+    # to avoid rewriting on ordinary boots; before yield, no request holds a connection.
     if migrated or free_bytes(db_path) > VACUUM_FREE_BYTES:
         vac = sqlite3.connect(db_path, isolation_level=None)
         try:

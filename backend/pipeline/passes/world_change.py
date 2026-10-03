@@ -66,16 +66,10 @@ async def world_change_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
-    """Yield reasoning chunks during the call, then a single done dict.
+    """Make one forced proposal call over all opted-in Worlds.
 
-    One forced call however many Worlds are in play — a turn's opted-in Worlds
-    share one catalog and one judgement. *entries* is the pooled row set of every
-    World in *worlds*; each returned operation comes back stamped with the one it
-    belongs to (see ``features/lorebook/proposals.split_by_world``).
-
-    Yields:
-        ``{"type": "reasoning", "delta": str}``
-        ``{"type": "done", "result": WorldChangeResult}``
+    Yield reasoning then done with WorldChangeResult. Operations are stamped
+    with their World for split_by_world.
     """
     catalog = build_world_change_catalog(entries, worlds=worlds, exchange_text=exchange_text)
     request = build_world_change_prompt(

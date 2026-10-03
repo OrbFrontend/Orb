@@ -35,12 +35,7 @@ export function boolFlag(value) {
   return value === true || value === 1;
 }
 
-// An attachment's MIME type and payload arrive from the API, which accepts what
-// the client sent — so both are attacker-controlled, and both land in an
-// attribute *value* rather than in text. `esc` does not escape quotes, so
-// interpolating either one raw is how a filename ending the attribute early
-// turns into an event handler on the element.
-// Building the URL here means no call site has to remember that.
+// Escape untrusted MIME and payload as attribute values; esc alone does not escape quotes.
 const ATTACHMENT_MIME_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
@@ -132,23 +127,14 @@ export function scrollToMessage(msgId) {
   if (el) scrollChatTarget(el, "center");
 }
 
-// Four modules paint into a message's body (prose rewrites, segmentation, text
-// effects, slop marks). The render pass hands them back the same node whenever
-// the markup is unchanged, so the way to reach one lives here rather than as a
-// selector string copied into each of them.
+// Shared message-body selector for prose rewrites, segmentation, effects and slop marks.
 export function messageBody(msgId) {
   return $("chat-messages")?.querySelector(`.message[data-msg-id="${msgId}"] .msg-body`) ?? null;
 }
 
 /**
- * True when `el` sits inside a message body — i.e. inside markup a model wrote.
- *
- * The app's global dispatchers select on attributes (`[data-chat-action]`,
- * `[data-wf-action]`) anywhere in the document, which is fine for chrome the app
- * built and wrong for a bubble. message_html.js already renames every `data-*`
- * in message markup to `data-custom-*`, so nothing should ever reach those
- * dispatchers from in here; this is the second lock, and the one that does not
- * depend on a sanitiser config staying right.
+ * Test whether el is inside model-authored message markup. App dispatchers
+ * reject these targets as a second boundary alongside data-* renaming.
  */
 export function fromMessageBody(el) {
   return !!el?.closest?.(".msg-body");

@@ -1,17 +1,5 @@
-"""Pins per-conversation serialization of the streaming pipeline.
-
-Streaming routes (``/send``, ``/continue``, ``/regenerate``,
-``/super_regenerate``, ``/magic_rewrite``) and the non-streaming
-mutators that share state with an in-flight turn (``/edit``,
-``/delete``, ``/switch-branch``) share ``_conversation_stream_locks``.
-The streaming side surfaces contention as an in-band SSE
-``event: error\\ndata: Another generation is already running`` so the
-client fails fast instead of queueing; the mutator side blocks on
-``async with`` because those routes have no SSE channel and the caller
-expects the action to land rather than fail.
-
-Exercising one streaming route is enough to pin the lock contract;
-per-route correctness is the domain of those routes' own tests.
+"""Check conversation serialization: competing streams fail via SSE; edit, delete
+and branch-switch wait for the active turn to finish.
 """
 
 from __future__ import annotations

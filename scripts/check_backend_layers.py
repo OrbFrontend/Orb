@@ -1,33 +1,9 @@
 #!/usr/bin/env python3
-"""Backend layering guardrail — the import graph AGENTS.md describes.
+"""Enforce the backend import graph from AGENTS.md using parsed imports.
 
-This parses every backend module's imports, resolves relative imports, and
-fails on an edge that is absent from the explicit allowed-edge matrix.
-
-Five rules:
-
-  1. **Explicit edges.** Each top-level Python package has a complete set of
-     backend packages it may import. Same-package imports are always allowed.
-  2. **Every layer is classified.** A new Python-bearing top-level package or
-     module must be classified rather than silently becoming a composition
-     root.
-  3. **Slices never import peers.** ``features/<a>`` may not import
-     ``features/<b>``. A slice is self-contained by definition — a peer edge is
-     how two features quietly become one.
-  4. **Workflow plug-ins use their API.** ``workflows/<id>`` may import only its
-     own package and the public workflow framework modules, never application
-     layers or peer workflow plug-ins.
-  5. **Private names stay in their module.** A leading underscore means "only
-     this module uses it", so no module imports another's ``_name``. When a
-     second module needs one, give it a public name; the underscore otherwise
-     tells the next reader that changing it is safe when it is not.
-
-DO NOT SPELL THIS AS A GREP. ``inference/local_models/llama_server/binary.py``
-contains the literal ``https://api.github.com/repos/...``, so a grep for
-``api\\.`` under ``inference/`` reports a violation that is not one and trains
-the next person to ignore the check. This parses imports.
-
-Exit non-zero on any violation. Wired into scripts/lint.sh.
+Check explicit layer edges, complete module classification, feature isolation,
+workflow toolkit boundaries and cross-module private names.
+Exit non-zero on violations; scripts/lint.sh runs this check.
 """
 
 from __future__ import annotations

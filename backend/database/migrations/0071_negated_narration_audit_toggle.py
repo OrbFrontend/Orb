@@ -1,12 +1,6 @@
-"""
-0071_negated_narration_audit_toggle -- add the `negated_narration` key to
-existing rows' editor_audit_toggles, persisting the scanner's release default
-(off). New databases already get the key from the column default (schema.py).
+"""Backfill absent negated_narration audit toggles with the release default, off.
 
-Only an absent key is backfilled: an explicit true or false choice survives,
-and a rerun changes nothing. run_audit's `_on()` also reads a missing key as
-this default, so the migration keeps the persisted JSON (and the settings UI
-checkbox) consistent rather than establishing the default by itself.
+Preserve explicit choices; reruns are a no-op.
 """
 
 from __future__ import annotations

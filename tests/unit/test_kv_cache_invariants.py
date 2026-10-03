@@ -1,39 +1,8 @@
-"""
-test_kv_cache_invariants.py — the alarm bell for KV-cache prefix reuse.
+"""Check KV-prefix invariants through the real pipeline with network calls captured.
 
-WHY THIS EXISTS
----------------
-Orb's whole speed/cost story rests on one rule (see docs/architecture/kv-cache.md):
-within a turn every pass sends a *byte-identical prefix* (system prompt + chat
-history) and a *byte-identical tools blob*, and only the trailing message(s)
-differ. If any pass mutates, reorders, or re-renders the shared bottom — or lets
-the tools blob drift between passes — the inference server can no longer reuse
-its KV cache. The prompt is silently re-billed from token zero. That costs the
-user real money on every single turn, and nothing else in the suite would catch
-it because the output is still *correct*, just expensive.
-
-So this test is deliberately paranoid. It drives the REAL pipeline
-(``run_pipeline`` with the real director/writer/editor passes — nothing
-mocked but the network) and then asserts the invariants on the EXACT bytes
-that were handed to ``client.complete()``. Two independent witnesses are
-checked and required to agree:
-
-  1. ``CapturingClient`` records the literal ``messages``/``tools`` of every
-     ``complete()`` call — the true wire payload.
-  2. ``kv_tracker._entries`` records what each pass *claims* it sent (this is
-     the data the user reads in the KV report to decide whether the cache
-     held). We assert the tracker is honest by reconciling it against (1).
-
-If either witness shows the shared bottom diverging across passes, or the two
-witnesses disagree, the test fails loudly with the offending label.
-
-The invariants asserted (numbered per the architecture doc §4):
-  • Inv-1/2  every pass's prompt starts with the identical system+history prefix
-  • Inv-3    the tools blob is byte-identical across passes that share a model
-  • §3       the editor's prompt is a strict extension of the writer's prompt
-             (single-model only — in dual-model the editor lives on another server)
-  • Inv-5    in dual-model the writer drops tools entirely
-  • §6       across turns the new prefix is "old prefix + one (user,assistant) pair"
+Compare captured messages/tools with tracker records, covering shared system/
+history, stable tool blobs, Writer-to-Editor extension, dual-model tool omission
+and append-only history across turns. See docs/architecture/kv-cache.md.
 """
 
 from __future__ import annotations

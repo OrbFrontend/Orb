@@ -1,11 +1,7 @@
-"""Add the ``direction_notes`` table, its settings, and per-fragment recording timing.
+"""Add direction-note storage and settings, defaulting recording/injection off
+and fragment timing to post_turn.
 
-The table DDL is frozen here rather than read from ``schema.py``: migration 0067
-converts these notes to state fragments and 0079 drops the table, so the current schema
-no longer defines it. ``direction_notes_record`` defaults off, keeping recording opt-in;
-``direction_notes_inject`` (``off``/``director``/``writer``/``both``) defaults to ``off``;
-each direction-note fragment's ``direction_note_timing`` defaults to ``post_turn``, so it
-records after the reply unless set to record before the writer.
+Freeze historical DDL here: 0067 converts notes and 0079 drops the table.
 """
 
 from __future__ import annotations

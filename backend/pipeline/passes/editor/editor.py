@@ -486,16 +486,11 @@ async def _run_edit_loop(
     | list[ContentPart]
     | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
 ) -> AsyncIterator[dict]:
-    """ReAct-style edit loop with optional audit and/or length guard.
+    """Run the edit loop with optional audit and length guard.
 
-    Yields:
-        ``{"type": "reasoning", "delta": str}``
-        ``{"type": "draft_update", "draft": str}`` — after every mutation of the
-        working draft (per applied patch batch/rewrite); each is finished work
-        a stopped turn keeps, and ``done`` carries the final draft
-        ``{"type": "failure", "during": str, "label": str, "error": Exception}`` —
-        an iteration failed; the loop stops and ``done`` keeps the draft so far
-        ``{"type": "done", "draft": str|None, "debug": str, "elapsed": int}``
+    Yield reasoning, whole draft_update snapshots after mutations, failure on a
+    failed iteration, then done with the final draft/debug/elapsed. Stopped turns
+    retain completed draft updates.
     """
     t0 = time.monotonic()
     debug_parts: list[str] = []
@@ -822,22 +817,10 @@ async def _run_edit_loop(
             )
             debug_parts.append(f"Post-iteration {iteration + 1} audit ({report.total_issues} issues):\n{report_text}")
 
-            # ── Explaining a protected-sequence rejection
-            #
-            # A guard rejection is the one failure the model could act on and
-            # never hears about. The rejected target keeps the writer's original
-            # text, so its issues cannot clear, so `total_issues` cannot improve
-            # — which means one of the two stops below *always* fires first, and
-            # the replay that would have carried the reason is never reached.
-            # The model is left believing its patch landed.
-            #
-            # On the structured path the reason has somewhere to go: the
-            # tool-result turn already carries `errors` verbatim. So keep the
-            # loop alive for exactly one more iteration to deliver it, once per
-            # pass, and only while there is still a target to redo. The flat
-            # recap non-thinking models get has no tool-result slot, so those
-            # keep the quieter behaviour of stopping and leaving the span as the
-            # writer wrote it.
+            # Allow one extra structured iteration to deliver a protected-sequence
+            # rejection via tool-result errors, while a target remains. Otherwise the
+            # unchanged issue count would stop before feedback reaches the model.
+            # Flat recaps have no tool-result slot and keep the original span.
             explain_rejection = bool(rejected) and replay_structured and not guard_retry_spent and bool(targets)
             if explain_rejection:
                 guard_retry_spent = True

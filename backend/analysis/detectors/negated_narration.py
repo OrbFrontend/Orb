@@ -1,10 +1,7 @@
-"""Flag narration that repeatedly describes what does not happen.
+"""Detect repeated negated narration in one draft.
 
-The detector reads one draft, never its history. It excludes dialogue,
-standalone thoughts, and protected regions (fences, HTML, OOC asides) by
-source offset, so every finding addresses its exact characters in the input.
-A message passes the gate only with at least ``min_hits`` raw shape matches;
-a single denial is often good writing.
+Exclude dialogue, thoughts and protected regions by source offset.
+Require at least ``min_hits`` raw shape matches before reporting findings.
 """
 
 from __future__ import annotations

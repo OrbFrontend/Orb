@@ -183,17 +183,10 @@ async def get_workflow_config(workflow_id: str) -> dict:
 
 
 async def set_workflow_config(workflow_id: str, payload: dict) -> None:
-    """Atomic per-slot write via SQLite JSON1.
+    """Atomically replace one config slot; an empty dict removes it.
 
-    Empty dict clears the slot (json_remove); non-empty stores it (json_set).
-
-    Caller must hold ``backend.core.locks.workflow_config_lock()`` across the
-    read-then-write the payload was computed from. Direct use without the
-    lock is safe for blind-replace writes -- a single ``json_set`` is
-    atomic at the SQL layer -- but RMW sequences (``get_workflow_config``
-    -> mutate -> ``set_workflow_config``) silently lose writes under
-    contention because the read happens in a separate transaction outside
-    the lock window.
+    Hold workflow_config_lock across read-modify-write sequences. Blind replaces
+    need no lock, but a prior read outside the lock can lose concurrent updates.
     """
     async with get_db() as db:
         if not payload:
@@ -212,15 +205,9 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
 
 
 async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
-    """Set one workflow's on/off flag via a per-key JSON1 write.
+    """Atomically set one workflow flag without replacing other map entries.
 
-    Writes only the named key in the ``workflow_enabled`` map, never the whole
-    column, so two tabs flipping different workflows cannot clobber each other.
-    The ``json_set`` is a single atomic statement at the SQL layer with no
-    Python-side read-modify-write window, so it needs no application lock --
-    unlike ``set_workflow_config``, whose callers compute the payload from a
-    prior read. A missing key reads back as enabled, so this is the only writer
-    the per-workflow toggle ever needs.
+    No read-modify-write lock is needed; absent flags read as enabled.
     """
     async with get_db() as db:
         await db.execute(
@@ -250,15 +237,8 @@ async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
 
 
 async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
-    """Replace one local-ML feature's config blob via a per-key JSON1 write.
-
-    Same atomic ``json_set`` idiom as ``set_local_ml_enabled``: one named key,
-    so two features written concurrently can't clobber each other. The value is
-    the feature's whole config object (variant + gpu + batch size for the prose
-    rewriter), replaced rather than merged — the route sends the full shape.
-
-    Deliberately NOT in ``update_settings``'s allow-list, the same documented
-    exception ``local_ml_enabled`` has: this route is the only writer.
+    """Atomically replace one feature's complete Local ML config without touching
+    other features. The dedicated route is its only writer.
     """
     async with get_db() as db:
         await db.execute(

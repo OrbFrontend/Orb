@@ -1,5 +1,3 @@
-"""Tests for migration 0063's merge of the Prose Rewriter's two switches."""
-
 from __future__ import annotations
 
 import importlib

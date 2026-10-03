@@ -1,19 +1,6 @@
-"""The migration chain must reach the current ``schema.py``, not just agree with it.
+"""Upgrade a frozen historical schema to today's schema.
 
-``test_fresh_install_stamping`` builds *both* of its databases from ``schema.py``
-and then runs the chain over one of them. Migrations are idempotent against a
-column that already exists, so that test can only catch drift in one direction:
-a migration whose change was never mirrored into ``schema.py``.
-
-The other direction is invisible to it, and it is the direction that breaks
-users: a column added to ``schema.py`` with no migration to add it. Fresh
-installs read ``schema.py`` and look fine; every *upgrading* install runs the
-chain instead and ends up without the column, so the first query naming it fails
-with ``no such column``.
-
-This test closes that side by starting from a frozen historical schema — what an
-installed database actually looked like before the current work — and asserting
-the chain carries it all the way to today's ``schema.py``.
+Starting from the latest schema would miss columns lacking an upgrade migration.
 """
 
 from __future__ import annotations

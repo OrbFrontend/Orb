@@ -3,10 +3,8 @@ set -e
 
 source "$(dirname "$0")/_venv.sh"
 
-# Tests are process-independent (each gets its own temp database), so they
-# parallelize cleanly. Measured on a 10-core box: 8 workers is the knee --
-# past it the per-worker interpreter startup costs more than it returns.
-# Override with PYTEST_WORKERS (0 disables), or by passing your own -n.
+# Tests use independent temp databases. Cap workers at 8 to limit startup overhead.
+# Override with PYTEST_WORKERS (0 disables) or an explicit -n.
 if [ -z "${PYTEST_WORKERS:-}" ]; then
     NCPU="$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
     PYTEST_WORKERS=$(( NCPU < 8 ? NCPU : 8 ))
@@ -24,11 +22,7 @@ case " $* " in
 esac
 
 # Usage: ./scripts/tests.sh [unit|integration|all] [pytest args...]
-#   unit        -- run only tests/unit/
-#   integration -- run only tests/integration/
-#   all         -- run both suites (default; no arg)
-# Any other first arg is forwarded to pytest as a path or flag, along
-# with everything after it.
+# Default: all. Other first arguments pass directly to pytest.
 SUITE="${1:-all}"
 # Guarded so a bare invocation (no positional args) does not trip `shift`
 # under `set -e`; shift returns 1 when $# is 0 and would kill the script.

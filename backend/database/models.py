@@ -86,25 +86,15 @@ class SlopCardRow(TypedDict):
     mes_example: str
 
 
-#
-# These TypedDicts label the plain dicts the query layer fetches from SQLite
-# (``dict(row)``), so callers' ``row["key"]`` access is checked against the
-# schema with *zero* runtime change -- the rows stay ordinary dicts. They are
-# introduced at the query boundary with ``cast(...)`` (a TypedDict is not
-# assignable from a bare ``dict``). Add tables here one at a time; mirror the
-# columns in backend/database/schema.py. JSON-encoded columns are typed as the
-# *decoded* shape (``dict``/``list``) only on the queries that actually decode
-# them -- see the per-field notes below.
+# TypedDicts describe query-boundary dicts without changing their runtime shape.
+# Mirror schema columns; type JSON as decoded only where the reader decodes it.
 
 
 class _SettingsBase(TypedDict):
-    """The keys ``get_settings()`` *always* returns, in either branch -- the
-    ``DEFAULT_SETTINGS`` fallback (seeds.py) supplies exactly this set, and the
-    ``SELECT *`` branch supplies them too (every one is a persisted column or a
-    field the query unconditionally sets). Splitting these out as a ``total=True``
-    base lets readers subscript them (``settings["endpoint_url"]``) without a
-    not-required-access warning, while genuinely-conditional keys stay optional
-    on ``SettingsRow`` below. Keep this set in lockstep with ``DEFAULT_SETTINGS``.
+    """Keys always returned by get_settings, including DEFAULT_SETTINGS fallback.
+
+    Keep this required base in sync with DEFAULT_SETTINGS; conditional keys
+    belong on SettingsRow.
     """
 
     endpoint_url: str
@@ -145,17 +135,10 @@ class _SettingsBase(TypedDict):
 
 
 class SettingsRow(_SettingsBase, total=False):
-    """The merged settings dict returned by ``get_settings()``.
+    """Merged get_settings result, with guaranteed keys inherited from _SettingsBase.
 
-    The always-present keys live on :class:`_SettingsBase`; the keys here are
-    ``total=False`` because they are *not* guaranteed present --
-      1. several columns / JSON fields appear only on the ``SELECT *`` branch and
-         are omitted by the ``DEFAULT_SETTINGS`` fallback, and
-      2. the agent-endpoint cascade overlays the ``agent_*`` / ``endpoint_url``
-         extras only when an active model config resolves.
-    So this catches key *typos* and value-*type* mismatches without falsely
-    asserting presence. The write side of the same table is the Pydantic
-    ``SettingsUpdate`` in backend/main.py -- keep the two in sync.
+    Optional keys cover SELECT-only fields and resolved agent-endpoint overlays.
+    Keep types in sync with the API SettingsUpdate contract.
     """
 
     # Columns present on the SELECT * branch but omitted by DEFAULT_SETTINGS.
@@ -296,14 +279,10 @@ class ConversationListRow(ConversationRow, total=False):
 
 
 class MessageRow(TypedDict):
-    """A row from the ``messages`` table.
+    """Message row with decoded cooldowns and decision evaluations for path/list readers.
 
-    NOTE: ``fragment_cooldowns``, ``decision_cooldowns`` and ``decision_evaluations``
-    are JSON-*decoded*, which is how
-    get_path_to_leaf()/get_messages() expose them. ``get_message_by_id()`` does a
-    plain ``dict(row)`` and leaves them as raw JSON *strings* -- a pre-existing
-    inconsistency this label makes visible rather than fixes. Readers that need a
-    decoded record from a single row use ``decision_evaluations_of()``.
+    get_message_by_id leaves those fields as raw JSON strings; use
+    decision_evaluations_of when reading evaluations from a single row.
     """
 
     id: int
@@ -372,17 +351,10 @@ class _WorkflowAttachmentColumns(TypedDict):
 
 
 class WorkflowAttachmentRowBase(_WorkflowAttachmentColumns):
-    """The columns every byte-reading ``workflow_attachments`` reader projects.
+    """Common byte-reading attachment projection; WorkflowAttachmentRow adds message_id.
 
-    ``get_workflow_attachments_for_message()`` filters by ``message_id`` and
-    omits that redundant column, so it returns this base directly; the
-    single-row reader and the per-message attachment glue also project
-    ``message_id`` and return the fuller :class:`WorkflowAttachmentRow`. Split
-    out as a ``total=True`` base so those full-row readers can require the FK
-    (consumers subscript it) while the projection reader stays honest. Mirrors
-    the ``_SettingsBase`` / :class:`SettingsRow` split. ``data_b64`` is the
-    EVICTED_MARKER sentinel string once an artifact's bytes are evicted -- see
-    secondary-workflow.md §9.
+    Message-scoped readers omit that redundant FK. data_b64 becomes EVICTED_MARKER
+    after eviction; see secondary-workflow.md §9.
     """
 
     data_b64: str
@@ -483,13 +455,8 @@ class ModelConfigRow(TypedDict):
 
 
 class WorldRow(TypedDict):
-    """A row from the ``worlds`` table (``SELECT *``).
-
-    ``dynamic_enabled`` is the per-World opt-in for Agent-managed overlay rows;
-    ``content_revision`` is the optimistic-concurrency stamp bumped once per
-    *lore-content* mutation (authored CRUD, import, changeset apply/undo/reset)
-    and deliberately NOT by ``enabled``/``dynamic_enabled`` toggles or renames,
-    so the character-switch flow cannot invalidate pending proposals.
+    """World row. content_revision changes on lore mutations, including apply/undo/reset,
+    but not enablement toggles or renames, which must not stale pending proposals.
     """
 
     id: str
@@ -528,14 +495,9 @@ class LorebookEntryRow(TypedDict):
 
 
 class MemberSheetProposalRow(TypedDict):
-    """A row from ``member_sheet_proposals`` -- one staged rewrite of one
-    member's scene-local sheet, derived from one exchange.
+    """One staged scene-sheet rewrite per member, derived from an exchange.
 
-    ``base_sheet`` is the sheet the proposal was derived from, and doubles as the
-    staleness check ``worlds.content_revision`` is for a changeset: the apply
-    re-reads the member's current sheet and refuses when the two no longer match,
-    so a hand edit and a proposal cannot silently clobber each other.
-    ``exchange_id`` is the provenance pointer -- the exchange, not one speaker's message,
+    base_sheet guards against intervening edits; exchange_id records provenance
     because the pass runs once per exchange.
     """
 
@@ -552,16 +514,10 @@ class MemberSheetProposalRow(TypedDict):
 
 
 class WorldChangesetRow(TypedDict):
-    """A row from ``world_changesets`` -- one Agent proposal or one applied
-    history record, with ``operations`` / ``before_entries`` / ``after_entries``
-    JSON-*decoded* (``_parse_changeset`` runs on every read).
+    """World changeset with decoded operations and before/after snapshots.
 
-    ``status='superseded'`` is the terminal state of an original proposal after
-    re-evaluation, whether or not that evaluation produced a replacement row.
-    Durable independently of the conversation that produced it: the three
-    ``source_*`` id columns are ``ON DELETE SET NULL`` cross-domain pointers, and
-    the denormalised ``source_character_label`` / ``source_conversation_label``
-    keep applied history readable after the chat is gone.
+    Re-evaluated originals end as superseded, even without a replacement. Source
+    ids use SET NULL; stored labels keep history readable after chat deletion.
     """
 
     id: int
@@ -703,17 +659,10 @@ class DirectorStateRow(TypedDict):
 
 
 class ConversationLogRow(TypedDict):
-    """A ``conversation_logs`` row as get_conversation_logs() /
-    get_director_log_for_message() expose it.
+    """Conversation log with decoded tool_calls, active_moods_after and feedback.
 
-    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists.
-    The nullable TEXT/INTEGER columns come back ``None`` when unset
-    -- get_director_log_for_message() additionally defaults the ``reasoning_*``
-    keys to ``""``, but get_conversation_logs() leaves them as stored.
-    ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
-    user-facing note); both readers decode it and ``setdefault`` it for
-    pre-feature rows, mirroring the reasoning fields. (Feedback shares the
-    editor's reasoning/latency, so it has no columns of its own for those.)
+    Unset nullable columns stay None. The single-message reader defaults reasoning
+    fields to empty strings; both readers default feedback for pre-feature rows.
     """
 
     id: int
@@ -770,15 +719,7 @@ class CharacterCardRow(TypedDict, total=False):
 
 
 class DocumentListRow(TypedDict):
-    """The lightweight ``documents`` projection the sidebar list consumes
-    (``get_documents``): identity + timestamps, never the full ``content``.
-
-    NOTE: this is deliberately the *inverse* of the
-    ``ConversationListRow(ConversationRow)`` relationship. There the list row
-    *adds* join columns to the full base row; here the list view is a strict
-    *column projection* (it must not drag every document's full body into a list
-    payload), so the full :class:`DocumentRow` extends this projection instead.
-    """
+    """Lightweight sidebar document projection; DocumentRow adds the full content."""
 
     id: str
     title: str

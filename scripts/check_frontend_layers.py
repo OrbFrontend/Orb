@@ -1,27 +1,9 @@
 #!/usr/bin/env python3
-"""Frontend layering + plugin-boundary guardrail.
+"""Enforce frontend layers, acyclic imports and workflow boundaries.
 
-The frontend is flat vanilla ES modules with no build step, so architecture is
-enforced by convention + this lint rather than by a bundler. It checks, in order:
-
-  1. Layer import-direction. Every top-level frontend/*.js is assigned a layer
-     (LAYERS). A file may import only its own layer or a lower one. The known
-     current upward edges live in ALLOWED_UPWARD and shrink as the deferred
-     stages (3-5) land; a NEW upward edge fails. Top-level module imports
-     must also be acyclic, including imports within the same layer.
-  2. A ratchet and a rule. The count of inline `on*=` handlers (the
-     window-bridge surface) may only DECREASE: lower it and drop the ceiling;
-     never raise it. A leading underscore means module-private, as in the
-     backend, so importing an `_name` from another module fails.
-  3. Plugin boundary. A file under frontend/workflows/** may import only
-     `/static/workflow_api.js` and files inside its own workflow directory.
-     Static, side-effect, and literal dynamic imports are checked; computed
-     dynamic imports are rejected.
-  4. ABI snapshot. workflow_api.js's exports must equal FROZEN_ABI exactly, so an
-     accidental rename/removal of a plugin-facing export fails CI (additive-only:
-     a genuinely new export is added to FROZEN_ABI in the same commit).
-
-Exit non-zero on any violation. Wired into scripts/lint.sh.
+Check the inline-handler ratchet, cross-module private names and frozen
+workflow_api exports. Plugins may import only their own modules and workflow_api;
+computed dynamic imports are rejected. Exit non-zero on violations via lint.sh.
 """
 
 from __future__ import annotations

@@ -17,17 +17,10 @@ DOSSIER_EXAMPLE_HEADING = "### Example Dialogue"
 
 
 def carries_public_cast(mode: GroupContextMode) -> bool:
-    """True when the shared system body carries every member's public profile.
+    """Whether the shared body needs public profiles: private/swap do, shared does not.
 
-    Two of the three modes do, and for one reason: they keep a card's own text
-    away from everyone but its owner, so the curated profile is the only thing
-    the rest of the cast is ever told about a member. Under ``swap`` that block
-    sits in the system prompt exactly as it does under ``private`` -- the active
-    card is appended *after* it, not instead of it.
-
-    ``shared`` is the exception. There every member already reads every other
-    member's card, so a profile on top would be a second view of the same
-    member, rendered as a label on labels (``Public profile: Appearance: ...``).
+    Private card text stays owner-only; swap appends the active card after the
+    profiles. Shared mode already exposes every card.
     """
     return mode != "shared"
 
@@ -75,17 +68,10 @@ def macro_identity(conv: Mapping[str, Any], cast: TurnCast) -> tuple[str, str]:
 
 
 def member_macros(macros: Macros | None, member: CastMember, roster: str) -> Macros | None:
-    """Scope *macros* to one member, so ``{{char}}`` means that member.
+    """Scope char and description macros to a member's name and effective sheet.
 
-    Card text moved into the shared body would otherwise describe the group --
-    a card reading "{{char}} never lies" would start being about the scene
-    title. Only the seed and user name ride along untouched, so per-member
-    resolution stays byte-stable turn over turn.
-
-    ``{{description}}`` scopes for the same reason, to the member's own sheet.
-    A group has no single card to read it off, and the sheet is the group's
-    counterpart: it honours a scene override where the card cannot, at the cost
-    of carrying the personality line that the solo macro leaves behind.
+    Preserve user and seed for byte-stable resolution. Group description includes
+    personality and honours scene overrides, unlike the solo card-field macro.
     """
     if macros is None:
         return None

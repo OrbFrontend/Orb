@@ -1,17 +1,7 @@
-"""
-0033_disable_workflows -- add the workflow on/off toggles to settings.
+"""Add global and per-workflow enablement, defaulting to on.
 
-`workflows_globally_enabled` (default 1) is a master switch over all secondary
-workflows; `workflow_enabled` (default '{}') holds a per-workflow `{wid: bool}`
-map where a missing key means enabled. Both default to on so existing and fresh
-installs keep their current behaviour.
-
-The format_consistency workflow previously carried its own on/off flag in its
-config slot (`workflow_config.$.format_consistency.enabled`). That flag and the
-new per-workflow toggle answer the same question, so the flag is retired: if the
-user had explicitly turned it off, carry that disable into the new
-`workflow_enabled` map and drop the stale config key. A fresh DB has no such key,
-so the carry is a no-op there; a second run is a no-op because the key is gone.
+Move an explicit format_consistency config disable into workflow_enabled
+and remove the old key; its absence makes reruns a no-op.
 """
 
 from __future__ import annotations

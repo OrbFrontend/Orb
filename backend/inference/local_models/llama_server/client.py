@@ -306,17 +306,10 @@ class LlamaServerClient:
         stop: Sequence[str] = (),
         cache_prompt: bool = True,
     ) -> tuple[str, bool]:
-        """Stream one completion; return ``(text, stopped)``.
+        """Stream a completion; return (text, stopped), where stopped means model-ended.
 
-        ``stopped`` is whether the model ended the generation itself; a caller
-        trims the half-sentence tail of one that merely ran out of budget.
-        Cancelling the awaiting task closes the connection mid-stream, which
-        llama.cpp treats as a cancellation, so Stop frees the slot at once.
-
-        *stop* belongs to the CALLER'S WEIGHTS, not to llama-server: a stop
-        token is a property of the checkpoint's chat template. The key is
-        omitted entirely when nothing was asked for, so a caller with no stop
-        sequence sends the body a stop-less client would have sent.
+        Cancellation closes the connection and frees the server slot. Stop sequences
+        belong to the checkpoint template; omit the key if none were supplied.
         """
         payload: dict = {
             "prompt": prompt,

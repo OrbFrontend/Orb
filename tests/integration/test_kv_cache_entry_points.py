@@ -1,36 +1,8 @@
-"""
-test_kv_cache_entry_points.py — KV-cache tools/prefix consistency across EVERY
-message-generating entry point, not just ``/send``.
+"""Check shared system/tools prefixes across regenerate, super-regenerate, fork-edit
+and magic-rewrite against an established send turn.
 
-Why this file exists (the gap that shipped a real cache regression):
-
-    ``test_kv_cache_real_stack.py`` drives only ``handle_turn`` (``POST /send``)
-    and asserts the cache invariants *within one turn* — every pass compared
-    against its sibling passes. That can never catch a defect in a DIFFERENT
-    entry point, and it can never catch a single-call handler that diverges from
-    the conversation's established cache: ``handle_magic_rewrite`` once issued a
-    single LLM call, so "all my calls agree with each other" was trivially true
-    even when that one call shipped ``tools=None`` and busted the whole provider
-    prefix cache (cached_tokens -> 0). It now runs the full pipeline, but the
-    cross-entry-point invariant below still guards every call it makes.
-
-    The real bug: every normal pass ships the byte-identical tool-schema blob, so
-    the inference server caches a prefix that *includes* the templated tools
-    region. ``magic_rewrite`` sent no tools, diverging the prompt at that region
-    (near the top of the wire format) and re-billing from token zero.
-
-These tests drive each entry point through the genuine HTTP → handler →
-build_prefix → complete() stack and assert, at the ``FakeLLMClient`` boundary,
-that every entry point ships a tools blob and system prefix consistent with the
-conversation's cached turns. ``handle_turn`` is covered by the baseline turn each
-test establishes; the parametrized cases cover regenerate / super_regenerate /
-fork_edit / magic_rewrite.
-
-OUT OF SCOPE (same as the real-stack file): the fake replaces ``complete``
-wholesale, so the server's chat-template rendering is unknowable locally —
-provider ``usage`` is the only ground truth for that (see kv-cache.md §8). Here
-the tool *blob* each call ships is the local proxy for "the templated tools
-region is byte-stable across entry points."
+Capture at FakeLLMClient through the real HTTP/handler/prefix stack. Provider
+chat-template rendering and cache usage remain outside this offline test.
 """
 
 from __future__ import annotations

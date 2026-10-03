@@ -1,16 +1,6 @@
-"""The shared artifact manifest, and the invariants a stale one breaks silently.
-
-BASENAMES ARE THE WHOLE SAFETY PROPERTY. ``assets`` flattens every download
-into ``data/models/`` because upstream repos disagree about where a GGUF lives
-(root, ``gguf/``, ``GGUF/`` — two of which are ONE directory on macOS and
-Windows), and ``prune_stale`` then deletes anything in that directory the specs
-do not claim. So two failures are possible and neither announces itself: a
-basename two specs both claim is one file two features fight over, and a
-basename no spec claims is a multi-gigabyte weight ``prune_stale`` wipes the
-next time an unrelated Download button is pressed.
-
-Asserted from the manifest itself rather than a hardcoded list, so a fourth
-checkpoint is covered the moment it is added.
+"""Check artifact basenames directly from the manifest: downloads flatten paths,
+so shared basenames collide and unclaimed weights are pruned. New specs
+automatically participate.
 """
 
 from __future__ import annotations

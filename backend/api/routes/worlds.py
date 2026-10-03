@@ -173,13 +173,10 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
 
 @router.get("/api/worlds/{world_id}/export")
 async def api_export_lorebook(world_id: str, view: Literal["authored", "effective"] = "authored"):
-    """Export a lorebook as a standalone Tavern V2 ``character_book`` JSON file.
+    """Export a Tavern V2 character_book.
 
-    ``authored`` is the default and the backward-compatible behaviour: the file
-    holds the user's own lore, unchanged by whatever the Agent has proposed or
-    the user has accepted since. ``effective`` is opt-in and exports the
-    projection instead — the World as the prompt currently sees it, replacements
-    applied and suppressions removed.
+    Default ``authored`` exports original lore; opt-in ``effective`` exports
+    the projection with replacements applied and suppressions removed.
     """
     world = await get_world(world_id)
     if not world:

@@ -404,14 +404,8 @@ class LorebookEntryUpdate(BaseModel):
 
 
 class LorebookImportPayload(BaseModel):
-    # Accepts raw lorebook JSON as parsed by the frontend.
-    # Supports three common formats:
-    #   - standalone World Info export: {"entries": {"0": {...}, "1": {...}}}
-    #     where each entry has `key` (list), `comment`, `content`, `disable`, `order`, `caseSensitive`,
-    #     plus `selective` / `keysecondary` and `position` (4 = "@ Depth" → `at_depth`)
-    #   - Tavern V2 character_book: {"entries": [...]}
-    #     where each entry has `keys`, `name`, `content`, `enabled`, `insertion_order`, `case_sensitive`
-    #   - Character Card V3 character_book: as V2, plus `use_regex` and `selective`/`secondary_keys`
+    # Accept raw standalone World Info, Tavern V2 or V3 character_book JSON.
+    # Entry-field normalization belongs to the lorebook importer.
     entries: Any
 
 
@@ -474,17 +468,11 @@ class PublicProfilePayload(BaseModel):
 
 
 class SceneProfileGenerateRequest(BaseModel):
-    """One member's scene-profile drafting request.
+    """Draft one member's scene profile.
 
-    ``character_card_id`` is optional on purpose: Manage cast can draft for any
-    row, and a narrator row has no card. A narrator deserves a sentence saying
-    why, not a Pydantic 422 the UI has to translate.
-
-    ``cast_names`` comes from the client because the modal is client-side until
-    Save — a member added seconds ago exists only in the DOM. Names only, ever:
-    accepting another member's profile or description text here would put member
-    B's card into member A's draft, which is the one thing Private perspective
-    promises does not happen. Omit the field to fall back to the stored roster.
+    Card id is optional for narrator rows. Client cast_names includes unsaved
+    modal members but accepts names only to preserve private perspective;
+    omitting it falls back to the stored roster.
     """
 
     character_card_id: str | None = None

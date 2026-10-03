@@ -66,11 +66,7 @@ function _runningAction(att, kind) {
   return run?.kind === kind ? run.job : null;
 }
 
-/**
- * The job of the regenerate, reroll, or restore running on the attachment, or
- * null. A workflow drawing its own controls for these renders that button as
- * the job's Stop button, which calls `job.stop()`.
- */
+/** Return the attachment render job, or null. Its Stop control calls `job.stop()`. */
 export function workflowActionJob(msgId, attId) {
   return (
     _workflowActionInFlight.get(_resolveWorkflowRootId(msgId, attId))?.job ||
@@ -270,9 +266,7 @@ function _resolveWorkflowWidget(instanceId) {
   return { el, msgId, rootId, msg, group };
 }
 
-// Paging is repeated clicks on one arrow, so the arrow must not move: the card
-// never shrinks while paging (a shorter sibling, or an image still loading, would
-// pull it up), and the pane scrolls back by whatever the swap shifted it.
+// Keep the paging arrow stationary: preserve card height and compensate for scroll shifts.
 function _replaceSwipeKeepingArrow(el, html, delta) {
   const arrowSel = `.workflow-swipe-btn.${delta < 0 ? "prev" : "next"}`;
   const before = el.querySelector(arrowSel)?.getBoundingClientRect().top;
@@ -291,11 +285,7 @@ function _replaceSwipeKeepingArrow(el, html, delta) {
 
 window.workflowArtifactStep = (instanceId, delta) => _activateWorkflowVariant(instanceId, (_atts, cur) => cur + delta);
 
-/**
- * Show *siblingId* in its group, the way the arrow buttons page to it: the
- * card is swapped in place (so it works while a reply streams), then the
- * choice is saved and other tabs are told.
- */
+/** Swap *siblingId* in place, save the choice, and notify other tabs. Works during streaming. */
 export function activateWorkflowVariant(msgId, rootId, siblingId) {
   return _activateWorkflowVariant(`ws-${msgId}-${rootId}`, (atts) => atts.findIndex((a) => a.id === siblingId));
 }
@@ -495,11 +485,8 @@ function _showSiblings(convId, msgId, rootId, msgs, landed, onLanded) {
 // recovery then lasts until the run ends rather than stopping at the first.
 async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess, follow = null) {
   let deadline = Date.now() + 200_000;
-  // Our request died on the wire, so its outcome has to be read off the server:
-  // a new sibling means it landed, two consecutive "nothing running" answers
-  // mean it failed. Two, not one -- a single sample can fall in the window
-  // before the route reaches the lock, and the second pass re-checks for the
-  // sibling first, which also covers a render that finished mid-poll.
+  // After a dropped request, a new sibling confirms success. Require two idle polls
+  // to cover requests still waiting for the lock, checking for the sibling first.
   const seen = new Set(before);
   let landed = false;
   let idle = 0;
@@ -842,9 +829,7 @@ export function initWorkflowMutationListener() {
   });
 }
 
-// A workflow can finish a render while the reply still streams. Merge only its
-// attachments then: replacing the conversation would overwrite live prose and
-// rebuilding a message would detach the stream's DOM nodes.
+// Merge attachments without replacing live prose or detaching the stream's DOM nodes.
 function _applyWorkflowMessages(msgs, convId = S.activeConvId, token = S.conversationViewToken) {
   if (S.activeConvId !== convId || S.conversationViewToken !== token) return;
   if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null) {

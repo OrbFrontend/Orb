@@ -55,16 +55,9 @@ async def world_proposal_stage(
     turn: WorldProposalTurn,
     kv_tracker=None,
 ) -> AsyncIterator[dict]:
-    """Run the proposal step and record its results on *state*.
+    """Run World proposals into state with Editor-labelled reasoning and Inspector calls.
 
-    Yields the step's reasoning under the ``editor`` pass label (it shares the
-    agent lane and the post-turn placement with the editor's own sub-steps), and
-    appends the parsed tool call to ``state.calls`` so the inspector shows it
-    alongside the rest of the turn.
-
-    Every failure path leaves ``state.world_proposals`` empty rather than
-    raising. This runs immediately before the turn's ``_result``, so it must
-    never be able to cost the user their reply.
+    Failures leave world_proposals empty; this post-reply step must not fail the turn.
     """
     try:
         worlds, entries = await _load_targets(turn.world_ids, turn.conversation_id)

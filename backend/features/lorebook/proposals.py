@@ -68,13 +68,10 @@ def _compact(text: str) -> str:
 
 
 def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
-    """*text* with its middle dropped once it runs past ``head + tail`` characters.
+    """Trim the middle beyond head + tail characters, cutting at whitespace.
 
-    The gap is marked with the number of characters it stands for, because an
-    unmarked cut reads as the whole entry: the step would take lore the entry
-    already carries further down as missing, and propose a ``create`` for it.
-    Cuts fall on whitespace so neither end stops mid-word, and *text* comes back
-    untouched when the gap would not pay for its own marker.
+    Mark the omitted character count so truncation is explicit. Leave text intact
+    when the gap would be smaller than its marker.
     """
     if len(text) <= head_chars + tail_chars:
         return text
@@ -90,14 +87,10 @@ def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
 
 
 def _is_live_suppressor(entry: Mapping[str, Any]) -> bool:
-    """True for a live ``suppress`` marker that is still hiding something.
+    """Whether a live suppress marker still hides an authored target.
 
-    These are the one management-only row the catalog shows: they inject no lore,
-    but the Agent has to be able to name one to archive it when later events make
-    its authored target true again. A marker whose target has since been deleted
-    has nothing left to hide (the delete SET-NULLs the pointer), so it is neither
-    lore nor an actionable target -- listing it would only spend tokens on a row
-    that cannot even say what it suppresses.
+    Include these management-only rows so the Agent can archive them; detached
+    markers have nothing to restore and are excluded.
     """
     return (
         is_dynamic(entry)
@@ -228,13 +221,10 @@ def _target_id(raw: Mapping[str, Any]) -> int | None:
 
 
 class _WorldScope:
-    """Which Worlds an operation may land in, and how a ``create`` names one.
+    """Resolve and stamp operation Worlds for later splitting.
 
-    Built once per proposal. With *worlds* given, a ``create`` must resolve to
-    one of them (by name, or by id) and every accepted operation is stamped with
-    its World for :func:`split_by_world`. With none given the scope is whatever
-    single World *entries* came from, nothing is stamped, and ``target_world`` is
-    ignored — the caller already knows which World it is re-validating.
+    With worlds, create targets must match by name/id. Without worlds, retain
+    the caller's single-World scope and ignore target_world.
     """
 
     __slots__ = ("_by_name", "ids", "stamped")
@@ -365,14 +355,8 @@ def _operation_body(
     if not name or not content:
         return f"{op} needs both a name and content"
 
-    # A revise inherits from the row it targets whatever it does not restate --
-    # `update` against a dynamic row, `replace` against an authored one. Both are
-    # the model's single `revise` verb, and *when* an entry shows is a property of
-    # the lore being revised rather than of the layer it happens to sit in: a
-    # replacement that quietly dropped its target's `constant` would take a fact
-    # the World knew every turn and make it conditional, and one that dropped its
-    # keywords would stop answering to the words that used to summon it. A
-    # `create` stands on its own, so its fallback is the default.
+    # Revisions inherit omitted activation fields from the target, whether dynamic
+    # (update) or authored (replace). Creates use defaults.
     fallback: Mapping[str, Any] = target_row if op in ("update", "replace") else {}
     activation = _clean_str(raw.get("activation")).lower()
     if activation not in ACTIVATIONS:
@@ -496,16 +480,10 @@ def validate_proposal(
 
 
 def split_by_world(operations: Sequence[Mapping[str, Any]]) -> dict[str, list[dict]]:
-    """Group stamped operations by World, dropping the stamp.
+    """Group operations by stamped World, removing world_id before persistence.
 
-    One ``propose_world_changes`` call may touch several Worlds, but a changeset
-    belongs to exactly one — each has its own ``content_revision`` to race
-    against and its own review queue. This is the split, and it is also where the
-    transient ``world_id`` key :func:`validate_proposal` stamps comes off, so
-    what reaches the database is the same operation shape as ever.
-
-    Worlds come back in first-touched order; an unstamped operation is dropped,
-    since there is no World it could be filed under.
+    Preserve first-touched World order and drop unstamped operations; each changeset
+    has its own revision guard and review queue.
     """
     grouped: dict[str, list[dict]] = {}
     for op in operations:

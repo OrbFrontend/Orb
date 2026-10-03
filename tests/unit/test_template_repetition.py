@@ -174,7 +174,6 @@ class TestEdgeCases:
         assert result.flagged_templates[0].count >= 3
 
     def test_result_dataclass_fields(self):
-        """Verify FlaggedTemplate has expected fields."""
         text = "The test sentence one. The test sentence two. The test sentence three."
         result = detect_template_repetition(text, max_words=3, flag_threshold=3)
         assert len(result.flagged_templates) >= 1

@@ -1,7 +1,4 @@
-// Pure HTML builders for the Character Library duplicate finder.
-
-// This stays DOM-free so result grouping and side-by-side rendering are testable
-// under node --test. The L5 controller owns fetching, event wiring, and mutation.
+// DOM-free duplicate-finder HTML builders. The controller owns fetching, events and mutations.
 import { ARROW_LEFT_ICON, CHEVRON_RIGHT_ICON } from "./icons.js";
 import { avatarUrl, esc, escAttr, formatProseWithDiff, formatRelativeDate, sentenceDiff } from "./utils.js";
 
@@ -15,11 +12,8 @@ const COMPARE_FIELDS = [
   ["world", "World"],
 ];
 
-// A duplicate cluster is precisely the case where names identify nothing: three
-// cards called "Mallory" make "Keep Mallory" read identically on every button. Each
-// member therefore gets a letter that is assigned once per cluster and travels
-// into the comparison, so the letter the reader picked in the list is the letter
-// on the button that keeps it.
+// Assign stable letters per cluster so identically named cards remain distinguishable
+// in both the list and comparison controls.
 const MARKS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 function markAt(index) {
@@ -100,13 +94,8 @@ function choiceHtml(card, members, mostUsed) {
 }
 
 /**
- * One line of evidence: why this pair of cards matched.
- *
- * `named` is on only above two members, where a pair is one edge of the cluster
- * and has to say which edge. At exactly two the pair *is* the cluster: the names
- * are the choice list immediately above, and the header's own "Not duplicates"
- * already hides this very pair, so both would be a second copy of what is
- * already on screen.
+ * Render pair evidence. `named` identifies edges in clusters larger than two;
+ * a two-card cluster already supplies names and dismissal controls.
  */
 function pairHtml(pair, marks, named) {
   // The report orders a pair by card id; evidence rows read in cluster order so
@@ -139,13 +128,7 @@ function clusterTitle(members) {
   return names.size === 1 ? `${members.length} copies of “${only}”` : `${members.length} likely copies`;
 }
 
-/**
- * Render one reviewable cluster.
- *
- * Strong groups and possible pairs deliberately share this shape. A pair is a
- * cluster of two, so "which one am I keeping?" is answered the same way whether
- * the finder returned two cards or five.
- */
+/** Render strong groups and possible pairs with the same review controls. */
 function clusterHtml(ids, pairs, tier, byId) {
   const members = clusterMembers(ids, byId);
   const marks = new Map(members.map((card) => [card.id, card]));
@@ -185,15 +168,7 @@ export function possiblePairsHtml(pairs = [], cards = []) {
   return pairs.map((pair) => clusterHtml([pair.a, pair.b], [pair], "possible", byId)).join("");
 }
 
-/**
- * Render the report's review surface, separating strong groups from weak pairs.
- *
- * What keeping a copy costs is the same sentence for every match in the list, so
- * it is stated once above the list rather than under each of its headers. The
- * empty case renders nothing at all: the status line directly above the results
- * already reports a scan that found nothing, and a panel repeating it under that
- * line is the same sentence twice.
- */
+/** Separate strong groups from weak pairs. Empty results leave reporting to the status line. */
 export function duplicateResultsHtml(report) {
   const groups = report?.groups || [];
   const pairs = report?.pairs || [];
@@ -211,16 +186,8 @@ function valueFor(cardView, key) {
 }
 
 /**
- * Render one field as a single unified diff.
- *
- * The side-by-side form printed every field up to four times -- once per column,
- * each carrying both a before and an after block -- so an identical description
- * filled the panel with four copies of itself. One inline diff says the same
- * thing once: shared text is plain, struck text belongs only to A, and
- * highlighted text only to B.
- *
- * Values are escaped before they enter the diff tokens, because
- * formatProseWithDiff is a prose formatter rather than an escaping boundary.
+ * Render a unified field diff: shared text is plain, A-only struck, B-only highlighted.
+ * Escape values first; formatProseWithDiff does not escape input.
  */
 function fieldDiff(a, b) {
   const before = esc(a || "");
@@ -239,10 +206,7 @@ const FIELD_TAGS = { changed: "changed", same: "identical", empty: "empty on bot
 /** One collapsible field. Only the fields that actually differ are open on arrival. */
 function fieldHtml(label, diff) {
   const head = `<span class="lib-dupe-field-name">${esc(label)}</span><span class="lib-dupe-field-tag is-${diff.state}">${FIELD_TAGS[diff.state]}</span>`;
-  // A field empty on both sides has nothing to expand, so it is a plain row
-  // rather than a <details> with an empty body and a marker that does nothing.
-  // It still holds the chevron's column, so its label stays in line with the
-  // rows above and below it.
+  // Keep empty fields as plain rows, retaining the chevron column for alignment.
   if (diff.state === "empty") {
     return `<div class="lib-dupe-field is-empty"><div class="lib-dupe-field-head"><span class="lib-dupe-field-mark"></span>${head}</div></div>`;
   }

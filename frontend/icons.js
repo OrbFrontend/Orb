@@ -1,15 +1,5 @@
-// Shared inline SVG icons.
-//
-// Icons are drawn, never typed. A glyph like "×" is centred against the font's
-// metrics, not against its own ink, so the same button looks centred in one
-// theme and visibly low or high in the next -- every theme swaps --font-ui, and
-// several also hang a text-shadow off it. Symbol glyphs make it worse: "⠿" and
-// "⋯" miss most UI fonts entirely and land in whatever the OS substitutes, so
-// they drift again per platform. A stroked path in a square viewBox is centred
-// by geometry, so it lands identically in every theme and on every OS.
-//
-// Size with --ui-icon-size (default 16px); pair with .btn-square (css/forms.css)
-// for an icon-only button that needs a fixed box.
+// Shared SVG icons avoid font-dependent glyph alignment and shadows.
+// Size with --ui-icon-size (default 16px); use .btn-square for icon-only buttons.
 const icon = (paths) =>
   `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
 

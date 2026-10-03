@@ -171,18 +171,11 @@ def build_writer_tools_blob(
     dynamic_world: bool = False,
     grouped: bool = False,
 ) -> tuple[dict, dict[str, bool]]:
-    """Build the tool schemas shared by cached calls.
+    """Build shared schemas and return (overrides, enabled_tools copy).
 
-    Returns ``(schema_overrides, enabled_tools)``: the overrides, and a copy of
-    *enabled_tools* with every tool this turn's features and fragments switch on.
-
-    *defined_fragments* is every fragment the user and the cast's cards define,
-    enabled or not. The blob renders ahead of the conversation, so enabling or
-    disabling a fragment must not change a byte of it: each fragment-built tool
-    offers every defined fragment, and the pass that calls it names the enabled
-    ones in its trailing request, narrows the call to them, and drops the rest --
-    the rule fragment cooldowns already follow. Fragment properties carry their
-    name and type only, so a disabled fragment's text never reaches the lane.
+    Include all defined fragments so enablement never changes the cached blob.
+    Properties expose names/types only; trailing requests supply enabled fragment
+    text and narrow the live call.
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)

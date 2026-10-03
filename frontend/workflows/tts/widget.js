@@ -392,11 +392,8 @@ function computeBlockMap(msg) {
   if (!segs.length) return { map, wordIndices, ready: false };
   const blocks = attachmentBlocks(msg.content || "", cm.blocks);
   const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: alignmentKey(s.word), raw: s.word }));
-  // `alignableKeys` is the tokenizer the backend mirrors when it emits one timing
-  // span per word, so the karaoke driver can pair the k-th span with the k-th
-  // index below. Splitting these apart by hand drifts from that contract on the
-  // separators only one of the two splitters knows, and the driver, which checks
-  // the two lengths agree, then silently stops highlighting the block.
+  // Use alignableKeys to mirror backend timing tokens; differing splits would
+  // break karaoke's one-span-per-word contract.
   const blockTokens = blocks.slice(0, Math.min(blocks.length, clipCount)).map(alignableKeys);
   const starts = alignBlocks(words, blockTokens);
   for (let bi = 0; bi < blockTokens.length; bi++) {

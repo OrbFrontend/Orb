@@ -1,15 +1,7 @@
-"""Migration 0045: inline-macro columns for {{random}} stability.
+"""Add macro_choices for persistent fragment random picks and macro_seed for
+rebuilt prompt fields.
 
-``director_state.macro_choices`` — per-conversation {{random}} picks for
-mood/interactive fragment text: a JSON map of
-"surface:fragment_id:macro_text:ordinal" → chosen option (see
-``core.macros.resolve_stored_random``), so a fragment's random macros resolve
-once per conversation and stay fixed.
-
-``conversations.macro_seed`` — the seed for seeded {{random}} resolution in
-per-turn-rebuilt prompt fields (persona, scenario). Empty means "use the
-conversation's own id"; checkpoint and compress copies carry the source's
-effective seed so seeded picks stay byte-identical to the copied history.
+Empty seed uses conversation id; forks copy the effective seed for prefix parity.
 """
 
 from __future__ import annotations

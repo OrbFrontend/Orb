@@ -438,17 +438,10 @@ async def refetch_references(
     *,
     slots: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[ResolvedReference, ...]:
-    """Re-fetch a stored render's references strictly by recorded origin.
+    """Reload references strictly from recorded origins; never re-resolve on reroll.
 
-    Reroll promises only the seed changes, so this never re-resolves: a deleted,
-    evicted, or content-changed origin fails loudly instead of changing the subject.
-    The origin carries everything needed, which lets this run on the history-free
-    reroll ctx.
-
-    `slots` is the *target's* list, not the record's -- the stored shape carries no
-    policy, so the mime/size rules and the slot each reference occupies must come
-    from what renders this time (see `_pair_with_slots`). Passing none echoes the
-    record back unbounded, which only a caller with nothing to render should do.
+    Fail on missing, evicted or changed origins. Target slots supply current MIME/
+    size policy; omitting slots echoes unbounded records for non-rendering callers.
     """
     entries = [entry for entry in recorded if isinstance(entry, Mapping)] if isinstance(recorded, (list, tuple)) else []
     if not entries:

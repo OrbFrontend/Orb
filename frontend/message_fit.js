@@ -1,22 +1,6 @@
-// Post-layout rescue for card HTML that was written for a desktop window.
-//
-// message_html.js scopes a card's CSS and chat.css contains it, but neither can
-// see that the card's layout assumes a viewport far wider than a phone bubble.
-// The failure that produces is specific, and silent: a two-column card built the
-// way the old web built them -- `.rail { float: right; width: 300px }` beside
-// `.article { margin-right: 320px }` -- leaves the article a negative content
-// width inside a ~290px bubble. It clamps to zero, every word wraps onto its own
-// line, and the message becomes thousands of pixels of blank space. `contain:
-// paint` on `.msg-css-scope` then clips the overflow, so there is no scrollbar
-// and nothing to hint that the card is there at all.
-//
-// Only layout knows this happened, so the check has to run after insertion: a
-// block that has height but no width, and real text inside it, has collapsed.
-// Such a block gets back the width its own margins asked for, inside a
-// horizontally pannable wrapper, so the card lays out as its author wrote it and
-// the prose around it keeps the bubble's width. Cards that already fit are left
-// alone -- the collapse itself is the trigger, not the viewport, so a narrow
-// desktop window is rescued on the same terms as a phone.
+// Restore card blocks that have text and height but collapse to zero width.
+// Run after layout: return the width their margins require inside a pannable
+// wrapper, preserving surrounding prose width. Trigger on collapse at any viewport.
 
 /** Characters of text before a zero-width box is worth rescuing. */
 const MIN_TEXT = 20;
@@ -28,13 +12,7 @@ const COLUMN = 260;
 const MIN_PAN = 420;
 const MAX_PAN = 900;
 
-/**
- * Blocks that laid out with height but no width.
- *
- * A hidden block measures 0x0, and an inline box that wraps tightly still
- * reports a width, so height-without-width is what separates a real collapse
- * from either.
- */
+/** Find blocks with height but no width, excluding hidden 0x0 blocks and inline boxes. */
 function collapsedBlocks(scope) {
   const found = [];
   for (const el of scope.querySelectorAll("*")) {
@@ -88,10 +66,8 @@ function fitScope(scope) {
 }
 
 /**
- * Rescue collapsed card layouts under `roots` (an element, or a list of them).
- *
- * Call after the markup is in the document and before anything measures the
- * bubble's height: rescuing changes it by thousands of pixels.
+ * Rescue collapsed card layouts under one root or a list of roots.
+ * Call after insertion and before measuring bubble height.
  */
 export function fitMessageCards(roots) {
   if (!roots) return;

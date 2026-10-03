@@ -1,19 +1,7 @@
-"""Add the Character Library's curated tag vocabulary and the auto-tagger stamps.
+"""Add library_tags vocabulary and card auto-tag staleness stamps.
 
-The feature landed over four migrations (0058-0061) that argued with each other:
-a ``character_auto_tags`` side table, then folding it into ``character_cards``,
-then an ``imported_tags`` stash column, then dropping the stash. None of that
-shipped anywhere, so the chain is collapsed to the shape it settled on:
-
-* ``library_tags`` -- the ordered vocabulary the library filter draws its chips
-  from. ``table_create_sql`` sources the DDL from ``schema.py`` so an upgraded
-  database gets the same shape as a fresh install (the chain-completeness gate
-  in ``test_migration_chain_completeness``). ``CREATE TABLE IF NOT EXISTS`` keeps
-  it idempotent without a ``PRAGMA`` guard.
-* ``character_cards.auto_tag_vocab_hash`` / ``auto_tag_card_updated_at`` -- the
-  staleness rule: a card is re-tagged when the vocabulary or the card itself has
-  changed since its last run. A run rewrites the card's own ``tags`` column, so
-  there is one visible tag list, not two.
+Use canonical table DDL. Runs rewrite the card's tags when vocabulary
+or card content changes.
 """
 
 from __future__ import annotations

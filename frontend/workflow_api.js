@@ -143,12 +143,8 @@ export function registerRegenerateSettled(wid, fn) {
 const _actions = new Map(); // action name -> handler
 let _actionsWired = false;
 
-// The events `data-wf-on` may name. Drag events are here so a workflow can
-// declare a drop target in markup like any other control: a drop target is
-// three events on one element -- `dragover` must preventDefault or the browser
-// never fires `drop` -- so `data-wf-on` takes a space-separated LIST and the
-// handler switches on `e.type`. `input` is for text a panel keeps as the user
-// types, where `change` would wait for the field to lose focus.
+// Allowed data-wf-on events. Space-separated names support drop targets
+// (dragover must preventDefault); input handles edits without waiting for blur.
 const _ACTION_EVENTS = ["click", "change", "input", "dragover", "dragleave", "drop"];
 
 function _dispatchAction(e, type) {

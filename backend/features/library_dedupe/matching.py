@@ -1,12 +1,6 @@
-"""Pure duplicate matching: blocking, pair scoring, reasons, and grouping.
+"""Pure duplicate blocking, scoring and grouping over fingerprint signals.
 
-Deliberately free of I/O and of Pillow.  Everything here is a function of the
-signals ``fingerprint.py`` produced, so the whole tier/threshold argument is
-unit-testable without a database, an image decoder, or a card on disk.
-
-The five thresholds are named module constants rather than literals buried in
-the predicates: they are the part of this feature that gets tuned against a real
-library, and tuning must be a one-line change rather than a hunt.
+Thresholds are module constants for library-based tuning; no I/O or Pillow here.
 """
 
 from __future__ import annotations
@@ -69,13 +63,9 @@ POSSIBLE = "possible"
 
 @dataclass(frozen=True)
 class CardSignals:
-    """Everything the matcher knows about one card.
+    """Card matching signals; field_hashes includes only non-empty normalized fields.
 
-    ``field_hashes`` holds only the fields whose normalized value is non-empty.
-    That is load-bearing: most cards ship a blank ``system_prompt``, ``scenario``
-    and ``mes_example``, so indexing the hash of "" would drop the whole library
-    into one block and generate a flood of "same system prompt" reasons for cards
-    that merely each left it empty.
+    Hashing blank fields would group unrelated cards and generate false match reasons.
     """
 
     card_id: str
@@ -303,13 +293,10 @@ def find_duplicates(
     *,
     dismissed: Mapping[tuple[str, str], tuple[str, str]] | None = None,
 ) -> dict:
-    """Score every candidate pair and split it into strong groups and possible pairs.
+    """Score candidate pairs into strong groups and possible pairs.
 
-    *dismissed* maps a canonical pair to the two ``body_hash`` values recorded
-    when it was dismissed. A dismissal lapses the moment either card's current
-    body hash differs — that is "revisit only after meaningful changes", and
-    because ``body_hash`` excludes tags and public profiles, re-tagging the
-    library cannot resurrect a dismissed pair.
+    Dismissals store both body_hash values and lapse on content changes;
+    tags and public profiles do not affect body_hash.
     """
     by_id = {s.card_id: s for s in signals}
     dismissed = dismissed or {}

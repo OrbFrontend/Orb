@@ -32,13 +32,9 @@ ContentPart = TextPart | ImagePart
 
 
 class ChatMessage(TypedDict):
-    """One OpenAI-format chat message in a pipeline *prefix* (the system prompt
-    plus chat history that every pass shares byte-for-byte for KV-cache reuse).
+    """A text or multimodal message in the shared, byte-stable pipeline prefix.
 
-    A closed shape: a prefix only ever holds these three roles with text or
-    multimodal content. The broader wire messages a pass *appends* before a
-    call -- assistant turns carrying ``tool_calls`` / ``reasoning_content`` and
-    ``tool``-role results -- are the other members of :data:`WireMessage`.
+    Pass-appended tool calls, reasoning and tool results use WireMessage instead.
     """
 
     role: Literal["system", "user", "assistant"]

@@ -1,18 +1,6 @@
-"""Reset-to-defaults must not desync the workflow attachment cache.
-
-``reset_to_defaults`` rebuilds the settings row (DELETE + re-seed) but RETAINS
-every ``workflow_attachments`` row. The two attachment-cache bookkeeping columns
-describe those retained rows, so they are carried across the rebuild rather than
-snapped back to schema defaults:
-
-  - ``attachment_access_counter`` is the monotonic LRU-3 clock. If it reset to 0
-    while retained rows still held ``recent_accesses`` from the old counter
-    space, eviction order would invert (old artifacts protected, new ones
-    evicted first).
-  - ``attachment_cache_budget_bytes`` is the cache size limit.
-
-These tests pin that retention while confirming reset still clears the data it
-is supposed to (settings + seedable fragments).
+"""Check that reset retains attachment access counter and budget alongside cached rows,
+while resetting ordinary settings and fragments. Resetting the counter would
+invert eviction order across old and new artifacts.
 """
 
 from __future__ import annotations

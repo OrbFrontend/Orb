@@ -1,11 +1,4 @@
-"""
-0044_drop_retry_settings -- remove the transient-error retry settings columns.
-
-Retry is now always on with fixed defaults (inference/retry.py): exposing error
-handling as a user toggle was bad UX, and nobody can sensibly tune it. Drop the
-columns 0040 added so stored DBs (and imported presets, which replay migrations)
-carry no trace of the retired setting.
-"""
+"""Drop retry settings added by 0040; inference/retry.py now supplies fixed defaults."""
 
 from __future__ import annotations
 

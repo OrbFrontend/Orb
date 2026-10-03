@@ -1,5 +1,3 @@
-"""Integration tests for interactive fragments CRUD API and DB persistence."""
-
 from __future__ import annotations
 
 import pytest

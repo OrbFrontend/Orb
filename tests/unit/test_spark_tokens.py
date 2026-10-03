@@ -1,5 +1,3 @@
-"""Tests for the Spark-TTS token contract."""
-
 from __future__ import annotations
 
 import pytest

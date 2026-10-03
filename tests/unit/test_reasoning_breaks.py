@@ -1,5 +1,3 @@
-"""Tests for separating reasoning across completion calls."""
-
 from __future__ import annotations
 
 import json

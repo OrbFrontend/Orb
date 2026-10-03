@@ -53,17 +53,10 @@ def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict 
 
 
 def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
-    """A non-terminal ``warning`` event for a hook failure the user can act on.
+    """Return a non-terminal warning for WorkflowUserFacingError; defects stay log-only.
 
-    The turn legitimately continues -- a post-pipeline render that the provider
-    rejected does not invalidate the prose -- so the exception stays swallowed.
-    What stops is the *hiding*: a ``WorkflowUserFacingError`` names something the
-    user chose or configured, and vanishing into the log is the failure mode
-    ``workflows/errors.py`` exists to prevent. Anything else is a defect, and a
-    defect is log-only per the same doctrine.
-
-    ``warning``, not ``error``: sse-stream.md documents ``error`` as the single
-    *terminal* channel, and a mid-stream one would break that contract.
+    Hook failures do not invalidate prose. Do not emit error here: SSE reserves
+    it for terminal failure.
     """
     if not isinstance(exc, WorkflowUserFacingError):
         return None
@@ -111,18 +104,10 @@ async def run_post_pipeline(
 ) -> AsyncIterator[dict | PostPipelineResult]:
     """Run selected POST_PIPELINE hooks over the post-Editor draft.
 
-    Streams pass-through SSE events and yields one final
-    :class:`PostPipelineResult` when all hooks have run. Each hook may replace
-    the draft once, attach artifacts, or set per-message state. Hook failures
-    are logged and skipped so one bad hook cannot crash the turn. By default
-    every hook runs; ``post_workflow_ids`` lets an off-turn caller reuse this
-    dispatcher for an explicit subset without firing unrelated workflows.
-
-    A stop (the client's abort token) starts no further hook and interrupts the
-    running one; its events after the stop, such as an auto-play cue, are
-    dropped. What a hook had already handed over -- a whole replacement draft, a
-    complete artifact, message state -- stays, and *on_accepted* receives the
-    result so far each time that grows, so a turn cancelled mid-hook still saves it.
+    Yield public events and a final PostPipelineResult; log and skip hook failures.
+    post_workflow_ids restricts dispatch. Stop interrupts the active hook and
+    starts no more, dropping later events but retaining accepted drafts/artifacts/
+    state. on_accepted receives each growing result for cancellation-safe saves.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
@@ -360,17 +345,10 @@ async def iterate_pre_pipeline_hooks(
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
 ) -> AsyncIterator[dict]:
-    """Run every PRE_PIPELINE workflow hook before the pipeline starts.
+    """Run PRE_PIPELINE hooks, forwarding events and merging tools/system extras.
 
-    Yields pass-through SSE events and mutates *accumulators* in place:
-    ``enable_tools`` yields fold extra tools into the merged map;
-    ``system_prompt`` yields append blocks to the extras list. Hook failures
-    are logged and skipped.
-
-    *accumulators* must be pre-populated with
-    ``{"merged_enabled_tools": <dict>, "extras": []}``.
-
-    A stop starts no further hook and interrupts the running one.
+    Prepopulate accumulators with merged_enabled_tools and extras. Log and skip
+    hook failures; Stop interrupts the current hook and starts no more.
     """
     abort: AbortToken | None = getattr(client, "abort_token", None)
     for sub in iter_subscriptions(HookType.PRE_PIPELINE):

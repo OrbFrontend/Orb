@@ -198,11 +198,8 @@ export function trimIncompleteMarkup(text) {
 // Keep DOMPurify's default tag set; narrow it with the forbids below.
 const SANITIZE_CONFIG = {
   ADD_TAGS: ["custom-style"],
-  // Embedding, navigation and deferred parsing are not message content. A form
-  // submits (navigating the app, or posting what was typed off-site); without
-  // one the controls submit nowhere, so `input`, `button`, `select` and
-  // `textarea` stay -- a checkbox is how a card writes a disclosure widget
-  // without script. `appearance: base-select` is held back in message_css.js.
+  // Block embedding, navigation and deferred parsing. Keep form controls without
+  // forms; message_css.js blocks top-layer appearance: base-select.
   FORBID_TAGS: ["form", "style", "template", "slot", "iframe", "object", "embed", "script", "base", "link", "meta"],
   // Remove unsolicited fetch/noise and alternate URL surfaces. The popover and
   // command triggers go with them: both paint in the top layer, which is the one
@@ -242,10 +239,8 @@ function installHooks() {
   _hooksInstalled = true;
 
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    // `data-chat-action` becomes `data-custom-chat-action`: the card's CSS still
-    // finds it (message_css.js renames `[data-*]` and `attr()` to match), and no
-    // app dispatcher selects on it. Rewritten here because DOMPurify writes an
-    // attribute back under its original name after `uponSanitizeAttribute`.
+    // Rename data-* after sanitising so app dispatchers cannot select card attributes.
+    // CSS uses the same rename; uponSanitizeAttribute would restore the original name.
     for (const attr of Array.from(node.attributes || [])) {
       if (!/^data-/i.test(attr.name) || /^data-custom-/i.test(attr.name)) continue;
       node.removeAttribute(attr.name);
@@ -295,10 +290,7 @@ function installHooks() {
   });
 }
 
-// Attributes that name another element by its id. The sanitiser rewrote every
-// id it wrote, so a reference still spelling the original points at nothing --
-// which is what leaves `<label for>` pointing past its checkbox. The value is
-// true where the attribute takes a space-separated list of ids.
+// Rewrite id references to match sanitised ids. True marks space-separated id lists.
 const ID_REF_ATTRS = new Map([
   ["for", false],
   ["list", false],

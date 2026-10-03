@@ -177,13 +177,8 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
 
 
 async def delete_conversation(cid: str) -> bool:
-    """Delete one conversation, keeping the rest of its group family together.
-
-    Deleting the root of a family would otherwise strand its forks: the FK
-    clears their ``group_root_id`` and each one surfaces as a separate group --
-    exactly the duplication the lineage exists to prevent. So the oldest
-    survivor is promoted to root and the others re-pointed at it first, in one
-    transaction with the delete.
+    """Delete a conversation atomically, promoting the oldest surviving family
+    member and repointing forks if the root is removed.
     """
     async with immediate_tx() as db:
         rows = list(
@@ -281,15 +276,9 @@ async def get_workflow_state(conv_id: str, workflow_id: str) -> dict | None:
 
 
 async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | None) -> None:
-    """Atomic per-slot write via SQLite JSON1.
+    """Atomically write one workflow-state slot; None removes it, {} stores it.
 
-    payload=None removes the slot. Empty dict stores {}. No-op if conversation
-    missing (UPDATE matches zero rows).
-
-    Caller must hold ``backend.core.locks.workflow_state_lock(conv_id, workflow_id)``
-    across the read-then-write the payload was computed from. Acquisition
-    sites: ``backend.api.routes.workflows.api_trigger_workflow`` and the pre/post pipeline
-    hook loops in ``backend.pipeline.workflow_bridge``. Direct use outside those paths
-    re-introduces the read-modify-write clobber.
+    Missing conversations are a no-op. Hold workflow_state_lock(conv_id, workflow_id)
+    across any read-modify-write sequence to avoid lost updates.
     """
     await set_workflow_slot("conversations", "id", conv_id, workflow_id, payload)

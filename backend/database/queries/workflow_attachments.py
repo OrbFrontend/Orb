@@ -25,26 +25,20 @@ EVICTED_MARKER = "[evicted]"
 
 
 def staging_root() -> str:
-    """Canonical root directory for path-shape attachments.
+    """Root for file-path attachments.
 
-    Path-shape attachments let a workflow reference a file on disk instead of
-    inlining bytes. Since the path can be influenced by user input, each
-    ``open()``/``stat()`` call normalizes it with ``realpath`` and rejects it
-    unless it lives under this root. Inlined (not a shared helper) so CodeQL
-    ``py/path-injection`` can trace the guard to the sink.
+    Each open/stat validates realpath containment inline so CodeQL can trace
+    the guard to the sink.
     """
     configured = os.environ.get("ORB_WORKFLOW_STAGING_DIR") or tempfile.gettempdir()
     return os.path.realpath(configured)
 
 
 def encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
-    """JSON-encode a dict-shaped metadata field, or return None for absent/bad shape.
+    """Strictly JSON-encode dict metadata, otherwise return None.
 
-    Non-dict values produce None silently -- the row helper accepts these from
-    callers that have already coerced them and from defensive paths upstream.
-    A dict containing non-serializable contents (e.g. nested ``set``) or
-    non-finite numbers trips strict JSON encoding; the error is logged and the
-    column is written as NULL so the row insert still lands.
+    Log serialization failures, including non-finite numbers, and store NULL
+    so malformed metadata does not prevent inserting the attachment.
     """
     if not isinstance(value, dict):
         return None

@@ -1,11 +1,4 @@
-"""
-0041_endpoint_proxy -- add the per-endpoint LLM proxy URL.
-
-Empty string (the default) means no proxy, so that endpoint's LLM requests keep
-connecting directly (the prior behavior). A set value routes them through the
-proxy; httpx accepts http/https/socks5 URLs (socks5 via the httpx[socks] extra).
-The scheme is validated at the API layer (EndpointUpdate), not in the DB.
-"""
+"""Add per-endpoint proxy_url; empty means direct. Validate schemes at the API layer."""
 
 from __future__ import annotations
 

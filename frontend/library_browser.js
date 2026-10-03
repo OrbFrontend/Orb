@@ -151,13 +151,7 @@ function viewButtonHtml({ mode, label, icon }) {
   return `<button class="view-toggle-btn${_browserViewMode === mode ? " active" : ""}" data-view="${mode}">${icon}<span>${label}</span></button>`;
 }
 
-/** Delegated listeners for the two controls the modal rebuilds on every open.
- *
- * Both containers outlive their contents (the chip row's innerHTML is replaced
- * once the card cache lands), so one listener each is enough — and it keeps the
- * handlers off the ``window`` bridge, which is the direction the inline-handler
- * ratchet only moves in.
- */
+/** Delegate on persistent containers so rebuilt chip rows keep their listeners. */
 function wireBrowserChrome() {
   $("char-browser-view-toggle")?.addEventListener("click", (e) => {
     const mode = e.target.closest("[data-view]")?.dataset.view;
@@ -198,11 +192,7 @@ function renderManagerPanel() {
   });
 }
 
-/** Re-read the cards after a run and repaint everything that shows tags.
- *
- * The card cache is what went stale: a run rewrote ``tags`` on every card it
- * touched, and the sidebar reads the same cache, so this reloads it rather than
- * patching the browser's private copy. */
+/** Reload the shared card cache after tagging so the browser and sidebar agree. */
 async function refreshAfterRun() {
   try {
     await loadCharacters();
@@ -279,12 +269,7 @@ function computeTopTags() {
   );
 }
 
-/** Keep the selection pointing at chips that still exist.
- *
- * A run rewrites tags, so the recomputed row can drop a chip that is still
- * selected — which would go on hiding cards with nothing on screen to explain
- * it — or keep the tag under a different spelling than the one that was
- * clicked, leaving the chip looking unselected while it filters. */
+/** Drop vanished tag selections and adopt current spelling to avoid invisible filters. */
 function reconcileSelectedTags() {
   const byKey = new Map(_browserTopTags.map((tag) => [tag.toLowerCase(), tag]));
   const kept = [..._browserSelectedTags].map((tag) => byKey.get(tag.toLowerCase())).filter(Boolean);

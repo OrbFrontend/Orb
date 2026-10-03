@@ -1,5 +1,3 @@
-"""Test GET /api/conversations/{cid}/context-size"""
-
 # Persona fields are flat top-level keys on CharacterCardCreate (main.py).
 # An earlier version of this test nested them under data={"spec":...,"data":{...}},
 # which Pydantic silently dropped -- the card was created name-only and the

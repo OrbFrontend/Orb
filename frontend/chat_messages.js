@@ -254,9 +254,7 @@ export async function switchBranch(msgId) {
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
 
-    // Paint the new branch and settle the scroll in one task. Awaiting anything
-    // in between lets the browser paint the rebuilt list at the pre-restore
-    // offset first, which is what reads as a jump.
+    // Paint and restore scroll in one task to avoid a frame at the old offset.
     setMessages(switched);
     renderMessages();
     if (anchorMsgId && anchorOffset !== null) {

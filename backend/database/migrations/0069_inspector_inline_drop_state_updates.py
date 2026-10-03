@@ -1,10 +1,7 @@
-"""Add the ``inspector_inline`` setting and drop the ``state_updates`` setting.
+"""Add inspector_inline and remove state_updates.
 
-``inspector_inline`` shows each reply's Inspector sections in the chat.
-
-State fragments are now gated by the Agent and each fragment's own update
-timing. Fragments the old ``state_updates`` master switch kept from updating
-become Manual only first, so no update call starts running on upgrade.
+Make previously blocked state fragments Manual only before removing the
+master switch, preserving upgrade behaviour.
 """
 
 from __future__ import annotations

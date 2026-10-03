@@ -1,18 +1,7 @@
-"""Add the Character Library duplicate finder's dismissals table and avatar-hash cache.
+"""Add duplicate dismissals stamped with both body hashes, plus cached avatar hashes.
 
-Two pieces, both mirroring 0058 exactly:
-
-* ``duplicate_dismissals`` -- the pairs the user has told the scan to stop
-  reporting, stamped with both cards' ``body_hash`` so a dismissal lapses only
-  when a card meaningfully changes. ``table_create_sql`` sources the DDL from
-  ``schema.py`` so an upgraded database gets the same shape as a fresh install
-  (the chain-completeness gate in ``test_migration_chain_completeness``), and
-  ``CREATE TABLE IF NOT EXISTS`` keeps it idempotent without a ``PRAGMA`` guard.
-* ``character_cards.avatar_dhash`` / ``avatar_dhash_stamp`` -- the scan's only
-  cached signal. Decoding avatars is ~70x the cost of every text signal
-  combined, so the hash is stored and the text side is recomputed each run.
-  Staleness is ``avatar_dhash_stamp != f"{DEDUPE_REVISION}:{updated_at}"``, the
-  direct analogue of ``_PENDING_WHERE`` in ``queries/library_tags.py``.
+Use canonical table DDL. Only avatar decoding is cached; its stamp combines
+DEDUPE_REVISION and updated_at.
 """
 
 from __future__ import annotations

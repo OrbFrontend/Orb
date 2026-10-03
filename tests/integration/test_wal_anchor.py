@@ -1,16 +1,7 @@
-"""The lifespan-scoped WAL anchor: one idle connection held open for the life of
-the process so the transient per-query connections are never the last WAL
-connection.
+"""Check WAL-anchor path/lifespan isolation and lock-free maintenance.
 
-Why this exists at all is in ``connection.open_wal_anchor``'s docstring. What
-these tests defend is the *shape* of the anchor rather than the byte count: it
-must follow the patched ``DB_PATH``, never leak across lifespans, and above all
-stay completely idle -- no statement, no cursor, no transaction -- because
-``VACUUM`` and the restore path's online backup both fail against a connection
-holding a lock.
-
-Deliberately no assertion on OS write bytes. That measurement is a
-macOS-``proc_pid_rusage`` manual benchmark, not something portable CI can see.
+The anchor must remain idle for VACUUM and online backup. OS write-byte
+benchmarks are not portable CI assertions.
 """
 
 from __future__ import annotations

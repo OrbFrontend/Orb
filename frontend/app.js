@@ -196,10 +196,7 @@ function toggleSection(header) {
 }
 window.toggleSection = toggleSection;
 
-// Section headers stick to the top of the sidebar while their body scrolls under them;
-// `.stuck` marks the pinned one so themes can style it. Collapsing from a pinned header
-// would leave the scroll offset deep inside what came after the section, so pull the
-// collapsed header back to the top.
+// Keep a collapsed pinned header at the top so its old scroll offset does not hide it.
 function initStickySectionHeaders() {
   const scroller = document.querySelector("#sidebar .sidebar-scroll");
   if (!scroller) return;
@@ -455,9 +452,7 @@ async function initAll() {
   initWorldProposalActions();
   initDocumentMode();
 
-  // Independent lanes load concurrently, each keeping its own order. Run one
-  // after another they were a dozen round trips end to end, which a phone on a
-  // remote link paid for one at a time.
+  // Load independent lanes concurrently, preserving order within each lane.
   const manifest = startupStep("load workflow manifest", loadWorkflowManifest).then(preloadWorkflowModules);
   const settings = startupStep("load settings", loadSettings);
   await Promise.all([

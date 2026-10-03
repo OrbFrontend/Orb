@@ -18,16 +18,11 @@ from .seeds import (
 
 
 async def init_db() -> int:
-    """Initialize a fresh database or upgrade an existing one, then seed it.
+    """Initialize or upgrade the database, then seed it.
 
-    A database without application schema gets the current schema, seeds and
-    migration baseline in one transaction, without running any migrations.
-    File size, missing settings rows and a missing migration ledger cannot
-    reliably distinguish a fresh database from one needing upgrades.
-
-    Existing databases run pending migrations *before* the latest schema script,
-    whose indexes may name newly added columns. Returns the migration count so
-    startup can reclaim pages left behind by rebuilds.
+    Without application schema, install schema, seeds and migration baseline
+    atomically. Existing databases migrate before schema indexes can reference
+    new columns. Return the migration count for startup page reclamation.
     """
     async with get_db() as db:
         existing = await db.execute_fetchall("SELECT 1 FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' LIMIT 1")

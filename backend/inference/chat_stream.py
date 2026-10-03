@@ -100,16 +100,10 @@ async def consume_openai(
     unindexed = -1
 
     def slot_for(tc_delta: Mapping[str, Any]) -> int:
-        """Resolve one tool-call delta to an accumulator slot.
+        """Resolve a tool delta to its accumulator slot.
 
-        Google's OpenAI-compatible surface omits ``index`` from
-        ``delta.tool_calls`` entirely, so keying on ``index`` with a
-        default of 0 merged every parallel call into one entry --
-        names concatenated, all but the first argument payload lost.
-        Without an index, a delta that STARTS a call (it carries an
-        ``id`` or a function ``name``, which the OpenAI contract
-        sends only on a call's first chunk) opens the next free
-        slot; a bare argument continuation appends to the newest.
+        For index-less providers, id/name starts a new slot; bare argument chunks
+        append to the newest, avoiding merged parallel calls.
         """
         nonlocal unindexed
         index = tc_delta.get("index")

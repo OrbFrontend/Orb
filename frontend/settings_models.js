@@ -390,11 +390,7 @@ async function _saveDecisionConfig(patch) {
   if (status) status.outerHTML = _judgeStatusHtml();
 }
 
-/**
- * Select, or create, the judge endpoint at *url*.
- *
- * Create the endpoint here when no Judge row already uses this URL.
- */
+/** Select the Judge endpoint at *url*, creating it if absent. */
 async function _syncJudgeEndpoint(url) {
   if (!url) {
     await _saveDecisionConfig({ decision_endpoint_id: null });
@@ -480,11 +476,8 @@ async function _runJudgeTest() {
 }
 
 /**
- * Load the classifier config and repaint the Judge lane. Called at boot.
- *
- * Repaints only the lane, not the whole endpoints form: a full re-render would
- * throw away the Writer and Agent comboboxes -- and anything half-typed into
- * them -- to fill in fields that nothing else depends on.
+ * Load classifier config at boot and repaint only the Judge lane
+ * to preserve partially edited Writer and Agent controls.
  */
 export async function loadJudgeConfig() {
   if (await loadDecisionConfig()) _repaintJudgeLane();
@@ -792,10 +785,7 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.onmousedown = (e) => {
-        // The delete button wraps an inline SVG, so a click on the X targets the
-        // icon rather than the button -- match with closest(), not the target's
-        // own class, or mousedown selects the row and re-renders the list out
-        // from under the button before its click can fire.
+        // Use closest() for SVG clicks so mousedown does not rebuild the list before delete fires.
         if (e.target.closest(".cb-delete-btn")) return;
         e.preventDefault();
         selectVal(el.dataset.value);

@@ -4,10 +4,8 @@ import { S } from "./state.js";
 const workflowEntry = (w) => (w && typeof w.id === "string" ? `/static/workflows/${w.id}/index.js` : null);
 
 /**
- * Start fetching every workflow's entry module without evaluating it, so the
- * sequential imports in loadWorkflowModules find those files already in flight.
- * Chrome preloads only the named module; each entry's own imports still load
- * when it evaluates.
+ * Preload workflow entry modules for later sequential imports.
+ * Chrome fetches their dependencies only when each entry evaluates.
  */
 export function preloadWorkflowModules() {
   for (const w of S.workflowManifest) {

@@ -1,17 +1,4 @@
-"""Unit coverage for the Dynamic Worlds pure layer.
-
-Three things are pure and therefore testable without a database:
-
-* :func:`select_effective_entries` -- the authored/dynamic projection, which is
-  what "an accepted change is visible" and "a reset restores the original" both
-  reduce to;
-* :func:`render_lorebook_block` and the constant/depth builders -- the section
-  split that keeps Agent-managed state distinguishable in the prompt;
-* :func:`validate_proposal` -- everything the model is *not* allowed to do.
-
-Row shapes here are the same dicts the query layer returns, minus the columns
-none of this reads.
-"""
+"""Cover pure Dynamic Worlds projection, prompt section rendering and proposal validation."""
 
 from __future__ import annotations
 

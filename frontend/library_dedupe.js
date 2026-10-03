@@ -248,12 +248,7 @@ async function undoDismissal() {
   }
 }
 
-/**
- * Describe a card the way the review list does.
- *
- * Every removal confirmation names its cards by use and age rather than by name
- * alone: the whole point of this tool is that the names are the same.
- */
+/** Identify duplicate cards in confirmations by use and age; their names may be identical. */
 function describe(card) {
   return `${esc(card?.name || "Unnamed character")} — ${esc(memberMeta(card))}`;
 }

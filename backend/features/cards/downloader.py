@@ -78,15 +78,9 @@ async def _fetch(
     timeout: float = 30,
     headers: dict | None = None,
 ) -> httpx.Response:
-    """GET *url*, mapping any transport or status failure to HTTP 502.
+    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail.
 
-    The single outbound seam for every source's browse/randomize/download call.
-    *what* is the human phrase for the operation ("Botbooru search failed",
-    "Failed to download card"); it is both logged and returned as the
-    client-facing detail, so each source keeps its own wording without
-    repeating the request block. Body decoding stays with the caller — sources
-    want ``.json()`` or ``.content`` and differ on how a malformed body maps to
-    a status.
+    Callers decode bodies and decide how malformed responses map to errors.
     """
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
@@ -207,15 +201,9 @@ def _chub_max_page(count: int) -> int:
 
 
 async def _randomize_characterhub(q: str) -> dict:
-    """Surface a random page of CharacterHub results.
+    """Fetch a random CharacterHub page; sort=random repeats within its reseed window.
 
-    ``sort=random`` reseeds only every few minutes, so consecutive calls repeat;
-    jumping to a random page of the (optionally query-filtered) catalog is what
-    varies the batch. Card quality holds up across the whole ~4166-page window,
-    so the pick spans all of it.
-
-    A query narrows the catalog and the first pick can overshoot its end; the
-    response's own count then gives the real range to re-pick from.
+    If a filtered query overshoots, use the response count to retry within range.
     """
     data, count = await _chub_page(q, random.randint(1, _chub_max_page(_CHUB_MAX_RESULTS)))
     if not data["results"] and count:
@@ -370,14 +358,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
 
 
 async def _randomize_chararc(q: str) -> dict:
-    """Surface a random batch of cards from Character Archive.
-
-    The upstream ``random-character-ultra`` feed is reliable but extremely slow
-    (~20s per call, regardless of batch size). The meilisearch-backed search
-    endpoint responds in well under a second, so — like the CharacterHub
-    randomizer — we jump to a random page of the (optionally query-filtered)
-    catalog to give a fresh selection each call. One-shot batch.
-    """
+    """Fetch a random Character Archive search page to avoid the slow random feed."""
     page = random.randint(1, _CHARARC_RANDOM_MAX_PAGE)
     data = await _browse_chararc(q, page)
     # A deep random page can land past the end of a (query-filtered) result set;
@@ -538,15 +519,9 @@ register_source(
 )
 
 
-#
-# Wyvern exposes an unauthenticated JSON explore API. The search endpoint
-# already returns full card definitions (description/personality/first_mes/…),
-# but only id references for lorebooks; the per-character endpoint embeds the
-# lorebook entries, so download fetches that and converts them to a V2
-# character_book. Avatars are served from a Cloudflare Images CDN. There is no
-# native random sort, so the randomizer jumps to a random page — but unlike the
-# other sources it reads the real page count first so it works for narrow
-# queries too.
+# Wyvern search returns card definitions but only lorebook ids; download the
+# character detail to embed V2 lorebook entries. Avatars use Cloudflare Images.
+# Random selection reads the page count first to handle narrow queries.
 
 _WYVERN_BASE = "https://api.wyvern.chat"
 _WYVERN_PAGE_SIZE = 24

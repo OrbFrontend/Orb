@@ -387,16 +387,10 @@ async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] |
 
 
 async def get_active_lorebook_entries(world_ids: Sequence[str]) -> list[ActiveLorebookEntryRow]:
-    """Enabled, non-archived entries from enabled worlds -- **both** layers.
+    """Load enabled, non-archived entries from enabled worlds, with world_name.
 
-    Joins ``w.name AS world_name`` so callers (the agentic-lorebook catalog) can
-    group entries by their world. The extra key is additive -- readers of the
-    base ``LorebookEntryRow`` columns are unaffected.
-
-    This is the raw overlay pool, not the effective lore: an authored entry
-    hidden by a replacement is still in here, and so is the suppression marker
-    that hides it. Resolving that is ``prompting.lorebook`` -- the projection
-    lives in the lore layer, which ``database/`` sits below and may not import.
+    Include both raw layers; prompting.lorebook resolves replacements and
+    suppressions into effective lore.
     """
     if not world_ids:
         return []
@@ -491,16 +485,10 @@ async def supersede_world_changeset(
     changeset_id: int,
     replacement: Mapping[str, Any] | None,
 ) -> WorldChangesetRow | None:
-    """Atomically retire an open changeset and optionally insert its replacement.
+    """Atomically supersede an open changeset and optionally insert its replacement.
 
-    Re-evaluation spends an LLM call before it knows whether there is still a
-    useful proposal. The old row must remain open during that call, but the
-    eventual status transition and replacement INSERT are one database decision:
-    a concurrent apply/reject/re-evaluate either wins first, or this transaction
-    wins without leaking a second pending replacement.
-
-    ``None`` means the re-evaluation found nothing left to propose; the original
-    still becomes terminal ``superseded`` so it leaves the review queue.
+    The original stays open during model evaluation; only one concurrent decision
+    may win. None still supersedes the original without creating a replacement.
     """
     async with immediate_tx() as db:
         original = await _fetch_changeset(db, changeset_id)
@@ -727,15 +715,10 @@ def entry_snapshot(entry: Mapping[str, Any] | None) -> dict | None:
 
 
 def _after_state_matches(live: Mapping[str, Any] | None, expected: Mapping[str, Any]) -> bool:
-    """Whether *live* is still the row an undo recorded, tolerating a lost target.
+    """Compare live state with an undo snapshot, allowing a SET-NULL target pointer.
 
-    Snapshot equality, with exactly one carve-out. Deleting an authored entry
-    SET-NULLs the ``supersedes_entry_id`` of every overlay row that hid it (see
-    schema.py), which turns a ``replace`` into a standalone ``add`` and neuters a
-    ``suppress``. That is the user's own delete showing through the pointer, not
-    a later edit to the overlay row the undo would clobber -- and refusing on it
-    would strand an applied changeset with an Undo button that can never
-    succeed. Every other field, ``entry_revision`` included, must still match.
+    An authored deletion can detach an overlay without editing it. Every other
+    field, including entry_revision, must still match.
     """
     snapshot = entry_snapshot(live)
     if snapshot is None:
@@ -895,17 +878,11 @@ async def apply_changeset(
     summary: str | None = None,
     require_after_state: Sequence[Mapping[str, Any] | None] | None = None,
 ) -> WorldChangesetRow:
-    """Apply *operations* atomically, or raise and leave the World untouched.
+    """Apply operations atomically only at expected_revision.
 
-    Re-reads ``content_revision`` inside the write transaction and refuses
-    unless it still equals *expected_revision* -- exactly one accept can win a
-    race, the loser gets a :class:`RevisionConflict` and is marked stale by the
-    caller.
-
-    *require_after_state* is the undo guard: a list positionally matching
-    *operations*, each entry the snapshot the compensating op expects to find
-    live. A mismatch raises :class:`OverlayStateConflict` and applies nothing,
-    so an undo can never silently clobber a later edit.
+    RevisionConflict leaves the World unchanged. Optional require_after_state
+    provides one snapshot per operation; a mismatch raises OverlayStateConflict
+    so undo cannot overwrite later edits.
     """
     async with immediate_tx() as db:
         return await _apply_changeset_tx(

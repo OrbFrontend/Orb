@@ -253,16 +253,8 @@ async def _load_fragment_state(
 async def _resolve_target_and_parent(
     conversation_id: str, assistant_msg_id: int
 ) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
-    """Load an assistant message and its parent message.
-
-    Returns ``(target, user_msg)`` on success, or an error string if the
-    message is missing, belongs to a different conversation, or is not an
-    assistant message.
-
-    The three cases get three sentences: a client can hold a target id that the
-    view it was painted from no longer has (another tab deleted the message),
-    and a single opaque "invalid" leaves the reader unable to tell a stale id
-    from a mis-wired button.
+    """Return (assistant target, parent) or a specific error for missing, foreign
+    or non-assistant targets.
     """
     target = await db.get_message_by_id(assistant_msg_id)
     if not target or target["conversation_id"] != conversation_id:
@@ -396,17 +388,11 @@ async def _generate_reply(
     editor_audit_msgs: list[str] | None = None,
     decision_input: tuple[Sequence[Mapping[str, Any]], str] | None = None,
 ) -> AsyncIterator[dict]:
-    """Run setup → pipeline → persist and stream all SSE events.
+    """Run setup, pipeline and persistence, yielding SSE events.
 
-    The user message row must already be persisted before this is called.
-
-    *user_message* is what the writer actually receives; it may differ from
-    *last_user_message* (the steered paths send an OOC message as the writer
-    input while *last_user_message* carries the original).
-
-    *decision_input* is the ``(history, current request)`` the judge reads when
-    it must differ from the writer's, as on the steered paths; ``None`` means
-    the writer's own *history* and *user_message*.
+    The user row must already be saved. user_message may be steered while
+    last_user_message retains the original. decision_input overrides the Judge's
+    (history, request); None uses the Writer input.
     """
     decision_history, decision_request = decision_input or (history, user_message)
     opened: _OpenedTurn | None = None

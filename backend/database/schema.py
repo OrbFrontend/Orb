@@ -529,15 +529,10 @@ CREATE TABLE IF NOT EXISTS slop_mining_state (
 
 
 def table_create_sql(table: str) -> str:
-    """Return the ``CREATE TABLE IF NOT EXISTS <table> ( ... )`` block for *table*,
-    sliced out of ``CREATE_TABLES_SQL``.
+    """Extract canonical CREATE TABLE DDL from CREATE_TABLES_SQL.
 
-    This is the single source of truth for a table's canonical fresh-install shape.
-    Rebuild migrations (e.g. 0027) and the schema-equivalence gate both derive the
-    canonical DDL from here rather than pasting a copy, so a rebuild can never drift
-    from the shape the equivalence check enforces. Parentheses are balanced (column
-    ``REFERENCES`` and ``CHECK`` clauses nest), so the block ends at the matching
-    close paren, not the first one.
+    Balance nested parentheses for REFERENCES/CHECK clauses. Rebuild migrations
+    and schema-equivalence checks share this definition.
     """
     m = re.search(rf"CREATE TABLE IF NOT EXISTS {re.escape(table)}\s*\(", CREATE_TABLES_SQL)
     if not m:

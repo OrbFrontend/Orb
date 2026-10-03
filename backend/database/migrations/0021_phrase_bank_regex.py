@@ -1,12 +1,4 @@
-"""
-0021_phrase_bank_regex -- add `kind` and `pattern` columns to phrase_bank.
-
-A phrase-bank group is now one of two kinds:
-  * 'literal' (default) — equivalent variant phrases stored in `variants`.
-  * 'regex'             — a single regular expression stored in `pattern`.
-
-Existing rows are literal groups, so the column defaults preserve them.
-"""
+"""Add phrase-bank kind and pattern columns; existing groups default to literal."""
 
 from __future__ import annotations
 

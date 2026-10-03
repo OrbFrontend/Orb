@@ -285,9 +285,7 @@ function _drawCrop(canvas) {
   for (const [hx, hy] of cropCorners(_cs.box)) ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
 }
 
-// Pointer events with capture: once a drag starts on the canvas, every move and
-// the release reach it wherever the pointer goes, so dragging past the edge keeps
-// tracking (clamped) and letting go outside the canvas still ends the drag.
+// Capture pointer moves and release outside the canvas; clamp positions to its bounds.
 function _attachCropEvents(canvas) {
   const HIT_RADIUS = 14; // screen pixels around a corner handle
   // The canvas can render narrower than W (max-width: 100% on a small screen),

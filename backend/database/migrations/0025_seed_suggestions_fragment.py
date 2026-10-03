@@ -1,11 +1,4 @@
-"""Migration 0025: Seed the 'suggestions' feedback fragment.
-
-Inserts the 'suggestions' interactive fragment (field_type='feedback') into
-existing databases. The fragment is seeded disabled; users opt in by enabling
-it alongside the feedback_enabled setting.
-
-Idempotent: skips the insert if the row already exists.
-"""
+"""Seed the disabled suggestions feedback fragment if absent."""
 
 from __future__ import annotations
 

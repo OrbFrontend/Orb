@@ -43,18 +43,8 @@ def _no_child_process(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _empty_model_dir(tmp_path, monkeypatch):
-    """Point data/models/ at an empty temp dir for every test here.
-
-    These tests describe a fresh install -- nothing downloaded -- but
-    ``model_dir()`` is a fixed repo path, so on a developer machine that has
-    actually fetched a variant ``present`` read True and the status test
-    failed. The delete test is the sharper reason: it calls the real
-    ``delete_model``, which on such a machine would remove a multi-GB weight
-    file as a side effect of running the suite. ``assets.present`` and
-    ``catalog.variant_path`` both reach disk through this one function -- the
-    latter by delegating to ``assets.variant_path``, which looks ``model_dir``
-    up in its own module globals -- which makes it the single seam that
-    isolates every path in this module.
+    """Use an empty model directory for fresh-install tests and to prevent delete_model
+    from touching developer weights. All asset paths resolve through model_dir.
     """
     models = tmp_path / "models"
     models.mkdir()

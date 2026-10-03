@@ -93,19 +93,10 @@ def _named(path: Path) -> tuple[Path, ...]:
 
 
 def find_binary(gpu: bool = True) -> Path:
-    """The llama-server to run: env override → PATH → ``data/llama-bin/<flavour>/``.
+    """Resolve llama-server from env override, PATH, then managed CPU/GPU builds.
 
-    *gpu* picks which of the two fetched builds to run, and it is the entire
-    GPU switch — the caller passes ``profile.gpu_layers > 0`` and gets a binary
-    that can honour it.
-
-    An override and a PATH binary answer for both flavours: somebody who
-    supplied their own llama-server gets that one either way, and their toggle
-    then moves ``--n-gpu-layers`` alone, which is the right meaning for a build
-    this code did not choose. An explicit ``ORB_LLAMA_SERVER`` that does not
-    resolve stays a hard error rather than a fallthrough — someone who set it
-    wants *that* binary, and quietly running a different one is how a Vulkan
-    build gets swapped for a CPU one without anybody noticing.
+    Custom binaries serve both GPU settings; only gpu_layers changes.
+    An invalid explicit ORB_LLAMA_SERVER is an error, never a fallback.
     """
     explicit = os.environ.get("ORB_LLAMA_SERVER")
     if explicit:
@@ -190,17 +181,10 @@ def _forget_probes() -> None:
 
 
 def _parse_devices(text: str) -> tuple[str, ...] | None:
-    """The device names under llama-server's ``Available devices:`` header.
+    """Read non-CPU device names under Available devices.
 
-    Everything above the header is backend chatter — a Vulkan build narrates
-    its own enumeration before it answers — so the header is the anchor, and
-    the indented lines under it are the answer. ``(none)`` is what a build with
-    no non-CPU backend prints: a device list of length zero, not a device. The
-    CPU never appears in this list, which is what makes "non-empty" mean "can
-    offload".
-
-    ``None`` when there is no header at all: a build too old to know the flag
-    has not said it has no GPU, it has said nothing.
+    Ignore preceding chatter; (none) means no devices. Missing header returns
+    None for older builds whose capability is unknown.
     """
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -270,17 +254,9 @@ def _arch() -> str:
 
 
 def gpu_build_published(*, system: str, arch: str) -> bool:
-    """Whether a GPU-capable archive exists for this platform at all.
+    """Whether this platform offers a general GPU build, without fetching it.
 
-    macOS carries Metal inside the one asset per arch, so the answer is yes and
-    the choice never reaches the archive. Windows on arm64 publishes no Vulkan
-    build — its GPU assets are OpenCL for Adreno and CUDA for Grace, both
-    narrower than "any card" — so the answer is no.
-
-    Split out of :func:`asset_name` because the panel has to ask it WITHOUT
-    fetching anything: "ticking this box cannot help you here" is a different
-    message from "the build you have cannot help you", and a platform that has
-    no GPU build to offer must not be shown a button offering one.
+    macOS includes Metal; Windows arm64 has no Vulkan archive.
     """
     if system == "windows":
         return arch == "x64"
@@ -423,16 +399,10 @@ def _clear_legacy_builds() -> None:
 
 
 def fetch() -> str:
-    """Download and unpack BOTH llama-server builds. Blocking.
+    """Download both managed CPU/GPU builds and verify each with --version. Blocking.
 
-    Both in one press, because the GPU setting is a switch between them: paying
-    for a second download at the moment somebody ticks a checkbox is the reason
-    that checkbox used to do nothing instead. Each is proved with ``--version``
-    before it counts as installed. Returns the GPU build's path.
-
-    Platforms that publish one archive for both — macOS carries Metal inside
-    it — download once and unpack it into each directory, so every caller
-    downstream can assume the pair exists.
+    Shared archives such as macOS are fetched once and unpacked into both
+    directories. Return the GPU build path.
     """
     release = resolve_release()
     tag = release["tag_name"]

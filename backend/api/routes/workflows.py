@@ -636,13 +636,10 @@ def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None
 
 
 def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, dict | None]:
-    """Split a reroll_gen hook return into ``(data, consumption_metadata)``.
+    """Normalize reroll_gen results to ``(data, consumption_metadata)``.
 
-    A raw ``bytes`` return carries no metadata; a ``(bytes, dict | None)``
-    tuple supplies a fresh ``consumption_metadata``. A non-dict second element
-    is dropped with a warning. The caller validates that ``data`` is non-empty
-    bytes. Shared by the reroll-gen and rehydrate routes so both interpret the
-    hook return identically.
+    Bytes have no metadata; tuples may supply a dict. Warn and drop other metadata
+    shapes. The caller validates non-empty bytes.
     """
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], (bytes, bytearray)):
         data, consumption_metadata = result
@@ -690,17 +687,10 @@ async def api_reroll_gen_attachment(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
     job: str | None = None,
 ):
-    """Generate a new sibling using the original's stored generation_metadata
-    with a freshly minted seed.
+    """Render a new sibling with a fresh seed and inherited generation metadata.
 
-    The new sibling persists the new seed alongside the inherited
-    generation_metadata so it is itself rehydratable; without that, an
-    evict-then-rehydrate cycle would lose the rerolled output.
-
-    An optional ``{"params": {...}}`` body retargets the render (see
-    `_apply_param_overrides`). The params dict is handed to the hook in place and
-    the hook may amend it; the amended dict is what the new sibling records, so an
-    override sticks for the sibling's own future rerolls.
+    Persist the new seed for rehydration. Optional params overrides are passed
+    to the hook; store its amended params for future rerolls.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -783,16 +773,9 @@ async def api_workflow_attachment_in_flight(
     aid: int,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Report whether an operation on this attachment's group is still running.
+    """Report whether an operation holds this attachment group's lock.
 
-    Regenerate and reroll-gen hold their connection open for the whole render --
-    minutes, for image gen. A client whose connection dies mid-render has no
-    other way to tell a render still in progress from one the server has already
-    failed: both look like "no new sibling yet".
-
-    ``aid`` may be any member of the group; the canonical root is resolved here
-    the way `locked_attachment_group` resolves it, so a client can ask with the
-    root id it already holds.
+    Resolve any member id to its canonical root so dropped requests can be polled.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -813,15 +796,9 @@ async def api_rehydrate_attachment(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
     job: str | None = None,
 ):
-    """Recover bytes for an evicted attachment using its stored seed + params.
+    """Rehydrate an EVICTED_MARKER row using its non-NULL seed and stored params.
 
-    Preconditions:
-      - The row's `data_b64` is the EVICTED_MARKER sentinel.
-      - The row has a non-NULL `seed`.
-
-    The framework calls the workflow's `reroll_gen` hook with the stored
-    params and stored seed, then writes the returned bytes back into the
-    same row's data_b64. No new sibling is created.
+    Write reroll_gen bytes back to the same row without creating a sibling.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -929,15 +906,9 @@ async def api_activate_workflow_attachment(
     if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
         raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
 
-    # Not under locked_attachment_group: /regenerate and /reroll-gen hold that
-    # root lock for the whole render (a minute+ for image gen), so queuing the
-    # user's swipe behind it hangs the arrow POST and freezes artifact navigation
-    # for the duration. set_active_sibling validates root, message, and group
-    # membership inside its own BEGIN IMMEDIATE, so a row a concurrent
-    # delete/promotion removed still 404s (LookupError below) and no invalid
-    # pointer can be written. What is given up is commit ordering against an
-    # in-flight render: whichever of "user's swipe" and "new sibling wins" lands
-    # last is what the next refetch shows.
+    # Keep swipes outside the render lock so navigation stays responsive.
+    # set_active_sibling validates membership in BEGIN IMMEDIATE; concurrent
+    # swipes and renders use last-commit ordering for the active pointer.
     try:
         await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
@@ -1003,13 +974,10 @@ def _download_name(name: str) -> str:
 
 @router.get("/api/workflow-attachments/{aid}/export")
 async def api_export_workflow_attachment(aid: int):
-    """The attachment as its workflow exports it, as a download.
+    """Download the stored artifact through its workflow's export hook.
 
-    Not gated on the workflow being enabled, like the content route: an export
-    reads a stored artifact and generates nothing. The row is read without its
-    bytes and the hook loads them only if it needs them, so an export that
-    fetches the file from where it was made reads no stored image at all.
-    ``X-Orb-Export-Note`` carries the hook's note when there is one.
+    Enabled state is irrelevant; load bytes only if the hook needs them.
+    X-Orb-Export-Note carries any export note.
     """
     att = await get_workflow_attachment_meta(aid)
     if att is None:
@@ -1049,15 +1017,9 @@ async def api_record_workflow_attachment_access(
     body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Record access events for workflow attachments.
+    """Record attachment access for ``{"ids": [int, ...]}`` in input order.
 
-    Body shape: ``{"ids": [int, ...]}``. Counter values are assigned in
-    input-list order, so callers can encode intra-call ordering.
-
-    Ids not belonging to this conversation are silently dropped rather
-    than raising: the frontend can legitimately hold stale ids around a
-    swipe / regen race, and a 400 there would be a user-visible failure
-    on an ignorable client/server skew.
+    Silently skip foreign or stale ids to tolerate swipe/regeneration races.
     """
     raw_ids = body.get("ids") if isinstance(body, dict) else None
     if not isinstance(raw_ids, list):

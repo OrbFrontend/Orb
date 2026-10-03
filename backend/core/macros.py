@@ -61,17 +61,9 @@ _DESCRIPTION_RE = re.compile(r"\{\{description\}\}", re.IGNORECASE)
 
 
 def _sub_description(text: str, description: str) -> str:
-    """Replace {{description}} with the character's own description prose.
+    """Substitute the character description literally, dropping nested {{description}}.
 
-    This is the only macro that substitutes a *body of text* rather than a
-    name. Like the names above, it is inserted through a callable, so a
-    backslash or ``\\g<1>`` is kept literally; unlike them, a ``{{description}}``
-    written *inside* the description is dropped rather than expanded again, so
-    self-reference terminates after one pass.
-
-    An empty description leaves the macro raw, the same call {{cast}} makes in
-    a solo chat: unresolved reads as "no value here yet" and survives to a
-    later pass, where blanking would silently delete the author's text.
+    An empty description leaves the macro unresolved for a later pass.
     """
     if not text or not isinstance(text, str) or not description:
         return text or ""
@@ -146,14 +138,10 @@ _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
 
 
 def _resolve_inline(text: str, seed: str = "") -> str:
-    """Resolve inline macros ({{//}}, {{roll}}, {{random}}/{{pick}}, {{time}}, {{date}}, {{trim}}).
+    """Resolve inline comment, roll, random/pick, time, date and trim macros.
 
-    Randomized macros roll fresh when *seed* is empty; with a seed the result
-    is a pure function of (seed, macro text, occurrence), so identical text
-    resolves identically — used to keep inline macros in per-turn-rebuilt
-    prompt fields (persona, scenario) byte-stable per conversation instead of
-    re-rolling and busting the shared KV prefix. {{time}} takes no randomness
-    and always resolves to the current time, seed or not.
+    With a seed, random results depend on (seed, macro text, occurrence), keeping
+    rebuilt prompt fields byte-stable. Empty seed rolls fresh; time always uses now.
     """
     if not text or not isinstance(text, str):
         return text or ""
@@ -189,14 +177,7 @@ def _apply_content(content: str | list | None, fn) -> str | list | None:
 
 
 def outside_literals(text: str, fn: Callable[[str], str]) -> str:
-    """Apply *fn* to *text*, leaving single-backticked spans verbatim.
-
-    The public seam onto :func:`_outside_literals`, for a resolver that owns its
-    own macro set rather than the grammar above -- the decision renderer, whose
-    supported macros are deliberately a short explicit list. Exported so
-    "backticked macro examples stay literal" is one implementation shared by
-    every resolver instead of a convention each one re-approximates.
-    """
+    """Apply *fn* outside single-backtick literals, shared by all macro resolvers."""
     return _outside_literals(text, fn)
 
 
@@ -211,13 +192,9 @@ def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -
 
 
 def resolve_inline(text: str, seed: str = "") -> str:
-    """Fire inline macros ({{roll}}, {{random}}); no {{user}}/{{char}}.
+    """Resolve inline macros once at persistence; leave {{user}}/{{char}} for reads.
 
-    The persist-boundary entry: user/assistant message content and greetings
-    are resolved once with this right before the DB write, so stored history
-    holds the final text and never re-rolls. {{user}}/{{char}} stay raw in
-    storage — the display and prompt paths substitute them on read. Rolls are
-    fresh unless *seed* is given (see :func:`_resolve_inline`).
+    Rolls are fresh unless *seed* is provided.
     """
     return _resolve_inline(text, seed=seed)
 
@@ -271,18 +248,10 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
 
 
 class Macros(NamedTuple):
-    """Resolve {{description}}, {{user}}/{{char}}, {{cast}} and inline macros for a turn.
+    """Resolve description, names, cast and inline macros for a turn.
 
-    {{description}} expands *first*, so the description's own {{char}},
-    {{user}} and {{roll}} resolve once it is in place -- card descriptions are
-    written with them, and a description injected after substitution would
-    reach the model still holding raw macros.
-
-    *seed* (normally the conversation id) makes {{random}} and {{roll}}
-    deterministic in :meth:`resolve_message`, so per-turn-rebuilt prompt
-    fields (persona, scenario) resolve to the same bytes every turn of a
-    conversation instead of re-rolling and busting the shared KV prefix.
-    Empty seed = fresh rolls.
+    Expand description first so its own macros resolve. A conversation seed keeps
+    random/roll results stable across prompt rebuilds; an empty seed rolls fresh.
     """
 
     user: str

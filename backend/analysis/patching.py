@@ -25,14 +25,10 @@ def _split_target_sentences(target_text: str) -> set[str]:
 
 
 def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_field: str):
-    """Filter flagged items to the supplied sentences.
+    """Filter findings to the supplied sentences.
 
-    An item whose first member is filtered out repeats something in the earlier
-    context, so it comes back with ``original_listed=False``: every sentence it
-    still lists is a repeat, none of them the original. An item left holding
-    only its original is dropped: the context precedes the supplied text, so
-    its repeats all live in the context and the supplied text merely shares
-    the original's wording.
+    If the original was filtered out, set ``original_listed=False``: all remaining
+    sentences are repeats. Drop groups left with only their original.
     """
     filtered = []
     for item in items:
