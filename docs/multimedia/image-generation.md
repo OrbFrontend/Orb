@@ -262,9 +262,17 @@ The camera setting is next to the style picker and applies globally:
 | **Auto** | A local classifier chooses first-person or third-person from the reply. |
 | **First-person** | Shows the scene through the user's eyes; the user is not drawn. |
 | **Third-person** | Shows the scene from outside and includes the user as a character. |
+| **Background** | Shows only the setting of the scene, with nobody in frame. |
 
 Orb uses the explicit picker choice first. In Auto mode it uses the classifier,
 then falls back to third-person when the text is unclear or the classifier is off.
+Auto never picks Background.
+
+Background still uses the style, the character's fixed tags, and reference
+images. A character that is a place, such as a Backrooms scenario card, is drawn
+as the setting itself. With **Use scene skills** on, Orb leaves a person's
+reference image out of a Background render; with it off, every reference goes to
+the image model and the prompt asks for the place to be empty.
 
 To enable the classifier, open **Settings → Local ML**, download **Auto-POV**,
 and leave it enabled. It runs locally on the CPU.

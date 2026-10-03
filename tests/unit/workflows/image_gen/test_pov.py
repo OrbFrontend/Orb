@@ -76,7 +76,7 @@ def test_pov_from_logits_marginalizes_tense_rather_than_taking_the_top_cell():
 # `test_hooks::test_pov_mode_is_global_config`.
 
 
-@pytest.mark.parametrize("mode, expected", [("first", pov.FIRST), ("third", pov.THIRD)])
+@pytest.mark.parametrize("mode, expected", [("first", pov.FIRST), ("third", pov.THIRD), ("background", pov.BACKGROUND)])
 async def test_manual_mode_beats_the_classifier(monkeypatch, mode, expected):
     seen = _fake_classifier(monkeypatch, ["third" if mode == "first" else "first"])
     assert await pov.resolve(mode=mode, history=_history(("assistant", "She steps closer."))) == (expected, "manual")

@@ -30,7 +30,9 @@ def join(parts: Sequence[Any]) -> str:
     return ", ".join(part for part in (bounded(p) for p in parts) if part)[:6_000].strip(" ,")
 
 
-_COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|others)|solo|pov)"
+# "no humans" is booru's count of zero: the background shot leads with it, and it
+# must stay ahead of the style block like any other count.
+_COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|others)|no\s+humans|solo|pov)"
 
 
 _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORECASE)

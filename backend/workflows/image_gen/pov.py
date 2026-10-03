@@ -18,12 +18,15 @@ logger = logging.getLogger(__name__)
 
 FIRST = "first_person"
 THIRD = "third_person"
+# The setting alone, no one in frame. Only ever picked by hand: the classifier reads
+# a narration voice, and no voice asks for an empty room.
+BACKGROUND = "background"
 
-POV_MODES = ("auto", "first", "third")
+POV_MODES = ("auto", "first", "third", "background")
 DEFAULT_MODE = "auto"
 DEFAULT_POV = THIRD
 
-_MANUAL = {"first": FIRST, "third": THIRD}
+_MANUAL = {"first": FIRST, "third": THIRD, "background": BACKGROUND}
 
 DEFAULT_POV_MODE = next(mode for mode, viewpoint in _MANUAL.items() if viewpoint == DEFAULT_POV)
 

@@ -6,10 +6,11 @@ from backend.workflows.image_gen import composer, prompts
 from backend.workflows.image_gen.composer import (
     SkillSelection,
     addressable_subjects,
+    assemble_prompts,
     compose_scene,
     read_image_skills,
 )
-from backend.workflows.image_gen.pov import FIRST, THIRD
+from backend.workflows.image_gen.pov import BACKGROUND, FIRST, THIRD
 from backend.workflows.image_gen.subjects import Subject
 
 
@@ -269,6 +270,20 @@ async def test_reasoning_and_offer_order_reach_both_calls_without_a_budget_overr
     assert not any("token_floor" in call or "max_tokens" in call for call in calls)
     assert all(call["reasoning_on"] is True for call in calls)
     assert all(call["offer_tools"] == prompts.OFFER_TOOLS for call in calls)
+
+
+async def test_background_draws_a_place_card_as_the_setting_with_zero_count_first(monkeypatch):
+    scene, _, _ = await _compose(
+        monkeypatch,
+        {"scene": "no humans, scenery, empty hallway, buzzing lights", "avoid": None, "visible_subjects": ["Backrooms"]},
+        prompt_format="tags",
+        pov=BACKGROUND,
+        subjects=[_subject("Backrooms", "yellow wallpaper, damp carpet")],
+    )
+    # The place's own sheet rides along, and the zero count stays ahead of the style
+    # block exactly as "1girl" would.
+    positive, _ = assemble_prompts({"prompt_format": "tags", "prompt": "masterpiece"}, {}, scene, "")
+    assert positive == "no humans, masterpiece, yellow wallpaper, damp carpet, scenery, empty hallway, buzzing lights"
 
 
 async def test_empty_composition_remains_failure_critical(monkeypatch):

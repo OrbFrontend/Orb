@@ -1,6 +1,6 @@
 const WORKFLOW_ID = "image_gen";
 
-const POV_LABELS = { first_person: "First-person", third_person: "Third-person" };
+const POV_LABELS = { first_person: "First-person", third_person: "Third-person", background: "Background" };
 const POV_SOURCE_LABELS = {
   manual: "picker",
   classifier: "classifier",

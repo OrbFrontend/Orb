@@ -196,6 +196,7 @@ export const POV_MODES = [
   ["auto", "Auto"],
   ["first", "First-person"],
   ["third", "Third-person"],
+  ["background", "Background"],
 ];
 
 export function povChoices({ classifier, mode, fallback }) {

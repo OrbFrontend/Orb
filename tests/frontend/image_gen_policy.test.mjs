@@ -26,11 +26,11 @@ test("the camera picker offers Auto only when the classifier can answer it", () 
   const ids = ({ modes }) => modes.map(([id]) => id);
 
   const withClassifier = povChoices({ classifier: true, mode: "auto", fallback: "third" });
-  assert.deepEqual(ids(withClassifier), ["auto", "first", "third"]);
+  assert.deepEqual(ids(withClassifier), ["auto", "first", "third", "background"]);
   assert.equal(withClassifier.selected, "auto");
 
   const without = povChoices({ classifier: false, mode: "auto", fallback: "third" });
-  assert.deepEqual(ids(without), ["first", "third"]);
+  assert.deepEqual(ids(without), ["first", "third", "background"]);
   assert.equal(without.selected, "third");
 
   // A hand-pinned camera survives the classifier going away.
