@@ -864,12 +864,8 @@
 
 .phrase-bank-list {
   margin-bottom: 20px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-#preset-library-list {
   max-height: 460px;
+  overflow-y: auto;
 }
 
 .phrase-group-item {

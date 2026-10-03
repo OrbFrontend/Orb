@@ -772,7 +772,7 @@ export async function showPhraseBankModal() {
     <div class="modal-title-row">
       <div>
         <h2>Phrase Bank</h2>
-        <p class="modal-subtitle">Manage banned/overused phrase groups. A group is either a set of equivalent variants or a single regex. Click a group to edit it.</p>
+        <p class="modal-subtitle">Manage banned/overused phrase groups. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
         <button class="btn btn-sm" onclick="showAddPhraseGroupModal()">+ New group</button>
