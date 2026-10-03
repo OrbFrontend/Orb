@@ -14,6 +14,8 @@ from .audit import (
     strip_markers,
 )
 from .detectors.negated_narration import NegationFinding
+from .detectors.opening_monotony import FlaggedOpener
+from .detectors.template_repetition import FlaggedTemplate
 from .text.roleplay_segmentation import extract_block_spans
 
 
@@ -62,6 +64,15 @@ def _occurrences(draft: str, span: str, mask: list[bool]) -> list[int]:
     return narration or raw
 
 
+def _repeats(item: FlaggedOpener | FlaggedTemplate) -> list[str]:
+    """The listed sentences that repeat an earlier member of their group.
+
+    The first member is the original and stays, unless it lives in the earlier
+    context and filtering dropped it -- then every listed sentence repeats it.
+    """
+    return item.sentences[1:] if item.original_listed else item.sentences
+
+
 def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]:
     """Return ``(span, category, reason)`` triples for actionable findings."""
     raw: list[tuple[str, str, str]] = []
@@ -69,10 +80,10 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
         phrases = ", ".join(f'"{h.phrase}"' for h in fs.cliches)
         raw.append((fs.sentence, "banned_phrases", f"contains banned phrase(s): {phrases}"))
     for fo in report.monotony_result.flagged_openers:
-        for s in fo.sentences[1:]:
+        for s in _repeats(fo):
             raw.append((s, "repetitive_openers", f'opens with "{fo.opener}" like too many nearby sentences'))
     for ft in report.template_result.flagged_templates:
-        for s in ft.sentences[1:]:
+        for s in _repeats(ft):
             raw.append((s, "repetitive_templates", f'follows the repeated sentence structure "{ft.template}"'))
     for nb in report.not_but_result:
         if nb.get("sentence"):

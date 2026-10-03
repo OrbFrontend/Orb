@@ -24,6 +24,7 @@ from backend.analysis.detectors.slop_detector import (
     DetectionResult,
     FlaggedSentence,
 )
+from backend.analysis.detectors.structural_repetition import StructuralResult
 from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.analysis.patching import apply_id_patches
 from backend.inference import (
@@ -64,15 +65,22 @@ def _make_report(sentences: list[str], not_but: Sequence[str] = ()) -> AuditRepo
     )
 
 
-def _make_base() -> CachedBase:
+def _make_base(tools: Sequence[str] = ("editor_apply_patch",)) -> CachedBase:
     return CachedBase(
         prefix=({"role": "system", "content": "sys"},),
-        tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+        tools=tuple(enabled_schemas(dict.fromkeys(tools, True), {})),
         model="test-model",
     )
 
 
-async def _run(client: LLMClient, audits: list[AuditReport], draft: str, **kwargs) -> list[dict]:
+async def _run(
+    client: LLMClient,
+    audits: list[AuditReport],
+    draft: str,
+    *,
+    tools: Sequence[str] = ("editor_apply_patch",),
+    **kwargs,
+) -> list[dict]:
     """Run editor_pass with a scripted audit sequence and strip its step marker."""
     audit_iter = iter(audits)
 
@@ -88,7 +96,7 @@ async def _run(client: LLMClient, audits: list[AuditReport], draft: str, **kwarg
     with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_audit):
         async for event in editor_pass(
             client,
-            _make_base(),
+            _make_base(tools),
             effective_msg="user msg",
             draft=draft,
             settings=SETTINGS,
@@ -157,6 +165,57 @@ async def test_null_rewritten_text_stops_the_loop():
 
     assert [e["type"] for e in events] == ["done"]  # no draft_update: nothing was applied
     assert events[-1]["draft"] is None  # draft unchanged
+
+
+async def test_findings_with_no_target_end_the_pass_without_a_call():
+    # Neither flagged sentence is in the draft, so neither gets an id. A finding
+    # that could not even be located is no reason to rewrite the whole draft,
+    # even with editor_rewrite on offer: there is nothing to send.
+    client = LLMClient("http://localhost:9999")
+
+    async def fake_complete(*args, **kwargs):
+        pytest.fail("the editor sent a call with nothing addressable")
+        yield {}
+
+    client.complete = fake_complete
+
+    events = await _run(
+        client,
+        [_make_report(["Not in the draft.", "Nor is this."])],
+        "Sentence 0. Sentence 1.",
+        tools=("editor_apply_patch", "editor_rewrite"),
+    )
+
+    assert [e["type"] for e in events] == ["done"]
+    assert events[0]["draft"] is None
+
+
+@pytest.mark.parametrize(
+    ("tools", "forced"),
+    [
+        (("editor_apply_patch",), "editor_apply_patch"),
+        (("editor_apply_patch", "editor_rewrite"), "editor_rewrite"),
+    ],
+)
+async def test_structural_repetition_forces_a_rewrite_only_when_the_blob_carries_it(tools, forced):
+    # Forcing a tool the request does not carry gets prose back, never a call,
+    # so without editor_rewrite in the blob the patchable findings get patched.
+    client = LLMClient("http://localhost:9999")
+    choices: list = []
+
+    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
+        choices.append(tool_choice)
+        yield {"type": "done", "message": {"content": "", "tool_calls": []}}
+
+    client.complete = fake_complete
+
+    report = _make_report(["Sentence 0.", "Sentence 1."])
+    report.structural_repetition_result = StructuralResult(
+        is_repetitive=True, min_similarity=0.9, mean_similarity=0.9, shared_skeleton=None, messages=[]
+    )
+    await _run(client, [report], "Sentence 0. Sentence 1.", tools=tools)
+
+    assert [choice["function"]["name"] for choice in choices] == [forced]
 
 
 async def test_text_path_takes_the_same_single_call():

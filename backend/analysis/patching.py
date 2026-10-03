@@ -25,15 +25,25 @@ def _split_target_sentences(target_text: str) -> set[str]:
 
 
 def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_field: str):
-    """Filter flagged items to the supplied sentences."""
+    """Filter flagged items to the supplied sentences.
+
+    An item whose first member is filtered out repeats something in the earlier
+    context, so it comes back with ``original_listed=False``: every sentence it
+    still lists is a repeat, none of them the original. An item left holding
+    only its original is dropped: the context precedes the supplied text, so
+    its repeats all live in the context and the supplied text merely shares
+    the original's wording.
+    """
     filtered = []
     for item in items:
         kept = [s for s in item.sentences if s in sentences]
-        if kept:
+        original_listed = item.original_listed and item.sentences[0] in sentences
+        repeats = kept[1:] if original_listed else kept
+        if repeats:
             extra = {
                 descriptor.name: getattr(item, descriptor.name)
                 for descriptor in fields(item)
-                if descriptor.name not in (label_field, "count", "fraction", "sentences")
+                if descriptor.name not in (label_field, "count", "fraction", "sentences", "original_listed")
             }
             filtered.append(
                 cls(
@@ -41,6 +51,7 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
                     count=len(kept),
                     fraction=len(kept) / total if total > 0 else 0.0,
                     sentences=kept,
+                    original_listed=original_listed,
                     **extra,
                 )
             )
@@ -269,7 +280,11 @@ def apply_id_patches_with_edits(
     heal_errors: list[PatchError] = []
     bounds = _neighbour_bounds(draft, targets)
     for target, replace in sorted(resolved, key=lambda r: r[0].start, reverse=True):
-        healed = heal_replacement(out, target.start, target.end, replace)
+        # Negated narration is fixed by removal, so a restated neighbour there
+        # means "delete the span", not a mis-aimed rewrite.
+        healed = heal_replacement(
+            out, target.start, target.end, replace, restatement_deletes="negated_narration" in target.categories
+        )
         for note in healed.notes:
             logger.info("Patch id %d healed: %s", target.tid, note)
         if healed.rejection is not None:
