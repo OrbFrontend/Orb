@@ -124,6 +124,25 @@ def test_workflow_slices_use_only_named_public_toolkit_exports(tmp_path: Path, s
     assert any("workflow slice 'plugin'" in problem for problem in problems), problems
 
 
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "from backend.core.utils import _helper\n",
+        "from .sibling import _helper\n",
+        "from backend.prompting import base, _helper\n",
+    ],
+)
+def test_private_names_are_not_imported_across_modules(tmp_path: Path, statement: str):
+    root, backend = _fixture(tmp_path, "inference/bad", statement)
+    problems = _checker().check(root=root, backend=backend)
+    assert any("imports private name '_helper'" in problem for problem in problems), problems
+
+
+def test_dunder_names_are_not_private(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "inference/good", "from backend.core import __version__\n")
+    assert _checker().check(root=root, backend=backend) == []
+
+
 def test_python_packages_must_be_classified(tmp_path: Path):
     root, backend = _fixture(tmp_path, "inference/good", "from backend.core import value\n")
     unknown = backend / "mystery"

@@ -13,6 +13,7 @@ A workflow may:
 
 - add work before or after a generated turn;
 - expose a conversation-scoped action or a conversation-less query;
+- accept a file the user uploads for a character, such as a voice clip;
 - produce an attachment for a message and later regenerate, reroll, rehydrate,
   activate, or delete it;
 - keep state at conversation, message, character, or global config scope;
@@ -77,7 +78,8 @@ decisions only that feature makes.
 | `frontend/workflow_api.js` | Public plugin facade |
 | `frontend/workflow_loader.js` | Loads one module per manifest entry |
 | `frontend/state.js` | Workflow registries and UI state |
-| `frontend/chat.js` | SSE dispatch, widgets, cards, and refetching |
+| `frontend/chat.js` | Chat facade used by the workflow API |
+| `frontend/chat_stream.js`, `frontend/chat_workflow.js` | SSE dispatch and workflow presentation/attachment actions |
 | `frontend/workflows/<id>/index.js` | Workflow entry point |
 | `frontend/default_widget.js` | Fallback image, audio, video, or download view |
 
@@ -127,14 +129,20 @@ on re-registration.
 |---|---|---|
 | `PRE_PIPELINE` | During a turn, before the main passes; all hooks in priority order | Async stream of events or pipeline instructions |
 | `POST_PIPELINE` | During a turn, after the main passes; all hooks in priority order | Async stream of events, draft changes, state, or attachments |
-| `ON_DEMAND` | Conversation-scoped trigger route | One response object |
+| `ON_DEMAND` | Conversation-scoped trigger route | A JSON object or `WorkflowEventStream` |
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
+| `UPLOAD` | Character-scoped file upload route | One response object |
 | `EXPORT` | Attachment export route; optional | An `ExportedFile`, or `None` when nothing is left to export |
 
 `QUERY` has no conversation or LLM client. It is for setup and discovery, such
-as checking an external server before a conversation exists. The message-level
+as checking an external server before a conversation exists. `UPLOAD` receives
+one file for one character, also without a conversation or client, and its
+query-string parameters as a second argument. The framework checks the card
+and a 25 MB cap, and holds no lock while the hook runs: the hook takes the
+toolkit lock for any state it rewrites, so slow processing of the file blocks
+nothing. The TTS voice clone is the worked example. The message-level
 regenerate route reruns the normal turn pipeline; `REGENERATE` is only for an
 attachment.
 
@@ -169,6 +177,7 @@ framework.
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
+| `UploadCtx` | Settings, character id and card, filename, file bytes | No conversation, client, or lock |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
 
 For group work, `character` identifies the relevant speaker. A
@@ -307,6 +316,7 @@ GET  /api/workflows/{wid}/config
 PUT  /api/workflows/{wid}/config
 POST /api/workflows/{wid}/enabled
 POST /api/workflows/{wid}/query
+POST /api/characters/{card_id}/workflows/{wid}/upload
 POST /api/conversations/{cid}/workflows/{wid}/trigger
 POST /api/conversations/{cid}/workflows/stop
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate
@@ -321,6 +331,13 @@ GET  /api/workflow-attachments/{aid}/export
 ```
 
 User uploads have the same split: `GET /api/user-attachments/{aid}/content`.
+
+A hook reports a failure the user can act on by raising the toolkit's
+`WorkflowUserFacingError`; its message becomes the response detail, with status
+502. Two subclasses narrow the status: `WorkflowInputError` (400) for input the
+user supplied that cannot be used, and `WorkflowUnavailableError` (503) for
+something not set up yet, such as a model that is not downloaded. Any other
+exception is logged and answers 500 with a generic message.
 
 `in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
 whether a request still holds the group's lock. Regenerate, reroll-gen,
@@ -372,6 +389,12 @@ The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
 used on both read and write.
 
+`get_workflow_config` returns the stored slot when non-empty, otherwise an
+independent copy of `config_defaults`, including nested objects and lists. It
+does not merge partial stored configuration with defaults. A workflow that adds
+settings over time supplies missing values in its normalizer. Clearing the
+stored config with `{}` restores the defaults.
+
 ## Frontend integration
 
 At boot, the frontend fetches the manifest and imports
@@ -379,8 +402,8 @@ At boot, the frontend fetches the manifest and imports
 run when the module loads.
 
 The facade in `workflow_api.js` is the frontend ABI. It is additive-only: new
-exports may be added, but existing names and signatures do not change. Common
-registration points are:
+exports may be added, with a `WORKFLOW_API_VERSION` bump, but existing names and
+signatures do not change. Common registration points are:
 
 ```js
 registerWorkflowInspectorCard(wid, render)
@@ -411,6 +434,14 @@ handlers:
 registerAction("my_workflow", "refresh", (element, event) => { /* ... */ });
 ```
 
+The handler receives the element carrying the action and the event. Click is
+the default; `data-wf-on` names other events, space-separated: `change`,
+`input`, `keydown`, or `dragover dragleave drop` for a drop target. The core UI
+uses the same mechanism, so a workflow's markup may also name a core action. The
+lint step fails on an action name that nothing registers.
+Handlers may return a promise; synchronous throws and asynchronous rejections
+are logged with the action name.
+
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
 and conversation repaint/refetch helpers.
@@ -431,7 +462,13 @@ An attachment renderer receives `{ att, buttons, defaultHtml, siblings, msgId,
 rootId, job }`: the shown attachment, the group's attachments in display order,
 the message and group root ids, and the group's running regenerate job (or
 null). Treat them as read-only. `activateWorkflowVariant(msgId, rootId,
-siblingId)` shows another variant through the arrow buttons' own path.
+siblingId)` shows another variant through the arrow buttons' own path. A widget
+that draws its own controls instead of `buttons` reaches the same operations
+through `stepWorkflowVariant(msgId, rootId, delta)`,
+`regenerateWorkflowAttachment(msgId, attId, button)`,
+`rehydrateWorkflowAttachment(msgId, attId, button)` (*button* becomes the
+render's Stop button), and `deleteWorkflowAttachment(msgId, rootId)`, which asks
+before deleting the shown variant or the whole group.
 `registerRegenerateSettled(wid, (msgId, rootId) => …)` is called when a
 regenerate ends, on every outcome, because a failed or stopped run repaints
 nothing; a widget holding live run state clears it there.
@@ -465,6 +502,7 @@ message refreshes resume.
 | Store workflow state | Toolkit state helpers and the matching lock |
 | Produce an attachment | `attach_artifact` and `attachment_cache.py` |
 | Add a custom stream event | Hook event plus `registerWorkflowEventHandler` |
+| Accept a file for a character | `UPLOAD` hook; `tts/hooks.py:upload` |
 | Add UI | `workflow_api.js` registrars and `registerAction` |
 
 

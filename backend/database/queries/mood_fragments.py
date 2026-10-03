@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db
 from ..models import MoodFragmentRow
 
 
@@ -42,7 +42,7 @@ async def create_mood_fragment(data: dict) -> MoodFragmentRow:
 async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
     async with get_db() as db:
         allowed = ["label", "description", "prompt_text", "negative_prompt", "cooldown_turns", "enabled"]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(fid)
             await db.execute(

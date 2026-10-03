@@ -1,19 +1,6 @@
-"""Doc-mode KV-cache parity: the Output Auditor's patch call must byte-extend
-the generation call (docs/architecture/kv-cache.md — extend, don't fork).
-
-Drives the REAL DocumentContinuer.stream for generation and the REAL
-patch_document for the fix call on one capturing stub, then asserts per shape
-that the patch's wire inputs are a strict extension of the generation's:
-
-* text+raw       — patch raw prompt startswith(generation prompt + draft core)
-* text+assisted  — render_prompt re-runs the EXACT generation render inputs
-                   (same messages, same prefill) and the raw patch prompt
-                   byte-extends that render
-* chat shapes    — the patch message list replays the generation messages
-                   verbatim (serialized comparison), with tools kept out of the
-                   prompt (tools_in_prompt=False) and identical reasoning kwargs
-
-The sibling of test_kv_cache_invariants.py for the documents slice.
+"""Check that Document audit calls byte-extend generation for each transport: raw
+text prompt, assisted template/prefill, or replayed chat messages. Keep chat
+patch schemas outside the prompt and reasoning kwargs unchanged.
 """
 
 from __future__ import annotations

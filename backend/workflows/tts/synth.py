@@ -215,16 +215,10 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
 
 
 def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
-    """Profile fields only some backends read, passed to all of them.
+    """Pass optional backend profile fields through a shared kwargs shape.
 
-    Every adapter takes ``**kwargs``, so this stays one call shape rather than a
-    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice,
-    and ``reference_tokens``/``reference_text`` its advanced reference, sent
-    only when the profile speaks with it;
-    ``settings`` is how a local backend reads its own Local ML gates, and stays
-    ``None`` when the caller had none — preview and reroll both synthesize from
-    a context that carries no settings, and making this path fetch them would
-    put a database read in front of every remote backend that never looks.
+    Include Spark speaker/reference tokens only for its profile. Preserve absent
+    settings for preview/reroll rather than adding unnecessary database reads.
     """
     advanced = speaks_advanced(profile)
     return {
@@ -297,16 +291,10 @@ def estimate_word_spans(dialogue_text: str) -> list[dict]:
 
 
 def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dict] | None:
-    """Map a backend's native word-boundary events onto the alignable tokens.
+    """Map native word boundaries to alignable token spans by forward character search.
 
-    ``boundaries`` is the backend's per-word timing stream
-    (``[{text, start_ms, end_ms}]``); its tokenization need not match ours, so
-    each boundary is located in ``dialogue_text`` by a forward character cursor
-    and attributed to every alignable token whose character span it overlaps. A
-    token covered by several boundaries takes their union. Returns ``None`` when
-    any token receives no boundary -- the mapping is then incomplete and the
-    caller estimates instead. When not ``None``, the result has one span per
-    alignable token, in order.
+    Union overlapping boundaries per token. Return None if any token lacks timing
+    so callers can estimate; otherwise return one ordered span per token.
     """
     tokens = _alignable_tokens(dialogue_text)
     if not tokens or not boundaries:

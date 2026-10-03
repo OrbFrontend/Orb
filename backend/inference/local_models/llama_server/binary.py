@@ -93,19 +93,10 @@ def _named(path: Path) -> tuple[Path, ...]:
 
 
 def find_binary(gpu: bool = True) -> Path:
-    """The llama-server to run: env override → PATH → ``data/llama-bin/<flavour>/``.
+    """Resolve llama-server from env override, PATH, then managed CPU/GPU builds.
 
-    *gpu* picks which of the two fetched builds to run, and it is the entire
-    GPU switch — the caller passes ``profile.gpu_layers > 0`` and gets a binary
-    that can honour it.
-
-    An override and a PATH binary answer for both flavours: somebody who
-    supplied their own llama-server gets that one either way, and their toggle
-    then moves ``--n-gpu-layers`` alone, which is the right meaning for a build
-    this code did not choose. An explicit ``ORB_LLAMA_SERVER`` that does not
-    resolve stays a hard error rather than a fallthrough — someone who set it
-    wants *that* binary, and quietly running a different one is how a Vulkan
-    build gets swapped for a CPU one without anybody noticing.
+    Custom binaries serve both GPU settings; only gpu_layers changes.
+    An invalid explicit ORB_LLAMA_SERVER is an error, never a fallback.
     """
     explicit = os.environ.get("ORB_LLAMA_SERVER")
     if explicit:
@@ -190,17 +181,10 @@ def _forget_probes() -> None:
 
 
 def _parse_devices(text: str) -> tuple[str, ...] | None:
-    """The device names under llama-server's ``Available devices:`` header.
+    """Read non-CPU device names under Available devices.
 
-    Everything above the header is backend chatter — a Vulkan build narrates
-    its own enumeration before it answers — so the header is the anchor, and
-    the indented lines under it are the answer. ``(none)`` is what a build with
-    no non-CPU backend prints: a device list of length zero, not a device. The
-    CPU never appears in this list, which is what makes "non-empty" mean "can
-    offload".
-
-    ``None`` when there is no header at all: a build too old to know the flag
-    has not said it has no GPU, it has said nothing.
+    Ignore preceding chatter; (none) means no devices. Missing header returns
+    None for older builds whose capability is unknown.
     """
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -270,17 +254,9 @@ def _arch() -> str:
 
 
 def gpu_build_published(*, system: str, arch: str) -> bool:
-    """Whether a GPU-capable archive exists for this platform at all.
+    """Whether this platform offers a general GPU build, without fetching it.
 
-    macOS carries Metal inside the one asset per arch, so the answer is yes and
-    the choice never reaches the archive. Windows on arm64 publishes no Vulkan
-    build — its GPU assets are OpenCL for Adreno and CUDA for Grace, both
-    narrower than "any card" — so the answer is no.
-
-    Split out of :func:`asset_name` because the panel has to ask it WITHOUT
-    fetching anything: "ticking this box cannot help you here" is a different
-    message from "the build you have cannot help you", and a platform that has
-    no GPU build to offer must not be shown a button offering one.
+    macOS includes Metal; Windows arm64 has no Vulkan archive.
     """
     if system == "windows":
         return arch == "x64"
@@ -315,7 +291,7 @@ def _system() -> str:
 
 def _api(url: str):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 — fixed https host
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- fixed https host
         return json.load(response)
 
 
@@ -333,7 +309,7 @@ def resolve_release(tag: str | None = None) -> dict:
 def _unpack(archive: Path, into: Path) -> None:
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(into)  # noqa: S202 — official release archive
+            zf.extractall(into)  # nosec B202 -- official release archive; zipfile strips absolute and .. paths
     else:
         with tarfile.open(archive) as tf:
             # `filter="data"` refuses absolute paths, `..` escapes, links that
@@ -345,7 +321,7 @@ def _unpack(archive: Path, into: Path) -> None:
             # TypeError on it — the same reason `--no-webui` is probed on the
             # binary rather than simply sent.
             if hasattr(tarfile, "data_filter"):
-                tf.extractall(into, filter="data")  # noqa: S202 — official release archive
+                tf.extractall(into, filter="data")  # nosec B202 -- data filter refuses escapes and links
             else:
                 base = into.resolve()
                 for member in tf.getmembers():
@@ -355,7 +331,7 @@ def _unpack(archive: Path, into: Path) -> None:
                     target = (base / member_path).resolve()
                     if os.path.commonpath([str(base), str(target)]) != str(base):
                         raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
-                    tf.extract(member, into)  # noqa: S202 — validated member path
+                    tf.extract(member, into)  # nosec B202 -- validated member path
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:
@@ -387,7 +363,7 @@ def _download(release: dict, wanted: str, into: Path) -> Path:
     logger.info("Fetching %s (%.0f MB)", wanted, asset.get("size", 0) / 1e6)
     archive = into / wanted
     request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # noqa: S310 — github release URL
+    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # nosec B310 -- github release URL
         shutil.copyfileobj(response, fh)
     return archive
 
@@ -423,16 +399,10 @@ def _clear_legacy_builds() -> None:
 
 
 def fetch() -> str:
-    """Download and unpack BOTH llama-server builds. Blocking.
+    """Download both managed CPU/GPU builds and verify each with --version. Blocking.
 
-    Both in one press, because the GPU setting is a switch between them: paying
-    for a second download at the moment somebody ticks a checkbox is the reason
-    that checkbox used to do nothing instead. Each is proved with ``--version``
-    before it counts as installed. Returns the GPU build's path.
-
-    Platforms that publish one archive for both — macOS carries Metal inside
-    it — download once and unpack it into each directory, so every caller
-    downstream can assume the pair exists.
+    Shared archives such as macOS are fetched once and unpacked into both
+    directories. Return the GPU build path.
     """
     release = resolve_release()
     tag = release["tag_name"]

@@ -1,12 +1,5 @@
-"""
-0023_separate_length_guard_flags -- promote the length-guard feature flags out of
-the enabled_tools JSON into their own boolean columns.
-
-enabled_tools historically held two non-tool keys (length_guard,
-length_guard_enforce) alongside the real model-callable tools. They are feature
-flags, not function-call schemas, so this migration adds dedicated columns and
-ports any existing values, then strips both keys from the JSON so enabled_tools
-holds only entries that map to a registered tool.
+"""Move length_guard and length_guard_enforce out of enabled_tools into
+dedicated flag columns, preserving their values.
 """
 
 from __future__ import annotations

@@ -1,11 +1,7 @@
-"""Migration 0029: lifetime generated-chars counter for homepage stats.
+"""Add the lifetime generated-character counter.
 
-Adds ``settings.generated_chars``, the running total of characters the LLM has
-generated (the homepage "~Tokens generated" stat divides it by the
-CHARS_PER_TOKEN heuristic). NULL means "not yet seeded": the stats query layer
-lazily initialises it from the existing assistant-message rows on first use,
-then successful turns increment it -- so no backfill happens here, and a
-restored backup without the column self-heals the same way.
+NULL triggers lazy initialization from assistant messages; successful turns
+then increment it, including after restoring older backups.
 """
 
 from __future__ import annotations

@@ -23,7 +23,7 @@ BODY_LIMIT = 20_000
 # to ``entrypoints._run_turn_handler`` with no shared object between them, and the
 # alternatives are worse: ``turn_scratch`` is part of the public workflow-hook
 # surface (``workflows/contracts.py``), and ``PipelineContext`` is frozen and not
-# passed to ``_run_pipeline`` at all.
+# passed to ``run_pipeline`` at all.
 _STAGE_ATTR = "_orb_stage"
 
 STAGE_JUDGE = "judge pass"
@@ -157,17 +157,9 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
         }
 
     if isinstance(exc, httpx.HTTPStatusError):
-        # A status failure raised somewhere the typed error is not built (a bare
-        # raise_for_status on a non-streaming call). The response is still right
-        # here, so read it rather than printing httpx's canned "Client error '400
-        # Bad Request' for url ..." -- the exact line ``inference/errors.py`` was
-        # written to stop showing people. Falls back to the repr when the body is
-        # unreadable or says nothing.
-        #
-        # Unredacted, unlike the LLMCallError branch: the credential is not in
-        # scope here. Acceptable because this branch covers Orb's own internal
-        # calls, whose bodies do not echo an Authorization header -- but it is the
-        # reason a key must never be routed through a bare raise_for_status.
+        # Read response details for bare status failures; fall back to repr if empty.
+        # This branch has no credential to redact and is for internal calls only:
+        # never route a credential-bearing provider error through bare raise_for_status.
         body = _body_of(exc)
         payload = {
             "headline": headline_for_status(exc.response.status_code),

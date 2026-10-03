@@ -196,6 +196,7 @@
   cursor: pointer;
   padding: 8px 16px;
   color: var(--text-muted);
+  -webkit-user-select: none;
   user-select: none;
 }
 #doc-help .doc-help-body { padding: 0 16px 12px; color: var(--text-secondary); max-width: 820px; }

@@ -1,16 +1,7 @@
-"""``forced_draft`` makes every caller state its reasoning posture.
+"""Require forced_draft callers to choose reasoning explicitly.
 
-The bug this pins shut: sending no reasoning params is not neutral. Both
-transports read an absent hint as thinking ON -- ``text_completion.reasoning_enabled``
-returns ``True`` for exactly that case -- and reasoning is billed from the same
-``max_tokens`` the answer needs. So a forced call that never mentioned reasoning
-was silently opting into it, on a budget sized only for the schema it had to
-fill; a budget spent thinking returns no tool call, which each caller surfaces
-as its own ``*Unavailable``.
-
-Making the parameter required is the fix, and this file is what keeps it
-required: a signature-level test plus the transport's own reading of the params
-the helper emits, so the two halves cannot drift apart.
+Missing hints default thinking on and can consume the answer budget. Check
+both the required signature and the transport interpretation of emitted params.
 """
 
 from __future__ import annotations

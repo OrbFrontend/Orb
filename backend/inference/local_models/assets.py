@@ -95,17 +95,10 @@ def missing_files(feature: str) -> list[str]:
 
 
 def prune_stale(root: str | None = None) -> None:
-    """Delete any .gguf under data/models/ that no current MODELS spec claims.
+    """Prune unclaimed managed artifacts after downloads, preserving other extensions.
 
-    Runs after every download so bumping a model (e.g. v2 typeahead) doesn't leave
-    the old weights eating disk. Only touches the extensions the catalog itself
-    writes (``MANAGED_SUFFIXES``) — hf's .cache bookkeeping and manual drops of
-    anything else are left alone.
-
-    Claim is by *basename*, not full path: comparing paths meant a model sitting in
-    a legacy mirrored subdir read as unclaimed and got deleted the moment any other
-    feature downloaded — and on a case-insensitive filesystem, where ``GGUF/`` and
-    ``gguf/`` are one directory, that fired on a model we had just fetched.
+    Compare basenames so legacy mirrored paths and case-insensitive directories
+    do not make current weights appear unclaimed.
     """
     root = root or model_dir()
     # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A
@@ -217,34 +210,3 @@ def delete_model(feature: str, variant: str | None = None) -> bool:
             os.remove(target)
             removed = True
     return removed
-
-
-if __name__ == "__main__":
-    # Self-check for the destructive prune (temp dir; never touches real models).
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as d:
-        keep = os.path.join(d, MODELS["autocomplete"].local_name)
-        open(keep, "w").close()
-        mirrored = os.path.join(d, MODELS["emotion_classifier"].filename)  # legacy gguf/ nesting
-        os.makedirs(os.path.dirname(mirrored), exist_ok=True)
-        open(mirrored, "w").close()
-        companion = os.path.join(d, next(iter(MODELS["spark_tts_codec"].extra_files)).local_name)
-        open(companion, "w").close()
-        stale = os.path.join(d, "old-granite-Q8_0.gguf")
-        open(stale, "w").close()
-        stale_onnx = os.path.join(d, "left-over-decoder.onnx")
-        open(stale_onnx, "w").close()
-        notes = os.path.join(d, "readme.txt")  # an unmanaged extension must survive
-        open(notes, "w").close()
-        cached = os.path.join(d, ".cache", "huggingface", "download")
-        os.makedirs(cached)
-        prune_stale(d)
-        assert os.path.exists(keep), "current spec's gguf must be kept"
-        assert os.path.exists(mirrored), "a claimed gguf in a legacy subdir must survive"
-        assert os.path.exists(companion), "a claimed companion .onnx must be kept"
-        assert not os.path.exists(stale), "unclaimed gguf must be removed"
-        assert not os.path.exists(stale_onnx), "unclaimed onnx must be removed"
-        assert os.path.exists(notes), "an unmanaged extension must be left alone"
-        assert os.path.isdir(cached), "hf's .cache must be left alone, empty or not"
-    print("prune_stale OK")

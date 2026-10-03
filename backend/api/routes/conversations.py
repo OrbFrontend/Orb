@@ -99,12 +99,12 @@ from ...prompting import (
     resolve_mood_fragment_randoms,
 )
 from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
+    CleanupStreamingResponse,
     deleting_resources,
     profile_draft_failures,
     require_conversation,
     rows_response,
+    sse_stream,
     stop_active_stream,
 )
 from ..schemas import (
@@ -262,16 +262,10 @@ async def api_sync_group_members(
 
 
 async def _scene_cast_names(cid: str, data: SceneProfileGenerateRequest) -> tuple[list[str], int]:
-    """The other members' names for one drafting prompt, and how many were left out.
+    """Return other cast names and the omitted count for a drafting prompt.
 
-    Client-supplied names are untrusted display text: stripped and capped per
-    name, but neither sorted nor deduplicated — the canonical UI order is what
-    the user sees, and two members may legitimately share one display name.
-
-    An omitted ``cast_names`` falls back to the stored roster minus the target's
-    own row. Active character cards are unique per roster, so matching on the
-    card id is exact; an unrostered target (a row added in the modal and not yet
-    saved) simply has every durable row as an other member.
+    Strip and cap client names while preserving order and duplicates. When omitted,
+    use the stored roster minus the target card; unrostered targets retain all rows.
     """
     if "cast_names" in data.model_fields_set:
         supplied = data.cast_names
@@ -525,8 +519,8 @@ async def api_summarize_conversation(
             logger.error("Summarize error: %s", e)
             yield {"event": "error", "data": "Summarize failed; see server logs"}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
         media_type="text/event-stream",
     )
 

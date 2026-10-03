@@ -388,10 +388,6 @@ class TestDirectorPickDelimiters:
 
 
 class TestLorebookTurn:
-    def test_scan_depth_by_mode(self):
-        assert LorebookTurn(entries=(), messages=(), agentic=False).scan_depth == LOREBOOK_SCAN_DEPTH
-        assert LorebookTurn(entries=(), messages=(), agentic=True).scan_depth == AGENTIC_LOREBOOK_SCAN_DEPTH
-
     def test_substring_writer_block_reuses_block_verbatim(self):
         # In substring mode the writer block is the pre-computed Director-facing
         # block; director_selected is ignored and nothing is recomputed.

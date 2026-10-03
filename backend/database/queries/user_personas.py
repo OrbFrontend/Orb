@@ -4,7 +4,7 @@ import base64
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db
 from ..models import UserPersonaRow
 
 _PERSONA_SELECT = "SELECT id, name, description, avatar_color, avatar_mime, created_at, updated_at FROM user_personas"
@@ -96,7 +96,7 @@ async def create_user_persona(data: dict) -> UserPersonaRow:
 async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | None:
     async with get_db() as db:
         allowed = ["name", "description", "avatar_color", "avatar_b64", "avatar_mime"]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
             vals.append(datetime.now(UTC).isoformat())

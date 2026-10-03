@@ -21,8 +21,8 @@ from ....core import (
 )
 from ....inference import (
     CachedBase,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     parse_tool_calls,
     reasoning_cfg,
 )
@@ -41,7 +41,7 @@ from .prompts import build_director_scene_step_prompt, build_director_tool_promp
 
 if TYPE_CHECKING:
     from ....core import Macros
-    from ...state import BranchBaseline, LorebookTurn, TurnState, _PipelineConfig
+    from ...state import BranchBaseline, LorebookTurn, PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -89,16 +89,10 @@ def speaking_plan_instruction(speaker_keys: str) -> str:
 
 
 def keeps_director_value(field: str, value: Any) -> bool:
-    """Whether a ``direct_scene`` field's value is worth recording.
+    """Whether to record a direct_scene value.
 
-    An empty value normally means "the model declined this field", so it is
-    dropped. The speaking plan is the exception: ``[]`` is the Director's way of
-    saying *nobody answers this exchange*, and discarding it would silently fall the
-    group back to round-robin. Only ``None`` reads as declined there — the
-    combined call omits the key entirely, the per-fragment loop reads it back as
-    ``None``, and both must land on the configured strategy rather than a rest.
-    Both callers ask this one question, so the two cannot disagree about what a
-    rest means.
+    Empty values normally mean declined. A speaking plan of [] means nobody
+    answers; only None falls back to the configured strategy.
     """
     if field == SPEAKING_PLAN_FIELD:
         return value is not None
@@ -109,17 +103,10 @@ def build_direct_scene_override(
     writer_fragments: Sequence[Mapping[str, Any]],
     grouped: bool = False,
 ) -> dict:
-    """Build the ``direct_scene`` tool schema from *writer_fragments*.
+    """Build the direct_scene schema from writer fragments.
 
-    Thin wrapper over ``build_direct_scene_tool`` so ``_build_writer_tools_blob``
-    reaches the schema through the director module rather than importing the
-    schema builder directly — symmetric to ``build_feedback_override``.
-
-    *grouped* widens the schema with the speaking-plan field. A bool and not the
-    roster on purpose: nothing about *which* members are in the scene may reach
-    this blob (see :data:`SPEAKING_PLAN_SCHEMA_DESCRIPTION`), and taking the cast
-    as an argument is what previously let it. The live roster ships with the
-    request instead, through :func:`speaking_plan_instruction`.
+    Grouped adds a speaking-plan field without embedding roster data in the
+    cached blob; the trailing instruction supplies the live roster.
     """
     schema = build_direct_scene_tool(writer_fragments)
     if grouped:
@@ -258,18 +245,10 @@ async def director_pass(
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
 ) -> AsyncIterator[dict]:
-    """Yield reasoning chunks during each tool call, then a single done dict.
+    """Yield reasoning deltas, then one done event with DirectorResult.
 
-    *speaker_keys* is the exchange's castable roster, comma-joined. It reaches the
-    model only through the trailing request, never the cached tool blob.
-
-    *decision_guidance* is the same, and for a second reason as well: a decision
-    must never become a ``direct_scene`` property, or the resolved question would
-    reappear as something for the Director to answer.
-
-    Yields:
-        ``{"type": "reasoning", "delta": str}``       — zero or more reasoning chunks
-        ``{"type": "done", "result": DirectorResult}`` — terminal pass result
+    Speaker keys and decision guidance belong only in the trailing request,
+    never cached schema properties.
     """
     active_moods = director["active_moods"]
     mood_ids = {fragment["id"] for fragment in mood_fragments}
@@ -515,7 +494,7 @@ def apply_state_step_result(state: TurnState, result: StateStepResult, contract:
 
 
 async def director_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -525,31 +504,19 @@ async def director_stage(
     direct_scene_fragments: Sequence[Mapping[str, Any]],
     state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
     director_decision_guidance: str = "",
     writer_decision_guidance: str = "",
 ) -> AsyncIterator[dict]:
-    """Input-prep + director pass + all post-processing for the director stage.
+    """Prepare and run the Director, apply before-Writer state updates, then
+    build injection and lorebook blocks. Stop skips remaining assembly.
 
-    Runs the director pass (when the agent is on and a pre-writer tool is
-    enabled), folds the :class:`DirectorResult` into *state*, applies the
-    before-Writer state updates -- the Director's one-value fields, then the
-    ``update_state`` step for multiple-entry fields -- computes the Writer's
-    injection block (→ ``director_done``), and computes the writer's lorebook
-    block (agentic selection or keyword scan). Returns early on a stop during
-    the director pass so ``director_done`` and lorebook work are skipped.
-
-    *scene_fragments* shape the Scene Guidance; *direct_scene_fragments* are the
-    ``direct_scene`` parameters, which also carry the one-value state fragments
-    updated before the Writer. ``state.state_view`` holds the branch's state and
-    is updated in place.
-
-    Each resolved decision's guidance reaches the passes its Inject setting names:
-    *director_decision_guidance* the Director and its before-Writer state step,
-    *writer_decision_guidance* the Writer's injection block.
+    scene_fragments shape guidance; direct_scene_fragments also carry one-value
+    state fields. Update state_view in place and route decision guidance only
+    to its configured passes.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)

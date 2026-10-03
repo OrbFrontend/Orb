@@ -88,7 +88,7 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 ## Drawbacks
 
 1. **Speed**: Multiple passes will obviously have a longer time to final response
-2. **Cost**: Neligible cost increase, which comes naturally with multiple passes, somewhat alleviated by KV cache reuse strategy
+2. **Cost**: Negligible cost increase, which comes naturally with multiple passes, somewhat alleviated by KV cache reuse strategy
 
 You're basically trading speed and money for steerability and quality.
 

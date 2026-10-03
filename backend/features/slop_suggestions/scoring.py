@@ -1,13 +1,8 @@
-"""Count keys across characters and rank them against card-authored text.
+"""Rank keys against card-authored text, counting each character equally.
 
-Each character counts once, so one long chat cannot carry a key. A key's reply
-rate is each character's share of sentences containing it, averaged over every
-character; multiplied by the card corpus's sentence count it says how often card
-authors would write the key if they wrote like the model. ``lb`` divides that
-expectation by a 95% upper bound on what card text actually shows, so an absence
-from card text counts only once the expected count is large.
-
-Pure: every function works on plain iterables and never touches the database.
+Average per-character reply sentence rates estimate expected card counts;
+lb divides that expectation by the observed count's 95% upper bound.
+Pure iterable-based scoring; no database access.
 """
 
 from __future__ import annotations

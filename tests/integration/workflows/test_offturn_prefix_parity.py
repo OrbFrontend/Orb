@@ -3,7 +3,7 @@
 Off-turn workflow calls (image_gen's analyze/compose, and anything else built
 on ``build_offturn_prefix``) ride the llama.cpp server's cached KV for the
 whole conversation prefix. That only works if the toolkit builder and the
-pipeline's ``_build_prefixes`` produce **byte-identical** messages for the same
+pipeline's ``build_prefixes`` produce **byte-identical** messages for the same
 conversation state — one diverging byte evicts the cache for the off-turn call
 and again for the next chat turn. This test seeds every prefix-shaping input
 (card-bound conversation, active persona, macros, post-history instructions,
@@ -29,7 +29,7 @@ from backend.database import (
     set_active_leaf,
     update_settings,
 )
-from backend.pipeline.context import _build_prefixes, _load_pipeline_context
+from backend.pipeline.context import build_prefixes, load_pipeline_context
 from backend.workflows.toolkit import build_offturn_prefix
 
 
@@ -74,9 +74,9 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     settings = await get_settings()
     history = await get_messages(conv_id)
 
-    ctx = await _load_pipeline_context(conv_id)
+    ctx = await load_pipeline_context(conv_id)
     assert ctx is not None
-    pipeline_prefix, _ = _build_prefixes(ctx, history)
+    pipeline_prefix, _ = build_prefixes(ctx, history)
     offturn_prefix = await build_offturn_prefix(conv_id, history, settings)
     single_agent_prefix = await build_offturn_prefix(conv_id, history, settings, lane="agent")
 
@@ -104,9 +104,9 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
         }
     )
     dual_settings = await get_settings()
-    dual_ctx = await _load_pipeline_context(conv_id)
+    dual_ctx = await load_pipeline_context(conv_id)
     assert dual_ctx is not None
-    dual_writer_prefix, dual_agent_prefix = _build_prefixes(dual_ctx, history)
+    dual_writer_prefix, dual_agent_prefix = build_prefixes(dual_ctx, history)
     assert dual_agent_prefix is not None
     offturn_agent_prefix = await build_offturn_prefix(conv_id, history, dual_settings, lane="agent")
 
@@ -158,9 +158,9 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
 
     settings = await get_settings()
     history = await get_messages(conv_id)
-    ctx = await _load_pipeline_context(conv_id)
+    ctx = await load_pipeline_context(conv_id)
     assert ctx is not None
-    pipeline_prefix, _ = _build_prefixes(ctx, history)
+    pipeline_prefix, _ = build_prefixes(ctx, history)
 
     # Guard against a vacuous pass: the fixture must exercise the group shape.
     body = pipeline_prefix[0]["content"]

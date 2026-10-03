@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -256,24 +257,16 @@ async def set_workflow_character_state(character_id: str, workflow_id: str, payl
 
 
 async def get_workflow_config(workflow_id: str) -> dict:
-    """Return the workflow's global config slot.
+    """Read global config, falling back to a fresh defaults copy or {} if unregistered.
 
-    Falls back to the workflow's ``config_defaults`` (fresh copy) when the
-    persisted slot is empty so callers can read into a populated dict
-    without an existence check. An unregistered ``workflow_id`` with an
-    empty slot returns an empty dict.
-
-    Callers doing read-then-write must hold ``workflow_config_lock()``
-    across the full RMW window so the value observed here -- whether from
-    the persisted slot or the ``config_defaults`` fallback -- still
-    matches the slot when ``set_workflow_config`` writes it back.
+    Hold workflow_config_lock across any read-modify-write using this result.
     """
     raw = await _db_get_workflow_config(workflow_id)
     if raw:
         return raw
     w = _WORKFLOWS_BY_ID.get(workflow_id)
     if w is not None:
-        return dict(w.config_defaults)
+        return deepcopy(w.config_defaults)
     return {}
 
 
@@ -293,17 +286,10 @@ def overlay_enable_tools(
     base: Mapping[str, bool],
     contribution: set[str] | Mapping[str, bool] | None,
 ) -> dict[str, bool]:
-    """Return a fresh mutable dict copy of *base* with *contribution*'s
-    True entries merged in. Mirrors the orchestrator merge semantics:
-    True wins, False is ignored. None or an empty contribution returns a
-    fresh copy of *base* unchanged.
+    """Return a mutable base copy with enabled contributions merged; false is ignored.
 
-    Accepts any ``Mapping`` for *base* including a ``MappingProxyType``;
-    the return is always a plain ``dict`` the caller may mutate freely
-    (e.g. to pass to ``forced_tool_call``'s ``enabled_tools=`` argument).
-    Contribution may be a ``set`` (presence = enable) or a ``Mapping``
-    (True entries kept, False entries dropped). The orchestrator does the
-    logged-warning at its own merge site; this helper trusts the caller.
+    Accept a set or Mapping contribution and any Mapping base. Validation/warnings
+    belong to the caller.
     """
     result = dict(base)
     if contribution is None:

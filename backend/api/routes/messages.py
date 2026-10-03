@@ -40,7 +40,7 @@ from ...database.queries.messages import get_message_subtree_ids
 from ...features import autocomplete
 from ...inference import (
     AbortToken,
-    _KVCacheTracker,
+    KVCacheTracker,
     agent_lane_from_settings,
     client_from_settings,
     local_ml,
@@ -54,20 +54,18 @@ from ...pipeline import (
     handle_turn,
 )
 from ...pipeline.predicates import resolve_persona_id
-from ...pipeline.workflow_bridge import _PostPipelineResult, _run_post_pipeline
-from ...workflows.format_consistency import (
-    WORKFLOW_ID as FORMAT_CONSISTENCY_WORKFLOW_ID,
-)
+from ...pipeline.workflow_bridge import PostPipelineResult, run_post_pipeline
 from ...workflows.prose_rewriter_host import (
+    RERUN_AFTER_REWRITE,
     ProseRewriteConfig,
     resolve_config,
     rewrite_events,
 )
 from ..deps import (
-    _conversation_stream_lock,
-    _pipeline_sse_response,
     attachment_content_response,
+    conversation_stream_lock,
     deleting_message_sources,
+    pipeline_sse_response,
     require_conversation,
     rows_response,
     stream_idle_lock,
@@ -181,7 +179,7 @@ async def api_edit_message(
     # pipeline reads message content into the LLM prefix early and persists
     # the assistant reply late, so a mid-stream edit would make the on-disk
     # user message disagree with the prefix that produced the reply.
-    async with _conversation_stream_lock(cid):
+    async with conversation_stream_lock(cid):
         original = await get_message_by_id(msg_id)
         if not original or original["conversation_id"] != cid:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -217,7 +215,7 @@ async def api_fork_edit_message(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Fork at a user message: persist an edited sibling and stream a fresh reply."""
-    return _pipeline_sse_response(
+    return pipeline_sse_response(
         lambda tok: handle_fork_edit(
             cid,
             msg_id,
@@ -237,7 +235,7 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
     # DELETE CASCADE on messages.parent_id would otherwise wipe the
     # in-flight assistant row mid-INSERT (IntegrityError) or right after
     # commit (silent disappearance).
-    async with _conversation_stream_lock(cid), deleting_message_sources(cid, await get_message_subtree_ids(cid, msg_id)):
+    async with conversation_stream_lock(cid), deleting_message_sources(cid, await get_message_subtree_ids(cid, msg_id)):
         if not await delete_message_with_descendants(cid, msg_id):
             raise HTTPException(status_code=404, detail="Message not found")
         # The cascade has already NULLed every changeset pointer into the deleted
@@ -254,7 +252,7 @@ async def api_switch_branch(cid: str, msg_id: int, _conv: ConversationRow = Depe
     # Serialize against an in-flight streaming pipeline on this cid: the
     # pipeline's terminal set_active_leaf would otherwise overwrite the
     # branch the user just selected.
-    async with _conversation_stream_lock(cid):
+    async with conversation_stream_lock(cid):
         success = await switch_to_branch(cid, msg_id)
         if not success:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -273,7 +271,7 @@ async def api_regenerate_msg(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Regenerate a specific assistant message as a new sibling branch."""
-    return _pipeline_sse_response(lambda tok: handle_regenerate(cid, msg_id, abort_token=tok), request, cid)
+    return pipeline_sse_response(lambda tok: handle_regenerate(cid, msg_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/super_regenerate")
@@ -285,7 +283,7 @@ async def api_super_regenerate_msg(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Super-regenerate: keeps prior response as context, asks model for a different direction."""
-    return _pipeline_sse_response(lambda tok: handle_super_regenerate(cid, msg_id, abort_token=tok), request, cid)
+    return pipeline_sse_response(lambda tok: handle_super_regenerate(cid, msg_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/magic_rewrite")
@@ -297,7 +295,7 @@ async def api_magic_rewrite_msg(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Magic rewrite: runs the full pipeline as a new sibling steered by a user-supplied direction."""
-    return _pipeline_sse_response(lambda tok: handle_magic_rewrite(cid, msg_id, data.direction, abort_token=tok), request, cid)
+    return pipeline_sse_response(lambda tok: handle_magic_rewrite(cid, msg_id, data.direction, abort_token=tok), request, cid)
 
 
 async def _stream_prose_rewrite_message(
@@ -307,15 +305,10 @@ async def _stream_prose_rewrite_message(
     abort_token: AbortToken,
     settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
-    """Stream an assistant row's retained draft — or saved text — through the local rewriter.
+    """Stream the retained draft or saved text through the local rewriter.
 
-    The shared prose step provides whole-draft snapshots in visible document
-    order. Unlike the in-turn caller, this stream persists only after its
-    final ``rewritten`` event, so a disconnected or failed request leaves the
-    saved message byte-identical. This generator begins only after the SSE
-    layer acquires the conversation lock, so loading the row here prevents a
-    pre-stream edit from being overwritten with stale content — which is also
-    why the source is resolved here and not carried in from the route.
+    Load after acquiring the conversation lock to avoid stale edits. Persist only
+    after the final rewritten event; failures and disconnects leave the row unchanged.
     """
     message = await get_message_by_id(msg_id)
     if not message or message["conversation_id"] != cid or message["role"] != "assistant":
@@ -383,8 +376,8 @@ async def _stream_prose_rewrite_message(
             writer_client=client,
             abort_token=abort_token,
         )
-        post: _PostPipelineResult | None = None
-        async for event in _run_post_pipeline(
+        post: PostPipelineResult | None = None
+        async for event in run_post_pipeline(
             draft=rewritten,
             conversation_id=cid,
             character_id=character_id,
@@ -397,13 +390,13 @@ async def _stream_prose_rewrite_message(
             enabled_tools={},
             turn_scratch={},
             client=client,
-            kv_tracker=_KVCacheTracker(conversation_id=cid),
+            kv_tracker=KVCacheTracker(conversation_id=cid),
             schema_overrides={},
             agent_client=agent_client,
             agent_model_name=agent_model_name,
-            post_workflow_ids={FORMAT_CONSISTENCY_WORKFLOW_ID},
+            post_workflow_ids=RERUN_AFTER_REWRITE,
         ):
-            if isinstance(event, _PostPipelineResult):
+            if isinstance(event, PostPipelineResult):
                 post = event
         assert post is not None
         rewritten = post.draft
@@ -459,7 +452,7 @@ async def api_prose_rewrite_message(
             status_code=503,
             detail="Prose rewriter unavailable: turn it on and download a model in Workflow → Secondary",
         )
-    return _pipeline_sse_response(
+    return pipeline_sse_response(
         lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings),
         request,
         cid,
@@ -474,7 +467,7 @@ async def api_send_message(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     attachments = [a.model_dump() for a in data.attachments]
-    return _pipeline_sse_response(
+    return pipeline_sse_response(
         lambda tok: handle_turn(
             cid,
             data.content,
@@ -496,7 +489,7 @@ async def api_group_speak(
 ):
     if conv.get("kind", "solo") != "group":
         raise HTTPException(status_code=409, detail="Conversation is not a group")
-    return _pipeline_sse_response(lambda tok: handle_speak(cid, data.speaker_member_id, abort_token=tok), request, cid)
+    return pipeline_sse_response(lambda tok: handle_speak(cid, data.speaker_member_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/continue")
@@ -511,7 +504,7 @@ async def api_continue_from_user(
     if not messages or messages[-1]["role"] != "user":
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
-    return _pipeline_sse_response(
+    return pipeline_sse_response(
         lambda tok: handle_turn(
             cid,
             user_content,
@@ -550,15 +543,9 @@ async def api_autocomplete(
     persona = await get_user_persona(persona_id) if persona_id else None
     user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
 
-    # A group is a scene, not a character: {{char}} is its title, the "who am I
-    # talking to" summary is the roster, and each replayed line is labelled with
-    # the member who actually said it — the same three substitutions the pipeline
-    # makes. Without them the typeahead completes against one nameless character.
-    #
-    # Read straight off the roster rather than through `resolve_cast`: this route
-    # fires on a typing debounce, and all it needs are names — not the card behind
-    # each one. `{{cast}}` stays empty in a solo chat, exactly as `_prepare_turn`
-    # leaves it, so a draft resolves here the way it will in the turn itself.
+    # For groups, resolve {{char}} to the scene title and label history by speaker.
+    # Read roster names directly to avoid loading cards on the typing debounce.
+    # Solo {{cast}} stays empty, matching prepare_turn.
     speaker_names: dict[str, str] = {}
     cast_names = ""
     if conv.get("kind", "solo") == "group":

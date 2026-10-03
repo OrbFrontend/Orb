@@ -1,15 +1,6 @@
-"""The image-gen composer's forced calls ride the conversation's cached prefix.
+"""Run real image-gen select/compose calls beside a chat turn, stubbing rendering only.
 
-Unlike the other image_gen tests, this one does NOT stub ``compose_scene`` —
-only the ComfyUI renderer. The select/compose forced calls flow through the
-real ``build_offturn_prefix`` → ``forced_tool_call`` → ``client.complete()``
-stack into ``FakeLLMClient``, alongside a genuine chat turn in the same
-conversation. That is what arms the ``llm_mock`` teardown invariant
-(``verify_kv_prefix_invariants``): both original leaks — the off-turn prefix
-missing the constant-lorebook block, and per-call tool schemas rendered into
-the prompt — would fail this test via the teardown check. The fixture seeds a
-constant lorebook entry and an active persona so the system message has
-content the off-turn builder must reproduce byte-for-byte.
+Seed persona and constant lore so teardown can detect off-turn prefix drift.
 """
 
 from __future__ import annotations

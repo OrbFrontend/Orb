@@ -1,11 +1,5 @@
-"""
-0047_document_audit -- add the Document-mode Output Auditor settings columns:
-the auto-audit master switch (default on: the scan is local and free), the
-auto-patch opt-in (default off: an extra LLM call), and the doc-owned
-per-scanner toggle map. The map deliberately duplicates the doc-applicable
-subset of editor_audit_toggles rather than sharing the chat column, so a
-doc-mode save can never silently re-enable or flip a chat scanner. Mirrors
-migration 0022.
+"""Add Document audit settings: auto-audit on, auto-patch off, and an independent
+scanner-toggle map so document saves cannot alter chat settings.
 """
 
 from __future__ import annotations

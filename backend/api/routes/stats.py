@@ -8,7 +8,7 @@ import random
 from fastapi import APIRouter
 
 from ...core import estimate_tokens
-from ...database import get_generated_chars, get_global_stats
+from ...database import current_db_path, get_generated_chars, get_global_stats
 from ...inference.local_models.assets import model_dir
 from ...inference.local_models.llama_server.binary import bin_bytes as llama_bin_bytes
 
@@ -16,10 +16,7 @@ router = APIRouter()
 
 
 def _db_bytes() -> int:
-    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
-    from ...database import connection
-
-    path = connection.DB_PATH
+    path = current_db_path()
     return os.path.getsize(path) if os.path.exists(path) else 0
 
 

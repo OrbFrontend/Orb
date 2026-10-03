@@ -1,18 +1,7 @@
-"""The protected-sequence guard: a replacement may not clone its neighbours.
+"""Check that patches cannot clone significant runs from protected neighbours.
 
-Orb's exact-offset splice already guarantees that every byte outside the target
-spans survives — ``P0 + R1 + P1 + … + Rn + Pn``. The invariant these tests pin
-is the missing one: a replacement must not *copy* a significant run out of a
-protected ``P`` region, which prints that text twice where no trim could safely
-remove it.
-
-The guard is deliberately format-agnostic, so the same lexical clone is tested
-through straight quotes, smart quotes, asterisk roleplay, unquoted lines, and
-paragraph breaks — one draft family whose target spans are byte-identical in
-every rendering, which makes markup a clean controlled variable. The other half
-of the contract is the false-positive half: short runs, common runs, text the
-target already contained, and text belonging to another *mutable* target must
-all still apply.
+Vary markup while holding target text fixed. Permit short/common runs, text
+already in the target, and text from other mutable targets.
 """
 
 from __future__ import annotations

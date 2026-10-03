@@ -2,7 +2,7 @@
 
 Provider failures inside the Judge and Director are skipped by those passes, so
 what reaches ``stage`` here is Orb's own code failing. A group exchange runs its
-Judge and Director outside ``_run_pipeline``, and must label them the same way
+Judge and Director outside ``run_pipeline``, and must label them the same way
 a solo turn does.
 """
 

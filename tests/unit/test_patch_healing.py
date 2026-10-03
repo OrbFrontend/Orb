@@ -17,6 +17,7 @@ import pytest
 
 from backend.analysis import Target, apply_id_patches
 from backend.analysis.healing import heal_replacement
+from backend.analysis.patching import PatchErrorKind
 
 
 def _patch(draft: str, span: str, replace: str, *, start: int | None = None) -> tuple[str, list[str]]:
@@ -322,6 +323,24 @@ def test_deleting_a_line_does_not_promote_the_seam_to_a_paragraph_break(draft, e
     out, errors = _patch(draft, "B.", "")
     assert out == expected
     assert errors == []
+
+
+@pytest.mark.parametrize("replace", ["She let go.", "Kai cleared the zone."])
+def test_restating_a_neighbour_of_negated_narration_deletes_it(replace):
+    # Removal is the fix negated narration asks for, so a restated neighbour
+    # reads as "drop this". The same patch on any other finding is a mis-aim.
+    draft = "Kai cleared the zone.\n\nPellenna didn't hesitate. She let go."
+    span = "Pellenna didn't hesitate."
+    start = draft.index(span)
+    negation = Target(tid=1, span=span, start=start, end=start + len(span), categories=["negated_narration"])
+    out, errors = apply_id_patches(draft, [negation], [{"id": 1, "replace": replace}])
+    assert out == "Kai cleared the zone.\n\nShe let go."
+    assert errors == []
+
+    plain = Target(tid=1, span=span, start=start, end=start + len(span), categories=["banned_phrases"])
+    out, errors = apply_id_patches(draft, [plain], [{"id": 1, "replace": replace}])
+    assert out == draft
+    assert errors[0].kind == PatchErrorKind.RESTATED_CONTEXT
 
 
 # ── Interaction with the rest of apply_id_patches ─────────────────────────────

@@ -9,7 +9,7 @@ from typing import Any, cast
 from ..connection import get_db, immediate_tx
 from ..models import MemberSheetProposalRow
 from .character_cards import get_character_card
-from .group_members import _private_sheet
+from .group_members import resolve_private_sheet
 
 PROPOSAL_STATUSES = ("pending", "applied", "rejected", "stale")
 # What the review surface asks for: what still needs a decision, plus what the
@@ -26,13 +26,10 @@ class SheetProposalConflict(RuntimeError):
 
 
 async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | None:
-    """The member's current sheet as ``resolve_cast`` would render it, or ``None``.
+    """Resolve the member sheet exactly as the turn does, or return None.
 
-    Read through the *same* ``_private_sheet`` the turn uses rather than
-    comparing the raw column, so a proposal derived from card text (override
-    ``NULL``) is checked against that card text and not against ``""``. Two
-    resolvers here would mean the staleness check answered a different question
-    from the one the prompt asked.
+    Use resolve_private_sheet so NULL overrides compare against card text,
+    keeping proposal staleness checks aligned with prompts.
     """
     rows = list(
         await db.execute_fetchall(
@@ -50,7 +47,7 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
         return None
     row = dict(rows[0])
     card = await get_character_card(row["character_card_id"]) if row["character_card_id"] else None
-    return _private_sheet(card, row["card_sheet_override"])
+    return resolve_private_sheet(card, row["card_sheet_override"])
 
 
 async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:
@@ -68,15 +65,9 @@ async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberS
 
 
 async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list[MemberSheetProposalRow]:
-    """Stage proposals, one per member. Applies nothing.
+    """Stage an exchange's member proposals atomically without applying them.
 
-    Written in one transaction so an exchange's proposals arrive together — a review
-    surface that painted half of them would read as the pass having judged only
-    half the cast.
-
-    An **upsert**: a member with an undecided proposal has that row rewritten
-    rather than a second one added beside it. See the module docstring for why
-    two pending rows for one member cannot both be honoured.
+    Upsert each undecided proposal rather than creating competing pending rows.
     """
     if not proposals:
         return []
@@ -141,13 +132,8 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
 async def get_sheet_proposals(
     conversation_id: str, *, statuses: Sequence[str] | None = REVIEW_STATUSES
 ) -> list[MemberSheetProposalRow]:
-    """The conversation's proposals, newest first. ``statuses=None`` returns all.
-
-    Defaults to the **review set** rather than to ``pending`` alone. A ``stale``
-    proposal is one the apply refused, and it is precisely the row the user has
-    to see an explanation on — fetching only ``pending`` made it vanish from the
-    surface the moment it was refused, which is the opposite of reporting the
-    refusal.
+    """List proposals newest first. Default to pending and stale review rows;
+    statuses=None returns all.
     """
     sql = "SELECT * FROM member_sheet_proposals WHERE conversation_id = ?"
     args: tuple[Any, ...] = (conversation_id,)
@@ -162,13 +148,10 @@ async def get_sheet_proposals(
 
 
 async def apply_sheet_proposal(proposal_id: int, *, conversation_id: str) -> MemberSheetProposalRow:
-    """Write the proposed sheet onto the member, in one guarded transaction.
+    """Apply a pending proposal only while its base sheet still matches.
 
-    Refuses a proposal that is not ``pending`` and one whose member's sheet has
-    moved since it was derived. The refusal is decided inside the transaction
-    and *reported* outside it: ``immediate_tx`` rolls back on any exception, so
-    raising in place would take the ``stale`` mark down with it and the review
-    row would keep offering an apply that can only be refused again.
+    Mark staleness inside the transaction but raise outside it, so rollback
+    does not erase the refusal and leave an unapplyable proposal pending.
     """
     conflict = ""
     proposal: dict[str, Any] = {}

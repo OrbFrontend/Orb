@@ -136,19 +136,10 @@ def make_workflow(
 
 @contextmanager
 def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[Workflow]:
-    """Register *workflow* for the duration of a ``with`` block.
+    """Register a test workflow and bind pending subscriptions within a context.
 
-    On enter: registers the workflow and applies each pending subscription
-    staged by ``make_workflow``. When ``finalize`` is True (the default),
-    runs ``finalize_registry()`` after all subscriptions are bound so any
-    ``produces_artifacts=True`` workflow missing its ``REGENERATE`` /
-    ``REROLL_GEN`` subscriptions raises before the test body runs. Tests
-    that exercise the mandate's raise path pass ``finalize=False`` to skip
-    the validation.
-
-    On exit: restores the workflow registry and tool catalog to
-    a deep-copied snapshot captured before enter so subscription mutations
-    inside the block cannot leak across teardown.
+    Finalize validates artifact hooks unless finalize=False. Exit restores deep
+    snapshots of the registry and tool catalog so mutations cannot leak.
     """
     by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
     catalog_snapshot = snapshot_catalog()

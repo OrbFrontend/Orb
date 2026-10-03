@@ -1,21 +1,6 @@
-"""The `offer_tools` blob must be order-stable across sibling forced calls.
+"""Check byte-stable offer_tools across sibling forced calls; only tool_choice varies.
 
-image_gen's select + compose calls ship one shared array so that a backend
-which renders the whole array can serve the second call from the first call's
-cached prefix (docs/architecture/kv-cache.md, Invariant 3). That only works if
-the array is byte-identical regardless of which member is forced — the sole
-difference between the two requests must be `tool_choice`.
-
-Nothing else pins this. `enabled_schemas()` ordering is covered by
-test_tool_catalog.py, but the `offer_tools` path bypasses `enabled_schemas`
-entirely: it builds the array from the caller's tuple, so a reordered
-OFFER_TOOLS or an append-on-miss regression would silently split the two calls
-onto different prefixes with no test failing.
-
-Whether the *server* then renders the whole array is a provider property Orb
-cannot control or test offline — several backends render only the forced tool.
-That is documented, not asserted here. What is asserted is the part Orb owns:
-the bytes it sends.
+Provider rendering of the full array cannot be asserted offline.
 """
 
 from __future__ import annotations

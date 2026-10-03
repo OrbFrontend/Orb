@@ -144,16 +144,12 @@ def speech_segments(
     input_prepared: bool = False,
     include_narration: bool = False,
 ) -> list[tuple[str, str]]:
-    """Ordered speech/action text under the message's markup convention.
+    """Return ordered speech/action segments under the message-wide markup convention.
 
-    Shares format consistency's quotation, emphasis and inline-role decisions.
-    A convention labels the whole message, not individual sentences. Unmarked
-    chat with both conventions unknown falls back to plain speech; a positive
-    narration reading still excludes the unquoted prose.
-    Parenthetical asides, OOC and protected formatting are never spoken.
-    Set input_prepared only for the result of speech_input used to classify it.
-    Set include_narration to also receive the dropped prose as ``narration``
-    segments, for a caller that renders silence in its place.
+    Unknown conventions allow plain-chat fallback; positive narration excludes
+    unquoted prose. Asides, OOC and protected formatting are never spoken.
+    Set ``input_prepared`` only for the classified ``speech_input`` result.
+    ``include_narration`` returns otherwise dropped prose as narration segments.
     """
     if not input_prepared:
         text = speech_input(text)

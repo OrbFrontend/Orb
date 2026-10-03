@@ -112,14 +112,6 @@ function fitsGrid(preset, value) {
     .every((edge) => edge >= low && (!high || edge <= high) && edge % step === 0);
 }
 
-export function sizeIsExact(preset, comfy, value) {
-  if (comfy) return true;
-  const declared = preset?.sizes || [];
-  if (declared.length) return declared.includes(value);
-  if (preset?.dimension_mode === "width_height") return fitsGrid(preset, value);
-  return true;
-}
-
 export function sizeChoices(preset, comfy) {
   if (comfy) return COMFY_SIZES;
   const declared = Array.isArray(preset?.sizes) ? preset.sizes : [];

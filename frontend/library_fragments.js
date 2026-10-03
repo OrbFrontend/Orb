@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { decisionConfig, loadDecisionConfig } from "./decisions.js";
 import { initDragReorder } from "./drag_reorder.js";
@@ -14,7 +15,7 @@ import {
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S, upgradeLegacyFragment } from "./state.js";
 import { refreshState, updateStateTab } from "./state_panel.js";
-import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
+import { $, boolFlag, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 const _dragAndDropContainers = new WeakSet();
@@ -31,7 +32,7 @@ export async function loadMoodFragments() {
 
 export function renderMoodFragments() {
   const cardHtml = _cardMoodSidepanelHtml();
-  const addBtn = `<button class="btn btn-block btn-sm" onclick="showMoodFragmentModal()" style="margin-top:6px">+ Add Mood Fragment</button>`;
+  const addBtn = `<button class="btn btn-block btn-sm" data-wf-action="fragments:addMood" style="margin-top:6px">+ Add Mood Fragment</button>`;
   if ((!S.moodFragments || S.moodFragments.length === 0) && !cardHtml) {
     $("frag-list").innerHTML =
       `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>${addBtn}`;
@@ -43,14 +44,14 @@ export function renderMoodFragments() {
       const enabled = boolFlag(f.enabled);
       const toggleId = `frag-toggle-${f.id}`;
       return `
-    <div class="fragment-item" style="cursor:pointer" title="${escAttr(f.description)}" onclick="showMoodFragmentModal('${escHandlerArg(f.id)}')">
+    <div class="fragment-item" style="cursor:pointer" title="${escAttr(f.description)}" data-wf-action="fragments:openMood" data-frag-id="${escAttr(f.id)}">
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>
       </div>
-      <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+      <div class="frag-toggle-wrapper">
         <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                 onchange="toggleMoodFragmentEnabled('${escHandlerArg(f.id)}', this.checked)">
+                 data-wf-action="fragments:toggleMood" data-wf-on="change" data-frag-id="${escAttr(f.id)}">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -104,9 +105,9 @@ export function showMoodFragmentModal(fragId = null) {
     <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
     ${_moodFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger" onclick="deleteMoodFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="saveMoodFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
+      ${isEdit ? `<button class="btn btn-danger" data-wf-action="fragments:deleteMood" data-frag-id="${escAttr(d.id)}">Delete</button>` : ""}
+      <button class="btn" data-wf-action="modal:close">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="fragments:saveMood" data-is-edit="${isEdit}">${isEdit ? "Save" : "Create"}</button>
     </div>`);
 }
 
@@ -195,7 +196,7 @@ export function renderInteractiveFragments() {
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
   const cardHtml = _cardInteractiveSidepanelHtml();
-  const addBtn = `<button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>`;
+  const addBtn = `<button class="btn btn-block btn-sm" data-wf-action="fragments:addInteractive" style="margin-top:6px">+ Add Interactive Fragment</button>`;
   if ((!S.interactiveFragments || S.interactiveFragments.length === 0) && !cardHtml) {
     el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No interactive fragments</div>${addBtn}`;
     return;
@@ -238,15 +239,15 @@ function _interactiveFragmentRowHtml(f) {
   const userBadge = _interactiveTypeBadge(f);
   const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
   return `
-    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
-      <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}" onclick="event.stopPropagation()">${GRIP_ICON}</button>
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" data-wf-action="fragments:openInteractive" data-frag-id="${escAttr(f.id)}">
+      <button type="button" class="frag-drag-handle" title="Drag, or use the arrow keys, to reorder" aria-label="Reorder ${escAttr(f.label)}">${GRIP_ICON}</button>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}
       </div>
-      <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+      <div class="frag-toggle-wrapper">
         <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                 onchange="toggleInteractiveFragmentEnabled('${escHandlerArg(f.id)}', this.checked)">
+                 data-wf-action="fragments:toggleInteractive" data-wf-on="change" data-frag-id="${escAttr(f.id)}">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -530,7 +531,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
         <input id="interactive-frag-inj-label" value="${escAttr(d.injection_label)}" placeholder="${escAttr(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
-        <select id="interactive-frag-type" onchange="updateInteractiveFragmentExample(this.value)">
+        <select id="interactive-frag-type" data-wf-action="fragments:exampleType" data-wf-on="change">
           <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
           <option value="state" ${d.field_type === "state" ? "selected" : ""}>state (kept across turns)</option>
@@ -607,9 +608,9 @@ export function showInteractiveFragmentModal(fragId = null) {
     <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
     ${_interactiveFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger" onclick="deleteInteractiveFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="saveInteractiveFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
+      ${isEdit ? `<button class="btn btn-danger" data-wf-action="fragments:deleteInteractive" data-frag-id="${escAttr(d.id)}">Delete</button>` : ""}
+      <button class="btn" data-wf-action="modal:close">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="fragments:saveInteractive" data-is-edit="${isEdit}">${isEdit ? "Save" : "Create"}</button>
     </div>`,
     { size: "wide" },
   );
@@ -866,3 +867,24 @@ export function showCardInteractiveFragmentModal(fragId = null) {
   };
   _showCardFragModal("interactive", "Interactive", fragId, blank, _interactiveFragFormHtml);
 }
+
+// A row opens its editor; clicks on its toggle or drag handle are theirs alone.
+const _onRowControl = (e) => e.target.closest(".frag-toggle-wrapper, .frag-drag-handle");
+
+registerActions("fragments", {
+  addMood: () => showMoodFragmentModal(),
+  openMood: (el, e) => {
+    if (!_onRowControl(e)) showMoodFragmentModal(el.dataset.fragId);
+  },
+  toggleMood: (el) => toggleMoodFragmentEnabled(el.dataset.fragId, el.checked),
+  saveMood: (el) => saveMoodFragment(el.dataset.isEdit === "true"),
+  deleteMood: (el) => deleteMoodFragment(el.dataset.fragId),
+  addInteractive: () => showInteractiveFragmentModal(),
+  openInteractive: (el, e) => {
+    if (!_onRowControl(e)) showInteractiveFragmentModal(el.dataset.fragId);
+  },
+  toggleInteractive: (el) => toggleInteractiveFragmentEnabled(el.dataset.fragId, el.checked),
+  exampleType: (el) => updateInteractiveFragmentExample(el.value),
+  saveInteractive: (el) => saveInteractiveFragment(el.dataset.isEdit === "true"),
+  deleteInteractive: (el) => deleteInteractiveFragment(el.dataset.fragId),
+});

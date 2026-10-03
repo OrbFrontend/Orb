@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 FEATURE = catalog.FEATURE
 
+# Post-pipeline hooks that rerun on a manually rewritten reply: the markup
+# normalizer, so the rewrite keeps the chat's formatting. Named by id rather
+# than imported, so a rewrite still works where that workflow is not installed.
+RERUN_AFTER_REWRITE: frozenset[str] = frozenset({"format_consistency"})
+
 # Strong references to fire-and-forget host tasks. Without this the only
 # reference is the event loop's weak one and the task can be collected
 # mid-load, which shows up as a model that silently never finishes warming.

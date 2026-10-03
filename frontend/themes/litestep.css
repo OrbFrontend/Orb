@@ -215,7 +215,7 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border: 1px solid #404040 !important;
   box-shadow: inset 1px 1px 0 #f4f2ee, 4px 4px 0 rgba(0,0,0,0.35) !important;
 }
-.modal-header, .modal h2, .modal h3 {
+.modal h2, .modal h3 {
   background: linear-gradient(90deg, #33507a 0%, #45658f 100%) !important;
   color: #ffffff !important;
 }
@@ -261,8 +261,8 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 .swipe-nav button:hover { color: #ffffff !important; background: rgba(255,255,255,0.15) !important; }
 .empty-state { color: #e6ecf2 !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.45) !important; }
 .msg-toolbar { color: #e6ecf2 !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important; }
-.msg-toolbar button, .msg-toolbar .msg-tool { color: inherit !important; }
-.msg-toolbar button:hover, .msg-toolbar .msg-tool:hover { color: #ffffff !important; }
+.msg-toolbar button { color: inherit !important; }
+.msg-toolbar button:hover { color: #ffffff !important; }
 .msg-toolbar .msg-btn-del, .msg-toolbar .msg-btn-del:hover { color: #ffafa2 !important; }
 
 /* Count pills sit on the accent fill; --bg-deep text would be blue on brown here. */

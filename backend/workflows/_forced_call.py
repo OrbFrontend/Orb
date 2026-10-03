@@ -87,27 +87,13 @@ async def forced_tool_call(
     call_id: str | None = None,
     raise_errors: bool = False,
 ) -> AsyncIterator[dict]:
-    """Run one forced tool call and yield its parsed arguments.
+    """Run a forced call, yielding parsed arguments with the Agent token budget
+    and caller-defined temperature.
 
-    The budget is the agent lane's configured ``max_tokens``, as every call on
-    that lane sends it (see :func:`~backend.core.agent_lane_max_tokens`).
-    ``temperature`` stays a caller constant: a forced call fills a schema, so a
-    roleplay preset would only add flourish to it -- the same split
-    ``inference.drafting`` documents.
-
-    ``cache_shape`` names an intentionally separate prompt family on the same
-    endpoint and model. Leave it empty when the call extends the conversation;
-    standalone calls must give their stable shape a name so tracker comparisons
-    cannot jump between the two unrelated prefixes.
-
-    ``call_id`` asks for the reply back as a replayable assistant turn: the result
-    event then carries ``replay`` (absent when no arguments came back), so a caller
-    that answers the call can extend the same thread.
-
-    A failed call degrades to empty arguments, which a caller cannot tell from an
-    empty answer. ``raise_errors`` re-raises the provider's error instead, for a
-    caller whose request the provider may reject outright (an image to a text-only
-    model); the client has already retried transient failures by then.
+    Standalone prompt families require cache_shape; conversation extensions leave
+    it empty. call_id includes a replayable assistant turn when arguments exist.
+    Failures default to empty arguments; raise_errors preserves provider errors
+    after transient retries.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]
@@ -120,28 +106,11 @@ async def forced_tool_call(
     # cross-pass KV prefix, which outranks any single call's tool selection.
     collapsible = offer_tools is not None
     if offer_tools is not None:
-        # Fixed, order-stable blob shared verbatim across sibling forced calls
-        # (image_gen's analyze + compose). A provider that rejects response_format
-        # json_schema (DeepSeek) can't be forced promptlessly and must keep tools
-        # in the body; sending the identical blob on both calls -- order fixed
-        # regardless of which is forced, only tool_choice differs -- is what lets
-        # them reuse each other's cached prefix *where the backend renders the
-        # whole array*. Standalone tools stay out of enabled_schemas; the caller
-        # names them here rather than leaking them into the pipeline's tool set.
-        #
-        # Measured caveat (2026-08-04, docs/architecture/kv-cache.md Invariant 3):
-        # honoring a forced tool_choice and rendering the whole array are
-        # INDEPENDENT properties, and several backends do the first by doing the
-        # opposite of the second -- they serialize only the forced tool. On
-        # Gemma-4-26B @ Ionstream `offer_tools` + a forced selector renders
-        # byte-identically to shipping that selector alone; DeepSeek v4-pro is
-        # the same plus a ~7-token forcing directive. There the two calls share
-        # only the conversation body, never the blob, so this array buys nothing.
-        # It is kept because it costs nothing to send and does pay off on
-        # backends that render the array whole (Gemma-4-31B @ CoreWeave, OpenAI),
-        # and the loss where it doesn't is bounded to the blob -- a few hundred
-        # tokens per image, not a prefix bust. Do not infer from a working forced
-        # call that the sibling reuse is happening.
+        # Share an order-stable tool array across sibling forced calls; only tool_choice varies.
+        # Standalone tools stay out of enabled_schemas. Prefix reuse depends on provider
+        # rendering: some serialize only the forced tool, sharing the conversation body
+        # but not the blob. A working forced call does not prove sibling cache reuse
+        # (see docs/architecture/kv-cache.md, Invariant 3).
         tools = [require_tool(name)["schema"] for name in offer_tools]
         if schema not in tools:
             tools.append(schema)

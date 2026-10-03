@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { api } from "./api.js";
 import {
   channelState,
@@ -15,10 +16,14 @@ import {
 import {
   activateWorkflowVariant,
   clearWorkflowPhase,
+  deleteWorkflowAttachment,
   refreshConversationMessages,
+  regenerateWorkflowAttachment,
+  rehydrateWorkflowAttachment,
   renderMessages,
   selectWorkflowPipelinePass,
   setWorkflowPhase,
+  stepWorkflowVariant,
   workflowActionJob,
 } from "./chat.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
@@ -26,7 +31,7 @@ import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, localMlReady, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
-import { convUrl, esc, escAttr, fromMessageBody, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
+import { convUrl, esc, escAttr, notifyError, toast, workflowAttachmentUrl } from "./utils.js";
 import { startWorkflowJob, stopButtonState, stopWorkflowJob } from "./workflow_jobs.js";
 import {
   registerClickHandler,
@@ -42,7 +47,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 9;
+export const WORKFLOW_API_VERSION = 10;
 
 export {
   activateWorkflowVariant,
@@ -53,6 +58,7 @@ export {
   clearWorkflowPhase,
   closeModal,
   convUrl,
+  deleteWorkflowAttachment,
   effectiveWorkflowEnabled,
   esc,
   escAttr,
@@ -64,6 +70,8 @@ export {
   playAudio,
   refreshConversationMessages,
   refreshLocalMlStatus,
+  regenerateWorkflowAttachment,
+  registerAction,
   registerClickHandler,
   registerTextEffect,
   registerWorkflowEventHandler,
@@ -71,6 +79,7 @@ export {
   registerWorkflowMessageButton,
   registerWorkflowPipeline,
   registerWorkflowToolsPanelCard,
+  rehydrateWorkflowAttachment,
   replayChannel,
   resumeChannel,
   seekChannel,
@@ -84,6 +93,7 @@ export {
   sseEvents,
   startTextEffect,
   startWorkflowJob,
+  stepWorkflowVariant,
   stopAll,
   stopButtonState,
   stopChannel,
@@ -138,51 +148,6 @@ export function registerRegenerateSettled(wid, fn) {
     return;
   }
   S.workflowRegenerateSettled[wid] = fn;
-}
-
-const _actions = new Map(); // action name -> handler
-let _actionsWired = false;
-
-// The events `data-wf-on` may name. Drag events are here so a workflow can
-// declare a drop target in markup like any other control: a drop target is
-// three events on one element -- `dragover` must preventDefault or the browser
-// never fires `drop` -- so `data-wf-on` takes a space-separated LIST and the
-// handler switches on `e.type`. `input` is for text a panel keeps as the user
-// types, where `change` would wait for the field to lose focus.
-const _ACTION_EVENTS = ["click", "change", "input", "dragover", "dragleave", "drop"];
-
-function _dispatchAction(e, type) {
-  const el = e.target.closest?.("[data-wf-action]");
-  // A workflow's own surfaces (widgets, panels, message buttons) all sit outside
-  // the bubble. Inside it is model markup, which never gets to name an action.
-  if (!el || fromMessageBody(el)) return;
-  if (!(el.dataset.wfOn || "click").split(/\s+/).includes(type)) return;
-  const fn = _actions.get(el.dataset.wfAction);
-  if (!fn) return;
-  try {
-    fn(el, e);
-  } catch (err) {
-    console.error(`data-wf-action "${el.dataset.wfAction}" handler threw:`, err);
-  }
-}
-
-function _wireActionDelegation() {
-  if (_actionsWired) return;
-  _actionsWired = true;
-  for (const type of _ACTION_EVENTS) document.addEventListener(type, (e) => _dispatchAction(e, type));
-}
-
-export function registerAction(wid, name, fn) {
-  if (typeof wid !== "string" || !wid || typeof name !== "string" || !name) {
-    console.error("registerAction: wid and name must be non-empty strings", wid, name);
-    return;
-  }
-  if (typeof fn !== "function") {
-    console.error(`registerAction: fn must be a function (${wid}:${name})`);
-    return;
-  }
-  _wireActionDelegation();
-  _actions.set(`${wid}:${name}`, fn);
 }
 
 let _repaintQueued = false;

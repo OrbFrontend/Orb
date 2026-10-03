@@ -18,7 +18,7 @@ from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
 from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
 from .passes.world_change import world_change_step
-from .state import TurnState, WorldProposalTurn, _PipelineConfig
+from .state import PipelineConfig, TurnState, WorldProposalTurn
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +48,16 @@ async def _load_targets(
 
 
 async def world_proposal_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
     turn: WorldProposalTurn,
     kv_tracker=None,
 ) -> AsyncIterator[dict]:
-    """Run the proposal step and record its results on *state*.
+    """Run World proposals into state with Editor-labelled reasoning and Inspector calls.
 
-    Yields the step's reasoning under the ``editor`` pass label (it shares the
-    agent lane and the post-turn placement with the editor's own sub-steps), and
-    appends the parsed tool call to ``state.calls`` so the inspector shows it
-    alongside the rest of the turn.
-
-    Every failure path leaves ``state.world_proposals`` empty rather than
-    raising. This runs immediately before the turn's ``_result``, so it must
-    never be able to cost the user their reply.
+    Failures leave world_proposals empty; this post-reply step must not fail the turn.
     """
     try:
         worlds, entries = await _load_targets(turn.world_ids, turn.conversation_id)
@@ -182,7 +175,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         # reconstruction of the turn's shared blob: that one carries per-turn
         # schema overrides (`direct_scene` widened by the interactive fragments,
         # `give_feedback`) and transiently-enabled tools, so reproducing it means
-        # duplicating `_prepare_turn`'s assembly with nothing pinning the copy —
+        # duplicating `prepare_turn`'s assembly with nothing pinning the copy —
         # and a copy that is almost right buys exactly as little as this does.
         # So a re-evaluation re-ingests the prefix rather than riding the
         # conversation's warm cache. It is a rare, explicitly requested action

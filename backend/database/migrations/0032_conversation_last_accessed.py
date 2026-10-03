@@ -1,10 +1,5 @@
-"""
-0032_conversation_last_accessed — add last_accessed_at to conversations.
-
-Splits the side-panel ordering signal away from updated_at: updated_at now
-means only "content changed" (new/regenerated message), while last_accessed_at
-tracks when a conversation was opened/selected. Backfilled from updated_at so
-existing ordering is unchanged on first run.
+"""Add last_accessed_at for sidebar ordering, backfilled from updated_at.
+Content changes and conversation access then have separate timestamps.
 """
 
 from __future__ import annotations

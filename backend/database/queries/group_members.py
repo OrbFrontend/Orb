@@ -36,16 +36,10 @@ async def get_group_members(conversation_id: str, *, include_inactive: bool = Fa
 
 
 async def get_speaker_names(conversation_id: str) -> dict[str, str]:
-    """Member id → display name for every row the scene has ever had.
+    """Map all historical member ids to names, including inactive members.
 
-    **Inactive members included, always.** A reply written by a member the user
-    has since removed still has to be attributed — in the prompt's history
-    labels, in the summarizer, in the context-size estimate, in the typeahead
-    and in the off-turn workflow prefix — or the line silently merges into the
-    one above it. One reader, so none of those can quietly answer with the
-    active roster instead. (``pipeline.context._load_pipeline_context`` builds
-    the same map inline, from rows it has already fetched for the roster it
-    also needs; it is the one caller for which this would be a second query.)
+    History attribution must survive roster removal. Turn-context loading builds
+    the same map from its already fetched rows.
     """
     return {member["id"]: member["display_name"] for member in await get_group_members(conversation_id, include_inactive=True)}
 
@@ -80,15 +74,9 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
 
 
 def _public_profile(card: Mapping | None, override: str | None) -> str:
-    """The member's effective public projection: the scene override, else the card's.
+    """Resolve the scene public-profile override, otherwise the card profile.
 
-    ``override is not None`` and not ``if override``, so a stored ``""`` blanks the
-    profile for this scene instead of falling back to the card. Manage cast cannot
-    currently produce one — it coerces an empty box to ``null`` — so today this only
-    round-trips an ``""`` supplied through ``PUT …/members``.
-
-    The card walk is local; the ``Appearance``/``Role`` join belongs to
-    ``character_cards.render_public_profile``, beside the writer that stores it.
+    Only None falls back; an explicit empty string blanks the profile.
     """
     if override is not None:
         return override
@@ -97,17 +85,10 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
     return render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None)
 
 
-def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
-    """What the member reads about itself: the scene override, else the card's join.
+def resolve_private_sheet(card: Mapping | None, override: str | None = None) -> str:
+    """Resolve the scene private-sheet override, otherwise the card's joined sheet.
 
-    ``override is not None``, mirroring :func:`_public_profile` — same rule, same
-    caveat about which callers can reach the blanking case.
-
-    The counterpart to ``public_profile_override``: that one is what the *rest*
-    of the cast sees, this one is what the member reads about *itself*. It
-    exists because a card asserts turn one forever while a scene moves; the
-    sheet rides the uncached tail under Private perspective, so keeping it
-    current costs no prefix rebuild. The card is never written.
+    Only None falls back. Scene changes live in the uncached tail without writing the card.
     """
     if override is not None:
         return override
@@ -145,7 +126,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
             name=name,
             kind="character",
             public_profile="",
-            private_sheet=_private_sheet(card),
+            private_sheet=resolve_private_sheet(card),
             mes_example=str((card or {}).get("mes_example") or ""),
             post_history=str((card or {}).get("post_history_instructions") or ""),
         )
@@ -164,7 +145,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 name=member["display_name"],
                 kind=member["member_kind"],
                 public_profile=_public_profile(card, member.get("public_profile_override")),
-                private_sheet=_private_sheet(card, member.get("card_sheet_override")),
+                private_sheet=resolve_private_sheet(card, member.get("card_sheet_override")),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
                 muted=bool(member.get("muted")),

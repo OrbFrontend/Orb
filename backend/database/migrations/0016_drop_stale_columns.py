@@ -1,10 +1,6 @@
-"""Migration 0016: drop stale columns that are no longer used.
+"""Drop obsolete swipe_index, is_active and conversation first_mes columns.
 
-- messages.swipe_index  — only referenced by the old flat-swipe API (removed).
-                          The tree system uses parent_id + active_leaf_id for branching.
-- messages.is_active    — same; the tree traversal never filtered on this column.
-- conversations.first_mes — write-once at creation, never read back. The value is
-                            materialised as a message node immediately after creation.
+Branching uses the message tree; first_mes is already stored as a message.
 """
 
 from __future__ import annotations

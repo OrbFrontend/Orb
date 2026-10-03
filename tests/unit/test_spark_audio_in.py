@@ -1,5 +1,3 @@
-"""Tests for Spark-TTS audio decoding and preparation."""
-
 from __future__ import annotations
 
 import io

@@ -1,11 +1,4 @@
-"""
-0030_agentic_lorebook -- add the `agentic_lorebook_enabled` feature-flag column.
-
-When set, the Director (the direct_scene pass) chooses which lorebook entries
-are relevant each turn from a compact catalog, bypassing the keyword scan. It is
-a feature flag, not a model-callable tool, so it lives in its own settings
-column rather than in enabled_tools (mirrors length_guard_enabled).
-"""
+"""Add the agentic_lorebook_enabled flag for Director-selected lorebook entries."""
 
 from __future__ import annotations
 

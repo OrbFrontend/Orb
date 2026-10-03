@@ -44,11 +44,16 @@ async def test_unregistered_workflow_returns_empty(client):
 
 
 async def test_defaults_returned_as_fresh_copy(client):
-    register_workflow(Workflow(id="cd_a", display_name="A", config_defaults={"x": 1}))
+    defaults = {"x": 1, "styles": [{"name": "noir"}], "backend": {"url": "http://localhost"}}
+    register_workflow(Workflow(id="cd_a", display_name="A", config_defaults=defaults))
     cfg1 = await get_workflow_config("cd_a")
     cfg1["x"] = 999
+    cfg1["styles"][0]["name"] = "bright"
+    cfg1["backend"]["url"] = "http://other-host"
     cfg2 = await get_workflow_config("cd_a")
-    assert cfg2 == {"x": 1}
+    expected = {"x": 1, "styles": [{"name": "noir"}], "backend": {"url": "http://localhost"}}
+    assert cfg2 == expected
+    assert defaults == expected
 
 
 async def test_format_consistency_voice_is_off_by_default(client):

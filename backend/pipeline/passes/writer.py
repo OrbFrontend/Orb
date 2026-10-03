@@ -21,15 +21,15 @@ from ...core import (
 )
 from ...inference import (
     CachedBase,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     reasoning_cfg,
 )
 from ...prompting import member_macros, tail_carries_identity
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
-    from ..state import TurnState, _PipelineConfig
+    from ..state import PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -62,22 +62,9 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
     return label.sub("", text, count=1)
 
 
-# Private perspective is the one mode that puts a speaker's own sheet *after*
-# history (``group_context.tail_carries_identity``). Every other mode, and every
-# solo turn, reads it from the system body *before* the transcript. That
-# inversion falls out of the cache layout rather than intent: Private keeps the
-# shared body speaker-independent, so the speaking card has nowhere to go but
-# the tail. The cost is that a fixed, present-tense sheet becomes the last
-# identity text the model reads before writing, outranking a transcript that has
-# since changed the character's hair, dress or gear. One line restores the
-# reading order the placement destroys. It is billed on every writer and editor
-# call, so it stays one sentence.
-#
-# It deliberately does not date the sheet. `group_sheet_updates` can bring it
-# current mid-scene, and "from the scene's start" would then be a false claim
-# about the very text the user had just approved — telling the model to discount
-# the update rather than the drift. The transcript still wins either way, which
-# is the only thing this line has to establish.
+# Private perspective places identity after history for shared-prefix caching.
+# Tell the model to prefer transcript updates over the sheet without dating it:
+# reviewed mid-scene sheet updates can make a scene-start label inaccurate.
 SHEET_FRAMING = (
     "Reference sheet for this scene. Where the transcript above shows it has changed "
     "— appearance, dress, injuries, what they carry — follow the transcript."
@@ -179,12 +166,12 @@ async def writer_pass(
 
 
 async def writer_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     depth_block: str = "",
     speaker: CastMember | None = None,
     speaker_cue: str = "",

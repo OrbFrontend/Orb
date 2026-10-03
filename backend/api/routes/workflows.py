@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Response, UploadFile
 
 from ...core import (
     scrub_log,
@@ -44,14 +45,15 @@ from ...workflows import (
     RegenCtx,
     RerollGenCtx,
     Subscription,
+    UploadCtx,
     WorkflowEventStream,
-    _readonly,
     get_subscription,
     get_workflow,
     get_workflow_config,
     list_workflows,
     prose_rewriter_host,
     public_event_error,
+    readonly_view,
     set_workflow_config,
 )
 from ...workflows.attachment_cache import (
@@ -69,15 +71,15 @@ from ...workflows.attachment_cache import (
     variant_on_show,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ...workflows.errors import WorkflowUserFacingError
+from ...workflows.errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from ..deps import (
-    _workflow_event_stream_response,
     attachment_content_response,
     committing_workflow_job,
     locked_attachment_group,
     require_conversation,
     start_workflow_job,
     stop_workflow_jobs,
+    workflow_event_stream_response,
     workflow_group_in_flight,
 )
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
@@ -144,7 +146,8 @@ def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str)
         yield
     except WorkflowUserFacingError as exc:
         logger.warning("%s: %s", where(), exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from None
+        status = 400 if isinstance(exc, WorkflowInputError) else 503 if isinstance(exc, WorkflowUnavailableError) else 502
+        raise HTTPException(status_code=status, detail=str(exc)) from None
     except Exception:
         logger.exception("%s", where())
         raise HTTPException(status_code=500, detail=defect) from None
@@ -210,7 +213,52 @@ async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
     settings_snapshot = await get_settings()
     with _hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
-        return await sub.callable(QueryCtx(settings=_readonly(settings_snapshot)), body)
+        return await sub.callable(QueryCtx(settings=readonly_view(settings_snapshot)), body)
+
+
+# Ceiling for one workflow upload, which the hook receives as bytes. Voice
+# enrollment reads up to two minutes: generous enough for an uncompressed WAV of
+# that length and far short of "someone dropped in a film".
+MAX_WORKFLOW_UPLOAD = 25 * 1024 * 1024
+
+
+@router.post("/api/characters/{card_id}/workflows/{workflow_id}/upload")
+async def api_upload_workflow_file(
+    card_id: str,
+    workflow_id: str,
+    request: Request,
+    file: Annotated[UploadFile, File(...)],
+):
+    """Hand one file for one character to a workflow's upload hook.
+
+    The query string reaches the hook as ``params``. No lock is held while the
+    hook runs; it takes the toolkit lock matching any state it rewrites.
+    """
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    settings_snapshot = await get_settings()
+    sub = _gate_workflow_sub(
+        get_subscription(workflow_id, HookType.UPLOAD),
+        workflow_id,
+        settings_snapshot,
+        action="upload",
+        detail=f"Workflow {workflow_id!r} has no upload handler",
+    )
+    card = await get_character_card(card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    data = await file.read(MAX_WORKFLOW_UPLOAD + 1)
+    if len(data) > MAX_WORKFLOW_UPLOAD:
+        raise HTTPException(status_code=400, detail=f"Uploads must be under {MAX_WORKFLOW_UPLOAD // (1024 * 1024)} MB")
+    with _hook_failures("upload hook", workflow_id, defect="Upload handler raised; see server logs"):
+        upload_ctx = UploadCtx(
+            settings=readonly_view(settings_snapshot),
+            character_id=card_id,
+            character=readonly_view(card),
+            filename=os.path.basename(file.filename or ""),
+            data=data,
+        )
+        return await sub.callable(upload_ctx, dict(request.query_params))
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")
@@ -256,7 +304,7 @@ async def api_trigger_workflow(
     # the hook's DB/prefix prep ran under the locks while the stream itself runs
     # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
     if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
+        return workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
     return result
 
 
@@ -299,14 +347,14 @@ async def _trigger(cid: str, workflow_id: str, body: dict) -> Any:
             with _hook_failures("on_demand hook", workflow_id, defect="On-demand handler raised; see server logs"):
                 od_ctx = OnDemandCtx(
                     conversation_id=cid,
-                    history=_readonly(msgs),
+                    history=readonly_view(msgs),
                     last_user_message=last_user,
-                    settings=_readonly(settings_snapshot),
+                    settings=readonly_view(settings_snapshot),
                     client=client,
                     agent_client=agent_client,
                     agent_model_name=agent_model_name,
                     character_id=card_id,
-                    character=_readonly(card),
+                    character=readonly_view(card),
                 )
                 return await sub.callable(od_ctx, body)
 
@@ -374,7 +422,7 @@ async def api_regenerate_attachment(
         except HTTPException as exc:
             yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
 
-    return _workflow_event_stream_response(WorkflowEventStream(events=events()))
+    return workflow_event_stream_response(WorkflowEventStream(events=events()))
 
 
 _REGENERATE_EVENTS = frozenset({"phase_status", "regenerate_sibling", "regenerate_done", "regenerate_error"})
@@ -485,15 +533,15 @@ async def _regenerate(
                 conversation_id=cid,
                 message_id=mid,
                 attachment_id=aid,
-                original_attachment=_readonly(att),
-                history=_readonly(msgs),
+                original_attachment=readonly_view(att),
+                history=readonly_view(msgs),
                 last_user_message=last_user,
-                settings=_readonly(settings_snapshot),
+                settings=readonly_view(settings_snapshot),
                 client=client,
                 agent_client=agent_client,
                 agent_model_name=agent_model_name,
                 character_id=card_id,
-                character=_readonly(card),
+                character=readonly_view(card),
                 phase=phase,
                 keep=keep,
                 emit=_regenerate_emitter(sub.workflow_id, emit),
@@ -588,13 +636,10 @@ def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None
 
 
 def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, dict | None]:
-    """Split a reroll_gen hook return into ``(data, consumption_metadata)``.
+    """Normalize reroll_gen results to ``(data, consumption_metadata)``.
 
-    A raw ``bytes`` return carries no metadata; a ``(bytes, dict | None)``
-    tuple supplies a fresh ``consumption_metadata``. A non-dict second element
-    is dropped with a warning. The caller validates that ``data`` is non-empty
-    bytes. Shared by the reroll-gen and rehydrate routes so both interpret the
-    hook return identically.
+    Bytes have no metadata; tuples may supply a dict. Warn and drop other metadata
+    shapes. The caller validates non-empty bytes.
     """
     if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], (bytes, bytearray)):
         data, consumption_metadata = result
@@ -617,10 +662,10 @@ def _build_reroll_gen_ctx(
         conversation_id=cid,
         message_id=mid,
         attachment_id=aid,
-        original_attachment=_readonly(att),
-        settings=_readonly(settings),
+        original_attachment=readonly_view(att),
+        settings=readonly_view(settings),
         client=client,
-        prior_consumption_metadata=_readonly(prior_cm) if prior_cm is not None else None,
+        prior_consumption_metadata=readonly_view(prior_cm) if prior_cm is not None else None,
         # Keyword-only and required, so the two routes cannot share this builder
         # while silently sharing an answer they disagree about.
         replay=replay,
@@ -642,17 +687,10 @@ async def api_reroll_gen_attachment(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
     job: str | None = None,
 ):
-    """Generate a new sibling using the original's stored generation_metadata
-    with a freshly minted seed.
+    """Render a new sibling with a fresh seed and inherited generation metadata.
 
-    The new sibling persists the new seed alongside the inherited
-    generation_metadata so it is itself rehydratable; without that, an
-    evict-then-rehydrate cycle would lose the rerolled output.
-
-    An optional ``{"params": {...}}`` body retargets the render (see
-    `_apply_param_overrides`). The params dict is handed to the hook in place and
-    the hook may amend it; the amended dict is what the new sibling records, so an
-    override sticks for the sibling's own future rerolls.
+    Persist the new seed for rehydration. Optional params overrides are passed
+    to the hook; store its amended params for future rerolls.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -735,16 +773,9 @@ async def api_workflow_attachment_in_flight(
     aid: int,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Report whether an operation on this attachment's group is still running.
+    """Report whether an operation holds this attachment group's lock.
 
-    Regenerate and reroll-gen hold their connection open for the whole render --
-    minutes, for image gen. A client whose connection dies mid-render has no
-    other way to tell a render still in progress from one the server has already
-    failed: both look like "no new sibling yet".
-
-    ``aid`` may be any member of the group; the canonical root is resolved here
-    the way `locked_attachment_group` resolves it, so a client can ask with the
-    root id it already holds.
+    Resolve any member id to its canonical root so dropped requests can be polled.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -765,15 +796,9 @@ async def api_rehydrate_attachment(
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
     job: str | None = None,
 ):
-    """Recover bytes for an evicted attachment using its stored seed + params.
+    """Rehydrate an EVICTED_MARKER row using its non-NULL seed and stored params.
 
-    Preconditions:
-      - The row's `data_b64` is the EVICTED_MARKER sentinel.
-      - The row has a non-NULL `seed`.
-
-    The framework calls the workflow's `reroll_gen` hook with the stored
-    params and stored seed, then writes the returned bytes back into the
-    same row's data_b64. No new sibling is created.
+    Write reroll_gen bytes back to the same row without creating a sibling.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -881,15 +906,9 @@ async def api_activate_workflow_attachment(
     if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
         raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
 
-    # Not under locked_attachment_group: /regenerate and /reroll-gen hold that
-    # root lock for the whole render (a minute+ for image gen), so queuing the
-    # user's swipe behind it hangs the arrow POST and freezes artifact navigation
-    # for the duration. set_active_sibling validates root, message, and group
-    # membership inside its own BEGIN IMMEDIATE, so a row a concurrent
-    # delete/promotion removed still 404s (LookupError below) and no invalid
-    # pointer can be written. What is given up is commit ordering against an
-    # in-flight render: whichever of "user's swipe" and "new sibling wins" lands
-    # last is what the next refetch shows.
+    # Keep swipes outside the render lock so navigation stays responsive.
+    # set_active_sibling validates membership in BEGIN IMMEDIATE; concurrent
+    # swipes and renders use last-commit ordering for the active pointer.
     try:
         await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
@@ -955,13 +974,10 @@ def _download_name(name: str) -> str:
 
 @router.get("/api/workflow-attachments/{aid}/export")
 async def api_export_workflow_attachment(aid: int):
-    """The attachment as its workflow exports it, as a download.
+    """Download the stored artifact through its workflow's export hook.
 
-    Not gated on the workflow being enabled, like the content route: an export
-    reads a stored artifact and generates nothing. The row is read without its
-    bytes and the hook loads them only if it needs them, so an export that
-    fetches the file from where it was made reads no stored image at all.
-    ``X-Orb-Export-Note`` carries the hook's note when there is one.
+    Enabled state is irrelevant; load bytes only if the hook needs them.
+    X-Orb-Export-Note carries any export note.
     """
     att = await get_workflow_attachment_meta(aid)
     if att is None:
@@ -973,8 +989,8 @@ async def api_export_workflow_attachment(aid: int):
     consumption = _decode_stored_consumption_metadata(att)
     ctx = ExportCtx(
         attachment_id=aid,
-        attachment=_readonly(att),
-        consumption_metadata=_readonly(consumption) if consumption is not None else None,
+        attachment=readonly_view(att),
+        consumption_metadata=readonly_view(consumption) if consumption is not None else None,
         stored_bytes=partial(get_workflow_attachment_bytes, aid),
     )
     with _hook_failures("export hook", wid, aid, defect="Export handler raised; see server logs"):
@@ -1001,15 +1017,9 @@ async def api_record_workflow_attachment_access(
     body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Record access events for workflow attachments.
+    """Record attachment access for ``{"ids": [int, ...]}`` in input order.
 
-    Body shape: ``{"ids": [int, ...]}``. Counter values are assigned in
-    input-list order, so callers can encode intra-call ordering.
-
-    Ids not belonging to this conversation are silently dropped rather
-    than raising: the frontend can legitimately hold stale ids around a
-    swipe / regen race, and a 400 there would be a user-visible failure
-    on an ignorable client/server skew.
+    Silently skip foreign or stale ids to tolerate swipe/regeneration races.
     """
     raw_ids = body.get("ids") if isinstance(body, dict) else None
     if not isinstance(raw_ids, list):

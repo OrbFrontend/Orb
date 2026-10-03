@@ -25,6 +25,10 @@ class FlaggedTemplate:
     count: int
     fraction: float
     sentences: list[str] = field(default_factory=list)
+    # Whether sentences[0] is the cluster's first member -- the original the
+    # rest repeat. Filtering to a draft drops it when it lives in the earlier
+    # context, leaving every listed sentence a repeat.
+    original_listed: bool = True
 
 
 @dataclass(slots=True)

@@ -1,5 +1,3 @@
-"""Unit tests for the format_consistency post-pipeline hook."""
-
 from __future__ import annotations
 
 import hashlib

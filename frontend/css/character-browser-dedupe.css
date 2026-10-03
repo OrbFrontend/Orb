@@ -1,10 +1,5 @@
-/* Character Library → Duplicate finder. The manager frame supplies spacing and
-   typography; this file owns only result density and the inline comparison.
-
-   One scale runs through the whole surface: a row is padded 8px 10px, a stack
-   of rows sits 6px apart, the blocks inside one match sit 10px apart, and the
-   matches themselves 16px apart across their rule. Nothing here restates a
-   margin the frame already carries. */
+/* Character Library duplicate results and inline comparisons.
+   The manager frame supplies shared spacing and typography. */
 
 .lib-dupe-status {
   font-size: 12px;
@@ -176,6 +171,7 @@
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   list-style: none;
 }
@@ -321,7 +317,7 @@
 
 .lib-dupe-field-name { margin-right: auto; }
 
-summary.lib-dupe-field-head { cursor: pointer; user-select: none; }
+summary.lib-dupe-field-head { cursor: pointer; -webkit-user-select: none; user-select: none; }
 .lib-dupe-field.is-empty { opacity: .6; }
 
 .lib-dupe-field-tag {

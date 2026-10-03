@@ -13,9 +13,9 @@ from ..database.connection import get_db
 from ..database.queries.messages import register_workflow_attachment_persister
 from ..database.queries.workflow_attachments import (
     EVICTED_MARKER,
-    _encode_metadata_field,
-    _staging_root,
+    encode_metadata_field,
     insert_workflow_attachment_row,
+    staging_root,
 )
 from .registry import get_workflow
 
@@ -36,24 +36,10 @@ class RehydrateAlreadyDoneError(ValueError):
     """
 
 
-# Reason strings tagged onto rejected attachment dicts by both helpers.
-# Every rejected entry carries a ``reason`` key; route and SSE projection
-# layers read that key verbatim into their JSON response. The strings are
-# part of the response contract -- frontend chips display them.
-#
-# - OVERSIZE_NO_METADATA_REASON: attachment size exceeds the cache budget
-#   AND lacks the ``seed`` + ``generation_metadata`` fields needed to
-#   rehydrate later; marker-storing would create a permanently
-#   unrecoverable row, so the helper drops the entry instead.
-# - WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON: the producing workflow is not
-#   registered with ``produces_artifacts=True``; only declared artifact
-#   workflows may persist attachments to ``workflow_attachments``.
-#
-# The route layer additionally prepends VALIDATOR-emitted rejections to
-# ``rejected_workflow_atts``, each carrying its own per-gate reason
-# string from validate_workflow_attachment_shape(). Helper-class entries
-# use the constants here; pre-validator entries use the validator's
-# per-gate strings.
+# Attachment rejection reasons are response strings displayed by frontend chips.
+# Oversized entries without seed/metadata cannot recover and are dropped;
+# workflows must declare produces_artifacts to persist attachments.
+# Routes also report validator-specific rejection reasons verbatim.
 OVERSIZE_NO_METADATA_REASON = "too large to cache, no recovery metadata"
 WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON = "workflow does not declare produces_artifacts"
 
@@ -86,35 +72,15 @@ def _is_produces_artifacts_workflow(workflow_id: str) -> bool:
 
 
 def _lru3_key(c: dict) -> float:
-    """Eviction sort key. Smallest comes out first.
+    """Sort eviction by the oldest recorded access counter, smallest first.
 
-    Key is the row's *oldest* known access counter -- the last element of
-    `recent_accesses` (or the only element when len < 3). Smallest counter
-    means "longest time since this row was accessed even at K=3 depth".
-
-    Rows with empty or missing `recent_accesses` are protected (sort to
-    the end via +inf). The birth-counts-as-access invariant should keep
-    every byte-bearing row populated; +inf is defensive against malformed
-    JSON or migration leftovers.
+    Missing/empty access lists sort last via infinity, defensively preserving
+    malformed or legacy rows.
     """
     ra = c.get("recent_accesses")
     if not ra:
         return float("inf")
     return float(ra[-1])
-
-
-def select_lru3_victim(candidates: list[dict]) -> int | None:
-    """Pick a single eviction victim by ``_lru3_key``. Returns id or None.
-
-    The atomic insert/rehydrate paths in this module cover a byte shortfall
-    via :func:`plan_eviction` rather than calling this helper, so the
-    single-victim path is a separate pinned interface for the unit tests
-    that exercise the LRU-3 ordering in isolation.
-    """
-    evictable = [c for c in candidates if c.get("rehydratable", True)]
-    if not evictable:
-        return None
-    return min(evictable, key=_lru3_key)["id"]
 
 
 def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
@@ -202,7 +168,7 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
     new_size = len(data)
     data_b64 = base64.b64encode(bytes(data)).decode("ascii")
     cm_json = (
-        _encode_metadata_field(consumption_metadata, "consumption_metadata", "<rehydrate>", "<rehydrate>")
+        encode_metadata_field(consumption_metadata, "consumption_metadata", "<rehydrate>", "<rehydrate>")
         if consumption_metadata is not None
         else None
     )
@@ -407,9 +373,9 @@ def _estimate_size(attachment: dict) -> int:
         return len(raw)
     path = attachment.get("path")
     if isinstance(path, str):
-        # Confine to the staging root before stat (see _staging_root).
+        # Confine to the staging root before stat (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
         return os.path.getsize(resolved)
     return 0
@@ -481,9 +447,9 @@ def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | Non
         path = attachment["path"]
         if not isinstance(path, str):
             return False, "path must be a string"
-        # Confine to the staging root before stat (see _staging_root).
+        # Confine to the staging root before stat (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             return False, "path is outside the workflow staging area"
         try:
             if not os.path.isfile(resolved):
@@ -562,16 +528,10 @@ async def insert_workflow_attachment(
 async def insert_workflow_variant(
     message_id: int, attachment: dict, *, group: Sequence[int] = (), shown: int | None = None
 ) -> tuple[int | None, dict | None]:
-    """Insert one render of a run that is still producing them.
+    """Insert a streamed render into its newest surviving group, or start a new one.
 
-    The row joins the group of the newest id in `group` that still exists on the
-    message, or starts a group when none does -- the user may delete a render while
-    the run goes on. It becomes the active variant when `shown` is None, or while
-    `shown` is still the variant on show: a user who paged to another one mid-run
-    stays on it.
-
-    A stop that lands mid-write lets the row commit before the cancellation
-    propagates, so a render the user already saw is never lost to Stop.
+    Activate only if shown is None or still active, preserving mid-run swipes.
+    Let an in-progress write commit before propagating Stop.
     """
 
     async def write() -> tuple[int | None, dict | None]:
@@ -632,7 +592,7 @@ async def _variant_on_show_on(db, root_id: int) -> int | None:
 
 async def set_workflow_consumption_metadata(attachment_id: int, consumption_metadata: dict) -> None:
     """Rewrite one row's consumption metadata, for a verdict that arrives after its render."""
-    encoded = _encode_metadata_field(consumption_metadata, "consumption_metadata", "", str(attachment_id))
+    encoded = encode_metadata_field(consumption_metadata, "consumption_metadata", "", str(attachment_id))
     async with get_db() as db:
         await db.execute(
             "UPDATE workflow_attachments SET consumption_metadata = ? WHERE id = ?",

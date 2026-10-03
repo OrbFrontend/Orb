@@ -34,17 +34,10 @@ def dynamic_enabled(world: Mapping[str, Any] | None) -> bool:
 
 
 async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
-    """Delete one lorebook entry, recording it in a Dynamic World's history.
+    """Delete an entry and record an applied changeset if its World has history.
 
-    A hard delete is the one drawer mutation that leaves nothing behind: the row
-    is gone, and every applied changeset that touched it can no longer be
-    undone. On a World with a history, that is a hole in the account of how the
-    lorebook got to where it is -- so the deletion is filed as an
-    already-applied changeset of its own and lists under History beside the
-    Agent's retractions, whichever hand did it.
-
-    Not recorded on a World that never opted in: it has no history for the row
-    to join, and writing one would be the feature leaking into a plain lorebook.
+    Hard deletion invalidates undo for changesets that touched the entry.
+    Plain lorebooks that never opted in receive no history row.
     """
     entry_id = int(entry["id"])
     if not dynamic_enabled(world):
@@ -79,13 +72,10 @@ async def stage_proposal(
     source_user_message_id: int | None,
     source_assistant_message_id: int | None,
 ) -> WorldChangesetRow:
-    """Persist a validated proposal as a pending changeset. Applies nothing.
+    """Stage a validated proposal without applying it.
 
-    *proposal* is the payload the turn stage parked on ``TurnState`` -- world id,
-    base revision, summary, operations, and the denormalised source labels. The
-    two message ids stay separate arguments because only the persistence
-    boundary knows them: a changeset names the assistant row it was derived
-    from, and that row has no id until the reply is committed.
+    Source message ids are supplied separately because the assistant id exists
+    only after persistence.
     """
     return await db.create_world_changeset(
         {
@@ -104,17 +94,10 @@ async def accept_changeset(
     operations: Sequence[Mapping[str, Any]] | None = None,
     summary: str | None = None,
 ) -> WorldChangesetRow:
-    """Apply a pending changeset atomically, re-validating first.
+    """Apply a pending changeset atomically after live validation.
 
-    *operations* overrides the stored list, which is how "edit then apply" works:
-    the user may drop or reword individual operations, but whatever survives
-    commits as one batch. The override is re-validated against the live World
-    rather than trusted — the client is not the authority on which entry ids
-    exist or which layer they are in.
-
-    Raises :class:`db.RevisionConflict` when the World moved on (the caller marks
-    the changeset stale and offers Re-evaluate) or
-    :class:`db.OverlayStateConflict` when an operation no longer resolves.
+    Optional operations replaces the whole stored list. Raise RevisionConflict
+    for World drift or OverlayStateConflict for targets that no longer resolve.
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):
@@ -175,15 +158,10 @@ def invert_operations(
     before_entries: Sequence[Mapping[str, Any] | None],
     after_entries: Sequence[Mapping[str, Any] | None],
 ) -> tuple[list[dict], list[dict | None]]:
-    """Build the compensating operations for an applied changeset.
+    """Return reverse-ordered inverse operations and paired required-state snapshots.
 
-    Returns ``(inverse_ops, required_state)`` — positionally paired, where
-    ``required_state`` is the after-snapshot each inverse op's target must still
-    match for the undo to be safe.
-
-    The inverses are read straight off the recorded snapshots, in reverse order
-    so a proposal that created an entry and then updated it unwinds cleanly.
-    Archiving an overlay row is what re-exposes any authored entry it hid.
+    Reverse order unwinds create-then-update safely; archiving overlays restores
+    the authored entries they hid.
     """
     inverse: list[dict] = []
     required: list[dict | None] = []

@@ -134,18 +134,9 @@ DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 CONFIG_DEFAULTS = {
     "source": DEFAULT_SOURCE,
     "default_style": "realistic",
-    # Top level, shared by every source: a style is a way of writing the prompt, and
-    # that survives a backend switch. `connection` is deliberately unlinked on both
-    # shipped styles -- hard-pinning ComfyUI would make `source` a dead letter (the
-    # derivation below would override it on every fresh config) and would re-pin a
-    # style the user relinked if the defaults were re-seeded. The panel resolves ""
-    # to whatever `source` says and writes the explicit id on first save.
-    #
-    # Deliberately silent about the render target -- no `model`, size or quality
-    # here. These rows are parsed through `_style` like any other, so declaring a
-    # size would out-rank the legacy `cloud.*` block they must inherit from: an
-    # install that configured cloud before styles were stored would silently reset
-    # to 1024x1024 on the first read.
+    # Default styles leave connection unlinked so source selects the backend
+    # until first save. Omit render settings to let _style inherit legacy cloud
+    # model/size/quality instead of overwriting them with defaults.
     "styles": [
         {
             "id": "realistic",
@@ -257,17 +248,10 @@ def _first_source(values: Any) -> str:
 
 
 def _reference_source(raw: Mapping[str, Any], legacy_slots: Sequence[Any], legacy_scalar: Any) -> str:
-    """Where this style's reference image comes from -- one source, for every image
-    input the render target declares.
+    """Resolve one reference source for all target image inputs.
 
-    **Membership, not truthiness**, at each step: `""` is a real stored value ("send no
-    reference"), so a style saved once must not inherit an older shape back on.
-
-    Two older shapes migrate here, and the migration is the whole of it -- the positional
-    list a style stored while it could answer per slot, and (for a cloud style only) the
-    lone scalar the cloud block held before that. `legacy_slots` is the third: what a
-    ComfyUI graph pinned per slot back when the source lived on the graph. Once no
-    install predates any of them, this reduces to reading `raw`.
+    Use membership checks: empty means send no reference. Migrate legacy
+    positional lists, cloud scalars and graph-pinned sources when raw is absent.
     """
     if "reference_source" in raw:
         return _source_name(raw["reference_source"])
@@ -574,16 +558,10 @@ def _cloud_base_url(value: Any) -> str:
 
 
 def _cloud_provider_entry(raw: Any) -> dict:
-    """One cloud connection: an address and a credential, and nothing else.
+    """Normalize a cloud connection to api_url/api_key.
 
-    Exactly as wide as the ComfyUI connection's `{api_url, api_key}`, because a
-    connection is how Orb *reaches* a backend. What an image looks like -- the model,
-    the resolution, the quality, whether a reference rides along -- is what a style
-    is, and lives there, so two styles on one provider can differ.
-
-    Those four did live here. They are not read off `raw` any more because `_style`
-    reads them off the same raw block on the way past; dropping them here is what
-    completes the migration on the next write.
+    Model, size, quality and references belong to styles; _style migrates those
+    legacy fields before this discards them on the next write.
     """
     raw = raw if isinstance(raw, Mapping) else {}
     return {

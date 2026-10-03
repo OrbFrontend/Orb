@@ -19,9 +19,10 @@ from .contracts import (
     RegenCtx,
     RerollGenCtx,
     ToolSpec,
+    UploadCtx,
     WorkflowEventStream,
-    _readonly,
     public_event_error,
+    readonly_view,
 )
 from .format_consistency import format_consistency_workflow
 from .format_consistency.hooks import (
@@ -76,6 +77,9 @@ from .tts.hooks import (
 from .tts.hooks import (
     reroll_gen as _tts_reroll_gen,
 )
+from .tts.hooks import (
+    upload as _tts_upload,
+)
 
 __all__ = [
     "EV_ATTACH_ARTIFACT",
@@ -96,11 +100,12 @@ __all__ = [
     "Subscription",
     "ToolNameCollision",
     "ToolSpec",
+    "UploadCtx",
     "Workflow",
     "WorkflowDeclarationError",
     "WorkflowEventStream",
     "WorkflowMandateError",
-    "_readonly",
+    "readonly_view",
     "public_event_error",
     "finalize_registry",
     "get_subscription",
@@ -127,6 +132,7 @@ subscribe(tts_workflow.id, HookType.PRE_PIPELINE, _tts_pre_pipeline)
 subscribe(tts_workflow.id, HookType.POST_PIPELINE, _tts_post_pipeline)
 subscribe(tts_workflow.id, HookType.ON_DEMAND, _tts_on_demand)
 subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
+subscribe(tts_workflow.id, HookType.UPLOAD, _tts_upload)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 

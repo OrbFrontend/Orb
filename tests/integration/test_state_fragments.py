@@ -673,7 +673,7 @@ async def test_stopped_reply_keeps_its_before_writer_changes(client, db, llm_moc
 async def test_fallback_save_keeps_the_announced_before_writer_changes(client, db):
     """A turn cut off before ``_result`` saves its streamed text with the
     before-Writer changes on the live state announced ahead of the Writer."""
-    from backend.pipeline.persistence import _consume_pipeline
+    from backend.pipeline.persistence import consume_pipeline
     from backend.pipeline.state import TurnState
 
     cid = await _conversation("conv-state-fallback")
@@ -698,7 +698,7 @@ async def test_fallback_save_keeps_the_announced_before_writer_changes(client, d
     settings = await dbmod.get_settings()
     events = []
     try:
-        async for event in _consume_pipeline(cut_off(), cid, settings, user_id, 1):
+        async for event in consume_pipeline(cut_off(), cid, settings, user_id, 1):
             events.append(event)
     except RuntimeError:
         pass

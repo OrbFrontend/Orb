@@ -29,33 +29,20 @@ from ...core import (
 )
 from ...core.card_scripts import card_render_options, is_display_script
 from ..connection import (
-    _build_set_clause,
-    _get_workflow_slot,
-    _set_workflow_slot,
+    build_set_clause,
     get_db,
+    get_workflow_slot,
     immediate_tx,
+    set_workflow_slot,
 )
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
-from .worlds import _bump_revision, _insert_entry, _insert_world
+from .worlds import bump_revision, insert_entry, insert_world
 
 
 async def list_character_cards() -> list[CharacterCardRow]:
-    # Projects only the columns the library sidebar/list consumes. The heavy text
-    # bodies (description, personality, scenario, first_mes, system_prompt) are
-    # deliberately excluded: nothing in the list path reads them, and shipping
-    # them for every card turns a large library (~2000 cards) into a multi-MB
-    # payload that the client must transfer, JSON-parse, and hold resident on
-    # every refresh. The edit modal lazy-loads the full card via
-    # get_character_card() when needed.
-    #
-    # `def_chars` is how the list path answers "how heavy is this card" without
-    # reopening that decision: the *measure* of the bodies instead of the bodies,
-    # one integer per row. It sums exactly the fields the group context modes
-    # disagree about — description + personality (`_private_sheet`) and
-    # mes_example. `post_history_instructions` is excluded on purpose: every mode
-    # keeps it in the speaker's trailing message, so it cannot discriminate
-    # between them. New Group Chat's context-mode recommendation is the consumer
-    # (`group_cast.js:recommendContextMode`).
+    # Project sidebar metadata without heavy card bodies; the editor loads them on demand.
+    # def_chars measures description, personality and mes_example for group-mode
+    # recommendations. Exclude post_history_instructions, shared by all modes.
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -167,14 +154,10 @@ def _int(entry: Mapping[str, Any], key: str, default: int, lo: int, hi: int) -> 
 def card_embedded_fragments(
     card: Mapping[str, Any] | None,
 ) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
-    """Decode a card's ``extensions.orb.fragments`` into fragment-row shapes.
+    """Decode imported extensions.orb.fragments at the trust boundary.
 
-    This is the trust boundary for card-embedded fragments: cards come from
-    arbitrary imported PNGs, so every nesting level is type-checked, ids are
-    validated, unknown enum values fall back to safe defaults, and malformed,
-    disabled, or duplicate (first wins) entries are skipped. Callers merge the
-    result into the global fragment lists; on id collision the global wins so
-    a card can never hijack a user-configured fragment.
+    Validate nesting, ids and enums; skip malformed, disabled or duplicate entries
+    (first wins). Global fragments win id collisions during merging.
     """
     ext = (card or {}).get("extensions")
     orb = ext.get("orb") if isinstance(ext, dict) else None
@@ -219,7 +202,6 @@ def card_embedded_fragments(
                 "enabled": 1,
                 "injection_label": _text(entry, "injection_label") or entry["label"],
                 "sort_order": 10_000 + i,
-                "direction_note_timing": "post_turn",
                 "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
                 "state_mode": _enum(entry, "state_mode", STATE_MODES, DEFAULT_STATE_MODE) if is_state else None,
                 "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,
@@ -274,17 +256,10 @@ async def cast_embedded_fragments(
     card: Mapping[str, Any] | None,
     cast_: TurnCast | None = None,
 ) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow], dict[str, str]]:
-    """Every fragment a turn's characters contribute: the solo card's, or the cast's.
+    """Load solo-card or cast fragments in roster order, visiting each card once.
 
-    A group has no single card, so its fragments are the union of its members'.
-    One reader for both callers (the turn's ``_load_pipeline_context`` and the
-    context-size estimator) because a fragment the estimate does not see is a
-    fragment the user is billed for without being shown.
-
-    Cards are visited once each in roster order, so two members sharing a card
-    contribute one copy and the merge order stays byte-stable.
-
-    The third element maps interactive-fragment id to its contributing card id.
+    Shared by turn assembly and context estimates for prefix parity. The third
+    return value maps interactive-fragment ids to contributing card ids.
     """
     moods, interactive = card_embedded_fragments(card)
     sources: dict[str, str] = {}
@@ -370,12 +345,12 @@ async def create_character_card(data: dict, *, embedded_world: Mapping[str, Any]
             if rows:
                 world_id = str(rows[0]["id"])
             else:
-                world_id = await _insert_world(db, embedded_world, now)
+                world_id = await insert_world(db, embedded_world, now)
                 entries = embedded_world.get("entries") or []
                 for entry in entries:
-                    await _insert_entry(db, world_id, entry, now)
+                    await insert_entry(db, world_id, entry, now)
                 if entries:
-                    await _bump_revision(db, world_id)
+                    await bump_revision(db, world_id)
             await _insert_character_card(db, {**data, "world_id": world_id}, now)
     result = await get_character_card(data["id"])
     assert result is not None
@@ -383,13 +358,10 @@ async def create_character_card(data: dict, *, embedded_world: Mapping[str, Any]
 
 
 async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[str]) -> int:
-    """Insert alternate greetings as sibling root messages (turn_index=0, parent_id=NULL).
+    """Insert alternate greetings as sibling roots; return the inserted count.
 
-    These become branch siblings of the primary greeting and are navigable via
-    switch_to_branch. Content is stored macro-resolved; greetings with inline
-    macros keep their raw template in the per-message "macros" slot so they can
-    re-roll until the conversation's first user message (see
-    :func:`reroll_unfrozen_greetings`). Returns the number of greetings inserted.
+    Store resolved content and raw inline-macro templates for rerolling until
+    the first user message.
     """
     if not alternate_greetings:
         return 0
@@ -413,15 +385,10 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
 
 
 async def reroll_unfrozen_greetings(cid: str) -> None:
-    """Re-roll inline macros in the conversation's root greetings while unfrozen.
+    """Reroll root greeting templates until the first user message freezes them.
 
-    A greeting row stores macro-resolved text in ``content`` and its raw
-    template in the "macros" per-message slot. Until the conversation has a
-    user message, every fetch may re-resolve freely; once one exists the
-    NOT EXISTS guard matches nothing and the last-displayed resolution stays
-    fixed forever (display, DB, and the first turn's prompt all read the same
-    bytes). Rows without a stashed template (no macros, or copies made by
-    checkpoint — which drops workflow_state) are left untouched.
+    Store both resolved content and the raw macros template; the NOT EXISTS
+    guard preserves the last displayed resolution once a user message exists.
     """
     async with get_db() as db:
         greetings = list(
@@ -460,7 +427,7 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
             "world_id",
             "persona_lock_id",
         ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         # JSON fields
         if "tags" in data:
             encoded_tags = json.dumps(data["tags"])
@@ -725,7 +692,7 @@ async def get_character_avatar_stamp(card_id: str) -> str | None:
 
 async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this character, or None if card missing or slot empty."""
-    return await _get_workflow_slot("character_cards", "id", character_id, workflow_id)
+    return await get_workflow_slot("character_cards", "id", character_id, workflow_id)
 
 
 async def set_workflow_character_state(character_id: str, workflow_id: str, payload: dict | None) -> None:
@@ -735,4 +702,4 @@ async def set_workflow_character_state(character_id: str, workflow_id: str, payl
     Caller must hold backend.core.locks.workflow_character_state_lock(character_id,
     workflow_id) across the read-then-write the payload was computed from.
     """
-    await _set_workflow_slot("character_cards", "id", character_id, workflow_id, payload)
+    await set_workflow_slot("character_cards", "id", character_id, workflow_id, payload)

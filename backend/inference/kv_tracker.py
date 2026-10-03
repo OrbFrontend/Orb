@@ -52,17 +52,10 @@ def _common_prefix_len(a: str, b: str) -> int:
 
 
 def extract_cache_stats(usage: dict | None) -> dict:
-    """Extract cache hit/write/total token counts from a provider ``usage`` dict.
+    """Read provider usage into prompt, cached and cache-write counts plus source.
 
-    Recognises naming conventions across providers:
-      - OpenAI / vLLM / llama.cpp: ``prompt_tokens_details.cached_tokens``
-      - Anthropic: ``cache_read_input_tokens``, ``cache_creation_input_tokens``
-      - DeepSeek: ``prompt_cache_hit_tokens``
-
-    Returns ``prompt_tokens``, ``cached_tokens``, ``cache_write_tokens``, and
-    ``source`` (the field path used — handy when debugging provider numbers).
-    When ``usage`` is missing or unrecognised, counts are 0 and ``source`` is
-    one of ``"missing"``, ``"unrecognized"``, or ``"no_cache_fields"``.
+    Support OpenAI-style details, Anthropic read/write fields and DeepSeek hits.
+    Missing/unrecognized fields return zero counts with a diagnostic source label.
     """
     if not isinstance(usage, dict):
         return {
@@ -117,7 +110,7 @@ def extract_cache_stats(usage: dict | None) -> dict:
     }
 
 
-class _KVCacheTracker:
+class KVCacheTracker:
     def __init__(self, conversation_id: str | None = None):
         self._entries: list[dict] = []
         self._conversation_id = conversation_id

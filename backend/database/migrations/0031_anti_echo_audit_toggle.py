@@ -1,13 +1,4 @@
-"""
-0031_anti_echo_audit_toggle -- add the `anti_echo` key to existing rows'
-editor_audit_toggles so the Output Auditor's new anti-echo scanner persists as
-enabled. New databases already get the key from the column default (schema.py);
-this backfills databases created before the scanner existed.
-
-run_audit's _on() already treats a missing key as enabled, so this is a
-consistency backfill rather than a behavioural change — it just makes the
-persisted JSON (and therefore the settings UI checkbox) reflect the default.
-"""
+"""Backfill the enabled anti_echo audit toggle to match the runtime default."""
 
 from __future__ import annotations
 

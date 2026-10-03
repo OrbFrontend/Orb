@@ -57,13 +57,10 @@ def _expression_pack(card_dict: Mapping[str, object]) -> dict | None:
 
 
 async def fetch_embedded_expressions(card_dict: Mapping[str, object]) -> dict[str, tuple[str, str]]:
-    """Best-effort auto-import of a card's embedded expression pack.
+    """Best-effort expression import: prefer the compressed zip, then per-label URLs.
 
-    Prefers the single ``compressed`` zip; falls back to per-label image URLs.
-    Returns {} when the card has no pack or the fetch fails — expressions are a
-    nice-to-have and must never block importing the card itself. URLs come
-    straight off the card, the same SSRF surface as the existing avatar fetch;
-    https-only and size-capped.
+    Return {} on absence/failure; card import must still succeed. Remote URLs
+    are HTTPS-only and size-capped.
     """
     pack = _expression_pack(card_dict)
     if not pack:

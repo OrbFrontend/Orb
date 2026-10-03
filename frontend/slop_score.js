@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { api } from "./api.js";
 import { messageBody, toast } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
@@ -90,3 +91,5 @@ export async function scoreSlop(msgId, btn) {
     if (btn) btn.disabled = false;
   }
 }
+
+registerAction("slop", "score", (el) => scoreSlop(Number(el.dataset.msgId), el));

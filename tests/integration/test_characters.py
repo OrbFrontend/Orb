@@ -574,7 +574,6 @@ async def test_expression_upload_uses_expression_limit(client, db, monkeypatch):
     with zipfile.ZipFile(archive, "w") as zipped:
         zipped.writestr("joy.png", b"image bytes" * 20)
     assert 100 < len(archive.getvalue()) < 1000
-    monkeypatch.setattr(characters, "_MAX_VOICE_UPLOAD", 100)
     monkeypatch.setattr(characters, "_MAX_EXPRESSION_UPLOAD", 1000)
 
     resp = await client.post(

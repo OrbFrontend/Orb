@@ -1,14 +1,8 @@
-"""Opt-in capture of the markup normalizer's exact inputs, for offline evaluation.
+"""Capture pre-normalization inputs for offline markup evaluation.
 
-The markup classifier (../RP-Markup-Classifier) is scored on the draft this hook
-actually receives. Stored assistant messages are not that draft: they are the
-hook's output, so a message the normalizer already rewrote looks consistent by
-construction. When ``ORB_MARKUP_CAPTURE`` names a file, every post-pipeline call
-appends one JSON line: the incoming draft, the baseline window it was judged
-against (message ids and text, newest first), the source/target readings the
-rewrite acted on (the markup classifier's when it is enabled, else the
-heuristic's), its action, and the text the hook emitted. Off when unset; never
-raises into the hook.
+ORB_MARKUP_CAPTURE enables JSONL records of draft, newest-first baseline,
+readings, action and output. Stored replies are already normalized and cannot
+substitute for these inputs. Capture failures never escape the hook.
 """
 
 from __future__ import annotations

@@ -21,21 +21,22 @@ from ...inference.local_models import (
 )
 from ...inference.local_models.llama_server import binary as llama_binary
 from ...workflows import prose_rewriter_host, spark_tts_host
-from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# One large download at a time: model fetches, model deletes, and the
+# llama-server runtime fetch. A single-user box on a home connection pulls two
+# multi-gigabyte files at once slower than either alone, and the runtime fetch
+# also replaces a directory a model load may be reading from.
+_download_lock = asyncio.Lock()
+
 
 class _FeatureManagement(Protocol):
-    """What a feature must offer to be managed from the generic Local ML card.
+    """API-owned management hooks for a Local ML feature.
 
-    Composition in the top layer, not a callback pointing down. The shared
-    catalog describes artifacts; this describes behaviour, and putting these
-    hooks on ``ModelSpec`` instead would turn the inference catalog into a
-    registry of higher-layer behaviour — the dependency problem this refactor
-    removed, in a less visible form.
+    Keep behaviour here rather than on inference ModelSpec to avoid upward dependencies.
     """
 
     async def status_extra(self, settings: Mapping[str, Any]) -> dict: ...
@@ -90,29 +91,18 @@ async def _sync_selection(feature: str, *, prefer: str | None = None) -> dict:
 
 
 def _dependency_report() -> tuple[dict[str, tuple[bool, str]], tuple[bool, str]]:
-    """Every feature's ``deps_ok`` answer, plus the whole-extras one.
-
-    Run off the event loop: the first call really imports ``llama_cpp`` and
-    ``onnxruntime`` (~135 ms warm, several hundred cold). The page asks for this
-    status during its load burst, so inline it stalled every request queued
-    behind it, the settings lane's endpoint fetch among them. Later calls hit
-    ``sys.modules`` and cost microseconds.
+    """Check per-feature and whole-extras dependencies off the event loop;
+    initial runtime imports can block for hundreds of milliseconds.
     """
     return {f: dependencies.deps_ok(f) for f in catalog.MODELS}, dependencies.deps_ok()
 
 
 @router.get("/api/local-ml/status")
 async def api_local_ml_status():
-    """Per-feature tri-state: extras installed? model present? feature enabled?
+    """Report per-feature dependencies, model presence and enablement.
 
-    ``deps_ok`` is now per feature — the prose rewriter drives a child process
-    and needs only ``huggingface_hub``, while the in-process classifiers need
-    the ``llama-cpp-python`` binding too, so one global answer would gray out a
-    button that works. The top-level ``deps_ok`` stays as the whole-extras
-    answer the grouped opt-in card is keyed on.
-
-    ``runtime_ok`` is keyed on the spec's runtime rather than on the rewriter:
-    it is a fact about the shared llama-server binary, not about any feature.
+    Top-level deps_ok covers all extras. runtime_ok describes the spec's shared
+    runtime binary, independently of feature enablement.
     """
     settings = await get_settings()
     enabled_map = settings.get("local_ml_enabled", {})
@@ -221,13 +211,9 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 
 @router.post("/api/local-ml/{feature}/config")
 async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B008
-    """Set one feature's config (prose rewriter: variant, GPU and batch size;
-    Spark-TTS model: GPU).
+    """Set a feature-owned config.
 
-    The body is opaque here — this route validates the feature id and hands the
-    rest to the slice, which owns what its own settings mean. STATUS CODES STAY
-    IN THE API and validation stays in the feature: it raises two errors of its
-    own rather than importing FastAPI to say 404.
+    The slice validates the opaque body and raises domain errors; the API maps status codes.
     """
     _require(feature)
     controller = _CONFIGURABLE.get(feature)

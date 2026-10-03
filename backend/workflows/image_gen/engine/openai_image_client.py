@@ -368,16 +368,10 @@ def _model_ids(entries: list[Any], model_filter: str) -> list[str]:
 
 
 def _cost(payload: Mapping[str, Any], provider_id: str) -> dict | None:
-    """What the response reports about cost, **in the provider's own unit**.
+    """Read reported cost with the provider's unit, searching usage before top level.
 
-    xAI answers `usage.cost_in_usd_ticks` and nowhere states what a tick is worth,
-    so renaming it `cost_usd` would pick a divisor by omission and print a wrong
-    billing figure. The unit travels with the value and the frontend renders only
-    what it can name; a verified divisor later is a one-line change.
-
-    `usage` is searched first and the top level second, because a provider that
-    reports both means the nested one -- NanoGPT reports only a top-level `cost`, in
-    plain USD, and reading `usage` alone showed no cost row on a render that had one.
+    Keep xAI USD ticks labelled as ticks until their conversion is verified;
+    NanoGPT top-level cost is USD.
     """
     reported = payload.get("usage")
     usage: Mapping[str, Any] = reported if isinstance(reported, Mapping) else {}

@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { loadConversations, refreshSceneCardFragments, renderMessages, resetChatUI, stashSceneCards } from "./chat.js";
 import { createChipInput } from "./chips.js";
@@ -10,7 +11,7 @@ import {
   showCardInteractiveFragmentModal,
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
-import { _avatarBust, loadCharacters } from "./library_sidebar.js";
+import { avatarBust, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
@@ -116,7 +117,7 @@ export function addAltGreeting(prefix) {
   if (!container) return;
   const row = document.createElement("div");
   row.className = "alt-greeting-row";
-  row.innerHTML = `<textarea rows="3"></textarea><button class="btn btn-sm btn-square" onclick="this.parentElement.remove()" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>`;
+  row.innerHTML = `<textarea rows="3"></textarea><button class="btn btn-sm btn-square" data-wf-action="library:removeRow" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>`;
   container.appendChild(row);
 }
 
@@ -176,7 +177,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       (g) => `
     <div class="alt-greeting-row">
       <textarea rows="3">${esc(g)}</textarea>
-      <button class="btn btn-sm btn-square" onclick="this.parentElement.remove()" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>
+      <button class="btn btn-sm btn-square" data-wf-action="library:removeRow" title="Remove" aria-label="Remove">${CLOSE_ICON}</button>
     </div>`,
     )
     .join("");
@@ -188,9 +189,9 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
 
   return `
     <div class="tabs">
-      <div class="tab active" onclick="switchTab(this,'${prefix}-tp')">Persona</div>
-      <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
-      ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
+      <div class="tab active" data-wf-action="modal:tab" data-tab-content="${prefix}-tp">Persona</div>
+      <div class="tab" data-wf-action="modal:tab" data-tab-content="${prefix}-tm">Messages</div>
+      ${isEdit ? `<div class="tab" data-wf-action="modal:tab" data-tab-content="${prefix}-ta">Advanced</div>` : ""}
       ${isEdit ? `<div class="tab" id="${prefix}-tab-frag">Fragments</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
@@ -204,7 +205,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field">
         <label>Alternate Greetings</label>
         <div id="${prefix}-ag-list">${agHtml}</div>
-        <button class="btn btn-sm" style="margin-top:4px" onclick="addAltGreeting('${prefix}')">+ Add</button>
+        <button class="btn btn-sm" style="margin-top:4px" data-wf-action="library:addGreeting" data-prefix="${prefix}">+ Add</button>
       </div>
     </div>
     ${
@@ -224,7 +225,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     <div id="${prefix}-ta" class="tab-content">
       <div class="field">
         <label>Tags</label>
-        <div class="lb-chip-wrap" id="${prefix}-tag-wrap" onclick="document.getElementById('${prefix}-tag-text')?.focus()"></div>
+        <div class="lb-chip-wrap" id="${prefix}-tag-wrap" data-wf-action="library:focusTags" data-prefix="${prefix}"></div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">, or Enter to add · Backspace to remove</div>
       </div>
       <div class="field"><label>Linked Lorebook</label>
@@ -252,10 +253,10 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
         d.id
           ? `<div class="modal-heading" role="heading" aria-level="3">Expression images</div>
       <div class="field">
-        <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" onchange="handleExpressionsZip(this, '${d.id}')">
+        <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" data-wf-action="library:expressionsZip" data-wf-on="change" data-char-id="${d.id}">
         <div>
-          <button class="btn btn-sm" onclick="document.getElementById('${prefix}-expr-zip').click()">Upload .zip</button>
-          <button class="btn btn-sm" onclick="clearExpressions('${d.id}')">Clear</button>
+          <button class="btn btn-sm" data-wf-action="library:pickExpressionsZip" data-prefix="${prefix}">Upload .zip</button>
+          <button class="btn btn-sm" data-wf-action="library:clearExpressions" data-char-id="${d.id}">Clear</button>
         </div>
         <div id="${prefix}-expr-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
       </div>`
@@ -277,7 +278,7 @@ export function showCharCreateModal() {
   showModal(
     `
     <div class="modal-char-header">
-      <div id="cc-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('cc')"
+      <div id="cc-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="cc"
            title="Click to set avatar" style="cursor:pointer">${NO_AVATAR_ICON}</div>
       <div style="flex:1">
         <div class="field" style="margin-bottom:4px">
@@ -288,8 +289,8 @@ export function showCharCreateModal() {
     </div>
     ${charFormTabs("cc", {}, false)}
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="createCharacter()">Create</button>
+      <button class="btn" data-wf-action="modal:close">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="library:submitCreate">Create</button>
     </div>`,
     { size: "wide" },
   );
@@ -416,7 +417,7 @@ export async function showCharEditModal(idOrData) {
     _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || "image/png" };
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
-    const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+    const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
     av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
   }
 
@@ -437,7 +438,7 @@ export async function showCharEditModal(idOrData) {
   showModal(
     `
     <div class="modal-char-header">
-      <div id="ce-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('ce')"
+      <div id="ce-avatar-preview" class="char-avatar-lg" data-wf-action="library:avatarCrop" data-prefix="ce"
            title="Click to change avatar" style="cursor:pointer">${av}</div>
       <div style="flex:1">
         <div class="field" style="margin-bottom:4px">
@@ -449,14 +450,14 @@ export async function showCharEditModal(idOrData) {
     </div>
     ${charFormTabs("ce", c, true, worlds)}
     <div class="modal-actions">
-      ${!isNew ? `<button class="btn btn-danger" onclick="deleteCharacter('${c.id}')">Delete</button>` : ""}
+      ${!isNew ? `<button class="btn btn-danger" data-wf-action="library:delete" data-char-id="${c.id}">Delete</button>` : ""}
       ${!isNew ? `<span id="ce-save-status" class="modal-action-status" role="status" aria-live="polite"></span>` : ""}
-      ${!isNew ? `<button class="btn" onclick="saveCharEdit('${c.id}', true)">Export PNG</button>` : ""}
-      <button class="btn" id="ce-cancel-btn" onclick="closeModal()">Cancel</button>
+      ${!isNew ? `<button class="btn" data-wf-action="library:export" data-char-id="${c.id}">Export PNG</button>` : ""}
+      <button class="btn" id="ce-cancel-btn" data-wf-action="modal:close">Cancel</button>
       ${
         isNew
-          ? `<button class="btn btn-accent" onclick="saveImportedChar()">Save</button>`
-          : `<button class="btn btn-accent" onclick="saveCharEdit('${c.id}')">Save</button>`
+          ? `<button class="btn btn-accent" data-wf-action="library:saveImported">Save</button>`
+          : `<button class="btn btn-accent" data-wf-action="library:save" data-char-id="${c.id}">Save</button>`
       }
     </div>`,
     { size: "wide" },
@@ -546,10 +547,10 @@ export async function saveCharEdit(id, exportAfter = false) {
       await refreshSceneCardFragments();
     }
     if (avatarChanged) {
-      _avatarBust.set(id, Date.now());
+      avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {
         const av = document.getElementById("chat-avatar");
-        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${_avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
+        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
       }
     }
     await loadCharacters();
@@ -601,3 +602,22 @@ export async function saveImportedChar() {
     else toast(e.message, true);
   }
 }
+
+registerActions("library", {
+  create: () => showCharCreateModal(),
+  submitCreate: () => createCharacter(),
+  import: () => triggerImport(),
+  importFile: (el) => handleImportFile(el),
+  edit: (el) => showCharEditModal(el.dataset.charId),
+  save: (el) => saveCharEdit(el.dataset.charId),
+  saveImported: () => saveImportedChar(),
+  export: (el) => saveCharEdit(el.dataset.charId, true),
+  delete: (el) => deleteCharacter(el.dataset.charId),
+  avatarCrop: (el) => triggerAvatarCrop(el.dataset.prefix),
+  addGreeting: (el) => addAltGreeting(el.dataset.prefix),
+  removeRow: (el) => el.parentElement.remove(),
+  focusTags: (el) => document.getElementById(`${el.dataset.prefix}-tag-text`)?.focus(),
+  pickExpressionsZip: (el) => document.getElementById(`${el.dataset.prefix}-expr-zip`).click(),
+  expressionsZip: (el) => handleExpressionsZip(el, el.dataset.charId),
+  clearExpressions: (el) => clearExpressions(el.dataset.charId),
+});

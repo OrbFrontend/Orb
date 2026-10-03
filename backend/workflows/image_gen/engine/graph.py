@@ -83,16 +83,10 @@ def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | Non
 
 
 def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> dict:
-    """Best-effort render identity read back off the graph that will execute.
+    """Read best-effort render identity from standard graph inputs.
 
-    Recorded on the attachment so a later replay can say what changed. Read from the
-    graph because external mode has no catalog: a user-imported graph is described
-    wherever it uses the standard node inputs, and `None` wherever it does not.
-
-    `size_measured` grades the size this returns, because the two ways it is reached
-    are not equally true: the mapped slots name the node Orb wrote to, the fallback
-    scan names whichever node sorted first carrying a width/height pair and can pick
-    an upscale node over the latent one.
+    Missing fields are None. size_measured distinguishes mapped slots from
+    a fallback scan that may select an upscale node.
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
     params["size_measured"] = False
@@ -156,17 +150,9 @@ def _declared_bound(value: Any) -> int | None:
 
 
 def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
-    """`seed` folded into the range the seed node declares, or unchanged where it
-    declares none.
+    """Fold seed into the node's /object_info bounds, leaving unbounded seeds unchanged.
 
-    Seed nodes disagree about how large a seed may be -- KSampler takes the whole
-    2**64, rgthree's Seed node stops at 2**50 -- and ComfyUI rejects the entire
-    prompt over one out-of-range widget, naming a number the user never chose. Each
-    node class declares its own bound in `/object_info`, so read it from there rather
-    than keeping a list of which nodes are small.
-
-    A cloud provider has no `/object_info` equivalent. Its bound is entered explicitly
-    on the style after the provider reports it; both paths end in `fold_seed_into`.
+    Cloud styles use explicit provider ceilings; both paths share fold_seed_into.
     """
     spec = declared_inputs(info).get(input_name)
     options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None

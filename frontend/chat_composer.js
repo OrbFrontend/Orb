@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { apiFetch } from "./api.js";
 import { sendMessage } from "./chat_stream.js";
 import { refreshCastRailIntent } from "./group_setup.js";
@@ -245,3 +246,5 @@ export function initComposer() {
     acceptGhost();
   });
 }
+
+registerAction("composer", "attachImage", () => triggerAttachImage());

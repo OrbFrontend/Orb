@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
-from ...database import checkpoint_wal, logs_size_before, wipe_logs_older_than
+from ...database import checkpoint_wal, current_db_path, logs_size_before, wipe_logs_older_than
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
@@ -24,17 +24,8 @@ router = APIRouter()
 VACUUM_FREE_BYTES = 32 * 1024 * 1024
 
 
-def _db_path() -> str:
-    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
-    # A frozen ``DB_PATH`` default here vacuumed the real database from the
-    # test suite, which patches the connection module rather than this one.
-    from ...database import connection
-
-    return connection.DB_PATH
-
-
 def _db_bytes() -> int:
-    path = _db_path()
+    path = current_db_path()
     return os.path.getsize(path) if os.path.exists(path) else 0
 
 
@@ -47,7 +38,7 @@ def _cutoff(days: int) -> str | None:
 
 def free_bytes(db_path: str | None = None) -> int:
     """Return free bytes for the storage volume."""
-    db_path = _db_path() if db_path is None else db_path
+    db_path = current_db_path() if db_path is None else db_path
     if not os.path.exists(db_path):
         return 0
     conn = sqlite3.connect(db_path)
@@ -61,7 +52,7 @@ def free_bytes(db_path: str | None = None) -> int:
 
 def vacuum_sync(db_path: str | None = None) -> bool:
     """Vacuum a SQLite database synchronously."""
-    db_path = _db_path() if db_path is None else db_path
+    db_path = current_db_path() if db_path is None else db_path
     vac = sqlite3.connect(db_path, isolation_level=None)
     try:
         vac.execute("PRAGMA busy_timeout = 5000")

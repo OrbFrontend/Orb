@@ -151,14 +151,10 @@ def extract_exif_data(image_path: str) -> dict[str, Any]:
 
 
 def position_converter(data: Any) -> Any:
-    """Coerce a lorebook entry's ``position`` to the V2 spec's literal values.
+    """Normalize lorebook positions to V2 before_char/after_char.
 
-    The V2 spec only allows ``before_char``/``after_char``, but cards exported
-    by frontends (and mirrored by sites like botbooru) store the numeric
-    world-info position instead — often as a string — where 0 = before char
-    defs and 1 = after, plus higher values (author's note, at-depth, …) with no
-    V2 equivalent. Map the two representable values and drop anything else so a
-    single odd field doesn't reject the whole card down to the V1 parser.
+    Accept numeric 0/1, including strings; drop unrepresentable positions
+    without forcing the entire card through V1 parsing.
     """
     if data in ("before_char", "after_char"):
         return data

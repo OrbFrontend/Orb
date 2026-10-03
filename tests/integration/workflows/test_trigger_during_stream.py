@@ -1,4 +1,6 @@
-"""A /trigger arriving while a streaming turn is mid-writer must run on its on_demand hook without waiting, then the same conversation's post_pipeline hook runs after writer releases on the same lock; both hooks RMW-increment the same workflow_state slot, so a lost write would show as final n=1 instead of 2."""
+"""Gate /trigger during Writer streaming and verify its state update survives
+the later post_pipeline hook: two increments must finish at n=2.
+"""
 
 from __future__ import annotations
 

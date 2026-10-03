@@ -50,23 +50,11 @@ def extract_hyperparams(
     lane: AgentLane = "writer",
     defaults: Mapping[str, Any] | None = None,
 ) -> dict:
-    """Extract LLM hyperparameters from a settings dict for the lane making the call.
+    """Extract hyperparameters for the calling lane.
 
-    The agent lane reads each key's ``agent_`` twin. ``get_settings`` overlays those
-    from the agent endpoint's own model config, and only when a separate lane
-    resolves, so single-model mode falls through to the writer's values -- which is
-    the same endpoint it is calling. Passing the writer's lane to an agent call is
-    not a harmless default: it sends one endpoint's preset to another. The fallback
-    is per key rather than whole-row only as a guard for partial mappings. A present
-    key with a ``None`` value is different from a missing key: it explicitly omits
-    that parameter from the provider request.
-
-    ``max_tokens`` goes out exactly as configured, on every call. A call whose
-    whole answer must fit in one reply gets no hidden raise: the setting is the
-    only budget, and a reply cut at it is reported against that setting.
-
-    Optionally fills in *defaults* for keys absent from settings. It never overrides
-    an explicit ``None`` from a model config.
+    Agent keys fall back per key to Writer values when absent. Explicit None
+    omits a parameter; defaults fill only absent keys. Send max_tokens exactly
+    as configured, without raising the budget for single-reply calls.
     """
     prefix = "agent_" if lane == "agent" else ""
     params: dict[str, Any] = {}

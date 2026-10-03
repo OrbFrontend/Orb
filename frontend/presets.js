@@ -1,7 +1,8 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { CLOSE_ICON, DOWNLOAD_ICON } from "./icons.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
-import { $, downloadBlob, esc, escAttr, escHandlerArg, toast } from "./utils.js";
+import { $, downloadBlob, esc, escAttr, toast } from "./utils.js";
 
 const DOMAINS = [
   { id: "characters", label: "Characters" },
@@ -40,9 +41,9 @@ export function showPresetsModal() {
         <p class="modal-subtitle">Snapshot your data, import a preset (merged into your data), or restore a full backup.</p>
       </div>
       <div id="preset-top-actions" class="modal-title-actions">
-        <button class="btn btn-sm" onclick="showSnapshotModal()">📸 Snapshot current</button>
-        <button class="btn btn-sm" onclick="triggerPresetImport()">⬆ Import file…</button>
-        <input type="file" id="preset-import-input" accept=".db" style="display:none" onchange="handlePresetImportFile(this)">
+        <button class="btn btn-sm" data-wf-action="presets:snapshot">📸 Snapshot current</button>
+        <button class="btn btn-sm" data-wf-action="presets:import">⬆ Import file…</button>
+        <input type="file" id="preset-import-input" accept=".db" style="display:none" data-wf-action="presets:importFile" data-wf-on="change">
       </div>
     </div>
     <div id="preset-status" class="preset-status hidden" role="status" aria-live="polite">
@@ -101,7 +102,7 @@ export function showSnapshotModal() {
     (d) => `
     <label class="modal-checkbox-label">
       <input type="checkbox" id="exp-${d.id}" data-domain="${d.id}" ${d.requires ? `data-requires="${d.requires}"` : ""}
-             ${d.id === "configs" ? "" : "checked"} onchange="onPresetDomainChange(this)">
+             ${d.id === "configs" ? "" : "checked"} data-wf-action="presets:domain" data-wf-on="change">
       ${esc(d.label)}${d.note ? ` <span class="preset-hint">(${esc(d.note)})</span>` : ""}
     </label>`,
   ).join("");
@@ -125,8 +126,8 @@ export function showSnapshotModal() {
       <input type="text" id="exp-label" placeholder="e.g. my-cast" maxlength="60">
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeSubModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="doCreateSnapshot()">Create</button>
+      <button class="btn" data-wf-action="modal:closeSub">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="presets:createSnapshot">Create</button>
     </div>
     </div>
   `);
@@ -284,12 +285,25 @@ function presetRow(it) {
           <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
         <div class="preset-item-actions">
-          <button class="btn btn-sm btn-square" onclick="downloadPreset('${escHandlerArg(it.name)}')" title="Download" aria-label="Download preset">${DOWNLOAD_ICON}</button>
-          <button class="btn btn-sm" onclick="applyPreset('${escHandlerArg(it.name)}')" title="Merge into current data">Apply</button>
-          <button class="btn btn-sm" onclick="restorePreset('${escHandlerArg(it.name)}')" title="Replace everything">Restore</button>
-          <button class="btn btn-sm btn-danger btn-square" onclick="deletePreset('${escHandlerArg(it.name)}')" title="Delete" aria-label="Delete preset">${CLOSE_ICON}</button>
+          <button class="btn btn-sm btn-square" data-wf-action="presets:download" data-name="${escAttr(it.name)}" title="Download" aria-label="Download preset">${DOWNLOAD_ICON}</button>
+          <button class="btn btn-sm" data-wf-action="presets:apply" data-name="${escAttr(it.name)}" title="Merge into current data">Apply</button>
+          <button class="btn btn-sm" data-wf-action="presets:restore" data-name="${escAttr(it.name)}" title="Replace everything">Restore</button>
+          <button class="btn btn-sm btn-danger btn-square" data-wf-action="presets:delete" data-name="${escAttr(it.name)}" title="Delete" aria-label="Delete preset">${CLOSE_ICON}</button>
         </div>
       </div>
       <div class="preset-chips">${chips}</div>
     </div>`;
 }
+
+registerActions("presets", {
+  open: () => showPresetsModal(),
+  snapshot: () => showSnapshotModal(),
+  createSnapshot: () => doCreateSnapshot(),
+  domain: (el) => onPresetDomainChange(el),
+  import: () => triggerPresetImport(),
+  importFile: (el) => handlePresetImportFile(el),
+  download: (el) => downloadPreset(el.dataset.name),
+  apply: (el) => applyPreset(el.dataset.name),
+  restore: (el) => restorePreset(el.dataset.name),
+  delete: (el) => deletePreset(el.dataset.name),
+});

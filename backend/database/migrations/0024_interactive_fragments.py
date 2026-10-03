@@ -1,18 +1,6 @@
-"""Migration 0024: Interactive Fragments + Editor Feedback.
-
-Renames ``director_fragments`` -> ``interactive_fragments`` and folds the
-feedback feature onto a fragment *type* rather than a routing column:
-
-* Rename the table (if a pre-rename DB still has it).
-* Drop the ``target`` column if an earlier build of this (unreleased) feature
-  added it -- feedback fragments are now identified by ``field_type='feedback'``.
-* Add the ``feedback`` column to ``conversation_logs`` (the feedback sub-step's
-  user-facing note) and the ``feedback_enabled`` setting. (The feedback step is
-  an editor sub-step: it shares the editor's reasoning/latency, so it gets no
-  reasoning_feedback / feedback_latency_ms columns of its own.)
-
-Everything is guarded so it is a no-op on fresh installs (schema.py already
-builds the post-rename shape) and idempotent across reruns.
+"""Rename director_fragments to interactive_fragments and use field_type
+for feedback routing. Add feedback log/settings fields; reuse Editor timing.
+All operations are guarded for reruns.
 """
 
 from __future__ import annotations
@@ -30,15 +18,8 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # Reconcile the old/new fragment tables. Two paths, mirroring 0006's
-    # rename-with-fallback handling:
-    #   * Pre-rename DB (old exists, new does not): straight RENAME carries the
-    #     data and the name across.
-    #   * Fresh install (both exist): schema.py builds interactive_fragments in
-    #     its final shape, yet the historical 0004/0005 migrations still
-    #     CREATE+seed a director_fragments ghost. Fold any rows forward (a no-op
-    #     for the seeded 'keywords' duplicate) and drop the orphan so a clean
-    #     install ends with a single fragments table instead of a dead one.
+    # Rename the old table if needed. If both exist, merge rows then drop the
+    # legacy table; historical migrations may have recreated it on a fresh schema.
     if _table_exists(conn, "director_fragments"):
         if not _table_exists(conn, "interactive_fragments"):
             conn.execute("ALTER TABLE director_fragments RENAME TO interactive_fragments")

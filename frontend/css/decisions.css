@@ -113,6 +113,7 @@
   border: none;
   border-radius: 3px;
   cursor: grab;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
   /* See .cast-drag: a held press drags, a swipe across it still scrolls. */
@@ -257,6 +258,7 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  -webkit-user-select: none;
   user-select: none;
 }
 

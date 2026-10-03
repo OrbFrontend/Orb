@@ -1,8 +1,9 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
-  _applyWorkflowTextSegments,
+  applyWorkflowTextSegments,
   buildMsgToolbar,
   canStartGeneration,
   getCharName,
@@ -17,15 +18,15 @@ import {
 } from "./chat_core.js";
 import { renderTurnError } from "./chat_error.js";
 import {
-  _advanceReasoningPass,
-  _relightWorkflowPipelinePass,
-  _syncGenerationStatus,
+  advanceReasoningPass,
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
+  relightWorkflowPipelinePass,
   renderInspector,
+  syncGenerationStatus,
 } from "./chat_inspector.js";
-import { _mergeWorkflowRejections } from "./chat_workflow.js";
+import { mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
 import {
@@ -102,7 +103,7 @@ function phaseStage() {
 // Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -227,7 +228,7 @@ function finalizeStreamingDiv(lastMsg) {
         );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
-    _applyWorkflowTextSegments(body, lastMsg);
+    applyWorkflowTextSegments(body, lastMsg);
   }
 
   const tb = div.querySelector(".msg-toolbar");
@@ -291,7 +292,7 @@ export function createStreamingDiv(name = null, memberId = null) {
 
 /** Rebuild the selected view from the retained turn, including a background speaker. */
 export function restoreStreamingView() {
-  _syncGenerationStatus();
+  syncGenerationStatus();
   if (!S.isStreaming || !S.streamOp) return;
   if (S.groupCast && !S.currentSpeaker) return;
   const div =
@@ -309,9 +310,7 @@ export function restoreStreamingView() {
   }
 }
 
-// The user's bubble is on screen before the server has an id for it. The SSE ack
-// and the post-stream sync both promote that same node, so the promotion — id,
-// toolbar, and any content the server rewrote — is written once.
+// SSE ack and post-stream sync promote the same optimistic user node through this helper.
 function adoptPendingUserMessage(msg, content = null) {
   const div = document.querySelector('.message.user[data-msg-id="null"]');
   if (!div) return;
@@ -690,7 +689,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
       if (isViewing(state)) {
-        _advanceReasoningPass(1); // director done → move to Writer dot
+        advanceReasoningPass(1); // director done → move to Writer dot
         renderInspector();
       }
       break;
@@ -717,7 +716,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       } catch (_) {}
       break;
     case "writer_rewrite":
-      if (isViewing(state)) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (isViewing(state)) advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}
@@ -732,7 +731,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
           state[stateKey] = (state[stateKey] || "") + delta;
           state.reasoningPassActive = Math.max(state.reasoningPassActive, builtinIdx);
-          const rebuilt = isViewing(state) && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
+          const rebuilt = isViewing(state) && state.inspectedMsgId == null && advanceReasoningPass(builtinIdx);
           const viewingThisPass = state.reasoningPassSelected === builtinIdx;
           const box = document.getElementById("reasoning-box");
           if (isViewing(state) && state.inspectedMsgId == null && box && viewingThisPass) {
@@ -744,7 +743,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         if (pipeline) {
           const firstDelta = !state.reasoningByPass[passKey];
           state.reasoningByPass[passKey] = (state.reasoningByPass[passKey] || "") + delta;
-          if (isViewing(state) && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          if (isViewing(state) && firstDelta) relightWorkflowPipelinePass(pipeline, passKey);
           const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
           if (isViewing(state) && wbox && wbox.dataset.passId === passKey) {
             appendReasoningDelta(wbox, delta);
@@ -868,7 +867,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         const msgIdNum = Number(parsed.message_id);
         const rejected = Array.isArray(parsed.rejected) ? parsed.rejected : [];
         if (Number.isFinite(msgIdNum) && rejected.length) {
-          if (isViewing(state)) _mergeWorkflowRejections(msgIdNum, null, rejected);
+          if (isViewing(state)) mergeWorkflowRejections(msgIdNum, null, rejected);
         }
       } catch (e) {
         console.warn("workflow_attachments_rejected parse failed", e);
@@ -1060,10 +1059,8 @@ export async function sendMessage() {
   );
 }
 
-// The regenerate button on a user row lands here, and picks its target now
-// rather than at paint time: the reply may have been deleted or swiped to
-// another branch since the row was drawn (buildMsgToolbar). With no reply left
-// under the message, regenerating it means continuing from it.
+// Resolve the reply target now because it may have been deleted or swiped since paint.
+// With no reply left, continue from the user message.
 export async function regenerateFromUser(userMsgId) {
   const reply = S.messages.find((m) => m.role === "assistant" && m.id && m.parent_id === userMsgId);
   if (reply) {
@@ -1182,3 +1179,20 @@ export function discardQueuedEdit(button) {
     setMessages(msgs, state);
   });
 }
+
+registerActions("chat", {
+  send: () => sendMessage(),
+  stop: () => stopGeneration(),
+  continue: () => continueFromUser(),
+  regenerate: (el) => regenerate(Number(el.dataset.msgId)),
+  regenerateFromUser: (el) => regenerateFromUser(Number(el.dataset.msgId)),
+  superRegenerate: (el) => superRegenerate(Number(el.dataset.msgId)),
+  toggleMagic: (el) => toggleMagicInput(Number(el.dataset.msgId)),
+  magicKey: (el, e) => handleMagicKey(e, Number(el.dataset.msgId)),
+  submitMagic: (el) => submitMagicRewrite(Number(el.dataset.msgId)),
+});
+
+registerActions("queued-edit", {
+  retry: () => retryQueuedEdits(),
+  discard: (el) => discardQueuedEdit(el),
+});

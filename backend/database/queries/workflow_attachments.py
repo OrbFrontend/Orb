@@ -24,27 +24,21 @@ logger = logging.getLogger(__name__)
 EVICTED_MARKER = "[evicted]"
 
 
-def _staging_root() -> str:
-    """Canonical root directory for path-shape attachments.
+def staging_root() -> str:
+    """Root for file-path attachments.
 
-    Path-shape attachments let a workflow reference a file on disk instead of
-    inlining bytes. Since the path can be influenced by user input, each
-    ``open()``/``stat()`` call normalizes it with ``realpath`` and rejects it
-    unless it lives under this root. Inlined (not a shared helper) so CodeQL
-    ``py/path-injection`` can trace the guard to the sink.
+    Each open/stat validates realpath containment inline so CodeQL can trace
+    the guard to the sink.
     """
     configured = os.environ.get("ORB_WORKFLOW_STAGING_DIR") or tempfile.gettempdir()
     return os.path.realpath(configured)
 
 
-def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
-    """JSON-encode a dict-shaped metadata field, or return None for absent/bad shape.
+def encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
+    """Strictly JSON-encode dict metadata, otherwise return None.
 
-    Non-dict values produce None silently -- the row helper accepts these from
-    callers that have already coerced them and from defensive paths upstream.
-    A dict containing non-serializable contents (e.g. nested ``set``) or
-    non-finite numbers trips strict JSON encoding; the error is logged and the
-    column is written as NULL so the row insert still lands.
+    Log serialization failures, including non-finite numbers, and store NULL
+    so malformed metadata does not prevent inserting the attachment.
     """
     if not isinstance(value, dict):
         return None
@@ -126,9 +120,9 @@ async def insert_workflow_attachment_row(
         path = attachment["path"]
         if not isinstance(path, str):
             raise ValueError(f"path must be a string; got {type(path).__name__}")
-        # Confine to the staging root before any stat/open (see _staging_root).
+        # Confine to the staging root before any stat/open (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
         safe_path = resolved
         if os.path.getsize(safe_path) == 0:
@@ -160,10 +154,10 @@ async def insert_workflow_attachment_row(
     parent_attachment_id = attachment.get("parent_attachment_id")
     annotation = attachment.get("annotation")
     seed = attachment.get("seed")
-    generation_metadata_json = _encode_metadata_field(
+    generation_metadata_json = encode_metadata_field(
         attachment.get("generation_metadata"), "generation_metadata", workflow_id, filename
     )
-    consumption_metadata_json = _encode_metadata_field(
+    consumption_metadata_json = encode_metadata_field(
         attachment.get("consumption_metadata"), "consumption_metadata", workflow_id, filename
     )
 

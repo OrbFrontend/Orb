@@ -451,10 +451,7 @@
   align-items: center;
 }
 
-/* The status is the host's action-row status: a long message wraps in place
-   between the buttons instead of pushing them onto lines of their own. The
-   readout takes the row's slack so it sits next to the status text and the
-   buttons stay right. */
+/* Wrap status text between buttons; let the readout fill spare action-row width. */
 #tts-pf-time {
   flex: 1 1 60px;
   min-width: 0;

@@ -37,20 +37,11 @@ def install_cmd() -> str:
 
 
 def deps_ok(feature: str | None = None) -> tuple[bool, str]:
-    """Cheap check (no model load): are *feature*'s extras importable?
+    """Check importable extras without loading models.
 
-    Per-runtime, because the features no longer share one answer. A
-    ``llama_server`` feature drives a child process over HTTP and needs only
-    ``huggingface_hub``, to fetch the weights; ``llama_cpp`` features run the
-    model in-process and need the binding too. ``feature=None`` keeps the
-    original whole-extras meaning, which is what the Local ML card's top-level
-    ``deps_ok`` (the grouped opt-in) is keyed on; every per-feature caller
-    passes a name.
-
-    An ``onnx`` feature needs ``onnxruntime`` and nothing else at run time. The
-    ``onnx`` package — another 73 MB — only *builds* graphs, so it lives in
-    requirements-dev.txt with the export script that uses it, not in the user's
-    install.
+    llama_server needs download support; llama_cpp also needs its binding;
+    ONNX runtime needs onnxruntime, not the graph-building onnx package.
+    feature=None checks all extras for the grouped opt-in card.
     """
     runtime = MODELS[feature].runtime if feature in MODELS else "llama_cpp"
     try:

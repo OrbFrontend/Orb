@@ -161,7 +161,6 @@ async def test_existing_database_migrates_before_latest_schema_indexes_run(tmp_p
         conn.close()
 
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
 
     async with api_module.lifespan(FastAPI()):
         pass

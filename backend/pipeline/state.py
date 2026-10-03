@@ -10,9 +10,7 @@ from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
 from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import (
-    AGENTIC_LOREBOOK_SCAN_DEPTH,
-    LOREBOOK_SCAN_DEPTH,
-    compute_lorebook_block,
+    compute_agentic_lorebook_block,
 )
 from .passes.editor.length_guard import LengthGuard
 
@@ -52,8 +50,8 @@ class ModelLane:
 
 
 @dataclass(slots=True)
-class _PipelineConfig:
-    """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
+class PipelineConfig:
+    """Resolved per-turn flags, lanes, and prefixes for ``run_pipeline``."""
 
     agent_on: bool
     enabled_tools: Mapping[str, bool]
@@ -237,21 +235,11 @@ class LorebookTurn:
     # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
 
-    @property
-    def scan_depth(self) -> int:
-        return AGENTIC_LOREBOOK_SCAN_DEPTH if self.agentic else LOREBOOK_SCAN_DEPTH
-
     def writer_block(self, director_selected: Sequence[str], macros: Macros | None = None) -> str:
         """Return the lorebook block appended to the Writer prompt."""
         if not self.agentic:
             return self.block
-        return compute_lorebook_block(
-            self.entries,
-            self.messages,
-            scan_depth=self.scan_depth,
-            director_selected=director_selected,
-            macros=macros,
-        )
+        return compute_agentic_lorebook_block(self.entries, director_selected, macros, self.messages)
 
 
 @dataclass(frozen=True, slots=True)

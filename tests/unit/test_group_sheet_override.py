@@ -10,7 +10,7 @@ test that only ever passes ``None``.
 
 from __future__ import annotations
 
-from backend.database.queries.group_members import _private_sheet
+from backend.database.queries.group_members import resolve_private_sheet
 
 CARD = {"description": "A scout of the Watch.", "personality": "Terse."}
 
@@ -21,16 +21,16 @@ def test_an_override_replaces_the_card_join_and_short_circuits_the_card_walk():
     contradicted two paragraphs later. The card is never consulted, so a member
     keeps its sheet after its card is deleted — and a cardless narrator, which
     has nothing to fall back to, can hold one at all."""
-    assert _private_sheet(CARD) == "A scout of the Watch.\n\nPersonality: Terse."
-    assert _private_sheet(CARD, "A scout, hair shorn, coat burned.") == "A scout, hair shorn, coat burned."
-    assert _private_sheet({"description": "STALE", "personality": "STALE"}, "Current.") == "Current."
-    assert _private_sheet(None, "The scene's voice.") == "The scene's voice."
-    assert _private_sheet(None) == ""
+    assert resolve_private_sheet(CARD) == "A scout of the Watch.\n\nPersonality: Terse."
+    assert resolve_private_sheet(CARD, "A scout, hair shorn, coat burned.") == "A scout, hair shorn, coat burned."
+    assert resolve_private_sheet({"description": "STALE", "personality": "STALE"}, "Current.") == "Current."
+    assert resolve_private_sheet(None, "The scene's voice.") == "The scene's voice."
+    assert resolve_private_sheet(None) == ""
 
 
 def test_an_empty_override_blanks_rather_than_falling_back():
     """``if override`` would silently resurrect the card here. The user asked
     for no sheet; a scene that reinstates the card would be unfixable from the
     UI, since blank is the only way to say it."""
-    assert _private_sheet(CARD, "") == ""
-    assert _private_sheet(CARD, None) == _private_sheet(CARD)
+    assert resolve_private_sheet(CARD, "") == ""
+    assert resolve_private_sheet(CARD, None) == resolve_private_sheet(CARD)

@@ -1,18 +1,5 @@
-"""The public-profile output contract, pinned on both draft functions.
-
-The system prompt asks the model for a scene-safe two-liner; this is the half
-that does not depend on the model agreeing. Both the card editor and Manage cast
-drain the same forced call through the same checks, so exercising both public
-entry points is what stops the card and scene routes drifting on a safety
-boundary that only one of them is loudly tested for.
-
-Three rejections, each for a failure a later reader cannot recover from:
-
-* a blank field silently publishes nothing about that member;
-* a brace survives into a string that is macro-resolved at *turn* time
-  (``prompting/group_context._render_public_cast``), so an approved profile
-  would mutate months later;
-* an overlong field is billed to every member of the cast on every call.
+"""Check both public-profile draft entry points reject blank, brace-bearing and
+overlong output, protecting stored profiles from later macro mutation.
 """
 
 from __future__ import annotations

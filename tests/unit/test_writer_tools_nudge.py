@@ -10,7 +10,7 @@ frozen-base and transport halves of that decision.
 from __future__ import annotations
 
 from backend.inference.client import LLMClient
-from backend.pipeline.config import _resolve_pipeline_config
+from backend.pipeline.config import resolve_pipeline_config
 from backend.pipeline.passes.writer import build_writer_content
 
 NUDGE = "**Do not use tool or function calls this turn.**"
@@ -42,7 +42,7 @@ def _resolve(
     enabled_tools: dict[str, bool] | None = None,
     prefix: list[dict] | None = None,
 ):
-    return _resolve_pipeline_config(
+    return resolve_pipeline_config(
         _SETTINGS,
         dict(_ENABLED_TOOLS if enabled_tools is None else enabled_tools),
         macros=_StubMacros(),

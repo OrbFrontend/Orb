@@ -1,15 +1,10 @@
-// The avatar crop box, as pure geometry. Coordinates are in the displayed
-// image's CSS pixels (W x H); a box is { cx, cy, cw, ch } and always stays
-// inside the image. A numeric `aspect` (width / height) locks the box to that
-// shape; `null` is free, where width and height move independently but the
-// shape stays between FREE_ASPECT_MIN and FREE_ASPECT_MAX.
-
-// Smallest box side a resize settles on, unless the image leaves less room.
+// Crop geometry in displayed CSS pixels: { cx, cy, cw, ch }, bounded by the image.
+// `aspect` locks width / height; null allows FREE_ASPECT_MIN..FREE_ASPECT_MAX.
+//
+// Smallest resize side, unless the image leaves less room.
 export const CROP_MIN = 40;
 
-// Every avatar surface is a centre-cropped square or circle, so a free crop is
-// kept within 1:2..2:1: past that, the small avatars show a slice of torso or
-// background rather than the face the crop was drawn around.
+// Limit free crops to 1:2..2:1 so square avatar surfaces still show the subject.
 export const FREE_ASPECT_MIN = 1 / 2;
 export const FREE_ASPECT_MAX = 2;
 
@@ -38,9 +33,8 @@ export function cropInitial(W, H, aspect) {
 }
 
 /**
- * The box after switching ratio: same centre and roughly the same area, in the
- * new shape, shrunk only as far as the image requires. Free keeps the box as it
- * is, since every locked shape already sits inside the free range.
+ * Switch ratio while preserving centre and approximate area; shrink to fit the image.
+ * Free mode keeps the existing box.
  */
 export function cropReshape(box, aspect, W, H) {
   if (aspect == null) return box;
@@ -61,11 +55,7 @@ export function cropCorners({ cx, cy, cw, ch }) {
   ];
 }
 
-/**
- * What a pointer at (x, y) grabs: the nearest corner within `radius` as
- * { corner }, the box body as { move: true }, or null for the dimmed margin.
- * Corners win over the body so a handle is grabbable from inside the box.
- */
+/** Return { corner }, { move: true }, or null for a pointer hit. Corners win over the body. */
 export function cropHit(box, x, y, radius) {
   let best = null;
   let bestDist = Infinity;
@@ -96,12 +86,7 @@ export function cropMove(box, x, y, W, H) {
   };
 }
 
-/**
- * Start a corner drag: the opposite corner is pinned for the whole drag and the
- * box grows away from it in the grabbed corner's direction. The direction never
- * flips mid-drag, so pulling past the anchor shrinks to the minimum instead of
- * jumping the box to the other side.
- */
+/** Pin the opposite corner for the drag. Crossing it shrinks to the minimum without flipping. */
 export function cropResizeStart(box, corner) {
   const [sx, sy] = CORNER_SIGNS[corner];
   const [ax, ay] = cropCorners(box)[3 - corner];
@@ -130,10 +115,8 @@ export function cropResize({ ax, ay, sx, sy }, x, y, aspect, W, H) {
 }
 
 /**
- * Output pixel size for a box: the crop at the source image's own resolution,
- * the long side capped at `maxSide`, never upscaled. A locked ratio derives the
- * short side from the rounded long side, so rounding can neither drift the
- * shape nor push the long side past the cap.
+ * Return source-resolution dimensions, capped at `maxSide` without upscaling.
+ * For locked ratios, derive the short side from the rounded long side.
  */
 export function cropOutputSize(box, scale, aspect, maxSide) {
   const srcW = box.cw / scale;

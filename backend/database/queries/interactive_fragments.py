@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
-from ..connection import _build_set_clause, get_db, immediate_tx
+from ..connection import build_set_clause, get_db, immediate_tx
 from ..models import InteractiveFragmentRow
 
 _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
@@ -103,7 +103,7 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
 
 async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragmentRow | None:
     async with get_db() as db:
-        sets, vals = _build_set_clause([*_BASE_WRITE_COLUMNS, *DECISION_COLUMNS], _encoded_decision_values(data))
+        sets, vals = build_set_clause([*_BASE_WRITE_COLUMNS, *DECISION_COLUMNS], _encoded_decision_values(data))
         if sets:
             vals.append(fid)
             await db.execute(

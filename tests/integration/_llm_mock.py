@@ -1,17 +1,7 @@
-"""LLM client substitute for integration tests of the streaming pipeline.
+"""Deterministic streaming LLM substitute with per-pass asyncio.Event gates.
 
-The real ``backend.inference.client.LLMClient`` reaches the OpenAI-compatible
-endpoint over httpx. Concurrency tests do not need that round-trip; they
-need a deterministic, in-process stand-in whose timing the test
-controls. ``FakeLLMClient`` provides that: its ``complete()`` is an
-async generator that yields canned reasoning / done events, optionally
-waiting on a per-pass ``asyncio.Event`` so a test can hold a stream
-mid-pipeline while another concurrent action arrives.
-
-Pass dispatch is by ``tool_choice`` rather than a call counter, because
-director may be skipped entirely (gated behind ``has_director_loop_tools``
-in the orchestrator) and editor iterates multiple times per turn -- a
-positional scheme would mis-bind queued responses.
+Dispatch by tool_choice, not call order: Director can be skipped and Editor
+can iterate multiple times.
 """
 
 from __future__ import annotations
@@ -441,45 +431,15 @@ _BATCH_PASSES = {"auto_tag"}
 
 
 def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
-    """Cross-call KV-cache invariants over every chat ``complete()`` call a
-    test made. Returns human-readable violations; empty list means clean.
+    """Return cross-call KV-prefix violations; empty means valid.
 
-    Runs at ``llm_mock`` teardown for EVERY integration test (see conftest), so
-    any feature test that drives a new LLM call site alongside a chat turn is
-    automatically a KV-cache test — coverage is default-on, not opt-in per
-    entry point. This is the guarantee the magic_rewrite ``tools=None`` bust
-    and the image-gen off-turn missing-constant-lorebook-block leak both
-    slipped past: each was a new call site nobody registered in a
-    hand-maintained test list.
+    Integration teardown compares system messages and core tools on each endpoint/
+    model/conversation lane. Off-turn tools are exempt. Identify conversations
+    by messages[1], never the system message being checked; skip shorter calls.
+    kv_divergence_expected opts out for intentional prompt changes.
 
-    Invariant: any two calls on the same cache lane (server endpoint + model)
-    that belong to the same conversation must (a) ship a byte-identical system
-    message and (b) among the core chat passes whose schemas render into the
-    prompt (``tools_in_prompt`` is not False), ship one tools blob. Off-turn
-    workflow calls are exempt from (b): they force a standalone tool via
-    tool_choice and ride their own lane by design. One diverging byte in either
-    checked region evicts the llama.cpp prefix KV and re-bills from token zero.
-
-    Conversation identity is the wire bytes of ``messages[1]`` (greeting or
-    first user message): stable across passes, entry points, and off-turn
-    calls, and NOT a byte region under test — a diverged system message
-    cannot dodge the check by re-keying its own group. Calls with fewer than
-    two messages carry no conversation identity and are skipped. A test that
-    diverges deliberately (persona/settings switch mid-conversation — a
-    user-driven cache invalidation) opts out with
-    ``@pytest.mark.kv_divergence_expected``.
-
-    **Batch lanes** (``_BATCH_PASSES``) are grouped differently, because that
-    identity rule is blind to them. A batch pass sends one call per item with
-    the item in ``messages[1]``, so N calls land in N groups of one and every
-    check above is skipped — precisely the "new call site nobody registered"
-    failure this function exists to catch. Those passes group by
-    ``(endpoint, model, pass)`` instead: the whole point of such a lane is that
-    the system message and the tools blob are constant across the batch while
-    only the user message moves, which is exactly what the two checks assert.
-    An allowlist rather than a blanket rule, because a genuinely per-item call
-    site may legitimately vary its system message (``sheet_update`` builds one
-    per cast member).
+    Batch passes group by endpoint/model/pass because messages[1] varies per item.
+    Only _BATCH_PASSES use that grouping; other calls may vary their system text.
     """
     groups: dict[tuple[str, str, str], list[dict]] = {}
     for call in captured:

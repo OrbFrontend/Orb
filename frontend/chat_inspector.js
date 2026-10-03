@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { currentDecisionsHtml } from "./chat_decisions.js";
@@ -30,7 +31,7 @@ import {
   subscribe,
 } from "./state.js";
 import { renderStatePanel } from "./state_panel.js";
-import { $, convUrl, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
+import { $, convUrl, esc, escAttr, sentenceTail } from "./utils.js";
 
 let inspectionRequest = 0;
 
@@ -85,7 +86,7 @@ export function appendReasoningDelta(box, delta) {
   );
 }
 
-export function _advanceReasoningPass(targetIdx) {
+export function advanceReasoningPass(targetIdx) {
   if (targetIdx <= S.reasoningPassActive) return false;
   S.reasoningPassActive = targetIdx;
   if (!S.reasoningUserOverride) {
@@ -121,9 +122,9 @@ function _buildReasoningHtml() {
     const lineColor = i < streamIdx ? REASONING_PASSES[i + 1].color : "var(--border)";
     const checkId = `reasoning-enabled-${p.key}`;
     return `<div class="reasoning-dot-col">
-        <button class="reasoning-dot" onclick="selectReasoningPass(${i})" style="${dotStyle}">${i + 1}</button>
+        <button class="reasoning-dot" data-wf-action="inspector:pass" data-pass-index="${i}" style="${dotStyle}">${i + 1}</button>
         <label class="reasoning-enabled-label" for="${checkId}">
-          <input type="checkbox" id="${checkId}" ${enabled ? "checked" : ""} onchange="toggleReasoningPass('${p.key}')">
+          <input type="checkbox" id="${checkId}" ${enabled ? "checked" : ""} data-wf-action="inspector:togglePass" data-wf-on="change" data-pass-key="${p.key}">
           <span>on</span>
         </label>
       </div>${i < 2 ? `<div class="reasoning-rail-line" style="background:${lineColor}"></div>` : ""}`;
@@ -224,7 +225,7 @@ function _buildWorkflowReasoningHtml() {
           const lineColor = hasText ? "var(--accent)" : "var(--border)";
           return (
             `<div class="reasoning-dot-col">
-              <button class="reasoning-dot" onclick="selectWorkflowPipelinePass('${escHandlerArg(pipeline.id)}','${escHandlerArg(p.id)}')" style="${dotStyle}">${i + 1}</button>
+              <button class="reasoning-dot" data-wf-action="inspector:pipelinePass" data-pipeline-id="${escAttr(pipeline.id)}" data-pass-id="${escAttr(p.id)}" style="${dotStyle}">${i + 1}</button>
               <span class="reasoning-pass-label" style="margin:0">${esc(p.label || p.id)}</span>
             </div>` +
             (i < pipeline.passes.length - 1
@@ -243,7 +244,7 @@ function _buildWorkflowReasoningHtml() {
     .join("");
 }
 
-export function _relightWorkflowPipelinePass(pipeline, passId) {
+export function relightWorkflowPipelinePass(pipeline, passId) {
   const card = document.querySelector(`.workflow-pipeline-card[data-pipeline-id="${CSS.escape(pipeline.id)}"]`);
   if (!card) return;
   const idx = pipeline.passes.findIndex((p) => p.id === passId);
@@ -335,7 +336,7 @@ function _renderWorkflowPhasesPill() {
   el.title = el.textContent;
 }
 
-export function _syncGenerationStatus() {
+export function syncGenerationStatus() {
   const el = $("generation-status");
   if (!el) return;
   // Empty means waiting; null means no active turn.
@@ -360,7 +361,7 @@ export function setWorkflowPhase(channel, label, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 export function clearWorkflowPhase(channel, state = S) {
@@ -369,7 +370,7 @@ export function clearWorkflowPhase(channel, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 export function workflowPhaseLabel(wid, verb) {
@@ -646,3 +647,17 @@ export function hideAvatarPopup() {
   clearInterval(_exprTimer);
   _exprTimer = null;
 }
+
+registerActions("inspector", {
+  pass: (el) => selectReasoningPass(Number(el.dataset.passIndex)),
+  togglePass: (el) => toggleReasoningPass(el.dataset.passKey),
+  pipelinePass: (el) => selectWorkflowPipelinePass(el.dataset.pipelineId, el.dataset.passId),
+  clearDiff: () => clearRefineDiff(),
+  toolsTab: (el) => setToolsTab(el.dataset.tab),
+  avatarPopup: () => showAvatarPopup(),
+  // The backdrop closes the popup; a click on the picture inside it does not.
+  avatarBackdrop: (el, e) => {
+    if (e.target === el) hideAvatarPopup();
+  },
+  hideAvatar: () => hideAvatarPopup(),
+});

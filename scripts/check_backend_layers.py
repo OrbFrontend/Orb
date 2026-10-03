@@ -1,29 +1,9 @@
 #!/usr/bin/env python3
-"""Backend layering guardrail — the import graph AGENTS.md describes.
+"""Enforce the backend import graph from AGENTS.md using parsed imports.
 
-This parses every backend module's imports, resolves relative imports, and
-fails on an edge that is absent from the explicit allowed-edge matrix.
-
-Four rules:
-
-  1. **Explicit edges.** Each top-level Python package has a complete set of
-     backend packages it may import. Same-package imports are always allowed.
-  2. **Every layer is classified.** A new Python-bearing top-level package or
-     module must be classified rather than silently becoming a composition
-     root.
-  3. **Slices never import peers.** ``features/<a>`` may not import
-     ``features/<b>``. A slice is self-contained by definition — a peer edge is
-     how two features quietly become one.
-  4. **Workflow plug-ins use their API.** ``workflows/<id>`` may import only its
-     own package and the public workflow framework modules, never application
-     layers or peer workflow plug-ins.
-
-DO NOT SPELL THIS AS A GREP. ``inference/local_models/llama_server/binary.py``
-contains the literal ``https://api.github.com/repos/...``, so a grep for
-``api\\.`` under ``inference/`` reports a violation that is not one and trains
-the next person to ignore the check. This parses imports.
-
-Exit non-zero on any violation. Wired into scripts/lint.sh.
+Check explicit layer edges, complete module classification, feature isolation,
+workflow toolkit boundaries and cross-module private names.
+Exit non-zero on violations; scripts/lint.sh runs this check.
 """
 
 from __future__ import annotations
@@ -205,6 +185,13 @@ def _imports_toolkit_module(node: ast.AST, package: list[str]) -> bool:
     return _import_from_base(node, package) == toolkit[:2] and any(alias.name == "toolkit" for alias in node.names)
 
 
+def _private_names(node: ast.AST) -> set[str]:
+    """Underscore names an import statement takes from another module."""
+    if not isinstance(node, ast.ImportFrom):
+        return set()
+    return {alias.name for alias in node.names if alias.name.startswith("_") and not alias.name.startswith("__")}
+
+
 def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
     backend = backend or root / "backend"
     problems: list[str] = []
@@ -233,6 +220,8 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
             where = f"{path.relative_to(root)}:{node.lineno}"
+            for name in sorted(_private_names(node)):
+                problems.append(f"{where}: imports private name {name!r} from another module (give it a public name)")
             targets = _targets(node, package, root=root)
             # One import statement resolves to both the package and the name
             # beside it (`from ..features import cards`), which is the same

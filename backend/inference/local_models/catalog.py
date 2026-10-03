@@ -15,16 +15,10 @@ RuntimeKind = Literal["llama_cpp", "llama_server", "onnx"]
 
 @dataclass(frozen=True)
 class ModelFileSpec:
-    """A companion file that must travel WITH a spec's main artifact.
+    """Required companion artifact, downloaded and checked with the main file.
 
-    Not a variant. A variant is an alternative the user picks between and any
-    one of which makes the feature work; a companion is a second file the
-    feature does not run without — Spark-TTS needs both the bicodec decoder and
-    the speaker encoder, and half of that pair is a voice cloner that cannot
-    enroll or a set of enrolled tokens that cannot be spoken.
-
-    So ``present()`` requires every companion, ``download()`` fetches them in
-    one press, and ``prune_stale`` claims their basenames.
+    Unlike alternative variants, every companion must be present. Pruning claims
+    their basenames too.
     """
 
     repo_id: str

@@ -19,22 +19,6 @@ html {
   height: 100%;
 }
 
-body {
-  height: 100dvh;
-}
-
-#app {
-  height: 100dvh;
-}
-
-@supports (-webkit-touch-callout: none) {
-  html,
-  body,
-  #app {
-    min-height: -webkit-fill-available;
-  }
-}
-
 #chat-header .chat-actions {
   position: relative;
 }

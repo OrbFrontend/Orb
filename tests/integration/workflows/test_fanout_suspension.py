@@ -10,11 +10,11 @@ default -- so with the toggle on, markup is what this drives.)
 
 from __future__ import annotations
 
-from backend.inference import _KVCacheTracker
+from backend.inference import KVCacheTracker
 from backend.pipeline.workflow_bridge import (
-    _iterate_pre_pipeline_hooks,
-    _PostPipelineResult,
-    _run_post_pipeline,
+    PostPipelineResult,
+    iterate_pre_pipeline_hooks,
+    run_post_pipeline,
 )
 
 from ._fixtures import make_workflow, register_for_test
@@ -30,7 +30,7 @@ DRIFTING_DRAFT = "*She steps closer, watching him carefully.* Are you sure about
 async def _pre_events(settings) -> list[dict]:
     accumulators = {"merged_enabled_tools": {}, "extras": []}
     events = []
-    async for ev in _iterate_pre_pipeline_hooks(
+    async for ev in iterate_pre_pipeline_hooks(
         conversation_id="c1",
         history=[],
         last_user_message="hi",
@@ -39,7 +39,7 @@ async def _pre_events(settings) -> list[dict]:
         enabled_tools_pre_merge={},
         turn_scratch={},
         client=None,
-        kv_tracker=_KVCacheTracker(),
+        kv_tracker=KVCacheTracker(),
         schema_overrides={},
         accumulators=accumulators,
     ):
@@ -49,7 +49,7 @@ async def _pre_events(settings) -> list[dict]:
 
 async def _post_event_names(settings, *, draft="draft", history=None) -> list[str]:
     names = []
-    async for ev in _run_post_pipeline(
+    async for ev in run_post_pipeline(
         draft=draft,
         conversation_id="c1",
         character_id=None,
@@ -62,10 +62,10 @@ async def _post_event_names(settings, *, draft="draft", history=None) -> list[st
         enabled_tools={},
         turn_scratch={},
         client=None,
-        kv_tracker=_KVCacheTracker(),
+        kv_tracker=KVCacheTracker(),
         schema_overrides={},
     ):
-        if not isinstance(ev, _PostPipelineResult):
+        if not isinstance(ev, PostPipelineResult):
             names.append(ev.get("event"))
     return names
 

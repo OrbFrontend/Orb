@@ -1,6 +1,6 @@
 """SSE projection test for `workflow_attachments_rejected` event.
 
-The orchestrator's `_consume_pipeline` emits a
+The orchestrator's `consume_pipeline` emits a
 `workflow_attachments_rejected` event after `_persist_result` when the
 cache drops one or more workflow attachments for rehydratability
 reasons. This test pins the SSE event shape -- specifically the
@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from backend.database import add_message, set_active_leaf
-from backend.pipeline.persistence import _consume_pipeline
+from backend.pipeline.persistence import consume_pipeline
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 
 from ._fixtures import make_workflow, register_for_test
@@ -75,7 +75,7 @@ async def test_sse_emits_workflow_attachments_rejected_with_reason(client, db):
         }
     ]
     settings = {"enable_agent": 0}
-    events = [e async for e in _consume_pipeline(_fake_pipeline(staged), cid, settings, user_id, 1)]
+    events = [e async for e in consume_pipeline(_fake_pipeline(staged), cid, settings, user_id, 1)]
 
     rejected_events = [e for e in events if e["event"] == "workflow_attachments_rejected"]
     assert len(rejected_events) == 1

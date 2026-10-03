@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import { expressionSegments, settledSentences } from "./expression_segments.js";
@@ -211,3 +212,5 @@ export function handleExpressionPlaybackKey(event) {
     return;
   if (advanceExpressionPlayback()) event.preventDefault();
 }
+
+registerAction("expression-playback", "advance", () => advanceExpressionPlayback());

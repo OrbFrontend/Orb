@@ -184,19 +184,9 @@ function bestRun(words, tokens, from, to) {
   return best;
 }
 
-// Locate each block's on-screen words. `words` are the message's rendered tokens
-// as `{t, raw}`, `blockTokens` each block's keys from `alignableKeys`; the result
-// holds one start index per block, or -1 for a block the message no longer says.
-//
-// Taking the first run that matches gives a one-word block like `"Right,"` away
-// to any bare `right` earlier in the narration, which steals the click target and
-// the karaoke highlight and leaves the real line unmapped. Preferring the
-// best-delimited run fixes that but, chosen per block against the whole rest of
-// the message, lets an undelimited block reach forward and take the run a later
-// block needed. So bound the choice first: the leftmost chain gives every block
-// its earliest feasible run and the rightmost chain its latest, and a block can
-// only move inside that window, where by construction no other block is
-// displaced. Ties keep the leftmost run, as does a message that delimits nothing.
+// Map blocks to rendered word indices, or -1 when absent. Prefer delimited
+// matches within windows bounded by the leftmost and rightmost feasible chains,
+// so a block cannot steal another's match. Ties choose the leftmost run.
 export function alignBlocks(words, blockTokens) {
   const count = blockTokens.length;
   const earliest = new Array(count).fill(-1);

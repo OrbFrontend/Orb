@@ -1,4 +1,4 @@
-"""Unit tests for the boundary-contract layer: _readonly wrapping and
+"""Unit tests for the boundary-contract layer: readonly_view wrapping and
 frozen-dataclass behavior across the four Ctx classes."""
 
 from __future__ import annotations
@@ -13,25 +13,25 @@ from backend.workflows.contracts import (
     PreCtx,
     RerollGenCtx,
     ToolSpec,
-    _readonly,
+    readonly_view,
 )
 
 
 class TestReadonlyDict:
     def test_item_assignment_raises(self):
-        wrapped = _readonly({"a": 1})
+        wrapped = readonly_view({"a": 1})
         with pytest.raises(TypeError):
             wrapped["a"] = 2
 
     def test_nested_dict_wrapped(self):
-        wrapped = _readonly({"outer": {"inner": 1}})
+        wrapped = readonly_view({"outer": {"inner": 1}})
         assert isinstance(wrapped["outer"], MappingProxyType)
         with pytest.raises(TypeError):
             wrapped["outer"]["inner"] = 99
 
     def test_mapping_proxy_passes_through(self):
         original = MappingProxyType({"a": 1})
-        wrapped = _readonly(original)
+        wrapped = readonly_view(original)
         # Idempotent: re-wrapping a MappingProxyType returns it unchanged
         # (the dict branch doesn't match -- MappingProxyType is not a dict).
         assert wrapped is original
@@ -39,36 +39,36 @@ class TestReadonlyDict:
 
 class TestReadonlyListAndTuple:
     def test_list_becomes_tuple(self):
-        wrapped = _readonly([1, 2, 3])
+        wrapped = readonly_view([1, 2, 3])
         assert isinstance(wrapped, tuple)
         assert wrapped == (1, 2, 3)
 
     def test_append_raises(self):
-        wrapped = _readonly([1])
+        wrapped = readonly_view([1])
         with pytest.raises(AttributeError):
             wrapped.append(2)
 
     def test_nested_list_in_dict_raises(self):
-        wrapped = _readonly({"items": [1, 2]})
+        wrapped = readonly_view({"items": [1, 2]})
         with pytest.raises(AttributeError):
             wrapped["items"].append(3)
 
 
 class TestReadonlySets:
     def test_set_becomes_frozenset(self):
-        wrapped = _readonly({1, 2})
+        wrapped = readonly_view({1, 2})
         assert isinstance(wrapped, frozenset)
         assert wrapped == frozenset({1, 2})
 
     def test_add_raises(self):
-        wrapped = _readonly({1})
+        wrapped = readonly_view({1})
         with pytest.raises(AttributeError):
             wrapped.add(2)
 
 
 class TestReadonlyBytes:
     def test_bytearray_becomes_bytes(self):
-        wrapped = _readonly(bytearray(b"abc"))
+        wrapped = readonly_view(bytearray(b"abc"))
         assert isinstance(wrapped, bytes)
         assert wrapped == b"abc"
 
@@ -76,24 +76,24 @@ class TestReadonlyBytes:
 class TestReadonlyPrimitivesAndOpaque:
     def test_arbitrary_object_passthrough(self):
         obj = object()
-        assert _readonly(obj) is obj
+        assert readonly_view(obj) is obj
 
 
 class TestReadonlyDoesNotMutateSource:
     def test_source_dict_unchanged(self):
         src = {"a": 1, "nested": {"b": 2}}
-        _readonly(src)
+        readonly_view(src)
         assert src == {"a": 1, "nested": {"b": 2}}
 
 
 def _make_pre_ctx(history_src=None, settings_src=None) -> PreCtx:
     return PreCtx(
         conversation_id="c1",
-        history=_readonly(history_src or [{"role": "user", "content": "hi", "meta": {"k": "v"}}]),
+        history=readonly_view(history_src or [{"role": "user", "content": "hi", "meta": {"k": "v"}}]),
         last_user_message="hi",
-        settings=_readonly(settings_src or {"a": 1, "nested": {"b": 2}}),
-        prefix=_readonly([{"role": "system", "content": "x"}]),
-        enabled_tools_pre_merge=_readonly({"editor_rewrite": True}),
+        settings=readonly_view(settings_src or {"a": 1, "nested": {"b": 2}}),
+        prefix=readonly_view([{"role": "system", "content": "x"}]),
+        enabled_tools_pre_merge=readonly_view({"editor_rewrite": True}),
         turn_scratch={},
         client=object(),
         kv_tracker=object(),
@@ -153,13 +153,13 @@ class TestAllCtxFrozen:
     def test_postctx_frozen(self):
         post = PostCtx(
             conversation_id="c1",
-            history=_readonly([]),
+            history=readonly_view([]),
             draft="d",
             effective_msg="m",
-            director_output=_readonly({}),
-            settings=_readonly({}),
-            prefix=_readonly([]),
-            enabled_tools=_readonly({}),
+            director_output=readonly_view({}),
+            settings=readonly_view({}),
+            prefix=readonly_view([]),
+            enabled_tools=readonly_view({}),
             turn_scratch={},
             client=object(),
             kv_tracker=object(),
@@ -192,8 +192,8 @@ class TestRerollGenCtxFields:
             conversation_id="c",
             message_id=1,
             attachment_id=2,
-            original_attachment=_readonly({}),
-            settings=_readonly({}),
+            original_attachment=readonly_view({}),
+            settings=readonly_view({}),
             client=object(),
         )
         assert rg.replay is True
@@ -203,8 +203,8 @@ class TestRerollGenCtxFields:
             conversation_id="c",
             message_id=1,
             attachment_id=2,
-            original_attachment=_readonly({"seed": "abc"}),
-            settings=_readonly({}),
+            original_attachment=readonly_view({"seed": "abc"}),
+            settings=readonly_view({}),
             client=object(),
         )
         with pytest.raises(TypeError):

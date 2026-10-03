@@ -5,7 +5,7 @@ Verifies that aborting during the director pass prevents the writer pass from
 firing, and aborting during the writer pass prevents the editor pass from firing.
 
 Also verifies the error-abort corner case: a genuine error in any of the three
-passes aborts the pipeline (the exception propagates out of ``_run_pipeline``)
+passes aborts the pipeline (the exception propagates out of ``run_pipeline``)
 rather than being swallowed, so a failed pass ends the turn just like a manual
 abort does — never producing a half-processed draft.
 """
@@ -19,10 +19,10 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.inference import AbortToken, LLMClient, _KVCacheTracker
+from backend.inference import AbortToken, KVCacheTracker, LLMClient
 from backend.pipeline import entrypoints, persistence
 from backend.pipeline.failures import STAGE_SAVE, mark_stage, stage_of
-from backend.pipeline.orchestrator import _run_pipeline
+from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.passes.director import DirectorResult
 from backend.pipeline.state import TurnState
 
@@ -36,13 +36,13 @@ def _make_client() -> LLMClient:
 
 def _pipeline_kwargs(enabled_tools: dict) -> dict:
     """Bundle the keyword-only kwargs the orchestrator wrapper supplies to
-    ``_run_pipeline``: final pipeline prefix, merged enable map, per-turn
+    ``run_pipeline``: final pipeline prefix, merged enable map, per-turn
     workflow scratch dict, and the KV tracker."""
     return {
         "prefix": _PREFIX,
         "enabled_tools": dict(enabled_tools),
         "turn_scratch": {},
-        "kv_tracker": _KVCacheTracker(),
+        "kv_tracker": KVCacheTracker(),
         "schema_overrides": {},
     }
 
@@ -77,7 +77,7 @@ class TestAbortPropagation:
             patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
         ):
             await _drain(
-                _run_pipeline(
+                run_pipeline(
                     client,
                     settings,
                     _DIRECTOR_STATE,
@@ -117,7 +117,7 @@ class TestAbortPropagation:
             patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             await _drain(
-                _run_pipeline(
+                run_pipeline(
                     client,
                     settings,
                     _DIRECTOR_STATE,
@@ -134,7 +134,7 @@ class TestAbortPropagation:
 
 class TestErrorAborts:
     """A genuine error in the Director or Writer aborts the turn (exception
-    escapes _run_pipeline) instead of being swallowed and pressed on. The
+    escapes run_pipeline) instead of being swallowed and pressed on. The
     Editor only refines a finished draft, so its failure is a warning."""
 
     async def test_director_error_aborts_and_skips_writer(self):
@@ -163,7 +163,7 @@ class TestErrorAborts:
         ):
             with pytest.raises(RuntimeError, match="director endpoint exploded"):
                 await _drain(
-                    _run_pipeline(
+                    run_pipeline(
                         client,
                         settings,
                         _DIRECTOR_STATE,
@@ -202,7 +202,7 @@ class TestErrorAborts:
             patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             events = await _drain(
-                _run_pipeline(
+                run_pipeline(
                     client,
                     settings,
                     _DIRECTOR_STATE,
@@ -246,7 +246,7 @@ class TestErrorAborts:
             patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             events = await _drain(
-                _run_pipeline(
+                run_pipeline(
                     client,
                     settings,
                     _DIRECTOR_STATE,
@@ -296,7 +296,7 @@ class TestStoppedTurnPersistence:
             yield {"event": "_result", "data": TurnState(resp_text="the reply").as_result_event_data()}
 
         async def consume():
-            async for _ in persistence._consume_pipeline(pipeline(), "c1", {}, 1, 2, extra_on_result=log):
+            async for _ in persistence.consume_pipeline(pipeline(), "c1", {}, 1, 2, extra_on_result=log):
                 pass
 
         task = asyncio.create_task(consume())
@@ -326,7 +326,7 @@ class TestStoppedTurnPersistence:
             raise RuntimeError("stream closed by stop")
 
         with pytest.raises(sqlite3.OperationalError) as caught:
-            async for _ in persistence._consume_pipeline(pipeline(), "c1", {}, 1, 2):
+            async for _ in persistence.consume_pipeline(pipeline(), "c1", {}, 1, 2):
                 pass
 
         assert stage_of(caught.value) == STAGE_SAVE
@@ -350,7 +350,7 @@ class TestStoppedTurnPersistence:
         async def context(*args, **kwargs):
             return object()
 
-        monkeypatch.setattr(entrypoints, "_load_pipeline_context", context)
+        monkeypatch.setattr(entrypoints, "load_pipeline_context", context)
         token = AbortToken()
         token.abort()
 

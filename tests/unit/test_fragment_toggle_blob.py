@@ -12,7 +12,7 @@ import json
 
 from backend.core import RESERVED_FRAGMENT_IDS
 from backend.inference import CachedBase
-from backend.pipeline.config import _build_writer_tools_blob
+from backend.pipeline.config import build_writer_tools_blob
 from backend.pipeline.context import _defined_fragments
 from backend.pipeline.passes._prompting import tool_call_instruction
 from backend.pipeline.passes.director.director import (
@@ -57,7 +57,7 @@ def _toggled(off: set[str]) -> list[dict]:
 
 
 def _blob(globals_: list[dict], card_rows: list[dict] | None = None) -> tuple[str, dict[str, bool]]:
-    overrides, enabled = _build_writer_tools_blob(
+    overrides, enabled = build_writer_tools_blob(
         _SETTINGS, _defined_fragments(globals_, card_rows or []), {"direct_scene": True}
     )
     return json.dumps(enabled_schemas(enabled, overrides)), enabled
@@ -92,7 +92,7 @@ class TestBlobSurvivesToggles:
         assert schemas["update_state"]["facts"] == {"type": "array", "items": {"type": "string"}}
 
     def test_fixed_properties_keep_their_descriptions(self):
-        overrides, _ = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {}, grouped=True)
+        overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {}, grouped=True)
         scene = overrides["direct_scene"]["function"]["parameters"]["properties"]
         assert scene["moods"]["description"] and scene["speaking_plan"]["description"]
         assert overrides["update_state"]["function"]["parameters"]["properties"]["retire"]["description"]
@@ -125,14 +125,14 @@ class TestDefinedFragments:
 
 class TestLiveView:
     def test_keeps_live_fields_in_blob_order_and_restores_required(self):
-        overrides, _ = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
+        overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
         live = [_GLOBALS[2], _GLOBALS[1]]
         params = live_direct_scene_schema(overrides["direct_scene"], live)["function"]["parameters"]
         assert list(params["properties"]) == ["next_event", "keywords", "moods"]
         assert params["required"] == ["next_event"]
 
     def test_restores_live_descriptions_only(self):
-        overrides, _ = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {}, grouped=True)
+        overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {}, grouped=True)
         props = live_direct_scene_schema(overrides["direct_scene"], [_GLOBALS[2]])["function"]["parameters"]["properties"]
         assert props["keywords"]["description"] == "Instruction for keywords"
         assert props["moods"] == overrides["direct_scene"]["function"]["parameters"]["properties"]["moods"]
@@ -140,14 +140,14 @@ class TestLiveView:
         assert "intent" not in props
 
     def test_instruction_states_required_fields(self):
-        overrides, _ = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
+        overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
         out = tool_call_instruction("direct_scene", live_direct_scene_schema(overrides["direct_scene"], _GLOBALS[:2]))
         assert "Parameter order: (intent, next_event, moods)" in out
         assert out.endswith("Required: intent, next_event")
         assert "Required" not in tool_call_instruction("direct_scene", overrides["direct_scene"])
 
     def test_instruction_lists_descriptions_in_blob_order(self):
-        overrides, _ = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
+        overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
         live = [_GLOBALS[5], _GLOBALS[2], _GLOBALS[0]]
         out = tool_call_instruction(
             "direct_scene",
@@ -185,7 +185,7 @@ class _FakeBase:
 
 
 def _shared_tools() -> list[dict]:
-    overrides, enabled = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {"direct_scene": True})
+    overrides, enabled = build_writer_tools_blob(_SETTINGS, _GLOBALS, {"direct_scene": True})
     return enabled_schemas(enabled, overrides)
 
 
@@ -243,7 +243,7 @@ class TestDirectorUsesTheLiveView:
         assert not any("Instruction for intent" in tail for tail in base.tails)
 
     async def test_speaking_plan_step_keeps_the_blob_description(self):
-        overrides, enabled = _build_writer_tools_blob(_SETTINGS, _GLOBALS, {"direct_scene": True}, grouped=True)
+        overrides, enabled = build_writer_tools_blob(_SETTINGS, _GLOBALS, {"direct_scene": True}, grouped=True)
         base = _FakeBase(enabled_schemas(enabled, overrides), {}, "direct_scene")
         live = [row for row in _GLOBALS if row["id"] == "next_event"]
         _ = [
@@ -272,7 +272,7 @@ class TestDirectorUsesTheLiveView:
 
 async def test_feedback_narrows_and_drops_disabled_values():
     extra = _row("tone", "feedback", 8)
-    overrides, enabled = _build_writer_tools_blob(_SETTINGS, [*_GLOBALS, extra], {})
+    overrides, enabled = build_writer_tools_blob(_SETTINGS, [*_GLOBALS, extra], {})
     base = _FakeBase(enabled_schemas(enabled, overrides), {"suggestions": "try this", "tone": "leaked"}, "give_feedback")
     events = [
         e

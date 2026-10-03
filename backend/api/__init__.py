@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
+from ..database import close_wal_anchor, current_db_path, init_db, open_wal_anchor
 from ..features import slop_suggestions
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
@@ -29,22 +29,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     migrated = await init_db()
-    # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
-    # DROP TABLE) leaves the old table's pages on the freelist, and the live
-    # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
-    # bloated by the rebuilt tables' size (~25 -> ~39 MiB) until the next
-    # restore happens to VACUUM. restore_full already reclaims on its private
-    # copy (see presets.restore_full); this is the same reclaim for the
-    # normal startup-migration path.
-    #
-    # The second arm covers dead space that arrives without a migration --
-    # deleted conversations, cleaned-up Agent logs, a cleanup whose own
-    # VACUUM lost its race with a live reader. Without it those pages are
-    # stranded until a migration happens to come along. Both arms are gated so
-    # an ordinary boot never rewrites the whole file. Safe here: we're before
-    # `yield`, so no request connection is open to contend with the VACUUM.
-    if migrated or free_bytes(DB_PATH) > VACUUM_FREE_BYTES:
-        vac = sqlite3.connect(DB_PATH, isolation_level=None)
+    db_path = current_db_path()
+    # Reclaim pages from rebuild migrations or accumulated deletions. Gate VACUUM
+    # to avoid rewriting on ordinary boots; before yield, no request holds a connection.
+    if migrated or free_bytes(db_path) > VACUUM_FREE_BYTES:
+        vac = sqlite3.connect(db_path, isolation_level=None)
         try:
             vac.execute("VACUUM")
         finally:
@@ -54,7 +43,7 @@ async def lifespan(app: FastAPI):
     # left the live schema uncovered or unlike a fresh install must warn loudly
     # (naming the constant/migration to fix) rather than block boot. The preset ops
     # themselves still call assert_schema_safe and fail hard on the same problems.
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path)
     try:
         problems = preset_schema_safety_problems(conn)
     finally:

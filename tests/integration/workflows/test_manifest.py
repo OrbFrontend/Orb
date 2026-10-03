@@ -1,5 +1,3 @@
-"""Tests for GET /api/workflows."""
-
 from __future__ import annotations
 
 from copy import deepcopy

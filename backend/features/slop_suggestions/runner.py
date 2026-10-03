@@ -16,8 +16,8 @@ from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 
 from ...database import (
-    connection,
     count_model_replies,
+    current_db_path,
     get_phrase_bank,
     get_settings,
     get_slop_replies_at_run,
@@ -92,7 +92,7 @@ async def _run(replies: int) -> None:
         keys_at_start = await list_slop_suggestion_keys()
         pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
         try:
-            result = await asyncio.get_running_loop().run_in_executor(pool, mine, connection.DB_PATH, bank, toggles, dismissed)
+            result = await asyncio.get_running_loop().run_in_executor(pool, mine, current_db_path(), bank, toggles, dismissed)
         except BaseException:
             # Cancellation included: the worker would otherwise mine on unobserved.
             _terminate(pool)

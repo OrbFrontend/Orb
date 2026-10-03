@@ -327,11 +327,7 @@
   margin-top: 12px;
 }
 
-/* Per-card regex editor and preserved import metadata.
-
-   Every block inside a script row is spaced by one grid gap rather than by its
-   own margin, so a row that hides its warning or its preserved-data drawer
-   closes the space with it instead of leaving a hole. */
+/* Use one grid gap so hidden script warnings and metadata drawers leave no empty space. */
 .ce-scripts-editor { margin-bottom: 16px; }
 
 .ce-script-list {
@@ -359,10 +355,8 @@
 
 .ce-script-body > .field { margin-bottom: 0; }
 
-/* A card can carry dozens of scripts, so a row stands collapsed to its header
-   and a one-line preview of what it does. The controls stay in the markup and
-   the draft is read from the model behind it, so opening a row is a class flip
-   and an open row survives being reordered. */
+/* Collapse scripts to a header and preview. Keep controls mounted and drafts
+   in the model so expansion survives reordering. */
 .ce-script-row.is-collapsed > .ce-script-body { display: none; }
 .ce-script-row:not(.is-collapsed) > .ce-script-summary { display: none; }
 
@@ -572,6 +566,7 @@
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   list-style: none;
 }
@@ -624,67 +619,6 @@
 }
 
 .char-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
-
-.card-picker {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.card-picker::-webkit-scrollbar { width: 4px; }
-.card-picker::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.card-pick {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: all .15s;
-  background: var(--bg-elevated);
-}
-
-.card-pick:hover {
-  border-color: var(--border-light);
-  background: var(--bg-hover);
-}
-
-.card-pick.selected {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-}
-
-.card-pick-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  background: var(--bg-deep);
-  flex-shrink: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--text-muted);
-}
-
-.card-pick-avatar img { width: 100%; height: 100%; object-fit: cover; }
-
-.card-pick-name {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.card-pick-meta {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 1px;
-}
 
 .persona-list {
   display: flex;

@@ -1,5 +1,3 @@
-"""Tests for the RP format-consistency normalizer."""
-
 from backend.analysis.text.markup import classify_axes
 from backend.analysis.text.roleplay import AxisStyle, Dialogue, Narration
 from backend.workflows.format_consistency.normalization import (

@@ -82,6 +82,7 @@
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-secondary);
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -141,47 +142,11 @@
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-secondary);
+  -webkit-user-select: none;
   user-select: none;
 }
 
 .ep-group > summary:hover { color: var(--text-primary); }
-
-.conv-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 13px;
-  margin-bottom: 2px;
-  transition: background .1s;
-}
-
-.conv-item:hover { background: var(--bg-hover); }
-
-.conv-item.active {
-  background: var(--accent-glow);
-  border: 1px solid var(--accent-dim);
-}
-
-.conv-item .title {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-}
-
-.conv-item .delete-btn {
-  opacity: 0;
-  color: var(--text-muted);
-  font-size: 14px;
-  padding: 0 4px;
-  transition: opacity .15s;
-}
-
-.conv-item:hover .delete-btn { opacity: 1; }
-.conv-item .delete-btn:hover { color: var(--red); }
 
 .group-chat-item {
   display: flex;
@@ -582,6 +547,7 @@
 .frag-drag-handle {
   --ui-icon-size: 16px;
   cursor: grab;
+  -webkit-user-select: none;
   user-select: none;
   display: flex;
   align-items: center;

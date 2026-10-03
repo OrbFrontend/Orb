@@ -1,14 +1,7 @@
-"""Turn a mined key into the regex the Phrase Bank would store, and score that regex.
+"""Build and rescore suggestions as the regexes the Phrase Bank will actually match.
 
-A suggestion is the bank regex itself, re-scored as that regex: a key's signal
-can come from the abstraction alone (``^ P X it`` fell from 1.59 to 0.92 once
-matched as a regex), so the key's statistic is recomputed on what the bank
-would actually match.
-
-Patterns must compile under both Python ``re`` and JavaScript ``new RegExp``,
-because the editor validates them in the browser. They use no named groups, no
-lookbehind, and no inline flags. The bank already matches case-insensitively,
-one sentence at a time, and sentences keep their markup (``*A beat.*``).
+Use the Python/JavaScript regex subset: no named groups, lookbehind or inline
+flags. Matching is case-insensitive per sentence, retaining markup.
 """
 
 from __future__ import annotations

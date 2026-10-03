@@ -408,18 +408,9 @@ async def _generate_fresh(
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
-    # The order is load-bearing, and each step depends on the one above it:
-    #
-    #   camera   -> which subjects can be visible from the chosen viewpoint
-    #   subjects -> who this render is a picture of, primary first
-    #   selector -> which of them is actually in frame and which guidance to load
-    #   slots    -> whose likeness leaves the machine, one image per person
-    #   composer -> what the prompt says about the pictures that went with it
-    #
-    # The selector sits *above* the slots rather than inside the compose call so that a
-    # member who spoke in the round but walked out of the shot never has their face
-    # uploaded: an edit model handed a likeness the prompt never mentions draws that
-    # person back in. `addressable_subjects` is the join, and it costs no extra call.
+    # Resolve camera -> subjects -> selector -> slots -> composer in dependency order.
+    # Select in-frame subjects before references so absent cast members' likenesses
+    # are not uploaded and accidentally drawn back into the image.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     subjects = macros_mod.expand_subjects(

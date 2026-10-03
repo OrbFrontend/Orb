@@ -4,6 +4,7 @@ from scripts.check_frontend_layers import (
     has_computed_dynamic_import,
     import_cycle,
     imported_paths,
+    unregistered_actions,
     workflow_import_allowed,
 )
 
@@ -39,3 +40,20 @@ def test_module_cycle_is_reported():
         "a.js",
     ]
     assert import_cycle({"a.js": {"b.js"}, "b.js": set()}) is None
+
+
+def test_action_checker_rejects_unknown_scopes_and_handlers():
+    source = """<button data-wf-action="chat:send">Send</button>
+<button data-wf-action="caht:send">Typo</button>
+const action = busy ? "chat:stop" : "chat:snd";
+const mime = "image:png";
+"""
+    assert unregistered_actions(source, {"chat:send", "chat:stop"}) == {"caht:send", "chat:snd"}
+    assert unregistered_actions('<button data-wf-action="new:missing">', set()) == {"new:missing"}
+
+
+def test_workflow_template_actions_are_checked():
+    source = """<button data-wf-action="${WORKFLOW_ID}:refresh">Refresh</button>
+<button data-wf-action="${WORKFLOW_ID}:refersh">Typo</button>
+<button data-wf-action="${action}">Computed</button>"""
+    assert unregistered_actions(source, {"my_workflow:refresh"}, workflow_id="my_workflow") == {"my_workflow:refersh"}

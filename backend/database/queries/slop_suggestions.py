@@ -1,13 +1,8 @@
-"""Database operations for the Phrase Bank suggestion miner.
+"""Suggestion-miner persistence and corpus reads.
 
-Two halves. The corpus reads are synchronous and take a plain ``sqlite3``
-connection, because a run happens in a child process that opens the database
-read-only (:func:`open_readonly`). The rest is the app's async surface: stored
-suggestions, dismissals, staleness bookkeeping, and the accept path, which is
-the only place a suggestion becomes a phrase-bank entry.
-
-User messages are never read: every reply query filters ``role = 'assistant'``,
-and ``turn_index > 0`` leaves out turn 0, which holds card-authored greetings.
+Child-process corpus readers use a synchronous read-only connection; app
+operations are async. Read only assistant replies after turn 0, excluding
+user messages and card-authored greetings.
 """
 
 from __future__ import annotations
@@ -139,14 +134,10 @@ async def replace_slop_suggestions(
     mined_at: str,
     keys_at_start: Collection[str] = (),
 ) -> None:
-    """Record a run and replace every stored suggestion with its results, in one
-    transaction. ``None`` (a skipped or failed run) keeps the stored suggestions.
+    """Record a run and atomically replace suggestions; None preserves existing results.
 
-    A run takes a minute of wall clock, and the user may accept or dismiss a
-    suggestion meanwhile. Only those two actions (and a reset) remove single
-    rows, so a key in *keys_at_start* that is gone now was handled mid-run and
-    is not offered back, even if it was accepted with an edited pattern.
-    Dismissals and regex bank entries are re-read under the write lock too.
+    Do not reoffer keys removed since keys_at_start. Re-read dismissals and bank
+    regexes under the write lock to preserve actions taken during mining.
     """
     async with immediate_tx() as db:
         if drafts is not None:

@@ -1,17 +1,6 @@
-"""
-0055_local_ml_config -- per-local-ML-feature config blob on ``settings``.
+"""Add per-feature Local ML configuration as JSON, defaulting to {}.
 
-Sibling to ``local_ml_enabled``, which answers "is this feature on"; this one
-answers "and how is it configured". The first tenant is the prose rewriter,
-whose choices are which checkpoint to serve, whether to offload to the GPU and
-how many paragraph slots to allocate: ``{"prose_rewriter": {"variant":
-"4b-q8", "gpu": true, "batch_size": 2}}``.
-
-A JSON column rather than two more flat columns because the shape is the
-feature's own business and a second variant-bearing feature must not need a
-migration. Defaults to '{}', so an existing install reads every feature as
-unconfigured -- which for the rewriter means "no model selected", and the
-Editor pass simply does not run it.
+Each feature owns its shape; the rewriter requires a selected model.
 """
 
 from __future__ import annotations

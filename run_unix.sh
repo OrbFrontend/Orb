@@ -9,9 +9,7 @@ echo "  Orb - Agentic"
 echo "═══════════════════════════════════════════"
 echo ""
 
-# Create a supported virtual environment, or reject a stale one left behind by
-# an older Orb install. Activating an existing venv does not follow upgrades to
-# the system's python3 executable.
+# Reject stale venvs: activating one does not adopt system Python upgrades.
 if [ -d ".venv" ]; then
     if [ ! -x ".venv/bin/python" ] || ! .venv/bin/python -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
         echo "Error: .venv uses Python older than 3.11 or is invalid."
@@ -29,10 +27,7 @@ fi
 
 source .venv/bin/activate
 echo "Installing dependencies..."
-# A failed install is only fatal when it leaves nothing to run. Orb gets used
-# offline (local models, local TTS), and bumping a pin in requirements.txt makes
-# the next launch the one launch that needs the network -- without this, someone
-# who was running fine yesterday cannot start at all until they reconnect.
+# Allow offline startup after an install failure if runtime dependencies remain usable.
 if ! pip install -q -r requirements.txt; then
     if python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
         echo "Warning: could not install dependencies (offline?)."

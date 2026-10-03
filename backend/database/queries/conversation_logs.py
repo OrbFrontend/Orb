@@ -128,16 +128,9 @@ async def get_director_logs_for_messages(message_ids: Sequence[int]) -> dict[int
     return {row["message_id"]: cast(ConversationLogRow, _decoded_log(row)) for row in rows}
 
 
-# ── Retention
-# The Director audit trail is the fastest-growing purely-diagnostic table in the
-# schema (one row per turn, each holding full LLM output, reasoning and injection
-# blocks). Cleanup blanks the payload in place rather than dropping the row: two
-# callers read ``active_moods_after`` off old rows to carry mood state forward
-# (:func:`get_moods_before_turn` and the branch-switch restore in queries/messages),
-# and a missing row silently breaks that continuity.
-#
-# ``cutoff`` is an ISO-8601 UTC string, matching how ``created_at`` is written;
-# a plain string compare therefore orders correctly. None means "no age limit".
+# Blank diagnostic payloads without deleting log rows: active_moods_after
+# is needed for mood continuity and branch restoration.
+# UTC ISO-8601 cutoff strings sort chronologically; None disables the age limit.
 
 # A whitelist, deliberately: every column *not* named here is wiped, so a column
 # added to the table later is reclaimed by default instead of quietly growing

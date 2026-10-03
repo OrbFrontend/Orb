@@ -7,13 +7,15 @@ from dataclasses import dataclass, field
 
 from ..core.text_segmentation import split_paragraphs
 from .audit import (
-    _OUTER_MARKERS,
     CLEAN_REPORT,
+    OUTER_MARKERS,
     AuditReport,
-    _strip_markers,
     negation_reason,
+    strip_markers,
 )
 from .detectors.negated_narration import NegationFinding
+from .detectors.opening_monotony import FlaggedOpener
+from .detectors.template_repetition import FlaggedTemplate
 from .text.roleplay_segmentation import extract_block_spans
 
 
@@ -62,6 +64,15 @@ def _occurrences(draft: str, span: str, mask: list[bool]) -> list[int]:
     return narration or raw
 
 
+def _repeats(item: FlaggedOpener | FlaggedTemplate) -> list[str]:
+    """The listed sentences that repeat an earlier member of their group.
+
+    The first member is the original and stays, unless it lives in the earlier
+    context and filtering dropped it -- then every listed sentence repeats it.
+    """
+    return item.sentences[1:] if item.original_listed else item.sentences
+
+
 def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]:
     """Return ``(span, category, reason)`` triples for actionable findings."""
     raw: list[tuple[str, str, str]] = []
@@ -69,10 +80,10 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
         phrases = ", ".join(f'"{h.phrase}"' for h in fs.cliches)
         raw.append((fs.sentence, "banned_phrases", f"contains banned phrase(s): {phrases}"))
     for fo in report.monotony_result.flagged_openers:
-        for s in fo.sentences[1:]:
+        for s in _repeats(fo):
             raw.append((s, "repetitive_openers", f'opens with "{fo.opener}" like too many nearby sentences'))
     for ft in report.template_result.flagged_templates:
-        for s in ft.sentences[1:]:
+        for s in _repeats(ft):
             raw.append((s, "repetitive_templates", f'follows the repeated sentence structure "{ft.template}"'))
     for nb in report.not_but_result:
         if nb.get("sentence"):
@@ -128,10 +139,10 @@ def negation_interval(finding: NegationFinding, draft: str) -> tuple[int, int] |
     target and no other copy of the text is ever consulted.
     """
     span = draft[finding.start : finding.end]
-    lead = len(span) - len(span.lstrip().lstrip(_OUTER_MARKERS).lstrip())
-    trail = len(span) - len(span.rstrip().rstrip(_OUTER_MARKERS).rstrip())
+    lead = len(span) - len(span.lstrip().lstrip(OUTER_MARKERS).lstrip())
+    trail = len(span) - len(span.rstrip().rstrip(OUTER_MARKERS).rstrip())
     start, end = finding.start + lead, finding.end - trail
-    if start >= end or draft[start:end] != _strip_markers(span):
+    if start >= end or draft[start:end] != strip_markers(span):
         return None
     return start, end
 
@@ -181,7 +192,7 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
     # Group findings by marker-stripped span text, preserving discovery order.
     by_span: dict[str, list[tuple[str, str]]] = {}
     for span, cat, why in _raw_findings(report, draft):
-        core = _strip_markers(span)
+        core = strip_markers(span)
         if not core or core not in draft:
             continue
         by_span.setdefault(core, []).append((cat, why))
@@ -235,7 +246,7 @@ def build_targets(report: AuditReport, draft: str) -> list[Target]:
 
 def target_ids_for(targets: Sequence[Target], snippet: str) -> list[int]:
     """Return ids whose target region contains *snippet*."""
-    core = _strip_markers(snippet)
+    core = strip_markers(snippet)
     if not core:
         return []
     return [t.tid for t in targets if core in t.span]
@@ -256,7 +267,7 @@ def format_numbered_report(targets: Sequence[Target]) -> str:
         return CLEAN_REPORT
     lines = ["*** WRITING AUDIT REPORT ***\n", "Numbered issues — patch each by its [id].\n"]
     for target in targets:
-        lines.append(f"[{target.tid}] {_strip_markers(target.span)}")
+        lines.append(f"[{target.tid}] {strip_markers(target.span)}")
         for why in target.reasons:
             lines.append(f"      → {why}")
         if target.is_duplicate:

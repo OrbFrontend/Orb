@@ -447,11 +447,11 @@ class TestToolsAssembly:
         way prefix bytes match what the pipeline serializes."""
         import json
 
-        from backend.workflows.contracts import _readonly
+        from backend.workflows.contracts import readonly_view
 
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        wrapped_prefix = _readonly([{"role": "system", "content": "x"}])
-        wrapped_tail = _readonly([{"role": "user", "content": "y"}])
+        wrapped_prefix = readonly_view([{"role": "system", "content": "x"}])
+        wrapped_tail = readonly_view([{"role": "user", "content": "y"}])
         tracker = _RecordingTracker()
         await _collect(
             forced_tool_call(

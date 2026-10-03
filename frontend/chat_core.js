@@ -23,7 +23,6 @@ import {
   avatarUrl,
   esc,
   escAttr,
-  escHandlerArg,
   formatBytes,
   resolvePlaceholders,
   toast,
@@ -112,36 +111,36 @@ export function buildMsgToolbar(m) {
   const isGreeting = isAssistant && !m.parent_id;
   const canRegen = !isGreeting && (isAssistant || !!m.id);
 
-  const editBtn = `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
+  const editAction = m.id
+    ? `data-wf-action="messages:edit" data-msg-id="${m.id}"`
+    : `data-wf-action="messages:editPending"`;
+  const editBtn = `<button ${editAction} title="Edit">${ICON_EDIT}</button>`;
 
   const forkBtn =
     m.role === "user" && m.id
-      ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
+      ? `<button data-wf-action="messages:forkEdit" data-msg-id="${m.id}" title="Edit &amp; Fork">${ICON_FORK}</button>`
       : "";
 
-  // A user row resolves its target when the button is clicked, not when the row
-  // is painted. The reply it regenerates can be deleted or swiped to another
-  // branch without the row's own markup changing, and the reconciler then keeps
-  // the node as it stands -- a baked id would outlive the message it names.
+  // Resolve the reply target on click: branch changes can leave a reused user row with a stale id.
   const regenAction = isAssistant
     ? m.id
-      ? `regenerate(${m.id})`
-      : `continueFromUser()`
-    : `regenerateFromUser(${m.id})`;
+      ? `data-wf-action="chat:regenerate" data-msg-id="${m.id}"`
+      : `data-wf-action="chat:continue"`
+    : `data-wf-action="chat:regenerateFromUser" data-msg-id="${m.id}"`;
   const regenBtn = isGreeting
     ? ""
     : !canRegen
       ? `<button disabled>${ICON_REGEN}</button>`
-      : `<button onclick="${regenAction}" title="Regenerate">${ICON_REGEN}</button>`;
+      : `<button ${regenAction} title="Regenerate">${ICON_REGEN}</button>`;
 
   const superRegenBtn =
     isAssistant && m.id && !isGreeting
-      ? `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
+      ? `<button data-wf-action="chat:superRegenerate" data-msg-id="${m.id}" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
       : "";
 
   const magicBtn =
     isAssistant && m.id && !isGreeting
-      ? `<button class="msg-btn-magic" onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
+      ? `<button class="msg-btn-magic" data-wf-action="chat:toggleMagic" data-msg-id="${m.id}" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
   const canProseRewrite =
@@ -152,28 +151,28 @@ export function buildMsgToolbar(m) {
     localMlReady("prose_rewriter");
   const proseRewriteTitle = m.has_writer_draft ? "Rewrite saved pre-rewriter draft" : "Rewrite this message";
   const proseRewriteBtn = canProseRewrite
-    ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
+    ? `<button class="msg-btn-prose-rewrite" data-wf-action="messages:proseRewrite" data-msg-id="${m.id}" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
     : "";
 
   const magicInput =
     isAssistant && m.id && !isGreeting && S.magicInputMsgId === m.id
-      ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" onkeydown="handleMagicKey(event,${m.id})" autofocus><button class="magic-apply" onclick="submitMagicRewrite(${m.id})" title="Apply">${ICON_SEND}</button></span>`
+      ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" data-wf-action="chat:magicKey" data-wf-on="keydown" data-msg-id="${m.id}" autofocus><button class="magic-apply" data-wf-action="chat:submitMagic" data-msg-id="${m.id}" title="Apply">${ICON_SEND}</button></span>`
       : "";
 
   const slopBtn =
     isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
-      ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">%</button>`
+      ? `<button class="msg-btn-slop" data-wf-action="slop:score" data-msg-id="${m.id}" title="Score AI-slop">%</button>`
       : "";
 
   const delBtn = !m.id
     ? `<button disabled class="msg-btn-del">${ICON_DEL}</button>`
     : isGreeting
       ? ""
-      : `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`;
+      : `<button data-wf-action="messages:delete" data-msg-id="${m.id}" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`;
 
   const diffBtn =
     S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-      ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
+      ? `<button data-wf-action="inspector:clearDiff" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
   return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${proseRewriteBtn}${magicInput}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
@@ -198,10 +197,7 @@ function renderUserAttachments(userAtts) {
   if (!userAtts || userAtts.length === 0) return "";
   const items = userAtts
     .map((att) => {
-      // The API takes the filename and MIME the client sent, so both are
-      // untrusted and both land inside an attribute: escAttr, never esc. A
-      // filename that closes the attribute early would otherwise write an
-      // event handler onto the image.
+      // Filename and MIME are untrusted attribute values; escape quotes with escAttr.
       const src = escAttr(userAttachmentSrc(att));
       const filename = escAttr(att.filename || "image");
       const size = Number.isFinite(att.size) && att.size > 0 ? att.size : 0;
@@ -230,10 +226,7 @@ function formatStatNum(n) {
   return String(n);
 }
 
-// renderMessages repaints the home screen for reasons unrelated to the stats --
-// settings and local-model status both land during page load -- and each repaint
-// refetched them: two aggregate queries per load, and a spotlight that could swap
-// characters mid-load. A fetch is reused for a window just long enough to cover that.
+// Reuse stats across home-screen repaints during page load, keeping the spotlight stable.
 const HOME_STATS_REUSE_MS = 10_000;
 let homeStatsFetch = null; // { at, promise }
 
@@ -299,7 +292,7 @@ function renderSpotlightCard(sp) {
   const msgs = `${formatStatNum(sp.messages)} message${sp.messages === 1 ? "" : "s"}`;
   const convs = `${formatStatNum(sp.conversations)} conversation${sp.conversations === 1 ? "" : "s"}`;
   const clickable = sp.card_id
-    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(sp.card_id)}', 'library')"`
+    ? ` role="button" tabindex="0" data-wf-action="conversations:selectChar" data-char-id="${escAttr(sp.card_id)}" data-source="library"`
     : "";
   const eyebrow = SPOTLIGHT_EYEBROWS[sp.theme] ?? SPOTLIGHT_EYEBROWS.favorite;
   return `<div class="stat-card stat-card-favorite stat-card-spotlight-${esc(sp.theme)}${sp.card_id ? " stat-card-clickable" : ""}"${clickable}>
@@ -335,9 +328,9 @@ export function swipeNavHtml(m) {
   if (bc <= 1) return "";
   const bi = m.branch_index || 0;
   return `<span class="swipe-nav">
-          <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
+          <button data-wf-action="messages:switchBranch" data-branch-id="${m.prev_branch_id}" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
           <span class="swipe-counter">${bi + 1}/${bc}</span>
-          <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
+          <button data-wf-action="messages:switchBranch" data-branch-id="${m.next_branch_id}" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
         </span>`;
 }
 
@@ -347,14 +340,8 @@ export function msgNumHtml(n) {
   return `<span class="msg-num">#${n}</span>`;
 }
 
-// The card's framing, above the opening line: what the scene is, and what its
-// author wanted the reader to know before it starts. Neither has another home
-// in the chat pane.
-//
-// These are card metadata, not turns. They carry no id, so nothing in the
-// message paths can address them, and no toolbar, branch pager or avatar -- the
-// blocks take the bubble's shape and nothing else. They render only when the
-// window starts at the top of the conversation, where the greeting is.
+// Card metadata above the greeting, shown only at the conversation start.
+// These blocks have no message id or toolbar.
 const SCENE_INTRO_BLOCKS = [
   ["notes", "Creator's Note", "creatorNotes"],
   ["scenario", "Scenario", "scenario"],
@@ -394,13 +381,14 @@ function _messageHtml(m, num, avatars, playback) {
       : "";
   const toolbar = isEditing ? pendingEdit : `${pendingEdit}<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
   const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
-  const [cancelCall, commitCall, commitLabel] = isForkEditing
-    ? [`cancelForkEdit()`, `saveForkEdit(${m.id})`, "Fork"]
+  const [cancelAction, commitAction, commitLabel] = isForkEditing
+    ? ["messages:cancelForkEdit", "messages:saveForkEdit", "Fork"]
     : m.id
-      ? [`cancelEdit()`, `saveEdit(${m.id},'${m.role}')`, "Save"]
-      : [`cancelEditPending()`, `saveEditPending()`, "Save"];
-  const editActions = `<button class="btn btn-sm" onclick="${cancelCall}">Cancel</button>
-            <button class="btn btn-sm btn-accent" onclick="${commitCall}">${commitLabel}</button>`;
+      ? ["messages:cancelEdit", "messages:saveEdit", "Save"]
+      : ["messages:cancelEditPending", "messages:saveEditPending", "Save"];
+  const msgAttrs = m.id ? ` data-msg-id="${m.id}"` : "";
+  const editActions = `<button class="btn btn-sm" data-wf-action="${cancelAction}">Cancel</button>
+            <button class="btn btn-sm btn-accent" data-wf-action="${commitAction}"${msgAttrs}>${commitLabel}</button>`;
   const body = isEditing
     ? `
         <div class="msg-edit-area">
@@ -440,10 +428,7 @@ function syncStreamingAvatar(el, avatars) {
   }
 }
 
-// content-visibility hides an off-screen bubble's real height, so a node has to
-// be forced visible before it can be measured. Batch the whole set: add the
-// class to every node, read every height, then write. Interleaving a read and a
-// write per node costs one forced layout per message instead of one in total.
+// Force off-screen bubbles visible before measuring. Batch reads and writes to avoid per-message layouts.
 function _measureIntrinsicSizes(nodes) {
   if (!nodes.length) return;
   for (const el of nodes) el.classList.add("msg-measuring");
@@ -534,14 +519,8 @@ export function renderMessages(forceBottom = false) {
 
 setInlineInspectorRepaint(() => renderMessages());
 
-export function _applyWorkflowTextSegments(bodyEl, msg) {
-  // Segmentation wraps every word of the message in its own span, so it is only
-  // worth paying for where something will use one. A *registered* text effect is
-  // not that: TTS registers karaoke at boot and may never play a clip, and until
-  // it does the spans are pure weight on every bubble on screen. Effects segment
-  // their own target when they start (workflow_text_effects.js). Click handlers
-  // are the exception — the affordance has to be painted before the click — so
-  // they still segment up front.
+export function applyWorkflowTextSegments(bodyEl, msg) {
+  // Segment click targets up front; text effects segment on activation to avoid unused word spans.
   if (!S.workflowClickHandlers.length && bodyEl.dataset.segApplied !== "1") return;
   segmentBody(bodyEl);
   markClickable(bodyEl, msg);
@@ -559,16 +538,13 @@ function _segmentRenderedMessages(renderedMsgs) {
     const msg = byId.get(msgId);
     if (!msg) continue;
     const body = el.querySelector(".msg-body");
-    if (body) _applyWorkflowTextSegments(body, msg);
+    if (body) applyWorkflowTextSegments(body, msg);
   }
 }
 
 let _contextCounterTimer = null;
 
-// Every repaint asks for this, and the endpoint re-renders the whole prompt to
-// estimate it — a burst of swipes would otherwise queue one of the most
-// expensive requests in the app behind each click. Coalesce them; the counter
-// is a display, so only the last answer matters.
+// Coalesce expensive prompt-size estimates across repaints; only the latest answer matters.
 export function updateContextCounter() {
   if (_contextCounterTimer) clearTimeout(_contextCounterTimer);
   _contextCounterTimer = setTimeout(() => {

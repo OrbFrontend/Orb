@@ -1,10 +1,4 @@
-/* Character Library → Manager tab: library-wide maintenance tools.
-
-   The panel is a stack of tool cards under one "Library tools" rule. The card
-   frame is the point: a single tool still reads as one entry in a list, so the
-   next one (bulk delete, dedupe, avatar backfill) drops in as a sibling without
-   redrawing the tab. Spacing is carried by flex `gap` rather than per-element
-   margins, so a new card or row inherits the rhythm instead of restating it. */
+/* Character Library maintenance cards. Flex gaps supply spacing for added cards and rows. */
 
 .lib-manager {
   display: flex;

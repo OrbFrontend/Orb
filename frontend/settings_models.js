@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
 import { decisionConfig, loadDecisionConfig, setDecisionConfig } from "./decisions.js";
@@ -177,20 +178,20 @@ export function renderEndpoints() {
     )
       return "";
     const v = S.settings[f.k] ?? "";
-    const saveFn = isAgent ? "saveAgentSetting" : "saveSetting";
+    const save = `data-wf-action="${isAgent ? "models:saveAgent" : "models:save"}" data-wf-on="change"`;
     if (f.t === "textarea") {
       const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
       const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
       const ph = f.ph ? ` placeholder="${escAttr(f.ph)}"` : "";
       return `<div class="field${cls}"><label>${f.l}</label>
-                <textarea data-key="${f.k}"${rows}${ph} onchange="${saveFn}(this)">${v}</textarea>
+                <textarea data-key="${f.k}"${rows}${ph} ${save}>${v}</textarea>
               </div>`;
     }
     if (f.t === "api_key") {
       return `<div class="field"><label>${f.l}</label>
         <div class="api-key-wrap">
-          <input type="text" class="api-key-input" value="${esc(v)}" data-key="${f.k}" autocomplete="off" onchange="${saveFn}(this)">
-          <button type="button" class="api-key-toggle" onclick="toggleApiKeyVisibility(this)" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
+          <input type="text" class="api-key-input" value="${esc(v)}" data-key="${f.k}" autocomplete="off" ${save}>
+          <button type="button" class="api-key-toggle" data-wf-action="models:toggleApiKey" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>`;
     }
@@ -209,7 +210,7 @@ export function renderEndpoints() {
       return `<div class="field"><label>${cliSelected && f.k.endsWith("model_name") ? "CLI model alias" : f.l}</label>
         <div class="cb-root" data-combobox="${f.k}">
           <div class="cb-control">
-            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}"${aliasListId ? ` list="${aliasListId}"` : ""} autocomplete="off" onchange="${saveFn}(this)">
+            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}"${aliasListId ? ` list="${aliasListId}"` : ""} autocomplete="off" ${save}>
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
           <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
@@ -223,7 +224,7 @@ export function renderEndpoints() {
         .map(([val, label]) => `<option value="${val}"${v === val ? " selected" : ""}>${esc(label)}</option>`)
         .join("");
       return `<div class="field"><label>${f.l}</label>
-                <select data-key="${f.k}" onchange="${saveFn}(this)">${opts}</select>
+                <select data-key="${f.k}" ${save}>${opts}</select>
               </div>`;
     }
     if (f.t === "reasoning_effort") {
@@ -245,7 +246,7 @@ export function renderEndpoints() {
     const attrs = f.s ? `step="${f.s}" min="${f.mn}" max="${f.mx}"` : "";
     const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : "";
     return `<div class="field"><label>${f.l}</label>
-              <input type="${f.t}" value="${v}" data-key="${f.k}" ${attrs}${ph} onchange="${saveFn}(this)">
+              <input type="${f.t}" value="${v}" data-key="${f.k}" ${attrs}${ph} ${save}>
             </div>`;
   }
 
@@ -295,8 +296,8 @@ export function renderEndpoints() {
       <div class="tool-card" style="margin-bottom:12px">
         <div class="tool-card-header">
           <span class="tool-card-name">Same as Writer</span>
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" ${S.agentSameAsWriter ? "checked" : ""} onchange="toggleAgentSameAsWriter(this.checked)">
+          <label class="tog">
+            <input type="checkbox" ${S.agentSameAsWriter ? "checked" : ""} data-wf-action="models:sameAsWriter" data-wf-on="change">
             <span class="tog-slider"></span>
           </label>
         </div>
@@ -348,7 +349,7 @@ function _judgeLaneHtml() {
       <div class="field"><label>Judge API Key</label>
         <div class="api-key-wrap">
           <input type="text" class="api-key-input" value="${escAttr(endpoint?.api_key || "")}" data-key="judge_api_key" autocomplete="off">
-          <button type="button" class="api-key-toggle" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
+          <button type="button" class="api-key-toggle" data-wf-action="models:toggleApiKey" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>
       <div class="field"><label>Judge Model Name</label>
@@ -358,7 +359,7 @@ function _judgeLaneHtml() {
         <input type="text" value="${escAttr(endpoint?.proxy || "")}" data-key="judge_proxy" placeholder="socks5://127.0.0.1:1080" autocomplete="off">
       </div>
       <div class="judge-actions">
-        <button type="button" class="btn btn-sm" id="judge-test-btn">Test</button>
+        <button type="button" class="btn btn-sm" id="judge-test-btn" data-wf-action="models:judgeTest">Test</button>
         <span id="judge-test-result" class="judge-test-result"></span>
       </div>
       ${_judgeStatusHtml()}
@@ -390,11 +391,7 @@ async function _saveDecisionConfig(patch) {
   if (status) status.outerHTML = _judgeStatusHtml();
 }
 
-/**
- * Select, or create, the judge endpoint at *url*.
- *
- * Create the endpoint here when no Judge row already uses this URL.
- */
+/** Select the Judge endpoint at *url*, creating it if absent. */
 async function _syncJudgeEndpoint(url) {
   if (!url) {
     await _saveDecisionConfig({ decision_endpoint_id: null });
@@ -444,17 +441,6 @@ document.addEventListener("change", (event) => {
   );
 });
 
-// Delegate clicks because the lane is repainted in place.
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("#judge-lane")) return;
-  if (event.target.closest("#judge-test-btn")) {
-    _runJudgeTest();
-    return;
-  }
-  const toggle = event.target.closest(".api-key-toggle");
-  if (toggle) window.toggleApiKeyVisibility(toggle);
-});
-
 async function _runJudgeTest() {
   const button = document.getElementById("judge-test-btn");
   const out = document.getElementById("judge-test-result");
@@ -480,11 +466,8 @@ async function _runJudgeTest() {
 }
 
 /**
- * Load the classifier config and repaint the Judge lane. Called at boot.
- *
- * Repaints only the lane, not the whole endpoints form: a full re-render would
- * throw away the Writer and Agent comboboxes -- and anything half-typed into
- * them -- to fill in fields that nothing else depends on.
+ * Load classifier config at boot and repaint only the Judge lane
+ * to preserve partially edited Writer and Agent controls.
  */
 export async function loadJudgeConfig() {
   if (await loadDecisionConfig()) _repaintJudgeLane();
@@ -654,7 +637,7 @@ export function initComboboxes() {
 }
 
 // *lane* is which list the row was offered from: "writer", "agent" or "judge".
-window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
+function _deleteComboboxItem(type, id, lane = "writer") {
   const isAgent = lane === "agent";
   const typeName = type === "endpoint" ? "endpoint" : "model configuration";
   showConfirmModal(
@@ -738,7 +721,7 @@ window.deleteComboboxItem = (_btn, type, id, lane = "writer") => {
       }
     },
   );
-};
+}
 
 function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, loadItems = null } = {}) {
   const input = rootEl.querySelector(".cb-input");
@@ -770,12 +753,11 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
         const value = item.value;
         const id = item.id;
         const type = item.type;
-        const laneArg = `, '${lane}'`;
         const idAttrs = id == null ? "" : ` data-id="${id}"`;
         const deleteHtml =
           id == null
             ? ""
-            : `<button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id}${laneArg})">${CLOSE_ICON}</button>`;
+            : `<button class="cb-delete-btn" title="Delete" data-wf-action="models:deleteOption" data-lane="${lane}">${CLOSE_ICON}</button>`;
         return `
               <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${escAttr(value)}"${idAttrs} data-type="${escAttr(type)}">
                 <span class="cb-option-text">${highlightMatch(value, q)}</span>
@@ -792,10 +774,7 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     list.innerHTML = optionHtml + statusHtml;
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.onmousedown = (e) => {
-        // The delete button wraps an inline SVG, so a click on the X targets the
-        // icon rather than the button -- match with closest(), not the target's
-        // own class, or mousedown selects the row and re-renders the list out
-        // from under the button before its click can fire.
+        // Use closest() for SVG clicks so mousedown does not rebuild the list before delete fires.
         if (e.target.closest(".cb-delete-btn")) return;
         e.preventDefault();
         selectVal(el.dataset.value);
@@ -929,7 +908,7 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     if (!tap || list.scrollTop !== tap.scrollTop) return;
     e.preventDefault();
     if (tap.deleteBtn) {
-      window.deleteComboboxItem(tap.deleteBtn, tap.option.dataset.type, Number(tap.option.dataset.id), lane);
+      _deleteComboboxItem(tap.option.dataset.type, Number(tap.option.dataset.id), lane);
       return;
     }
     void selectVal(tap.option.dataset.value);
@@ -1334,10 +1313,7 @@ export async function onHybridInput(el) {
   }
 }
 
-window.saveAgentSetting = saveAgentSetting;
-window.toggleAgentSameAsWriter = toggleAgentSameAsWriter;
-
-window.toggleApiKeyVisibility = (btn) => {
+function _toggleApiKeyVisibility(btn) {
   const input = btn.closest(".api-key-wrap").querySelector(".api-key-input");
   const visible = btn.dataset.visible === "1";
   if (!visible) {
@@ -1351,4 +1327,16 @@ window.toggleApiKeyVisibility = (btn) => {
     btn.querySelector(".eye-show").style.display = "";
     btn.querySelector(".eye-hide").style.display = "none";
   }
-};
+}
+
+registerActions("models", {
+  save: (el) => saveSetting(el),
+  saveAgent: (el) => saveAgentSetting(el),
+  sameAsWriter: (el) => toggleAgentSameAsWriter(el.checked),
+  toggleApiKey: (el) => _toggleApiKeyVisibility(el),
+  judgeTest: () => _runJudgeTest(),
+  deleteOption: (el) => {
+    const option = el.closest(".cb-option");
+    _deleteComboboxItem(option.dataset.type, Number(option.dataset.id), el.dataset.lane);
+  },
+});

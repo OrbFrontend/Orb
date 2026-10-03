@@ -336,15 +336,9 @@ DEFAULT_SETTINGS = {
 }
 
 
-# Each seed entry is one of two shapes:
-#   * a raw regex pattern string — matched case-insensitively against a single
-#     sentence at a time (see slop_detector). Bridge loosely-related words with
-#     a *bounded* gap like `\W+(\w+\W+){0,2}` (at most a couple of words) rather
-#     than a bare `.*`, which greedily spans the whole sentence and over-matches.
-#     Use alternation `(a|b)` for synonyms, inflection suffixes like `(s|ing|ed)`,
-#     and `\b` to keep short words from matching inside larger ones.
-#   * a list of literal variant strings — kept as worked examples of the literal
-#     mode the editor still supports for users who prefer plain phrases.
+# Seeds are regex strings or literal-variant lists. Regexes match one sentence
+# case-insensitively; use bounded gaps, inflection suffixes and word boundaries
+# to avoid greedy or substring overmatches.
 SEED_PHRASE_BANK = [
     r"a mix(ture)? of",
     r"drip(ped|ping|s) with",

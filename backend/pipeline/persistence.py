@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _Saved = tuple[int | None, list[dict], list[dict]]
 
 
-def _conversation_log_writer(conversation_id: str, log_turn_index: int):
+def conversation_log_writer(conversation_id: str, log_turn_index: int):
     """Return an async callback that writes the ``conversation_logs`` row for this turn.
 
     The callback runs right after the assistant message is saved. Normal turns
@@ -51,16 +51,11 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
 
 
 async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_id: int) -> list[dict]:
-    """Persist the turn's validated proposals as pending changesets, one per World.
+    """Stage validated proposals after assistant persistence, returning event payloads
+    in World order.
 
-    Runs at the same boundary as the assistant message and immediately after it,
-    because a changeset names its source messages and only now is the assistant
-    row's id known. Returns one compact payload per staged changeset for the
-    ``world_change_proposed`` event, in World order.
-
-    Failures are swallowed *per World*: the reply is already committed, a
-    bookkeeping write must not turn a finished turn into a failed one, and one
-    World failing is no reason to drop another's proposal.
+    Log failures per World without failing the already committed reply or
+    dropping other proposals.
     """
     payloads: list[dict] = []
     for proposal in res.world_proposals:
@@ -97,20 +92,9 @@ async def _persist_result(
     regeneration starts from the branch's earlier moods, and an empty attempt
     (stopped before any prose) must not write those over the committed ones.
     """
-    # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
-    # Inline macros the model emitted (copied from context) are already frozen by
-    # the time they get here: the writer stage resolves them the moment streaming
-    # ends, so the Editor, retained pre-rewriter draft, and every secondary pass
-    # read the same settled text. This call is the backstop for paths that do not run
-    # the writer stage, and a no-op for the ones that do — a resolved string has
-    # no macros left to roll.
-    #
-    # Written back onto *res*, not kept local: a group exchange replays this reply
-    # to the next speaker straight off the ``speaker_done`` event, so that event has
-    # to carry the same text the row holds. Resolving a second time downstream would
-    # roll the dice again and hand the later speakers a number the DB never had —
-    # the next request would then read a different byte at that history position and
-    # re-prefill everything after it.
+    # Skip empty drafts. Inline macros normally freeze after Writer streaming;
+    # this is a backstop for other paths. Update res so speaker_done and the DB
+    # share settled text, avoiding rerolls and cross-turn prefix drift.
     res.resp_text = resolve_inline(res.resp_text)
     resp_text = res.resp_text
     if resp_text.strip():
@@ -185,16 +169,10 @@ async def _fallback_persist(
     world_source_user_msg_id: int | None,
     extra_on_result,
 ) -> Exception | None:
-    """Best-effort save for a turn that ended before ``_result`` fired.
+    """Best-effort persist of live state when the pipeline exits before _result.
 
-    *res* is the pipeline's live working state, so the save is the one
-    ``_persist_result`` makes for a finished turn: the latest authoritative
-    draft (what the Writer streamed, or the Editor's best draft so far) with the
-    Director record, decisions, cooldowns and state changes that shaped it, then
-    the log row the Inspector reads. After-reply work that never ran is simply
-    absent. No draft means no message node, and nothing commits without one.
-    Errors are logged and returned, not raised, so the caller decides whether a
-    failed save or the turn's own failure is the one to report.
+    Save the authoritative draft and accepted turn state/logs; no draft means
+    no message. Return logged errors so the caller chooses which failure to report.
     """
     try:
         if not res.resp_text.strip():
@@ -273,7 +251,7 @@ async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | Non
     await asyncio.shield(_run())
 
 
-async def _consume_pipeline(
+async def consume_pipeline(
     pipeline: AsyncIterator[dict],
     conversation_id: str,
     settings: Mapping[str, Any],
@@ -288,17 +266,11 @@ async def _consume_pipeline(
     emit_done: bool = True,
     world_source_user_msg_id: int | None = None,
 ) -> AsyncIterator[dict]:
-    """Drain the pipeline's SSE events, save results, and emit ``done``.
+    """Forward pipeline events, persist _result, then emit done.
 
-    Passes ``token`` and all other public events straight to the caller. When
-    the ``_result`` event arrives, saves the assistant message and calls the
-    optional *extra_on_result* callback ``(res, asst_id) -> None`` (used to
-    write the conversation log).
-
-    Falls back to persisting the pipeline's live state in the ``finally`` block
-    if the pipeline exits before ``_result`` fires (abort or error). Either way
-    the reply is saved at most once, and a save that fails is raised marked
-    :data:`STAGE_SAVE`, so even a stopped turn reports it.
+    After saving, call extra_on_result(res, asst_id) if supplied. Finally saves
+    live state on abort/error before _result. Save at most once; mark and raise
+    save failures as STAGE_SAVE even on stopped turns.
     """
     res = TurnState()
     asst_id = None

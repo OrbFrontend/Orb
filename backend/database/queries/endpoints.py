@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from ...core.domain_types import EndpointKind
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db
 from ..models import EndpointRow, ModelConfigRow
 
 # The EndpointRow projection. Spelled once so every read of the table returns the
@@ -74,7 +74,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
             "completion_mode",
             "proxy",
         ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(endpoint_id)
             await db.execute(
@@ -147,7 +147,7 @@ async def update_model_config(config_id: int, data: dict) -> ModelConfigRow | No
             "extra_headers",
             "extra_body",
         ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(config_id)
             await db.execute(

@@ -17,7 +17,7 @@ import pytest
 import backend.database as dbmod
 from backend.inference import AbortToken
 from backend.pipeline import handle_turn
-from backend.pipeline.persistence import _consume_pipeline
+from backend.pipeline.persistence import consume_pipeline
 from backend.pipeline.state import TurnState
 
 REPLY = "Her voice was barely a whisper."
@@ -234,7 +234,7 @@ async def test_cancelling_the_fallback_save_writes_the_reply_once(client, monkey
         raise RuntimeError("connection lost")
 
     settings = await dbmod.get_settings()
-    task = asyncio.create_task(_drain(_consume_pipeline(failing(), cid, settings, user_id, 1)))
+    task = asyncio.create_task(_drain(consume_pipeline(failing(), cid, settings, user_id, 1)))
     await reached.wait()
     task.cancel()
     release.set()

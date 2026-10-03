@@ -3,15 +3,15 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@biomejs/biome": "^2.0.0",
+    "@biomejs/biome": "2.5.6",
     "@evilmartians/lefthook": "^2.1.9",
     "jsdom": "^29.1.1"
   },
   "scripts": {
     "prepare": "lefthook install",
-    "format:frontend": "biome format frontend/ --write",
+    "format:frontend": "bash scripts/format_frontend.sh",
     "format:backend": "bash scripts/format_backend.sh",
     "lint": "bash scripts/lint.sh",
-    "test": "python3 -m pytest tests/"
+    "test": "bash scripts/tests.sh all"
   }
 }

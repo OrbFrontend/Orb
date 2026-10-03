@@ -1,16 +1,7 @@
-"""The lifespan-scoped WAL anchor: one idle connection held open for the life of
-the process so the transient per-query connections are never the last WAL
-connection.
+"""Check WAL-anchor path/lifespan isolation and lock-free maintenance.
 
-Why this exists at all is in ``connection.open_wal_anchor``'s docstring. What
-these tests defend is the *shape* of the anchor rather than the byte count: it
-must follow the patched ``DB_PATH``, never leak across lifespans, and above all
-stay completely idle -- no statement, no cursor, no transaction -- because
-``VACUUM`` and the restore path's online backup both fail against a connection
-holding a lock.
-
-Deliberately no assertion on OS write bytes. That measurement is a
-macOS-``proc_pid_rusage`` manual benchmark, not something portable CI can see.
+The anchor must remain idle for VACUUM and online backup. OS write-byte
+benchmarks are not portable CI assertions.
 """
 
 from __future__ import annotations
@@ -286,7 +277,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
     themselves; the anchor is only opened once they are done."""
     path = tmp_path / "fresh.db"
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
 
     seen: dict[str, set[str]] = {}
     real_open = db_connection.open_wal_anchor
@@ -311,7 +301,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
 
 async def test_lifespan_closes_the_anchor_on_a_normal_exit(db_path, monkeypatch):
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async with api_module.lifespan(FastAPI()):
         anchor = db_connection._wal_anchor
@@ -327,7 +316,6 @@ async def test_lifespan_closes_the_anchor_when_child_shutdown_raises(db_path, mo
     """A llama-server child that refuses to die must not cost the final WAL
     checkpoint -- hence the nested ``finally``."""
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async def _boom() -> None:
         raise RuntimeError("child refused to stop")
@@ -352,7 +340,6 @@ async def test_repeated_lifespans_on_different_paths_do_not_leak(tmp_path, _fres
         path = tmp_path / name
         shutil.copyfile(_fresh_db_template, path)
         monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-        monkeypatch.setattr(api_module, "DB_PATH", str(path))
         async with api_module.lifespan(FastAPI()):
             assert db_connection._wal_anchor_path == str(path)
             anchors.append(db_connection._wal_anchor)

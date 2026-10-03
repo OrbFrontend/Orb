@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 
 from ..toolkit import (
     get_message_by_id,
@@ -11,7 +12,9 @@ from ..toolkit import (
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
+    spark_voice_enroll,
     spark_voice_reference_audio,
+    workflow_character_state_lock,
 )
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
@@ -27,6 +30,7 @@ from .synth import (
     synthesize_blocks,
     synthesize_blocks_from_metadata,
 )
+from .voice_clone import apply_voice
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +152,8 @@ async def on_demand(ctx, body):
         return await _get_profile(ctx)
     if action == "set_profile":
         return await _set_profile(ctx, body)
+    if action == "clear_voice":
+        return await _clear_voice(ctx)
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -193,6 +199,37 @@ async def _set_profile(ctx, body) -> dict:
     profile = normalize_profile(raw)
     await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
     return {"ok": True, "profile": profile}
+
+
+async def _clear_voice(ctx) -> dict:
+    """Forget the character's cloned voice and stop speaking for it; the backend stays selected."""
+    if not ctx.character_id:
+        return {"error": "no active character"}
+    # The trigger route already holds this character's state lock.
+    stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+    profile = apply_voice(normalize_profile(stored), None, "")
+    await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
+    return {"ok": True, "profile": profile}
+
+
+async def upload(ctx, params):
+    """Enroll the uploaded clip as the character's cloned voice.
+
+    Enrollment runs before the state lock is taken, so a long clip holds nothing.
+    ``params["mode"]`` picks the clone mode the panel shows; an unknown one is ignored.
+    """
+    source_name = os.path.basename(ctx.filename)[:120]
+    voice = await spark_voice_enroll(ctx.data, ctx.settings, filename=source_name)
+    async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
+        stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+        profile = apply_voice(normalize_profile(stored), voice, source_name, params.get("mode"))
+        await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
+    return {
+        "speaker_tokens": voice["speaker_tokens"],
+        "source_name": source_name,
+        "reference_note": voice["reference_note"],
+        "profile": profile,
+    }
 
 
 # These back the config panel's Backend / Voice / Model selectors and the

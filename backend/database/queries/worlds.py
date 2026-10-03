@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import _build_set_clause, get_db, immediate_tx
+from ..connection import build_set_clause, get_db, immediate_tx
 from ..models import (
     ActiveLorebookEntryRow,
     LorebookEntryRow,
@@ -86,13 +86,7 @@ async def get_world(world_id: str) -> WorldRow | None:
         return cast(WorldRow, dict(rows[0])) if rows else None
 
 
-async def get_world_by_name(name: str) -> WorldRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)))
-        return cast(WorldRow, dict(rows[0])) if rows else None
-
-
-async def _insert_world(db, data: Mapping[str, Any], now: str) -> str:
+async def insert_world(db, data: Mapping[str, Any], now: str) -> str:
     world_id = data.get("id") or str(uuid.uuid4())
     await db.execute(
         "INSERT INTO worlds (id, name, is_global, dynamic_enabled, content_revision, created_at, updated_at)"
@@ -111,7 +105,7 @@ async def _insert_world(db, data: Mapping[str, Any], now: str) -> str:
 
 async def create_world(data: dict) -> WorldRow:
     async with get_db() as db:
-        world_id = await _insert_world(db, data, _now())
+        world_id = await insert_world(db, data, _now())
         await db.commit()
         result = await get_world(world_id)
         assert result is not None
@@ -126,7 +120,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
     """
     async with get_db() as db:
         allowed = ["name", "is_global", "dynamic_enabled"]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
             vals.append(_now())
@@ -190,7 +184,7 @@ async def delete_world(world_id: str) -> bool:
         return cur.rowcount > 0
 
 
-async def _bump_revision(db, world_id: str) -> int:
+async def bump_revision(db, world_id: str) -> int:
     """Advance *world_id*'s ``content_revision`` on an open connection, and return it.
 
     Takes the handle rather than opening its own so a multi-statement mutation
@@ -261,7 +255,7 @@ _ENTRY_INSERT_SQL = (
 )
 
 
-async def _insert_entry(db, world_id: str, data: Mapping[str, Any], now: str) -> int:
+async def insert_entry(db, world_id: str, data: Mapping[str, Any], now: str) -> int:
     cur = await db.execute(_ENTRY_INSERT_SQL, _entry_insert_values(world_id, data, now))
     assert cur.lastrowid is not None
     return cur.lastrowid
@@ -298,8 +292,8 @@ async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
     """Create one entry (authored unless *data* says otherwise) and bump the revision."""
     async with get_db() as db:
         now = _now()
-        entry_id = await _insert_entry(db, world_id, data, now)
-        await _bump_revision(db, world_id)
+        entry_id = await insert_entry(db, world_id, data, now)
+        await bump_revision(db, world_id)
         await db.commit()
         result = await _fetch_entry(db, entry_id)
         assert result is not None
@@ -315,9 +309,9 @@ async def import_lorebook_entries(world_id: str, items: Sequence[Mapping[str, An
     """
     async with get_db() as db:
         now = _now()
-        ids = [await _insert_entry(db, world_id, item, now) for item in items]
+        ids = [await insert_entry(db, world_id, item, now) for item in items]
         if ids:
-            await _bump_revision(db, world_id)
+            await bump_revision(db, world_id)
         await db.commit()
         rows = [await _fetch_entry(db, i) for i in ids]
         return [r for r in rows if r is not None]
@@ -342,7 +336,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             "enabled",
             "sort_order",
         ]
-        sets, vals = _build_set_clause(allowed, data, json_fields={"keywords", "secondary_keys"})
+        sets, vals = build_set_clause(allowed, data, json_fields={"keywords", "secondary_keys"})
         if sets:
             # Drawer edits of an Agent-managed row are later mutations too. The
             # undo guard compares this monotonic stamp, so even an edit to a
@@ -357,7 +351,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
                 f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
                 vals,
             )
-            await _bump_revision(db, existing["world_id"])
+            await bump_revision(db, existing["world_id"])
             await db.commit()
         return await _fetch_entry(db, entry_id)
 
@@ -369,7 +363,7 @@ async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] |
         cur = await db.execute("DELETE FROM lorebook_entries WHERE id = ?", (entry_id,))
         if cur.rowcount == 0 or existing is None:
             return cur.rowcount > 0
-        revision = await _bump_revision(db, existing["world_id"])
+        revision = await bump_revision(db, existing["world_id"])
         if record_as is not None:
             now = _now()
             await _insert_changeset(
@@ -393,16 +387,10 @@ async def delete_lorebook_entry(entry_id: int, *, record_as: Mapping[str, Any] |
 
 
 async def get_active_lorebook_entries(world_ids: Sequence[str]) -> list[ActiveLorebookEntryRow]:
-    """Enabled, non-archived entries from enabled worlds -- **both** layers.
+    """Load enabled, non-archived entries from enabled worlds, with world_name.
 
-    Joins ``w.name AS world_name`` so callers (the agentic-lorebook catalog) can
-    group entries by their world. The extra key is additive -- readers of the
-    base ``LorebookEntryRow`` columns are unaffected.
-
-    This is the raw overlay pool, not the effective lore: an authored entry
-    hidden by a replacement is still in here, and so is the suppression marker
-    that hides it. Resolving that is ``prompting.lorebook`` -- the projection
-    lives in the lore layer, which ``database/`` sits below and may not import.
+    Include both raw layers; prompting.lorebook resolves replacements and
+    suppressions into effective lore.
     """
     if not world_ids:
         return []
@@ -497,16 +485,10 @@ async def supersede_world_changeset(
     changeset_id: int,
     replacement: Mapping[str, Any] | None,
 ) -> WorldChangesetRow | None:
-    """Atomically retire an open changeset and optionally insert its replacement.
+    """Atomically supersede an open changeset and optionally insert its replacement.
 
-    Re-evaluation spends an LLM call before it knows whether there is still a
-    useful proposal. The old row must remain open during that call, but the
-    eventual status transition and replacement INSERT are one database decision:
-    a concurrent apply/reject/re-evaluate either wins first, or this transaction
-    wins without leaking a second pending replacement.
-
-    ``None`` means the re-evaluation found nothing left to propose; the original
-    still becomes terminal ``superseded`` so it leaves the review queue.
+    The original stays open during model evaluation; only one concurrent decision
+    may win. None still supersedes the original without creating a replacement.
     """
     async with immediate_tx() as db:
         original = await _fetch_changeset(db, changeset_id)
@@ -630,7 +612,7 @@ async def update_world_changeset(
         if unknown:
             raise ValueError(f"unknown expected changeset status(es) {unknown!r}")
     async with get_db() as db:
-        sets, vals = _build_set_clause(
+        sets, vals = build_set_clause(
             allowed,
             dict(data),
             json_fields={"operations", "before_entries", "after_entries"},
@@ -733,15 +715,10 @@ def entry_snapshot(entry: Mapping[str, Any] | None) -> dict | None:
 
 
 def _after_state_matches(live: Mapping[str, Any] | None, expected: Mapping[str, Any]) -> bool:
-    """Whether *live* is still the row an undo recorded, tolerating a lost target.
+    """Compare live state with an undo snapshot, allowing a SET-NULL target pointer.
 
-    Snapshot equality, with exactly one carve-out. Deleting an authored entry
-    SET-NULLs the ``supersedes_entry_id`` of every overlay row that hid it (see
-    schema.py), which turns a ``replace`` into a standalone ``add`` and neuters a
-    ``suppress``. That is the user's own delete showing through the pointer, not
-    a later edit to the overlay row the undo would clobber -- and refusing on it
-    would strand an applied changeset with an Undo button that can never
-    succeed. Every other field, ``entry_revision`` included, must still match.
+    An authored deletion can detach an overlay without editing it. Every other
+    field, including entry_revision, must still match.
     """
     snapshot = entry_snapshot(live)
     if snapshot is None:
@@ -783,7 +760,7 @@ async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tupl
             "overlay_action": "add" if kind == "create" else kind,
             "supersedes_entry_id": int(target_id) if target_id is not None else None,
         }
-        new_id = await _insert_entry(db, world_id, row, now)
+        new_id = await insert_entry(db, world_id, row, now)
         return None, entry_snapshot(await _fetch_entry(db, new_id))
 
     entry_id = int(op.get("target_entry_id") or 0)
@@ -803,7 +780,7 @@ async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tupl
         for flag in ("constant", "enabled"):
             if flag in patch:
                 patch[flag] = 1 if patch[flag] else 0
-        sets, vals = _build_set_clause(list(patch), patch, json_fields={"keywords"})
+        sets, vals = build_set_clause(list(patch), patch, json_fields={"keywords"})
         sets.extend(["entry_revision = entry_revision + 1", "updated_at = ?"])
         vals.extend([now, entry_id])
         await db.execute(
@@ -870,7 +847,7 @@ async def _apply_changeset_tx(
         befores.append(before)
         afters.append(after)
 
-    new_revision = await _bump_revision(db, world_id)
+    new_revision = await bump_revision(db, world_id)
     cur = await db.execute(
         "UPDATE world_changesets SET status = 'applied', operations = ?, before_entries = ?,"
         " after_entries = ?, applied_revision = ?, summary = COALESCE(?, summary),"
@@ -901,17 +878,11 @@ async def apply_changeset(
     summary: str | None = None,
     require_after_state: Sequence[Mapping[str, Any] | None] | None = None,
 ) -> WorldChangesetRow:
-    """Apply *operations* atomically, or raise and leave the World untouched.
+    """Apply operations atomically only at expected_revision.
 
-    Re-reads ``content_revision`` inside the write transaction and refuses
-    unless it still equals *expected_revision* -- exactly one accept can win a
-    race, the loser gets a :class:`RevisionConflict` and is marked stale by the
-    caller.
-
-    *require_after_state* is the undo guard: a list positionally matching
-    *operations*, each entry the snapshot the compensating op expects to find
-    live. A mismatch raises :class:`OverlayStateConflict` and applies nothing,
-    so an undo can never silently clobber a later edit.
+    RevisionConflict leaves the World unchanged. Optional require_after_state
+    provides one snapshot per operation; a mismatch raises OverlayStateConflict
+    so undo cannot overwrite later edits.
     """
     async with immediate_tx() as db:
         return await _apply_changeset_tx(

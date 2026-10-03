@@ -20,9 +20,9 @@ from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
 from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
+    CleanupStreamingResponse,
     deleting_resources,
+    sse_stream,
     stop_active_stream,
 )
 from ..schemas import (
@@ -101,10 +101,10 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
                 token_probs=data.token_probs,
             ):
                 if chunk["type"] == "content":
-                    # Byte-identical wire: plain string, \n-escaped by _sse_stream.
+                    # Byte-identical wire: plain string, \n-escaped by sse_stream.
                     yield {"event": "token", "data": chunk["delta"]}
                 elif chunk["type"] == "token_probs":
-                    # dict data auto-JSON-serialized by _sse_stream
+                    # dict data auto-JSON-serialized by sse_stream
                     yield {
                         "event": "probs",
                         "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]},
@@ -119,8 +119,8 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
             logger.error("Document generate error: %s", e)
             yield {"event": "error", "data": "Generation failed; see server logs"}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid=f"doc:{did}"),
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid=f"doc:{did}"),
         media_type="text/event-stream",
     )
 

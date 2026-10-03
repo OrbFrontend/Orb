@@ -1,5 +1,3 @@
-"""Unit tests for branch-aware Director fragment cooldown state."""
-
 from __future__ import annotations
 
 from backend.pipeline.passes.director import cooldown

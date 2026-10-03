@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
@@ -254,9 +255,7 @@ export async function switchBranch(msgId) {
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
 
-    // Paint the new branch and settle the scroll in one task. Awaiting anything
-    // in between lets the browser paint the rebuilt list at the pre-restore
-    // offset first, which is what reads as a jump.
+    // Paint and restore scroll in one task to avoid a frame at the old offset.
     setMessages(switched);
     renderMessages();
     if (anchorMsgId && anchorOffset !== null) {
@@ -520,3 +519,18 @@ export function cancelEditPending() {
 }
 
 export { inspectMessage } from "./chat_inspector.js";
+
+registerActions("messages", {
+  edit: (el) => startEdit(Number(el.dataset.msgId)),
+  editPending: () => startEditPending(),
+  forkEdit: (el) => startForkEdit(Number(el.dataset.msgId)),
+  cancelEdit: () => cancelEdit(),
+  saveEdit: (el) => saveEdit(Number(el.dataset.msgId)),
+  cancelForkEdit: () => cancelForkEdit(),
+  saveForkEdit: (el) => saveForkEdit(Number(el.dataset.msgId)),
+  cancelEditPending: () => cancelEditPending(),
+  saveEditPending: () => saveEditPending(),
+  delete: (el) => deleteMessage(Number(el.dataset.msgId)),
+  switchBranch: (el) => switchBranch(Number(el.dataset.branchId)),
+  proseRewrite: (el) => rewriteMessageProse(Number(el.dataset.msgId)),
+});

@@ -332,6 +332,7 @@
   padding: 6px;
   border-radius: var(--radius) var(--radius) 0 0;
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
 }
 

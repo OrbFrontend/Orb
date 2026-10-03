@@ -34,8 +34,8 @@ from ..features.lorebook import (
 )
 from ..inference import (
     AbortToken,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     agent_client_from_settings,
     client_from_settings,
     decisions_url,
@@ -48,28 +48,21 @@ from ..prompting.lorebook import (
     compute_depth_lorebook_block,
     compute_lorebook_injection_block,
 )
-from .config import _build_writer_tools_blob, _split_interactive_fragments
+from .config import build_writer_tools_blob, split_interactive_fragments
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .passes.state import StateContract
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
 from .state import BranchBaseline, LorebookTurn, WorldProposalTurn
-from .workflow_bridge import _iterate_pre_pipeline_hooks
+from .workflow_bridge import iterate_pre_pipeline_hooks
 
 
 @dataclass(frozen=True, slots=True)
 class PipelineContext:
-    """Per-conversation data loaded once and threaded through every entry point.
+    """Per-conversation data loaded once for all entry points.
 
-    Frozen so field bindings are immutable. ``card`` and ``active_persona`` are
-    None when absent. ``agent_client`` and ``agent_system_prompt`` are both None
-    unless a separate agent endpoint is configured. ``director`` is a mutable
-    dict deliberately mutated in place — the regenerate paths reset its
-    ``active_moods`` and folded ``fragment_state`` to the branch baseline, which the
-    frozen dataclass allows (it guards rebinding, not mutating the pointed-at dict).
-
-    ``state_contract`` is the state-fragment configuration captured with the
-    fragments, so every step of the turn reads one contract even if a setting
-    is edited while the turn runs.
+    Frozen field bindings still permit in-place director resets to branch state.
+    Agent fields are None without a separate endpoint. state_contract snapshots
+    fragment config so concurrent settings edits cannot change the running turn.
     """
 
     settings: SettingsRow
@@ -109,7 +102,7 @@ class PipelineContext:
     defined_fragments: list[InteractiveFragmentRow] | None = None
 
 
-async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
+async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
     """Load all per-conversation data needed by the pipeline.
 
     Fetches settings, conversation, card, director state, fragments, phrase bank,
@@ -185,7 +178,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         decision_candidates=decision_candidates,
         invalid_decisions=invalid_decisions,
         judge_config=await resolve_judge_config(settings),
-        state_contract=StateContract.capture(settings, _split_interactive_fragments(interactive_fragments)[2]),
+        state_contract=StateContract.capture(settings, split_interactive_fragments(interactive_fragments)[2]),
         defined_fragments=defined_fragments,
     )
 
@@ -323,7 +316,7 @@ def _build_prefix_from_ctx(
     )
 
 
-def _build_prefixes(
+def build_prefixes(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
     *,
@@ -355,8 +348,8 @@ def _build_prefixes(
 
 
 @dataclass(slots=True)
-class _TurnSetup:
-    """Per-turn inputs produced by :func:`_prepare_turn`, ready for ``_run_pipeline``.
+class TurnSetup:
+    """Per-turn inputs produced by :func:`prepare_turn`, ready for ``run_pipeline``.
 
     Holds the (writer, agent) prefixes with any pre-pipeline system blocks
     already applied, the merged tool-enable map, macros, lorebook block, scratch
@@ -369,7 +362,7 @@ class _TurnSetup:
     macros: Macros
     lorebook: LorebookTurn
     turn_scratch: dict
-    kv_tracker: _KVCacheTracker
+    kv_tracker: KVCacheTracker
     schema_overrides: Mapping[str, dict]
     extra_system_blocks: tuple[str, ...]
     # Identity of the Worlds this turn may propose changes to; None when no
@@ -377,7 +370,7 @@ class _TurnSetup:
     world_proposal: WorldProposalTurn | None = None
 
 
-async def _prepare_turn(
+async def prepare_turn(
     ctx: PipelineContext,
     conversation_id: str,
     *,
@@ -385,7 +378,7 @@ async def _prepare_turn(
     settings: Mapping[str, Any],
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
-) -> AsyncIterator[dict | _TurnSetup]:
+) -> AsyncIterator[dict | TurnSetup]:
     """Load and freeze per-turn context."""
     macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(
@@ -397,10 +390,10 @@ async def _prepare_turn(
         description=card_description(ctx.card),
     )
 
-    prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
+    prefix_base, agent_prefix_base = build_prefixes(ctx, history)
 
     turn_scratch: dict = {}
-    kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+    kv_tracker = KVCacheTracker(conversation_id=conversation_id)
     # Built once; when the agent is off, all tools are force-disabled.
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if agent_enabled(settings):
@@ -443,7 +436,7 @@ async def _prepare_turn(
     # Builds direct_scene plus the fragment-driven Editor and state tools from
     # every defined fragment; must be called once so all passes get
     # byte-identical tool blobs (KV cache Invariants 3 & 5).
-    overrides, enabled_tools_pre_merge = _build_writer_tools_blob(
+    overrides, enabled_tools_pre_merge = build_writer_tools_blob(
         settings,
         ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
         enabled_tools_pre_merge,
@@ -458,7 +451,7 @@ async def _prepare_turn(
     }
 
     # Pre-pipeline hooks may extend the tool map or append system blocks.
-    async for ev in _iterate_pre_pipeline_hooks(
+    async for ev in iterate_pre_pipeline_hooks(
         conversation_id=conversation_id,
         character_id=ctx.conv.get("character_card_id"),
         card=ctx.card,
@@ -477,11 +470,11 @@ async def _prepare_turn(
 
     extras = accumulators["extras"]
     if extras:
-        prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
+        prefix, agent_prefix = build_prefixes(ctx, history, extra_system_blocks=extras)
     else:
         prefix, agent_prefix = prefix_base, agent_prefix_base
 
-    yield _TurnSetup(
+    yield TurnSetup(
         prefix=prefix,
         agent_prefix=agent_prefix,
         merged_enabled_tools=accumulators["merged_enabled_tools"],

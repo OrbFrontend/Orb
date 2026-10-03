@@ -45,16 +45,11 @@ async def shutdown() -> None:
 
 
 async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGenerator[dict, None]:
-    """Rewrite *draft*, yielding the caller-independent event vocabulary.
+    """Yield whole-draft rewrite events in visible paragraph order.
 
-    Yields:
-        ``{"type": "draft_update", "draft": str}`` — one per completed
-        top-to-bottom run of paragraphs, carrying the WHOLE current assembly
-        rather than a delta; generation is concurrent, so there is no
-        meaningful delta.
-        ``{"type": "warning", "reason": str}`` — the rewrite did not happen.
-        ``{"type": "rewritten", "draft": str}`` — exactly once, last. Terminal
-        and internal: a caller consumes it and never forwards it as-is.
+    Events: draft_update after a completed assembly run, warning if rewriting
+    did not happen, then exactly one terminal rewritten. Callers consume the
+    terminal event internally rather than forwarding it.
     """
     # A queue bridges the rewriter's progress callback into this generator: an
     # async generator cannot yield from inside a callback its own body is

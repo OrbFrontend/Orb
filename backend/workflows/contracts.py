@@ -10,14 +10,14 @@ from types import MappingProxyType
 from typing import Any
 
 
-def _readonly(obj: Any) -> Any:
+def readonly_view(obj: Any) -> Any:
     """Return a recursive read-only view of obj."""
     if isinstance(obj, dict):
-        return MappingProxyType({k: _readonly(v) for k, v in obj.items()})
+        return MappingProxyType({k: readonly_view(v) for k, v in obj.items()})
     if isinstance(obj, (list, tuple)):
-        return tuple(_readonly(v) for v in obj)
+        return tuple(readonly_view(v) for v in obj)
     if isinstance(obj, (set, frozenset)):
-        return frozenset(_readonly(v) for v in obj)
+        return frozenset(readonly_view(v) for v in obj)
     if isinstance(obj, bytearray):
         return bytes(obj)
     return obj
@@ -36,16 +36,10 @@ EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
 
 @dataclass
 class ToolSpec:
-    """A tool a workflow contributes to the global tool catalog.
+    """Workflow-contributed tool; name must match schema.function.name.
 
-    ``name`` must equal ``schema["function"]["name"]``. ``choice`` is the
-    pre-built ``tool_choice`` payload (almost always
-    ``{"type": "function", "function": {"name": name}}``) so forced-call
-    sites can pass it directly to ``client.complete(tool_choice=...)``.
-    ``standalone`` defaults to True: workflow tools stay out of the pipeline
-    union and are only reachable via direct forced calls. Setting False
-    merges the tool into ``enabled_schemas(...)``'s output (subject to the
-    workflow's ``enable_tools`` yields gating it per turn).
+    choice is a ready tool_choice payload. Standalone tools default to direct
+    forced calls only; standalone=False joins enabled_schemas, gated per turn.
     """
 
     name: str
@@ -178,6 +172,21 @@ class QueryCtx:
 
 
 @dataclass(frozen=True)
+class UploadCtx:
+    """Inputs available to a workflow's upload hook: one file for one character.
+
+    No conversation, client, or lock: the hook takes the toolkit lock matching
+    any state it rewrites, so slow processing of the file holds nothing.
+    """
+
+    settings: MappingProxyType
+    character_id: str
+    character: MappingProxyType
+    filename: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class ExportCtx:
     """Inputs available to a workflow's export hook.
 
@@ -214,17 +223,11 @@ class WorkflowEventStream:
 
 
 def public_event_error(ev: object) -> str | None:
-    """Validate a public workflow event; return ``None`` if valid, else a short reason.
+    """Validate public {event, data}; return None or a rejection reason.
 
-    A public event is a dict ``{"event": <name>, "data": <payload>}`` where
-    ``name`` is a non-empty, single-line string that does not start with ``_``
-    (the reserved prefix for internal control events) and ``payload`` is a
-    string or a JSON-serializable (``allow_nan=False``) dict. ``data`` defaults
-    to ``""`` when absent.
-
-    One definition of the wire shape, shared by the pipeline bridge (pre/post
-    hook pass-through events) and the API on-demand SSE encoder, so the two
-    consumers cannot drift into subtly different notions of a valid event.
+    Event names must be non-empty, single-line and not start with _. Data defaults
+    to empty text and accepts strings or strict JSON-serializable dicts. Shared
+    by pipeline hooks and on-demand SSE.
     """
     if not isinstance(ev, dict):
         return f"not a dict (type={type(ev).__name__})"
@@ -248,10 +251,11 @@ class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
     PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, and EXPORT are
-    single-dispatch slots resolved by workflow id from an HTTP route. QUERY is
-    the only one with no conversation in scope -- the global config/discovery
-    surface. EXPORT is optional, even for artifact workflows.
+    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, UPLOAD, and EXPORT are
+    single-dispatch slots resolved by workflow id from an HTTP route. QUERY and
+    UPLOAD have no conversation in scope: QUERY is the global config/discovery
+    surface, and UPLOAD takes a file for one character. EXPORT is optional,
+    even for artifact workflows.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -260,6 +264,7 @@ class HookType(Enum):
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
     QUERY = "query"
+    UPLOAD = "upload"
     EXPORT = "export"
 
 

@@ -1,15 +1,5 @@
-"""End-to-end coverage for Dynamic Worlds: proposal → review → World.
-
-Two halves, matching the two halves of the feature.
-
-**Pipeline** -- every main-pipeline entry point that finishes a reply gets one
-forced ``propose_world_changes`` call for all enabled opted-in Worlds, judged on
-the final post-editor prose, and split into one pending changeset per World at
-the same persistence boundary as the reply itself.
-
-**Lifecycle** -- what the review queue then does: a pending change is invisible
-to everyone, accepting it makes it visible to every character sharing the World,
-and the revision stamp is what makes exactly one of two concurrent accepts win.
+"""Cover Dynamic Worlds proposal staging, review visibility and revision races
+through the HTTP/pipeline stack.
 """
 
 from __future__ import annotations

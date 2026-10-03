@@ -41,7 +41,7 @@ from .jev import (
     cache_key,
     decisions_url,
 )
-from .kv_tracker import _KVCacheTracker
+from .kv_tracker import KVCacheTracker
 from .retry import RetryPolicy
 from .text_completion import has_image_parts
 
@@ -93,7 +93,7 @@ __all__ = [
     "profile_for",
     # cached_call / kv_tracker
     "CachedBase",
-    "_KVCacheTracker",
+    "KVCacheTracker",
     # text_completion
     "has_image_parts",
 ]

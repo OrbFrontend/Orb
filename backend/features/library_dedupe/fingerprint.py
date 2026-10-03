@@ -1,15 +1,6 @@
-"""Content and avatar signals for one character card.
+"""Compute content and avatar signals, keeping Pillow outside the pure matcher.
 
-Split from ``matching.py`` the way ``library_tags`` splits ``vocabulary`` from
-``tagger``: everything with an outside dependency (Pillow) lives here, and the
-matcher stays importable and testable without it.
-
-Text signals are recomputed on every scan and nothing about them is cached.
-That is a measurement, not an omission: at 2000 cards of ~400 words, tokenizing,
-shingling and sketching the whole library costs 0.26s, while decoding the
-avatars costs ~18s (8.8 ms per 1024x1536 PNG). Only the avatar hash is worth a
-column, and leaving the text side uncached means threshold tuning needs no cache
-rebuild at all.
+Recompute cheap text signals each scan; cache only expensive avatar decoding.
 """
 
 from __future__ import annotations
@@ -126,15 +117,10 @@ def shingle_sketch(values: frozenset[int], k: int = SKETCH_SIZE) -> tuple[int, .
 
 
 def dhash_from_image_bytes(data: bytes) -> str:
-    """64-bit difference hash of *data* as 16 hex chars, or "" if it will not decode.
+    """Return a 64-bit pixel difference hash as 16 hex chars, or empty on decode failure.
 
-    Pixels, not bytes: ``avatar_b64`` holds the entire original card PNG with its
-    metadata chunks, so a byte hash of it is ~equivalent to the content-addressed
-    card id and cannot see "same art, different wrapper".
-
-    Every decode failure returns "" rather than raising, so one corrupt avatar in
-    a 2000-card library never fails the scan — and "" is excluded from avatar
-    blocking and from the "same avatar" predicate entirely.
+    Pixel hashing ignores card metadata differences. Empty hashes never participate
+    in avatar blocking or equality matching.
     """
     if not data:
         return ""

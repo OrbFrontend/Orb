@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compileCss, filterDeclarations, sanitizeCss } from "../../frontend/message_css.js";
+import { compileCss, filterDeclarations } from "../../frontend/message_css.js";
 
 // message_css_containment.test.mjs pins what card CSS may not do. This file pins
 // the other half: what it *may* do, and why each of those is safe to allow.
@@ -11,7 +11,7 @@ import { compileCss, filterDeclarations, sanitizeCss } from "../../frontend/mess
 // spelling that tries to smuggle something past it does not.
 
 const SCOPE = "msg-sx";
-const css = (text) => sanitizeCss(text, SCOPE);
+const css = (text) => compileCss(text, SCOPE).css;
 
 test("an escaped property name is the property it spells", () => {
   // Legal CSS a card can write, and the reason the allowlist cannot be a

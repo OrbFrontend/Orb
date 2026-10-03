@@ -1,15 +1,7 @@
-"""Rebuild character_cards with avatar_b64 as its last column.
+"""Move avatar_b64 to character_cards' last column.
 
-The avatar used to sit mid-row, and every ALTER TABLE since has appended after
-it. An avatar is hundreds of KB of base64 stored on overflow pages, and SQLite
-reaches a column that follows it only by walking that page chain, so the library
-list (which never reads the avatar) paid for every avatar in the table: ~370 MB
-walked and 50 ms per call on a 400-card library, 2.4 ms once the avatar is last.
-
-Only the physical order changes. Every query names its columns, and the preset
-engine compares column sets, so nothing reads a position. The rebuilt pages
-leave the old ones on the freelist, which startup's post-migration VACUUM
-reclaims. A rerun finds the avatar already last and does nothing.
+This avoids walking large overflow blobs when reading later metadata columns.
+Queries use named columns; startup VACUUM reclaims old pages. Reruns are a no-op.
 """
 
 from __future__ import annotations

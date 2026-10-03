@@ -34,7 +34,7 @@ data: <payload>
 
 ```
 
-The backend's `_sse_stream` wrapper serializes dictionary data as one-line JSON
+The backend's `sse_stream` wrapper serializes dictionary data as one-line JSON
 and escapes newlines in string data. Keepalive comments prevent an idle
 connection from being dropped.
 
@@ -127,7 +127,7 @@ exchange.
 ## Persistence and reconciliation
 
 The internal `_result` event carries the completed reply to the persistence
-layer. It is consumed by `_consume_pipeline` and never sent to the browser.
+layer. It is consumed by `consume_pipeline` and never sent to the browser.
 The internal `_turn_state` event, emitted just before the Writer starts, hands
 persistence the turn's live working state and is consumed the same way. When a
 turn fails or is cancelled before `_result`, persistence saves that state as a
@@ -234,8 +234,8 @@ not `error`. A failure caused by cutting a call short is logged instead. A
 failed save is still reported as `error`.
 
 Once Stop is pressed, the browser freezes the bubble and repaints it from the
-saved row after settlement. `stopConversation()` is also used outside chat
-replies, for example by compression, and needs no bubble.
+saved row after settlement. The same conversation `/stop` route also stops
+work that is not a chat reply, such as compression, which has no bubble.
 
 `error` is terminal. `warning` is optional work that declined and does not stop
 the turn. An Editor call that fails is a `warning`: the reply keeps the best

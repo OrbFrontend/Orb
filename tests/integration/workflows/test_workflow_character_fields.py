@@ -19,9 +19,9 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
-from backend.pipeline.workflow_bridge import _iterate_pre_pipeline_hooks
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.orchestrator import run_pipeline
+from backend.pipeline.workflow_bridge import iterate_pre_pipeline_hooks
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -40,7 +40,7 @@ def _pipeline_kwargs() -> dict:
         "prefix": _PREFIX,
         "enabled_tools": {},
         "turn_scratch": {},
-        "kv_tracker": _KVCacheTracker(),
+        "kv_tracker": KVCacheTracker(),
         "schema_overrides": {},
     }
 
@@ -56,7 +56,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
     w = make_workflow("cf_pre", pre_pipeline=pre_hook)
     with register_for_test(w):
         await _drain(
-            _iterate_pre_pipeline_hooks(
+            iterate_pre_pipeline_hooks(
                 conversation_id="conv",
                 character_id="c1",
                 card=dict(_CARD),
@@ -67,7 +67,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
                 enabled_tools_pre_merge={},
                 turn_scratch={},
                 client=None,
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
                 accumulators={"merged_enabled_tools": {}, "extras": []},
             )
@@ -76,7 +76,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
     snapshot = captured["character"]
     assert captured["character_id"] == "c1"
     assert snapshot["personality"] == "warm"
-    # _readonly recursively freezes: nested lists arrive as tuples.
+    # readonly_view recursively freezes: nested lists arrive as tuples.
     assert snapshot["tags"] == ("a", "b")
     with pytest.raises(TypeError):
         snapshot["personality"] = "x"
@@ -97,7 +97,7 @@ async def test_post_pipeline_ctx_carries_readonly_card_snapshot():
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
             await _drain(
-                _run_pipeline(
+                run_pipeline(
                     LLMClient("http://localhost:9999"),
                     _SETTINGS,
                     _DIRECTOR_STATE,

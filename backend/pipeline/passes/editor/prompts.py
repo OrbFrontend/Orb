@@ -153,7 +153,7 @@ def build_editor_prompt(
     if editor_patches(has_audit_issues, length_guard_triggered, structural_rewrite, patchable):
         parts.append(patch_instructions(patch_categories))
         parts.append(report_text)
-    elif length_guard_triggered or structural_rewrite or has_audit_issues:
+    elif length_guard_triggered or structural_rewrite:
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)

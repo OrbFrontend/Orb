@@ -71,7 +71,6 @@ def test_happy_path_shapes():
             "enabled": 1,
             "injection_label": "Trust level",
             "sort_order": 10_000,
-            "direction_note_timing": "post_turn",
             "cooldown_turns": 7,
             "state_mode": "value",
             "state_update": "before_writer",

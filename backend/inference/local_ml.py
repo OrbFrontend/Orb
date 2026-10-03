@@ -326,10 +326,10 @@ async def aclassify(feature: str, text: str) -> str:
 
 
 # The v2 model still needs short windows. Keep narration extraction in callers:
-# empirical dialogue-insertion probes favor it over trusting native markers
-# (docs/experiments/povtense-v2.md). The model card asks for 1-4 sentences, not a
-# whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
-# that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
+# empirical dialogue-insertion probes favor it over trusting native markers. The
+# model card asks for 1-4 sentences, not a whole reply: the encoder's trained
+# context is 256 tokens, and a raw tail slice of that size is 5-10 sentences that
+# usually starts mid-word. So `pov_input` shapes
 # the span instead of just capping it. Tail-anchored like the emotion path: the
 # composer freezes the FINAL visible instant of a reply, so the end of the message
 # is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard
@@ -435,24 +435,10 @@ async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
         return await asyncio.to_thread(_classify_pov_tense_chunks_blocking, "pov_classifier", text)
 
 
-# The markup classifier (narration x dialogue convention) reads a WHOLE message:
-# convention is a coverage ratio and the dead band is a whole-message property, so
-# unlike `pov_input` nothing is windowed. Protected formatting runs (fenced code,
-# **bold**, dividers) are removed with the exact pattern `classify_axes` ignores.
-# Quote and asterisk glyphs are deliberately NOT normalized: the tokenizer reads
-# every variant, and a broken or unusual mark is the very signal being classified.
-# The one exception is a markdown bullet (`* item` at a line start): the parser
-# already refuses to read it as emphasis, and its star becomes "-" so a list never
-# looks like asterisk narration to the model. A line that closes an asterisk later
-# (`* She waves. *`) is a sloppy beat rather than a list, and keeps its star.
-#
-# The model's own cut is the token one. `_rank_logits` keeps the
-# first n_batch (512) ids, so a long message loses its tail and its [SEP]; the
-# trainer (../RP-Markup-Classifier) truncates the same way rather than HF's
-# keep-[SEP] way, so both sides see identical ids. MARKUP_INPUT_CHARS is only a
-# runaway guard: on app.db it never binds before the token cut. Training builds
-# record MARKUP_INPUT_VERSION and a digest of this function's output, so bump the
-# version whenever the shaping changes.
+# Classify markup from the whole message, excluding classify_axes protected runs.
+# Keep quote/emphasis variants; turn genuine markdown bullet stars into hyphens.
+# Ranking truncates to n_batch ids, including loss of SEP, matching training.
+# MARKUP_INPUT_CHARS is a runaway guard; bump MARKUP_INPUT_VERSION when shaping changes.
 MARKUP_INPUT_VERSION = "markup-input-v2"
 MARKUP_INPUT_CHARS = 4000
 

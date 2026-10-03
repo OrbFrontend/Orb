@@ -43,7 +43,7 @@ _DEFAULT_USER = "Continue the text. Write several paragraphs."
 # single optional space after the colon is the delimiter (further spaces are
 # content). Only interpreted in assisted mode — in Raw mode these lines are
 # literal prose.
-_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
+ROLE_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
 
 # Per-token-alternatives counts, requested only when the client toggles probs on.
 # Text mode (llama.cpp /completion) matches mikupad's default of 10; chat mode
@@ -75,7 +75,7 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
             blocks.append((role, [line]))
 
     for line in text.split("\n"):
-        m = _MACRO_RE.match(line)
+        m = ROLE_MACRO_RE.match(line)
         if m:
             macro_role = m.group(1).lower()
             content = m.group(2)
@@ -157,25 +157,13 @@ class DocumentContinuer:
     async def stream(
         self, prompt: str, model: str, assisted: bool = False, token_probs: bool = False
     ) -> AsyncGenerator[dict, None]:
-        # Transport branch on the client's own completion_mode (single source of
-        # truth — not a second settings read), crossed with the assisted flag:
-        #
-        #   text  + raw       -> raw /completion continuation (preferred; verbatim)
-        #   text  + assisted  -> parsed multi-turn + open prefill (F9 open-turn path)
-        #   chat  + raw       -> chat fallback with thinking suppressed
-        #   chat  + assisted  -> parsed multi-turn; prefill closed + re-anchor turn
-        #                        (chat transport drops the open prefill)
-        #
-        # The message shapes come from build_generation_messages so the Output
-        # Auditor's patch call can byte-extend the exact same prompt.
-        #
-        # Reasoning is always off in assisted mode: a no-op on the text/prefill
-        # path (client drops chat_template_kwargs there) but load-bearing for the
-        # chat fallback and the trailing-note generation prompt.
-        #
-        # token_probs adds the per-transport alternatives request (mikupad-style
-        # token swapping): n_probs on the llama.cpp branches, logprobs/top_logprobs
-        # on the OpenAI-compat branches. Unset → no extra fields, unchanged bodies.
+        # Branch on client.completion_mode and assisted:
+        #   text + raw: verbatim /completion
+        #   text + assisted: parsed turns with open prefill
+        #   chat + raw: chat fallback, thinking off
+        #   chat + assisted: parsed turns with closed prefill and trailing anchor
+        # Use build_generation_messages for audit prefix parity. Assisted reasoning
+        # is always off. token_probs requests transport-specific alternatives.
         mode = self.client.completion_mode
         probs_text = {"n_probs": _N_PROBS_TEXT} if token_probs else {}
         probs_chat = {"logprobs": True, "top_logprobs": _TOP_LOGPROBS_CHAT} if token_probs else {}

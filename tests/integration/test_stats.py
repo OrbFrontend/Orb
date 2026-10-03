@@ -48,8 +48,8 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
         parent_id: int | None = None
         for i in range(message_count):
             cur = await conn.execute(
-                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, "
-                "progressive_fields, created_at) VALUES (?, ?, ?, ?, ?, '{}', ?)",
+                "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (cid, "user" if i % 2 == 0 else "assistant", "x", i, parent_id, created_at),
             )
             parent_id = cur.lastrowid

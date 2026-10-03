@@ -45,16 +45,10 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
 
 
 def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
-    """Build the Director's lorebook catalog for the agentic activation path.
+    """Render effective non-constant entries grouped by World, with up to three
+    non-name keywords. Return empty when none remain.
 
-    Lists each non-``constant`` entry (name + up to 3 keywords, excluding any
-    keyword equal to the entry name), grouped by
-    world. Constant entries are always injected and excluded here. Returns
-    ``""`` when there are no non-constant candidates.
-
-    Projected first, so the Director is offered the lore that is actually in
-    effect: a replaced authored entry never appears alongside the dynamic entry
-    that supersedes it, and a suppressed one is not offered at all.
+    Projection removes suppressed/superseded entries; constants use the cached prefix.
     """
     candidates = [e for e in select_effective_entries(entries) if not e.get("constant")]
     if not candidates:
@@ -237,17 +231,10 @@ def select_active_entries(
     scan_depth: int,
     director_selected: Sequence[str] = (),
 ) -> list[Mapping[str, Any]]:
-    """Select the active lorebook entries for the trailing block.
+    """Select effective non-constant entries by recent keywords or normalized Director names.
 
-    An entry is active when a keyword matched within the ``scan_depth`` most
-    recent messages, OR its ``name`` is in *director_selected* (case-insensitive,
-    trimmed, and stripped of the catalog's own ``[...]`` delimiters — see
-    :func:`normalize_director_pick`). The pool is projected to the effective
-    layer first, then constant entries are excluded — they ride the cached
-    system prefix, and filtering here (rather than per caller) also keeps a
-    director pick that names a constant entry from duplicating it into the
-    trailing block. Returns entries in input order — the union underlying both
-    the substring (``director_selected=()``) and agentic paths.
+    Scan at most scan_depth messages, preserve input order, and exclude constants
+    already carried by the cached system prefix.
     """
     effective = select_effective_entries(entries)
     candidates = [e for e in effective if not e.get("constant")]
@@ -317,8 +304,7 @@ def compute_lorebook_block(
 ) -> str:
     """Select active entries (all sources) and render the ``**Lorebook**`` block.
 
-    The shared core behind both named entry points and the pipeline's
-    ``LorebookTurn.writer_block`` (``pipeline/state.py``).
+    The shared core behind both named entry points below.
     """
     return render_lorebook_block(
         select_active_entries(entries, messages, scan_depth=scan_depth, director_selected=director_selected),

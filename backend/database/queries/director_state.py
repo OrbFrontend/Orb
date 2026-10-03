@@ -18,8 +18,6 @@ async def get_director_state(cid: str) -> DirectorStateRow:
                 r["keywords"] = json.loads(r["keywords"])
             else:
                 r["keywords"] = []
-            # The legacy progressive_fields column is no longer read.
-            r.pop("progressive_fields", None)
             # Per-conversation {{random}} picks for fragment text
             raw_mc = r.get("macro_choices")
             r["macro_choices"] = json.loads(raw_mc) if raw_mc else {}

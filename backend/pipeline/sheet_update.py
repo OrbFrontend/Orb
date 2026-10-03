@@ -13,7 +13,7 @@ from ..features.cards import (
     build_exchange_transcript,
     propose_sheet_update,
 )
-from .state import SheetUpdateTurn, TurnState, _PipelineConfig
+from .state import PipelineConfig, SheetUpdateTurn, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def _exchange_transcript(turn: SheetUpdateTurn, state: TurnState, speaker_name: 
 
 
 async def sheet_update_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],

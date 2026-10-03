@@ -49,12 +49,8 @@ button {
 .btn-icon:hover { color: var(--text-primary); }
 .btn-xs { padding: 2px 6px; font-size: 10px; }
 
-/* Icon-only buttons: a fixed square box with the icon centred by geometry.
-   The icon must be an SVG (see icons.js) -- a text "×" is centred against the
-   font's metrics rather than its own ink, so it drifts by a different amount in
-   every theme that swaps --font-ui, and inherits any theme text-shadow with it.
-   Override --btn-square-size / --ui-icon-size per call site; never nudge with a
-   transform. */
+/* Square SVG buttons stay centred across theme fonts. Size with
+   --btn-square-size / --ui-icon-size instead of positional transforms. */
 .btn-square {
   --ui-icon-size: calc(var(--btn-square-size, 22px) * .6);
   --ui-icon-stroke: 2.4;
@@ -66,14 +62,8 @@ button {
   place-items: center;
 }
 
-/* The stroke is in viewBox units, so it thins as the icon shrinks: 2 units is
-   1.3px at 16px but only 0.8px at 10px, which antialiases away to a smudge.
-   Small icons raise --ui-icon-stroke to keep the rendered weight constant.
-
-   Icons are decorative (aria-hidden in icons.js) and are never their own event
-   target: without pointer-events, a click on an icon-only button reports the
-   <svg> or its <path> as e.target, and any handler testing the target's own
-   class or dataset rather than walking up with closest() silently misses. */
+/* Raise --ui-icon-stroke for small icons to offset viewBox scaling.
+   Decorative icons ignore pointer events so clicks target their button. */
 .ui-icon {
   display: block;
   width: var(--ui-icon-size, 16px);
@@ -201,11 +191,7 @@ label {
   letter-spacing: .5px;
 }
 
-/* One setting per row: label on the left, its control flush right. A label
-   beside its control must not keep the stacked-field `margin-bottom` above --
-   a centred row centres the label's box, margin included, so the words ride
-   ~2px high while the control sits level. Clearing it here is what keeps rows
-   aligned without per-row pixel nudges. */
+/* Clear the stacked-label margin so labels and controls centre on the same line. */
 .setting-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -252,11 +238,6 @@ label {
 /* For forms whose fields are each a label over one control: a label whose hint
    wraps grows upward, so the controls in a row stay on one line. */
 .align-controls .field-row { align-items: flex-end; }
-
-/* A control only a few characters wide keeps its column instead of stretching
-   across the whole row -- including a row it has to itself, so a lone number
-   still lines its edges up with the paired rows above and below it. */
-.field-row > .field-half { flex: 0 1 calc(50% - 4px); }
 
 /* A two- or three-digit number beside wider controls: a fixed sliver rather
    than an equal share of the row. */

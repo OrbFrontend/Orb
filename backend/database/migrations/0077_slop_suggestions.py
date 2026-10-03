@@ -1,11 +1,4 @@
-"""Add the Phrase Bank suggestion miner's tables.
-
-``slop_suggestions`` holds the current run's suggestions, ``slop_dismissals``
-the keys the user dismissed, and ``slop_mining_state`` the staleness
-bookkeeping. ``table_create_sql`` sources the DDL from ``schema.py`` so an
-upgraded database matches a fresh install, and ``CREATE TABLE IF NOT EXISTS``
-keeps the migration idempotent.
-"""
+"""Add miner suggestions, dismissals and staleness tables using canonical schema DDL."""
 
 from __future__ import annotations
 

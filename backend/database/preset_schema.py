@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-# Touch when: you add a brand-new top-level entity -- map its table to a user-facing
-# domain. A child table hung off an existing entity needs no entry; it inherits its
-# root's domain automatically. Reuse a domain or mint a new value (a new value mints
-# a new exportable domain -- ALL_DOMAINS is derived from these); never rename one
-# (see header).
-#
-# A *root* owns no other table: nothing points at it via ``ON DELETE CASCADE``.
-# Non-root tables join their root's domain by following ownership edges upward.
+# Map new top-level entities to domains; children inherit through ownership edges.
+# Domain names are stable export identifiers. Roots have no incoming CASCADE edge.
 OWNERSHIP_COLUMNS: dict[str, str] = {"conversation_worlds": "conversation_id"}
 
 DOMAIN_ROOTS: dict[str, str] = {
@@ -39,14 +33,8 @@ DOMAIN_ROOTS: dict[str, str] = {
 # preset that leaves the chats out.
 DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state"})
 
-# Touch when: you add a table the engine must never export or merge -- bookkeeping,
-# caches, or migration-only artefacts. The coverage test forces the choice for every
-# new table: give it a domain, or exclude it here. Current entries:
-#   * orb_preset_meta      -- the preset's own descriptor row
-#   * schema_migrations    -- migration bookkeeping (stamped separately)
-#   * message_attachments  -- legacy, empty post-0020; gone from schema.py but still
-#     present (empty) in DBs upgraded under older builds whose init_db recreated it
-#   * DERIVED_TABLES       -- above
+# Exclude bookkeeping, caches and historical artifacts from export/merge.
+# Coverage checks require every table to have a domain or an exclusion.
 EXCLUDED_TABLES: frozenset[str] = (
     frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"}) | DERIVED_TABLES
 )
@@ -75,26 +63,11 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("model_configs", "extra_headers"): "",
 }
 
-# Touch when: a workflow starts storing a credential inside one of the free-form
-# JSON columns (the coverage test walks every registered workflow's normalized
-# config/profile and fails here naming the missing path). Maps
-# ``(table, column) -> the JSON paths whose leaf must be blanked``, with ``"*"``
-# standing for "every key at this level" (a provider map keyed by provider id).
-#
-# A JSON column can never be name-detected -- ``is_sensitive_column("workflow_config")``
-# is False and always will be -- so ``SECRET_COLUMNS`` cannot express this. Nor can
-# the column simply be declared secret there: blanking ``settings.workflow_config``
-# wholesale would destroy every style, imported graph and TTS setting, and a blind
-# recursive blank-by-key-name would mangle the node inputs of an imported ComfyUI
-# graph. Paths are the only statement narrow enough to be correct.
-#
-# **All four ``workflow_state`` columns are declared, three of them empty.**
-# ``workflow_state`` is the same free-form per-workflow JSON slot on ``conversations``,
-# ``character_cards``, ``messages`` and ``group_members``, written through the same
-# toolkit helpers; only the character one holds a credential today. Declaring all four makes this table a
-# statement about every column that *could* hold one, and gives the coverage test
-# something to assert completeness against -- an absent key and an empty tuple say
-# different things.
+# Credential leaf paths by (table, column); "*" matches every key at a level.
+# Use explicit paths: whole-column or recursive key-name scrubbing would erase
+# valid workflow settings and imported graph inputs.
+# Declare all four workflow_state columns, even when empty, so coverage checks
+# distinguish reviewed columns from missing declarations.
 SECRET_JSON_PATHS: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
     ("settings", "workflow_config"): (
         ("image_gen", "external_comfy", "api_key"),
@@ -129,14 +102,9 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-# The tripwire behind the SECRET_COLUMNS check: any column whose name ends with one
-# of these suffixes (or contains "secret") must appear in SECRET_COLUMNS, or the
-# coverage test fails -- so a new secret can't slip into a shared preset unnoticed.
-# Touch when: a real secret evades every pattern (e.g. ``credentials_blob``) -- add a
-# pattern so it's caught. To clear a *false* positive, declare the column in
-# SECRET_COLUMNS, never narrow these (see header). Suffix-matched (not loose
-# substring) so ``api_key`` / ``auth_token`` are caught while ``max_tokens`` /
-# ``top_k`` are not.
+# Sensitive-name suffixes trip coverage checks unless declared in SECRET_COLUMNS.
+# Add patterns for missed secrets; handle false positives by declaration, not
+# by narrowing detection. Suffix matching avoids max_tokens/top_k false positives.
 SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "password", "token")
 SENSITIVE_SUBSTRINGS: tuple[str, ...] = ("secret",)
 

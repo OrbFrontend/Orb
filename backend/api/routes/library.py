@@ -68,9 +68,9 @@ from ...inference import (
 )
 from ...pipeline import resolve_judge_config
 from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
+    CleanupStreamingResponse,
     idle_chats_guard,
+    sse_stream,
     stop_active_stream,
 )
 from ..schemas import (
@@ -133,7 +133,7 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
         except httpx.HTTPError:
             yield {"event": "error", "data": "The Agent endpoint could not be reached"}
 
-    return _CleanupStreamingResponse(_sse_stream(_gen(), request, abort_token=abort_token), media_type="text/event-stream")
+    return CleanupStreamingResponse(sse_stream(_gen(), request, abort_token=abort_token), media_type="text/event-stream")
 
 
 async def _tag_state() -> dict:
@@ -302,8 +302,8 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
 
             yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"),
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"),
         media_type="text/event-stream",
     )
 
@@ -463,8 +463,8 @@ async def api_scan_library_duplicates(request: Request):
             report["stats"]["avatar_rehashed"] = total
             yield {"event": "done", "data": report}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"),
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"),
         media_type="text/event-stream",
     )
 

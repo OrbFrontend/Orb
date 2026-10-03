@@ -41,16 +41,9 @@ def reference_slot_key(slot: Any) -> tuple[str, str] | None:
 
 
 def fold_seed_into(seed: int, low: int, high: int) -> int:
-    """`seed` folded into the inclusive range `[low, high]`, or unchanged where that
-    is not a range at all.
+    """Fold seed into inclusive [low, high], or leave it unchanged for invalid ranges.
 
-    Backends disagree about how large a seed may be. A ComfyUI node declares
-    `min`/`max` in `/object_info`; a cloud style can carry a ceiling the user entered
-    after reading a provider's refusal. "Make this seed fit" is shared by both.
-
-    Folded rather than clamped: clamping would draw every out-of-range seed as the
-    same image, and folding is idempotent, so the seed Orb records still reproduces
-    this render when it is replayed through the same bound.
+    Modulo folding avoids clamp collisions and is idempotent for replay.
     """
     if high < low:
         return seed

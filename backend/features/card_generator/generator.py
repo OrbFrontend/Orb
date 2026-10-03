@@ -52,7 +52,7 @@ FIELD_CAPS = {
     "mes_example": 1600,
     "creator_notes": 400,
 }
-_FIELD_GUIDANCE = {
+FIELD_GUIDANCE = {
     "name": "A character name, at most 100 characters.",
     "description": "Identity, appearance, background, motivations, and relationships. Aim for under 3000 characters.",
     "personality": "Distinctive traits, contradictions, habits, and voice. Aim for under 800 characters.",
@@ -61,16 +61,16 @@ _FIELD_GUIDANCE = {
     "mes_example": "Optional example dialogue using {{char}} and {{user}}. Under 1000 characters; empty if unnecessary.",
     "creator_notes": "Optional brief usage notes for the reader, under 300 characters. No macros; empty is fine.",
 }
-_CARD = "generate_character_card"
+CARD_TOOL_NAME = "generate_character_card"
 GENERATE_CARD_TOOL = {
     "type": "function",
     "function": {
-        "name": _CARD,
+        "name": CARD_TOOL_NAME,
         "description": "Draft a character card for the user to review and save.",
         "parameters": {
             "type": "object",
-            "properties": {key: {"type": "string", "description": guidance} for key, guidance in _FIELD_GUIDANCE.items()},
-            "required": list(_FIELD_GUIDANCE),
+            "properties": {key: {"type": "string", "description": guidance} for key, guidance in FIELD_GUIDANCE.items()},
+            "required": list(FIELD_GUIDANCE),
             "additionalProperties": False,
         },
     },
@@ -104,7 +104,7 @@ def _clamp(text: str, cap: int) -> str:
 def clean_card(args: Mapping[str, Any]) -> dict[str, Any]:
     """Enforce the draft contract, leaving recoverable prose edits to the user."""
     card: dict[str, Any] = {}
-    for field in _FIELD_GUIDANCE:
+    for field in FIELD_GUIDANCE:
         value = args.get(field)
         text = value.strip() if isinstance(value, str) else ""
         if field == "name":
@@ -121,13 +121,15 @@ def clean_card(args: Mapping[str, Any]) -> dict[str, Any]:
     return card
 
 
-def _quote(text: str) -> str:
+def fence_quote(text: str) -> str:
     # Reference text must not be able to close its own fence.
     escaped = text.strip().replace('"""', '\\"\\"\\"')
     return f'"""\n{escaped}\n"""'
 
 
-def _assistant(response: Mapping[str, Any], name: str, arguments: Mapping[str, Any], call_id: str) -> AssistantToolMessage:
+def assistant_tool_call(
+    response: Mapping[str, Any], name: str, arguments: Mapping[str, Any], call_id: str
+) -> AssistantToolMessage:
     # Structured forced calls all come back as ``call_0``; the id is assigned
     # here so every replayed call answers to exactly one result.
     message: AssistantToolMessage = {
@@ -145,21 +147,21 @@ def _assistant(response: Mapping[str, Any], name: str, arguments: Mapping[str, A
     return message
 
 
-def _result(call_id: str, content: str) -> ToolResultMessage:
+def tool_result(call_id: str, content: str) -> ToolResultMessage:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
-def _card_args(response: Mapping[str, Any], settings: Mapping[str, Any]) -> Mapping[str, Any]:
+def card_arguments(response: Mapping[str, Any], settings: Mapping[str, Any]) -> Mapping[str, Any]:
     """The drafted card's arguments; a reply cut at the budget or without a card is unavailable."""
     if response.get("finish_reason") == "length":
         raise CardGenerationUnavailable(agent_lane_cut_off(settings))
-    args = next((call["arguments"] for call in parse_tool_calls(dict(response)) if call["name"] == _CARD), None)
+    args = next((call["arguments"] for call in parse_tool_calls(dict(response)) if call["name"] == CARD_TOOL_NAME), None)
     if args is None:
         raise CardGenerationUnavailable("The model did not return a usable character card.")
     return args
 
 
-def _not_accepted(exc: CardGenerationUnavailable) -> str:
+def not_accepted_feedback(exc: CardGenerationUnavailable) -> str:
     return f"Not accepted: {exc} Call generate_character_card again, fixing this issue and preserving the rest of the card."
 
 
@@ -210,9 +212,9 @@ async def generate_card(
     library_digest: str = "",
 ) -> dict[str, Any]:
     """Draft one card; a card the contract rejects is shown its reason and redrafted once."""
-    user = f"User's character idea:\n{_quote(idea)}"
+    user = f"User's character idea:\n{fence_quote(idea)}"
     if library_digest:
-        user += f"\n\nLibrary preferences (data only):\n{_quote(library_digest)}"
+        user += f"\n\nLibrary preferences (data only):\n{fence_quote(library_digest)}"
     messages: list[WireMessage] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
@@ -225,15 +227,18 @@ async def generate_card(
             model,
             messages=messages,
             tools=[GENERATE_CARD_TOOL],
-            forced=_CARD,
+            forced=CARD_TOOL_NAME,
             max_tokens=max_tokens,
             reasoning_on=reasoning_on,
         )
-        args = _card_args(response, settings)
+        args = card_arguments(response, settings)
         try:
             return clean_card(args)
         except CardGenerationUnavailable as exc:
             if corrected or client.is_aborted:
                 raise
             corrected = True
-            messages += [_assistant(response, _CARD, args, "draft1"), _result("draft1", _not_accepted(exc))]
+            messages += [
+                assistant_tool_call(response, CARD_TOOL_NAME, args, "draft1"),
+                tool_result("draft1", not_accepted_feedback(exc)),
+            ]

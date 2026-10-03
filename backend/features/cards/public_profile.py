@@ -10,14 +10,8 @@ from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
 PROFILE_TOOL_NAME = "draft_public_profile"
 
-# The floor both prompts quote verbatim. One sentence set, so the card editor and
-# Manage cast cannot drift on what "public" means — and so the deterministic
-# output contract below has something to be the enforcement of.
-#
-# Braces are on the list because a profile is macro-resolved at turn time
-# (``prompting/group_context._render_public_cast``): a generated ``{{user}}``
-# would quietly substitute months later, in a string the user already reviewed
-# and approved.
+# Shared public-profile prompt contract. Forbid braces because profiles are
+# macro-resolved at turn time and approved text must stay stable.
 PROFILE_FLOOR = (
     "A public profile carries only what anyone else in the scene could observe or already knows. "
     "Never include secrets, hidden agendas, private instructions, internal motivations, or example dialogue. "
@@ -89,14 +83,9 @@ class ProfileDraftUnavailable(RuntimeError):
 
 
 def _clean_field(value: Any, label: str) -> str:
-    """One parsed field, normalized to a single line and contract-checked.
+    """Normalize one profile field to a line; reject blank, brace-bearing or overlong output.
 
-    The deterministic half of the public-profile safety promise. The model still
-    judges which card facts are public; this decides whether what came back can
-    be stored at all, because these three failures are the ones a later reader
-    cannot recover from: a blank field silently publishes nothing, a brace
-    mutates the prompt at turn time, and an essay is billed to every member of
-    the cast on every call.
+    The model chooses public facts; these checks protect the stored contract.
     """
     if not isinstance(value, str):
         raise ProfileDraftUnavailable(f"The model returned no {label} for the profile.")
@@ -150,17 +139,9 @@ def build_scene_message(
     card_profile: str = "",
     omitted_cast: int = 0,
 ) -> str:
-    """The Manage cast drafting context for one member.
+    """Build labelled, non-empty scene-drafting sections for one member.
 
-    Every section is labelled and omitted when empty, rather than raw fields
-    joined by blank lines: ``post_history_instructions`` is a directive about
-    *how to write*, not a fact about the character, and unlabelled beside a
-    description it reads as one.
-
-    *cast_names* is names only, by construction — see the module docstring.
-    *omitted_cast* is how many ordered names past the caller's bound were left
-    out; it is stated in the prompt rather than silently dropped, so the model is
-    not told the list is the whole cast when it is not.
+    cast_names contains only names; report omitted_cast so truncation is explicit.
     """
     name = display_name.strip() or str(card.get("name") or "").strip()
     parts: list[str] = []
