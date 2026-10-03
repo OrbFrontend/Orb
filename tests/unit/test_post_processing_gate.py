@@ -30,7 +30,7 @@ SETTINGS = {"model_name": "test-model", "enable_agent": 1, "reasoning_enabled_pa
 REQUEST = "Mara waits at the tavern."
 
 
-def _fragment(fid: str, gate: str = "", sort_order: int = 0) -> dict:
+def _fragment(fid: str, gate: str = "", sort_order: int = 0, replies: int = 0) -> dict:
     return {
         "id": fid,
         "label": fid.title(),
@@ -39,6 +39,7 @@ def _fragment(fid: str, gate: str = "", sort_order: int = 0) -> dict:
         "field_type": "post_processing",
         "sort_order": sort_order,
         "post_processing_gate": gate,
+        "post_processing_gate_replies": replies,
     }
 
 
@@ -318,6 +319,54 @@ async def test_an_oversized_imported_card_gate_fails_open_without_truncation(mon
 
 
 # Draft and request threading
+
+
+@pytest.mark.parametrize(("replies", "shown"), [(0, []), (2, ["Second.", "Third."]), (10, ["First.", "Second.", "Third."])])
+async def test_the_judge_reads_the_asked_for_previous_replies_oldest_first(monkeypatch, replies, shown):
+    judge = Judge(monkeypatch, {"trim": 0.9})
+
+    record = await judge_gate(
+        CONFIG,
+        _fragment("trim", "Leak?", replies=replies),
+        effective_msg=REQUEST,
+        draft="Hi.",
+        timeout_seconds=3,
+        recent_replies=["Third.", "Second.", "First."],
+    )
+
+    assert judge.states == [gate_state(REQUEST, "Hi.", shown)]
+    assert record["arguments"].get("previous_replies", 0) == len(shown)
+
+
+@pytest.mark.parametrize("override", [None, ["Kept."]])
+async def test_editor_pass_feeds_gates_the_same_replies_as_the_audit_window(monkeypatch, override):
+    judge = Judge(monkeypatch, {"trim": 0.9})
+    base = CachedBase(
+        prefix=(
+            {"role": "system", "content": "sys"},
+            {"role": "assistant", "content": "Older."},
+            {"role": "user", "content": "Go on."},
+            {"role": "assistant", "content": "Newer."},
+        ),
+        tools=_base().tools,
+        model="test-model",
+    )
+
+    async for _ in editor_pass(
+        Editor().client,
+        base,
+        REQUEST,
+        "Hello there.",
+        SETTINGS,
+        [],
+        audit_enabled=False,
+        audit_context_msgs=override,
+        post_processing_fragments=[_fragment("trim", "Leak?", replies=5)],
+        judge_config=CONFIG,
+    ):
+        pass
+
+    assert judge.states == [gate_state(REQUEST, "Hello there.", ["Kept."] if override else ["Older.", "Newer."])]
 
 
 async def test_each_gate_sees_the_request_and_the_evolving_draft(monkeypatch):

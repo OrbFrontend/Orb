@@ -80,6 +80,7 @@ async def post_processing_step(
     writer_user_msg: str | list[ContentPart],
     effective_msg: str,
     judge_config: JudgeConfig | None = None,
+    recent_replies: Sequence[str] = (),
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -87,7 +88,8 @@ async def post_processing_step(
     """Run one forced exact-edit call per fragment in ``sort_order``.
 
     A fragment with a gate question first asks the Judge about the draft as the
-    earlier fragments left it, and is skipped on a no. Every gate in the step
+    earlier fragments left it, and is skipped on a no. The gate may also show
+    the Judge some of *recent_replies* (newest first). Every gate in the step
     shares one ``GATE_BUDGET_SECONDS`` of Judge waiting.
 
     A fragment whose call fails is reported as a ``failure`` event and skipped;
@@ -111,6 +113,7 @@ async def post_processing_step(
                     effective_msg=effective_msg,
                     draft=current,
                     timeout_seconds=judge_allowance,
+                    recent_replies=recent_replies,
                     abort=client.abort_token,
                 )
             except DecisionCancelled:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import httpx
@@ -45,11 +46,21 @@ def gate_question(fragment: Mapping[str, Any]) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def gate_state(effective_msg: str, draft: str) -> str:
-    return f"Current request:\n{effective_msg}\n\nReply:\n{draft}"
+def gate_replies(fragment: Mapping[str, Any]) -> int:
+    """How many previous replies the fragment's gate shows the Judge."""
+    value = fragment.get("post_processing_gate_replies")
+    return value if isinstance(value, int) and value > 0 else 0
 
 
-def _record(fragment: Mapping[str, Any], question: str, *, fired: bool, reason: str, **extra: Any) -> dict[str, Any]:
+def gate_state(effective_msg: str, draft: str, previous_replies: Sequence[str] = ()) -> str:
+    """The Judge's view: *previous_replies* (oldest first), the request, the draft."""
+    context = "".join(f"Previous reply:\n{reply}\n\n" for reply in previous_replies)
+    return f"{context}Current request:\n{effective_msg}\n\nReply:\n{draft}"
+
+
+def _record(
+    fragment: Mapping[str, Any], question: str, *, fired: bool, reason: str, previous_replies: int = 0, **extra: Any
+) -> dict[str, Any]:
     arguments: dict[str, Any] = {
         "fragment_id": fragment.get("id", ""),
         "label": fragment.get("label") or fragment.get("id", ""),
@@ -58,6 +69,8 @@ def _record(fragment: Mapping[str, Any], question: str, *, fired: bool, reason: 
         "reason": reason,
         **extra,
     }
+    if previous_replies:
+        arguments["previous_replies"] = previous_replies
     return {"name": GATE_RECORD_NAME, "arguments": arguments}
 
 
@@ -68,24 +81,27 @@ async def judge_gate(
     effective_msg: str,
     draft: str,
     timeout_seconds: float,
+    recent_replies: Sequence[str] = (),
     abort: AbortToken | None = None,
 ) -> dict[str, Any]:
     """Evaluate *fragment*'s gate on *draft* and return its Inspector record.
 
-    Anything that keeps the Judge from answering fails open (``fired: 1``) and
-    records why. A Stop raises ``DecisionCancelled`` instead.
+    *recent_replies* is the conversation's assistant replies, newest first; the
+    gate shows the Judge as many as the fragment asks for. Anything that keeps
+    the Judge from answering fails open (``fired: 1``) and records why. A Stop
+    raises ``DecisionCancelled`` instead.
     """
     question = gate_question(fragment)
+    previous = list(reversed(recent_replies[: gate_replies(fragment)]))
+    record = partial(_record, fragment, question, previous_replies=len(previous))
     if config is None or not config.configured:
-        return _record(fragment, question, fired=True, reason=SkipReason.NOT_CONFIGURED)
+        return record(fired=True, reason=SkipReason.NOT_CONFIGURED)
 
-    state = gate_state(effective_msg, draft)
+    state = gate_state(effective_msg, draft, previous)
     state_bytes = len(state.encode())
     question_bytes = len(question.encode()) + sum(len(text.encode()) for text in GATE_CRITERIA.values())
     if state_bytes > MAX_STATE_BYTES or question_bytes > MAX_QUESTION_BYTES:
-        return _record(
-            fragment,
-            question,
+        return record(
             fired=True,
             reason=SkipReason.OVERSIZED_INPUT,
             oversize_state_bytes=state_bytes,
@@ -95,7 +111,7 @@ async def judge_gate(
         )
 
     if timeout_seconds <= 0:
-        return _record(fragment, question, fired=True, reason=SkipReason.BUDGET_EXHAUSTED)
+        return record(fired=True, reason=SkipReason.BUDGET_EXHAUSTED)
 
     key = str(fragment.get("id", "") or "gate")
     timeout = min(GATE_BUDGET_SECONDS, timeout_seconds)
@@ -107,13 +123,13 @@ async def judge_gate(
                 state, [DecisionQuestion(key, question, GATE_CRITERIA)], timeout=timeout, abort=abort
             )
     except (httpx.TimeoutException, TimeoutError):
-        return _record(fragment, question, fired=True, reason=SkipReason.TIMEOUT)
+        return record(fired=True, reason=SkipReason.TIMEOUT)
     except (LLMCallError, DecisionTransportError, httpx.HTTPError) as exc:
         logger.warning("Post-processing gate for %r failed (%r); running the fragment", key, exc)
-        return _record(fragment, question, fired=True, reason=SkipReason.TRANSPORT_FAILURE)
+        return record(fired=True, reason=SkipReason.TRANSPORT_FAILURE)
 
     answer = response.answers.get(key)
     if not isinstance(answer, float):
-        return _record(fragment, question, fired=True, reason=SkipReason.INVALID_ANSWER)
+        return record(fired=True, reason=SkipReason.INVALID_ANSWER)
     met = answer >= GATE_THRESHOLD
-    return _record(fragment, question, fired=met, reason=CONDITION_MET if met else CONDITION_NOT_MET, probability=answer)
+    return record(fired=met, reason=CONDITION_MET if met else CONDITION_NOT_MET, probability=answer)

@@ -62,15 +62,25 @@ untouched. An empty question means the fragment runs every turn.
 Gating needs a Judge endpoint in **Endpoints → Judge**, the same one decision
 fragments use.
 
-**What the Judge sees.** Only this text, with no conversation history:
+**What the Judge sees.** The user's message, the draft, and as many earlier
+replies as the fragment's **History** asks for (0 to 10, default 0):
 
 ```text
+Previous reply:
+<an earlier assistant reply, one block per History reply>
+
 Current request:
 <the user's message for this turn>
 
 Reply:
 <the draft as it stands>
 ```
+
+With History at 0 the Judge sees nothing of the chat before this turn, so it
+can only answer questions about the reply itself. Raise History when the answer
+depends on what came before, such as whether a character could know something.
+Start at 1 and go higher if the gate misses things that happened further back.
+Earlier user messages are not included.
 
 The draft is the evolving one: after Output Auditor and Length Guard edits and
 after every earlier post-processing fragment. Each gate is judged on its own
@@ -89,7 +99,7 @@ as if it had no gate:
 | Reason | When |
 |---|---|
 | `not_configured` | No Judge endpoint or model is set |
-| `oversized_input` | The request-and-draft text is over 16 KiB, or the question plus criteria is over 8 KiB (UTF-8 bytes) |
+| `oversized_input` | The previous replies, request and draft together are over 16 KiB, or the question plus criteria is over 8 KiB (UTF-8 bytes) |
 | `budget_exhausted` | The turn's gates have used up their Judge-wait budget |
 | `timeout` | The Judge did not answer within the remaining budget |
 | `transport_failure` | The Judge could not be reached or returned an error |
@@ -117,7 +127,8 @@ fragment's `editor_search_replace` call when that runs:
 ```
 
 `fired` is 1 when the fragment ran. A Judge verdict has reason
-`condition_met` or `condition_not_met` and carries its `probability`. Any other
+`condition_met` or `condition_not_met` and carries its `probability`. A gate
+with History lists how many replies it sent as `previous_replies`. Any other
 reason is a fail-open from the table above and has no probability; an
 `oversized_input` entry also lists the byte sizes and limits.
 

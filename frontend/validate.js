@@ -292,6 +292,11 @@ export function validateInteractiveFragment(data) {
   const cooldownInteger = isInteger(data.cooldown_turns, "Cooldown");
   if (!cooldownInteger.valid) return cooldownInteger;
 
+  const historyRange = numberRange(data.post_processing_gate_replies, 0, 10, "History");
+  if (!historyRange.valid) return historyRange;
+  const historyInteger = isInteger(data.post_processing_gate_replies, "History");
+  if (!historyInteger.valid) return historyInteger;
+
   return { valid: true };
 }
 

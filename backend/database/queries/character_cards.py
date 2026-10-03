@@ -227,6 +227,9 @@ def card_embedded_fragments(
                 **{column: None for column in DECISION_COLUMNS},
                 # Unbounded here: the gate checks the Judge's byte limits when it runs.
                 "post_processing_gate": _text(entry, "post_processing_gate") if raw_type == "post_processing" else "",
+                "post_processing_gate_replies": (
+                    _int(entry, "post_processing_gate_replies", 0, 0, 10) if raw_type == "post_processing" else 0
+                ),
             },
         )
         if raw_type == DECISION_FIELD_TYPE:

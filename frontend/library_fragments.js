@@ -368,12 +368,30 @@ function _repaintGateNote() {
   if (note) note.style.display = _judgeKnownUnconfigured() ? "" : "none";
 }
 
+// History only matters once there is a question to ask.
+function _syncGateHistory() {
+  const asked = !!document.getElementById("interactive-frag-gate")?.value.trim();
+  for (const id of ["interactive-frag-gate-history", "interactive-frag-gate-history-hint"]) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = asked ? "" : "none";
+  }
+}
+
+document.addEventListener("input", (e) => {
+  if (e.target.closest?.("[data-gate-question]")) _syncGateHistory();
+});
+
 function _gateRowHtml(d) {
-  return `<div class="field" id="interactive-frag-gate-row" style="${d.field_type === "post_processing" ? "" : "display:none"}">
-      <label for="interactive-frag-gate">Run only when (asks the Judge)</label>
-      <textarea id="interactive-frag-gate" rows="2" maxlength="2000" placeholder="Is this reply stagnant?">${esc(d.post_processing_gate || "")}</textarea>
-      <div class="field-hint">Yes/no question for the Judge — empty = always run, even if the Judge is unavailable.</div>
-      <div class="field-warning" id="interactive-frag-gate-note" style="${_judgeKnownUnconfigured() ? "" : "display:none"}">
+  const hidden = (d.post_processing_gate || "").trim() ? "" : "display:none";
+  return `<div id="interactive-frag-gate-row" style="${d.field_type === "post_processing" ? "" : "display:none"}">
+      <div class="field-row ifrag-gate-row">
+        <div class="field"><label for="interactive-frag-gate">Run only when (asks the Judge)</label>
+          <textarea id="interactive-frag-gate" data-gate-question rows="2" maxlength="2000" placeholder="Is this reply stagnant?">${esc(d.post_processing_gate || "")}</textarea></div>
+        <div class="field field-narrow" id="interactive-frag-gate-history" style="${hidden}"><label for="interactive-frag-gate-replies">History</label>
+          <input id="interactive-frag-gate-replies" type="number" min="0" max="10" step="1" value="${escAttr(d.post_processing_gate_replies || 0)}" title="Previous replies to send to the Judge"></div>
+      </div>
+      <div class="field-hint">Yes/no question for the Judge — empty = always run, even if the Judge is unavailable.<span id="interactive-frag-gate-history-hint" style="${hidden}"> History = how many previous replies to send to the Judge.</span></div>
+      <div class="field-warning ifrag-gate-note" id="interactive-frag-gate-note" style="${_judgeKnownUnconfigured() ? "" : "display:none"}">
         No Judge endpoint is configured, so this fragment runs every turn.
       </div>
     </div>`;
@@ -543,6 +561,7 @@ function _interactiveFragFormHtml(d, isEdit) {
 
 function _readInteractiveFragForm() {
   const fieldType = document.getElementById("interactive-frag-type").value;
+  const gate = fieldType === "post_processing" ? document.getElementById("interactive-frag-gate").value.trim() : "";
   const base = {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
@@ -554,8 +573,10 @@ function _readInteractiveFragForm() {
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     cooldown_turns: parseInt(document.getElementById("interactive-frag-cooldown").value, 10) || 0,
     // Always sent, so a type change also clears a card fragment's stale gate.
-    post_processing_gate:
-      fieldType === "post_processing" ? document.getElementById("interactive-frag-gate").value.trim() : "",
+    post_processing_gate: gate,
+    post_processing_gate_replies: gate
+      ? parseInt(document.getElementById("interactive-frag-gate-replies").value, 10) || 0
+      : 0,
   };
   if (fieldType === "state") {
     base.state_mode = _stateSelectValue("mode");

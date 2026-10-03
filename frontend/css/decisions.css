@@ -146,6 +146,21 @@
 
 .decision-cell-label { display: none; }
 
+/* The gate's question box is taller than its History number: labels share a
+   bottom line (a wrapping one grows upward) and the controls share a top line.
+   A hidden History leaves its auto column empty, so the question spans the row. */
+.align-controls .field-row.ifrag-gate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0;
+  margin-bottom: 10px;
+}
+.ifrag-gate-row > .field { display: contents; }
+.ifrag-gate-row > .field > label { grid-row: 1; align-self: end; }
+.ifrag-gate-row > .field > :not(label) { grid-row: 2; align-self: start; }
+.ifrag-gate-row > .field-narrow > * { width: 88px; margin-left: 8px; box-sizing: border-box; }
+.ifrag-gate-note { margin: -6px 0 10px; }
+
 /* ── Mobile editor ── */
 @media (max-width: 700px) {
   .ifrag-form .field-row {
@@ -155,6 +170,7 @@
 
   .ifrag-form .field-row > .field > label > span { display: block; }
   .ifrag-form .field-row > .field-narrow { flex-basis: 76px; }
+  .ifrag-gate-row > .field-narrow > * { width: 76px; }
 
   .decision-section .field-row > .field:first-child { flex: .7 1 0; min-width: 0; }
   .decision-section .field-row > .field:nth-child(2) { flex: 1.3 1 0; min-width: 0; }

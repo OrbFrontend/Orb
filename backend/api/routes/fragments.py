@@ -99,8 +99,10 @@ def _checked_gate_write(payload: dict, existing: dict[str, Any] | None = None) -
     if field_type != "post_processing":
         if "field_type" in payload:
             payload["post_processing_gate"] = ""
+            payload["post_processing_gate_replies"] = 0
         else:
             payload.pop("post_processing_gate", None)
+            payload.pop("post_processing_gate_replies", None)
     return payload
 
 

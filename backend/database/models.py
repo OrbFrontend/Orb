@@ -659,6 +659,8 @@ class InteractiveFragmentRow(TypedDict):
     decision_confidence_floor: float | None
     # Post-processing only; '' means the fragment runs every turn.
     post_processing_gate: str
+    # Post-processing only; previous replies the gate shows the Judge (0 = draft alone).
+    post_processing_gate_replies: int
 
 
 class MoodFragmentRow(TypedDict):

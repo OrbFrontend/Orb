@@ -102,7 +102,8 @@ def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
 
 def _baseline_window(base: CachedBase, audit_context_msgs: list[str] | None) -> list[str]:
     """The recent assistant-message window (newest first, up to
-    AUDIT_BASELINE_WINDOW) the repetition scanners compare the draft against.
+    AUDIT_BASELINE_WINDOW) the repetition scanners compare the draft against
+    and post-processing gates draw their previous replies from.
 
     Callers may pass an explicit list via *audit_context_msgs* (e.g.
     super-regenerate, which excludes the message being replaced); when None the
@@ -245,6 +246,7 @@ async def editor_pass(
             writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
             effective_msg=effective_msg,
             judge_config=judge_config,
+            recent_replies=_baseline_window(base, audit_context_msgs),
             kv_tracker=kv_tracker,
             reasoning_on=reasoning_on,
             reasoning_prefill=reasoning_prefill,

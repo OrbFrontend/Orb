@@ -247,6 +247,18 @@ async def test_other_types_never_store_a_gate(client, db):
     assert back.json()["post_processing_gate"] == ""
 
 
+async def test_gate_history_is_bounded_kept_and_cleared_with_the_type(client, db):
+    created = await client.post("/api/interactive-fragments", json={**_GATED, "post_processing_gate_replies": 2})
+    over = await client.post("/api/interactive-fragments", json={**_GATED, "id": "x", "post_processing_gate_replies": 11})
+    kept = await client.put("/api/interactive-fragments/trim", json={"label": "Trim"})
+    retyped = await client.put("/api/interactive-fragments/trim", json={"field_type": "feedback"})
+
+    assert created.json()["post_processing_gate_replies"] == 2
+    assert over.status_code == 422
+    assert kept.json()["post_processing_gate_replies"] == 2
+    assert retyped.json()["post_processing_gate_replies"] == 0
+
+
 async def test_direct_database_create_normalizes_a_missing_or_null_gate(client, db):
     from backend.database import create_interactive_fragment
 
@@ -274,6 +286,7 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
                         "description": "Trim actions.",
                         "field_type": "post_processing",
                         "post_processing_gate": "Do more than two actions happen?",
+                        "post_processing_gate_replies": 2,
                     }
                 ]
             }
@@ -291,6 +304,23 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
     assert ctx is not None
     fragment = next(row for row in ctx.interactive_fragments if row["id"] == "card_trim")
     assert fragment["post_processing_gate"] == "Do more than two actions happen?"
+    assert fragment["post_processing_gate_replies"] == 2
+
+
+def test_migration_0078_gives_existing_gates_no_history_and_reruns_safely():
+    import importlib
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE interactive_fragments (id TEXT PRIMARY KEY, post_processing_gate TEXT NOT NULL DEFAULT '')")
+    conn.execute("INSERT INTO interactive_fragments VALUES ('trim', 'Is it long?')")
+    migrate = importlib.import_module("backend.database.migrations.0078_post_processing_gate_replies").migrate
+
+    migrate(conn)
+    migrate(conn)
+
+    assert conn.execute("SELECT post_processing_gate_replies FROM interactive_fragments").fetchall() == [(0,)]
+    conn.close()
 
 
 def test_migration_0072_adds_an_empty_gate_and_reruns_safely():

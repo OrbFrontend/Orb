@@ -78,6 +78,7 @@ def test_happy_path_shapes():
             "state_inject": "both",
             **NO_DECISION,
             "post_processing_gate": "",
+            "post_processing_gate_replies": 0,
         }
     ]
 
