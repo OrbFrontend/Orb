@@ -385,7 +385,7 @@ def test_description_scopes_to_the_member_like_char_does():
     """
     scoped = member_macros(MACROS, KAEL, "Aria, Kael")
     assert scoped.resolve_message("{{char}}: {{description}}") == "Kael: KAEL SHEET"
-    # ARIA carries a scene override, which _private_sheet returns in place of
+    # ARIA carries a scene override, which resolve_private_sheet returns in place of
     # the card join -- the macro reads the same field, so it inherits that.
     assert member_macros(MACROS, ARIA, "Aria, Kael").description == ARIA.private_sheet
     # The scene-level macros are untouched: rescoping is per call, not in place.

@@ -55,14 +55,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Pure helpers, imported rather than copied. `_normalise_lorebook_entry` is
-# private to the API layer, but pinning the one real ST field mapping beats
-# duplicating it into scripts/ where it would silently drift from the routes.
-from backend.api.deps import _normalise_lorebook_entry  # noqa: E402
+# Pure helpers, imported rather than copied, so the one real ST field mapping
+# cannot drift from the one the import routes use.
 from backend.database.queries.group_members import allocate_speaker_key  # noqa: E402
 from backend.features.cards.expressions import extract_expressions_zip  # noqa: E402
 from backend.features.cards.parsing import card_to_dict, read_orb_id  # noqa: E402
 from backend.features.cards.parsing import parse as parse_card  # noqa: E402
+from backend.features.lorebook import normalise_lorebook_entry  # noqa: E402
 
 DATASETS = ("worlds", "characters", "personas", "chats", "groups")
 
@@ -569,7 +568,7 @@ def write_world(conn: sqlite3.Connection, name: str, entries: list[dict], enable
     for item in entries:
         # entry_layer/overlay_action pin the row to the user-authored layer; the
         # overlay is the Agent's to write, never an importer's.
-        data = _normalise_lorebook_entry(item)
+        data = normalise_lorebook_entry(item)
         conn.execute(
             """INSERT INTO lorebook_entries
                (world_id, name, content, keywords, case_insensitive, constant, at_depth, use_regex, selective,

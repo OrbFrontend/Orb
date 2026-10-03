@@ -117,7 +117,7 @@ def extract_cache_stats(usage: dict | None) -> dict:
     }
 
 
-class _KVCacheTracker:
+class KVCacheTracker:
     def __init__(self, conversation_id: str | None = None):
         self._entries: list[dict] = []
         self._conversation_id = conversation_id

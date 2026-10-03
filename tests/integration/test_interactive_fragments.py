@@ -274,7 +274,7 @@ async def test_direct_database_create_normalizes_a_missing_or_null_gate(client, 
 
 async def test_card_gate_survives_export_and_import(client, db, tmp_path):
     from backend.features.cards import parsing
-    from backend.pipeline.context import _load_pipeline_context
+    from backend.pipeline.context import load_pipeline_context
 
     extensions = {
         "orb": {
@@ -300,7 +300,7 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
 
     copy = (await client.post("/api/characters", json={**reimported, "name": "Gated copy"})).json()
     conv = (await client.post("/api/conversations", json={"character_card_id": copy["id"]})).json()
-    ctx = await _load_pipeline_context(conv["id"])
+    ctx = await load_pipeline_context(conv["id"])
     assert ctx is not None
     fragment = next(row for row in ctx.interactive_fragments if row["id"] == "card_trim")
     assert fragment["post_processing_gate"] == "Do more than two actions happen?"

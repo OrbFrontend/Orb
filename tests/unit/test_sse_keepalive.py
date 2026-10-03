@@ -1,4 +1,4 @@
-"""_sse_stream emits keepalive comments during silent gaps, and settles a stopped stream.
+"""sse_stream emits keepalive comments during silent gaps, and settles a stopped stream.
 
 A turn has long token-free stretches (reasoning-off director, the text-mode
 editor prefill loop). Without a heartbeat an idle-timeout proxy drops the SSE
@@ -29,7 +29,7 @@ async def test_keepalive_during_silence_and_events_passthrough(monkeypatch):
         await asyncio.sleep(0.17)  # silent gap → expect keepalives
         yield {"event": "done"}
 
-    frames = [frame async for frame in deps._sse_stream(gen(), _FakeReq())]
+    frames = [frame async for frame in deps.sse_stream(gen(), _FakeReq())]
 
     assert frames.count(": keepalive\n\n") >= 2
     assert "event: token\ndata: hi\n\n" in frames
@@ -77,7 +77,7 @@ async def test_stop_answers_after_the_stream_has_saved_and_released_the_lock():
     frames: list[str] = []
 
     async def consume():
-        async for frame in deps._sse_stream(_turn(token, saving, release, log), _Req(), abort_token=token, cid=cid):
+        async for frame in deps.sse_stream(_turn(token, saving, release, log), _Req(), abort_token=token, cid=cid):
             frames.append(frame)
 
     reader = asyncio.create_task(consume())
@@ -109,7 +109,7 @@ async def test_a_disconnect_lets_the_turn_finish_saving_before_the_lock_is_relea
     first = asyncio.Event()
 
     async def consume():
-        async for _ in deps._sse_stream(_turn(token, saving, release, log), _Req(), abort_token=token, cid=cid):
+        async for _ in deps.sse_stream(_turn(token, saving, release, log), _Req(), abort_token=token, cid=cid):
             first.set()
 
     reader = asyncio.create_task(consume())
@@ -141,7 +141,7 @@ async def test_a_request_whose_client_left_before_registration_never_generates()
         seen.append(token.is_aborted)
         yield {"event": "done"}
 
-    frames = [frame async for frame in deps._sse_stream(gen(), _Req(disconnected=True), abort_token=token, cid="early")]
+    frames = [frame async for frame in deps.sse_stream(gen(), _Req(disconnected=True), abort_token=token, cid="early")]
 
     assert seen == [True]
     assert frames == ["event: done\ndata: \n\n"]

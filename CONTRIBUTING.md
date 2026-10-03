@@ -10,25 +10,24 @@ Start the backend with `./run_unix.sh` (or `run_windows.bat` on Windows). Python
 
 ### Optional: Auto-formatting on commit
 
-Run `pip3 install -r requirements-dev.txt` to set up Python formatters.
+Run `npm install` (requires Node.js) to install the pinned frontend tools and set up git hooks via Lefthook. The hooks format staged files before each commit:
 
-Run `npm install` to set up git hooks via Lefthook. This auto-formats staged files before each commit:
-
-- **Python** — Black (formatting) + Flake8 (linting)
+- **Python** — Ruff (import sorting, formatting, and linting). The hook calls `python3 -m ruff`, so commit with the `.venv` the scripts create activated.
 - **JavaScript** — Biome (formatting)
 
-No more CI failures from formatting issues. Requires Node.js.
+Ruff and Biome read their settings from `ruff.toml` and `biome.json`, so an editor's format-on-save produces the same output as the hooks and CI.
 
 ## 2. Run the checks
 
-Everything lives in `scripts/`. Run them before you push:
+Everything lives in `scripts/`. The scripts create and sync `.venv` themselves. Run them before you push:
 
 - **Tests** - `./scripts/tests.sh all`
 - **Format** - `./scripts/format_backend.sh` and `./scripts/format_frontend.sh`
-- **Lint** - `./scripts/lint.sh`
+- **Lint** - `./scripts/lint.sh` (Ruff, Pyright, the backend and frontend layer checks, Biome, and the frontend unit tests)
 - **Compatibility** - `./scripts/compatibility_test.sh`
+- **Security** - `./scripts/security_check.sh` (pip-audit and Bandit)
 
-If any of these fail, fix it before submitting.
+If any of these fail, fix it before submitting. CI runs the tests, format, and lint checks.
 
 ## 3. Open a PR
 
@@ -38,7 +37,7 @@ If any of these fail, fix it before submitting.
 
 ## 4. AI-assisted contributions
 
-AI-generated code is welcome, but it needs extra scrutiny. If you're using an AI coding tool (Claude Code, Codex, Cursor, etc.), read `AGENTS.md` at the repo root first. It contains the architecture, database schema, API reference, and gotchas specific to this project — the stuff these tools need to produce correct code.
+AI-generated code is welcome, but it needs extra scrutiny. If you're using an AI coding tool (Claude Code, Codex, Cursor, etc.), point it at `AGENTS.md` at the repo root first. It holds the layer rules and project conventions these tools need to produce correct code, and points to the architecture notes in `docs/architecture/` for prompt assembly, streaming, and the database.
 
 ## 5. Quick rules
 

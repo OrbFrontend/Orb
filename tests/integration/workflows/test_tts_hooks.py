@@ -21,8 +21,8 @@ from backend.database import (
     get_messages,
     get_workflow_attachment_by_id,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.orchestrator import run_pipeline
 from backend.workflows import (
     HookType,
     PostCtx,
@@ -130,7 +130,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
     with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
         events = [
             ev
-            async for ev in _run_pipeline(
+            async for ev in run_pipeline(
                 LLMClient("http://localhost:9999"),
                 {"model_name": "test", "enable_agent": 1, "enabled_tools": {}, "reasoning_enabled_passes": {}},
                 {"active_moods": []},
@@ -142,7 +142,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
                 prefix=[{"role": "system", "content": "You are an assistant."}],
                 enabled_tools={},
                 turn_scratch={},
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
@@ -156,7 +156,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
 
 
 async def test_full_send_turn_persists_audio_attachment(client, llm_mock, fake_adapter):
-    # The real /send path: HTTP -> handle_turn -> _run_pipeline -> POST_PIPELINE
+    # The real /send path: HTTP -> handle_turn -> run_pipeline -> POST_PIPELINE
     # -> _persist_result -> add_message. Asserts the audio attachment lands on
     # the persisted assistant message.
     cid, char_id = await _seed()

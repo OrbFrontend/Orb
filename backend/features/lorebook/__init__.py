@@ -29,6 +29,7 @@ from .changesets import (
     undo_changeset,
 )
 from .enablement import agentic_lorebook_active
+from .interchange import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from .proposals import (
     ValidatedProposal,
     build_world_change_catalog,
@@ -74,4 +75,8 @@ __all__ = [
     "reset_world_to_authored",
     "stage_proposal",
     "undo_changeset",
+    # Character Card / World Info interchange
+    "lorebook_to_book",
+    "normalise_lorebook_entry",
+    "project_lorebook_view",
 ]

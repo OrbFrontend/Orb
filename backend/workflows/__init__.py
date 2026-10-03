@@ -20,8 +20,8 @@ from .contracts import (
     RerollGenCtx,
     ToolSpec,
     WorkflowEventStream,
-    _readonly,
     public_event_error,
+    readonly_view,
 )
 from .format_consistency import format_consistency_workflow
 from .format_consistency.hooks import (
@@ -100,7 +100,7 @@ __all__ = [
     "WorkflowDeclarationError",
     "WorkflowEventStream",
     "WorkflowMandateError",
-    "_readonly",
+    "readonly_view",
     "public_event_error",
     "finalize_registry",
     "get_subscription",

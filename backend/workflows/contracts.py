@@ -10,14 +10,14 @@ from types import MappingProxyType
 from typing import Any
 
 
-def _readonly(obj: Any) -> Any:
+def readonly_view(obj: Any) -> Any:
     """Return a recursive read-only view of obj."""
     if isinstance(obj, dict):
-        return MappingProxyType({k: _readonly(v) for k, v in obj.items()})
+        return MappingProxyType({k: readonly_view(v) for k, v in obj.items()})
     if isinstance(obj, (list, tuple)):
-        return tuple(_readonly(v) for v in obj)
+        return tuple(readonly_view(v) for v in obj)
     if isinstance(obj, (set, frozenset)):
-        return frozenset(_readonly(v) for v in obj)
+        return frozenset(readonly_view(v) for v in obj)
     if isinstance(obj, bytearray):
         return bytes(obj)
     return obj

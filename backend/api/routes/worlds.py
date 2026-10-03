@@ -27,11 +27,9 @@ from ...database import (
     update_world_changeset,
 )
 from ...features import lorebook
+from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...pipeline.world_proposal import reevaluate_changeset
 from ..deps import (
-    _normalise_lorebook_entry,
-    lorebook_to_book,
-    project_lorebook_view,
     require_changeset,
     require_lorebook_entry,
     require_world,
@@ -165,7 +163,7 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
     else:
         raise HTTPException(status_code=422, detail="entries must be an object or array")
 
-    normalised = [_normalise_lorebook_entry(item) for item in items if isinstance(item, dict)]
+    normalised = [normalise_lorebook_entry(item) for item in items if isinstance(item, dict)]
     # One transaction, one revision bump: a half-imported World must never be
     # visible, and one user action must not invalidate pending proposals N times.
     created = await import_lorebook_entries(world_id, normalised)

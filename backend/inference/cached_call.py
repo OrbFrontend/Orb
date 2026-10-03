@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ..core import mark_call_start, reasoning_delta_event
 
 if TYPE_CHECKING:
-    from .kv_tracker import _KVCacheTracker
+    from .kv_tracker import KVCacheTracker
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ async def cached_complete(
     model: str,
     tools: list[dict] | None = None,
     tool_choice: dict | str | None = None,
-    kv_tracker: _KVCacheTracker | None = None,
+    kv_tracker: KVCacheTracker | None = None,
     record: bool = True,
     **params: Any,
 ) -> AsyncIterator[dict]:
@@ -93,7 +93,7 @@ class CachedBase:
         label: str,
         trailing: Sequence[Mapping[str, Any]],
         tool_choice: dict | str | None = None,
-        kv_tracker: _KVCacheTracker | None = None,
+        kv_tracker: KVCacheTracker | None = None,
         record: bool = True,
         **params: Any,
     ) -> AsyncIterator[dict]:

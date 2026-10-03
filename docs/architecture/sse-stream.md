@@ -34,7 +34,7 @@ data: <payload>
 
 ```
 
-The backend's `_sse_stream` wrapper serializes dictionary data as one-line JSON
+The backend's `sse_stream` wrapper serializes dictionary data as one-line JSON
 and escapes newlines in string data. Keepalive comments prevent an idle
 connection from being dropped.
 
@@ -127,7 +127,7 @@ exchange.
 ## Persistence and reconciliation
 
 The internal `_result` event carries the completed reply to the persistence
-layer. It is consumed by `_consume_pipeline` and never sent to the browser.
+layer. It is consumed by `consume_pipeline` and never sent to the browser.
 The internal `_turn_state` event, emitted just before the Writer starts, hands
 persistence the turn's live working state and is consumed the same way. When a
 turn fails or is cancelled before `_result`, persistence saves that state as a

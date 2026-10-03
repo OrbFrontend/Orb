@@ -18,7 +18,7 @@ from .entrypoints import (
 )
 from .passes.judge import remap_anchors as remap_decision_anchors
 from .predicates import agent_enabled, resolve_persona_id
-from .state import LorebookTurn, ModelLane, TurnState, _PipelineConfig
+from .state import LorebookTurn, ModelLane, PipelineConfig, TurnState
 
 __all__ = [
     # entrypoints — turn entry points
@@ -42,5 +42,5 @@ __all__ = [
     "LorebookTurn",
     "ModelLane",
     "TurnState",
-    "_PipelineConfig",
+    "PipelineConfig",
 ]

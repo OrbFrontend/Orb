@@ -274,7 +274,7 @@ class GroupMemberRow(TypedDict):
     public_profile_override: str | None
     # What the member reads about *itself* this scene, replacing the card's
     # description/personality join. ``None`` falls back to the card; ``""`` is a
-    # deliberate blanking. See ``queries.group_members._private_sheet``.
+    # deliberate blanking. See ``queries.group_members.resolve_private_sheet``.
     card_sheet_override: str | None
     member_kind: str
     sort_order: int

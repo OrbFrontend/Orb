@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 _Saved = tuple[int | None, list[dict], list[dict]]
 
 
-def _conversation_log_writer(conversation_id: str, log_turn_index: int):
+def conversation_log_writer(conversation_id: str, log_turn_index: int):
     """Return an async callback that writes the ``conversation_logs`` row for this turn.
 
     The callback runs right after the assistant message is saved. Normal turns
@@ -273,7 +273,7 @@ async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | Non
     await asyncio.shield(_run())
 
 
-async def _consume_pipeline(
+async def consume_pipeline(
     pipeline: AsyncIterator[dict],
     conversation_id: str,
     settings: Mapping[str, Any],

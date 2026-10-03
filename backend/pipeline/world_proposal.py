@@ -18,7 +18,7 @@ from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
 from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
 from .passes.world_change import world_change_step
-from .state import TurnState, WorldProposalTurn, _PipelineConfig
+from .state import PipelineConfig, TurnState, WorldProposalTurn
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ async def _load_targets(
 
 
 async def world_proposal_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -182,7 +182,7 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
         # reconstruction of the turn's shared blob: that one carries per-turn
         # schema overrides (`direct_scene` widened by the interactive fragments,
         # `give_feedback`) and transiently-enabled tools, so reproducing it means
-        # duplicating `_prepare_turn`'s assembly with nothing pinning the copy —
+        # duplicating `prepare_turn`'s assembly with nothing pinning the copy —
         # and a copy that is almost right buys exactly as little as this does.
         # So a re-evaluation re-ingests the prefix rather than riding the
         # conversation's warm cache. It is a rare, explicitly requested action

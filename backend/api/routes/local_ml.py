@@ -21,11 +21,16 @@ from ...inference.local_models import (
 )
 from ...inference.local_models.llama_server import binary as llama_binary
 from ...workflows import prose_rewriter_host, spark_tts_host
-from ..deps import _download_lock
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# One large download at a time: model fetches, model deletes, and the
+# llama-server runtime fetch. A single-user box on a home connection pulls two
+# multi-gigabyte files at once slower than either alone, and the runtime fetch
+# also replaces a directory a model load may be reading from.
+_download_lock = asyncio.Lock()
 
 
 class _FeatureManagement(Protocol):

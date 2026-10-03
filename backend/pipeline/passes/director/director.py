@@ -21,8 +21,8 @@ from ....core import (
 )
 from ....inference import (
     CachedBase,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     parse_tool_calls,
     reasoning_cfg,
 )
@@ -41,7 +41,7 @@ from .prompts import build_director_scene_step_prompt, build_director_tool_promp
 
 if TYPE_CHECKING:
     from ....core import Macros
-    from ...state import BranchBaseline, LorebookTurn, TurnState, _PipelineConfig
+    from ...state import BranchBaseline, LorebookTurn, PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def build_direct_scene_override(
 ) -> dict:
     """Build the ``direct_scene`` tool schema from *writer_fragments*.
 
-    Thin wrapper over ``build_direct_scene_tool`` so ``_build_writer_tools_blob``
+    Thin wrapper over ``build_direct_scene_tool`` so ``build_writer_tools_blob``
     reaches the schema through the director module rather than importing the
     schema builder directly — symmetric to ``build_feedback_override``.
 
@@ -515,7 +515,7 @@ def apply_state_step_result(state: TurnState, result: StateStepResult, contract:
 
 
 async def director_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -525,7 +525,7 @@ async def director_stage(
     direct_scene_fragments: Sequence[Mapping[str, Any]],
     state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",

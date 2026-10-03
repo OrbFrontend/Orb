@@ -37,7 +37,6 @@ from ..database import (
     get_world_changeset,
 )
 from ..database.models import ConversationRow
-from ..features import lorebook
 from ..features.cards import ProfileDraftUnavailable
 from ..inference import AbortToken, LLMCallError, provider_sentence
 from ..workflows import WorkflowEventStream, public_event_error
@@ -151,7 +150,7 @@ async def deleting_resources(keys: Sequence[str]):
                 raise HTTPException(status_code=409, detail="Running work did not settle; nothing was deleted")
         async with contextlib.AsyncExitStack() as stack:
             for key in sorted(set(keys)):
-                await stack.enter_async_context(_conversation_stream_lock(key))
+                await stack.enter_async_context(conversation_stream_lock(key))
             yield
     finally:
         _deleting_resources.difference_update(keys)
@@ -249,16 +248,6 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
             return
 
 
-# One large download at a time, across every route that starts one. The
-# local-ML model fetches and the llama-server runtime fetch are separate
-# routers but the same resource: a single-user box on a home connection, where
-# two multi-gigabyte pulls at once are slower than either alone and the runtime
-# fetch also replaces a directory a model load may be reading from. Lives here
-# rather than in a route module because it is shared mutable state and two
-# routers must bind the same object.
-_download_lock = asyncio.Lock()
-
-
 # Per-conversation serialization for the streaming pipeline. The five chat
 # streaming routes refuse a second POST against a held lock with an in-band
 # SSE error event; /edit, /delete, and /switch-branch share the same lock
@@ -272,7 +261,7 @@ _conversation_stream_locks: dict[str, asyncio.Lock] = {}
 
 
 @asynccontextmanager
-async def _conversation_stream_lock(cid: str):
+async def conversation_stream_lock(cid: str):
     lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
     async with lock:
         yield
@@ -356,7 +345,7 @@ async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
             pass
 
 
-class _CleanupStreamingResponse(StreamingResponse):
+class CleanupStreamingResponse(StreamingResponse):
     """StreamingResponse that guarantees the body async generator is closed
     even when the client disconnects mid-stream.
 
@@ -475,7 +464,7 @@ async def _settle_stream(
 _SETTLING: set[asyncio.Task] = set()
 
 
-async def _sse_stream(
+async def sse_stream(
     gen,
     request: Request,
     *,
@@ -583,7 +572,7 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
         while True:
             nxt = asyncio.ensure_future(it.__anext__())
             try:
-                # Same keepalive race as _sse_stream: a long silent ComfyUI
+                # Same keepalive race as sse_stream: a long silent ComfyUI
                 # render yields no labels for stretches, so emit comment frames
                 # to keep an idle-timeout proxy/browser from dropping the stream
                 # (which surfaced as a frontend "Error in input stream" while the
@@ -619,16 +608,16 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
             await _safe_aclose(cast(AsyncGenerator[Any, None], events))
 
 
-def _workflow_event_stream_response(
+def workflow_event_stream_response(
     stream: WorkflowEventStream, *, cid: str | None = None, job: str | None = None, message_id: int | None = None
-) -> _CleanupStreamingResponse:
+) -> CleanupStreamingResponse:
     """Keep lazy on-demand renders registered until their generator settles.
 
     Without *cid* the caller already runs the work as a job, so the frames are
     encoded straight through.
     """
     if cid is None:
-        return _CleanupStreamingResponse(_encode_workflow_event_stream(stream.events), media_type="text/event-stream")
+        return CleanupStreamingResponse(_encode_workflow_event_stream(stream.events), media_type="text/event-stream")
 
     async def tracked():
         queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -649,14 +638,14 @@ def _workflow_event_stream_response(
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    return _CleanupStreamingResponse(tracked(), media_type="text/event-stream")
+    return CleanupStreamingResponse(tracked(), media_type="text/event-stream")
 
 
-def _pipeline_sse_response(
+def pipeline_sse_response(
     make_gen: Callable[[AbortToken], AsyncIterator[Any]],
     request: Request,
     cid: str,
-) -> _CleanupStreamingResponse:
+) -> CleanupStreamingResponse:
     """Standard SSE response for a turn-lifecycle event generator.
 
     *make_gen* receives a fresh :class:`AbortToken` and returns the event
@@ -664,8 +653,8 @@ def _pipeline_sse_response(
     signal it.
     """
     abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid),
+    return CleanupStreamingResponse(
+        sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid),
         media_type="text/event-stream",
     )
 
@@ -828,121 +817,7 @@ async def require_changeset(changeset_id: int, world: dict = Depends(require_wor
     return changeset
 
 
-def project_lorebook_view(entries: Sequence[Mapping[str, Any]], view: str) -> list[Mapping[str, Any]]:
-    """Project a World into the requested lorebook view."""
-    if view == "authored":
-        return [e for e in entries if e.get("entry_layer") != "dynamic"]
-    return list(lorebook.select_effective_entries(entries)) if view == "effective" else list(entries)
-
-
-# A V3 entry may open with decorator lines (`@@depth 4`, `@@@fallback`, …).
-_DECORATOR_PREAMBLE = re.compile(r"\A\s*(?:@@[^\n]*\n?)+")
-
-
-def _strip_decorators(content: str) -> str:
-    """Drop the V3 decorator preamble from an entry's content."""
-    stripped = _DECORATOR_PREAMBLE.sub("", content)
-    return stripped.lstrip("\n") if stripped != content else content
-
-
-def _str_list(value: Any) -> list[str]:
-    return [str(k) for k in value if k] if isinstance(value, list) else []
-
-
-def _normalise_lorebook_entry(item: dict) -> dict:
-    keywords = _str_list(item.get("keys") or item.get("key") or [])
-    secondary_keys = _str_list(item.get("secondary_keys") or item.get("keysecondary") or [])
-    name = item.get("name") or item.get("comment") or ""
-    if "disable" in item:
-        enabled = not item["disable"]
-    else:
-        enabled = bool(item.get("enabled", True))
-    priority = int(item.get("priority") or item.get("insertion_order") or item.get("order") or 100)
-    # A standalone World Info file keeps its non-V2 entry fields at the top
-    # level; a card-embedded `character_book` parks the same fields under
-    # `extensions` (position, depth, case_sensitive, …). Read both spellings
-    # so either export lands intact.
-    raw_ext = item.get("extensions")
-    ext: dict = raw_ext if isinstance(raw_ext, dict) else {}
-    case_sensitive = item.get("caseSensitive") or item.get("case_sensitive") or ext.get("case_sensitive")
-    constant = bool(item.get("constant", False))
-    return {
-        "name": str(name),
-        "content": _strip_decorators(str(item.get("content") or "")),
-        "keywords": keywords,
-        "enabled": enabled,
-        "priority": priority,
-        # `priority` keeps its own fallback chain above (rewriting it would
-        # reshuffle already-imported V2 books); sort_order carries the spec field.
-        "sort_order": int(item.get("insertion_order") or 0),
-        "case_insensitive": not bool(case_sensitive),
-        "constant": constant,
-        # World Info's `position: 4` is "@ Depth" — injected after the latest
-        # message instead of into the character defs. V2/V3 `character_book`
-        # spells the top-level position as a string ("before_char"/"after_char"),
-        # which is never 4; the numeric one lives in `extensions`. `at_depth` is
-        # our own export key, read back so an Orb round-trip is lossless.
-        "at_depth": bool(item.get("at_depth")) or 4 in (item.get("position"), ext.get("position")),
-        "use_regex": bool(item.get("use_regex", False)),
-        # Cards in the wild set `selective` on every entry while leaving
-        # secondary_keys empty; honouring that literally would make the whole
-        # book match nothing, so an unbacked flag stores as false.
-        "selective": bool(item.get("selective")) and bool(secondary_keys),
-        "secondary_keys": secondary_keys,
-    }
-
-
-def lorebook_to_book(
-    world_name: str,
-    entries: Sequence[Mapping[str, Any]],
-    *,
-    dynamic_enabled: bool = False,
-) -> dict[str, Any]:
-    """Serialize a World lorebook to Character Card shape."""
-    return {
-        "name": world_name,
-        # Orb's own marker. It round-trips the Dynamic World flag, and its mere
-        # presence tells the importer the book is a World Orb exported — so an
-        # entry-less one is a real lorebook to restore (a Dynamic World starts
-        # empty by design) rather than the vestigial `entries: []` that foreign
-        # cards carry.
-        "extensions": {"orb": {"dynamic_enabled": bool(dynamic_enabled)}},
-        "entries": [
-            {
-                "keys": e["keywords"],
-                "content": e["content"],
-                # World Info readers take placement and case-sensitivity from
-                # here, not from the V2 top-level keys — without this block a
-                # round-trip drops @ Depth and the case flag. `depth: 0` is where
-                # Orb puts the block: immediately after the latest message.
-                "extensions": {
-                    "position": 4 if e.get("at_depth") else 1,
-                    "depth": 0,
-                    "case_sensitive": not bool(e["case_insensitive"]),
-                },
-                "position": "after_char",
-                "enabled": bool(e["enabled"]),
-                "insertion_order": e["sort_order"],
-                "case_sensitive": not bool(e["case_insensitive"]),
-                "constant": bool(e.get("constant", False)),
-                # Additive: our own spelling of the depth flag, read back on import.
-                "at_depth": bool(e.get("at_depth", False)),
-                "name": e["name"],
-                # World Info readers title an entry from `comment`; `name` is the
-                # V2 spelling. Both, so either reader shows the title.
-                "comment": e["name"],
-                "priority": e["priority"],
-                "id": e["id"],
-                "use_regex": bool(e.get("use_regex", False)),
-                "selective": bool(e.get("selective", False)),
-                "secondary_keys": e.get("secondary_keys") or [],
-            }
-            for e in entries
-        ],
-    }
-
-
-def _validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tuple[list[str], str]:
+def validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tuple[list[str], str]:
     """Validate a phrase group by kind. Returns (variants, pattern) to persist.
 
     A group is *either* literal variants *or* a single regex — never both.

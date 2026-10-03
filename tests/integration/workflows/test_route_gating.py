@@ -18,7 +18,7 @@ from backend.database import (
     update_settings,
 )
 from backend.inference import LLMClient
-from backend.pipeline.config import _resolve_pipeline_config
+from backend.pipeline.config import resolve_pipeline_config
 from backend.workflows import ToolSpec
 from backend.workflows.attachment_cache import evict
 
@@ -133,14 +133,14 @@ _BASE_SETTINGS = {
 
 
 class _StubMacros:
-    # _resolve_pipeline_config stores macros.resolve_prompt_messages on the lane's
+    # resolve_pipeline_config stores macros.resolve_prompt_messages on the lane's
     # CachedBase but does not call it during config resolution.
     def resolve_prompt_messages(self, *args, **kwargs):
         return []
 
 
 def _resolve(settings, enabled_tools):
-    return _resolve_pipeline_config(
+    return resolve_pipeline_config(
         settings,
         enabled_tools,
         macros=_StubMacros(),

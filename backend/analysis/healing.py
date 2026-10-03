@@ -10,7 +10,7 @@ from ..core.text_segmentation import (
     HARD_LINE_BREAK_RE,
     PARA_SPLIT,
 )
-from .audit import _OUTER_MARKERS
+from .audit import OUTER_MARKERS
 from .text.roleplay_segmentation import extract_block_spans
 
 __all__ = ["HealedPatch", "heal_replacement"]
@@ -61,7 +61,7 @@ def _head_repeat(keys: Sequence[str], preceding: Sequence[str]) -> int:
     return 0
 
 
-# Target spans are marker-stripped (``audit._strip_markers``), so the quotes or
+# Target spans are marker-stripped (``audit.strip_markers``), so the quotes or
 # emphasis around flagged text stay in the draft on either side of the span.
 # Straight and curly double quotes are one mark; a curly apostrophe stays apart
 # from them so ``sayin’`` never reads as a closing quote.
@@ -70,12 +70,12 @@ _MARKER_KIND = str.maketrans({"“": '"', "”": '"', "’": "‘"})
 
 def _leading_markers(text: str) -> str:
     """Return the quote/emphasis markers that open *text*."""
-    return text[: len(text) - len(text.lstrip(_OUTER_MARKERS))]
+    return text[: len(text) - len(text.lstrip(OUTER_MARKERS))]
 
 
 def _trailing_markers(text: str) -> str:
     """Return the quote/emphasis markers that close *text*."""
-    return text[len(text.rstrip(_OUTER_MARKERS)) :]
+    return text[len(text.rstrip(OUTER_MARKERS)) :]
 
 
 def _enclosing_block(draft: str, start: int, end: int) -> tuple[int, int] | None:

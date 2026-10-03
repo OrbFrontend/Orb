@@ -13,16 +13,16 @@ from ..core import card_description, resolve_inline
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
-from .config import _resolve_pipeline_config
+from .config import resolve_pipeline_config
 from .context import (
     PipelineContext,
-    _build_prefixes,
-    _load_pipeline_context,
-    _prepare_turn,
-    _TurnSetup,
+    TurnSetup,
+    build_prefixes,
+    load_pipeline_context,
+    prepare_turn,
 )
 from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, stage_of, staged
-from .orchestrator import _run_pipeline, open_turn_state, run_director_stage
+from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
@@ -34,7 +34,7 @@ from .passes.judge import (
     judge_pass,
     stored_evaluations,
 )
-from .persistence import _consume_pipeline, _conversation_log_writer
+from .persistence import consume_pipeline, conversation_log_writer
 from .predicates import agent_enabled
 from .state import SheetUpdateTurn, empty_state_report
 from .tools import DIRECTOR_LOOP_TOOL_NAMES
@@ -128,7 +128,7 @@ async def _run_turn_handler(
     browser instead of being replaced by a constant (see failures.py).
     """
     try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
+        ctx = await load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
@@ -313,7 +313,7 @@ async def _prepare_regen_context(
 class _OpenedTurn:
     """What :func:`_open_turn` settled: the frozen per-turn context and the decisions."""
 
-    setup: _TurnSetup
+    setup: TurnSetup
     judge: JudgeResult | None
 
 
@@ -338,8 +338,8 @@ async def _open_turn(
     failure, and the Director pass would refuse to call anyway, so the caller
     closes the request instead of announcing a directing phase it will not run.
     """
-    setup: _TurnSetup | None = None
-    async for ev in _prepare_turn(
+    setup: TurnSetup | None = None
+    async for ev in prepare_turn(
         ctx,
         conversation_id,
         history=history,
@@ -347,7 +347,7 @@ async def _open_turn(
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
     ):
-        if isinstance(ev, _TurnSetup):
+        if isinstance(ev, TurnSetup):
             setup = ev
         else:
             yield ev
@@ -432,7 +432,7 @@ async def _generate_reply(
         return
     setup = opened.setup
 
-    pipeline = _run_pipeline(
+    pipeline = run_pipeline(
         ctx.client,
         settings,
         ctx.director,
@@ -460,13 +460,13 @@ async def _generate_reply(
         state_contract=ctx.state_contract,
         judge_config=ctx.judge_config,
     )
-    async for event in _consume_pipeline(
+    async for event in consume_pipeline(
         pipeline,
         conversation_id,
         settings,
         user_msg_id,
         asst_turn_index,
-        extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
+        extra_on_result=conversation_log_writer(conversation_id, log_turn_index),
         world_source_user_msg_id=user_msg_id,
     ):
         yield event
@@ -501,7 +501,7 @@ async def _generate_group_exchange(
     # plan the Director may choose in `director` mode — the user's message has
     # landed and no one answers it yet. It exits here rather than falling
     # through to plan resolution because a rest that has already been decided
-    # must not cost a Director call, and `_prepare_turn` would run one.
+    # must not cost a Director call, and `prepare_turn` would run one.
     if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
         yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": []}}
         yield {"event": "done"}
@@ -532,7 +532,7 @@ async def _generate_group_exchange(
         return
     setup = opened.setup
 
-    cfg = _resolve_pipeline_config(
+    cfg = resolve_pipeline_config(
         settings,
         setup.merged_enabled_tools,
         macros=setup.macros,
@@ -548,7 +548,7 @@ async def _generate_group_exchange(
         opened.judge.apply_to(shared)
 
     # One Director stage for the whole exchange, including its before-Writer state
-    # changes: they ride the exchange's first reply, the row `_consume_pipeline`
+    # changes: they ride the exchange's first reply, the row `consume_pipeline`
     # anchors them to, and every speaker writes with the resulting state.
     async for ev in run_director_stage(
         cfg,
@@ -662,14 +662,14 @@ async def _generate_group_exchange(
         if index == 0 and not speaker_scoped:
             prefix, agent_prefix = setup.prefix, setup.agent_prefix
         else:
-            prefix, agent_prefix = _build_prefixes(
+            prefix, agent_prefix = build_prefixes(
                 ctx,
                 pipeline_history,
                 extra_system_blocks=list(setup.extra_system_blocks),
                 speaker=speaker,
             )
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
-        pipeline = _run_pipeline(
+        pipeline = run_pipeline(
             ctx.client,
             settings,
             ctx.director,
@@ -728,13 +728,13 @@ async def _generate_group_exchange(
         )
         persisted_id: int | None = None
         persisted_content = ""
-        async for event in _consume_pipeline(
+        async for event in consume_pipeline(
             pipeline,
             conversation_id,
             settings,
             current_parent,
             turn_index,
-            extra_on_result=_conversation_log_writer(conversation_id, turn_index),
+            extra_on_result=conversation_log_writer(conversation_id, turn_index),
             speaker_member_id=speaker.member_id,
             exchange_id=exchange_id,
             speaker_name=speaker.name,

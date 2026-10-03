@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
+source "$(dirname "$0")/_venv.sh"
 
-if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv .venv
-fi
-
-# The frontend checks need the pinned devDependencies, so bootstrap them the
-# same way the venv above is bootstrapped. Worth doing rather than leaving to
-# the caller: the Biome step below falls back to a global install, so a missing
-# node_modules still lints clean and only surfaces further down as an
-# ERR_MODULE_NOT_FOUND stack out of whichever test first imports jsdom. Keyed on
-# the directory, so the install cost is paid once; `npm ci` rather than
-# `npm install` to match the lockfile exactly and leave it unmodified.
+# The frontend checks need the pinned devDependencies (Biome, jsdom), so
+# bootstrap them the same way the venv is bootstrapped. Keyed on the directory,
+# so the install cost is paid once; `npm ci` rather than `npm install` when a
+# lockfile exists, to match it exactly and leave it unmodified.
 if [ ! -d "node_modules" ] && [ -f "package.json" ]; then
     echo "Installing frontend dev dependencies..."
     if [ -f "package-lock.json" ]; then
@@ -25,23 +16,12 @@ if [ ! -d "node_modules" ] && [ -f "package.json" ]; then
     fi
 fi
 
-# A venv is bin/ on POSIX and Scripts/ on Windows (Git Bash runs this script
-# there too), so pick whichever layout the interpreter actually created.
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-else
-    source .venv/Scripts/activate
-fi
-
-echo "Installing dev dependencies..."
-pip install -q -r requirements-dev.txt
+echo ""
+python -m ruff check backend/ tests/ scripts/ "$@"
 
 echo ""
-python -m ruff check backend/ tests/ "$@"
-
-echo ""
-echo "Running Pylance type check on backend..."
-PYRIGHT_PYTHON_FORCE_VERSION=latest python -m pyright backend/ "$@"
+echo "Running Pyright type check on backend..."
+python -m pyright backend/ "$@"
 
 echo ""
 echo "Running backend layer check..."
@@ -53,14 +33,7 @@ python scripts/check_frontend_layers.py
 
 echo ""
 echo "Running frontend Biome check..."
-if [ -x "node_modules/.bin/biome" ]; then
-    node_modules/.bin/biome check frontend/
-elif command -v biome >/dev/null 2>&1; then
-    biome check frontend/
-else
-    echo "Biome not found. Run npm install first." >&2
-    exit 1
-fi
+node_modules/.bin/biome check frontend/
 
 echo ""
 echo "Running frontend unit tests (node --test)..."

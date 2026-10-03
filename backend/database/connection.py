@@ -152,7 +152,7 @@ async def immediate_tx():
             raise
 
 
-def _build_set_clause(
+def build_set_clause(
     allowed: list[str], data: dict, json_fields: frozenset[str] | set[str] = frozenset()
 ) -> tuple[list[str], list]:
     """Build the SET clause lists for a parameterised UPDATE query.
@@ -175,7 +175,7 @@ def _build_set_clause(
 # vary; both are module-private constants at the call sites and never reach here
 # from user input, which is what makes the interpolation below safe (a table
 # name cannot be a bound parameter).
-async def _get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -> dict | None:
+async def get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this row, or None if the row is missing or the slot empty."""
     async with get_db() as db:
         rows = list(
@@ -192,7 +192,7 @@ async def _get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) 
         return json.loads(slot)
 
 
-async def _set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, payload: dict | None) -> None:
+async def set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, payload: dict | None) -> None:
     """Atomic per-slot write via SQLite JSON1.
 
     payload=None removes the slot. Empty dict stores {}. No-op if the row is
@@ -201,14 +201,14 @@ async def _set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, 
     async with get_db() as db:
         if payload is None:
             await db.execute(
-                f"UPDATE {table} "
+                f"UPDATE {table} "  # nosec B608 -- table and id_col are code constants
                 "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
                 f"WHERE {id_col} = ?",
                 (workflow_id, row_id),
             )
         else:
             await db.execute(
-                f"UPDATE {table} "
+                f"UPDATE {table} "  # nosec B608 -- table and id_col are code constants
                 "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
                 f"WHERE {id_col} = ?",
                 (workflow_id, json.dumps(payload), row_id),

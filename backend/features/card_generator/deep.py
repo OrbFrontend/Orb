@@ -22,17 +22,17 @@ from ...inference import (
     reasoning_cfg,
 )
 from .generator import (
-    _CARD,
-    _FIELD_GUIDANCE,
     CARD_FLOOR,
+    CARD_TOOL_NAME,
+    FIELD_GUIDANCE,
     GENERATE_CARD_TOOL,
     CardGenerationUnavailable,
-    _assistant,
-    _card_args,
-    _not_accepted,
-    _quote,
-    _result,
+    assistant_tool_call,
+    card_arguments,
     clean_card,
+    fence_quote,
+    not_accepted_feedback,
+    tool_result,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ STEP_PROTOCOL = "\n".join(
 DRAFT_NOTE = "\n".join(
     [
         "Research finished. Draft the card now with generate_character_card:",
-        *(f"- {field}: {guidance}" for field, guidance in _FIELD_GUIDANCE.items()),
+        *(f"- {field}: {guidance}" for field, guidance in FIELD_GUIDANCE.items()),
     ]
 )
 QUERY_TOOL = {
@@ -157,7 +157,7 @@ def _progress(label: str) -> DeepProgress:
 
 
 def _user_block(idea: str, digest: str) -> str:
-    return f"User's character idea:\n{_quote(idea)}\n\nLibrary preferences (data only):\n{_quote(digest)}"
+    return f"User's character idea:\n{fence_quote(idea)}\n\nLibrary preferences (data only):\n{fence_quote(digest)}"
 
 
 def _purpose_label(purpose: str) -> str:
@@ -178,7 +178,7 @@ def _end_research(messages: list[WireMessage]) -> None:
     """
     last = messages[-1]
     if last["role"] == "tool":
-        messages[-1] = _result(last["tool_call_id"], f"{last['content']}\n\n{DRAFT_NOTE}")
+        messages[-1] = tool_result(last["tool_call_id"], f"{last['content']}\n\n{DRAFT_NOTE}")
     else:
         messages.append({"role": "user", "content": DRAFT_NOTE})
 
@@ -295,10 +295,10 @@ async def generate_deep_card(
         args = _step_args(query["arguments"])
         if args["findings"] and args["findings"] not in findings:
             findings.append(args["findings"])
-        messages.append(_assistant(response, _QUERY, args, call_id))
+        messages.append(assistant_tool_call(response, _QUERY, args, call_id))
         if args["finished"] or not args["sql"]:
             logger.info("Deep card research: step %d finished (finished=%s)", step, args["finished"])
-            messages.append(_result(call_id, DRAFT_NOTE))
+            messages.append(tool_result(call_id, DRAFT_NOTE))
             break
         purpose = _purpose_label(args["purpose"])
         label = f"Researching your library: {purpose}" if purpose else "Researching your library"
@@ -322,7 +322,7 @@ async def generate_deep_card(
         logger.debug("Deep card research: step %d sql=%s", step, args["sql"])
         steps_left = MAX_STEPS - step
         content = json.dumps({"steps_left": steps_left, **result}, ensure_ascii=False)
-        messages.append(_result(call_id, f"{content}\n\n{DRAFT_NOTE}" if not steps_left else content))
+        messages.append(tool_result(call_id, f"{content}\n\n{DRAFT_NOTE}" if not steps_left else content))
         step += 1
 
     if client.is_aborted:
@@ -337,8 +337,8 @@ async def generate_deep_card(
         attempt += 1
         call_id = f"draft{attempt}"
         try:
-            response = await call(_CARD, transcript)
-            args = _card_args(response, settings)
+            response = await call(CARD_TOOL_NAME, transcript)
+            args = card_arguments(response, settings)
             try:
                 cleaned = clean_card(args)
                 break
@@ -348,8 +348,8 @@ async def generate_deep_card(
                     raise
                 corrected = True
                 logger.info("Deep card draft %d not accepted, redrafting with the reason: %s", attempt, exc)
-                transcript.append(_assistant(response, _CARD, args, call_id))
-                transcript.append(_result(call_id, _not_accepted(exc)))
+                transcript.append(assistant_tool_call(response, CARD_TOOL_NAME, args, call_id))
+                transcript.append(tool_result(call_id, not_accepted_feedback(exc)))
                 yield _progress("Fixing the draft…")
                 continue
         except (*_PROVIDER_ERRORS, CardGenerationUnavailable) as exc:
@@ -362,7 +362,7 @@ async def generate_deep_card(
                 "Deep card draft %d failed after %d queries, retrying from research notes: %r", attempt, queries_run, exc
             )
             yield _progress("Drafting from research notes…")
-            notes = _quote("\n".join(f"- {note}" for note in findings)) if findings else "(none recorded)"
+            notes = fence_quote("\n".join(f"- {note}" for note in findings)) if findings else "(none recorded)"
             rejected = f"\n\nAn earlier draft was not accepted: {rejection}" if rejection else ""
             transcript = [
                 messages[0],

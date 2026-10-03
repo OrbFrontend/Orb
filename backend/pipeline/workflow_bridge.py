@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
-from ..inference import AbortToken, LLMClient, _KVCacheTracker, until_aborted
+from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
 from ..prompting.tool_catalog import has_tool
 from ..workflows import (
     EV_ATTACH_ARTIFACT,
@@ -19,10 +19,10 @@ from ..workflows import (
     HookType,
     PostCtx,
     PreCtx,
-    _readonly,
     get_workflow,
     iter_subscriptions,
     public_event_error,
+    readonly_view,
 )
 from ..workflows.enablement import effective_workflow_enabled
 from ..workflows.errors import WorkflowUserFacingError
@@ -79,8 +79,8 @@ def _hook_events(events: AsyncIterator[Any], abort: AbortToken | None) -> AsyncI
 
 
 @dataclass(slots=True)
-class _PostPipelineResult:
-    """Final value of :func:`_run_post_pipeline`: the (possibly rewritten) draft
+class PostPipelineResult:
+    """Final value of :func:`run_post_pipeline`: the (possibly rewritten) draft
     plus any attachments and per-message state staged for persistence."""
 
     draft: str
@@ -88,7 +88,7 @@ class _PostPipelineResult:
     staged_message_state: dict[str, dict]
 
 
-async def _run_post_pipeline(
+async def run_post_pipeline(
     *,
     draft: str,
     conversation_id: str | None,
@@ -102,17 +102,17 @@ async def _run_post_pipeline(
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     client: LLMClient,
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     agent_client: LLMClient | None = None,
     agent_model_name: str = "",
     post_workflow_ids: Collection[str] | None = None,
-    on_accepted: Callable[[_PostPipelineResult], None] | None = None,
-) -> AsyncIterator[dict | _PostPipelineResult]:
+    on_accepted: Callable[[PostPipelineResult], None] | None = None,
+) -> AsyncIterator[dict | PostPipelineResult]:
     """Run selected POST_PIPELINE hooks over the post-Editor draft.
 
     Streams pass-through SSE events and yields one final
-    :class:`_PostPipelineResult` when all hooks have run. Each hook may replace
+    :class:`PostPipelineResult` when all hooks have run. Each hook may replace
     the draft once, attach artifacts, or set per-message state. Hook failures
     are logged and skipped so one bad hook cannot crash the turn. By default
     every hook runs; ``post_workflow_ids`` lets an off-turn caller reuse this
@@ -130,7 +130,7 @@ async def _run_post_pipeline(
 
     def accepted() -> None:
         if on_accepted is not None:
-            on_accepted(_PostPipelineResult(draft, list(staged_attachments), dict(staged_message_state)))
+            on_accepted(PostPipelineResult(draft, list(staged_attachments), dict(staged_message_state)))
 
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
         if post_workflow_ids is not None and sub.workflow_id not in post_workflow_ids:
@@ -155,19 +155,19 @@ async def _run_post_pipeline(
             try:
                 post_ctx = PostCtx(
                     conversation_id=conversation_id or "",
-                    history=_readonly(history or []),
+                    history=readonly_view(history or []),
                     draft=draft,
                     effective_msg=effective_msg,
-                    director_output=_readonly(director_output),
-                    settings=_readonly(settings),
-                    prefix=_readonly(prefix),
-                    enabled_tools=_readonly(enabled_tools),
+                    director_output=readonly_view(director_output),
+                    settings=readonly_view(settings),
+                    prefix=readonly_view(prefix),
+                    enabled_tools=readonly_view(enabled_tools),
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
-                    schema_overrides=_readonly(schema_overrides),
+                    schema_overrides=readonly_view(schema_overrides),
                     character_id=character_id,
-                    character=_readonly(card),
+                    character=readonly_view(card),
                     # The execution target for a forced Agent call: in
                     # dual-model mode the Writer is a different endpoint.
                     agent_client=agent_client if agent_client is not None else client,
@@ -256,7 +256,7 @@ async def _run_post_pipeline(
                 if warning is not None:
                     yield warning
 
-    yield _PostPipelineResult(draft, staged_attachments, staged_message_state)
+    yield PostPipelineResult(draft, staged_attachments, staged_message_state)
 
 
 def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
@@ -344,7 +344,7 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     return out
 
 
-async def _iterate_pre_pipeline_hooks(
+async def iterate_pre_pipeline_hooks(
     *,
     conversation_id: str,
     character_id: str | None = None,
@@ -389,17 +389,17 @@ async def _iterate_pre_pipeline_hooks(
             try:
                 pre_ctx = PreCtx(
                     conversation_id=conversation_id,
-                    history=_readonly(history),
+                    history=readonly_view(history),
                     last_user_message=last_user_message,
-                    settings=_readonly(settings),
-                    prefix=_readonly(prefix_base),
-                    enabled_tools_pre_merge=_readonly(enabled_tools_pre_merge),
+                    settings=readonly_view(settings),
+                    prefix=readonly_view(prefix_base),
+                    enabled_tools_pre_merge=readonly_view(enabled_tools_pre_merge),
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
-                    schema_overrides=_readonly(schema_overrides),
+                    schema_overrides=readonly_view(schema_overrides),
                     character_id=character_id,
-                    character=_readonly(card),
+                    character=readonly_view(card),
                 )
                 async for ev in _hook_events(sub.callable(pre_ctx), abort):
                     t = ev.get("type") if isinstance(ev, dict) else None

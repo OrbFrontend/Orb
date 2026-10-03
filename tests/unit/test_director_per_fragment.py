@@ -300,9 +300,9 @@ class TestDirectSceneRequiredStripped:
     ]
 
     def _blob(self, per_fragment: int) -> dict:
-        from backend.pipeline.config import _build_writer_tools_blob
+        from backend.pipeline.config import build_writer_tools_blob
 
-        blob, _ = _build_writer_tools_blob(
+        blob, _ = build_writer_tools_blob(
             {"director_individual_fragments": per_fragment},
             self._REQUIRED_FRAGS,
             {},

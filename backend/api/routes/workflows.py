@@ -45,13 +45,13 @@ from ...workflows import (
     RerollGenCtx,
     Subscription,
     WorkflowEventStream,
-    _readonly,
     get_subscription,
     get_workflow,
     get_workflow_config,
     list_workflows,
     prose_rewriter_host,
     public_event_error,
+    readonly_view,
     set_workflow_config,
 )
 from ...workflows.attachment_cache import (
@@ -71,13 +71,13 @@ from ...workflows.attachment_cache import (
 from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.errors import WorkflowUserFacingError
 from ..deps import (
-    _workflow_event_stream_response,
     attachment_content_response,
     committing_workflow_job,
     locked_attachment_group,
     require_conversation,
     start_workflow_job,
     stop_workflow_jobs,
+    workflow_event_stream_response,
     workflow_group_in_flight,
 )
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
@@ -210,7 +210,7 @@ async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
     settings_snapshot = await get_settings()
     with _hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
-        return await sub.callable(QueryCtx(settings=_readonly(settings_snapshot)), body)
+        return await sub.callable(QueryCtx(settings=readonly_view(settings_snapshot)), body)
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")
@@ -256,7 +256,7 @@ async def api_trigger_workflow(
     # the hook's DB/prefix prep ran under the locks while the stream itself runs
     # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
     if isinstance(result, WorkflowEventStream):
-        return _workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
+        return workflow_event_stream_response(result, cid=cid, job=job, message_id=message_id)
     return result
 
 
@@ -299,14 +299,14 @@ async def _trigger(cid: str, workflow_id: str, body: dict) -> Any:
             with _hook_failures("on_demand hook", workflow_id, defect="On-demand handler raised; see server logs"):
                 od_ctx = OnDemandCtx(
                     conversation_id=cid,
-                    history=_readonly(msgs),
+                    history=readonly_view(msgs),
                     last_user_message=last_user,
-                    settings=_readonly(settings_snapshot),
+                    settings=readonly_view(settings_snapshot),
                     client=client,
                     agent_client=agent_client,
                     agent_model_name=agent_model_name,
                     character_id=card_id,
-                    character=_readonly(card),
+                    character=readonly_view(card),
                 )
                 return await sub.callable(od_ctx, body)
 
@@ -374,7 +374,7 @@ async def api_regenerate_attachment(
         except HTTPException as exc:
             yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
 
-    return _workflow_event_stream_response(WorkflowEventStream(events=events()))
+    return workflow_event_stream_response(WorkflowEventStream(events=events()))
 
 
 _REGENERATE_EVENTS = frozenset({"phase_status", "regenerate_sibling", "regenerate_done", "regenerate_error"})
@@ -485,15 +485,15 @@ async def _regenerate(
                 conversation_id=cid,
                 message_id=mid,
                 attachment_id=aid,
-                original_attachment=_readonly(att),
-                history=_readonly(msgs),
+                original_attachment=readonly_view(att),
+                history=readonly_view(msgs),
                 last_user_message=last_user,
-                settings=_readonly(settings_snapshot),
+                settings=readonly_view(settings_snapshot),
                 client=client,
                 agent_client=agent_client,
                 agent_model_name=agent_model_name,
                 character_id=card_id,
-                character=_readonly(card),
+                character=readonly_view(card),
                 phase=phase,
                 keep=keep,
                 emit=_regenerate_emitter(sub.workflow_id, emit),
@@ -617,10 +617,10 @@ def _build_reroll_gen_ctx(
         conversation_id=cid,
         message_id=mid,
         attachment_id=aid,
-        original_attachment=_readonly(att),
-        settings=_readonly(settings),
+        original_attachment=readonly_view(att),
+        settings=readonly_view(settings),
         client=client,
-        prior_consumption_metadata=_readonly(prior_cm) if prior_cm is not None else None,
+        prior_consumption_metadata=readonly_view(prior_cm) if prior_cm is not None else None,
         # Keyword-only and required, so the two routes cannot share this builder
         # while silently sharing an answer they disagree about.
         replay=replay,
@@ -973,8 +973,8 @@ async def api_export_workflow_attachment(aid: int):
     consumption = _decode_stored_consumption_metadata(att)
     ctx = ExportCtx(
         attachment_id=aid,
-        attachment=_readonly(att),
-        consumption_metadata=_readonly(consumption) if consumption is not None else None,
+        attachment=readonly_view(att),
+        consumption_metadata=readonly_view(consumption) if consumption is not None else None,
         stored_bytes=partial(get_workflow_attachment_bytes, aid),
     )
     with _hook_failures("export hook", wid, aid, defect="Export handler raised; see server logs"):

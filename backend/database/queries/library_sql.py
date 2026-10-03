@@ -81,7 +81,7 @@ def _record_view_reads(conn: sqlite3.Connection) -> frozenset[tuple[str, str]]:
 
     conn.set_authorizer(record)
     for name in _VIEWS:
-        conn.execute(f"SELECT * FROM {name} LIMIT 0")
+        conn.execute(f"SELECT * FROM {name} LIMIT 0")  # nosec B608 -- view names from _VIEWS
     return frozenset(reads)
 
 

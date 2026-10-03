@@ -15,8 +15,8 @@ import json
 import pytest
 from PIL import Image, PngImagePlugin
 
-from backend.api.deps import _normalise_lorebook_entry, lorebook_to_book
 from backend.features.cards.parsing import card_to_dict, parse, to_png
+from backend.features.lorebook import lorebook_to_book, normalise_lorebook_entry
 from backend.prompting.lorebook import select_keyword_entries
 
 
@@ -147,7 +147,7 @@ def test_exported_chara_chunk_still_parses_as_v2(tmp_path):
 def test_blanket_selective_without_secondary_keys_is_not_honoured():
     """The reported card sets selective+use_regex on all 55 entries with no
     secondary_keys — taken literally the whole book would match nothing."""
-    e = _normalise_lorebook_entry({"keys": ["doom"], "content": "x", "use_regex": True, "selective": True})
+    e = normalise_lorebook_entry({"keys": ["doom"], "content": "x", "use_regex": True, "selective": True})
     assert e["selective"] is False
     assert e["use_regex"] is True
 
@@ -155,13 +155,13 @@ def test_blanket_selective_without_secondary_keys_is_not_honoured():
 
 
 def test_selective_with_secondary_keys_is_honoured():
-    e = _normalise_lorebook_entry({"keys": ["doom"], "selective": True, "secondary_keys": ["latveria"]})
+    e = normalise_lorebook_entry({"keys": ["doom"], "selective": True, "secondary_keys": ["latveria"]})
     assert (e["selective"], e["secondary_keys"]) == (True, ["latveria"])
 
 
 def test_insertion_order_becomes_sort_order():
-    assert _normalise_lorebook_entry({"keys": ["a"], "insertion_order": 7})["sort_order"] == 7
-    assert _normalise_lorebook_entry({"keys": ["a"]})["sort_order"] == 0
+    assert normalise_lorebook_entry({"keys": ["a"], "insertion_order": 7})["sort_order"] == 7
+    assert normalise_lorebook_entry({"keys": ["a"]})["sort_order"] == 0
 
 
 @pytest.mark.parametrize(
@@ -176,7 +176,7 @@ def test_insertion_order_becomes_sort_order():
     ],
 )
 def test_decorators_are_stripped_from_content(raw, expected):
-    assert _normalise_lorebook_entry({"keys": ["a"], "content": raw})["content"] == expected
+    assert normalise_lorebook_entry({"keys": ["a"], "content": raw})["content"] == expected
 
 
 def test_export_emits_the_v3_entry_fields():
@@ -197,4 +197,4 @@ def test_export_emits_the_v3_entry_fields():
     entry = lorebook_to_book("marvel", [row])["entries"][0]
     assert (entry["use_regex"], entry["selective"], entry["secondary_keys"]) == (True, True, ["latveria"])
     # Round trip back through the importer.
-    assert _normalise_lorebook_entry(entry)["secondary_keys"] == ["latveria"]
+    assert normalise_lorebook_entry(entry)["secondary_keys"] == ["latveria"]

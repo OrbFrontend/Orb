@@ -43,19 +43,17 @@ from ...features.cards import THUMB_EDGE, avatar_thumbnail, draft_card_profile
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
+from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...inference import agent_lane_from_settings, client_from_settings
 from ...inference.local_models import spark_tts
 from ...workflows import spark_tts_host
 from ...workflows.tts import synth as tts_synth
 from ...workflows.tts.engine import builtin_spark_adapter
 from ..deps import (
-    _normalise_lorebook_entry,
     cached_image_response,
     idle_chats_guard,
     image_not_modified,
-    lorebook_to_book,
     profile_draft_failures,
-    project_lorebook_view,
     rows_response,
 )
 from ..schemas import (
@@ -105,7 +103,7 @@ async def api_create_character(data: CharacterCardCreate):
             embedded_world = {
                 "name": book_name,
                 "dynamic_enabled": bool(orb_ext.get("dynamic_enabled")) if isinstance(orb_ext, dict) else False,
-                "entries": [_normalise_lorebook_entry(item) for item in entries if isinstance(item, dict)],
+                "entries": [normalise_lorebook_entry(item) for item in entries if isinstance(item, dict)],
             }
 
     try:

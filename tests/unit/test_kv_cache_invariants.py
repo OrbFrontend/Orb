@@ -13,7 +13,7 @@ user real money on every single turn, and nothing else in the suite would catch
 it because the output is still *correct*, just expensive.
 
 So this test is deliberately paranoid. It drives the REAL pipeline
-(``_run_pipeline`` with the real director/writer/editor passes — nothing
+(``run_pipeline`` with the real director/writer/editor passes — nothing
 mocked but the network) and then asserts the invariants on the EXACT bytes
 that were handed to ``client.complete()``. Two independent witnesses are
 checked and required to agree:
@@ -46,12 +46,12 @@ import pytest
 
 from backend.inference import AbortToken, CachedBase
 from backend.inference.kv_tracker import (
+    KVCacheTracker,
     _common_prefix_len,
-    _KVCacheTracker,
     _serialize_messages,
     _serialize_tools,
 )
-from backend.pipeline.orchestrator import _run_pipeline
+from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.passes.editor.editor import editor_pass
 from backend.pipeline.passes.state import StateContract
 from backend.prompting.tool_catalog import enabled_schemas
@@ -315,13 +315,13 @@ async def _run_turn(
     agent_prefix: list[dict] | None = None,
     feedback_fragments: list[dict] | None = None,
     state_fragments: list[dict] | None = None,
-) -> tuple[_KVCacheTracker, CapturingClient, CapturingClient | None]:
-    tracker = _KVCacheTracker(conversation_id=conversation_id)
+) -> tuple[KVCacheTracker, CapturingClient, CapturingClient | None]:
+    tracker = KVCacheTracker(conversation_id=conversation_id)
     director = {"active_moods": []}
     enabled_tools = dict(settings["enabled_tools"])
     # Writer-only fragments shape direct_scene; feedback and state fragments are
-    # passed in alongside them so _run_pipeline's split sees all three. The caller
-    # mirrors _prepare_turn: when a post-writer tool is active its schema rides the
+    # passed in alongside them so run_pipeline's split sees all three. The caller
+    # mirrors prepare_turn: when a post-writer tool is active its schema rides the
     # shared blob (schema_overrides) and its enable bit is set.
     feedback_fragments = feedback_fragments or []
     state_fragments = state_fragments or []
@@ -334,7 +334,7 @@ async def _run_turn(
         schema_overrides["update_state"] = build_state_tool(tool_fragments)
         enabled_tools["update_state"] = True
 
-    gen = _run_pipeline(
+    gen = run_pipeline(
         client,
         settings,
         director,
@@ -360,7 +360,7 @@ async def _run_turn(
 # ── Reconciliation: the two witnesses must agree ──────────────────────────────
 
 
-def _reconcile_tracker_with_client(tracker: _KVCacheTracker, *clients: CapturingClient) -> None:
+def _reconcile_tracker_with_client(tracker: KVCacheTracker, *clients: CapturingClient) -> None:
     """Every tracker entry's recorded bytes must match a real ``complete()``
     call. This proves the KV report the user trusts is not lying about what
     went on the wire."""
@@ -923,7 +923,7 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 
 
 def _entry(
-    tracker: _KVCacheTracker,
+    tracker: KVCacheTracker,
     label: str,
     body: str,
     *,
@@ -944,12 +944,12 @@ def _entry(
 def test_the_report_prints_each_call_once_across_a_multi_speaker_exchange(caplog):
     """One tracker, one pipeline per speaker, one report line per call.
 
-    A group exchange summarises on the way out of every speaker's ``_run_pipeline``
+    A group exchange summarises on the way out of every speaker's ``run_pipeline``
     against the *shared* tracker, so reprinting the whole list each time grew the
     report quadratically in cast size and buried the calls the reader opened the
     log for.
     """
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "d")
     _entry(tracker, "writer", "w1")
     with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
@@ -984,12 +984,12 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     from backend.inference import kv_tracker as mod
 
     monkeypatch.setattr(mod, "_prev_turn_entries", {}, raising=True)
-    previous = mod._KVCacheTracker(conversation_id="c1")
+    previous = mod.KVCacheTracker(conversation_id="c1")
     _entry(previous, "writer", "SHARED")
     _entry(previous, "writer", "SHARED-AND-MORE")
     previous.log_summary()
 
-    current = mod._KVCacheTracker(conversation_id="c1")
+    current = mod.KVCacheTracker(conversation_id="c1")
     prev, cross_turn = current._find_prev(0, ("", "m", ""), "writer")
     assert cross_turn and prev is not None
     assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"
@@ -1003,7 +1003,7 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
 
 
 def test_two_servers_sharing_a_model_name_are_separate_lanes():
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "agent-side", endpoint="https://api.example.com/v1")
     _entry(tracker, "writer", "writer-side", endpoint="http://localhost:8080/v1")
 
@@ -1019,7 +1019,7 @@ def test_two_servers_sharing_a_model_name_are_separate_lanes():
 def test_a_later_call_compares_against_its_own_lane(caplog):
     """The reported regression: a forced workflow call on the agent lane measured
     against the writer's call because the two shared a model name."""
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     agent, writer = "https://api.example.com/v1", "http://localhost:8080/v1"
     _entry(tracker, "director:direct_scene", "SHARED-AGENT-BODY", endpoint=agent)
     _entry(tracker, "writer", "different writer body", endpoint=writer)
@@ -1035,7 +1035,7 @@ def test_a_later_call_compares_against_its_own_lane(caplog):
 
 def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
     """Speaker 2's Director must skip speaker 1's self-contained voice rewrite."""
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "conversation-prefix")
     _entry(tracker, "writer", "conversation-prefix-plus-writer")
     _entry(
@@ -1057,7 +1057,7 @@ def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
 
 
 def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a", model="gemma", endpoint="https://api.example.com/v1")
     _entry(tracker, "writer", "b", model="gemma", endpoint="http://localhost:8080/v1")
 
@@ -1071,7 +1071,7 @@ def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):
 
 
 def test_the_lane_legend_does_not_log_endpoint_credentials(caplog):
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a", endpoint="https://alice:secret@api.example.com/v1")
     _entry(tracker, "writer", "b", endpoint="http://localhost:8080/v1")
 
@@ -1085,7 +1085,7 @@ def test_the_lane_legend_does_not_log_endpoint_credentials(caplog):
 
 def test_a_single_lane_report_carries_no_lane_noise(caplog):
     """The common case stays exactly as it was."""
-    tracker = _KVCacheTracker(conversation_id=None)
+    tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a")
     _entry(tracker, "writer", "b")
 

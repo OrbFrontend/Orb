@@ -326,10 +326,10 @@ async def aclassify(feature: str, text: str) -> str:
 
 
 # The v2 model still needs short windows. Keep narration extraction in callers:
-# empirical dialogue-insertion probes favor it over trusting native markers
-# (docs/experiments/povtense-v2.md). The model card asks for 1-4 sentences, not a
-# whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
-# that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
+# empirical dialogue-insertion probes favor it over trusting native markers. The
+# model card asks for 1-4 sentences, not a whole reply: the encoder's trained
+# context is 256 tokens, and a raw tail slice of that size is 5-10 sentences that
+# usually starts mid-word. So `pov_input` shapes
 # the span instead of just capping it. Tail-anchored like the emotion path: the
 # composer freezes the FINAL visible instant of a reply, so the end of the message
 # is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard

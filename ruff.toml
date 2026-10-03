@@ -3,6 +3,10 @@
 # `X | Y` unions and builtin generics (`list[int]`), which require 3.10+.
 target-version = "py311"
 
+# Formatter and import sorter share this width. Kept here, not as a CLI flag, so
+# an editor's format-on-save matches the scripts, hooks, and CI.
+line-length = 128
+
 [lint]
 # Keep the complete lint policy here so local hooks, scripts, and CI cannot
 # silently select different rule sets. UP enforces syntax supported by the

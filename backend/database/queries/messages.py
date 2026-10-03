@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from ...core.domain_types import MessageRole
-from ..connection import _get_workflow_slot, _set_workflow_slot, get_db
+from ..connection import get_db, get_workflow_slot, set_workflow_slot
 from ..models import (
     MessageListing,
     MessageRow,
@@ -550,12 +550,12 @@ async def switch_to_branch(cid: str, message_id: int) -> bool:
 
 async def get_workflow_message_state(message_id: int, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this message, or None if message missing or slot empty."""
-    return await _get_workflow_slot("messages", "id", message_id, workflow_id)
+    return await get_workflow_slot("messages", "id", message_id, workflow_id)
 
 
 async def set_workflow_message_state(message_id: int, workflow_id: str, payload: dict | None) -> None:
     """Update one workflow attachment state atomically."""
-    await _set_workflow_slot("messages", "id", message_id, workflow_id, payload)
+    await set_workflow_slot("messages", "id", message_id, workflow_id, payload)
 
 
 async def _sibling_subtree_on(db, cid: str, parent_id: int | None) -> list[tuple[int, int]]:

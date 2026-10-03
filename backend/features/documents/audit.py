@@ -25,7 +25,7 @@ from ...core.text_segmentation import (
 )
 from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_catalog import require_tool
-from .continuation import _MACRO_RE, build_generation_messages
+from .continuation import ROLE_MACRO_RE, build_generation_messages
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
@@ -101,7 +101,7 @@ def clean_context(context: str, assisted: bool) -> str:
     Capped to the trailing DOC_AUDIT_CONTEXT_CHARS.
     """
     if assisted:
-        lines = [ln for ln in context.split("\n") if not _MACRO_RE.match(ln)]
+        lines = [ln for ln in context.split("\n") if not ROLE_MACRO_RE.match(ln)]
     else:
         lines = [ln for ln in context.split("\n") if not _TEMPLATE_TOKEN_RE.search(ln)]
     return "\n".join(lines)[-DOC_AUDIT_CONTEXT_CHARS:]

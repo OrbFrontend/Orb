@@ -2,7 +2,7 @@
 test_kv_cache_real_stack.py — KV-cache invariants through the REAL turn stack.
 
 The unit-level alarm (tests/unit/test_kv_cache_invariants.py) feeds
-``_run_pipeline`` a hand-built ``prefix`` list. That proves the passes don't
+``run_pipeline`` a hand-built ``prefix`` list. That proves the passes don't
 mutate the bottom of the stack — but it sits *above* the real client and
 *below* the prefix builder, so two whole layers go untested:
 
@@ -14,7 +14,7 @@ mutate the bottom of the stack — but it sits *above* the real client and
     — if that query's row order is unstable, the tools blob drifts turn-over-turn.
 
 These tests drive the genuine ``POST /send`` path (HTTP → handle_turn →
-build_prefix → _run_pipeline → persistence) twice and assert the cache
+build_prefix → run_pipeline → persistence) twice and assert the cache
 invariants on the EXACT messages/tools each pass handed to ``complete()``,
 captured at the ``LLMClient`` boundary by ``FakeLLMClient.captured``.
 

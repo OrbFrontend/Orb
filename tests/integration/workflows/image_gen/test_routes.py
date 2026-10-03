@@ -14,8 +14,8 @@ from backend.database import (
     get_workflow_attachments_for_message,
     set_active_leaf,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.workflow_bridge import _run_post_pipeline
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.workflow_bridge import run_post_pipeline
 from backend.workflows import (
     get_workflow_config,
     set_workflow_character_state,
@@ -856,7 +856,7 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
 
     events = [
         event
-        async for event in _run_post_pipeline(
+        async for event in run_post_pipeline(
             draft="She turns toward the door.",
             conversation_id="ig-turn",
             character_id=None,
@@ -869,7 +869,7 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
             enabled_tools={},
             turn_scratch={},
             client=LLMClient("http://localhost:9999"),
-            kv_tracker=_KVCacheTracker(),
+            kv_tracker=KVCacheTracker(),
             schema_overrides={},
         )
     ]

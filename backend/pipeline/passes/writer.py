@@ -21,15 +21,15 @@ from ...core import (
 )
 from ...inference import (
     CachedBase,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     reasoning_cfg,
 )
 from ...prompting import member_macros, tail_carries_identity
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
-    from ..state import TurnState, _PipelineConfig
+    from ..state import PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -179,12 +179,12 @@ async def writer_pass(
 
 
 async def writer_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     depth_block: str = "",
     speaker: CastMember | None = None,
     speaker_cue: str = "",

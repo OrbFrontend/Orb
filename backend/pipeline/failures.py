@@ -23,7 +23,7 @@ BODY_LIMIT = 20_000
 # to ``entrypoints._run_turn_handler`` with no shared object between them, and the
 # alternatives are worse: ``turn_scratch`` is part of the public workflow-hook
 # surface (``workflows/contracts.py``), and ``PipelineContext`` is frozen and not
-# passed to ``_run_pipeline`` at all.
+# passed to ``run_pipeline`` at all.
 _STAGE_ATTR = "_orb_stage"
 
 STAGE_JUDGE = "judge pass"

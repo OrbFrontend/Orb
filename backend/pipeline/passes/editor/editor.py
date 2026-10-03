@@ -28,7 +28,7 @@ from .post_processing import (
 
 if TYPE_CHECKING:
     from ....database.models import PhraseGroup
-    from ...state import TurnState, _PipelineConfig
+    from ...state import PipelineConfig, TurnState
 # Pure filter/patch helpers live in the analysis layer (analysis/patching.py)
 # so non-pipeline consumers (Document mode) can share them; re-imported here
 # under their original names so this module's surface is unchanged.
@@ -46,8 +46,8 @@ from ....core import (
 )
 from ....inference import (
     CachedBase,
+    KVCacheTracker,
     LLMClient,
-    _KVCacheTracker,
     parse_tool_calls,
     reasoning_cfg,
     replay_reasoning,
@@ -71,7 +71,7 @@ MAX_EDITOR_ITERATIONS = 3
 AUDIT_BASELINE_WINDOW = 20
 
 
-def _feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
+def feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return True when the feedback step should run this turn.
 
     Requires the agent on and at least one enabled feedback fragment, like
@@ -84,7 +84,7 @@ def _feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_o
 def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the ``give_feedback`` tool schema from *feedback_fragments*.
 
-    Thin wrapper over ``build_feedback_tool`` so ``_build_writer_tools_blob``
+    Thin wrapper over ``build_feedback_tool`` so ``build_writer_tools_blob``
     reaches the schema through the editor module rather than importing the
     schema builder directly — symmetric to ``build_direct_scene_override``.
     """
@@ -340,7 +340,7 @@ def _failure_warning(event: Mapping[str, Any]) -> dict:
 
 
 async def editor_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -348,7 +348,7 @@ async def editor_stage(
     feedback_fragments: Sequence[Mapping[str, Any]],
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
     editor_audit_msgs: list[str] | None,
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
     """Gating + writer→editor boundary event + editor pass + event translation.
@@ -364,7 +364,7 @@ async def editor_stage(
     # one enabled feedback-type fragment, so the extra LLM call is fully opt-in.
     # Because feedback is folded in here, we still enter the editor pass (with
     # audit/guard editing disabled) when only fragment work is wanted.
-    feedback_needed = _feedback_active(feedback_fragments, agent_on=cfg.agent_on)
+    feedback_needed = feedback_active(feedback_fragments, agent_on=cfg.agent_on)
     post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
     editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
 

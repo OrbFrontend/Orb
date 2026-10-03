@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 EVICTED_MARKER = "[evicted]"
 
 
-def _staging_root() -> str:
+def staging_root() -> str:
     """Canonical root directory for path-shape attachments.
 
     Path-shape attachments let a workflow reference a file on disk instead of
@@ -37,7 +37,7 @@ def _staging_root() -> str:
     return os.path.realpath(configured)
 
 
-def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
+def encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
     """JSON-encode a dict-shaped metadata field, or return None for absent/bad shape.
 
     Non-dict values produce None silently -- the row helper accepts these from
@@ -126,9 +126,9 @@ async def insert_workflow_attachment_row(
         path = attachment["path"]
         if not isinstance(path, str):
             raise ValueError(f"path must be a string; got {type(path).__name__}")
-        # Confine to the staging root before any stat/open (see _staging_root).
+        # Confine to the staging root before any stat/open (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
         safe_path = resolved
         if os.path.getsize(safe_path) == 0:
@@ -160,10 +160,10 @@ async def insert_workflow_attachment_row(
     parent_attachment_id = attachment.get("parent_attachment_id")
     annotation = attachment.get("annotation")
     seed = attachment.get("seed")
-    generation_metadata_json = _encode_metadata_field(
+    generation_metadata_json = encode_metadata_field(
         attachment.get("generation_metadata"), "generation_metadata", workflow_id, filename
     )
-    consumption_metadata_json = _encode_metadata_field(
+    consumption_metadata_json = encode_metadata_field(
         attachment.get("consumption_metadata"), "consumption_metadata", workflow_id, filename
     )
 

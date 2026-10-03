@@ -43,7 +43,7 @@ _DEFAULT_USER = "Continue the text. Write several paragraphs."
 # single optional space after the colon is the delimiter (further spaces are
 # content). Only interpreted in assisted mode — in Raw mode these lines are
 # literal prose.
-_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
+ROLE_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
 
 # Per-token-alternatives counts, requested only when the client toggles probs on.
 # Text mode (llama.cpp /completion) matches mikupad's default of 10; chat mode
@@ -75,7 +75,7 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
             blocks.append((role, [line]))
 
     for line in text.split("\n"):
-        m = _MACRO_RE.match(line)
+        m = ROLE_MACRO_RE.match(line)
         if m:
             macro_role = m.group(1).lower()
             content = m.group(2)

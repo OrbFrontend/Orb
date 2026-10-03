@@ -99,12 +99,12 @@ from ...prompting import (
     resolve_mood_fragment_randoms,
 )
 from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
+    CleanupStreamingResponse,
     deleting_resources,
     profile_draft_failures,
     require_conversation,
     rows_response,
+    sse_stream,
     stop_active_stream,
 )
 from ..schemas import (
@@ -525,8 +525,8 @@ async def api_summarize_conversation(
             logger.error("Summarize error: %s", e)
             yield {"event": "error", "data": "Summarize failed; see server logs"}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
         media_type="text/event-stream",
     )
 

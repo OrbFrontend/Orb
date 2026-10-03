@@ -9,7 +9,7 @@ from typing import Any, cast
 from ..connection import get_db, immediate_tx
 from ..models import MemberSheetProposalRow
 from .character_cards import get_character_card
-from .group_members import _private_sheet
+from .group_members import resolve_private_sheet
 
 PROPOSAL_STATUSES = ("pending", "applied", "rejected", "stale")
 # What the review surface asks for: what still needs a decision, plus what the
@@ -28,7 +28,7 @@ class SheetProposalConflict(RuntimeError):
 async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | None:
     """The member's current sheet as ``resolve_cast`` would render it, or ``None``.
 
-    Read through the *same* ``_private_sheet`` the turn uses rather than
+    Read through the *same* ``resolve_private_sheet`` the turn uses rather than
     comparing the raw column, so a proposal derived from card text (override
     ``NULL``) is checked against that card text and not against ``""``. Two
     resolvers here would mean the staleness check answered a different question
@@ -50,7 +50,7 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
         return None
     row = dict(rows[0])
     card = await get_character_card(row["character_card_id"]) if row["character_card_id"] else None
-    return _private_sheet(card, row["card_sheet_override"])
+    return resolve_private_sheet(card, row["card_sheet_override"])
 
 
 async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:

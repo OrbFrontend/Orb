@@ -151,8 +151,8 @@ async def test_stop_releases_lock(streaming_client, llm_mock):
 
 async def test_disconnect_releases_lock(streaming_client, llm_mock):
     """A streaming caller that disconnects mid-pipeline still releases
-    the lock: _CleanupStreamingResponse.__call__'s finally aclose()s the
-    body iterator, which runs the _sse_stream finally and releases the
+    the lock: CleanupStreamingResponse.__call__'s finally aclose()s the
+    body iterator, which runs the sse_stream finally and releases the
     lock so the next caller succeeds.
     """
     cid = await _new_conversation(streaming_client)

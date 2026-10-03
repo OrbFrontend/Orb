@@ -43,7 +43,7 @@ async def get_speaker_names(conversation_id: str) -> dict[str, str]:
     labels, in the summarizer, in the context-size estimate, in the typeahead
     and in the off-turn workflow prefix — or the line silently merges into the
     one above it. One reader, so none of those can quietly answer with the
-    active roster instead. (``pipeline.context._load_pipeline_context`` builds
+    active roster instead. (``pipeline.context.load_pipeline_context`` builds
     the same map inline, from rows it has already fetched for the roster it
     also needs; it is the one caller for which this would be a second query.)
     """
@@ -97,7 +97,7 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
     return render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None)
 
 
-def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
+def resolve_private_sheet(card: Mapping | None, override: str | None = None) -> str:
     """What the member reads about itself: the scene override, else the card's join.
 
     ``override is not None``, mirroring :func:`_public_profile` — same rule, same
@@ -145,7 +145,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
             name=name,
             kind="character",
             public_profile="",
-            private_sheet=_private_sheet(card),
+            private_sheet=resolve_private_sheet(card),
             mes_example=str((card or {}).get("mes_example") or ""),
             post_history=str((card or {}).get("post_history_instructions") or ""),
         )
@@ -164,7 +164,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 name=member["display_name"],
                 kind=member["member_kind"],
                 public_profile=_public_profile(card, member.get("public_profile_override")),
-                private_sheet=_private_sheet(card, member.get("card_sheet_override")),
+                private_sheet=resolve_private_sheet(card, member.get("card_sheet_override")),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
                 muted=bool(member.get("muted")),

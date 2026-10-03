@@ -315,7 +315,7 @@ def _system() -> str:
 
 def _api(url: str):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 — fixed https host
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- fixed https host
         return json.load(response)
 
 
@@ -333,7 +333,7 @@ def resolve_release(tag: str | None = None) -> dict:
 def _unpack(archive: Path, into: Path) -> None:
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(into)  # noqa: S202 — official release archive
+            zf.extractall(into)  # nosec B202 -- official release archive; zipfile strips absolute and .. paths
     else:
         with tarfile.open(archive) as tf:
             # `filter="data"` refuses absolute paths, `..` escapes, links that
@@ -345,7 +345,7 @@ def _unpack(archive: Path, into: Path) -> None:
             # TypeError on it — the same reason `--no-webui` is probed on the
             # binary rather than simply sent.
             if hasattr(tarfile, "data_filter"):
-                tf.extractall(into, filter="data")  # noqa: S202 — official release archive
+                tf.extractall(into, filter="data")  # nosec B202 -- data filter refuses escapes and links
             else:
                 base = into.resolve()
                 for member in tf.getmembers():
@@ -355,7 +355,7 @@ def _unpack(archive: Path, into: Path) -> None:
                     target = (base / member_path).resolve()
                     if os.path.commonpath([str(base), str(target)]) != str(base):
                         raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
-                    tf.extract(member, into)  # noqa: S202 — validated member path
+                    tf.extract(member, into)  # nosec B202 -- validated member path
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:
@@ -387,7 +387,7 @@ def _download(release: dict, wanted: str, into: Path) -> Path:
     logger.info("Fetching %s (%.0f MB)", wanted, asset.get("size", 0) / 1e6)
     archive = into / wanted
     request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # noqa: S310 — github release URL
+    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # nosec B310 -- github release URL
         shutil.copyfileobj(response, fh)
     return archive
 

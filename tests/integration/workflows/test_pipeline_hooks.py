@@ -1,7 +1,7 @@
 """Orchestrator-level coverage of the workflow pre/post-pipeline hooks.
 
 Tests target the pre-pipeline iteration helper, the attachment staging
-helper, and a full ``_run_pipeline`` run with patched LLM passes to
+helper, and a full ``run_pipeline`` run with patched LLM passes to
 verify the post-pipeline draft-replacement and attachment-staging path.
 """
 
@@ -20,14 +20,14 @@ from backend.database import (
     set_active_leaf,
     set_workflow_config,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
-from backend.pipeline.persistence import _consume_pipeline
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.orchestrator import run_pipeline
+from backend.pipeline.persistence import consume_pipeline
 from backend.pipeline.workflow_bridge import (
-    _iterate_pre_pipeline_hooks,
-    _PostPipelineResult,
-    _run_post_pipeline,
+    PostPipelineResult,
     _stage_workflow_attachment,
+    iterate_pre_pipeline_hooks,
+    run_post_pipeline,
 )
 
 from ._fixtures import make_workflow, register_for_test
@@ -55,7 +55,7 @@ def _pipeline_kwargs(enabled_tools: dict | None = None) -> dict:
         "prefix": _PREFIX,
         "enabled_tools": dict(enabled_tools or {}),
         "turn_scratch": {},
-        "kv_tracker": _KVCacheTracker(),
+        "kv_tracker": KVCacheTracker(),
         "schema_overrides": {},
     }
 
@@ -71,7 +71,7 @@ async def _run_pre_hooks(
     enabled_tools = dict(enabled_tools or {})
     return [
         event
-        async for event in _iterate_pre_pipeline_hooks(
+        async for event in iterate_pre_pipeline_hooks(
             conversation_id="c1",
             history=[],
             last_user_message=last_user_message,
@@ -80,7 +80,7 @@ async def _run_pre_hooks(
             enabled_tools_pre_merge=enabled_tools,
             turn_scratch=turn_scratch if turn_scratch is not None else {},
             client=client,
-            kv_tracker=_KVCacheTracker(),
+            kv_tracker=KVCacheTracker(),
             schema_overrides={},
             accumulators=accumulators,
         )
@@ -99,7 +99,7 @@ async def _run_with_writer(
     kwargs.update(pipeline_kwargs or {})
     with patch("backend.pipeline.passes.writer.writer_pass", new=writer):
         return await _drain(
-            _run_pipeline(
+            run_pipeline(
                 client or _make_client(),
                 _SETTINGS,
                 _DIRECTOR_STATE,
@@ -112,7 +112,7 @@ async def _run_with_writer(
         )
 
 
-# -- _iterate_pre_pipeline_hooks ------------------------------------------
+# -- iterate_pre_pipeline_hooks ------------------------------------------
 
 
 async def test_pre_pipeline_iter_empty_registry_no_events_no_accumulator_change():
@@ -248,7 +248,7 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
     with register_for_test(w):
         events = [
             ev
-            async for ev in _run_post_pipeline(
+            async for ev in run_post_pipeline(
                 draft="draft",
                 conversation_id="c1",
                 character_id=None,
@@ -261,12 +261,12 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
     assert len(events) == 1
-    assert isinstance(events[0], _PostPipelineResult)
+    assert isinstance(events[0], PostPipelineResult)
 
 
 async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client):
@@ -293,7 +293,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
     ):
         events = [
             ev
-            async for ev in _run_post_pipeline(
+            async for ev in run_post_pipeline(
                 draft="Editor-final draft.",
                 conversation_id="c1",
                 character_id=None,
@@ -306,7 +306,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
@@ -321,7 +321,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
     ]
     assert events[0]["data"] == {"channel": "workflow:prose_rewriter", "label": "Rewriting prose…"}
     assert events[3]["data"] == {"channel": "workflow:prose_rewriter", "state": "done"}
-    assert isinstance(events[-1], _PostPipelineResult)
+    assert isinstance(events[-1], PostPipelineResult)
     assert events[-1].draft == "Prose-rewritten draft."
 
 
@@ -342,7 +342,7 @@ async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(client, w
     with patch("backend.workflows.prose_rewriter_host.resolve_config", return_value=None) as resolve:
         events = [
             event
-            async for event in _run_post_pipeline(
+            async for event in run_post_pipeline(
                 draft="Editor-final draft.",
                 conversation_id="c1",
                 character_id=None,
@@ -355,14 +355,14 @@ async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(client, w
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
 
     resolve.assert_not_called()
     assert len(events) == 1
-    assert isinstance(events[0], _PostPipelineResult)
+    assert isinstance(events[0], PostPipelineResult)
     assert events[0].draft == "Editor-final draft."
 
 
@@ -558,7 +558,7 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
         assert staged["consumption_metadata"] is None
 
 
-# -- _run_pipeline post-pipeline iteration --------------------------------
+# -- run_pipeline post-pipeline iteration --------------------------------
 
 
 async def test_prose_rewriter_does_not_force_the_editor_to_run(client):
@@ -913,7 +913,7 @@ async def test_post_pipeline_set_message_state_persists_to_assistant_row(client)
     w = make_workflow("ms_persist", post_pipeline=post_hook)
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            pipeline = _run_pipeline(
+            pipeline = run_pipeline(
                 _make_client(),
                 _SETTINGS,
                 _DIRECTOR_STATE,
@@ -923,7 +923,7 @@ async def test_post_pipeline_set_message_state_persists_to_assistant_row(client)
                 conversation_id="cms",
                 **_pipeline_kwargs(),
             )
-            await _drain(_consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
+            await _drain(consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
 
     msgs = await get_messages("cms")
     assistant = [m for m in msgs if m["role"] == "assistant"][-1]
@@ -945,7 +945,7 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
     w = make_workflow("ms_empty", post_pipeline=post_hook)
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            pipeline = _run_pipeline(
+            pipeline = run_pipeline(
                 _make_client(),
                 _SETTINGS,
                 _DIRECTOR_STATE,
@@ -955,7 +955,7 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
                 conversation_id="cms_empty",
                 **_pipeline_kwargs(),
             )
-            await _drain(_consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
+            await _drain(consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
 
     msgs = await get_messages("cms_empty")
     assert [m for m in msgs if m["role"] == "assistant"] == []
@@ -993,7 +993,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
         log.append("later hook started")
         yield {"event": "later", "data": {}}
 
-    accepted: list[_PostPipelineResult] = []
+    accepted: list[PostPipelineResult] = []
     with (
         register_for_test(
             make_workflow(
@@ -1008,7 +1008,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
         register_for_test(make_workflow("tw_later", post_pipeline=later, priority=10)),
     ):
         run = _drain(
-            _run_post_pipeline(
+            run_post_pipeline(
                 draft="draft",
                 conversation_id="c1",
                 character_id=None,
@@ -1021,7 +1021,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
                 enabled_tools={},
                 turn_scratch={},
                 client=client,
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
                 on_accepted=accepted.append,
             )
@@ -1034,5 +1034,5 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
 
     assert log == ["render torn down"]
     assert not [e for e in events if isinstance(e, dict) and e.get("event") in ("tts_autoplay", "later")]
-    assert isinstance(events[-1], _PostPipelineResult)
+    assert isinstance(events[-1], PostPipelineResult)
     assert [att["filename"] for att in events[-1].staged_attachments] == ["a.png"]

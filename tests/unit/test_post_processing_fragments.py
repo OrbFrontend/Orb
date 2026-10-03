@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from backend.pipeline.config import (
-    _build_writer_tools_blob,
-    _split_interactive_fragments,
+    build_writer_tools_blob,
+    split_interactive_fragments,
 )
 from backend.pipeline.passes.editor import (
     apply_search_replace_patches,
@@ -38,7 +38,7 @@ def test_fragment_split_has_four_disjoint_groups_and_leaves_decisions_out():
         _fragment("humanize", "post_processing"),
         _fragment("outcome", "decision"),
     ]
-    scene, feedback, state, post_processing = _split_interactive_fragments(fragments)
+    scene, feedback, state, post_processing = split_interactive_fragments(fragments)
     assert [[f["id"] for f in group] for group in (scene, feedback, state, post_processing)] == [
         ["plot"],
         ["feedback"],
@@ -56,7 +56,7 @@ def test_post_processing_activation_requires_agent_and_fragment():
 
 def test_tool_blob_activation_is_independent_of_output_auditor():
     requested = {"direct_scene": True, "editor_apply_patch": False}
-    _, enabled_tools = _build_writer_tools_blob(
+    _, enabled_tools = build_writer_tools_blob(
         {"enable_agent": True},
         [_fragment("humanize", "post_processing")],
         requested,
@@ -67,7 +67,7 @@ def test_tool_blob_activation_is_independent_of_output_auditor():
 
 
 def test_tool_blob_does_not_activate_when_agent_is_off():
-    _, enabled_tools = _build_writer_tools_blob(
+    _, enabled_tools = build_writer_tools_blob(
         {"enable_agent": False},
         [_fragment("humanize", "post_processing")],
         {"direct_scene": True},

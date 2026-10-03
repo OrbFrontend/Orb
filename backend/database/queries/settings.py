@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db
 from ..models import SettingsRow
 from ..seeds import DEFAULT_SETTINGS
 
@@ -317,7 +317,7 @@ async def update_settings(data: dict) -> SettingsRow:
             # imported preset never overwrites this machine's storage limit.
             "attachment_cache_budget_bytes",
         ]
-        sets, vals = _build_set_clause(
+        sets, vals = build_set_clause(
             allowed,
             data,
             json_fields={
@@ -341,7 +341,7 @@ async def update_settings(data: dict) -> SettingsRow:
 # ── Decision classifier configuration ──
 # Keep endpoint-kind validation out of the generic settings writer.
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
-    sets, vals = _build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
+    sets, vals = build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
     if sets:
         async with get_db() as db:
             await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)  # nosec B608 — hardcoded allowlist

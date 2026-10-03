@@ -240,13 +240,13 @@ def run_audit(
 # Outer markers are omitted from reported snippets so the rewrite model searches
 # for the prose core rather than depending on a particular quote/emphasis style.
 # Straight ' is excluded so contractions/possessives survive.
-_OUTER_MARKERS = '*_"“”‘’'
+OUTER_MARKERS = '*_"“”‘’'
 
 
-def _strip_markers(s: str) -> str:
+def strip_markers(s: str) -> str:
     """Strip leading/trailing emphasis (*, _) and quote markers, plus surrounding
     whitespace, from a snippet. Internal markers are left untouched."""
-    return s.strip().strip(_OUTER_MARKERS).strip()
+    return s.strip().strip(OUTER_MARKERS).strip()
 
 
 _NEGATION_DESCRIPTIONS = {
@@ -269,7 +269,7 @@ def negation_reason(finding: NegationFinding) -> str:
     if not reason.startswith(_NEGATION_DESCRIPTIONS["null_reaction"]):
         reason = f"{_NEGATION_DESCRIPTIONS['null_reaction']}: {reason}"
     if finding.pivot_span:
-        words = _strip_markers(finding.pivot_span).split()
+        words = strip_markers(finding.pivot_span).split()
         lead = " ".join(words[:4]) + ("…" if len(words) > 4 else "")
         reason += f', before the payoff "{lead}"'
     return reason
@@ -292,7 +292,7 @@ def format_report(report: AuditReport) -> str:
         lines = ["Banned Phrases"]
         for fs in cr.flagged_sentences:
             for hit in fs.cliches:
-                lines.append(f'   - "{_strip_markers(hit.phrase)}" in sentence: {_strip_markers(fs.sentence)}')
+                lines.append(f'   - "{strip_markers(hit.phrase)}" in sentence: {strip_markers(fs.sentence)}')
         sections.append("\n".join(lines))
 
     # 2. Repetitive openers
@@ -300,9 +300,9 @@ def format_report(report: AuditReport) -> str:
     if mr.flagged_openers:
         lines = ["Repetitive Openers"]
         for fo in mr.flagged_openers:
-            lines.append(f'   - "{_strip_markers(fo.opener)}" ({fo.max_run} consecutive sentences):')
+            lines.append(f'   - "{strip_markers(fo.opener)}" ({fo.max_run} consecutive sentences):')
             for s in fo.sentences[:4]:
-                lines.append(f"     • {_strip_markers(s)}")
+                lines.append(f"     • {strip_markers(s)}")
         sections.append("\n".join(lines))
 
     # 3. Repetitive templates
@@ -310,16 +310,16 @@ def format_report(report: AuditReport) -> str:
     if tr.flagged_templates:
         lines = ["Repetitive Templates"]
         for ft in tr.flagged_templates:
-            lines.append(f'   - "{_strip_markers(ft.template)}" ({ft.count} sentences):')
+            lines.append(f'   - "{strip_markers(ft.template)}" ({ft.count} sentences):')
             for s in ft.sentences[:4]:
-                lines.append(f"     • {_strip_markers(s)}")
+                lines.append(f"     • {strip_markers(s)}")
         sections.append("\n".join(lines))
 
     # 4. Not-but patterns
     if report.not_but_result:
         lines = ["Contrastive Negation Patterns (Not X, but Y)"]
         for nb in report.not_but_result:
-            sentence = _strip_markers(nb.get("sentence", ""))
+            sentence = strip_markers(nb.get("sentence", ""))
             is_parallel = nb.get("is_parallel", False)
             parallel_note = " (parallel structure)" if is_parallel else ""
             lines.append(f'   - Sentence: "{sentence}"{parallel_note}')
@@ -337,9 +337,9 @@ def format_report(report: AuditReport) -> str:
         for sentence, fps in groups.items():
             for j, fp in enumerate(fps):
                 suffix = ":" if sentence and j == len(fps) - 1 else ""
-                lines.append(f'   - "{_strip_markers(fp.phrase)}" (in {fp.count} previous messages){suffix}')
+                lines.append(f'   - "{strip_markers(fp.phrase)}" (in {fp.count} previous messages){suffix}')
             if sentence:
-                lines.append(f"     • {_strip_markers(sentence)}")
+                lines.append(f"     • {strip_markers(sentence)}")
         sections.append("\n".join(lines))
 
     # 6. Structural repetition
@@ -348,7 +348,7 @@ def format_report(report: AuditReport) -> str:
         lines = ["Structural Repetition"]
         lines.append(f"   - All {len(sr.messages)} messages share a similar block structure")
         if sr.shared_skeleton:
-            skeleton_str = " → ".join(_strip_markers(part) for part in sr.shared_skeleton)
+            skeleton_str = " → ".join(strip_markers(part) for part in sr.shared_skeleton)
             lines.append(f'   - Shared skeleton: "{skeleton_str}"')
         sections.append("\n".join(lines))
 
@@ -356,14 +356,14 @@ def format_report(report: AuditReport) -> str:
     if report.echo_result and report.echo_result.flagged_echoes:
         lines = ["Interrogative Dialogue (parroting the user's dialogue back as a question)"]
         for fe in report.echo_result.flagged_echoes:
-            lines.append(f'   - "{_strip_markers(fe.echo)}" repeats the user\'s words: "{_strip_markers(fe.matched_phrase)}"')
+            lines.append(f'   - "{strip_markers(fe.echo)}" repeats the user\'s words: "{strip_markers(fe.matched_phrase)}"')
         sections.append("\n".join(lines))
 
     # 8. Negated narration (repeatedly narrating what does not happen)
     if report.negation_findings:
         lines = ["Negated Narration (narrating what does not happen)"]
         for nf in report.negation_findings:
-            lines.append(f'   - "{_strip_markers(nf.span)}" → {negation_reason(nf)}')
+            lines.append(f'   - "{strip_markers(nf.span)}" → {negation_reason(nf)}')
         sections.append("\n".join(lines))
 
     sections.append("\n*** END OF REPORT ***")
@@ -386,7 +386,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     cr = report.cliche_result
     if cr.flagged_count > 0:
         sections["banned_phrases"] = [
-            {"phrase": _strip_markers(hit.phrase), "sentence": _strip_markers(fs.sentence), **ids(fs.sentence)}
+            {"phrase": strip_markers(hit.phrase), "sentence": strip_markers(fs.sentence), **ids(fs.sentence)}
             for fs in cr.flagged_sentences
             for hit in fs.cliches
         ]
@@ -395,9 +395,9 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     if mr.flagged_openers:
         sections["repetitive_openers"] = [
             {
-                "opener": _strip_markers(fo.opener),
+                "opener": strip_markers(fo.opener),
                 "count": fo.max_run,
-                "sentences": [_strip_markers(s) for s in fo.sentences[:4]],
+                "sentences": [strip_markers(s) for s in fo.sentences[:4]],
                 # sentences[0] is the anchor the rest are compared against, so it
                 # is never a target — the ids cover the flagged remainder only.
                 **({"ids": [i for s in fo.sentences[1:] for i in target_ids_for(targets, s)]} if draft else {}),
@@ -409,9 +409,9 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     if tr.flagged_templates:
         sections["repetitive_templates"] = [
             {
-                "template": _strip_markers(ft.template),
+                "template": strip_markers(ft.template),
                 "count": ft.count,
-                "sentences": [_strip_markers(s) for s in ft.sentences[:4]],
+                "sentences": [strip_markers(s) for s in ft.sentences[:4]],
                 **({"ids": [i for s in ft.sentences[1:] for i in target_ids_for(targets, s)]} if draft else {}),
             }
             for ft in tr.flagged_templates
@@ -420,7 +420,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     if report.not_but_result:
         sections["contrastive_negation"] = [
             {
-                "sentence": _strip_markers(nb.get("sentence", "")),
+                "sentence": strip_markers(nb.get("sentence", "")),
                 "parallel": bool(nb.get("is_parallel", False)),
                 **ids(nb.get("sentence", "")),
             }
@@ -430,9 +430,9 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     if report.phrase_result and report.phrase_result.flagged_phrases:
         sections["phrase_repetition"] = [
             {
-                "phrase": _strip_markers(fp.phrase),
+                "phrase": strip_markers(fp.phrase),
                 "count": fp.count,
-                "sentence": _strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
+                "sentence": strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
                 **ids(fp.example_sentences[-1] if fp.example_sentences else ""),
             }
             for fp in report.phrase_result.flagged_phrases
@@ -443,7 +443,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
         sections["structural_repetition"] = [
             {
                 "message_count": len(sr.messages),
-                "skeleton": [_strip_markers(part) for part in (sr.shared_skeleton or [])],
+                "skeleton": [strip_markers(part) for part in (sr.shared_skeleton or [])],
                 # No span to patch — this finding is only ever fixed by a rewrite.
                 **({"ids": []} if draft else {}),
             }
@@ -451,7 +451,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
 
     if report.echo_result and report.echo_result.flagged_echoes:
         sections["anti_echo"] = [
-            {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase), **ids(fe.echo)}
+            {"echo": strip_markers(fe.echo), "matched": strip_markers(fe.matched_phrase), **ids(fe.echo)}
             for fe in report.echo_result.flagged_echoes
         ]
 
@@ -459,7 +459,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
         sections["negated_narration"] = [
             {
                 "kinds": list(nf.kinds),
-                "span": _strip_markers(nf.span),
+                "span": strip_markers(nf.span),
                 **({"ids": negation_target_ids(targets, nf, draft)} if draft else {}),
             }
             for nf in report.negation_findings

@@ -13,9 +13,9 @@ from ..database.connection import get_db
 from ..database.queries.messages import register_workflow_attachment_persister
 from ..database.queries.workflow_attachments import (
     EVICTED_MARKER,
-    _encode_metadata_field,
-    _staging_root,
+    encode_metadata_field,
     insert_workflow_attachment_row,
+    staging_root,
 )
 from .registry import get_workflow
 
@@ -202,7 +202,7 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
     new_size = len(data)
     data_b64 = base64.b64encode(bytes(data)).decode("ascii")
     cm_json = (
-        _encode_metadata_field(consumption_metadata, "consumption_metadata", "<rehydrate>", "<rehydrate>")
+        encode_metadata_field(consumption_metadata, "consumption_metadata", "<rehydrate>", "<rehydrate>")
         if consumption_metadata is not None
         else None
     )
@@ -407,9 +407,9 @@ def _estimate_size(attachment: dict) -> int:
         return len(raw)
     path = attachment.get("path")
     if isinstance(path, str):
-        # Confine to the staging root before stat (see _staging_root).
+        # Confine to the staging root before stat (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
         return os.path.getsize(resolved)
     return 0
@@ -481,9 +481,9 @@ def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | Non
         path = attachment["path"]
         if not isinstance(path, str):
             return False, "path must be a string"
-        # Confine to the staging root before stat (see _staging_root).
+        # Confine to the staging root before stat (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             return False, "path is outside the workflow staging area"
         try:
             if not os.path.isfile(resolved):
@@ -632,7 +632,7 @@ async def _variant_on_show_on(db, root_id: int) -> int | None:
 
 async def set_workflow_consumption_metadata(attachment_id: int, consumption_metadata: dict) -> None:
     """Rewrite one row's consumption metadata, for a verdict that arrives after its render."""
-    encoded = _encode_metadata_field(consumption_metadata, "consumption_metadata", "", str(attachment_id))
+    encoded = encode_metadata_field(consumption_metadata, "consumption_metadata", "", str(attachment_id))
     async with get_db() as db:
         await db.execute(
             "UPDATE workflow_attachments SET consumption_metadata = ? WHERE id = ?",

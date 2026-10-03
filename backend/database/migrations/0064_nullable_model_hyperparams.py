@@ -45,7 +45,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             )
             """
         )
-        conn.execute(f"INSERT INTO model_configs_nullable ({_COLUMNS}) SELECT {_COLUMNS} FROM model_configs")
+        conn.execute(f"INSERT INTO model_configs_nullable ({_COLUMNS}) SELECT {_COLUMNS} FROM model_configs")  # nosec B608 -- constant column list
         conn.execute("DROP TABLE model_configs")
         conn.execute("ALTER TABLE model_configs_nullable RENAME TO model_configs")
     finally:

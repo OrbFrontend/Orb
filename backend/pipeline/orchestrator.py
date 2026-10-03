@@ -16,8 +16,8 @@ from ..core import (
     carry_events,
 )
 from ..database.models import PhraseGroup
-from ..inference import LLMClient, _KVCacheTracker
-from .config import _resolve_pipeline_config, _split_interactive_fragments
+from ..inference import KVCacheTracker, LLMClient
+from .config import resolve_pipeline_config, split_interactive_fragments
 from .failures import (
     STAGE_DIRECTOR,
     STAGE_EDITOR,
@@ -40,12 +40,12 @@ from .sheet_update import sheet_update_stage
 from .state import (
     BranchBaseline,
     LorebookTurn,
+    PipelineConfig,
     SheetUpdateTurn,
     TurnState,
     WorldProposalTurn,
-    _PipelineConfig,
 )
-from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
+from .workflow_bridge import PostPipelineResult, run_post_pipeline
 from .world_proposal import world_proposal_stage
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ def open_turn_state(director: BranchBaseline, user_message: str) -> TurnState:
 
 
 async def run_director_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -103,7 +103,7 @@ async def run_director_stage(
     interactive_fragments: Sequence[Mapping[str, Any]],
     state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
@@ -117,7 +117,7 @@ async def run_director_stage(
     try:
         if state.state_events or state.state_report["dropped"]:
             yield {"event": "state", "data": state_event_payload(state)}
-        scene_fragments, _, _, _ = _split_interactive_fragments(interactive_fragments)
+        scene_fragments, _, _, _ = split_interactive_fragments(interactive_fragments)
         async for ev in director_stage(
             cfg,
             state,
@@ -141,7 +141,7 @@ async def run_director_stage(
         raise
 
 
-async def _run_pipeline(
+async def run_pipeline(
     client: LLMClient,
     settings: Mapping[str, Any],
     director: BranchBaseline,
@@ -161,7 +161,7 @@ async def _run_pipeline(
     prefix: list[ChatMessage],
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
@@ -201,7 +201,7 @@ async def _run_pipeline(
         )
 
     # Resolved once; cfg.enabled_tools is the length-guard-folded map.
-    cfg = _resolve_pipeline_config(
+    cfg = resolve_pipeline_config(
         settings,
         enabled_tools,
         macros=macros,
@@ -215,7 +215,7 @@ async def _run_pipeline(
 
     # Feedback and post-processing fragments are handled after the Writer, and
     # state fragments by their own routing; scene fragments shape the Writer prompt.
-    _, feedback_fragments, state_fragments, post_processing_fragments = _split_interactive_fragments(interactive_fragments)
+    _, feedback_fragments, state_fragments, post_processing_fragments = split_interactive_fragments(interactive_fragments)
     # Captured once for the turn: tool construction, routing, validation and
     # commit all read this contract, never the live fragment settings.
     contract = state_contract or StateContract.capture(settings, state_fragments)
@@ -327,7 +327,7 @@ async def _run_pipeline(
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
 
-    def fold_post(result: _PostPipelineResult) -> None:
+    def fold_post(result: PostPipelineResult) -> None:
         # Fold the hooks' output into state as each piece is handed over, so a
         # stop or failure mid-hook still saves the rewritten draft and the
         # attachments a hook already paid to render.
@@ -335,10 +335,10 @@ async def _run_pipeline(
         state.staged_attachments = result.staged_attachments
         state.staged_message_state = result.staged_message_state
 
-    post: _PostPipelineResult | None = None
+    post: PostPipelineResult | None = None
     async for ev in staged(
         STAGE_WORKFLOWS,
-        _run_post_pipeline(
+        run_post_pipeline(
             draft=state.resp_text,
             conversation_id=conversation_id,
             character_id=character_id,
@@ -361,7 +361,7 @@ async def _run_pipeline(
             on_accepted=fold_post,
         ),
     ):
-        if isinstance(ev, _PostPipelineResult):
+        if isinstance(ev, PostPipelineResult):
             post = ev
         else:
             yield ev

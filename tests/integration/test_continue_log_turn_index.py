@@ -5,7 +5,7 @@ must file its conversation_logs row at the *user* turn, exactly like a normal
 A normal turn logs at ``next_turn`` which, for a fresh send, equals the user
 message's turn_index. With ``skip_user_persist=True`` the user row already
 exists at turn T, so ``next_turn = T + 1`` is the assistant's turn. Filing the
-log there contradicts ``_conversation_log_writer``'s contract ("the user turn
+log there contradicts ``conversation_log_writer``'s contract ("the user turn
 for a fresh turn") and lands the row one turn off versus every other
 fresh-turn path.
 """

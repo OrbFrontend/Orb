@@ -52,8 +52,8 @@ class ModelLane:
 
 
 @dataclass(slots=True)
-class _PipelineConfig:
-    """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
+class PipelineConfig:
+    """Resolved per-turn flags, lanes, and prefixes for ``run_pipeline``."""
 
     agent_on: bool
     enabled_tools: Mapping[str, bool]
