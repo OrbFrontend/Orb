@@ -12,14 +12,14 @@ let _wired = false;
 
 const _ACTION_EVENTS = ["click", "change", "input", "keydown", "dragover", "dragleave", "drop"];
 
-function _dispatch(e, type) {
+async function _dispatch(e, type) {
   const el = e.target.closest?.("[data-wf-action]");
   if (!el || fromMessageBody(el)) return;
   if (!(el.dataset.wfOn || "click").split(/\s+/).includes(type)) return;
   const fn = _actions.get(el.dataset.wfAction);
   if (!fn) return;
   try {
-    fn(el, e);
+    await fn(el, e);
   } catch (err) {
     console.error(`data-wf-action "${el.dataset.wfAction}" handler threw:`, err);
   }

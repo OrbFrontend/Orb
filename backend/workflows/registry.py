@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -265,7 +266,7 @@ async def get_workflow_config(workflow_id: str) -> dict:
         return raw
     w = _WORKFLOWS_BY_ID.get(workflow_id)
     if w is not None:
-        return dict(w.config_defaults)
+        return deepcopy(w.config_defaults)
     return {}
 
 

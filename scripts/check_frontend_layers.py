@@ -238,6 +238,9 @@ _REGISTER_MANY = re.compile(r'registerActions\(\s*(?:"([^"]+)"|WORKFLOW_ID)\s*,\
 _HANDLER_KEY = re.compile(r"^([ \t]+)([A-Za-z_$][\w$]*)\s*:", re.MULTILINE)
 # A quoted "scope:name" literal, as markup or a string that becomes markup.
 _ACTION_NAME = re.compile(r'["\'`]([a-z][\w-]*):([A-Za-z]\w*)["\'`]')
+# Literal attributes must be checked even when their entire scope is misspelled.
+# Computed values are checked through their quoted scope:name alternatives above.
+_ACTION_ATTRIBUTE = re.compile(r'\bdata-wf-action\s*=\s*["\'`]([^"\'`\s${}<>]+)["\'`]')
 # workflow_api.js exports: `export function X`, `export const X`, and re-export lists.
 _EXPORT_DECL = re.compile(r"export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z0-9_]+)")
 
@@ -323,6 +326,16 @@ def underscore_import_count(text: str) -> int:
     return n
 
 
+def unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
+    """Unknown literal actions, including a plug-in's WORKFLOW_ID templates."""
+    if workflow_id is not None:
+        text = text.replace("${WORKFLOW_ID}", workflow_id)
+    scopes = {name.split(":")[0] for name in registered}
+    used = set(_ACTION_ATTRIBUTE.findall(text))
+    used |= {f"{scope}:{name}" for scope, name in _ACTION_NAME.findall(text) if scope in scopes}
+    return used - registered
+
+
 def main() -> int:
     errors: list[str] = []
 
@@ -366,14 +379,13 @@ def main() -> int:
             errors.append(f"[global] {rel}: {n} window global(s); export the name, or register an action")
         if path.suffix == ".js":
             registered |= registered_actions(path, text)
-    scopes = {name.split(":")[0] for name in registered}
     for path, text in texts.items():
-        for scope, name in _ACTION_NAME.findall(text):
-            if scope in scopes and f"{scope}:{name}" not in registered:
-                errors.append(f'[action] {path.relative_to(FE)}: "{scope}:{name}" is not registered')
+        workflow_id = path.relative_to(FE / "workflows").parts[0] if path in workflow_files else None
+        for name in sorted(unregistered_actions(text, registered, workflow_id=workflow_id)):
+            errors.append(f'[action] {path.relative_to(FE)}: "{name}" is not registered')
 
     # 2b. Module-private names stay in their module.
-    us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in top_files)
+    us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in [*top_files, *workflow_files])
     if us:
         errors.append(f"[private] {us} underscore-prefixed import(s) across modules; give the name a public spelling")
 

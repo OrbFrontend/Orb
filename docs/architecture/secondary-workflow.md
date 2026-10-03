@@ -78,7 +78,8 @@ decisions only that feature makes.
 | `frontend/workflow_api.js` | Public plugin facade |
 | `frontend/workflow_loader.js` | Loads one module per manifest entry |
 | `frontend/state.js` | Workflow registries and UI state |
-| `frontend/chat.js` | SSE dispatch, widgets, cards, and refetching |
+| `frontend/chat.js` | Chat facade used by the workflow API |
+| `frontend/chat_stream.js`, `frontend/chat_workflow.js` | SSE dispatch and workflow presentation/attachment actions |
 | `frontend/workflows/<id>/index.js` | Workflow entry point |
 | `frontend/default_widget.js` | Fallback image, audio, video, or download view |
 
@@ -128,7 +129,7 @@ on re-registration.
 |---|---|---|
 | `PRE_PIPELINE` | During a turn, before the main passes; all hooks in priority order | Async stream of events or pipeline instructions |
 | `POST_PIPELINE` | During a turn, after the main passes; all hooks in priority order | Async stream of events, draft changes, state, or attachments |
-| `ON_DEMAND` | Conversation-scoped trigger route | One response object |
+| `ON_DEMAND` | Conversation-scoped trigger route | A JSON object or `WorkflowEventStream` |
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
@@ -388,6 +389,12 @@ The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
 used on both read and write.
 
+`get_workflow_config` returns the stored slot when non-empty, otherwise an
+independent copy of `config_defaults`, including nested objects and lists. It
+does not merge partial stored configuration with defaults. A workflow that adds
+settings over time supplies missing values in its normalizer. Clearing the
+stored config with `{}` restores the defaults.
+
 ## Frontend integration
 
 At boot, the frontend fetches the manifest and imports
@@ -432,6 +439,8 @@ the default; `data-wf-on` names other events, space-separated: `change`,
 `input`, `keydown`, or `dragover dragleave drop` for a drop target. The core UI
 uses the same mechanism, so a workflow's markup may also name a core action. The
 lint step fails on an action name that nothing registers.
+Handlers may return a promise; synchronous throws and asynchronous rejections
+are logged with the action name.
 
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
