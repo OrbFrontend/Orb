@@ -472,7 +472,13 @@ function renderLorebookDrawer() {
           <button class="btn btn-sm lb-rename-btn" data-wf-action="lorebook:rename" data-world-id="${_focusWorldId}" title="Rename lorebook" aria-label="Rename lorebook">${EDIT_ICON}</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
-        <div class="lb-dynamic-row"><label>Use in every chat <input type="checkbox" id="lb-global-toggle" ${boolFlag(world.is_global) ? "checked" : ""}></label></div>
+        <div class="lb-dynamic-row">
+          <span class="lb-dynamic-label">Use in every chat</span>
+          <label class="tog" for="lb-global-toggle">
+            <input type="checkbox" id="lb-global-toggle" ${boolFlag(world.is_global) ? "checked" : ""}>
+            <span class="tog-slider"></span>
+          </label>
+        </div>
         <div class="lb-dynamic-row">
           <span class="lb-dynamic-label" title="Let the Agent propose world changes from what happens in play">Dynamic World</span>
           ${dynamicCount ? `<button type="button" class="btn btn-sm lb-reset-btn" title="Retire every Agent-managed entry">Reset</button>` : ""}
