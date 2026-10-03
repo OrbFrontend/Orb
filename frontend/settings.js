@@ -307,7 +307,7 @@ async function loadLocalMLSection() {
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
       <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
-      <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
     </div>`;
     return;
   }

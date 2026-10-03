@@ -172,6 +172,7 @@
   cursor: grab;
   padding: 2px 4px;
   line-height: 1;
+  -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
   /* A touch press has to be held before it picks the row up (drag_reorder.js),

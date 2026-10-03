@@ -176,6 +176,7 @@
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   list-style: none;
 }
@@ -321,7 +322,7 @@
 
 .lib-dupe-field-name { margin-right: auto; }
 
-summary.lib-dupe-field-head { cursor: pointer; user-select: none; }
+summary.lib-dupe-field-head { cursor: pointer; -webkit-user-select: none; user-select: none; }
 .lib-dupe-field.is-empty { opacity: .6; }
 
 .lib-dupe-field-tag {

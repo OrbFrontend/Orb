@@ -572,6 +572,7 @@
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   list-style: none;
 }

@@ -286,11 +286,20 @@ function trackVisualViewport() {
   vv.addEventListener("scroll", apply); // offsetTop changes fire scroll, not resize
 }
 
+// iOS zooms into a focused field set below 16px and stays zoomed. Its focus zoom
+// honours maximum-scale while pinch-zoom ignores it there; Android would lose pinch-zoom.
+function preventIosFocusZoom() {
+  if (!CSS.supports("-webkit-touch-callout", "none")) return;
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && !meta.content.includes("maximum-scale")) meta.content += ", maximum-scale=1";
+}
+
 export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
   trackVisualViewport();
+  preventIosFocusZoom();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);

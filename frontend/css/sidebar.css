@@ -82,6 +82,7 @@
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-secondary);
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -141,6 +142,7 @@
   text-transform: uppercase;
   letter-spacing: .8px;
   color: var(--text-secondary);
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -545,6 +547,7 @@
 .frag-drag-handle {
   --ui-icon-size: 16px;
   cursor: grab;
+  -webkit-user-select: none;
   user-select: none;
   display: flex;
   align-items: center;

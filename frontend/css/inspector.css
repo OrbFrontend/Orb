@@ -36,6 +36,7 @@
 summary.inspector-head {
   list-style: none;
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -209,6 +210,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   color: var(--text-muted);
   font-family: var(--font-mono);
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
   white-space: nowrap;
 }
@@ -439,6 +441,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   min-width: 0;
   padding: 5px 10px;
   cursor: pointer;
+  -webkit-user-select: none;
   user-select: none;
 }
 

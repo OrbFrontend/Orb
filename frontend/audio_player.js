@@ -532,7 +532,20 @@ export function setBarChangeHook(fn) {
   _barChangeHook = typeof fn === "function" ? fn : null;
 }
 
+// iOS files bare Web Audio as ambient sound, which the silent switch mutes. The
+// playback type plays through it but pauses other apps' audio, so it is held only
+// while something is audible.
+function _syncAudioSession() {
+  const session = navigator.audioSession;
+  if (!session) return;
+  let audible = false;
+  for (const ch of _channels.values()) audible ||= !!(ch.plan && ch.playing && !ch.paused);
+  const type = audible ? "playback" : "auto";
+  if (session.type !== type) session.type = type;
+}
+
 function _notifyBar() {
+  _syncAudioSession();
   if (!_barChangeHook) return;
   try {
     _barChangeHook();
