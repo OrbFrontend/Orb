@@ -215,7 +215,7 @@ body {
   box-shadow: inset 0 1px 0 #ffffff, 0 6px 16px rgba(30,90,140,0.25) !important;
 }
 
-.char-item.active, .conv-item.active, .group-chat-item.active {
+.char-item.active, .group-chat-item.active {
   background: linear-gradient(180deg, #f8ffef 0%, #d8f3bd 48%, #c6eaa2 52%, #e5f7cf 100%) !important;
   border: 1px solid #75b64c !important;
   box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(45,105,35,0.18) !important;
@@ -226,7 +226,7 @@ body {
   color: #39772c !important;
 }
 
-.chat-avatar, .char-avatar-sm, .char-avatar-lg, .card-pick-avatar,
+.chat-avatar, .char-avatar-sm, .char-avatar-lg,
 .cast-avatar, .cast-pick-avatar, .persona-avatar, .msg-avatar, .world-avatar,
 .char-browser-avatar, .char-browser-list-avatar, .stat-fav-avatar {
   border-color: #65b7dc !important;

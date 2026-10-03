@@ -1,8 +1,8 @@
-# Opt-in ML extras for in-process CPU features (input-box autocomplete;
-# later, the AI-slop classifier). Base Orb runs without these.
+# Opt-in ML extras for in-process CPU features (input-box autocomplete and the
+# slop, emotion, POV, and markup classifiers). Base Orb runs without these.
 #   pip install -r requirements-ml.txt
-# Then use Settings → Local ML to download the model (orb-human-tpeahead gguf)
-# into backend/data/models/, or set ORB_AUTOCOMPLETE_MODEL to an existing GGUF's path.
+# Then use Settings → Local ML to download the models into backend/data/models/,
+# or set ORB_AUTOCOMPLETE_MODEL to an existing typeahead GGUF's path.
 #
 # NOT every local-ML feature needs both. The Prose Rewriter has
 # runtime="llama_server": it drives a child llama-server process over HTTP

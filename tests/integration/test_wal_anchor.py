@@ -286,7 +286,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
     themselves; the anchor is only opened once they are done."""
     path = tmp_path / "fresh.db"
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
 
     seen: dict[str, set[str]] = {}
     real_open = db_connection.open_wal_anchor
@@ -311,7 +310,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
 
 async def test_lifespan_closes_the_anchor_on_a_normal_exit(db_path, monkeypatch):
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async with api_module.lifespan(FastAPI()):
         anchor = db_connection._wal_anchor
@@ -327,7 +325,6 @@ async def test_lifespan_closes_the_anchor_when_child_shutdown_raises(db_path, mo
     """A llama-server child that refuses to die must not cost the final WAL
     checkpoint -- hence the nested ``finally``."""
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async def _boom() -> None:
         raise RuntimeError("child refused to stop")
@@ -352,7 +349,6 @@ async def test_repeated_lifespans_on_different_paths_do_not_leak(tmp_path, _fres
         path = tmp_path / name
         shutil.copyfile(_fresh_db_template, path)
         monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-        monkeypatch.setattr(api_module, "DB_PATH", str(path))
         async with api_module.lifespan(FastAPI()):
             assert db_connection._wal_anchor_path == str(path)
             anchors.append(db_connection._wal_anchor)

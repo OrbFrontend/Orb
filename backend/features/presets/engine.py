@@ -12,7 +12,7 @@ import sqlite3
 import time
 
 from ...database import preset_schema as ps
-from ...database.connection import checkpoint_wal
+from ...database.connection import checkpoint_wal, current_db_path
 from ...database.migrations import MIGRATIONS, run_pending
 from ...database.schema import CREATE_TABLES_SQL
 
@@ -392,15 +392,8 @@ def assert_schema_safe(conn: sqlite3.Connection) -> None:
         raise PresetError("Preset schema safety check failed:\n  - " + "\n  - ".join(problems))
 
 
-def _db_path() -> str:
-    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
-    from ...database import connection
-
-    return connection.DB_PATH
-
-
 def _snapshots_dir() -> str:
-    d = os.path.join(os.path.dirname(os.path.abspath(_db_path())), "snapshots")
+    d = os.path.join(os.path.dirname(os.path.abspath(current_db_path())), "snapshots")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -589,7 +582,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         raise PresetError("Select at least one domain to export")
 
     tmp = os.path.join(_snapshots_dir(), f".build-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
-    src = sqlite3.connect(_db_path())
+    src = sqlite3.connect(current_db_path())
     try:
         assert_schema_safe(src)
         src.execute("VACUUM INTO ?", (tmp,))
@@ -931,7 +924,7 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
         check_and_upgrade(work)  # quick_check + validate + migrate, all on the copy
         included = set(preset_domains(work))
 
-        conn = sqlite3.connect(_db_path(), isolation_level=None)
+        conn = sqlite3.connect(current_db_path(), isolation_level=None)
         summary: dict[str, int] = {}
         try:
             assert_schema_safe(conn)
@@ -958,7 +951,7 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
             conn.close()
         # A replacing merge (restore_partial) rewrites whole domains in one
         # transaction -- the same database-sized WAL write as a full restore.
-        checkpoint_wal(_db_path())
+        checkpoint_wal(current_db_path())
         return summary
     finally:
         for sfx in ("", "-wal", "-shm"):
@@ -984,7 +977,7 @@ def create_snapshot(label: str = "") -> str:
     pruned to a bounded count. Used before destructive ops (import/apply/restore)."""
     name = _unique_name("auto", label)
     dest = os.path.join(_snapshots_dir(), name)
-    src = sqlite3.connect(_db_path())
+    src = sqlite3.connect(current_db_path())
     try:
         assert_schema_safe(src)
         src.execute("VACUUM INTO ?", (dest,))
@@ -1061,7 +1054,7 @@ def _copy_over_live(prepared: str, live: str) -> None:
 def restore_full(name: str) -> None:
     """Replace the live database with a full preset."""
     src = _library_path(name)
-    live = _db_path()
+    live = current_db_path()
     tmp = f"{live}.restore-{os.getpid()}"
     shutil.copyfile(src, tmp)
     try:

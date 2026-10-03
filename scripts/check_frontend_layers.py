@@ -9,9 +9,10 @@ enforced by convention + this lint rather than by a bundler. It checks, in order
      current upward edges live in ALLOWED_UPWARD and shrink as the deferred
      stages (3-5) land; a NEW upward edge fails. Top-level module imports
      must also be acyclic, including imports within the same layer.
-  2. Two ratchets, which may only DECREASE: the count of inline `on*=` handlers
-     (the window-bridge surface) and the count of underscore "private"
-     cross-module imports. Lower them and drop the ceiling; never raise it.
+  2. A ratchet and a rule. The count of inline `on*=` handlers (the
+     window-bridge surface) may only DECREASE: lower it and drop the ceiling;
+     never raise it. A leading underscore means module-private, as in the
+     backend, so importing an `_name` from another module fails.
   3. Plugin boundary. A file under frontend/workflows/** may import only
      `/static/workflow_api.js` and files inside its own workflow directory.
      Static, side-effect, and literal dynamic imports are checked; computed
@@ -157,9 +158,8 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
     ("workflow_loader.js", "settings.js"),
 }
 
-# ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
+# ── 2. Ratchet (may only decrease) ───────────────────────────────────────────
 MAX_INLINE_ON = 210  # inline on*= handlers across frontend/ (js + index.html)
-MAX_UNDERSCORE_IMPORTS = 7  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
 # workflow_api.js's complete export surface, additive-only. A rename or removal
@@ -360,12 +360,10 @@ def main() -> int:
     if inline > MAX_INLINE_ON:
         errors.append(f"[ratchet] inline on*= count {inline} exceeds ceiling {MAX_INLINE_ON} (ratchet may only decrease)")
 
-    # 2b. Underscore cross-module import ratchet.
+    # 2b. Module-private names stay in their module.
     us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in top_files)
-    if us > MAX_UNDERSCORE_IMPORTS:
-        errors.append(
-            f"[ratchet] underscore cross-module imports {us} exceeds ceiling {MAX_UNDERSCORE_IMPORTS} (may only decrease)"
-        )
+    if us:
+        errors.append(f"[private] {us} underscore-prefixed import(s) across modules; give the name a public spelling")
 
     # 3. Plugin boundary: imports remain within the workflow or use its facade.
     for path in workflow_files:
@@ -409,7 +407,7 @@ def main() -> int:
     # Report.
     print(
         f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
-        f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), "
+        f"underscore imports={us}, "
         f"ABI v{abi_version} ({len(exports)} exports)"
     )
     if errors:

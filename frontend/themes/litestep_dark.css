@@ -213,7 +213,7 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   border: 1px solid #101010 !important;
   box-shadow: inset 1px 1px 0 #5a5a56, 4px 4px 0 rgba(0,0,0,0.55) !important;
 }
-.modal-header, .modal h2, .modal h3 {
+.modal h2, .modal h3 {
   background: linear-gradient(90deg, #2a4266 0%, #46648c 100%) !important;
   color: #ffffff !important;
 }
@@ -256,8 +256,8 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 .swipe-nav button:hover { color: #ffffff !important; background: rgba(255,255,255,0.1) !important; }
 .empty-state { color: #c2ccd8 !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.55) !important; }
 .msg-toolbar { color: #ccd4dc !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.5) !important; }
-.msg-toolbar button, .msg-toolbar .msg-tool { color: inherit !important; }
-.msg-toolbar button:hover, .msg-toolbar .msg-tool:hover { color: #ffffff !important; }
+.msg-toolbar button { color: inherit !important; }
+.msg-toolbar button:hover { color: #ffffff !important; }
 .msg-toolbar .msg-btn-del, .msg-toolbar .msg-btn-del:hover { color: #f07a68 !important; }
 
 textarea { appearance: none; -webkit-appearance: none; }

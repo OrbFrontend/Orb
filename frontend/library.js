@@ -10,7 +10,7 @@ import {
   showCardInteractiveFragmentModal,
   showCardMoodFragmentModal,
 } from "./library_fragments.js";
-import { _avatarBust, loadCharacters } from "./library_sidebar.js";
+import { avatarBust, loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, renderWorldsSidebar } from "./lorebooks.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
@@ -416,7 +416,7 @@ export async function showCharEditModal(idOrData) {
     _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || "image/png" };
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
-    const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+    const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
     av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
   }
 
@@ -546,10 +546,10 @@ export async function saveCharEdit(id, exportAfter = false) {
       await refreshSceneCardFragments();
     }
     if (avatarChanged) {
-      _avatarBust.set(id, Date.now());
+      avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {
         const av = document.getElementById("chat-avatar");
-        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${_avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
+        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
       }
     }
     await loadCharacters();

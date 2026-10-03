@@ -441,7 +441,7 @@ async def test_compression_preserves_retained_writer_drafts(client, db):
     assert response.status_code == 200
     new_cid = response.json()["new_conversation_id"]
     # Read the column, not the wire: the list routes project it away (see
-    # ``_for_the_client``), and what this test is about is the fork carrying
+    # ``_row_for_client``), and what this test is about is the fork carrying
     # the text across, byte for byte.
     async with db.execute(
         "SELECT writer_draft FROM messages WHERE conversation_id = ? AND content = ?",

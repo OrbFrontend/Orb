@@ -234,8 +234,8 @@ not `error`. A failure caused by cutting a call short is logged instead. A
 failed save is still reported as `error`.
 
 Once Stop is pressed, the browser freezes the bubble and repaints it from the
-saved row after settlement. `stopConversation()` is also used outside chat
-replies, for example by compression, and needs no bubble.
+saved row after settlement. The same conversation `/stop` route also stops
+work that is not a chat reply, such as compression, which has no bubble.
 
 `error` is terminal. `warning` is optional work that declined and does not stop
 the turn. An Editor call that fails is a `warning`: the reply keeps the best

@@ -1440,11 +1440,6 @@ export function compileCss(cssText, scope) {
   }
 }
 
-/** Return card CSS scoped to one message. */
-export function sanitizeCss(cssText, scope) {
-  return compileCss(cssText, scope).css;
-}
-
 /** Return a stable scope for a message source. */
 export function cssScope(source) {
   let h = 0x811c9dc5;

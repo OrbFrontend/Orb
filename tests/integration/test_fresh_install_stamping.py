@@ -145,7 +145,6 @@ async def test_fresh_startup_never_runs_migrations(tmp_path: Path, monkeypatch, 
         assert path.stat().st_size > 0
 
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
     runner = Mock(side_effect=AssertionError("fresh installs must bypass the migration runner"))
     monkeypatch.setattr(bootstrap, "run_pending", runner)
     real_import = migrations.importlib.import_module

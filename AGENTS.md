@@ -30,7 +30,7 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - Type SQLite flags as `int` (`0` or `1`), not `bool`.
 - Decode JSON columns at the boundary where they are read; keep free-form JSON untyped unless a contract is needed.
 - Keep Pyright at zero errors. Prefer widening a consumer to `Mapping` or `Sequence` over adding an ignore.
-- A leading underscore means module-private. Give a name a public spelling before another module imports it; the backend layer checker rejects cross-module `_name` imports.
+- A leading underscore means module-private. Give a name a public spelling before another module imports it; both layer checkers reject cross-module `_name` imports.
 - When changing the schema, update the schema definition, models, API schemas where applicable, seeds, and migrations together.
 - Add routes under `api/routes/` and register their router in `api/routes/__init__.py`.
 

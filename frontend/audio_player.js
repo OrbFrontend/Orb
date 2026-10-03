@@ -51,13 +51,10 @@ function _ensureChannel(name) {
   let ch = _channels.get(name);
   if (ch) return ch;
   const baseGain = _ctx.createGain();
-  const userGain = _ctx.createGain();
-  baseGain.connect(userGain);
-  userGain.connect(_master);
+  baseGain.connect(_master);
   ch = {
     token: 0,
     baseGain,
-    userGain,
     sources: [],
     plan: null,
     startedAt: 0,
@@ -344,16 +341,6 @@ export function stopAll() {
 export function setChannelVolume(channel, vol) {
   if (!_ensureCtx()) return;
   _ensureChannel(channel).baseGain.gain.value = _clamp01(vol);
-}
-
-export function setChannelUserVolume(channel, vol) {
-  if (!_ensureCtx()) return;
-  _ensureChannel(channel).userGain.gain.value = _clamp01(vol);
-}
-
-export function channelUserVolume(channel) {
-  const ch = _channels.get(channel);
-  return ch ? _clamp01(ch.userGain.gain.value) : 1;
 }
 
 export function channelState(channel) {

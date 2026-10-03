@@ -1,17 +1,13 @@
 export {
   applyCompression,
   cancelCompression,
-  cancelTitleEdit,
   createCheckpoint,
   deleteConversationFromModal,
   generateCompressionSummary,
-  handleTitleEditKey,
   loadConversations,
   newConversationHere,
-  newConvForChar,
   refreshSceneCardFragments,
   resetChatUI,
-  saveTitleEdit,
   selectChar,
   selectConversation,
   showCompressModal,
@@ -20,9 +16,7 @@ export {
   stashSceneCards,
 } from "./chat_conversations.js";
 export { renderMessages } from "./chat_core.js";
-export { clearTurnError, renderTurnError } from "./chat_error.js";
 export {
-  clearInspectedMessage,
   clearRefineDiff,
   clearWorkflowPhase,
   hideAvatarPopup,
@@ -42,11 +36,9 @@ export {
   cancelEditPending,
   cancelForkEdit,
   deleteMessage,
-  handleChatKeyNav,
   initAutoscroll,
   initChatKeyNav,
   initChatSwipeNav,
-  inspectMessage,
   rewriteMessageProse,
   saveEdit,
   saveEditPending,

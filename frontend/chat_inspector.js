@@ -85,7 +85,7 @@ export function appendReasoningDelta(box, delta) {
   );
 }
 
-export function _advanceReasoningPass(targetIdx) {
+export function advanceReasoningPass(targetIdx) {
   if (targetIdx <= S.reasoningPassActive) return false;
   S.reasoningPassActive = targetIdx;
   if (!S.reasoningUserOverride) {
@@ -243,7 +243,7 @@ function _buildWorkflowReasoningHtml() {
     .join("");
 }
 
-export function _relightWorkflowPipelinePass(pipeline, passId) {
+export function relightWorkflowPipelinePass(pipeline, passId) {
   const card = document.querySelector(`.workflow-pipeline-card[data-pipeline-id="${CSS.escape(pipeline.id)}"]`);
   if (!card) return;
   const idx = pipeline.passes.findIndex((p) => p.id === passId);
@@ -335,7 +335,7 @@ function _renderWorkflowPhasesPill() {
   el.title = el.textContent;
 }
 
-export function _syncGenerationStatus() {
+export function syncGenerationStatus() {
   const el = $("generation-status");
   if (!el) return;
   // Empty means waiting; null means no active turn.
@@ -360,7 +360,7 @@ export function setWorkflowPhase(channel, label, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 export function clearWorkflowPhase(channel, state = S) {
@@ -369,7 +369,7 @@ export function clearWorkflowPhase(channel, state = S) {
   else delete state.workflowPhases[channel];
   if (state.activeConvId !== S.activeConvId) return;
   _renderWorkflowPhasesPill();
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 export function workflowPhaseLabel(wid, verb) {

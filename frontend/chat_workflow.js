@@ -235,14 +235,14 @@ function _workflowAttachmentGroups(msg) {
   return list;
 }
 
-export function _renderWorkflowArtifacts(msg) {
+function _renderWorkflowArtifacts(msg) {
   const groups = _workflowAttachmentGroups(msg).filter((g) => _workflowPlacement(g.atts[0]?.workflow_id) !== "actions");
   if (!groups.length) return "";
   const containers = groups.map((g) => _renderWorkflowSwipeContainer(msg, g.rootId, g.atts));
   return `<div class="workflow-artifacts">${containers.join("")}</div>`;
 }
 
-export function _renderWorkflowRejection(msg) {
+function _renderWorkflowRejection(msg) {
   const rejected = S.rejectedWorkflowAtts.filter((r) => r.message_id === msg.id && r.originating_attachment_id == null);
   return _workflowRejectionChipHtml(rejected);
 }
@@ -397,7 +397,7 @@ function _resolveWorkflowId(msgId, attId) {
   return att?.workflow_id || null;
 }
 
-export function _mergeWorkflowRejections(msgId, originatingId, incoming, convId = S.activeConvId) {
+export function mergeWorkflowRejections(msgId, originatingId, incoming, convId = S.activeConvId) {
   const state = conversationState(convId);
   state.rejectedWorkflowAtts = state.rejectedWorkflowAtts
     .filter((r) => !(r.message_id === msgId && r.originating_attachment_id === originatingId))
@@ -556,7 +556,7 @@ async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
     if (!_rootSiblingIds(msg, rootId).size) {
       _workflowMinimized.delete(rootId);
       _persistWorkflowMinimized();
-      _mergeWorkflowRejections(msgId, rootId, [], convId);
+      mergeWorkflowRejections(msgId, rootId, [], convId);
     }
     if (S.activeConvId === convId) {
       _reapplyInFlightSwipes();
@@ -670,7 +670,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
       showLanded,
     );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
-    _mergeWorkflowRejections(msgId, rootId, incoming, convId);
+    mergeWorkflowRejections(msgId, rootId, incoming, convId);
     await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
     if (!landed) _scrollArtifactIntoView(msgId, rootId);
@@ -720,7 +720,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
     );
     if (result?.attachment_id != null) _notifyWorkflowRerollSuccess(wid, msgId, attId);
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
-    _mergeWorkflowRejections(msgId, rootId, incoming, convId);
+    mergeWorkflowRejections(msgId, rootId, incoming, convId);
     await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
     _scrollArtifactIntoView(msgId, rootId);
@@ -808,7 +808,7 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope, convId)
       _workflowMinimized.add(res.root_id);
       _persistWorkflowMinimized();
     }
-    if (res?.group_empty) _mergeWorkflowRejections(msgId, rootId, [], convId);
+    if (res?.group_empty) mergeWorkflowRejections(msgId, rootId, [], convId);
     await refreshConversationMessages(msgId, convId);
     if (S.activeConvId !== convId) return;
     broadcastWorkflowMutation({ convId, msgId });
@@ -972,7 +972,7 @@ async function _flushWorkflowViewportReport() {
   }
 }
 
-export function _refreshWorkflowViewportObserver() {
+function _refreshWorkflowViewportObserver() {
   if (!_workflowViewportObserver) return;
   _workflowViewportObserver.disconnect();
   for (const el of document.querySelectorAll("#chat-messages .message[data-msg-id]")) {

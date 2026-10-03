@@ -46,15 +46,6 @@ class SpeakableChunk:
 
 
 @dataclass
-class AudioChunk:
-    """A chunk of synthesized audio."""
-
-    audio_bytes: bytes
-    sequence: int
-    final: bool = False
-
-
-@dataclass
 class SynthesisResult:
     """Complete synthesis output from a TTS backend."""
 

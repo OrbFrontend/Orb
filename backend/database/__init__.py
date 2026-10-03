@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
 from .connection import (
-    DB_PATH,
     checkpoint_wal,
     close_wal_anchor,
+    current_db_path,
     get_db,
     immediate_tx,
     open_wal_anchor,
@@ -240,7 +240,6 @@ from .queries.worlds import (
     get_lorebook_entries,
     get_lorebook_entry,
     get_world,
-    get_world_by_name,
     get_world_changeset,
     get_world_changesets,
     get_worlds,
@@ -264,7 +263,6 @@ from .seeds import (
 )
 
 __all__ = [
-    "DB_PATH",
     "DEFAULT_ENABLED_TOOLS",
     "DEFAULT_SETTINGS",
     "InteractiveFragmentReorderLaneMismatch",
@@ -299,6 +297,7 @@ __all__ = [
     "convert_to_group",
     "copy_state_events",
     "count_pending_changesets",
+    "current_db_path",
     "create_and_apply_changeset",
     "create_character_card",
     "create_conversation",
@@ -405,7 +404,6 @@ __all__ = [
     "get_workflow_message_state",
     "get_workflow_state",
     "get_world",
-    "get_world_by_name",
     "get_world_changeset",
     "get_world_changesets",
     "get_worlds",

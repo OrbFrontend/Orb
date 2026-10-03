@@ -625,67 +625,6 @@
 
 .char-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
 
-.card-picker {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.card-picker::-webkit-scrollbar { width: 4px; }
-.card-picker::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.card-pick {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: all .15s;
-  background: var(--bg-elevated);
-}
-
-.card-pick:hover {
-  border-color: var(--border-light);
-  background: var(--bg-hover);
-}
-
-.card-pick.selected {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-}
-
-.card-pick-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
-  background: var(--bg-deep);
-  flex-shrink: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--text-muted);
-}
-
-.card-pick-avatar img { width: 100%; height: 100%; object-fit: cover; }
-
-.card-pick-name {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.card-pick-meta {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 1px;
-}
-
 .persona-list {
   display: flex;
   flex-direction: column;

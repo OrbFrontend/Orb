@@ -103,20 +103,6 @@ def _lru3_key(c: dict) -> float:
     return float(ra[-1])
 
 
-def select_lru3_victim(candidates: list[dict]) -> int | None:
-    """Pick a single eviction victim by ``_lru3_key``. Returns id or None.
-
-    The atomic insert/rehydrate paths in this module cover a byte shortfall
-    via :func:`plan_eviction` rather than calling this helper, so the
-    single-victim path is a separate pinned interface for the unit tests
-    that exercise the LRU-3 ordering in isolation.
-    """
-    evictable = [c for c in candidates if c.get("rehydratable", True)]
-    if not evictable:
-        return None
-    return min(evictable, key=_lru3_key)["id"]
-
-
 def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
     """Oldest-first (LRU-3) eviction prefix covering *shortfall* bytes.
 

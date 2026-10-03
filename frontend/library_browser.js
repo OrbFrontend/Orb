@@ -3,7 +3,7 @@ import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
 import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
-import { _avatarBust, loadCharacters } from "./library_sidebar.js";
+import { avatarBust, loadCharacters } from "./library_sidebar.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
@@ -435,7 +435,7 @@ function charItemMatchAttrs(c) {
 }
 
 function renderCharBrowserCard(c) {
-  const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+  const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   return `
     <div class="char-browser-card" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
@@ -445,7 +445,7 @@ function renderCharBrowserCard(c) {
 }
 
 function renderCharBrowserListItem(c) {
-  const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+  const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   const cardTags = c.tags || [];
   const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");

@@ -5,11 +5,11 @@ import { syncActivity } from "./operations.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr } from "./utils.js";
 
-export const _avatarBust = new Map();
+export const avatarBust = new Map();
 
 /** The query that busts a card's cached avatar once it has changed this session, else "". */
 export function avatarBustQuery(cardId) {
-  return _avatarBust.has(cardId) ? `?v=${_avatarBust.get(cardId)}` : "";
+  return avatarBust.has(cardId) ? `?v=${avatarBust.get(cardId)}` : "";
 }
 
 const PANEL_LIMIT = 5;
@@ -87,7 +87,7 @@ export function renderCharacters() {
   }
   $("char-list").innerHTML = S.characters
     .map((c) => {
-      const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+      const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
       const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;

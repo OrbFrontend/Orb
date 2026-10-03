@@ -317,8 +317,7 @@ def compute_lorebook_block(
 ) -> str:
     """Select active entries (all sources) and render the ``**Lorebook**`` block.
 
-    The shared core behind both named entry points and the pipeline's
-    ``LorebookTurn.writer_block`` (``pipeline/state.py``).
+    The shared core behind both named entry points below.
     """
     return render_lorebook_block(
         select_active_entries(entries, messages, scan_depth=scan_depth, director_selected=director_selected),

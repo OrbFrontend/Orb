@@ -769,15 +769,6 @@ class CharacterCardRow(TypedDict, total=False):
     display_css: str
 
 
-class CharacterExpressionRow(TypedDict):
-    """A row from ``character_expressions`` — one expression image per (card, label)."""
-
-    character_card_id: str
-    label: str
-    data_b64: str
-    mime: str
-
-
 class DocumentListRow(TypedDict):
     """The lightweight ``documents`` projection the sidebar list consumes
     (``get_documents``): identity + timestamps, never the full ``content``.

@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { cssScope, sanitizeCss } from "../../frontend/message_css.js";
+import { compileCss, cssScope } from "../../frontend/message_css.js";
 
 // Card CSS is the one grammar in a message body that the sanitiser cannot help
-// with: DOMPurify sees a `<style>` element, not the sheet inside it. sanitizeCss
+// with: DOMPurify sees a `<style>` element, not the sheet inside it. compileCss
 // is therefore the whole containment, and it is a pure string pass precisely so
 // it can be pinned here rather than through a browser's CSSOM.
 
 const SCOPE = "msg-stest";
-const css = (text) => sanitizeCss(text, SCOPE);
+const css = (text) => compileCss(text, SCOPE).css;
 
 test("every surviving selector is scoped to the one message that wrote it", () => {
   // Without the scope class, `.msg-body p` would restyle every bubble in the
@@ -262,7 +262,7 @@ test("a truncated sheet still comes out contained, never half-scoped", () => {
   // Nothing recoverable at all is dropped rather than guessed at.
   assert.equal(css("}}} .a"), "");
   assert.equal(css(""), "");
-  assert.equal(sanitizeCss(".a { color: red }", ""), "");
+  assert.equal(compileCss(".a { color: red }", "").css, "");
 });
 
 test("a comment cannot hide a declaration from the allowlist", () => {

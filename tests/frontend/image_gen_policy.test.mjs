@@ -16,7 +16,6 @@ import {
   promptFormatLabel,
   PROMPT_FORMATS,
   sizeChoices,
-  sizeIsExact,
   styleConnectionId,
 } from "../../frontend/workflows/image_gen/policy.js";
 
@@ -284,8 +283,6 @@ test("a provider that names its own sizes is offered exactly those", () => {
   // 1024x1536, 1536x1024, and auto." Orb's wider menu was snapped to these anyway.
   const openai = { dimension_mode: "size", sizes: ["1024x1024", "1024x1536", "1536x1024"] };
   assert.deepEqual(sizeChoices(openai, false), openai.sizes);
-  assert.equal(sizeIsExact(openai, false, "1024x1536"), true);
-  assert.equal(sizeIsExact(openai, false, "1024x1820"), false);
 });
 
 test("a size provider that declares no menu keeps the full list", () => {
@@ -294,7 +291,6 @@ test("a size provider that declares no menu keeps the full list", () => {
   // answer than the one the provider itself picks.
   for (const preset of [{ dimension_mode: "size" }, { dimension_mode: "size", sizes: [] }]) {
     assert.deepEqual(sizeChoices(preset, false), CLOUD_SIZES);
-    assert.equal(sizeIsExact(preset, false, "1024x1820"), true);
   }
 });
 
@@ -305,22 +301,19 @@ test("a pixel-grid provider is offered only what lands on its grid", () => {
   const offered = sizeChoices(together, false);
   assert.deepEqual(offered, ["1024x1024", "1024x1536", "1536x1024"]);
   assert.equal(offered.includes("1820x1024"), false);
-  assert.equal(sizeIsExact(together, false, "1820x1024"), false);
-  // Off the grid rather than out of bounds -- 1000 is under the ceiling and still
-  // not a multiple of 16.
-  assert.equal(sizeIsExact(together, false, "1000x1000"), false);
-  assert.equal(sizeIsExact(together, false, "1024x1024"), true);
+  // Off the grid rather than out of bounds -- under a higher ceiling, 1820 is
+  // still not a multiple of 64.
+  const coarse = { ...together, max_dimension: 4096, dimension_step: 64 };
+  assert.deepEqual(sizeChoices(coarse, false), ["1024x1024", "1024x1536", "1536x1024"]);
 });
 
 test("an aspect-ratio provider takes any pair, since only the ratio is ever sent", () => {
   const xai = { dimension_mode: "aspect_ratio", aspect_ratios: ["1:1", "16:9"] };
   assert.deepEqual(sizeChoices(xai, false), CLOUD_SIZES);
-  assert.equal(sizeIsExact(xai, false, "1024x1820"), true);
 });
 
 test("an unknown provider is not narrowed by a preset Orb does not have", () => {
   assert.deepEqual(sizeChoices(null, false), CLOUD_SIZES);
-  assert.equal(sizeIsExact(null, false, "832x1216"), true);
 });
 
 test("ComfyUI gets its own menu, and every option is a size a latent can hold", () => {
@@ -333,5 +326,4 @@ test("ComfyUI gets its own menu, and every option is a size a latent can hold", 
   assert.equal(COMFY_SIZES.some((value) => CLOUD_SIZES.includes(value)), true);
   // Nothing is off-menu for ComfyUI: the backend clamps to 64..4096 and otherwise
   // renders what it is handed, so a size stored from elsewhere is kept as-is.
-  assert.equal(sizeIsExact(null, true, "704x1408"), true);
 });

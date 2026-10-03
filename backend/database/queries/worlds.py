@@ -86,12 +86,6 @@ async def get_world(world_id: str) -> WorldRow | None:
         return cast(WorldRow, dict(rows[0])) if rows else None
 
 
-async def get_world_by_name(name: str) -> WorldRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)))
-        return cast(WorldRow, dict(rows[0])) if rows else None
-
-
 async def insert_world(db, data: Mapping[str, Any], now: str) -> str:
     world_id = data.get("id") or str(uuid.uuid4())
     await db.execute(

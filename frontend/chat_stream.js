@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
-  _applyWorkflowTextSegments,
+  applyWorkflowTextSegments,
   buildMsgToolbar,
   canStartGeneration,
   getCharName,
@@ -17,15 +17,15 @@ import {
 } from "./chat_core.js";
 import { renderTurnError } from "./chat_error.js";
 import {
-  _advanceReasoningPass,
-  _relightWorkflowPipelinePass,
-  _syncGenerationStatus,
+  advanceReasoningPass,
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
+  relightWorkflowPipelinePass,
   renderInspector,
+  syncGenerationStatus,
 } from "./chat_inspector.js";
-import { _mergeWorkflowRejections } from "./chat_workflow.js";
+import { mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
 import {
@@ -102,7 +102,7 @@ function phaseStage() {
 // Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -227,7 +227,7 @@ function finalizeStreamingDiv(lastMsg) {
         );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
-    _applyWorkflowTextSegments(body, lastMsg);
+    applyWorkflowTextSegments(body, lastMsg);
   }
 
   const tb = div.querySelector(".msg-toolbar");
@@ -291,7 +291,7 @@ export function createStreamingDiv(name = null, memberId = null) {
 
 /** Rebuild the selected view from the retained turn, including a background speaker. */
 export function restoreStreamingView() {
-  _syncGenerationStatus();
+  syncGenerationStatus();
   if (!S.isStreaming || !S.streamOp) return;
   if (S.groupCast && !S.currentSpeaker) return;
   const div =
@@ -690,7 +690,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
       if (isViewing(state)) {
-        _advanceReasoningPass(1); // director done → move to Writer dot
+        advanceReasoningPass(1); // director done → move to Writer dot
         renderInspector();
       }
       break;
@@ -717,7 +717,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       } catch (_) {}
       break;
     case "writer_rewrite":
-      if (isViewing(state)) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (isViewing(state)) advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}
@@ -732,7 +732,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
           state[stateKey] = (state[stateKey] || "") + delta;
           state.reasoningPassActive = Math.max(state.reasoningPassActive, builtinIdx);
-          const rebuilt = isViewing(state) && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
+          const rebuilt = isViewing(state) && state.inspectedMsgId == null && advanceReasoningPass(builtinIdx);
           const viewingThisPass = state.reasoningPassSelected === builtinIdx;
           const box = document.getElementById("reasoning-box");
           if (isViewing(state) && state.inspectedMsgId == null && box && viewingThisPass) {
@@ -744,7 +744,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         if (pipeline) {
           const firstDelta = !state.reasoningByPass[passKey];
           state.reasoningByPass[passKey] = (state.reasoningByPass[passKey] || "") + delta;
-          if (isViewing(state) && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          if (isViewing(state) && firstDelta) relightWorkflowPipelinePass(pipeline, passKey);
           const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
           if (isViewing(state) && wbox && wbox.dataset.passId === passKey) {
             appendReasoningDelta(wbox, delta);
@@ -868,7 +868,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         const msgIdNum = Number(parsed.message_id);
         const rejected = Array.isArray(parsed.rejected) ? parsed.rejected : [];
         if (Number.isFinite(msgIdNum) && rejected.length) {
-          if (isViewing(state)) _mergeWorkflowRejections(msgIdNum, null, rejected);
+          if (isViewing(state)) mergeWorkflowRejections(msgIdNum, null, rejected);
         }
       } catch (e) {
         console.warn("workflow_attachments_rejected parse failed", e);

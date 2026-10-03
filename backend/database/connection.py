@@ -11,6 +11,17 @@ from ..core.locks import wal_anchor_lock
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "app.db")
 
+
+def current_db_path() -> str:
+    """The live database path, read at call time.
+
+    Code outside this module asks here rather than importing ``DB_PATH``: an
+    imported copy is frozen at import, so a test that patches
+    ``connection.DB_PATH`` would still reach the real database through it.
+    """
+    return DB_PATH
+
+
 #: One idle connection, held open for the life of the server process.
 #:
 #: Every ``get_db()`` connection is transient, and SQLite's *last* WAL

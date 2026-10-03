@@ -40,6 +40,28 @@ the current schema or bootstrap seeds. The regression gates cover both direction
 Keep the historical fixture frozen. Updating it to match the current schema would
 hide missing migrations for existing installations.
 
+## Changing the schema
+
+A schema change touches these together:
+
+| File | Change |
+|---|---|
+| `backend/database/migrations/NNNN_description.py` | The next free number, with a `migrate(conn)` that takes a plain `sqlite3.Connection`. Make it safe to rerun: it is recorded as applied only after it returns |
+| `backend/database/schema.py` | The same table or column, so a fresh install matches an upgraded one |
+| `backend/database/seeds.py` | Any default rows the migration inserts |
+| `backend/database/models.py` | The row `TypedDict` the queries return |
+| `backend/database/preset_schema.py` | A domain or exclusion for a new table, and any column that holds a secret |
+| `backend/api/schemas.py` | Request and response models, where the column is exposed |
+
+The runner picks up every `NNNN_*.py` file in the migrations directory, so a
+migration needs no registration. `test_preset_schema_coverage.py` fails until a
+new table or secret column is classified, and the two gates above fail when the
+migration and the current schema disagree.
+
+`run_unix.sh` and `run_windows.bat` start uvicorn with `--reload` on `backend/`,
+so a new migration file runs against your real database, and is recorded as
+applied, as soon as it is saved. Stop the server while writing one.
+
 ## Concurrent saves and dataset replacement
 
 Document content writes require `expected_revision`. The database compares and

@@ -534,7 +534,7 @@ export function renderMessages(forceBottom = false) {
 
 setInlineInspectorRepaint(() => renderMessages());
 
-export function _applyWorkflowTextSegments(bodyEl, msg) {
+export function applyWorkflowTextSegments(bodyEl, msg) {
   // Segmentation wraps every word of the message in its own span, so it is only
   // worth paying for where something will use one. A *registered* text effect is
   // not that: TTS registers karaoke at boot and may never play a clip, and until
@@ -559,7 +559,7 @@ function _segmentRenderedMessages(renderedMsgs) {
     const msg = byId.get(msgId);
     if (!msg) continue;
     const body = el.querySelector(".msg-body");
-    if (body) _applyWorkflowTextSegments(body, msg);
+    if (body) applyWorkflowTextSegments(body, msg);
   }
 }
 

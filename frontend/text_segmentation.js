@@ -193,13 +193,6 @@ export function sentenceStream(text) {
   return out;
 }
 
-export function splitSentences(text) {
-  return sentenceStream(text)
-    .filter((unit) => unit.kind === "sentence")
-    .map((unit) => unit.text.trim())
-    .filter(Boolean);
-}
-
 export function endsWithSentenceTerminator(text) {
   let trimmed = text.trimEnd();
   while (trimmed && TRAILING_MARKERS.has(trimmed.at(-1))) trimmed = trimmed.slice(0, -1).trimEnd();
