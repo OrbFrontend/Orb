@@ -1,65 +1,65 @@
 # Character Expressions
 
-Character Expressions change a character's avatar to match the emotion detected
-in the latest reply. The result is a still image, not an animation.
+Character Expressions shows an image that matches the emotion of a reply.
+You supply the images for each character.
 
 ## Set up expressions
 
-1. Open **Settings → Expression Playback** and download or enable **Character Expressions**.
-2. Open the character editor and select **Advanced**.
-3. In **Expression Images**, select **Upload .zip**.
-4. Upload images whose filenames match supported emotion labels.
+1. Open **Settings → Expression Playback**. Download **Character Expressions**
+   and turn it on.
+2. Make a ZIP of images named after emotions. For example:
 
-Filenames are case-insensitive and folders inside the ZIP are ignored. Uploading
-another ZIP replaces the current set. **Clear** removes all expression images.
+   ```text
+   neutral.png
+   joy.png
+   anger.webp
+   sadness.jpg
+   ```
 
-Orb accepts PNG, JPG/JPEG, WebP, and GIF files. A ZIP may contain up to 200 files;
-each image may be 5 MB and the ZIP may be 50 MB.
+3. Open the character editor → **Advanced → Expression Images → Upload .zip**.
+
+Use any subset of the labels below. Missing emotions use your `neutral` image,
+then the normal avatar if you have no neutral image.
+
+PNG, JPG/JPEG, WebP, and GIF are supported. Names ignore case; folders are
+ignored. Uploading a new ZIP replaces the set. **Clear** removes it.
+
+Limits: 200 files, 5 MB per image, 50 MB per ZIP.
 
 ## Supported labels
 
-Orb uses the standard 28-label emotion set:
+Use these names before the file extension:
 
 `admiration`, `amusement`, `anger`, `annoyance`, `approval`, `caring`, `confusion`,
 `curiosity`, `desire`, `disappointment`, `disapproval`, `disgust`, `embarrassment`,
 `excitement`, `fear`, `gratitude`, `grief`, `joy`, `love`, `nervousness`, `optimism`,
 `pride`, `realization`, `relief`, `remorse`, `sadness`, `surprise`, `neutral`
 
-You can upload any subset. Orb uses the matching image first, then `neutral.png`,
-then the character's normal avatar.
-
 ## View expressions
 
-A character with an expression pack has a halo around its avatar. Select the
-character avatar in the chat header to open the expressions popup. While it is
-open, Orb checks the latest reply about once per second, including while a reply
-is streaming.
+A halo around the avatar means the character has expression images. Select the
+avatar in the chat header and keep the popup open to see expressions change.
 
-In a group chat, select the group avatar. The popup follows the member currently
-speaking, or the last member who spoke when the chat is idle. A member without an
-expression pack uses the normal avatar.
+In group chats, select the group avatar. The popup follows the current speaker,
+or the last speaker while idle.
 
 ## Text rendering
 
-In **Settings → Expression Playback**, choose **Classic** (the default) to keep
-live text streaming and the popup's periodic expression updates.
+Choose **Text rendering** in **Settings → Expression Playback**:
 
-Choose **Expression-based** to buffer generated replies until they are saved,
-including any Editor rewrites. Orb classifies each sentence and groups adjacent
-sentences that resolve to the same expression image. The first part appears
-automatically. Select **Next · Space** or press **Space** outside text inputs to
-reveal the next part and change the popup image together. Revealed text stays
-visible. In group chats, playback advances through speakers in reply order.
-The final expression holds until the next turn.
+- **Classic** (default): uses normal text streaming. Expressions change while
+  the popup is open.
+- **Expression-based**: waits for the finished reply, including Editor changes,
+  then reveals it in parts with matching images. Sentences using the same image
+  stay together.
 
-Expression-based rendering always waits for the finished reply, so **Hide until
-baked** is shown on and greyed out in this mode; your Classic choice is kept.
-While the reply generates, Orb classifies sentences that are already complete,
-so only rewritten sentences and the last one wait for the classifier.
+The first part appears automatically. Select **Next · Space**, or press **Space**
+outside text inputs, to reveal more. Earlier text stays visible. Group replies
+play in speaker order, and the last expression stays until the next turn.
 
-The full reply is saved normally; playback only controls its display. The mode
-requires the expression model to be downloaded and enabled. Missing expression
-images resolve to neutral or the normal avatar, so they do not create extra
-pauses. Characters without an expression pack, structured HTML cards and fenced
-code appear as one part. If classification fails, the complete reply appears.
-Changing conversations, starting another turn, or editing a reply ends playback.
+Expression-based rendering keeps **Hide until baked** on. The full reply is
+saved even while parts are hidden.
+
+Characters without expression images and replies containing HTML or fenced code
+appear as one part. If emotion detection fails, the whole reply appears.
+Switching chats, starting a turn, or editing the reply ends playback.

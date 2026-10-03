@@ -55,17 +55,3 @@ repair automatically, or review the findings yourself.
 
 Document mode also supports undo and redo for both your typing and generated
 text. It works on mobile-sized screens.
-
-## Save conflicts and running work
-
-Saves use one serialized, coalescing queue per document and a server revision.
-“Saved” means the latest local snapshot was acknowledged. A conflict preserves
-the draft and offers Reload or Keep mine. Dirty drafts and their base revision
-are saved locally before an unload keepalive; reopening offers recovery unless
-the saved document already contains that snapshot.
-
-The editor stays locked during generation. Opening another document offers Stop
-and waits for generation and its final save. Generate reserves ownership before
-saving a dirty document, so a second click cannot start another run. Patches and
-token substitutions validate their document, run, revision and original text.
-Chat replies can continue in the background while Document mode is open.
