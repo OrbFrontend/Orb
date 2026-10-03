@@ -110,8 +110,6 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachment
             # Decode message snapshots before labeling the dict a
             # MessageWithAttachments, whose fields are typed as dicts.
             msg = dict(row)
-            raw_pf = msg.get("progressive_fields")
-            msg["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
             raw_fc = msg.get("fragment_cooldowns")
             msg["fragment_cooldowns"] = json.loads(raw_fc) if raw_fc else {}
             msg["decision_cooldowns"] = _decoded_json_object(msg.get("decision_cooldowns"))
@@ -486,7 +484,7 @@ async def get_message_by_id(msg_id: int) -> MessageRow | None:
     """Fetch a single message by its primary key.
 
     NOTE: unlike get_path_to_leaf(), this does not JSON-decode
-    ``progressive_fields``; it stays the raw string at runtime even though
+    ``fragment_cooldowns``; it stays the raw string at runtime even though
     ``MessageRow`` types it as the decoded dict. See MessageRow's docstring.
     """
     async with get_db() as db:

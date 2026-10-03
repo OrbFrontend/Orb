@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Response, UploadFile
 
 from ...core import (
     scrub_log,
@@ -44,6 +45,7 @@ from ...workflows import (
     RegenCtx,
     RerollGenCtx,
     Subscription,
+    UploadCtx,
     WorkflowEventStream,
     get_subscription,
     get_workflow,
@@ -69,7 +71,7 @@ from ...workflows.attachment_cache import (
     variant_on_show,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ...workflows.errors import WorkflowUserFacingError
+from ...workflows.errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from ..deps import (
     attachment_content_response,
     committing_workflow_job,
@@ -144,7 +146,8 @@ def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str)
         yield
     except WorkflowUserFacingError as exc:
         logger.warning("%s: %s", where(), exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from None
+        status = 400 if isinstance(exc, WorkflowInputError) else 503 if isinstance(exc, WorkflowUnavailableError) else 502
+        raise HTTPException(status_code=status, detail=str(exc)) from None
     except Exception:
         logger.exception("%s", where())
         raise HTTPException(status_code=500, detail=defect) from None
@@ -211,6 +214,51 @@ async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  
     settings_snapshot = await get_settings()
     with _hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
         return await sub.callable(QueryCtx(settings=readonly_view(settings_snapshot)), body)
+
+
+# Ceiling for one workflow upload, which the hook receives as bytes. Voice
+# enrollment reads up to two minutes: generous enough for an uncompressed WAV of
+# that length and far short of "someone dropped in a film".
+MAX_WORKFLOW_UPLOAD = 25 * 1024 * 1024
+
+
+@router.post("/api/characters/{card_id}/workflows/{workflow_id}/upload")
+async def api_upload_workflow_file(
+    card_id: str,
+    workflow_id: str,
+    request: Request,
+    file: Annotated[UploadFile, File(...)],
+):
+    """Hand one file for one character to a workflow's upload hook.
+
+    The query string reaches the hook as ``params``. No lock is held while the
+    hook runs; it takes the toolkit lock matching any state it rewrites.
+    """
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    settings_snapshot = await get_settings()
+    sub = _gate_workflow_sub(
+        get_subscription(workflow_id, HookType.UPLOAD),
+        workflow_id,
+        settings_snapshot,
+        action="upload",
+        detail=f"Workflow {workflow_id!r} has no upload handler",
+    )
+    card = await get_character_card(card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Character card not found")
+    data = await file.read(MAX_WORKFLOW_UPLOAD + 1)
+    if len(data) > MAX_WORKFLOW_UPLOAD:
+        raise HTTPException(status_code=400, detail=f"Uploads must be under {MAX_WORKFLOW_UPLOAD // (1024 * 1024)} MB")
+    with _hook_failures("upload hook", workflow_id, defect="Upload handler raised; see server logs"):
+        upload_ctx = UploadCtx(
+            settings=readonly_view(settings_snapshot),
+            character_id=card_id,
+            character=readonly_view(card),
+            filename=os.path.basename(file.filename or ""),
+            data=data,
+        )
+        return await sub.callable(upload_ctx, dict(request.query_params))
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")

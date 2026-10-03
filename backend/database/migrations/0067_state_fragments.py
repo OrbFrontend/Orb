@@ -1,7 +1,7 @@
 """Migrate legacy progressive and direction-note data to state fragments.
 
-Preserves branch state on imported databases with partial domains. Legacy
-direction-note storage remains for a follow-up cleanup migration.
+Preserves branch state on imported databases with partial domains. Migration
+0079 drops the legacy storage this reads.
 """
 
 from __future__ import annotations

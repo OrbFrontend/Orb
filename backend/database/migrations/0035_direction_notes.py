@@ -1,8 +1,8 @@
 """Add the ``direction_notes`` table, its settings, and per-fragment recording timing.
 
-Fresh installs get these from ``schema.py`` and ``SEED_INTERACTIVE_FRAGMENTS``; this
-backfills existing ones, sourcing the table DDL from ``schema.py`` so the two shapes
-cannot diverge. ``direction_notes_record`` defaults off, keeping recording opt-in;
+The table DDL is frozen here rather than read from ``schema.py``: migration 0067
+converts these notes to state fragments and 0079 drops the table, so the current schema
+no longer defines it. ``direction_notes_record`` defaults off, keeping recording opt-in;
 ``direction_notes_inject`` (``off``/``director``/``writer``/``both``) defaults to ``off``;
 each direction-note fragment's ``direction_note_timing`` defaults to ``post_turn``, so it
 records after the reply unless set to record before the writer.
@@ -12,11 +12,21 @@ from __future__ import annotations
 
 import sqlite3
 
-from ..schema import table_create_sql
+_DIRECTION_NOTES_SQL = """
+CREATE TABLE IF NOT EXISTS direction_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    interactive_fragment_id TEXT NOT NULL DEFAULT '',
+    interactive_fragment_label TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    conn.execute(table_create_sql("direction_notes"))
+    conn.execute(_DIRECTION_NOTES_SQL)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id)")
 

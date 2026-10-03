@@ -298,8 +298,8 @@ class ConversationListRow(ConversationRow, total=False):
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
-    NOTE: ``progressive_fields`` (legacy, no longer written), ``fragment_cooldowns``, ``decision_cooldowns``
-    and ``decision_evaluations`` are JSON-*decoded*, which is how
+    NOTE: ``fragment_cooldowns``, ``decision_cooldowns`` and ``decision_evaluations``
+    are JSON-*decoded*, which is how
     get_path_to_leaf()/get_messages() expose them. ``get_message_by_id()`` does a
     plain ``dict(row)`` and leaves them as raw JSON *strings* -- a pre-existing
     inconsistency this label makes visible rather than fixes. Readers that need a
@@ -317,7 +317,6 @@ class MessageRow(TypedDict):
     writer_draft: str | None
     turn_index: int
     parent_id: int | None
-    progressive_fields: dict
     fragment_cooldowns: dict[str, int]
     created_at: str
     workflow_state: str | None
@@ -637,8 +636,6 @@ class InteractiveFragmentRow(TypedDict):
     enabled: int
     injection_label: str
     sort_order: int
-    # Legacy direction-note timing; converted to ``state_update`` and no longer read.
-    direction_note_timing: str
     cooldown_turns: int
     # State-only settings, NULL for other fragment types; parsed with defaults by
     # ``core.fragment_state.state_fragment_of``.
@@ -695,9 +692,8 @@ class DirectorStateRow(TypedDict):
     """The director-state dict returned by ``get_director_state()``.
 
     The JSON columns are decoded before return: ``active_moods`` and
-    ``keywords`` to lists, ``macro_choices`` to a dict. The legacy
-    ``progressive_fields`` column is dropped from the projection. When no row
-    exists the query synthesizes the same shape with empty containers.
+    ``keywords`` to lists, ``macro_choices`` to a dict. When no row exists the
+    query synthesizes the same shape with empty containers.
     """
 
     conversation_id: str

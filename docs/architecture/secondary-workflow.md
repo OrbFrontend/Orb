@@ -13,6 +13,7 @@ A workflow may:
 
 - add work before or after a generated turn;
 - expose a conversation-scoped action or a conversation-less query;
+- accept a file the user uploads for a character, such as a voice clip;
 - produce an attachment for a message and later regenerate, reroll, rehydrate,
   activate, or delete it;
 - keep state at conversation, message, character, or global config scope;
@@ -131,10 +132,16 @@ on re-registration.
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
+| `UPLOAD` | Character-scoped file upload route | One response object |
 | `EXPORT` | Attachment export route; optional | An `ExportedFile`, or `None` when nothing is left to export |
 
 `QUERY` has no conversation or LLM client. It is for setup and discovery, such
-as checking an external server before a conversation exists. The message-level
+as checking an external server before a conversation exists. `UPLOAD` receives
+one file for one character, also without a conversation or client, and its
+query-string parameters as a second argument. The framework checks the card
+and a 25 MB cap, and holds no lock while the hook runs: the hook takes the
+toolkit lock for any state it rewrites, so slow processing of the file blocks
+nothing. The TTS voice clone is the worked example. The message-level
 regenerate route reruns the normal turn pipeline; `REGENERATE` is only for an
 attachment.
 
@@ -169,6 +176,7 @@ framework.
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
+| `UploadCtx` | Settings, character id and card, filename, file bytes | No conversation, client, or lock |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
 
 For group work, `character` identifies the relevant speaker. A
@@ -307,6 +315,7 @@ GET  /api/workflows/{wid}/config
 PUT  /api/workflows/{wid}/config
 POST /api/workflows/{wid}/enabled
 POST /api/workflows/{wid}/query
+POST /api/characters/{card_id}/workflows/{wid}/upload
 POST /api/conversations/{cid}/workflows/{wid}/trigger
 POST /api/conversations/{cid}/workflows/stop
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate
@@ -321,6 +330,13 @@ GET  /api/workflow-attachments/{aid}/export
 ```
 
 User uploads have the same split: `GET /api/user-attachments/{aid}/content`.
+
+A hook reports a failure the user can act on by raising the toolkit's
+`WorkflowUserFacingError`; its message becomes the response detail, with status
+502. Two subclasses narrow the status: `WorkflowInputError` (400) for input the
+user supplied that cannot be used, and `WorkflowUnavailableError` (503) for
+something not set up yet, such as a model that is not downloaded. Any other
+exception is logged and answers 500 with a generic message.
 
 `in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
 whether a request still holds the group's lock. Regenerate, reroll-gen,
@@ -465,6 +481,7 @@ message refreshes resume.
 | Store workflow state | Toolkit state helpers and the matching lock |
 | Produce an attachment | `attach_artifact` and `attachment_cache.py` |
 | Add a custom stream event | Hook event plus `registerWorkflowEventHandler` |
+| Accept a file for a character | `UPLOAD` hook; `tts/hooks.py:upload` |
 | Add UI | `workflow_api.js` registrars and `registerAction` |
 
 

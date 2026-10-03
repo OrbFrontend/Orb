@@ -55,10 +55,8 @@ from ...pipeline import (
 )
 from ...pipeline.predicates import resolve_persona_id
 from ...pipeline.workflow_bridge import PostPipelineResult, run_post_pipeline
-from ...workflows.format_consistency import (
-    WORKFLOW_ID as FORMAT_CONSISTENCY_WORKFLOW_ID,
-)
 from ...workflows.prose_rewriter_host import (
+    RERUN_AFTER_REWRITE,
     ProseRewriteConfig,
     resolve_config,
     rewrite_events,
@@ -401,7 +399,7 @@ async def _stream_prose_rewrite_message(
             schema_overrides={},
             agent_client=agent_client,
             agent_model_name=agent_model_name,
-            post_workflow_ids={FORMAT_CONSISTENCY_WORKFLOW_ID},
+            post_workflow_ids=RERUN_AFTER_REWRITE,
         ):
             if isinstance(event, PostPipelineResult):
                 post = event

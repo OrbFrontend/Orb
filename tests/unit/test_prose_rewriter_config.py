@@ -149,3 +149,10 @@ async def test_turn_config_is_off_when_the_rewriter_is_switched_off(monkeypatch,
 
     assert prose_rewriter_host.resolve_config({"local_ml_config": selection}) is not None
     assert prose_rewriter_host.resolve_config({"local_ml_config": selection, **switches}) is None
+
+
+async def test_rewrite_follow_up_workflows_are_registered():
+    """Named by id so the rewrite survives an uninstalled workflow; a renamed id must not slip by."""
+    from backend.workflows import get_workflow
+
+    assert all(get_workflow(wid) is not None for wid in prose_rewriter_host.RERUN_AFTER_REWRITE)

@@ -45,10 +45,6 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
     director_individual_fragments INTEGER NOT NULL DEFAULT 0,
-    -- Superseded by per-fragment state settings; no longer written. Dropped by
-    -- a follow-up cleanup migration after conversion checks.
-    direction_notes_record INTEGER NOT NULL DEFAULT 0,
-    direction_notes_inject TEXT NOT NULL DEFAULT 'off',
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
     workflow_config TEXT NOT NULL DEFAULT '{}',
     workflows_globally_enabled INTEGER NOT NULL DEFAULT 1,
@@ -182,9 +178,6 @@ CREATE TABLE IF NOT EXISTS messages (
     writer_draft TEXT DEFAULT NULL,
     turn_index INTEGER NOT NULL,
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
-    -- Legacy progressive snapshot, converted to fragment_state_events and no
-    -- longer written.
-    progressive_fields TEXT NOT NULL DEFAULT '{}',
     fragment_cooldowns TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
@@ -204,7 +197,6 @@ CREATE TABLE IF NOT EXISTS director_state (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
     active_moods TEXT NOT NULL DEFAULT '[]',
     keywords TEXT NOT NULL DEFAULT '[]',
-    progressive_fields TEXT NOT NULL DEFAULT '{}',
     macro_choices TEXT NOT NULL DEFAULT '{}'
 );
 
@@ -217,8 +209,6 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     enabled BOOLEAN NOT NULL DEFAULT 1,
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    -- Legacy direction-note timing, converted to state_update and no longer written.
-    direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
     cooldown_turns INTEGER NOT NULL DEFAULT 0,
     -- State-only settings; NULL for other fragment types.
     state_mode TEXT DEFAULT NULL CHECK (state_mode IS NULL OR state_mode IN ('value', 'entries')),
@@ -431,19 +421,6 @@ CREATE TABLE IF NOT EXISTS member_sheet_proposals (
 
 CREATE INDEX IF NOT EXISTS idx_sheet_proposal_conv_status ON member_sheet_proposals(conversation_id, status);
 
--- Legacy: converted to fragment_state_events and no longer written.
-CREATE TABLE IF NOT EXISTS direction_notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    interactive_fragment_id TEXT NOT NULL DEFAULT '',
-    interactive_fragment_label TEXT NOT NULL DEFAULT '',
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id);
-CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id);
 
 -- State-fragment history: explicit entry writes and retirements, anchored to the
 -- message whose branch they belong to. Folding a branch's events in active-path

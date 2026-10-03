@@ -469,8 +469,6 @@ SIGNATURE_ALLOWLIST = frozenset(
         "model_configs",
         # pure log / attachment tables: not part of any domain's user-facing identity.
         "conversation_logs",
-        # Legacy, converted to fragment_state_events and no longer written.
-        "direction_notes",
         "user_attachments",
         "workflow_attachments",
         # Local review state for the duplicate finder: "I looked at this exact

@@ -178,6 +178,21 @@ class QueryCtx:
 
 
 @dataclass(frozen=True)
+class UploadCtx:
+    """Inputs available to a workflow's upload hook: one file for one character.
+
+    No conversation, client, or lock: the hook takes the toolkit lock matching
+    any state it rewrites, so slow processing of the file holds nothing.
+    """
+
+    settings: MappingProxyType
+    character_id: str
+    character: MappingProxyType
+    filename: str
+    data: bytes
+
+
+@dataclass(frozen=True)
 class ExportCtx:
     """Inputs available to a workflow's export hook.
 
@@ -248,10 +263,11 @@ class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
     PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, and EXPORT are
-    single-dispatch slots resolved by workflow id from an HTTP route. QUERY is
-    the only one with no conversation in scope -- the global config/discovery
-    surface. EXPORT is optional, even for artifact workflows.
+    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, UPLOAD, and EXPORT are
+    single-dispatch slots resolved by workflow id from an HTTP route. QUERY and
+    UPLOAD have no conversation in scope: QUERY is the global config/discovery
+    surface, and UPLOAD takes a file for one character. EXPORT is optional,
+    even for artifact workflows.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -260,6 +276,7 @@ class HookType(Enum):
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
     QUERY = "query"
+    UPLOAD = "upload"
     EXPORT = "export"
 
 

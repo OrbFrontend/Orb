@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Check that migration 0067 kept every branch tip's state.
+"""Oracle for migration 0067: every branch tip keeps its state.
 
 For each leaf of each conversation, the state folded from ``fragment_state_events``
 must equal the legacy state on its path:
@@ -15,29 +14,20 @@ must equal the legacy state on its path:
 It also lists converted lists that start above the active-entry cap: they match,
 but the Agent cannot add to them until enough entries are retired.
 
-Run it on each real database before the cleanup migration drops the legacy
-columns. It opens the database read-only. A leaf whose path gained messages after
-the migration ran, and events written after it, are left out: they are new state,
-with no legacy counterpart.
-
-    .venv/bin/python scripts/check_state_conversion.py backend/data/app.db [--notes-id notes] [-v]
-
-Exits 1 when any leaf differs, 0 otherwise.
+The upgrade test builds a pre-0067 database, runs 0067, and holds the result to
+this independent reading of the legacy columns. It opens the database read-only.
+A leaf whose path gained messages after the migration ran, and events written
+after it, are left out: they are new state, with no legacy counterpart.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sqlite3
-import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from backend.core import MAX_ACTIVE_ENTRIES, fold_events  # noqa: E402
+from backend.core import MAX_ACTIVE_ENTRIES, fold_events
 
 _MIGRATION = "0067_state_fragments"
 _HUMAN = "human"
@@ -96,7 +86,7 @@ def _notes_fragment_id(conn: sqlite3.Connection, override: str | None) -> str:
     return rows[0][0] if rows else "notes"
 
 
-def check(path: str, *, notes_id: str | None = None, verbose: bool = False) -> Report:
+def check(path: str, *, notes_id: str | None = None) -> Report:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     report = Report()
@@ -167,31 +157,6 @@ def check(path: str, *, notes_id: str | None = None, verbose: bool = False) -> R
                 report.mismatches.append(
                     f"conversation {path[0]['conversation_id']} leaf {leaf_id}: expected {expected!r}, folded {folded!r}"
                 )
-            elif verbose:
-                print(f"ok  leaf {leaf_id}: {folded!r}")
     finally:
         conn.close()
     return report
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("database", help="path to an Orb database migrated through 0067")
-    parser.add_argument("--notes-id", help="fragment id user-authored notes moved to (detected when omitted)")
-    parser.add_argument("-v", "--verbose", action="store_true", help="print every matching leaf too")
-    args = parser.parse_args()
-    report = check(args.database, notes_id=args.notes_id, verbose=args.verbose)
-    for line in report.mismatches:
-        print(f"MISMATCH {line}")
-    for line in report.over_cap:
-        print(f"OVER CAP {line}")
-    print(
-        f"{report.leaves} leaves: {report.checked} checked, {report.skipped_new} newer than the migration, "
-        f"{report.restored} restored past an empty snapshot, {len(report.mismatches)} mismatched, "
-        f"{len(report.over_cap)} fragment(s) over the {MAX_ACTIVE_ENTRIES}-entry cap"
-    )
-    return 1 if report.mismatches else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

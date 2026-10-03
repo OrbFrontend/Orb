@@ -219,7 +219,6 @@ def card_embedded_fragments(
                 "enabled": 1,
                 "injection_label": _text(entry, "injection_label") or entry["label"],
                 "sort_order": 10_000 + i,
-                "direction_note_timing": "post_turn",
                 "cooldown_turns": _int(entry, "cooldown_turns", 0, 0, 50),
                 "state_mode": _enum(entry, "state_mode", STATE_MODES, DEFAULT_STATE_MODE) if is_state else None,
                 "state_update": _enum(entry, "state_update", STATE_UPDATES, DEFAULT_STATE_UPDATE) if is_state else None,

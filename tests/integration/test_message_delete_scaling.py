@@ -92,7 +92,7 @@ async def test_every_foreign_key_a_message_delete_touches_is_indexed(db_path: Pa
     try:
         closure = _delete_closure(conn, "messages")
         # Sanity: the closure really is the delete fan-out, not just {messages}.
-        assert {"messages", "user_attachments", "workflow_attachments", "direction_notes"} <= closure
+        assert {"messages", "user_attachments", "workflow_attachments", "fragment_state_events"} <= closure
         offenders = _unindexed_child_keys(conn, closure)
     finally:
         conn.close()

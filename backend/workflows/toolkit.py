@@ -85,7 +85,7 @@ from .attachment_cache import (
     set_workflow_consumption_metadata,
 )
 from .contracts import EV_DRAFT_REPLACED, ExportedFile, ToolSpec, WorkflowEventStream
-from .errors import WorkflowUserFacingError
+from .errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from .registry import (
     Workflow,
     get_workflow_character_state,
@@ -117,6 +117,8 @@ __all__ = [
     "TurnCast",
     "Workflow",
     "WorkflowEventStream",
+    "WorkflowInputError",
+    "WorkflowUnavailableError",
     "WorkflowUserFacingError",
     "classify_pov",
     "classify_pov_tense_chunks",
@@ -164,6 +166,7 @@ __all__ = [
     "spark_voice_clean_reference_text",
     "spark_voice_clean_reference_tokens",
     "spark_voice_clean_tokens",
+    "spark_voice_enroll",
     "spark_voice_reference_audio",
     "spark_voice_speak",
     "protected_runs",
@@ -255,6 +258,23 @@ def spark_voice_clean_reference_tokens(raw: object) -> list[int]:
 def spark_voice_clean_reference_text(raw: object) -> str:
     """A stored advanced reference's transcript on one line, within the model's limit."""
     return _spark_tts_host.clean_reference_text(raw)
+
+
+async def spark_voice_enroll(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> dict[str, Any]:
+    """Enroll an uploaded clip as a voice, with the advanced reference when it can be prepared.
+
+    Returns ``speaker_tokens``, ``reference_tokens``, ``reference_text``, and
+    ``reference_note`` (why the reference is missing or needs editing). Raises
+    ``WorkflowInputError`` for an unreadable file and ``WorkflowUnavailableError``
+    when the voice models are not set up.
+    """
+    enrollment = await _spark_tts_host.enroll_voice(data, settings, filename=filename)
+    return {
+        "speaker_tokens": enrollment.speaker_tokens,
+        "reference_tokens": enrollment.reference_tokens,
+        "reference_text": enrollment.reference_text,
+        "reference_note": enrollment.reference_note,
+    }
 
 
 async def spark_voice_speak(
