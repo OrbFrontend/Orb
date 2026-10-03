@@ -19,6 +19,7 @@ from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import (
     INLINE_MACROS,
+    STATE_MACRO_FORMS,
     STATE_MACROS,
     TEXT_MACROS,
     connection_test,
@@ -36,6 +37,7 @@ def _config_payload(settings, config) -> dict:
         "resolved_url": config.url,
         "configured": config.configured,
         "state_macros": sorted(STATE_MACROS),
+        "state_macro_forms": list(STATE_MACRO_FORMS),
         "text_macros": sorted(TEXT_MACROS),
         "inline_macros": list(INLINE_MACROS),
         "default_state_template": DEFAULT_STATE_TEMPLATE,

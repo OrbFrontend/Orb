@@ -16,6 +16,8 @@ from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
 RECENT_HISTORY_DEPTH = 6
+# {{recent_history::N}} renders the last N messages instead of the default.
+MAX_RECENT_HISTORY_DEPTH = 50
 STATE_MACROS = frozenset({"last_message", "last_assistant_message", "recent_history", "user", "char", "cast", "description"})
 TEXT_MACROS = frozenset({"user", "char", "cast"})
 # Names, resolved before inline macros as the main prompt path does, so they can
@@ -24,8 +26,10 @@ _IDENTITY_MACROS = TEXT_MACROS
 LATER_STAGE_MACROS = frozenset({"scene_guidance", "draft"})
 # Inline macros resolve in every decision field; listed here as authors write them.
 INLINE_MACROS = ("roll::1d20", "random::a::b", "pick::a::b", "time", "date", "trim", "// note")
-_MACRO_RE = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}", re.IGNORECASE)
-_NESTED_RE = re.compile(r"\{\{(?:random|pick|roll)::[^{}]*\{\{\s*([a-z_]+)\s*\}\}", re.IGNORECASE)
+# State macros that take a "::" argument, as authors write them.
+STATE_MACRO_FORMS = ("recent_history::10",)
+_MACRO_RE = re.compile(r"\{\{\s*([a-z_]+)\s*(?:::([^{}]*))?\}\}", re.IGNORECASE)
+_NESTED_RE = re.compile(r"\{\{(?:random|pick|roll)::[^{}]*\{\{\s*([a-z_]+)\s*(?:::[^{}]*)?\}\}", re.IGNORECASE)
 # Validation resolves inline macros only to remove them; any fixed seed will do.
 _VALIDATION_SEED = "validate"
 
@@ -34,7 +38,8 @@ _VALIDATION_SEED = "validate"
 class DecisionSnapshot:
     last_message: str = ""
     last_assistant_message: str = ""
-    recent_history: str = ""
+    # Labelled completed messages, oldest first, up to MAX_RECENT_HISTORY_DEPTH.
+    history: tuple[str, ...] = ()
     user: str = ""
     char: str = ""
     cast: str = ""
@@ -43,7 +48,12 @@ class DecisionSnapshot:
     anchor_message_id: int | None = None
     seed: str = ""
 
-    def value(self, macro: str) -> str | None:
+    def recent_history(self, depth: int = RECENT_HISTORY_DEPTH) -> str:
+        return "\n\n".join(self.history[-depth:])
+
+    def value(self, macro: str, depth: int = RECENT_HISTORY_DEPTH) -> str | None:
+        if macro == "recent_history":
+            return self.recent_history(depth)
         return self.description if macro == "description" else getattr(self, macro, None)
 
     def roll_seed(self, fragment_id: str | None, field: str) -> str:
@@ -102,9 +112,9 @@ def build_snapshot(
     return DecisionSnapshot(
         last_message=current_request,
         last_assistant_message=previous_reply,
-        recent_history="\n\n".join(
+        history=tuple(
             _labelled(message, _message_text(message, macros, scripts_for(message)), names, grouped)
-            for message in completed[-RECENT_HISTORY_DEPTH:]
+            for message in completed[-MAX_RECENT_HISTORY_DEPTH:]
         ),
         user=macros.user,
         char=macros.char,
@@ -127,17 +137,39 @@ def card_snapshots(snapshot: DecisionSnapshot, members: Iterable[CastMember]) ->
     return scoped
 
 
-def macros_used(text: str) -> list[str]:
-    found: list[str] = []
+def _depth(name: str, argument: str | None) -> int | None:
+    """The message count *name* renders with *argument*, or None when that is no count.
+
+    Only ``{{recent_history::N}}`` takes one; other macros render bare.
+    """
+    if argument is None:
+        return RECENT_HISTORY_DEPTH
+    value = argument.strip()
+    valid = name == "recent_history" and value.isdecimal() and 1 <= int(value) <= MAX_RECENT_HISTORY_DEPTH
+    return int(value) if valid else None
+
+
+def _macro_uses(text: str) -> list[tuple[str, str | None]]:
+    """Each macro in *text* with its "::" argument, in order, repeats included.
+
+    An argument on a name outside STATE_MACROS is inline grammar left raw (an
+    unrollable ``{{roll::0d6}}``), so only that name's bare form counts.
+    """
+    found: list[tuple[str, str | None]] = []
 
     def collect(body: str) -> str:
         for match in _MACRO_RE.finditer(body):
-            if (name := match.group(1).lower()) not in found:
-                found.append(name)
+            name, argument = match.group(1).lower(), match.group(2)
+            if argument is None or name in STATE_MACROS:
+                found.append((name, argument))
         return body
 
     outside_literals(resolve_inline(text, seed=_VALIDATION_SEED), collect)
     return found
+
+
+def macros_used(text: str) -> list[str]:
+    return list(dict.fromkeys(name for name, _ in _macro_uses(text)))
 
 
 def _nested_state_macros(text: str) -> list[str]:
@@ -158,6 +190,14 @@ def macro_errors(text: str, *, allowed: frozenset[str] = STATE_MACROS, field: st
         f"{field} cannot put {{{{{name}}}}} inside {{{{random}}}}, {{{{pick}}}} or {{{{roll}}}}"
         for name in _nested_state_macros(text)
     ]
+    for name, argument in dict.fromkeys(_macro_uses(text)):
+        if name in allowed and _depth(name, argument) is None:
+            reason = (
+                f"the count must be a whole number from 1 to {MAX_RECENT_HISTORY_DEPTH}"
+                if name == "recent_history"
+                else f"{{{{{name}}}}} takes no argument"
+            )
+            errors.append(f"{field} cannot use {{{{{name}::{argument}}}}}: {reason}")
     for name in macros_used(text):
         if name in allowed:
             continue
@@ -197,9 +237,10 @@ def render(template: str, snapshot: DecisionSnapshot, *, allowed: frozenset[str]
     def substitute(names: frozenset[str]):
         def one(match: re.Match) -> str:
             name = match.group(1).lower()
-            if name not in names:
+            depth = _depth(name, match.group(2))
+            if name not in names or depth is None:
                 return match.group(0)
-            if (value := snapshot.value(name)) is None:
+            if (value := snapshot.value(name, depth)) is None:
                 raise UnavailableMacro(name)
             return value
 

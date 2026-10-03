@@ -18,6 +18,7 @@ from backend.pipeline.passes.judge import (
     render,
 )
 from backend.pipeline.passes.judge.render import (
+    MAX_RECENT_HISTORY_DEPTH,
     RECENT_HISTORY_DEPTH,
     UnavailableMacro,
 )
@@ -163,7 +164,7 @@ def test_later_stage_macros_get_their_own_explanation():
 
 def test_every_supported_state_macro_resolves():
     snapshot = DecisionSnapshot(
-        last_message="a", last_assistant_message="b", recent_history="c", user="d", char="e", cast="f", description="g"
+        last_message="a", last_assistant_message="b", history=("c",), user="d", char="e", cast="f", description="g"
     )
     for macro in STATE_MACROS:
         assert render(f"<{{{{{macro}}}}}>", snapshot) != f"<{{{{{macro}}}}}>", macro
@@ -205,7 +206,7 @@ def test_group_snapshot_labels_speakers_and_withholds_the_description():
         description=None,
     )
     assert snapshot.last_assistant_message == "Maren: me"
-    assert snapshot.recent_history.endswith("Maren: me")
+    assert snapshot.recent_history().endswith("Maren: me")
     # No selected speaker at the exchange stage, so no single card to read.
     assert snapshot.description is None
 
@@ -213,11 +214,32 @@ def test_group_snapshot_labels_speakers_and_withholds_the_description():
 def test_recent_history_is_the_last_six_completed_messages_oldest_first():
     rows = _history(*({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(8)))
     snapshot = build_snapshot(history=rows, current_request="now", macros=MACROS, scope="solo")
-    lines = snapshot.recent_history.split("\n\n")
+    lines = snapshot.recent_history().split("\n\n")
     assert len(lines) == RECENT_HISTORY_DEPTH
     assert [line.split(": ", 1)[1] for line in lines] == ["2", "3", "4", "5", "6", "7"]
     # The current request is not part of history; it has its own macro.
-    assert "now" not in snapshot.recent_history
+    assert "now" not in snapshot.recent_history()
+
+
+def test_recent_history_takes_a_message_count():
+    rows = _history(*({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)} for i in range(8)))
+    snapshot = build_snapshot(history=rows, current_request="now", macros=MACROS, scope="solo")
+    assert render("{{recent_history::2}}", snapshot) == "User: 6\n\nAssistant: 7"
+    assert render("{{ recent_history :: 20 }}", snapshot).split("\n\n")[0] == "User: 0"
+    assert render("{{recent_history}}", snapshot) == snapshot.recent_history()
+
+
+def test_recent_history_count_is_validated():
+    assert macro_errors("{{recent_history::4}}") == []
+    for bad in ("0", "x", "²", f"{MAX_RECENT_HISTORY_DEPTH + 1}"):
+        problems = macro_errors(f"{{{{recent_history::{bad}}}}}")
+        assert len(problems) == 1 and "whole number" in problems[0], bad
+    # A count on any other state macro would reach the Judge raw.
+    assert macro_errors("{{last_message::2}}")
+    assert macro_errors("{{user::2}}", allowed=TEXT_MACROS)
+    # Only state macros take a count; inline leftovers keep passing through untouched.
+    assert macro_errors("{{roll::0d6}}") == []
+    assert macro_errors("{{random::{{recent_history::3}}::b}}")
 
 
 def test_attachment_bytes_never_reach_the_classifier_state():
@@ -234,8 +256,8 @@ def test_attachment_bytes_never_reach_the_classifier_state():
         macros=MACROS,
         scope="solo",
     )
-    assert "AAAABBBBCCCC" not in snapshot.recent_history
-    assert "look at this" in snapshot.recent_history
+    assert "AAAABBBBCCCC" not in snapshot.recent_history()
+    assert "look at this" in snapshot.recent_history()
 
 
 def test_steering_reaches_the_state_through_the_current_request():

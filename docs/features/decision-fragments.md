@@ -78,7 +78,12 @@ The **Situation** template is the context sent to the Judge. It supports
 `{{last_message}}`, `{{last_assistant_message}}`, `{{recent_history}}`,
 `{{user}}`, `{{char}}`, `{{cast}}`, and `{{description}}` in solo chats.
 `{{recent_history}}` contains up to the last six completed user and assistant
-messages. The current request is available separately as `{{last_message}}`.
+messages. To send a different number of messages, add a count from 1 to 50:
+`{{recent_history::10}}`. The count is in messages, not exchanges. For
+example, `{{recent_history::2}}` sends the last user message and the last reply.
+The current request is available separately as `{{last_message}}`. Longer
+history makes it more likely that the Situation exceeds the 16 KiB limit
+described below.
 
 Question instructions, outcome descriptions, and guidance support `{{user}}`,
 `{{char}}`, and `{{cast}}`. A group decision from a character card uses that

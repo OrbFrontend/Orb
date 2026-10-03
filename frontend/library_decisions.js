@@ -267,6 +267,7 @@ function _innerHtml() {
     ${_problemHtml("policy")}
     ${_templateFieldHtml("state_template", "Situation", config.default_state_template || "", [
       ...(config.state_macros || []),
+      ...(config.state_macro_forms || []),
       ...(config.inline_macros || []),
     ])}
     ${_templateFieldHtml("instructions", `Question ${_hint(copy.question)}`, copy.questionPlaceholder, [

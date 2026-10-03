@@ -23,6 +23,7 @@ from .records import (
 )
 from .render import (
     INLINE_MACROS,
+    STATE_MACRO_FORMS,
     STATE_MACROS,
     TEXT_MACROS,
     DecisionSnapshot,
