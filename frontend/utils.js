@@ -22,15 +22,6 @@ export function escAttr(s) {
   return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-export function escHandlerArg(s) {
-  const js = String(s == null ? "" : s)
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, "\\r")
-    .replace(/\n/g, "\\n");
-  return js.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 export function boolFlag(value) {
   return value === true || value === 1;
 }
@@ -188,9 +179,24 @@ export function convActivity(c) {
 export const NO_AVATAR_ICON = "👤"; // character lists
 export const CHAT_AVATAR_ICON = "📜"; // active conversation header
 
+// *icon* is plain text: shown when there is no picture, or when it fails to load.
 export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
-  if (!src) return icon;
-  return `<img src="${src}"${attrs ? ` ${attrs}` : ""} onerror="this.parentElement.textContent='${icon}'">`;
+  if (!src) return esc(icon);
+  return `<img src="${src}"${attrs ? ` ${attrs}` : ""} data-fallback="${escAttr(icon)}">`;
+}
+
+// An <img data-fallback> that fails to load is replaced by its fallback text.
+// Error events do not bubble, so this listens in the capture phase.
+export function initImageFallbacks() {
+  document.addEventListener(
+    "error",
+    (e) => {
+      const img = e.target;
+      if (img instanceof HTMLImageElement && img.dataset.fallback !== undefined && img.parentElement)
+        img.parentElement.textContent = img.dataset.fallback;
+    },
+    true,
+  );
 }
 
 export function convUrl(...parts) {

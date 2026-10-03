@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
@@ -518,3 +519,18 @@ export function cancelEditPending() {
 }
 
 export { inspectMessage } from "./chat_inspector.js";
+
+registerActions("messages", {
+  edit: (el) => startEdit(Number(el.dataset.msgId)),
+  editPending: () => startEditPending(),
+  forkEdit: (el) => startForkEdit(Number(el.dataset.msgId)),
+  cancelEdit: () => cancelEdit(),
+  saveEdit: (el) => saveEdit(Number(el.dataset.msgId)),
+  cancelForkEdit: () => cancelForkEdit(),
+  saveForkEdit: (el) => saveForkEdit(Number(el.dataset.msgId)),
+  cancelEditPending: () => cancelEditPending(),
+  saveEditPending: () => saveEditPending(),
+  delete: (el) => deleteMessage(Number(el.dataset.msgId)),
+  switchBranch: (el) => switchBranch(Number(el.dataset.branchId)),
+  proseRewrite: (el) => rewriteMessageProse(Number(el.dataset.msgId)),
+});

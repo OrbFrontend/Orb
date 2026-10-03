@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
@@ -241,7 +242,7 @@ export async function selectConversation(id) {
       // it again on every switch.
       av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
         icon: CHAT_AVATAR_ICON,
-        attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
+        attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',
       });
     } else {
       av.textContent = CHAT_AVATAR_ICON;
@@ -405,11 +406,11 @@ export async function showConvHistoryModal(scope = null) {
         : null;
       const meta = [`${count} message${count !== 1 ? "s" : ""}`];
       if (pinnedPersona) meta.push(`💬 ${esc(pinnedPersona)}`);
-      return `<div class="conv-history-item${isActive ? " active-conv" : ""}" onclick="closeModal();selectConversation('${c.id}')">
+      return `<div class="conv-history-item${isActive ? " active-conv" : ""}" data-wf-action="conversations:open" data-conv-id="${c.id}">
       <div class="conv-history-meta">
         <span class="conv-history-title">${title}</span>
         <span class="conv-history-date">${formatRelativeDate(ts)}</span>
-        <button class="conv-history-delete" title="Delete conversation" onclick="event.stopPropagation();deleteConversationFromModal('${c.id}','${rootAttr}')">&#x2715;</button>
+        <button class="conv-history-delete" title="Delete conversation" data-wf-action="conversations:delete" data-conv-id="${c.id}" data-root-id="${rootAttr}">&#x2715;</button>
       </div>
       ${
         preview
@@ -691,3 +692,23 @@ export function cancelTitleEdit() {
   inp.replaceWith(div);
   _titleEditBackup = "";
 }
+
+registerActions("conversations", {
+  open: (el) => {
+    closeModal();
+    selectConversation(el.dataset.convId);
+  },
+  delete: (el) => deleteConversationFromModal(el.dataset.convId, el.dataset.rootId),
+  selectChar: (el) => selectChar(el.dataset.charId, el.dataset.source),
+  newHere: () => newConversationHere(),
+  history: () => showConvHistoryModal(),
+  compress: () => showCompressModal(),
+  checkpoint: () => createCheckpoint(),
+  editTitle: () => startEditTitle(),
+});
+
+registerActions("chat-compression", {
+  generate: () => generateCompressionSummary(),
+  cancel: () => cancelCompression(),
+  apply: () => applyCompression(),
+});

@@ -21,21 +21,22 @@ function jsFiles(dir) {
 const source = (path) => readFileSync(path, "utf8");
 
 const WIRED = new Set(
-  source(join(ROOT, "workflow_api.js"))
+  source(join(ROOT, "actions.js"))
     .match(/const _ACTION_EVENTS = \[([^\]]*)\]/)[1]
     .match(/"([a-z]+)"/g)
     .map((quoted) => quoted.slice(1, -1)),
 );
 
 test("the dispatcher wires the events it documents", () => {
-  for (const event of ["click", "change", "input", "dragover", "dragleave", "drop"]) assert.ok(WIRED.has(event), event);
-  const wiring = source(join(ROOT, "workflow_api.js"));
+  for (const event of ["click", "change", "input", "keydown", "dragover", "dragleave", "drop"])
+    assert.ok(WIRED.has(event), event);
+  const wiring = source(join(ROOT, "actions.js"));
   assert.match(wiring, /for \(const type of _ACTION_EVENTS\) document\.addEventListener/);
 });
 
 test("every data-wf-on names events the dispatcher actually listens for", () => {
   let declarations = 0;
-  for (const path of jsFiles(ROOT)) {
+  for (const path of [...jsFiles(ROOT), join(ROOT, "index.html")]) {
     for (const [, value] of source(path).matchAll(/data-wf-on="([^"$]*)"/g)) {
       declarations += 1;
       for (const event of value.trim().split(/\s+/)) {

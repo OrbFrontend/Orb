@@ -63,7 +63,11 @@ export {
 } from "./chat_stream.js";
 export {
   activateWorkflowVariant,
+  deleteWorkflowAttachment,
   initWorkflowMutationListener,
   refreshConversationMessages,
+  regenerateWorkflowAttachment,
+  rehydrateWorkflowAttachment,
+  stepWorkflowVariant,
   workflowActionJob,
 } from "./chat_workflow.js";

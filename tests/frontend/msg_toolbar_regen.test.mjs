@@ -46,8 +46,8 @@ function toolbarFor(msg, messages) {
 
 it("a user row's regenerate button does not name the reply under it", () => {
   const withReply = toolbarFor(USER, [USER, REPLY]);
-  assert.match(withReply, /onclick="regenerateFromUser\(41\)"/);
-  assert.ok(!/regenerate\(42\)/.test(withReply), withReply);
+  assert.match(withReply, /data-wf-action="chat:regenerateFromUser" data-msg-id="41"/);
+  assert.ok(!/data-msg-id="42"/.test(withReply), withReply);
 });
 
 it("the same user row renders identically with and without a reply", () => {
@@ -58,7 +58,7 @@ it("the same user row renders identically with and without a reply", () => {
 
 it("an assistant row still regenerates itself", () => {
   const html = toolbarFor(REPLY, [USER, REPLY]);
-  assert.match(html, /onclick="regenerate\(42\)"/);
+  assert.match(html, /data-wf-action="chat:regenerate" data-msg-id="42"/);
 });
 
 it("a greeting has no regenerate button", () => {

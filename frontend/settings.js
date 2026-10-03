@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { expressionPlaybackEnabled } from "./expression_playback.js";
@@ -190,7 +191,7 @@ export function renderSettings() {
     ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
-      <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
+      <button class="btn btn-block btn-sm" data-wf-action="presets:open">💾 Backup &amp; Presets</button>
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
@@ -602,8 +603,8 @@ function buildWorkflowToggleRows() {
   const masterRow = `<div class="tool-card ${globalOn ? "tool-on" : ""}">
     <div class="tool-card-header">
       <span class="tool-card-name">Secondary Workflows</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${globalOn ? "checked" : ""} onchange="toggleWorkflowsGlobal(this.checked)">
+      <label class="tog">
+        <input type="checkbox" ${globalOn ? "checked" : ""} data-wf-action="settings:workflowsGlobal" data-wf-on="change">
         <span class="tog-slider"></span>
       </label>
     </div>
@@ -629,8 +630,8 @@ function buildWorkflowToggleRows() {
       return `<div class="tool-card ${effOn ? "tool-on" : ""}"${globalOn ? "" : ' style="opacity:0.5"'}>
     <div class="tool-card-header">
       <span class="tool-card-name">${esc(w.display_name || w.id)}</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${effOn ? "checked" : ""} ${globalOn ? "" : "disabled"} onchange="toggleWorkflowEnabled('${w.id}', this.checked)">
+      <label class="tog">
+        <input type="checkbox" ${effOn ? "checked" : ""} ${globalOn ? "" : "disabled"} data-wf-action="settings:workflowEnabled" data-wf-on="change" data-workflow-id="${w.id}">
         <span class="tog-slider"></span>
       </label>
     </div>
@@ -651,8 +652,8 @@ export function renderToolsPanel() {
   const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}">
     <div class="tool-card-header">
       <span class="tool-card-name">Agentic Lorebook</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${alOn ? "checked" : ""} onchange="toggleAgenticLorebook(this.checked)">
+      <label class="tog">
+        <input type="checkbox" ${alOn ? "checked" : ""} data-wf-action="settings:agenticLorebook" data-wf-on="change">
         <span class="tog-slider"></span>
       </label>
     </div>
@@ -664,7 +665,7 @@ export function renderToolsPanel() {
     const on = !!S.enabledTools[t.id];
     const auditChecks = AUDIT_TYPE_DEFS.map(
       (a) => `<label class="lg-enforce-label" title="${a.title}">
-               <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} onchange="toggleAuditType('${a.key}',this.checked)">
+               <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} data-wf-action="settings:auditType" data-wf-on="change" data-audit-key="${a.key}">
                ${a.label}
              </label>`,
     ).join("");
@@ -673,22 +674,22 @@ export function renderToolsPanel() {
       extras = `<div class="lg-config">
              <div class="audit-types">${auditChecks}</div>
              <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
-               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
+               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} data-wf-action="settings:editorDiff" data-wf-on="change">
                Show diff highlights
              </label>
            </div>`;
     else if (t.id === "direct_scene" && on)
       extras = `<div class="lg-config">
              <label class="lg-enforce-label" title="Director fills each interactive fragment in its own LLM call. More focused output; higher latency.">
-               <input type="checkbox" ${S.directorIndividualFragments ? "checked" : ""} onchange="toggleDirectorIndividualFragments(this.checked)">
+               <input type="checkbox" ${S.directorIndividualFragments ? "checked" : ""} data-wf-action="settings:individualFragments" data-wf-on="change">
                Individual fragment processing
              </label>
            </div>`;
     cardById[t.id] = `<div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">${t.name}</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${on ? "checked" : ""} onchange="toggleToolEnabled('${t.id}',this.checked)">
+        <label class="tog">
+          <input type="checkbox" ${on ? "checked" : ""} data-wf-action="settings:toolEnabled" data-wf-on="change" data-tool-id="${t.id}">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -705,15 +706,15 @@ export function renderToolsPanel() {
       <div class="lg-config-row">
         <div class="lg-field">
           <label>Max words</label>
-          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
+          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
         <div class="lg-field">
           <label>Max paragraphs</label>
-          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
+          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
       </div>
       <label class="lg-enforce-label" title="Always suggest max length and paragraphs to the writer.">
-        <input type="checkbox" ${lgEnforce ? "checked" : ""} onchange="toggleLengthGuardEnforce(this.checked)">
+        <input type="checkbox" ${lgEnforce ? "checked" : ""} data-wf-action="settings:lengthGuardEnforce" data-wf-on="change">
         Enforce
       </label>
     </div>`
@@ -722,8 +723,8 @@ export function renderToolsPanel() {
   const lengthGuardCard = `<div class="tool-card ${lgOn ? "tool-on" : ""}">
     <div class="tool-card-header">
       <span class="tool-card-name">Length Guard</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${lgOn ? "checked" : ""} onchange="toggleLengthGuard(this.checked)">
+      <label class="tog">
+        <input type="checkbox" ${lgOn ? "checked" : ""} data-wf-action="settings:lengthGuard" data-wf-on="change">
         <span class="tog-slider"></span>
       </label>
     </div>
@@ -760,7 +761,7 @@ export async function showPhraseBankModal() {
         : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
       const count = isRegex ? "regex" : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
       return `
-    <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
+    <div class="phrase-group-item" data-wf-action="settings:editPhraseGroup" data-id="${g.id}">
       <div class="phrase-group-variants">${body}</div>
       <div class="phrase-group-count">${count}</div>
     </div>
@@ -775,7 +776,7 @@ export async function showPhraseBankModal() {
         <p class="modal-subtitle">Manage banned/overused phrase groups. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
-        <button class="btn btn-sm" onclick="showAddPhraseGroupModal()">+ New group</button>
+        <button class="btn btn-sm" data-wf-action="settings:newPhraseGroup">+ New group</button>
       </div>
     </div>
 
@@ -881,13 +882,13 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
   const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${escAttr(v)}" placeholder="e.g., a mix of">
-      <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
+      <button class="btn btn-xs btn-danger btn-square" data-wf-action="settings:removeVariant" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
     </div>`;
 
   const variantsHtml = variants.map((v) => variantRow(v)).join("");
 
   const deleteButton = isEdit
-    ? `<button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>`
+    ? `<button class="btn btn-danger" data-wf-action="settings:deletePhraseGroup" data-id="${editId}">Delete</button>`
     : "";
 
   const subtitle = suggestion
@@ -899,21 +900,21 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
     <p class="modal-subtitle">${subtitle}</p>
 
     <div class="phrase-mode-toggle" id="phrase-mode-toggle"${suggestion ? " hidden" : ""}>
-      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" onclick="setPhraseGroupMode('literal')">Literal variants</button>
-      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" onclick="setPhraseGroupMode('regex')">Regular expression</button>
+      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" data-wf-action="settings:phraseMode">Literal variants</button>
+      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" data-wf-action="settings:phraseMode">Regular expression</button>
     </div>
 
     <div id="phrase-literal-panel" style="display:${kind === "regex" ? "none" : "block"}">
       <div id="variant-list" style="margin-bottom: 15px;">
         ${variantsHtml || variantRow("")}
       </div>
-      <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
+      <button class="btn btn-sm" data-wf-action="settings:addVariant" style="margin-bottom: 20px;">+ Add Another Variant</button>
     </div>
 
     <div id="phrase-regex-panel" style="display:${kind === "regex" ? "block" : "none"}">
       <input type="text" id="phrase-regex-input" class="variant-input phrase-regex-input" spellcheck="false"
         value="${escAttr(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
-        oninput="onPhraseRegexInput()">
+        data-wf-action="settings:phraseRegexInput" data-wf-on="input">
       <div id="phrase-regex-error" class="phrase-regex-error"></div>
       <div class="phrase-regex-hint">
         <p style="margin:0 0 6px;">Standard JS regex, matched case-insensitively, one sentence at a time. Common patterns:</p>
@@ -932,8 +933,8 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
 
     <div class="modal-actions">
       ${deleteButton}
-      <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})"${suggestion ? ` data-suggestion-id="${suggestion.id}"` : ""}>${isEdit ? "Save" : suggestion ? "Add" : "Create"}</button>
+      <button class="btn" data-wf-action="settings:phraseBank">Cancel</button>
+      <button class="btn btn-accent" id="phrase-save-btn" data-wf-action="settings:savePhraseGroup" data-id="${editId ?? ""}"${suggestion ? ` data-suggestion-id="${suggestion.id}"` : ""}>${isEdit ? "Save" : suggestion ? "Add" : "Create"}</button>
     </div>
   `);
   setModalDismiss(showPhraseBankModal);
@@ -966,30 +967,30 @@ function _refreshPhraseSaveState() {
   if (saveBtn) saveBtn.disabled = !result.valid;
 }
 
-window.addVariantRow = () => {
+function _addVariantRow() {
   const container = document.getElementById("variant-list");
   const row = document.createElement("div");
   row.className = "variant-row";
   row.innerHTML = `
     <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
+    <button class="btn btn-xs btn-danger btn-square" data-wf-action="settings:removeVariant" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
   `;
   container.appendChild(row);
   const input = row.querySelector(".variant-input");
   input.focus();
   row.scrollIntoView({ behavior: "smooth", block: "nearest" });
-};
+}
 
-window.removeVariantRow = (btn) => {
+function _removeVariantRow(btn) {
   const rows = document.querySelectorAll(".variant-row");
   if (rows.length > 1) {
     btn.closest(".variant-row").remove();
   } else {
     btn.closest(".variant-row").querySelector(".variant-input").value = "";
   }
-};
+}
 
-window.setPhraseGroupMode = (mode) => {
+function _setPhraseGroupMode(mode) {
   document.querySelectorAll(".phrase-mode-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === mode);
   });
@@ -1002,19 +1003,17 @@ window.setPhraseGroupMode = (mode) => {
     const input = document.getElementById("phrase-regex-input");
     if (input) input.focus();
   }
-};
+}
 
-window.onPhraseRegexInput = () => _refreshPhraseSaveState();
-
-window.editPhraseGroup = async (groupId) => {
+async function _editPhraseGroup(groupId) {
   const groups = await api.get("/phrase-bank");
   const group = groups.find((g) => g.id === groupId);
   if (group) {
     showAddPhraseGroupModal(groupId, group);
   }
-};
+}
 
-window.deletePhraseGroup = async (groupId) => {
+function _deletePhraseGroup(groupId) {
   confirmDelete("phrase group", "Delete this phrase group? This cannot be undone.", async () => {
     try {
       await api.del(`/phrase-bank/${groupId}`);
@@ -1024,9 +1023,9 @@ window.deletePhraseGroup = async (groupId) => {
       toast(`Failed to delete: ${e.message}`, true);
     }
   });
-};
+}
 
-window.savePhraseGroup = async (editId) => {
+async function _savePhraseGroup(editId) {
   const mode = _phraseMode();
   // Set when the editor was opened from a suggestion: saving accepts it.
   const suggestionId = document.getElementById("phrase-save-btn")?.dataset.suggestionId;
@@ -1062,7 +1061,7 @@ window.savePhraseGroup = async (editId) => {
     if (suggestionId) {
       await api.post(`/phrase-bank/suggestions/${suggestionId}/accept`, { pattern: payload.pattern });
       toast("Phrase group added");
-    } else if (editId && editId !== "null") {
+    } else if (editId) {
       await api.put(`/phrase-bank/${editId}`, payload);
       toast("Phrase group updated");
     } else {
@@ -1073,7 +1072,7 @@ window.savePhraseGroup = async (editId) => {
   } catch (e) {
     toast(`Failed to save: ${e.message}`, true);
   }
-};
+}
 
 const CLEANUP_AGES = [
   [0, "Now (everything)"],
@@ -1190,3 +1189,33 @@ export async function showResetConfirmModal() {
     },
   );
 }
+
+registerActions("settings", {
+  theme: (el) => applyTheme(el.value),
+  toggleToolsPanel: () => toggleToolsPanel(),
+  agentEnabled: (el) => setAgentEnabled(el.checked),
+  toolEnabled: (el) => toggleToolEnabled(el.dataset.toolId, el.checked),
+  auditType: (el) => toggleAuditType(el.dataset.auditKey, el.checked),
+  editorDiff: (el) => toggleShowEditorDiff(el.checked),
+  individualFragments: (el) => toggleDirectorIndividualFragments(el.checked),
+  agenticLorebook: (el) => toggleAgenticLorebook(el.checked),
+  lengthGuard: (el) => toggleLengthGuard(el.checked),
+  lengthGuardEnforce: (el) => toggleLengthGuardEnforce(el.checked),
+  lengthGuardConfig: () => saveLengthGuardConfig(),
+  workflowsGlobal: (el) => toggleWorkflowsGlobal(el.checked),
+  workflowEnabled: (el) => toggleWorkflowEnabled(el.dataset.workflowId, el.checked),
+  phraseBank: () => showPhraseBankModal(),
+  newPhraseGroup: () => showAddPhraseGroupModal(),
+  editPhraseGroup: (el) => _editPhraseGroup(Number(el.dataset.id)),
+  deletePhraseGroup: (el) => _deletePhraseGroup(el.dataset.id),
+  savePhraseGroup: (el) => _savePhraseGroup(el.dataset.id || null),
+  phraseMode: (el) => _setPhraseGroupMode(el.dataset.mode),
+  phraseRegexInput: () => _refreshPhraseSaveState(),
+  addVariant: () => _addVariantRow(),
+  removeVariant: (el) => _removeVariantRow(el),
+});
+
+registerActions("phrase-suggestion", {
+  add: (el) => addPhraseSuggestion(el),
+  dismiss: (el) => dismissPhraseSuggestion(el),
+});

@@ -395,8 +395,8 @@ At boot, the frontend fetches the manifest and imports
 run when the module loads.
 
 The facade in `workflow_api.js` is the frontend ABI. It is additive-only: new
-exports may be added, but existing names and signatures do not change. Common
-registration points are:
+exports may be added, with a `WORKFLOW_API_VERSION` bump, but existing names and
+signatures do not change. Common registration points are:
 
 ```js
 registerWorkflowInspectorCard(wid, render)
@@ -427,6 +427,12 @@ handlers:
 registerAction("my_workflow", "refresh", (element, event) => { /* ... */ });
 ```
 
+The handler receives the element carrying the action and the event. Click is
+the default; `data-wf-on` names other events, space-separated: `change`,
+`input`, `keydown`, or `dragover dragleave drop` for a drop target. The core UI
+uses the same mechanism, so a workflow's markup may also name a core action. The
+lint step fails on an action name that nothing registers.
+
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
 and conversation repaint/refetch helpers.
@@ -447,7 +453,13 @@ An attachment renderer receives `{ att, buttons, defaultHtml, siblings, msgId,
 rootId, job }`: the shown attachment, the group's attachments in display order,
 the message and group root ids, and the group's running regenerate job (or
 null). Treat them as read-only. `activateWorkflowVariant(msgId, rootId,
-siblingId)` shows another variant through the arrow buttons' own path.
+siblingId)` shows another variant through the arrow buttons' own path. A widget
+that draws its own controls instead of `buttons` reaches the same operations
+through `stepWorkflowVariant(msgId, rootId, delta)`,
+`regenerateWorkflowAttachment(msgId, attId, button)`,
+`rehydrateWorkflowAttachment(msgId, attId, button)` (*button* becomes the
+render's Stop button), and `deleteWorkflowAttachment(msgId, rootId)`, which asks
+before deleting the shown variant or the whole group.
 `registerRegenerateSettled(wid, (msgId, rootId) => …)` is called when a
 regenerate ends, on every outcome, because a failed or stopped run repaints
 nothing; a widget holding live run state clears it there.

@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import {
   ICON_CHEVRON,
@@ -32,7 +33,7 @@ function _evictedAttachmentHtml(msg, att) {
     btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${escAttr(_workflowLabel(att))} to restore">Workflow off</span>`;
   } else {
     const stop = stopButtonState(_workflowRehydrateInFlight.get(att.id)?.job, "Rehydrate");
-    btn = `<button class="workflow-rehydrate-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)"><span>Rehydrate</span></button>`;
+    btn = `<button class="workflow-rehydrate-button${stop.cls}"${stop.attrs} data-wf-action="artifact:rehydrate" data-msg-id="${msg.id}" data-att-id="${att.id}"><span>Rehydrate</span></button>`;
   }
   return `<div class="workflow-artifact-evicted">
     <span class="workflow-artifact-evicted-label">${filename}</span>
@@ -47,7 +48,7 @@ function _workflowRegenButtonHtml(msg, att) {
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
   const stop = stopButtonState(_runningAction(att, "regen"), "Regenerate");
-  return `<button class="workflow-regen-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowRegenerate(${msg.id},${att.id},this)">${ICON_REGEN}</button>`;
+  return `<button class="workflow-regen-button${stop.cls}"${stop.attrs} data-wf-action="artifact:regenerate" data-msg-id="${msg.id}" data-att-id="${att.id}">${ICON_REGEN}</button>`;
 }
 
 function _workflowRerollButtonHtml(msg, att) {
@@ -57,7 +58,7 @@ function _workflowRerollButtonHtml(msg, att) {
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
   const stop = stopButtonState(_runningAction(att, "reroll"), "Reroll");
-  return `<button class="workflow-reroll-button${stop.cls}"${stop.attrs} onclick="event.stopPropagation();workflowReroll(${msg.id},${att.id},this)">${ICON_REROLL}</button>`;
+  return `<button class="workflow-reroll-button${stop.cls}"${stop.attrs} data-wf-action="artifact:reroll" data-msg-id="${msg.id}" data-att-id="${att.id}">${ICON_REROLL}</button>`;
 }
 
 // The job of the regenerate or reroll (*kind*) running on *att*'s group.
@@ -149,11 +150,11 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   const label = esc(rawLabel);
   const labelAttr = escAttr(rawLabel);
   const countBadge = minimized && total > 1 ? ` <span class="workflow-artifact-label-count">(${total})</span>` : "";
-  const header = `<div class="workflow-artifact-header" onclick="workflowToggleMinimize('${instanceId}')">
+  const header = `<div class="workflow-artifact-header" data-wf-action="artifact:toggleMinimize">
       <span class="workflow-artifact-label" title="${labelAttr}">${label}${countBadge}</span>
       <div class="workflow-artifact-controls">
-        <button class="workflow-chrome-btn workflow-min-btn${minimized ? " collapsed" : ""}" title="${minimized ? "Expand" : "Minimize"}" aria-expanded="${minimized ? "false" : "true"}" onclick="event.stopPropagation();workflowToggleMinimize('${instanceId}')">${ICON_CHEVRON}</button>
-        <button class="workflow-chrome-btn workflow-del-btn" title="Delete" onclick="event.stopPropagation();workflowDeleteAttachment('${instanceId}')">${ICON_DEL}</button>
+        <button class="workflow-chrome-btn workflow-min-btn${minimized ? " collapsed" : ""}" title="${minimized ? "Expand" : "Minimize"}" aria-expanded="${minimized ? "false" : "true"}" data-wf-action="artifact:toggleMinimize">${ICON_CHEVRON}</button>
+        <button class="workflow-chrome-btn workflow-del-btn" title="Delete" data-wf-action="artifact:delete">${ICON_DEL}</button>
       </div>
     </div>`;
   const widgetRejected = S.rejectedWorkflowAtts.filter(
@@ -202,9 +203,9 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   return `<div class="workflow-artifact-swipe" id="${instanceId}" data-msg-id="${msg.id}" data-root-id="${rootId}">
     ${header}
     <div class="workflow-artifact-nav">
-      <button class="workflow-swipe-btn prev"${prevDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">${ICON_CHEVRON}</button>
+      <button class="workflow-swipe-btn prev"${prevDisabled} data-wf-action="artifact:step" data-delta="-1">${ICON_CHEVRON}</button>
       <div class="workflow-artifact-body">${bodyHtml}</div>
-      <button class="workflow-swipe-btn next"${nextDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">${ICON_CHEVRON}</button>
+      <button class="workflow-swipe-btn next"${nextDisabled} data-wf-action="artifact:step" data-delta="1">${ICON_CHEVRON}</button>
     </div>
     ${indicator}
   </div>${rejectionChip}`;
@@ -254,17 +255,15 @@ function _reapplyInFlightSwipes() {
   }
 }
 
-function _resolveWorkflowWidget(instanceId) {
-  const el = document.getElementById(instanceId);
-  if (!el) return {};
-  const msgId = Number(el.dataset.msgId);
-  const rootId = Number(el.dataset.rootId);
+// The message and attachment group behind *msgId*/*rootId*, or {} when either is gone.
+function _workflowGroup(msgId, rootId) {
   const msg = S.messages.find((m) => m.id === msgId);
-  if (!msg) return {};
-  const group = _workflowAttachmentGroups(msg).find((g) => g.rootId === rootId);
-  if (!group) return {};
-  return { el, msgId, rootId, msg, group };
+  const group = msg && _workflowAttachmentGroups(msg).find((g) => g.rootId === rootId);
+  return group ? { msg, group } : {};
 }
+
+// The swipe box _renderWorkflowSwipeContainer draws for a group.
+const _swipeBox = (msgId, rootId) => document.getElementById(`ws-${msgId}-${rootId}`);
 
 // Keep the paging arrow stationary: preserve card height and compensate for scroll shifts.
 function _replaceSwipeKeepingArrow(el, html, delta) {
@@ -283,17 +282,24 @@ function _replaceSwipeKeepingArrow(el, html, delta) {
   ct.scrollBy({ top: after - before, behavior: "instant" });
 }
 
-window.workflowArtifactStep = (instanceId, delta) => _activateWorkflowVariant(instanceId, (_atts, cur) => cur + delta);
+/** Page an artifact group *delta* takes from the one shown. */
+export function stepWorkflowVariant(msgId, rootId, delta) {
+  return _activateWorkflowVariant(msgId, rootId, (_atts, cur) => cur + delta);
+}
 
 /** Swap *siblingId* in place, save the choice, and notify other tabs. Works during streaming. */
 export function activateWorkflowVariant(msgId, rootId, siblingId) {
-  return _activateWorkflowVariant(`ws-${msgId}-${rootId}`, (atts) => atts.findIndex((a) => a.id === siblingId));
+  return _activateWorkflowVariant(msgId, rootId, (atts) => atts.findIndex((a) => a.id === siblingId));
 }
 
 // *pick* answers the index to show, from the group's attachments and the shown index.
-async function _activateWorkflowVariant(instanceId, pick) {
-  const { el, msgId, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
+async function _activateWorkflowVariant(msgId, rootId, pick) {
+  const { msg, group } = _workflowGroup(msgId, rootId);
   if (!group || group.atts.length <= 1) return;
+  // A toolbar artifact repaints with its message; a swipe box is replaced in place.
+  const inToolbar = _workflowPlacement(group.atts[0]?.workflow_id) === "actions";
+  const el = inToolbar ? null : _swipeBox(msgId, rootId);
+  if (!inToolbar && !el) return;
   if (_workflowSwipeInFlight.has(rootId)) return;
   const root = group.atts.find((a) => a.id === rootId) || group.atts[0];
   const cur = _activeIndexForGroup(group.atts, root);
@@ -304,7 +310,7 @@ async function _activateWorkflowVariant(instanceId, pick) {
   const newActiveId = group.atts[next].id;
   _workflowSwipeInFlight.set(rootId, { msgId, activeId: newActiveId });
   if (root) root.active_sibling_id = newActiveId;
-  if (_workflowPlacement(group.atts[0]?.workflow_id) === "actions") {
+  if (inToolbar) {
     renderMessages();
     _scrollArtifactIntoView(msgId, rootId);
   } else {
@@ -326,7 +332,8 @@ async function _activateWorkflowVariant(instanceId, pick) {
 
 const _workflowRehydrateInFlight = new Map();
 
-window.workflowRehydrate = async (msgId, attId, btn) => {
+/** Re-render an evicted artifact from its stored recipe; *btn* becomes its Stop button. */
+export async function rehydrateWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
   const convId = S.activeConvId;
   const running = _workflowRehydrateInFlight.get(attId);
@@ -366,7 +373,7 @@ window.workflowRehydrate = async (msgId, attId, btn) => {
     _workflowRehydrateInFlight.delete(attId);
     job.end();
   }
-};
+}
 
 const _workflowActionInFlight = new Map();
 
@@ -620,7 +627,8 @@ function _startWorkflowAction(msgId, attId, btn, kind, title) {
   return { rootId, job };
 }
 
-window.workflowRegenerate = async (msgId, attId, btn) => {
+/** Render a new take of an artifact; *btn* becomes its Stop button. */
+export async function regenerateWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
   const started = _startWorkflowAction(msgId, attId, btn, "regen", "Stop regenerating");
   if (!started) return;
@@ -678,9 +686,9 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
     job.end();
     _notifyWorkflowRegenerateSettled(wid, msgId, rootId);
   }
-};
+}
 
-window.workflowReroll = async (msgId, attId, btn) => {
+async function _rerollWorkflowAttachment(msgId, attId, btn) {
   if (!S.activeConvId) return;
   const started = _startWorkflowAction(msgId, attId, btn, "reroll", "Stop rerolling");
   if (!started) return;
@@ -732,19 +740,21 @@ window.workflowReroll = async (msgId, attId, btn) => {
     _workflowActionInFlight.delete(rootId);
     job.end();
   }
-};
+}
 
-window.workflowToggleMinimize = (instanceId) => {
-  const { el, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
-  if (!group) return;
+function _toggleWorkflowMinimized(msgId, rootId) {
+  const { msg, group } = _workflowGroup(msgId, rootId);
+  const el = _swipeBox(msgId, rootId);
+  if (!group || !el) return;
   if (_workflowMinimized.has(rootId)) _workflowMinimized.delete(rootId);
   else _workflowMinimized.add(rootId);
   _persistWorkflowMinimized();
   el.outerHTML = _renderWorkflowSwipeContainer(msg, rootId, group.atts);
-};
+}
 
-window.workflowDeleteAttachment = (instanceId) => {
-  const { msgId, rootId, group } = _resolveWorkflowWidget(instanceId);
+/** Ask, then delete the take shown or the whole artifact group. */
+export function deleteWorkflowAttachment(msgId, rootId) {
+  const { group } = _workflowGroup(msgId, rootId);
   if (!group) return;
   const root = group.atts.find((a) => a.id === rootId) || group.atts[0];
   const idx = _activeIndexForGroup(group.atts, root);
@@ -752,7 +762,7 @@ window.workflowDeleteAttachment = (instanceId) => {
   const total = group.atts.length;
   const label = esc(_workflowLabel(active));
   const convId = S.activeConvId;
-  const remove = (scope) => () => _deleteWorkflowAttachment(msgId, rootId, active.id, scope, convId);
+  const remove = (scope) => () => _sendAttachmentDelete(msgId, rootId, active.id, scope, convId);
   if (total <= 1) {
     showConfirmModal(
       {
@@ -772,9 +782,9 @@ window.workflowDeleteAttachment = (instanceId) => {
       { label: `Delete all ${total}`, run: remove("group") },
     ],
   });
-};
+}
 
-async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope, convId) {
+async function _sendAttachmentDelete(msgId, rootId, activeId, scope, convId) {
   if (!convId) return;
   if (!requestSendPermission()) return;
   if (_workflowDeleteInFlight.has(rootId)) return;
@@ -973,4 +983,19 @@ setWorkflowMessagePresentation({
   renderArtifacts: _renderWorkflowArtifacts,
   renderRejection: _renderWorkflowRejection,
   refreshViewport: _refreshWorkflowViewportObserver,
+});
+
+// The swipe box an artifact control sits in carries its message and group ids.
+const _swipeIds = (el) => {
+  const box = el.closest(".workflow-artifact-swipe");
+  return [Number(box.dataset.msgId), Number(box.dataset.rootId)];
+};
+
+registerActions("artifact", {
+  regenerate: (el) => regenerateWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.attId), el),
+  reroll: (el) => _rerollWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.attId), el),
+  rehydrate: (el) => rehydrateWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.attId), el),
+  toggleMinimize: (el) => _toggleWorkflowMinimized(..._swipeIds(el)),
+  step: (el) => stepWorkflowVariant(..._swipeIds(el), Number(el.dataset.delta)),
+  delete: (el) => deleteWorkflowAttachment(..._swipeIds(el)),
 });

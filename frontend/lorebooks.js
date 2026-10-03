@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
@@ -120,22 +121,24 @@ function _worldItemHtml(w) {
   const enabled = _isWorldEnabled(w);
   const active = _lorebookOpen && _focusWorldId === w.id;
   const toggleId = `world-toggle-${w.id}`;
-  const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
+  const mainAction = active
+    ? `data-wf-action="lorebook:close"`
+    : `data-wf-action="lorebook:open" data-world-id="${w.id}"`;
   const pending = _pendingCount(w.id);
   const dynamic = boolFlag(w.dynamic_enabled);
   const haloClass = dynamic ? " avatar-halo" : "";
   const haloTitle = dynamic ? ' title="Dynamic World — the Agent may propose new lore from what happens in play"' : "";
   return `
   <div class="world-item${active ? " active" : ""}">
-    <div class="world-item-main" onclick="${clickHandler}">
+    <div class="world-item-main" ${mainAction}>
       <div class="world-avatar${haloClass}"${haloTitle}>${esc(initials)}</div>
       <span class="world-name">${esc(w.name)}</span>
       ${pending ? `<span class="world-pending" title="World changes awaiting review">${pending}</span>` : ""}
     </div>
-    <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+    <div class="frag-toggle-wrapper">
       <label class="tog" for="${toggleId}">
         <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""} ${!S.activeConvId ? "disabled" : ""}
-               onchange="toggleWorldEnabled('${w.id}', this.checked)">
+               data-wf-action="lorebook:toggleWorld" data-wf-on="change" data-world-id="${w.id}">
         <span class="tog-slider"></span>
       </label>
     </div>
@@ -174,9 +177,9 @@ export function renderWorldsSidebar() {
   let html = shown.map(_worldItemHtml).join("");
   if (!_worldSearch.trim()) {
     if (hidden > 0) {
-      html += `<button type="button" class="worlds-more" onclick="expandWorlds()">+${hidden} more — show all</button>`;
+      html += `<button type="button" class="worlds-more" data-wf-action="lorebook:expandWorlds">+${hidden} more — show all</button>`;
     } else if (_worldsExpanded && _worlds.length > RECENT_LIMIT) {
-      html += `<button type="button" class="worlds-more" onclick="collapseWorlds()">Show less</button>`;
+      html += `<button type="button" class="worlds-more" data-wf-action="lorebook:collapseWorlds">Show less</button>`;
     }
   }
   el.innerHTML = html;
@@ -222,8 +225,8 @@ export function showRenameWorldModal(worldId) {
       <input id="rename-world-inp" value="${esc(world.name)}" autofocus>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="renameWorld('${worldId}')">Rename</button>
+      <button class="btn" data-wf-action="modal:close">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="lorebook:submitRename" data-world-id="${worldId}">Rename</button>
     </div>`,
     { size: "narrow" },
   );
@@ -261,8 +264,8 @@ export async function showCreateWorldModal() {
       <input id="world-name-inp" placeholder="e.g. Hamlet" autofocus>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="createWorld()">Create</button>
+      <button class="btn" data-wf-action="modal:close">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="lorebook:submitCreate">Create</button>
     </div>`,
     { size: "narrow" },
   );
@@ -427,14 +430,14 @@ function renderLorebookDrawer() {
               ? `<span class="lb-layer lb-layer-dynamic" title="Agent-managed">Dynamic</span>`
               : "";
           return `
-      <div class="lb-entry-item${sel ? " active" : ""}${!enabled ? " lb-disabled" : ""}" onclick="lbSelectEntry(${e.id})">
+      <div class="lb-entry-item${sel ? " active" : ""}${!enabled ? " lb-disabled" : ""}" data-wf-action="lorebook:selectEntry" data-entry-id="${e.id}">
         ${dirtyDot}
         <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
         ${layerTag}
-        <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+        <div class="frag-toggle-wrapper">
           <label class="tog" for="${toggleId}">
             <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                   onchange="lbToggleEntry(${e.id}, this.checked)">
+                   data-wf-action="lorebook:toggleEntry" data-wf-on="change" data-entry-id="${e.id}">
             <span class="tog-slider"></span>
           </label>
         </div>
@@ -460,13 +463,13 @@ function renderLorebookDrawer() {
   drawer.innerHTML = `
     <div class="lb-header">
       <span class="lb-header-title">Lorebook</span>
-      <button class="btn btn-sm btn-square lb-close-btn" onclick="closeLorebook()" title="Close" aria-label="Close lorebook">${CLOSE_ICON}</button>
+      <button class="btn btn-sm btn-square lb-close-btn" data-wf-action="lorebook:close" title="Close" aria-label="Close lorebook">${CLOSE_ICON}</button>
     </div>
     <div class="lb-body">
       <div class="lb-entry-list">
         <div class="lb-world-header">
           <span class="lb-world-name" title="${esc(world.name)}">${esc(world.name)}</span>
-          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook" aria-label="Rename lorebook">${EDIT_ICON}</button>
+          <button class="btn btn-sm lb-rename-btn" data-wf-action="lorebook:rename" data-world-id="${_focusWorldId}" title="Rename lorebook" aria-label="Rename lorebook">${EDIT_ICON}</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
         <div class="lb-dynamic-row"><label>Use in every chat <input type="checkbox" id="lb-global-toggle" ${boolFlag(world.is_global) ? "checked" : ""}></label></div>
@@ -481,16 +484,16 @@ function renderLorebookDrawer() {
         <div class="lb-entry-search">
           <input id="lb-entry-search-inp" class="lb-entry-search-inp" type="text"
                  placeholder="Search entries…" value="${esc(_entrySearch)}"
-                 oninput="lbEntrySearch(this.value)">
+                 data-wf-action="lorebook:entrySearch" data-wf-on="input">
         </div>
         <div class="lb-entries-scroll">
           ${entryListHtml}
         </div>
         <div class="lb-entry-list-footer">
-          <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
+          <button class="btn btn-sm btn-block" data-wf-action="lorebook:addEntry">+ New Entry</button>
           <div style="display:flex;gap:4px;margin-top:4px">
             <button class="btn btn-sm lb-export-btn" style="flex:1;justify-content:center" title="Export your authored entries as JSON">⬇ Export JSON</button>
-            <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--red)" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+            <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--red)" data-wf-action="lorebook:deleteWorld" data-world-id="${_focusWorldId}">Delete Lorebook</button>
           </div>
         </div>
       </div>
@@ -545,7 +548,9 @@ function renderLorebookDrawer() {
 
 function _buildEditorHtml() {
   const unsavedBadge = _dirty ? `<span class="lb-unsaved-badge">Unsaved changes</span>` : "";
-  const discardBtn = _dirty ? `<button class="btn btn-sm" onclick="lbDiscardChanges()">Discard</button>` : "";
+  const discardBtn = _dirty
+    ? `<button class="btn btn-sm lb-discard-btn" data-wf-action="lorebook:discard">Discard</button>`
+    : "";
   const entry = _getEntry(_selectedEntryId);
   const layerBanner =
     entry?.entry_layer === "dynamic"
@@ -558,12 +563,12 @@ function _buildEditorHtml() {
       ${layerBanner}
       <div class="lb-editor-header">
         <input id="lb-entry-name" class="lb-entry-name-input" value="${esc(_draft.name)}"
-               oninput="lbDraftChange('name', this.value)">
+               data-wf-action="lorebook:draftText" data-wf-on="input" data-field="name">
         <div class="lb-editor-header-right">
           ${unsavedBadge}
           <span class="lb-priority-label">Priority</span>
           <input id="lb-priority" class="lb-priority-input" type="number" value="${_draft.priority}"
-                 oninput="lbDraftChange('priority', parseInt(this.value) || 0)">
+                 data-wf-action="lorebook:draftPriority" data-wf-on="input">
         </div>
       </div>
       <div class="lb-editor-keywords${_draft.constant ? " lb-keywords-disabled" : ""}">
@@ -573,7 +578,7 @@ function _buildEditorHtml() {
           <label class="lb-case-check">
             <input type="checkbox" id="lb-case-insensitive" ${_draft.case_insensitive ? "checked" : ""}
                    ${_draft.constant ? "disabled" : ""}
-                   onchange="lbDraftChange('case_insensitive', this.checked)">
+                   data-wf-action="lorebook:draftFlag" data-wf-on="change" data-field="case_insensitive">
             <span>Case-insensitive</span>
           </label>
           <label class="lb-case-check" title="Treat each keyword as a regular expression">
@@ -588,7 +593,7 @@ function _buildEditorHtml() {
           </label>
           <label class="lb-case-check" title="Always inject this entry, regardless of keywords">
             <input type="checkbox" id="lb-constant" ${_draft.constant ? "checked" : ""}
-                   onchange="lbToggleConstant(this.checked)">
+                   data-wf-action="lorebook:toggleConstant" data-wf-on="change">
             <span>Constant</span>
           </label>
           ${
@@ -616,13 +621,13 @@ function _buildEditorHtml() {
       <div class="lb-editor-content">
         <div class="lb-field-label">Injected Content</div>
         <textarea id="lb-content" class="lb-content-textarea"
-                  oninput="lbDraftChange('content', this.value)">${esc(_draft.content)}</textarea>
+                  data-wf-action="lorebook:draftText" data-wf-on="input" data-field="content">${esc(_draft.content)}</textarea>
       </div>
       <div class="lb-editor-actions">
-        <button class="btn btn-sm" style="color:var(--red)" onclick="lbDeleteEntry()">Delete</button>
+        <button class="btn btn-sm" style="color:var(--red)" data-wf-action="lorebook:deleteEntry">Delete</button>
         <div style="display:flex;gap:6px;margin-left:auto">
           ${discardBtn}
-          <button class="btn btn-sm${_dirty ? " btn-accent" : ""}" onclick="lbSaveEntry()">Save</button>
+          <button class="btn btn-sm${_dirty ? " btn-accent" : ""}" data-wf-action="lorebook:saveEntry">Save</button>
         </div>
       </div>
     </div>`;
@@ -646,7 +651,7 @@ function _markDirty() {
     const btn = document.createElement("button");
     btn.className = "btn btn-sm lb-discard-btn";
     btn.textContent = "Discard";
-    btn.onclick = lbDiscardChanges;
+    btn.dataset.wfAction = "lorebook:discard";
     actions.insertBefore(btn, saveBtn);
     saveBtn?.classList.add("btn-accent");
   }
@@ -1068,3 +1073,33 @@ export function lbImportJson() {
   };
   input.click();
 }
+
+registerActions("lorebook", {
+  create: () => showCreateWorldModal(),
+  submitCreate: () => createWorld(),
+  importJson: () => lbImportJson(),
+  search: (el) => onWorldSearch(el.value),
+  expandWorlds: () => expandWorlds(),
+  collapseWorlds: () => collapseWorlds(),
+  open: (el) => openLorebook(el.dataset.worldId),
+  close: () => closeLorebook(),
+  toggleWorld: (el) => toggleWorldEnabled(el.dataset.worldId, el.checked),
+  rename: (el) => showRenameWorldModal(el.dataset.worldId),
+  submitRename: (el) => renameWorld(el.dataset.worldId),
+  deleteWorld: (el) => deleteWorld(el.dataset.worldId),
+  entrySearch: (el) => lbEntrySearch(el.value),
+  addEntry: () => lbAddEntry(),
+  // A row selects its entry; a click on its toggle only toggles.
+  selectEntry: (el, e) => {
+    if (!e.target.closest(".frag-toggle-wrapper")) lbSelectEntry(Number(el.dataset.entryId));
+  },
+  toggleEntry: (el) => lbToggleEntry(Number(el.dataset.entryId), el.checked),
+  backToList: () => lbBackToList(),
+  draftText: (el) => lbDraftChange(el.dataset.field, el.value),
+  draftPriority: (el) => lbDraftChange("priority", parseInt(el.value, 10) || 0),
+  draftFlag: (el) => lbDraftChange(el.dataset.field, el.checked),
+  toggleConstant: (el) => lbToggleConstant(el.checked),
+  discard: () => lbDiscardChanges(),
+  deleteEntry: () => lbDeleteEntry(),
+  saveEntry: () => lbSaveEntry(),
+});

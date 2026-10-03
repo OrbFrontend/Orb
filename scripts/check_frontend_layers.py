@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Enforce frontend layers, acyclic imports and workflow boundaries.
 
-Check the inline-handler ratchet, cross-module private names and frozen
-workflow_api exports. Plugins may import only their own modules and workflow_api;
-computed dynamic imports are rejected. Exit non-zero on violations via lint.sh.
+Check that markup reaches code only through registered data-wf-action names (no
+inline handlers, no window globals, no unregistered names), cross-module private
+names and frozen workflow_api exports. Plugins may import only their own modules
+and workflow_api; computed dynamic imports are rejected. Exit non-zero on
+violations via lint.sh.
 """
 
 from __future__ import annotations
@@ -58,6 +60,9 @@ LAYERS = {
     "model_catalog.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
+    # The delegated data-wf-action registry. Low so every feature module can
+    # register the handlers for the markup it renders; workflow_api.js re-exports it.
+    "actions.js": 1,
     "notify.js": 1,
     # A workflow render the button that started it can stop: its job id, the
     # stop request, and that button's Stop state.
@@ -94,8 +99,7 @@ LAYERS = {
     "document_editor.js": 4,
     "document_probs.js": 4,
     "slop_score.js": 4,
-    # L5 features (peers; same-layer imports are allowed, cross-feature is not —
-    # the audit's target, enforced loosely here via the layer rule only).
+    # L5 features. Peers may import one another; the cycle check keeps that acyclic.
     "chat.js": 5,
     "chat_core.js": 5,
     "chat_error.js": 5,
@@ -130,18 +134,6 @@ LAYERS = {
     "app.js": 6,
     "workflow_api.js": 6,
 }
-
-# Upward edges (importer -> imported, both basenames) currently present and
-# tolerated. Each is a documented consequence of a not-yet-done stage; the set
-# only shrinks. Seed with the current reality.
-ALLOWED_UPWARD: set[tuple[str, str]] = {
-    # The boot orchestrator repaints the Tools panel after loading plugin modules
-    # (see workflow_loader.js). A stage-5 concern; documented until then.
-    ("workflow_loader.js", "settings.js"),
-}
-
-# ── 2. Ratchet (may only decrease) ───────────────────────────────────────────
-MAX_INLINE_ON = 210  # inline on*= handlers across frontend/ (js + index.html)
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
 # workflow_api.js's complete export surface, additive-only. A rename or removal
@@ -203,6 +195,10 @@ FROZEN_ABI = {
     "workflowActionJob",
     "activateWorkflowVariant",
     "refreshConversationMessages",
+    "regenerateWorkflowAttachment",
+    "rehydrateWorkflowAttachment",
+    "stepWorkflowVariant",
+    "deleteWorkflowAttachment",
     "selectWorkflowPipelinePass",
     "broadcastWorkflowMutation",
     "effectiveWorkflowEnabled",
@@ -228,8 +224,20 @@ _DYNAMIC_IMPORT_CALL = re.compile(r"\bimport\s*\(")
 _DYNAMIC_IMPORT_LITERAL = re.compile(r'\bimport\s*\(\s*(["\'`])([^"\'`]*?)\1\s*\)', re.DOTALL)
 # Braced import/re-export binding list, possibly multiline.
 _BRACED = re.compile(r'(?:import|export)\s*(?:type\s+)?\{([^}]*)\}\s*from\s+["\']([^"\']+)["\']', re.DOTALL)
-# Inline event handler attribute (on*="...") in a JS template string or HTML.
-_INLINE_ON = re.compile(r'\son[a-z]+\s*=\s*"')
+# Inline event handler attribute (on*="...") in HTML or in a JS string, whether the
+# attribute follows whitespace or opens a quoted string. `.onclick =` is a DOM
+# property, not markup, and is allowed.
+_INLINE_ON = re.compile(r'(?<![\w.$-])on[a-z]{4,}\s*=\s*["\'`]')
+# A name published on window/globalThis for markup or another module to reach.
+_WINDOW_GLOBAL = re.compile(
+    r"\b(?:window|globalThis)\.(?!location\b)[A-Za-z_$][\w$]*\s*=(?!=)|Object\.assign\(\s*(?:window|globalThis)\b"
+)
+# Action registrations. A plugin registers under its WORKFLOW_ID, its directory name.
+_REGISTER_ONE = re.compile(r'registerAction\(\s*(?:"([^"]+)"|WORKFLOW_ID)\s*,\s*"([^"]+)"')
+_REGISTER_MANY = re.compile(r'registerActions\(\s*(?:"([^"]+)"|WORKFLOW_ID)\s*,\s*\{(.*?)\n\s*\}\s*\)', re.DOTALL)
+_HANDLER_KEY = re.compile(r"^([ \t]+)([A-Za-z_$][\w$]*)\s*:", re.MULTILINE)
+# A quoted "scope:name" literal, as markup or a string that becomes markup.
+_ACTION_NAME = re.compile(r'["\'`]([a-z][\w-]*):([A-Za-z]\w*)["\'`]')
 # workflow_api.js exports: `export function X`, `export const X`, and re-export lists.
 _EXPORT_DECL = re.compile(r"export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z0-9_]+)")
 
@@ -292,6 +300,17 @@ def import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
     return None
 
 
+def registered_actions(path: Path, text: str, workflow_root: Path = FE / "workflows") -> set[str]:
+    """Every "scope:name" *text* registers; WORKFLOW_ID is the plugin's directory."""
+    plugin = path.relative_to(workflow_root).parts[0] if path.is_relative_to(workflow_root) else None
+    names = {f"{scope or plugin}:{name}" for scope, name in _REGISTER_ONE.findall(text)}
+    for scope, body in _REGISTER_MANY.findall(text):
+        keys = _HANDLER_KEY.findall(body)
+        indent = min((len(pad) for pad, _ in keys), default=0)
+        names |= {f"{scope or plugin}:{key}" for pad, key in keys if len(pad) == indent}
+    return names
+
+
 def underscore_import_count(text: str) -> int:
     n = 0
     for names, spec in _BRACED.findall(text):
@@ -327,20 +346,31 @@ def main() -> int:
             if base is None or base not in LAYERS:
                 continue
             hi, lo = LAYERS[name], LAYERS[base]
-            if lo > hi and (name, base) not in ALLOWED_UPWARD:
-                errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — upward edge not in ALLOWED_UPWARD")
+            if lo > hi:
+                errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — invert the dependency instead")
 
     cycle = import_cycle(graph)
     if cycle:
         errors.append(f"[cycle] {' -> '.join(cycle)}")
 
-    # 2a. Inline on*= ratchet (scope: all of frontend/ + index.html).
-    inline = 0
-    scan = list(FE.rglob("*.js")) + [p for p in (FE / "index.html",) if p.exists()]
-    for path in scan:
-        inline += len(_INLINE_ON.findall(path.read_text(encoding="utf-8")))
-    if inline > MAX_INLINE_ON:
-        errors.append(f"[ratchet] inline on*= count {inline} exceeds ceiling {MAX_INLINE_ON} (ratchet may only decrease)")
+    # 2a. Markup reaches code only through registered actions (scope: all of
+    # frontend/ and index.html, vendor/ excluded).
+    scan = [p for p in FE.rglob("*.js") if "vendor" not in p.parts] + [FE / "index.html"]
+    texts = {path: path.read_text(encoding="utf-8") for path in scan}
+    registered: set[str] = set()
+    for path, text in texts.items():
+        rel = path.relative_to(FE)
+        if n := len(_INLINE_ON.findall(text)):
+            errors.append(f"[inline] {rel}: {n} inline on*= handler(s); use data-wf-action and registerAction")
+        if n := len(_WINDOW_GLOBAL.findall(text)):
+            errors.append(f"[global] {rel}: {n} window global(s); export the name, or register an action")
+        if path.suffix == ".js":
+            registered |= registered_actions(path, text)
+    scopes = {name.split(":")[0] for name in registered}
+    for path, text in texts.items():
+        for scope, name in _ACTION_NAME.findall(text):
+            if scope in scopes and f"{scope}:{name}" not in registered:
+                errors.append(f'[action] {path.relative_to(FE)}: "{scope}:{name}" is not registered')
 
     # 2b. Module-private names stay in their module.
     us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in top_files)
@@ -388,7 +418,7 @@ def main() -> int:
 
     # Report.
     print(
-        f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
+        f"frontend layer check: {len(top_files)} modules, {len(registered)} actions, "
         f"underscore imports={us}, "
         f"ABI v{abi_version} ({len(exports)} exports)"
     )

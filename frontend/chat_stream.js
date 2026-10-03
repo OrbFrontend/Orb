@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
@@ -1178,3 +1179,20 @@ export function discardQueuedEdit(button) {
     setMessages(msgs, state);
   });
 }
+
+registerActions("chat", {
+  send: () => sendMessage(),
+  stop: () => stopGeneration(),
+  continue: () => continueFromUser(),
+  regenerate: (el) => regenerate(Number(el.dataset.msgId)),
+  regenerateFromUser: (el) => regenerateFromUser(Number(el.dataset.msgId)),
+  superRegenerate: (el) => superRegenerate(Number(el.dataset.msgId)),
+  toggleMagic: (el) => toggleMagicInput(Number(el.dataset.msgId)),
+  magicKey: (el, e) => handleMagicKey(e, Number(el.dataset.msgId)),
+  submitMagic: (el) => submitMagicRewrite(Number(el.dataset.msgId)),
+});
+
+registerActions("queued-edit", {
+  retry: () => retryQueuedEdits(),
+  discard: (el) => discardQueuedEdit(el),
+});

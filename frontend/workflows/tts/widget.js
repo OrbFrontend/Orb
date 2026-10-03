@@ -4,6 +4,7 @@ import {
   channelState,
   clearWorkflowPhase,
   convUrl,
+  deleteWorkflowAttachment,
   getActiveConvId,
   getMessages,
   messageSegments,
@@ -11,11 +12,14 @@ import {
   pauseChannel,
   playAudio,
   refreshConversationMessages,
+  regenerateWorkflowAttachment,
   registerAction,
   registerClickHandler,
+  rehydrateWorkflowAttachment,
   resumeChannel,
   setWorkflowPhase,
   startWorkflowJob,
+  stepWorkflowVariant,
   stopButtonState,
   workflowActionJob,
   workflowAttachmentUrl,
@@ -57,7 +61,7 @@ export function initWidget(sharedConfig) {
   // handlers is the caret back in the toolbar: it is the render's Stop button
   // while it runs, and its chip is where a failure caption lands.
   registerAction(WORKFLOW_ID, "regenerate", (el) => {
-    window.workflowRegenerate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
+    regenerateWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
   registerAction(WORKFLOW_ID, "download", (el) => {
     closeMenu();
@@ -65,14 +69,14 @@ export function initWidget(sharedConfig) {
   });
   registerAction(WORKFLOW_ID, "step", (el) => {
     closeMenu();
-    window.workflowArtifactStep?.(el.dataset.instanceId, Number(el.dataset.delta));
+    stepWorkflowVariant(Number(el.dataset.msgId), Number(el.dataset.rootId), Number(el.dataset.delta));
   });
   registerAction(WORKFLOW_ID, "delete", (el) => {
     closeMenu();
-    window.workflowDeleteAttachment?.(el.dataset.instanceId);
+    deleteWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.rootId));
   });
   registerAction(WORKFLOW_ID, "rehydrate", (el) => {
-    window.workflowRehydrate?.(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
+    rehydrateWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
   registerClickHandler({ id: WORKFLOW_ID, label: "Speak", claims: speakClaims, onClick: speakOnClick });
 }
@@ -491,6 +495,8 @@ export function attachmentRenderer(ctx) {
   const root = atts.find((a) => a.parent_attachment_id == null) || att;
   const index = atts.indexOf(att);
   const total = atts.length;
+  const msgId = msg?.id || "";
+  // The id lets the core scroll this chip into view after a take changes.
   const instanceId = msg?.id ? `ws-${msg.id}-${root.id}` : "";
   const state = att.id === playingAttId ? channelState(CHANNEL) : null;
   const duration = durationMs(att) / 1000;
@@ -505,8 +511,8 @@ export function attachmentRenderer(ctx) {
   const item = `type="button" role="menuitem" class="wf-claim-item tts-menu-item"`;
   const stepButtons =
     total > 1
-      ? `<button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>
-       <button ${item} data-wf-action="tts:step" data-instance-id="${instanceId}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>`
+      ? `<button ${item} data-wf-action="tts:step" data-msg-id="${msgId}" data-root-id="${root.id}" data-delta="1"${index < 0 || index >= total - 1 || !canEdit ? " disabled" : ""}>Next take</button>
+       <button ${item} data-wf-action="tts:step" data-msg-id="${msgId}" data-root-id="${root.id}" data-delta="-1"${index <= 0 || !canEdit ? " disabled" : ""}>Previous take</button>`
       : "";
   const evicted = Boolean(att.evicted);
   const restore = evicted
@@ -524,7 +530,7 @@ export function attachmentRenderer(ctx) {
       <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>
       ${stepButtons}
       <button ${item} data-wf-action="tts:download" data-att="${att.id}"${evicted ? " disabled" : ""}>Download audio</button>
-      <button type="button" role="menuitem" class="wf-claim-item tts-menu-item danger" data-wf-action="tts:delete" data-instance-id="${instanceId}"${mutationDisabled}>Delete speech</button>
+      <button type="button" role="menuitem" class="wf-claim-item tts-menu-item danger" data-wf-action="tts:delete" data-msg-id="${msgId}" data-root-id="${root.id}"${mutationDisabled}>Delete speech</button>
     </template>
   </span>`;
 }

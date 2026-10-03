@@ -23,7 +23,6 @@ import {
   avatarUrl,
   esc,
   escAttr,
-  escHandlerArg,
   formatBytes,
   resolvePlaceholders,
   toast,
@@ -112,33 +111,36 @@ export function buildMsgToolbar(m) {
   const isGreeting = isAssistant && !m.parent_id;
   const canRegen = !isGreeting && (isAssistant || !!m.id);
 
-  const editBtn = `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
+  const editAction = m.id
+    ? `data-wf-action="messages:edit" data-msg-id="${m.id}"`
+    : `data-wf-action="messages:editPending"`;
+  const editBtn = `<button ${editAction} title="Edit">${ICON_EDIT}</button>`;
 
   const forkBtn =
     m.role === "user" && m.id
-      ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
+      ? `<button data-wf-action="messages:forkEdit" data-msg-id="${m.id}" title="Edit &amp; Fork">${ICON_FORK}</button>`
       : "";
 
   // Resolve the reply target on click: branch changes can leave a reused user row with a stale id.
   const regenAction = isAssistant
     ? m.id
-      ? `regenerate(${m.id})`
-      : `continueFromUser()`
-    : `regenerateFromUser(${m.id})`;
+      ? `data-wf-action="chat:regenerate" data-msg-id="${m.id}"`
+      : `data-wf-action="chat:continue"`
+    : `data-wf-action="chat:regenerateFromUser" data-msg-id="${m.id}"`;
   const regenBtn = isGreeting
     ? ""
     : !canRegen
       ? `<button disabled>${ICON_REGEN}</button>`
-      : `<button onclick="${regenAction}" title="Regenerate">${ICON_REGEN}</button>`;
+      : `<button ${regenAction} title="Regenerate">${ICON_REGEN}</button>`;
 
   const superRegenBtn =
     isAssistant && m.id && !isGreeting
-      ? `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
+      ? `<button data-wf-action="chat:superRegenerate" data-msg-id="${m.id}" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
       : "";
 
   const magicBtn =
     isAssistant && m.id && !isGreeting
-      ? `<button class="msg-btn-magic" onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
+      ? `<button class="msg-btn-magic" data-wf-action="chat:toggleMagic" data-msg-id="${m.id}" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
   const canProseRewrite =
@@ -149,28 +151,28 @@ export function buildMsgToolbar(m) {
     localMlReady("prose_rewriter");
   const proseRewriteTitle = m.has_writer_draft ? "Rewrite saved pre-rewriter draft" : "Rewrite this message";
   const proseRewriteBtn = canProseRewrite
-    ? `<button class="msg-btn-prose-rewrite" onclick="rewriteMessageProse(${m.id})" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
+    ? `<button class="msg-btn-prose-rewrite" data-wf-action="messages:proseRewrite" data-msg-id="${m.id}" title="${proseRewriteTitle}"${S.proseRewriteMsgId ? " disabled" : ""}>${ICON_PROSE_REWRITE}</button>`
     : "";
 
   const magicInput =
     isAssistant && m.id && !isGreeting && S.magicInputMsgId === m.id
-      ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" onkeydown="handleMagicKey(event,${m.id})" autofocus><button class="magic-apply" onclick="submitMagicRewrite(${m.id})" title="Apply">${ICON_SEND}</button></span>`
+      ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" data-wf-action="chat:magicKey" data-wf-on="keydown" data-msg-id="${m.id}" autofocus><button class="magic-apply" data-wf-action="chat:submitMagic" data-msg-id="${m.id}" title="Apply">${ICON_SEND}</button></span>`
       : "";
 
   const slopBtn =
     isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
-      ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">%</button>`
+      ? `<button class="msg-btn-slop" data-wf-action="slop:score" data-msg-id="${m.id}" title="Score AI-slop">%</button>`
       : "";
 
   const delBtn = !m.id
     ? `<button disabled class="msg-btn-del">${ICON_DEL}</button>`
     : isGreeting
       ? ""
-      : `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`;
+      : `<button data-wf-action="messages:delete" data-msg-id="${m.id}" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`;
 
   const diffBtn =
     S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-      ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
+      ? `<button data-wf-action="inspector:clearDiff" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
   return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${proseRewriteBtn}${magicInput}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
@@ -290,7 +292,7 @@ function renderSpotlightCard(sp) {
   const msgs = `${formatStatNum(sp.messages)} message${sp.messages === 1 ? "" : "s"}`;
   const convs = `${formatStatNum(sp.conversations)} conversation${sp.conversations === 1 ? "" : "s"}`;
   const clickable = sp.card_id
-    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(sp.card_id)}', 'library')"`
+    ? ` role="button" tabindex="0" data-wf-action="conversations:selectChar" data-char-id="${escAttr(sp.card_id)}" data-source="library"`
     : "";
   const eyebrow = SPOTLIGHT_EYEBROWS[sp.theme] ?? SPOTLIGHT_EYEBROWS.favorite;
   return `<div class="stat-card stat-card-favorite stat-card-spotlight-${esc(sp.theme)}${sp.card_id ? " stat-card-clickable" : ""}"${clickable}>
@@ -326,9 +328,9 @@ export function swipeNavHtml(m) {
   if (bc <= 1) return "";
   const bi = m.branch_index || 0;
   return `<span class="swipe-nav">
-          <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
+          <button data-wf-action="messages:switchBranch" data-branch-id="${m.prev_branch_id}" ${!m.prev_branch_id ? "disabled" : ""} title="Previous branch" aria-label="Previous branch">${CHEVRON_LEFT_ICON}</button>
           <span class="swipe-counter">${bi + 1}/${bc}</span>
-          <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
+          <button data-wf-action="messages:switchBranch" data-branch-id="${m.next_branch_id}" ${!m.next_branch_id ? "disabled" : ""} title="Next branch" aria-label="Next branch">${CHEVRON_RIGHT_ICON}</button>
         </span>`;
 }
 
@@ -379,13 +381,14 @@ function _messageHtml(m, num, avatars, playback) {
       : "";
   const toolbar = isEditing ? pendingEdit : `${pendingEdit}<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
   const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
-  const [cancelCall, commitCall, commitLabel] = isForkEditing
-    ? [`cancelForkEdit()`, `saveForkEdit(${m.id})`, "Fork"]
+  const [cancelAction, commitAction, commitLabel] = isForkEditing
+    ? ["messages:cancelForkEdit", "messages:saveForkEdit", "Fork"]
     : m.id
-      ? [`cancelEdit()`, `saveEdit(${m.id},'${m.role}')`, "Save"]
-      : [`cancelEditPending()`, `saveEditPending()`, "Save"];
-  const editActions = `<button class="btn btn-sm" onclick="${cancelCall}">Cancel</button>
-            <button class="btn btn-sm btn-accent" onclick="${commitCall}">${commitLabel}</button>`;
+      ? ["messages:cancelEdit", "messages:saveEdit", "Save"]
+      : ["messages:cancelEditPending", "messages:saveEditPending", "Save"];
+  const msgAttrs = m.id ? ` data-msg-id="${m.id}"` : "";
+  const editActions = `<button class="btn btn-sm" data-wf-action="${cancelAction}">Cancel</button>
+            <button class="btn btn-sm btn-accent" data-wf-action="${commitAction}"${msgAttrs}>${commitLabel}</button>`;
   const body = isEditing
     ? `
         <div class="msg-edit-area">

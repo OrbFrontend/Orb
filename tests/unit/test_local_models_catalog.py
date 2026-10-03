@@ -66,6 +66,25 @@ def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch)
     assert not os.path.exists(tmp_path / "unclaimed.gguf")
 
 
+def test_prune_stale_leaves_what_it_does_not_manage(tmp_path):
+    """The prune deletes user files, so its reach is the contract: a claimed
+    weight in a mirrored repo subdirectory, an unmanaged extension, and hf's
+    ``.cache`` bookkeeping all survive it."""
+    mirrored = tmp_path / MODELS["emotion_classifier"].filename
+    mirrored.parent.mkdir()
+    mirrored.write_text("weights")
+    notes = tmp_path / "readme.txt"
+    notes.write_text("mine")
+    cache = tmp_path / ".cache" / "huggingface" / "download"
+    cache.mkdir(parents=True)
+
+    assets.prune_stale(str(tmp_path))
+
+    assert mirrored.exists()
+    assert notes.exists()
+    assert cache.is_dir()
+
+
 def test_every_artifact_has_an_extension_prune_stale_can_claim():
     """``prune_stale`` only deletes the suffixes in ``MANAGED_SUFFIXES``. A spec
     that writes anything else puts a file on disk nothing will ever clean up on

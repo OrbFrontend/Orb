@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import {
   CROP_RATIOS,
   cropCornerCursor,
@@ -26,6 +27,13 @@ let _modalCloseGuard = null;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeTopModal();
+});
+
+registerActions("modal", {
+  close: () => closeModal(),
+  closeSub: () => closeSubModal(),
+  // A tab shows the .tab-content its data-tab-content names.
+  tab: (tab) => switchTab(tab, tab.dataset.tabContent),
 });
 
 export function isModalOpen() {

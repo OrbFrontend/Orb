@@ -1,22 +1,14 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
+import { selectChar } from "./chat.js";
 import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
 import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
 import { avatarBust, loadCharacters } from "./library_sidebar.js";
-import { setModalCloseCallback, showModal } from "./modal.js";
+import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
-import {
-  $,
-  avatarCell,
-  avatarUrl,
-  convActivity,
-  esc,
-  escAttr,
-  escHandlerArg,
-  formatRelativeDate,
-  toast,
-} from "./utils.js";
+import { $, avatarCell, avatarUrl, convActivity, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // The view toggle, in order. Manager holds auto-tagging, duplicate finding,
@@ -89,10 +81,10 @@ export async function showCharacterBrowserModal({ view } = {}) {
     </div>
     <div class="char-browser-search-row">
       <div class="char-browser-search">
-        <input type="text" id="char-browser-search" placeholder="Search characters by name..." oninput="onCharBrowserSearch()">
+        <input type="text" id="char-browser-search" placeholder="Search characters by name..." data-wf-action="browser:search" data-wf-on="input">
         <span class="search-icon">🔍</span>
       </div>
-      <select id="char-browser-sort" class="char-browser-sort" onchange="setCharBrowserSort(this.value)">
+      <select id="char-browser-sort" class="char-browser-sort" data-wf-action="browser:sort" data-wf-on="change">
         <option value="name" ${_browserSortBy === "name" ? "selected" : ""}>Name</option>
         <option value="time-added" ${_browserSortBy === "time-added" ? "selected" : ""}>Date Added</option>
         <option value="most-recent-chat" ${_browserSortBy === "most-recent-chat" ? "selected" : ""}>Most Recent Chat</option>
@@ -423,7 +415,7 @@ function renderCharBrowserCard(c) {
   const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   return `
-    <div class="char-browser-card" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
+    <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${c.id}">
       <div class="char-browser-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
     </div>`;
@@ -436,7 +428,7 @@ function renderCharBrowserListItem(c) {
   const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
-    <div class="char-browser-list-item" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
+    <div class="char-browser-list-item" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${c.id}">
       <div class="char-browser-list-avatar">${av}</div>
       <div class="char-browser-list-info">
         <div class="char-browser-list-name">${esc(c.name)}</div>
@@ -451,7 +443,7 @@ function renderInternetPanel() {
   container.innerHTML = `
     <div class="char-browser-internet">
       <div class="internet-controls">
-        <select id="internet-source" onchange="setInternetSource(this.value)">
+        <select id="internet-source" data-wf-action="browser:source" data-wf-on="change">
           <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>Chub</option>
           <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Bernkastel</option>
           <option value="botbooru" ${_internetSource === "botbooru" ? "selected" : ""}>Botbooru</option>
@@ -460,9 +452,9 @@ function renderInternetPanel() {
         <input id="internet-search-input" type="text"
                placeholder="Search characters…"
                value="${esc(_internetQuery)}"
-               onkeydown="if(event.key==='Enter')searchInternet()">
-        <button class="btn" onclick="searchInternet()">Search</button>
-        <button class="btn" onclick="randomizeInternet()" title="Show a random selection">🎲 Randomize</button>
+               data-wf-action="browser:searchInternetKey" data-wf-on="keydown">
+        <button class="btn" data-wf-action="browser:searchInternet">Search</button>
+        <button class="btn" data-wf-action="browser:randomize" title="Show a random selection">🎲 Randomize</button>
       </div>
       <div id="internet-results">${renderInternetResultsBody()}</div>
     </div>`;
@@ -477,14 +469,13 @@ function renderInternetResultsBody() {
   }
   const cards = _internetResults.map((it) => renderInternetResultCard(it)).join("");
   const more = _internetHasMore
-    ? `<button class="btn internet-load-more" onclick="loadMoreInternet()" ${_internetLoading ? "disabled" : ""}>${_internetLoading ? "Loading…" : "Load More"}</button>`
+    ? `<button class="btn internet-load-more" data-wf-action="browser:loadMore" ${_internetLoading ? "disabled" : ""}>${_internetLoading ? "Loading…" : "Load More"}</button>`
     : "";
   return `<div class="char-browser-grid">${cards}</div>${more}`;
 }
 
 function renderInternetResultCard(item) {
   const av = avatarCell(item.avatar_url ? escAttr(item.avatar_url) : "", { attrs: 'loading="lazy" decoding="async"' });
-  const fullPath = escHandlerArg(item.full_path || "");
   const topics = (item.topics || []).slice(0, 12);
   const updated = item.date_updated ? `Updated: ${formatRelativeDate(item.date_updated)}` : "";
   const tooltipParts = [item.name, item.tagline, updated, topics.length ? `Tags: ${topics.join(", ")}` : ""].filter(
@@ -496,7 +487,7 @@ function renderInternetResultCard(item) {
       <div class="char-browser-avatar" title="${tooltip}">${av}</div>
       <div class="char-browser-card-name">${esc(item.name || "")}</div>
       <div class="internet-result-meta">${esc(item.tagline || "")}</div>
-      <button class="internet-import-btn" onclick="importInternetChar('${fullPath}')">Import</button>
+      <button class="internet-import-btn" data-wf-action="browser:importInternet" data-path="${escAttr(item.full_path || "")}">Import</button>
     </div>`;
 }
 
@@ -588,3 +579,21 @@ export async function importInternetChar(fullPath) {
     toast(`Import failed: ${e.message}`, true);
   }
 }
+
+registerActions("browser", {
+  open: () => showCharacterBrowserModal(),
+  search: () => onCharBrowserSearch(),
+  sort: (el) => setCharBrowserSort(el.value),
+  pick: (el) => {
+    selectChar(el.dataset.charId, "library");
+    closeModal();
+  },
+  source: (el) => setInternetSource(el.value),
+  searchInternet: () => searchInternet(),
+  searchInternetKey: (_el, e) => {
+    if (e.key === "Enter") searchInternet();
+  },
+  randomize: () => randomizeInternet(),
+  loadMore: () => loadMoreInternet(),
+  importInternet: (el) => importInternetChar(el.dataset.path),
+});

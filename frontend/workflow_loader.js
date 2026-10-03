@@ -1,4 +1,3 @@
-import { renderToolsPanel } from "./settings.js";
 import { S } from "./state.js";
 
 const workflowEntry = (w) => (w && typeof w.id === "string" ? `/static/workflows/${w.id}/index.js` : null);
@@ -18,6 +17,7 @@ export function preloadWorkflowModules() {
   }
 }
 
+/** Import each workflow entry in manifest order; resolves true if any loaded. */
 export async function loadWorkflowModules() {
   let loaded = false;
   for (const w of S.workflowManifest) {
@@ -30,5 +30,5 @@ export async function loadWorkflowModules() {
       console.error(`workflow module "${w.id}" failed to load:`, e);
     }
   }
-  if (loaded) renderToolsPanel();
+  return loaded;
 }

@@ -210,34 +210,3 @@ def delete_model(feature: str, variant: str | None = None) -> bool:
             os.remove(target)
             removed = True
     return removed
-
-
-if __name__ == "__main__":
-    # Self-check for the destructive prune (temp dir; never touches real models).
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as d:
-        keep = os.path.join(d, MODELS["autocomplete"].local_name)
-        open(keep, "w").close()
-        mirrored = os.path.join(d, MODELS["emotion_classifier"].filename)  # legacy gguf/ nesting
-        os.makedirs(os.path.dirname(mirrored), exist_ok=True)
-        open(mirrored, "w").close()
-        companion = os.path.join(d, next(iter(MODELS["spark_tts_codec"].extra_files)).local_name)
-        open(companion, "w").close()
-        stale = os.path.join(d, "old-granite-Q8_0.gguf")
-        open(stale, "w").close()
-        stale_onnx = os.path.join(d, "left-over-decoder.onnx")
-        open(stale_onnx, "w").close()
-        notes = os.path.join(d, "readme.txt")  # an unmanaged extension must survive
-        open(notes, "w").close()
-        cached = os.path.join(d, ".cache", "huggingface", "download")
-        os.makedirs(cached)
-        prune_stale(d)
-        assert os.path.exists(keep), "current spec's gguf must be kept"
-        assert os.path.exists(mirrored), "a claimed gguf in a legacy subdir must survive"
-        assert os.path.exists(companion), "a claimed companion .onnx must be kept"
-        assert not os.path.exists(stale), "unclaimed gguf must be removed"
-        assert not os.path.exists(stale_onnx), "unclaimed onnx must be removed"
-        assert os.path.exists(notes), "an unmanaged extension must be left alone"
-        assert os.path.isdir(cached), "hf's .cache must be left alone, empty or not"
-    print("prune_stale OK")

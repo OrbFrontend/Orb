@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderMessages } from "./chat_core.js";
 import { EDIT_ICON } from "./icons.js";
@@ -9,7 +10,6 @@ import {
   effectivePersonaId,
   esc,
   escAttr,
-  escHandlerArg,
   personaAvatarSrc,
   safePersonaColour,
   toast,
@@ -80,7 +80,7 @@ export function showUserModal() {
       const avatarBg = isActive ? "var(--accent-glow)" : avatarColor;
       const initials = p.name.charAt(0).toUpperCase();
       const avatarSrc = personaAvatarSrc(p);
-      const avatarInner = avatarSrc ? avatarCell(escAttr(avatarSrc), { icon: escHandlerArg(initials) }) : esc(initials);
+      const avatarInner = avatarSrc ? avatarCell(escAttr(avatarSrc), { icon: initials }) : esc(initials);
       const convLocked = !!conv && conv.persona_lock_id === p.id;
       const charLocked = !!card && card.persona_lock_id === p.id;
       const convTitle = conv
@@ -94,7 +94,7 @@ export function showUserModal() {
           : `Pin to ${escAttr(charName)}`
         : "Only available for saved characters";
       return `
-      <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
+      <div class="persona-item${isActive ? " persona-item-active" : ""}" data-wf-action="personas:activate" data-persona-id="${p.id}">
         <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${avatarInner}</div>
         <div class="persona-info">
           <div class="persona-name-row">
@@ -106,12 +106,12 @@ export function showUserModal() {
         <div class="persona-actions-direct">
           <button class="persona-action-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"}
             title="${convTitle}" aria-label="${convTitle}" aria-pressed="${convLocked}"
-            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">${CONV_LOCK_ICON}</button>
+            data-wf-action="personas:conversationLock" data-persona-id="${p.id}" data-locked="${!convLocked}">${CONV_LOCK_ICON}</button>
           <button class="persona-action-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"}
             title="${charTitle}" aria-label="${charTitle}" aria-pressed="${charLocked}"
-            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
+            data-wf-action="personas:characterLock" data-persona-id="${p.id}" data-locked="${!charLocked}">${CHAR_LOCK_ICON}</button>
           <button class="persona-action-btn persona-action-edit" title="Edit ${escAttr(p.name)}" aria-label="Edit ${escAttr(p.name)}"
-            onclick="event.stopPropagation();editPersona(${p.id})">${EDIT_ICON}</button>
+            data-wf-action="personas:edit" data-persona-id="${p.id}">${EDIT_ICON}</button>
         </div>
       </div>
     `;
@@ -130,7 +130,7 @@ export function showUserModal() {
           <p class="modal-subtitle">Choose the identity to use by default. Override it with a different persona for a specific chat or character.</p>
         </div>
         <div class="modal-title-actions">
-          <button class="btn btn-sm" onclick="showPersonaEditModal(null)">+ New persona</button>
+          <button class="btn btn-sm" data-wf-action="personas:new">+ New persona</button>
         </div>
       </div>
       ${note}
@@ -199,9 +199,9 @@ export function showPersonaEditModal(personaId) {
       <span style="font-size:13px;text-transform:none;letter-spacing:0;font-weight:400">Set as default persona after saving</span>
     </label>
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger" onclick="deletePersona(${personaId})">Delete</button>` : ""}
-      <button class="btn" onclick="showUserModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="savePersona(${personaId || "null"})">${isEdit ? "Save" : "Create"}</button>
+      ${isEdit ? `<button class="btn btn-danger" data-wf-action="personas:delete" data-persona-id="${personaId}">Delete</button>` : ""}
+      <button class="btn" data-wf-action="personas:open">Cancel</button>
+      <button class="btn btn-accent" data-wf-action="personas:save" data-persona-id="${personaId || ""}">${isEdit ? "Save" : "Create"}</button>
     </div>
   `);
   setModalDismiss(showUserModal);
@@ -381,3 +381,16 @@ export async function setPersonaCharacterLock(personaId, locked) {
     toast(`Failed: ${e.message}`, true);
   }
 }
+
+const _personaId = (el) => (el.dataset.personaId ? Number(el.dataset.personaId) : null);
+
+registerActions("personas", {
+  open: () => showUserModal(),
+  new: () => showPersonaEditModal(null),
+  edit: (el) => editPersona(_personaId(el)),
+  save: (el) => savePersona(_personaId(el)),
+  delete: (el) => deletePersona(_personaId(el)),
+  activate: (el) => activatePersona(_personaId(el)),
+  conversationLock: (el) => setPersonaConversationLock(_personaId(el), el.dataset.locked === "true"),
+  characterLock: (el) => setPersonaCharacterLock(_personaId(el), el.dataset.locked === "true"),
+});
