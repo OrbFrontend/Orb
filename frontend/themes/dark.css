@@ -9,3 +9,6 @@
   --font-prose-size:16px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
+
+.message.user .msg-body { background: var(--bg-surface) !important; border-color: var(--border) !important; }
+.message.user .msg-edit-area textarea { background: var(--bg-deep) !important; border-color: var(--border) !important; }
