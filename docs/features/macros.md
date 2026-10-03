@@ -1,123 +1,113 @@
 # Macros
 
-A macro is a placeholder that Orb replaces with a value. Macros work in messages,
-greetings, personas, scenarios, example messages, lorebook entries, fragments,
-and saved state. They also work in the image-generation settings: style
-prompts, extra instructions, character appearance prompts, and composition
-skills.
+A macro fills in a name, roll, or other value before text reaches the model.
+Use macros in messages, greetings, personas, scenarios, example dialogue,
+lorebooks, fragments, saved state, and image-generation prompts.
 
-| Macro | Result |
+## Examples
+
+These examples use **Alex** as your name or active persona and **Mara** as the
+character. Rolls, choices, dates, and times show possible results.
+
+| Write | Example result |
 |---|---|
-| `{{user}}` | Your name or the active persona's name |
-| `{{char}}` | The character's name |
-| `{{description}}` | The character's description, in full |
-| `{{roll::NdM}}` | The total from N dice with M sides, such as `{{roll::2d6}}` |
-| `{{random::a::b::c}}` | One randomly selected option |
-| `{{pick::a::b::c}}` | Alias for `{{random}}` |
-| `{{time}}` | Local time in `HH:MM` format |
-| `{{date}}` | Local date in `YYYY-MM-DD` format |
-| `{{// note }}` | Nothing -- the text inside is a note to yourself |
-| `{{trim}}` | Nothing, and removes the newlines surrounding it |
+| `Hello, {{user}}.` | `Hello, Alex.` |
+| `{{char}} opens the door.` | `Mara opens the door.` |
+| `Present: {{cast}}.` | `Present: Mara, Ivo.` (group chat) |
+| `Luck: {{roll::2d6}}` | `Luck: 8` |
+| `You find {{random::a key::a coin::nothing}}.` | `You find a coin.` |
+| `Coin: {{pick::heads::tails}}` | `Coin: heads` |
+| `Time: {{time}}` | `Time: 14:30` |
+| `Date: {{date}}` | `Date: 2026-10-03` |
 
-Random options are separated by `::`. Options may contain spaces and line breaks,
-but not `::` or `}}`. Macro names are case-insensitive.
+`2d6` rolls two six-sided dice and adds them. Use `NdM` for N dice with M sides.
+`pick` works like `random`. Separate choices with `::`; choices can contain
+spaces and line breaks, but not `::` or `}}`. Macro names ignore case.
 
-`{{// ... }}` is a note to yourself. Orb removes it before the character sees
-any of it, so it is where reminders about how a card is meant to be played
-belong -- the kind of thing you want the next reader of the card to see and the
-model never to read.
-
-A note alone on its line takes the whole line with it, so no blank line is left
-behind; a note sitting mid-line takes only itself. Macros inside a note are
-removed along with it rather than resolved, so `{{// ask {{user}} later }}`
-disappears completely and rolls nothing.
+In group chats, `{{char}}` uses the group title outside a member's card text;
+`{{cast}}` lists the cast names.
 
 ## `{{description}}`
 
-`{{description}}` is the only macro that expands to a body of prose rather than
-a name or a word. It resolves to the character's **Description** field -- the
-field itself, not the Description and Personality that Orb joins together for
-the prompt. In a group chat it is the speaking member's sheet, the same way
-`{{char}}` is the speaking member's name.
+Inserts the full **Description** field, without **Personality**. In group chats,
+it uses the speaking member's sheet.
 
-Macros inside the description resolve after it lands, so a description reading
-"{{char}} distrusts {{user}}" arrives with both names already filled in.
+If the description is `{{char}} distrusts {{user}}.`, then:
 
-Two things to know before using it:
+| Write | Sent to the model |
+|---|---|
+| `Background: {{description}}` | `Background: Mara distrusts Alex.` |
 
-- **It is a prompt macro, not a display macro.** Written into a chat message it
-  reaches the model expanded, but the message bubble still shows
-  `{{description}}` -- the chat view does not hold the card's description.
-- **A description is long, and length costs.** Dropping one into text that is
-  already sent every turn pays for the same words twice, and anywhere a model
-  is asked a narrow question about the current scene, prose that does not bear
-  on the question measurably drags the answer toward the middle. A sentence you
-  write yourself usually beats the whole field.
+The chat bubble still shows `{{description}}`. If no description is available,
+the macro stays unchanged. Avoid inserting the whole field where it is already
+included in the prompt.
 
-With no description to give -- a group scene with no sheet, a chat with no card
--- `{{description}}` is left alone rather than blanked, the same as `{{cast}}`
-in a solo chat, so nothing silently disappears.
+## Author notes and line breaks
 
-`{{trim}}` joins the lines on either side of it, which is mainly how a card
-drops the blank line a note would otherwise leave behind when something follows
-it on the same line:
+`{{// ... }}` adds a note for the card's reader. The model never sees it:
 
-```
-{{// Turn example messages on. }}{{trim}}
-
-A demon of dark dreams...
+```text
+{{// Keep the secret out of the greeting. }}
+{{char}} waves to {{user}}.
 ```
 
-The description reaches the model starting at `A demon`. Spaces and tabs around
-the macro are kept -- only newlines go.
+Sent to the model:
+
+```text
+Mara waves to Alex.
+```
+
+A note on its own line removes that line too. An inline note removes only itself.
+Macros inside notes are removed without being evaluated.
+
+`{{trim}}` removes line breaks around it, keeping spaces and tabs:
+
+```text
+Hello,
+{{trim}}
+ {{user}}.
+```
+
+Becomes `Hello, Alex.`
 
 ## When values are chosen
 
-`{{user}}`, `{{char}}` and `{{description}}` always use the current values.
-Random values use the location of the macro:
+Names and descriptions use the current values. Rolls and random choices depend
+on where you put them:
 
 | Location | When it is chosen |
 |---|---|
 | Your message | When you send it |
 | Character greeting | When you open a conversation, then frozen after your first message |
-| Persona, scenario, or example message | Once per conversation |
-| Mood-fragment prompt text | Once per conversation |
+| Persona, scenario, example dialogue, or mood prompt | Once per conversation |
+| Constant or keyword-activated lorebook entry | Once per conversation |
+| Constant lorebook entry with **@ Depth** | Every turn |
 | An image-generation setting | Every render |
 | A value written by the Director | Every turn |
 
-`{{time}}` and `{{date}}` use the current value. In a message they freeze when
-sent; in persona or scenario text they update each turn.
-
-Checkpoints inherit the random values from their parent conversation.
+Time and date use the local clock. They freeze in sent messages but update each
+turn in persona or scenario text. Checkpoints keep the parent's random values.
 
 ## Macros in image generation
 
-Image-generation settings are saved once and used in every chat, so `{{char}}`
-there means the character of the conversation you generate from. This is how you
-tell an image model which person a reference image shows:
+Use macros in style prompts, negative prompts, extra instructions, character
+appearance prompts, and composition-skill descriptions and instructions.
 
-```
-<image1> is {{char}}.
-```
+| Write in extra instructions | Example result |
+|---|---|
+| `<image1> is {{char}}. Keep her face consistent.` | `<image1> is Mara. Keep her face consistent.` |
 
-Macros work in a style's positive and negative prompt, its extra instructions,
-and in a composition skill's description and instructions. They also work in a
-character's appearance and negative prompt under **This Character Only**, where
-`{{char}}` always means that character -- in a group chat it is the member's
-name, not the scene title.
+Under **This Character Only**, `{{char}}` uses that character's name, including
+in group chats. Composition-skill names stay unchanged.
 
-A composition skill's **Name** is left alone, because Orb uses it to identify the
-skill and shows it under the finished image.
-
-The prompt shown in **Render details** is the finished text. Macros are already
-resolved there, and **Reroll** sends exactly what that box says.
+**Render details** shows the resolved prompt. **Reroll** sends that same text.
 
 ## Show a macro as text
 
-Put a macro inside single backticks to prevent substitution:
+Wrap a macro in single backticks to keep it literal:
 
 ```
 Use `{{random::heads::tails}}` to flip a coin.
 ```
 
-The backticks and macro remain in the text.
+This stays exactly as written, including the backticks.

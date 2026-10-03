@@ -1,160 +1,112 @@
 # State Fragments
 
-A state fragment keeps something true across turns: where the scene stands, how
-far a character trusts the user, or the story threads still open. Its state
-belongs to the active conversation branch and returns on every later reply until
-the Agent or you change it.
+A state fragment remembers story facts across replies, such as trust, inventory,
+or unfinished plot threads. The facts stay until you or the Agent change them.
+Each conversation branch keeps its own state.
 
-State fragments are interactive fragments with the field type **State**.
+## Starter fragments
+
+Enable these in **Interactive Fragments**. Both start disabled.
+
+- **Notes** holds notes you write yourself. When enabled, its contents are sent
+  to **both Director and Writer on every turn**, so what you write can guide the
+  scene and the reply. Only you change these notes, in **Inspector → State**.
+- **Inventory** tracks items characters hold. The Agent updates the list after
+  each reply and sends it to both Director and Writer on later turns.
 
 ## Settings
 
-Each state fragment has three settings in the fragment editor.
+Create or edit an [interactive fragment](director.md#interactive-fragments) and
+set its field type to **State**.
 
-**Mode**
+**Mode** chooses what it remembers:
 
-- **One value**: a single text, such as `Trust: wary, since the lie about the key`.
-  Each update replaces it.
-- **Multiple entries**: a list of up to 12 entries, such as open plot threads.
-  Updates add new entries and retire entries that no longer hold.
+- **One value**: one piece of text, such as `Trust: wary`. Each update replaces it.
+- **Multiple entries**: a list, such as items or open plot threads. Updates add
+  entries and retire ones that no longer apply.
 
-**Update**
+**Update** chooses when it changes:
 
-- **After the reply** (the default): the Agent updates the fragment after the
-  reply is saved, from what the reply actually showed. The change reaches the
-  next reply.
-- **Before the Writer**: the Agent updates the fragment before the reply is
-  written. It records the Director's intent for this reply, which the Writer may
-  not carry out. The Writer sees the change in the same reply, and a changed
-  value appears as `old -> new`.
-- **Manual only**: only you change the fragment, in the Inspector's State tab.
+- **After the reply** (default): records what happened in the saved reply. The
+  change is available for the next reply.
+- **Before the Writer**: records the Director's plan for this reply, which the
+  Writer may not follow. A changed single value sent to the Writer appears as
+  `old -> new`.
+- **Manual only**: only you change it, in **Inspector → State**.
 
-**Inject**: **Off**, **Director**, **Writer**, or **Director and Writer** choose
-who reads the saved state. Injection and updating are independent: a fragment
-can be updated without being injected, and a manual fragment can still be
-injected. The Agent always sees the current state of the fragments it updates.
+**Inject** chooses who receives the saved facts: **Off**, **Director**, **Writer**,
+or **Both**. This is separate from **Update**: manual notes can still guide
+replies, and automatically updated facts can be kept without sending them.
 
-The **Injection label** is the fragment's heading in the state block, and the
-**Description** tells the Agent what to record. **Required** appears only for a
-one-value fragment updated before the Writer, because that value is part of the
-Director's scene direction.
+**Description** tells the Agent what to record. **Injection label** is the heading
+shown to the Director or Writer. **Required** is available only for a one-value
+fragment updated before the Writer.
+
+## The State tab
+
+Open **Inspector → State** to see saved facts and who last changed them. You can:
+
+- Set, edit, or clear a single value.
+- Add, edit, or retire list entries.
+- Open **History** to see changes on this branch.
+
+Your edits belong to the latest message. Wait until reply generation finishes
+before editing.
+
+Disabled fragments keep their saved facts but show them read-only. Deleted
+fragments also leave their saved facts here; **Delete saved state** removes those
+facts from every branch of the conversation.
 
 ## When updates run
 
-Before-Writer updates need the Agent and the **Direction** tool. A one-value
-fragment is filled in the Director's scene direction call itself; a
-multiple-entry fragment gets its own call right after it. While the Agent or
-Direction is off, a before-Writer fragment keeps its state.
+Automatic updates need the **Agent** enabled. **Before the Writer** also needs
+the **Direction** tool. **After the reply** adds an Agent call; **Individual
+fragment processing** updates each fragment separately.
 
-After-reply updates run as one extra Agent call after the reply, which reuses the
-cached prompt. The **Individual fragment processing** option in the Direction
-card also applies: it updates each fragment in its own call.
+**Manual only** stops automatic updates but still sends saved facts according to
+**Inject**. Disabling a fragment stops both updating and sending its facts.
+A cooldown pauses updates while the saved facts are still sent.
 
-Switching a fragment to **Manual only** stops its automatic updates. Its saved
-state is still injected, and you can still edit it in the Inspector's State tab.
-Disabling a single fragment stops both its updates and its injection, but keeps
-its saved state; the State tab shows that state read-only.
+Skipped or failed updates leave saved facts unchanged. Empty text does not clear
+them. The Agent can replace a single value, but only you can clear it. For lists,
+the Agent corrects an entry by retiring it and adding a replacement.
 
-A fragment on cooldown keeps and still injects its state; it is only not updated.
-
-## What an update can do
-
-Anything the Agent leaves out stays as it is. An omitted fragment, a skipped
-call, an invalid tool call, a cooldown, or a model error never changes saved
-state, and empty text never clears anything.
-
-- For a one-value fragment, the Agent can only write a new value. It cannot
-  clear the value; to say something no longer applies, it writes a value such as
-  "none".
-- For a multiple-entry fragment, the Agent can add entries and retire listed
-  ones. To correct an entry, it retires it and adds the corrected text.
-
-Orb refuses an operation that names an unknown fragment or entry, repeats an
-active entry exactly, or exceeds a limit, and reports it in the Inspector. The
-limits are fixed:
+## Limits
 
 | Limit | Value |
 |---|---|
 | Characters per value or entry | 800 |
 | Active entries per fragment | 12 |
 
-When a list holds 12 entries, a further add is refused and the fragment shows
-**Full** in the State tab until an entry is retired. The Agent sees each list's
-count and is told when a list is full.
+A list marked **Full** needs an entry retired before another can be added.
+Duplicate entries and invalid changes are refused; the Inspector shows why.
 
-### Prompt size
-
-Every injected fragment adds to the Director's or Writer's prompt on every turn.
-At the limits, a one-value fragment adds up to about 800 characters (about
-1,600 to the Writer on a turn that shows it as `old -> new`) and a
-multiple-entry fragment up to about 9,700 (12 entries of 800 characters plus
-their bullets). Keep descriptions specific so entries stay short, and inject a
-fragment only where it is read.
-
-## The State tab
-
-The Inspector has a **State** tab beside **Main**. The tabs appear whenever an
-enabled state fragment exists or the conversation holds saved state.
-
-The tab lists each fragment with its current value or entries, the turn that
-set each one, and who set it: **Agent**, **You**, or **Carried** (state that
-Compress History kept on its summary). From the tab you can:
-
-- set, edit, or clear a one-value fragment;
-- add, edit, or retire entries of a multiple-entry fragment;
-- open a fragment's **History**, the changes on this branch, newest first.
-
-Your changes are attached to the latest message on the branch. While a reply is
-being generated, the tab refuses edits; make them once it finishes.
-
-Disabled fragments are shown read-only. A fragment you deleted still shows its
-saved state read-only under its saved label, with **Delete saved state** to
-remove it from the conversation on every branch.
+Keep facts short: everything you send to the Director or Writer adds to the
+prompt on every turn.
 
 ## Changing the mode
 
-Changing a fragment's mode never rewrites or discards saved state; it changes
-which operations the Agent and the State tab offer, from the next turn.
+Changing **Mode** keeps saved facts:
 
-- One value to multiple entries: the value becomes the first entry.
-- Multiple entries to one value: the entries stay. The fragment shows them
-  together as its current value, and the State tab notes that the next update
-  replaces them with one value. Merge them first by editing and retiring
-  entries if you want to choose the wording; otherwise the Agent's next value
-  replaces them, and the originals remain in history.
+- **One value → Multiple entries**: the value becomes the first entry.
+- **Multiple entries → One value**: the entries stay until the next value update
+  replaces them. Edit them first if you want to choose the combined wording.
 
 ## Branches, regeneration, and group chats
 
-State follows the branch. Regenerating or editing a reply starts from the parent
-message's state; switching back to another branch shows that branch's state.
+Switching branches shows that branch's facts. Regenerating or editing a reply
+starts from the state before that reply.
 
-A correction you made on a reply carries over when you regenerate that reply,
-and the new reply is written with it. The Agent's own changes on the discarded
-reply are not carried; the new turn makes its own. A carried edit or retirement
-of an entry that the discarded reply had added has nothing to apply to, so it is
-dropped and listed in the Inspector.
+Your corrections carry into regeneration. The discarded reply's Agent updates
+do not. A correction to an entry added by that discarded reply cannot carry over;
+the Inspector reports it.
 
-A stopped reply saved as partial text keeps the before-Writer changes that
-shaped it. After-reply updates do not run for it. A turn that saves no reply
-changes no state.
+A stopped reply saved as partial text keeps its before-Writer changes but skips
+after-reply updates. If no reply is saved, state does not change.
 
-In a group chat, state updates run once per exchange, not once per speaker.
+In group chats, state updates once per exchange. **Checkpoint** copies the state
+and its history to the new conversation. **Compress History** keeps saved facts
+when it replaces older messages with a summary.
 
-**Checkpoint** copies the branch's state and its history into the new
-conversation. **Compress History** keeps the state that the removed messages had
-built, on the summary message, so nothing is lost.
-
-## Inspector
-
-The Inspector's **State (this reply)** block lists the changes a reply made and
-the changes you made on it, marked **You**; operations Orb refused, with the
-reason; and carried corrections that were dropped.
-
-## Starter fragments
-
-A disabled **Inventory** starter tracks the items each character holds:
-multiple entries, updated after the reply, injected into both. Enable it in
-**Interactive Fragments**, or use it as an example.
-
-A **Notes** fragment (multiple entries, manual only) holds free-form notes you
-write yourself.
+The Inspector's **State (this reply)** block shows that reply's changes, your
+corrections, and any refused or dropped changes.
