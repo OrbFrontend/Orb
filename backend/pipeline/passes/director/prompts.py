@@ -24,9 +24,7 @@ def _moods_options_block(
     # as previously active only invites the model to pick it again.
     moods = ", ".join(mood for mood in active_moods if mood not in resting) or "none"
     fragments = "\n".join(
-        f"* [{fragment['id']}] - use in case: {fragment['description']}"
-        for fragment in mood_fragments
-        if fragment["id"] not in resting
+        f"* [{fragment['id']}] - {fragment['description']}" for fragment in mood_fragments if fragment["id"] not in resting
     )
     return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{fragments}"
 
