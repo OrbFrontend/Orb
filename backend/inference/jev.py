@@ -35,17 +35,33 @@ class DecisionTransportError(Exception):
 
 # Strip common chat-route suffixes before adding the Judge route.
 _ROUTE_SUFFIXES = ("chat", "completions", "v1", "responses", "alpha")
+# TypeSafe gateways serve ``/alpha/decisions``; llama.cpp serves the same API at ``/v1/systemone``.
+_ROUTE_ENDINGS = ("decisions", "systemone")
+_DERIVED_ROUTE = ("alpha", "decisions")
+_SYSTEMONE_ROUTE = ("v1", "systemone")
+
+# Derived routes that 404'd and answered on their ``/v1/systemone`` sibling instead.
+_SYSTEMONE_FALLBACKS: dict[str, str] = {}
 
 
 def decisions_url(base_url: str) -> str:
-    """Derive the Judge route, preserving URLs that already end in ``decisions``."""
+    """Derive the Judge route, preserving URLs that already end in ``decisions`` or ``systemone``."""
     parts = urlsplit(base_url.strip().rstrip("/"))
     segments = [segment for segment in parts.path.split("/") if segment]
-    if segments and segments[-1] == "decisions":
+    if segments and segments[-1] in _ROUTE_ENDINGS:
         return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(segments), "", ""))
     while segments and segments[-1] in _ROUTE_SUFFIXES:
         segments.pop()
-    return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments, "alpha", "decisions")), "", ""))
+    return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments, *_DERIVED_ROUTE)), "", ""))
+
+
+def systemone_url(url: str) -> str | None:
+    """The llama.cpp sibling of a derived ``/alpha/decisions`` route; ``None`` for any other URL."""
+    parts = urlsplit(url)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if tuple(segments[-2:]) != _DERIVED_ROUTE:
+        return None
+    return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join((*segments[:-2], *_SYSTEMONE_ROUTE)), "", ""))
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,12 +266,19 @@ class DecisionClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=timeout, proxy=self.proxy) as client:
-            response = await client.post(self.url, content=body, headers=headers)
+            url = _SYSTEMONE_FALLBACKS.get(self.url, self.url)
+            response = await client.post(url, content=body, headers=headers)
+            # A 404 on a derived route may be llama.cpp; its own answer (even a 501 for a
+            # non-decision model) says more than the 404, unless it is a 404 as well.
+            if response.status_code == 404 and url == self.url and (sibling := systemone_url(url)):
+                retry = await client.post(sibling, content=body, headers=headers)
+                if retry.status_code != 404:
+                    url, response = sibling, retry
+                    if retry.status_code < 400:
+                        _SYSTEMONE_FALLBACKS[self.url] = sibling
             if response.status_code >= 400:
-                logger.error("Decision HTTP %d from %s: %s", response.status_code, self.url, response.text)
-                raise llm_call_error(
-                    response=response, body=response.text, url=self.url, model=self.model, api_key=self.api_key
-                )
+                logger.error("Decision HTTP %d from %s: %s", response.status_code, url, response.text)
+                raise llm_call_error(response=response, body=response.text, url=url, model=self.model, api_key=self.api_key)
             try:
                 return response.json()
             except ValueError as error:

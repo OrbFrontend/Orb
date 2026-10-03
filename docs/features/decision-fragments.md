@@ -19,7 +19,9 @@ current request turns out.
 
 In **Endpoints → Judge**, set the endpoint URL, API key, model, and optional
 proxy. Orb derives the decisions route from the URL; a URL that already ends in
-`/decisions` is used as given. **Test** sends a synthetic situation and does not
+`/decisions` or `/systemone` is used as given. A llama.cpp server running a
+decision model answers on its own `/v1/systemone` route, which Orb finds from the
+server's base URL. **Test** sends a synthetic situation and does not
 include conversation content. Without a configured Judge, decisions are skipped
 and reported in the Inspector.
 

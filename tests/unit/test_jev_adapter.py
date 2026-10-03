@@ -66,9 +66,10 @@ def test_deriving_the_route_twice_changes_nothing():
     assert decisions_url(once) == once
 
 
-def test_a_gateway_that_spells_the_route_itself_keeps_that_spelling():
-    # Preserve a custom URL that already names a decisions route.
-    assert decisions_url("https://gw.test/v2/judge/decisions") == "https://gw.test/v2/judge/decisions"
+@pytest.mark.parametrize("url", ["https://gw.test/v2/judge/decisions", "http://127.0.0.1:8080/v1/systemone"])
+def test_a_gateway_that_spells_the_route_itself_keeps_that_spelling(url):
+    # Preserve a custom URL that already names a decisions route, TypeSafe's or llama.cpp's.
+    assert decisions_url(url) == url
 
 
 def test_a_non_openrouter_base_keeps_its_own_path():
@@ -295,3 +296,49 @@ async def test_an_http_rejection_keeps_the_providers_own_sentence():
             await client.decide("the scene", [QUESTION])
     assert "No endpoint found" in raised.value.sentence
     assert "secret" not in raised.value.body
+
+
+# ── llama.cpp fallback ───────────────────────────────────────────────────────
+
+
+def _routed(monkeypatch, routes: dict[str, httpx.Response]) -> list[str]:
+    """Serve *routes* by path through the real ``_post``; return the paths hit, in order."""
+    import backend.inference.jev as jev
+
+    hits: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits.append(request.url.path)
+        return routes.get(request.url.path, httpx.Response(404, text="Not Found"))
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(jev.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), timeout=3.0))
+    monkeypatch.setattr(jev, "_SYSTEMONE_FALLBACKS", {})
+    return hits
+
+
+async def test_a_llama_cpp_server_answers_on_its_own_route_and_is_remembered(monkeypatch):
+    hits = _routed(monkeypatch, {"/v1/systemone": httpx.Response(200, json=_payload())})
+    client = DecisionClient(decisions_url("http://127.0.0.1:8080/v1"), "", "m", timeout=3.0)
+    assert (await client.decide("the scene", [QUESTION])).answers == {"outcome": 0.83}
+    await client.decide("the scene", [QUESTION])
+    assert hits == ["/alpha/decisions", "/v1/systemone", "/v1/systemone"]
+
+
+@pytest.mark.parametrize(
+    ("sibling", "sentence"),
+    [
+        # A gateway's own 404 (e.g. OpenRouter's unknown model) is the error to show.
+        (httpx.Response(404, text="Not Found"), "No endpoint found"),
+        # llama.cpp with a chat model loaded explains itself better than the 404.
+        (httpx.Response(501, json={"error": {"message": "This model is not a decision model"}}), "not a decision model"),
+    ],
+)
+async def test_a_failed_fallback_reports_the_more_specific_rejection(monkeypatch, sibling, sentence):
+    gateway_404 = httpx.Response(404, json={"error": {"message": "No endpoint found for m"}})
+    hits = _routed(monkeypatch, {"/api/alpha/decisions": gateway_404, "/api/v1/systemone": sibling})
+    client = DecisionClient(decisions_url("https://gw.test/api/v1"), "", "m", timeout=3.0)
+    with pytest.raises(LLMCallError) as raised:
+        await client.decide("the scene", [QUESTION])
+    assert sentence in raised.value.sentence
+    assert hits == ["/api/alpha/decisions", "/api/v1/systemone"]
