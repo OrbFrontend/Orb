@@ -782,10 +782,97 @@ export async function showPhraseBankModal() {
     <div id="phrase-bank-list" class="phrase-bank-list">
       ${groupRows.length ? groupRows : '<div class="phrase-bank-empty">No phrase groups yet</div>'}
     </div>
+
+    <div id="phrase-suggest-section" hidden></div>
   `);
+  _loadSuggestions();
 }
 
-export function showAddPhraseGroupModal(editId = null, group = null) {
+// ── Suggested: phrases and shapes mined from model replies across every chat ──
+
+const SUGGESTION_POLL_MS = 4000;
+let _suggestions = new Map();
+let _suggestionLoad = 0;
+
+function _ordinal(n) {
+  return ["1st", "2nd", "3rd"][n] || `${n + 1}th`;
+}
+
+function _suggestionCard(s) {
+  const { stats } = s;
+  const badge =
+    s.lane === "new"
+      ? '<span class="phrase-group-count phrase-suggest-new">New</span>'
+      : '<span class="phrase-group-count">Long-standing</span>';
+  const examples = s.examples.map((e) => `<li>${esc(e)}</li>`).join("");
+  const slots = s.fillers.filter((f) => f.top.length);
+  const fillers = slots
+    .map((f, i) => {
+      const top = f.top.slice(0, 5).map(([text, n]) => `${esc(text)} ${n}`);
+      return `<div>${slots.length > 1 ? `${_ordinal(i)} … ` : ""}${top.join(" · ")}</div>`;
+    })
+    .join("");
+  return `
+    <div class="phrase-suggest-item">
+      <div class="phrase-suggest-head"><span class="phrase-suggest-label">${esc(s.label)}</span>${badge}</div>
+      <div>${stats.spread} characters · ${stats.card_observed} in card text, ${stats.card_expected.toFixed(1)} expected</div>
+      ${examples ? `<ul class="phrase-suggest-examples">${examples}</ul>` : ""}
+      ${fillers}
+      <div class="phrase-suggest-actions">
+        <button class="btn btn-sm" data-wf-action="phrase-suggestion:dismiss" data-suggestion-id="${s.id}">Dismiss</button>
+        <button class="btn btn-sm btn-accent" data-wf-action="phrase-suggestion:add" data-suggestion-id="${s.id}">Add</button>
+      </div>
+    </div>`;
+}
+
+function _syncSuggestionSection(section) {
+  section.hidden = !section.querySelector(".phrase-suggest-item, .phrase-suggest-status");
+}
+
+async function _loadSuggestions() {
+  const load = ++_suggestionLoad;
+  let data;
+  try {
+    data = await api.get("/phrase-bank/suggestions");
+  } catch {
+    return;
+  }
+  const section = document.getElementById("phrase-suggest-section");
+  // A newer load owns the section, or the modal has closed.
+  if (load !== _suggestionLoad || !section) return;
+  _suggestions = new Map(data.suggestions.map((s) => [s.id, s]));
+  section.innerHTML = `
+    <div class="modal-heading" role="heading" aria-level="3">Suggested${
+      data.refreshing ? '<span class="phrase-suggest-status">Updating suggestions…</span>' : ""
+    }</div>
+    ${data.suggestions.map(_suggestionCard).join("")}`;
+  _syncSuggestionSection(section);
+  if (data.refreshing) setTimeout(() => load === _suggestionLoad && _loadSuggestions(), SUGGESTION_POLL_MS);
+}
+
+export function addPhraseSuggestion(el) {
+  const suggestion = _suggestions.get(Number(el.dataset.suggestionId));
+  if (suggestion) showAddPhraseGroupModal(null, { kind: "regex", pattern: suggestion.pattern }, suggestion);
+}
+
+export async function dismissPhraseSuggestion(el) {
+  const id = Number(el.dataset.suggestionId);
+  el.disabled = true;
+  try {
+    await api.post(`/phrase-bank/suggestions/${id}/dismiss`, {});
+  } catch (e) {
+    el.disabled = false;
+    toast(`Failed to dismiss: ${e.message}`, true);
+    return;
+  }
+  _suggestions.delete(id);
+  el.closest(".phrase-suggest-item")?.remove();
+  const section = document.getElementById("phrase-suggest-section");
+  if (section) _syncSuggestionSection(section);
+  toast("Suggestion dismissed");
+}
+
+export function showAddPhraseGroupModal(editId = null, group = null, suggestion = null) {
   const isEdit = editId !== null;
   const kind = group?.kind === "regex" ? "regex" : "literal";
   const variants = group?.variants || [];
@@ -803,11 +890,15 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
     ? `<button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>`
     : "";
 
+  const subtitle = suggestion
+    ? `Suggested from your chats: <span class="phrase-suggest-label">${esc(suggestion.label)}</span>`
+    : "A group is either a set of equivalent literal variants <em>or</em> a single regular expression — never both.";
+
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} phrase group</h2>
-    <p class="modal-subtitle">A group is either a set of equivalent literal variants <em>or</em> a single regular expression — never both.</p>
+    <p class="modal-subtitle">${subtitle}</p>
 
-    <div class="phrase-mode-toggle" id="phrase-mode-toggle">
+    <div class="phrase-mode-toggle" id="phrase-mode-toggle"${suggestion ? " hidden" : ""}>
       <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" onclick="setPhraseGroupMode('literal')">Literal variants</button>
       <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" onclick="setPhraseGroupMode('regex')">Regular expression</button>
     </div>
@@ -842,7 +933,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
     <div class="modal-actions">
       ${deleteButton}
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Save" : "Create"}</button>
+      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})"${suggestion ? ` data-suggestion-id="${suggestion.id}"` : ""}>${isEdit ? "Save" : suggestion ? "Add" : "Create"}</button>
     </div>
   `);
   setModalDismiss(showPhraseBankModal);
@@ -937,6 +1028,8 @@ window.deletePhraseGroup = async (groupId) => {
 
 window.savePhraseGroup = async (editId) => {
   const mode = _phraseMode();
+  // Set when the editor was opened from a suggestion: saving accepts it.
+  const suggestionId = document.getElementById("phrase-save-btn")?.dataset.suggestionId;
   let payload;
 
   if (mode === "regex") {
@@ -966,7 +1059,10 @@ window.savePhraseGroup = async (editId) => {
   }
 
   try {
-    if (editId && editId !== "null") {
+    if (suggestionId) {
+      await api.post(`/phrase-bank/suggestions/${suggestionId}/accept`, { pattern: payload.pattern });
+      toast("Phrase group added");
+    } else if (editId && editId !== "null") {
       await api.put(`/phrase-bank/${editId}`, payload);
       toast("Phrase group updated");
     } else {

@@ -937,6 +937,57 @@
   background: var(--bg-surface);
 }
 
+/* Suggested: phrases mined from model replies, offered for one-click adding. */
+.phrase-suggest-status {
+  margin-left: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.phrase-suggest-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  background: var(--bg-surface);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.phrase-suggest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.phrase-suggest-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.phrase-suggest-new { background: var(--accent-glow); }
+
+.phrase-suggest-item > div:not(:first-child, :last-child) { margin-top: 6px; }
+
+.phrase-suggest-examples {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-family: var(--font-prose);
+  overflow-wrap: anywhere;
+}
+
+.phrase-suggest-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .cleanup-targets {
   display: grid;
   gap: 10px;

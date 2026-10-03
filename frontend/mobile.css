@@ -227,6 +227,17 @@ body {
     padding: 10px;
   }
 
+  /* A suggestion's label wraps above its badge rather than squeezing it, and
+     the two actions share the row so neither is a thin target. */
+  .phrase-suggest-head {
+    flex-wrap: wrap;
+  }
+
+  .phrase-suggest-actions .btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
   .persona-desc {
     white-space: normal;
     display: -webkit-box;

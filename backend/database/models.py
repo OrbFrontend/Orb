@@ -42,6 +42,50 @@ class PhraseBankRow(TypedDict):
     pattern: str
 
 
+class SlopSuggestionDraft(TypedDict):
+    """A mined suggestion before it is stored. ``stats``, ``fillers`` and
+    ``examples`` are free-form JSON the UI only displays."""
+
+    key: str
+    lane: Literal["new", "longstanding"]
+    label: str
+    pattern: str
+    stats: dict
+    fillers: list
+    examples: list
+
+
+class SlopSuggestionRow(SlopSuggestionDraft):
+    """A ``slop_suggestions`` row with its JSON columns decoded."""
+
+    id: int
+    mined_at: str
+
+
+class SlopReplyRow(TypedDict):
+    """A model reply as the suggestion miner reads it. ``character_key`` is the
+    speaking group member's card or name, else the conversation's card, name, or
+    id, each prefixed with its kind so the namespaces cannot collide."""
+
+    character_key: str
+    created_at: str
+    content: str
+
+
+class SlopCardRow(TypedDict):
+    """The card fields the suggestion miner reads: authored roleplay prose for
+    the baseline, and the profile prose that names come from. ``alternate_greetings``
+    is JSON-decoded."""
+
+    name: str
+    description: str
+    personality: str
+    scenario: str
+    first_mes: str
+    alternate_greetings: list
+    mes_example: str
+
+
 #
 # These TypedDicts label the plain dicts the query layer fetches from SQLite
 # (``dict(row)``), so callers' ``row["key"]`` access is checked against the

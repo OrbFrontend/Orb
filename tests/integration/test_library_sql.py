@@ -26,9 +26,9 @@ async def library(client, db):
     await db.execute("INSERT INTO endpoints (url, api_key) VALUES ('https://provider.invalid', 'sk-SECRET')")
     await db.commit()
     personas = {
-        name: (await create_user_persona({"name": name, "description": f"{name} body"}))["id"] for name in ("Kai", "Rin")
+        name: (await create_user_persona({"name": name, "description": f"{name} body"}))["id"] for name in ("Kit", "Quinn")
     }
-    await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (personas["Kai"],))
+    await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (personas["Kit"],))
     await db.commit()
     cards = []
     for name, tags in [("Mara", ["Noir", "Harbour"]), ("Ivo", ["Noir"])]:
@@ -36,11 +36,11 @@ async def library(client, db):
         cards.append(card["id"])
     await db.execute("UPDATE character_cards SET avatar_b64 = 'AVATAR', system_prompt = 'OVERRIDE' WHERE id = ?", (cards[0],))
     await db.commit()
-    await client.put(f"/api/characters/{cards[1]}", json={"persona_lock_id": personas["Rin"]})
+    await client.put(f"/api/characters/{cards[1]}", json={"persona_lock_id": personas["Quinn"]})
     conversations = []
     for card_id in (cards[0], cards[1], cards[1]):
         conversations.append((await client.post("/api/conversations", json={"character_card_id": card_id})).json()["id"])
-    await client.put(f"/api/conversations/{conversations[2]}", json={"persona_lock_id": personas["Kai"]})
+    await client.put(f"/api/conversations/{conversations[2]}", json={"persona_lock_id": personas["Kit"]})
     root, _ = await add_message(conversations[0], "user", "I lean on the rail.", 0)
     for text in ("Mara grins.", "Mara scowls."):
         await add_message(conversations[0], "assistant", text, 1, parent_id=root, advance_leaf=True)
@@ -73,7 +73,7 @@ async def test_persona_id_resolves_like_the_digest_counts(library):
     )
     assert {row[0]: row[1] for row in result["rows"]} == await get_persona_conversation_counts()
     personas = library["personas"]
-    assert {row[0]: row[1] for row in result["rows"]} == {personas["Kai"]: 2, personas["Rin"]: 1}
+    assert {row[0]: row[1] for row in result["rows"]} == {personas["Kit"]: 2, personas["Quinn"]: 1}
 
 
 async def test_json_each_self_joins_and_ctes(library):

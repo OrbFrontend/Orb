@@ -384,7 +384,7 @@ def test_asterisk_narration_without_quotes_reads_as_bare_dialogue():
 
 def test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue():
     draft = (
-        "Sayori's phone slips from her numb fingers.\n\n"
+        "Peggy's phone slips from her numb fingers.\n\n"
         "*He still likes me. He really does.*\n\n"
         "The thought is not a comfort but an accusation."
     )
@@ -397,7 +397,7 @@ def test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue():
 def test_the_same_passage_classifies_the_same_in_first_and_third_person():
     """Person and convention are independent."""
     thought = "*He still likes me. He really does.*"
-    third = f"Sayori's phone slips from her numb fingers.\n\n{thought}\n\nThe thought is not a comfort."
+    third = f"Peggy's phone slips from her numb fingers.\n\n{thought}\n\nThe thought is not a comfort."
     first = f"My phone slips from my numb fingers.\n\n{thought}\n\nThe thought is not a comfort."
 
     assert classify_axes(third) == classify_axes(first)
@@ -416,23 +416,23 @@ def test_an_italic_aside_written_from_outside_is_still_not_bare_dialogue():
 
 def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
     greeting = (
-        "Hello, Kai. Thank you for coming to our club. As president of the Literature "
+        "Hello, Kit. Thank you for coming to our club. As president of the Literature "
         "Club, it's my duty to make the club fun and exciting for everyone! "
-        "*Monika smiles kindly at you.* Tell me, what brings you here today?"
+        "*Heidi smiles kindly at you.* Tell me, what brings you here today?"
     )
     assert baseline_axes([greeting]) == AxisStyle(Dialogue.BARE, Narration.ASTERISK)
 
     draft = (
-        "Monika's smile is still perfectly in place.\n\n"
-        '"Ah... Sayori."\n\n'
+        "Heidi's smile is still perfectly in place.\n\n"
+        '"Ah... Peggy."\n\n'
         "She laughs quietly and airily.\n\n"
         "\"But now that you're here, let's focus on you.\""
     )
     new, rep = normalize_to_baseline(draft, [greeting], enabled=True)
     assert rep.changed
     assert '"' not in new
-    assert "*Monika's smile is still perfectly in place.*" in new
-    assert "Ah... Sayori." in new
+    assert "*Heidi's smile is still perfectly in place.*" in new
+    assert "Ah... Peggy." in new
 
 
 def test_a_greeting_that_ends_on_stylistic_punctuation_still_sets_the_axes():
@@ -575,7 +575,7 @@ def test_wrapping_bare_narration_does_not_swallow_a_marked_span():
 # ---------- first-person action beats ----------
 
 FIRST_PERSON_BEAT = (
-    "*I smile kindly at you.* Hello, Kai. Thank you for coming to our club. "
+    "*I smile kindly at you.* Hello, Kit. Thank you for coming to our club. "
     "As president of the Literature Club, it's my duty to make the club fun and "
     "exciting for everyone! Tell me, what brings you here today?"
 )
@@ -655,9 +655,9 @@ def test_an_ornamental_quote_is_speech_to_the_rewriter_too():
 
 def test_skip_reasons_flag_structure_that_is_not_rp_prose():
     assert {"metadata", "rule", "speaker-label"} <= set(
-        skip_reasons('REWARD: 13\n\n---\n\nRESPONSE: *AVA smiles.* "Thanks, Kane!"')
+        skip_reasons('REWARD: 13\n\n---\n\nRESPONSE: *NORA smiles.* "Thanks, Oscar!"')
     )
-    assert skip_reasons('Cecilia: "We have been *thinking*."\nCeline: "Arguing."') == ["speaker-label"]
+    assert skip_reasons('Carol: "We have been *thinking*."\nCeline: "Arguing."') == ["speaker-label"]
     assert "list" in skip_reasons("*sighs* Fine.\n\nPros:\n- loyal\n- fast")
     assert skip_reasons("# Chapter One\n\n*She wakes.*") == ["heading"]
     assert skip_reasons("| hp | 10 |\n| mp | 4 |") == ["table"]

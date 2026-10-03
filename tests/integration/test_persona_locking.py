@@ -17,7 +17,7 @@ async def _make_persona(client, name):
 
 
 async def test_conversation_lock_set_and_clear(client, db):
-    persona_id = await _make_persona(client, "Kai")
+    persona_id = await _make_persona(client, "Kit")
     cid = (await client.post("/api/conversations", json={"title": "Locked"})).json()["id"]
 
     # Lock the conversation to the persona.
@@ -36,7 +36,7 @@ async def test_conversation_lock_set_and_clear(client, db):
 
 
 async def test_character_lock_set_and_clear(client, db):
-    persona_id = await _make_persona(client, "Kai")
+    persona_id = await _make_persona(client, "Kit")
     card_id = (await client.post("/api/characters", json={"name": "Lira"})).json()["id"]
 
     resp = await client.put(f"/api/characters/{card_id}", json={"persona_lock_id": persona_id})
@@ -71,7 +71,7 @@ async def test_lock_to_missing_persona_rejected(client, db):
 
 
 async def test_deleting_persona_clears_dangling_locks(client, db):
-    persona_id = await _make_persona(client, "Kai")
+    persona_id = await _make_persona(client, "Kit")
     cid = (await client.post("/api/conversations", json={"title": "Locked"})).json()["id"]
     card_id = (await client.post("/api/characters", json={"name": "Lira"})).json()["id"]
 

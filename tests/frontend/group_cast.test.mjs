@@ -51,13 +51,13 @@ import {
 import { S } from "../../frontend/state.js";
 import { readableInk, safePersonaColour } from "../../frontend/utils.js";
 
-const ARTUS = { id: "m1", display_name: "Artus", character_card_id: "c1" };
+const WALTER = { id: "m1", display_name: "Walter", character_card_id: "c1" };
 const ASSISTANT = { id: "m2", display_name: "Assistant", character_card_id: "c2" };
 const NARRATOR = { id: "m3", display_name: "Narrator", member_kind: "narrator" };
 
 function scene({
   mode = "director",
-  members = [ARTUS, ASSISTANT],
+  members = [WALTER, ASSISTANT],
   retired = [],
   pinned = null,
   plan = null,
@@ -230,9 +230,9 @@ test("the plan rail paints only for a genuinely multi-speaker beat", () => {
   assert.equal(speakingPlanHtml(), "", "no plan yet");
   scene({ plan: [] });
   assert.equal(speakingPlanHtml(), "", "the scene rests — reported as a toast, not a strip");
-  scene({ plan: [{ member_id: "m1", name: "Artus" }] });
+  scene({ plan: [{ member_id: "m1", name: "Walter" }] });
   assert.equal(speakingPlanHtml(), "", "one speaker is already announced by its cast chip");
-  const html = (scene({ plan: [{ member_id: "m1", name: "Artus" }, { member_id: "m2", name: "Assistant" }] }),
+  const html = (scene({ plan: [{ member_id: "m1", name: "Walter" }, { member_id: "m2", name: "Assistant" }] }),
   speakingPlanHtml());
   assert.equal(html.match(/plan-pill/g).length, 2);
 });
@@ -240,18 +240,18 @@ test("the plan rail paints only for a genuinely multi-speaker beat", () => {
 test("the plan marks the speaker in flight and the ones already done", () => {
   scene({
     plan: [
-      { member_id: "m1", name: "Artus" },
+      { member_id: "m1", name: "Walter" },
       { member_id: "m2", name: "Assistant" },
     ],
     speaker: { member_id: "m2", index: 1 },
   });
   const html = speakingPlanHtml();
-  assert.match(html, /plan-pill done">Artus/);
+  assert.match(html, /plan-pill done">Walter/);
   assert.match(html, /plan-pill active">Assistant/);
 });
 
 test("the cast rail marks the next speaker, disables muted members, and offers manage", () => {
-  scene({ members: [ARTUS, { ...ASSISTANT, muted: true }], pinned: "m1" });
+  scene({ members: [WALTER, { ...ASSISTANT, muted: true }], pinned: "m1" });
   const html = castRailHtml({ hasDraft: true });
   assert.match(html, /data-cast-member-id="m1" aria-pressed="true"/);
   // A muted member is inert to a click, which `disabled` is what actually enforces.
@@ -260,15 +260,15 @@ test("the cast rail marks the next speaker, disables muted members, and offers m
 });
 
 test("a muted member stays in the scene but is not eligible to reply", () => {
-  scene({ members: [ARTUS, { ...ASSISTANT, muted: true }, NARRATOR] });
+  scene({ members: [WALTER, { ...ASSISTANT, muted: true }, NARRATOR] });
   assert.deepEqual(
     eligibleMembers().map((m) => m.display_name),
-    ["Artus", "Narrator"],
+    ["Walter", "Narrator"],
   );
 });
 
 test("the empty scene offers both starters", () => {
-  scene({ members: [ARTUS, ASSISTANT] });
+  scene({ members: [WALTER, ASSISTANT] });
   const html = sceneEmptyStateHtml();
   assert.match(html, /data-scene-starter="describe"/);
   assert.match(html, /data-scene-starter="character"/);
@@ -276,15 +276,15 @@ test("the empty scene offers both starters", () => {
 });
 
 test("an all-muted scene offers no character opener, since nobody can take it", () => {
-  scene({ members: [{ ...ARTUS, muted: true }] });
+  scene({ members: [{ ...WALTER, muted: true }] });
   assert.doesNotMatch(sceneEmptyStateHtml(), /data-scene-starter="character"/);
 });
 
 test("cast names read as a sentence at every size", () => {
   assert.equal(joinNames([]), "");
-  assert.equal(joinNames(["Artus"]), "Artus");
-  assert.equal(joinNames(["Artus", "Assistant"]), "Artus and Assistant");
-  assert.equal(joinNames(["Artus", "Assistant", "Vela"]), "Artus, Assistant, and Vela");
+  assert.equal(joinNames(["Walter"]), "Walter");
+  assert.equal(joinNames(["Walter", "Assistant"]), "Walter and Assistant");
+  assert.equal(joinNames(["Walter", "Assistant", "Vela"]), "Walter, Assistant, and Vela");
 });
 
 test("a display name cannot inject markup into the rail or the empty state", () => {
@@ -300,7 +300,7 @@ test("a display name cannot inject markup into the rail or the empty state", () 
 
 test("a reply is labelled with its speaker's name", () => {
   scene();
-  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m1" }), "Artus");
+  assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m1" }), "Walter");
 });
 
 test("the user is always 'You', in a group as in a solo chat", () => {
@@ -314,7 +314,7 @@ test("a removed member still labels the lines it wrote", () => {
   // them through the active roster turned a roster edit into a silent rewrite
   // of the transcript — every one of that member's lines read "Unknown
   // speaker". The backend refuses the same shortcut in `get_speaker_names`.
-  scene({ members: [ARTUS], retired: [ASSISTANT] });
+  scene({ members: [WALTER], retired: [ASSISTANT] });
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m2" }), "Assistant");
   // ...and it is still gone from every surface that asks who is in the scene.
   assert.deepEqual(
@@ -500,7 +500,7 @@ function withPersona({ personas = [], activeId = null, conv = null } = {}) {
 
 test("a user message shows the active persona's picture", () => {
   solo();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: true }], activeId: 7 });
   const html = speakerAvatar({ role: "user" });
   assert.match(html, /<img src="\/api\/user-personas\/7\/avatar\?v=0"/);
   assert.match(html, /alt=""/);
@@ -508,7 +508,7 @@ test("a user message shows the active persona's picture", () => {
 
 test("a user message with no persona picture falls back to the initial", () => {
   solo();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: false }], activeId: 7 });
   assert.equal(speakerAvatar({ role: "user" }), "K");
 });
 
@@ -522,7 +522,7 @@ test("a conversation pin outranks the global default for the user's picture", ()
   solo();
   withPersona({
     personas: [
-      { id: 7, name: "Kai", has_avatar: true },
+      { id: 7, name: "Kit", has_avatar: true },
       { id: 8, name: "Bex", has_avatar: true },
     ],
     activeId: 7,
@@ -533,7 +533,7 @@ test("a conversation pin outranks the global default for the user's picture", ()
 
 test("a fresh persona save busts the portrait's cached URL", () => {
   solo();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: true }], activeId: 7 });
   S.personaAvatarVersion = 3;
   assert.match(speakerAvatar({ role: "user" }), /\?v=3"/);
 });
@@ -545,7 +545,7 @@ test("a group reply shows its own speaker's card, not the scene's", () => {
 });
 
 test("a narrator line and a summary fall back to their own glyphs", () => {
-  scene({ members: [ARTUS, NARRATOR] });
+  scene({ members: [WALTER, NARRATOR] });
   withPersona();
   assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: "m3" }), "\u2712\uFE0F");
   assert.equal(speakerAvatar({ role: "assistant", speaker_member_id: null }), "\u{1F464}");
@@ -559,7 +559,7 @@ test("a solo reply shows the conversation's character", () => {
 
 test("a user message with no picture wears the persona's own colour", () => {
   solo();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
   const cell = speakerAvatarCell({ role: "user" });
   assert.match(cell, /background:#E1F5EE/);
   assert.match(cell, />K</);
@@ -576,7 +576,7 @@ test("the chip's ink flips with the colour's luminance, so it stays readable", (
 test("a non-hex avatar_color never reaches the style attribute", () => {
   solo();
   withPersona({
-    personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "red;background-image:url(x)" }],
+    personas: [{ id: 7, name: "Kit", has_avatar: false, avatar_color: "red;background-image:url(x)" }],
     activeId: 7,
   });
   const cell = speakerAvatarCell({ role: "user" });
@@ -586,13 +586,13 @@ test("a non-hex avatar_color never reaches the style attribute", () => {
 
 test("a picture fills the chip, so it is never tinted", () => {
   solo();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: true, avatar_color: "#E1F5EE" }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: true, avatar_color: "#E1F5EE" }], activeId: 7 });
   assert.ok(!speakerAvatarCell({ role: "user" }).includes("style="));
 });
 
 test("a character's chip is never given a persona colour", () => {
   scene();
-  withPersona({ personas: [{ id: 7, name: "Kai", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
+  withPersona({ personas: [{ id: 7, name: "Kit", has_avatar: false, avatar_color: "#E1F5EE" }], activeId: 7 });
   assert.ok(!speakerAvatarCell({ role: "assistant", speaker_member_id: "m1" }).includes("style="));
 });
 
@@ -621,7 +621,7 @@ test("a break-out payload in avatar_color never reaches the rendered chip", () =
   solo();
   withPersona({
     personas: [
-      { id: 7, name: "Kai", has_avatar: false, avatar_color: '#fff"><img src=x onerror="alert(1)">' },
+      { id: 7, name: "Kit", has_avatar: false, avatar_color: '#fff"><img src=x onerror="alert(1)">' },
     ],
     activeId: 7,
   });

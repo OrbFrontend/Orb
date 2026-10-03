@@ -17,6 +17,11 @@ _EXACT_MATCH_MAX_LEN = 3
 _DEFAULT_THRESHOLD = 0.4
 _WINDOW_PADDING = 2
 
+#: Longest regex pattern a phrase group may hold; mirrored in frontend/validate.js.
+#: Longer than a literal variant's cap: a suggested shape with two pronoun slots
+#: runs past 100 characters.
+MAX_PHRASE_REGEX = 300
+
 
 @dataclass(slots=True)
 class ClicheHit:

@@ -192,7 +192,7 @@ class TestDialogueNarrationSeparation:
         narration fragment, not the quoted speech (regression: the editor was
         rewriting dialogue cited in the audit report)."""
         phrase_bank = [{"kind": "regex", "pattern": r"voice\W+(\w+\W+){0,2}(low|dangerous|dropping)"}]
-        text = '"You\'ve got some nerve, Kai," she says, her voice dropping an octave.'
+        text = '"You\'ve got some nerve, Kit," she says, her voice dropping an octave.'
         result = detect_cliches(text, phrase_bank)
 
         assert result.flagged_count == 1

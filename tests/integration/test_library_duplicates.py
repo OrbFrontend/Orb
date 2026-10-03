@@ -199,9 +199,9 @@ async def test_relinking_a_group_chat_that_already_casts_the_keeper_drops_the_du
 
 
 async def test_a_scan_labels_result_cards_with_what_separates_identical_names(client):
-    """Three cards named Reimu are told apart by use and age, never by name."""
-    keep = await _card(client, "Reimu")
-    other = await _card(client, "Reimu")
+    """Three cards named Mallory are told apart by use and age, never by name."""
+    keep = await _card(client, "Mallory")
+    other = await _card(client, "Mallory")
     assert (await client.post("/api/conversations", json={"character_card_id": keep})).status_code == 200
 
     report = await _scan(client)
@@ -226,9 +226,9 @@ async def test_a_card_outside_every_result_is_not_listed(client):
 
 async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
     """A cluster is one decision, not N-1 pairwise confirmations."""
-    keep = await _card(client, "Reimu")
-    first = await _card(client, "Reimu")
-    second = await _card(client, "Reimu")
+    keep = await _card(client, "Mallory")
+    first = await _card(client, "Mallory")
+    second = await _card(client, "Mallory")
     conversation = (await client.post("/api/conversations", json={"character_card_id": first})).json()
 
     response = await client.post(
@@ -246,9 +246,9 @@ async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
 
 async def test_a_group_removal_that_would_orphan_history_deletes_nothing(client):
     """The pre-flight covers the whole cluster, so a refusal is not half-applied."""
-    keep = await _card(client, "Reimu")
-    safe = await _card(client, "Reimu")
-    linked = await _card(client, "Reimu")
+    keep = await _card(client, "Mallory")
+    safe = await _card(client, "Mallory")
+    linked = await _card(client, "Mallory")
     assert (await client.post("/api/conversations", json={"character_card_id": linked})).status_code == 200
 
     response = await client.post(
@@ -263,8 +263,8 @@ async def test_a_group_removal_that_would_orphan_history_deletes_nothing(client)
 
 async def test_a_group_removal_cannot_name_the_keeper(client):
     """Keeping and deleting the same card would delete the card the reader chose."""
-    keep = await _card(client, "Reimu")
-    other = await _card(client, "Reimu")
+    keep = await _card(client, "Mallory")
+    other = await _card(client, "Mallory")
 
     response = await client.post(
         "/api/library/duplicates/resolve-group",

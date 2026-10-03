@@ -124,7 +124,7 @@ def test_trailing_negation_misses(text):
 
 def test_trailing_negation_joins_a_null_reaction_past_the_gate():
     text = (
-        "Malina didn't dignify that with a response. She moved.\n\n"
+        "Judy didn't dignify that with a response. She moved.\n\n"
         '"Two choices, rookie," she said, still not looking. "Pull your weight."'
     )
     assert _kinds(text) == [["null_reaction"], ["trailing_negation"]]

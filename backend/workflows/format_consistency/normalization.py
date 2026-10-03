@@ -256,7 +256,7 @@ _META = re.compile(r"(?m)^[ \t]*[A-Z][A-Z0-9 _/&-]{2,}:(?:[ \t]|$)")
 _RULE = re.compile(r"(?m)^[ \t]*(?:-{3,}|={3,}|—{2,})[ \t]*$")
 _HEADING = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+\S")
 _TABLE_ROW = re.compile(r"(?m)^[ \t]*\|.*\|[ \t]*$")
-# One to three capitalised words, a colon, then speech or a beat: `Cecilia: "..."`.
+# One to three capitalised words, a colon, then speech or a beat: `Carol: "..."`.
 # `She said: "..."` is prose: its second word is not capitalised.
 _SPEAKER = re.compile(r"(?m)^[ \t]*[A-Z][\w'’.-]*(?: [A-Z][\w'’.-]*){0,2}:[ \t]*[\"“*(]")
 _LIST_ITEM = re.compile(r"[ \t]*([-+•*]|\d{1,2}[.)])[ \t]+\S")

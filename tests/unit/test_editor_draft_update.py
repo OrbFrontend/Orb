@@ -473,7 +473,7 @@ async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():
     # splitting at the ellipsis made its first half an addressable target. The
     # model's replacement ends in a full stop, so patching the fragment left
     # `. more still than usual.` -- a lowercase orphan -- in the saved reply.
-    draft = "Monika doesn't flinch. Her expression still open, although her emerald eyes seem a bit... more still than usual."
+    draft = "Heidi doesn't flinch. Her expression still open, although her emerald eyes seem a bit... more still than usual."
     beat = "Her expression still open, although her emerald eyes seem a bit... more still than usual."
 
     report = _make_report([beat])
@@ -483,4 +483,4 @@ async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():
 
     patched, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": "Her face stays open and inviting."}])
     assert not errors
-    assert patched == "Monika doesn't flinch. Her face stays open and inviting."
+    assert patched == "Heidi doesn't flinch. Her face stays open and inviting."

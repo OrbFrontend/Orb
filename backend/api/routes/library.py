@@ -444,7 +444,7 @@ async def api_scan_library_duplicates(request: Request):
             # boundary. What does leave is the small identity strip the review UI
             # needs to tell same-named copies apart -- avatar presence, use, and
             # age -- for the cards that actually appear in a result. A name and an
-            # opaque id cannot distinguish three cards all called "Reimu".
+            # opaque id cannot distinguish three cards all called "Mallory".
             listed = {card_id for group in report["groups"] for card_id in group["cards"]}
             listed.update(card_id for pair in report["pairs"] for card_id in (pair["a"], pair["b"]))
             activity = await get_card_activity(sorted(listed))

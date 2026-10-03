@@ -117,13 +117,13 @@ class TestComputeAgenticLorebookBlock:
     def test_render_order_stable_under_input_permutation(self):
         # Equal priority: order must come from sort_order/id, not input order,
         # so a fixed active set renders byte-identically across turns (KV cache).
-        a = {**_entry("Raiden"), "id": 1, "sort_order": 0}
-        b = {**_entry("Inazuma"), "id": 2, "sort_order": 0}
-        c = {**_entry("Yae"), "id": 3, "sort_order": 0}
+        a = {**_entry("Robin"), "id": 1, "sort_order": 0}
+        b = {**_entry("Ellis"), "id": 2, "sort_order": 0}
+        c = {**_entry("Bob"), "id": 3, "sort_order": 0}
         first = render_lorebook_block([a, b, c])
         second = render_lorebook_block([b, c, a])  # permuted input
         assert first == second
-        assert first.index("Raiden") < first.index("Inazuma") < first.index("Yae")
+        assert first.index("Robin") < first.index("Ellis") < first.index("Bob")
 
     def test_substring_scan_activates_in_parallel(self):
         # Director overlooks "Natlan", but the keyword scan catches it.
@@ -259,9 +259,9 @@ class TestComputeConstantLorebookBlock:
     def test_byte_stable_under_input_permutation(self):
         # The prefix section must render byte-identically across turns
         # regardless of input order (KV cache).
-        a = {**_entry("Raiden", constant=True), "id": 1, "sort_order": 0}
-        b = {**_entry("Inazuma", constant=True), "id": 2, "sort_order": 0}
-        c = {**_entry("Yae", constant=True), "id": 3, "sort_order": 0}
+        a = {**_entry("Robin", constant=True), "id": 1, "sort_order": 0}
+        b = {**_entry("Ellis", constant=True), "id": 2, "sort_order": 0}
+        c = {**_entry("Bob", constant=True), "id": 3, "sort_order": 0}
         assert compute_constant_lorebook_block([a, b, c]) == compute_constant_lorebook_block([b, c, a])
 
     def test_macros_resolved(self):

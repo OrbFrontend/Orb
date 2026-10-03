@@ -452,6 +452,7 @@ SIGNATURE_TABLES = frozenset(
         "world_changesets",
         "member_sheet_proposals",
         "phrase_bank",
+        "slop_dismissals",
         "mood_fragments",
         "interactive_fragments",
         "documents",
@@ -564,6 +565,7 @@ def _signature(path: str) -> dict:
             "auto_tags": q("SELECT name, tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"),
             "personas": q("SELECT name, description FROM user_personas"),
             "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
+            "slop_dismissals": q("SELECT key, pattern, dismissed_at FROM slop_dismissals"),
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
             "documents": q("SELECT title, content, generated_spans, revision FROM documents"),
@@ -660,6 +662,13 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     seed = sqlite3.connect(path)
     try:
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
+        # A dismissed suggestion is a phrase-bank decision and must come back; a
+        # stored suggestion is derived, quotes chat text, and must not ship.
+        seed.execute("INSERT INTO slop_dismissals (key, pattern, dismissed_at) VALUES ('n:= a beat', 'a beat', '2026-01-01')")
+        seed.execute(
+            "INSERT INTO slop_suggestions (key, lane, label, pattern, examples, mined_at) "
+            "VALUES ('n:= a pause', 'new', 'A pause.', 'a pause', '[\"*A pause.*\"]', '2026-01-01')"
+        )
         seed.execute(
             "INSERT INTO mood_fragments (id, label, description, prompt_text) VALUES ('frag-1', 'Calm', 'desc', 'be calm')"
         )
@@ -689,8 +698,19 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         )
     ).json()["name"]
     preset_path = presets._library_path(name)
+    exported = sqlite3.connect(preset_path)
+    try:
+        assert exported.execute("SELECT COUNT(*) FROM slop_suggestions").fetchone()[0] == 0
+    finally:
+        exported.close()
 
     # Scramble the live DB across domains: delete, edit, and add rows everywhere.
+    scramble = sqlite3.connect(path)
+    try:
+        scramble.execute("DELETE FROM slop_dismissals")
+        scramble.commit()
+    finally:
+        scramble.close()
     await client.delete(f"/api/characters/{linked}")
     await client.put(f"/api/characters/{locked}", json={"name": "Renamed"})
     await client.post("/api/characters", json={"name": "Intruder"})

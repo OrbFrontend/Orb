@@ -512,6 +512,40 @@ CREATE TABLE IF NOT EXISTS duplicate_dismissals (
     PRIMARY KEY (card_a, card_b)
 );
 
+-- Phrase Bank suggestions mined from model replies across every chat. Derived:
+-- each run replaces the table wholesale, and nothing here reaches the bank until
+-- the user accepts a row. ``key`` is the mined key ('n:= a beat'), stable across
+-- runs; ``pattern`` is the bank-ready regex exactly as it was scored.
+CREATE TABLE IF NOT EXISTS slop_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    lane TEXT NOT NULL CHECK (lane IN ('new', 'longstanding')),
+    label TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    stats TEXT NOT NULL DEFAULT '{}',
+    fillers TEXT NOT NULL DEFAULT '[]',
+    examples TEXT NOT NULL DEFAULT '[]',
+    mined_at TEXT NOT NULL
+);
+
+-- Suggestion keys the user dismissed; a run never suggests them again. These are
+-- user decisions, so they travel with the phrase bank in presets and backups.
+CREATE TABLE IF NOT EXISTS slop_dismissals (
+    key TEXT PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL
+);
+
+-- The suggestion miner's one bookkeeping row: when it last ran, how many model
+-- replies existed then (the staleness check compares against this), and why the
+-- last run suggested nothing or failed.
+CREATE TABLE IF NOT EXISTS slop_mining_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_run_at TEXT,
+    replies_at_run INTEGER NOT NULL DEFAULT 0,
+    last_status TEXT NOT NULL DEFAULT ''
+);
+
 """
 
 

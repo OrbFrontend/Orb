@@ -51,11 +51,11 @@ def test_a_merged_paragraph_is_rejected():
 
 
 def test_a_reintroduced_speaker_label_is_rejected():
-    assert rejection(DRAFT, f"Monika: {FAITHFUL}") == "added a speaker label"
+    assert rejection(DRAFT, f"Heidi: {FAITHFUL}") == "added a speaker label"
 
 
 def test_a_label_the_draft_already_had_is_not_held_against_the_rewrite():
-    assert rejection(f"Monika: {DRAFT}", f"Monika: {FAITHFUL}") == ""
+    assert rejection(f"Heidi: {DRAFT}", f"Heidi: {FAITHFUL}") == ""
 
 
 # ---------- story content ----------

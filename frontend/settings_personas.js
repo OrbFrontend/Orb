@@ -188,7 +188,7 @@ export function showPersonaEditModal(personaId) {
     </div>
     <div class="field">
       <label>Name</label>
-      <input id="persona-name-input" type="text" placeholder="e.g. Kai" value="${esc(persona?.name || "")}">
+      <input id="persona-name-input" type="text" placeholder="e.g. Kit" value="${esc(persona?.name || "")}">
     </div>
     <div class="field">
       <label>Description <span style="font-weight:400;text-transform:none;letter-spacing:0">(injected into system prompt)</span></label>

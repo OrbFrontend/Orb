@@ -28,9 +28,9 @@ const cards = [
 
 // Three cards that share one name: the case a name alone cannot disambiguate.
 const sameName = [
-  { id: "x", name: "Reimu", conversations: 0, last_used_at: null, created_at: "2026-05-01T00:00:00+00:00", has_avatar: 1 },
-  { id: "y", name: "Reimu", conversations: 3, last_used_at: "2026-08-20T00:00:00+00:00", created_at: "2026-04-01T00:00:00+00:00", has_avatar: 1 },
-  { id: "z", name: "Reimu", conversations: 0, last_used_at: null, created_at: "2026-06-01T00:00:00+00:00", has_avatar: 0 },
+  { id: "x", name: "Mallory", conversations: 0, last_used_at: null, created_at: "2026-05-01T00:00:00+00:00", has_avatar: 1 },
+  { id: "y", name: "Mallory", conversations: 3, last_used_at: "2026-08-20T00:00:00+00:00", created_at: "2026-04-01T00:00:00+00:00", has_avatar: 1 },
+  { id: "z", name: "Mallory", conversations: 0, last_used_at: null, created_at: "2026-06-01T00:00:00+00:00", has_avatar: 0 },
 ];
 
 const pair = (over = {}) => ({
@@ -124,7 +124,7 @@ test("a three-card group offers one keeper choice per member, not three pair rev
   ];
   const html = strongGroupsHtml([{ cards: ["x", "y", "z"], pairs }], sameName);
 
-  assert.match(html, /3 copies of “Reimu”/);
+  assert.match(html, /3 copies of “Mallory”/);
   assert.equal(html.match(/data-dupe-action="keep-one"/g).length, 3);
   // Keeping any member names the other two as the removals, in one confirmation.
   assert.match(html, /data-dupe-keep="y" data-dupe-remove="x,z"/);
@@ -162,7 +162,7 @@ test("evidence rows read in cluster order, not in card-id order", () => {
   const html = strongGroupsHtml([{ cards: ["x", "y", "z"], pairs: [pair({ a: "x", b: "y" })] }], sameName);
 
   assert.match(html, /data-dupe-a="y" data-dupe-b="x" data-dupe-mark-a="A" data-dupe-mark-b="B"/);
-  assert.match(html, /lib-dupe-mark">A<\/span>Reimu <span aria-hidden="true">↔<\/span> <span class="lib-dupe-mark">B</);
+  assert.match(html, /lib-dupe-mark">A<\/span>Mallory <span aria-hidden="true">↔<\/span> <span class="lib-dupe-mark">B</);
 });
 
 test("comparison shows field diffs, activity, worlds and relink collisions", () => {
@@ -213,7 +213,7 @@ test("comparison shows field diffs, activity, worlds and relink collisions", () 
 const field = (over) => ({
   card: {
     id: "x",
-    name: "Reimu",
+    name: "Mallory",
     description: "A shrine maiden.",
     personality: "Laid-back.",
     scenario: "",
@@ -274,13 +274,13 @@ test("the legend attributes each diff colour to a lettered card", () => {
 
 test("both keeper buttons say which copy they keep when the two names match", () => {
   const side = (id, total) => ({
-    card: { id, name: "Reimu", tags: [], alternate_greetings: [], has_avatar: true, created_at: "2026-04-01T00:00:00+00:00" },
+    card: { id, name: "Mallory", tags: [], alternate_greetings: [], has_avatar: true, created_at: "2026-04-01T00:00:00+00:00" },
     activity: { total, last_used_at: null },
   });
   const html = compareHtml({ a: side("x", 0), b: side("y", 3) }, { a: "B", b: "C" });
 
   // Never two identically labelled buttons: the mark and the card's own facts
-  // separate them even though both cards are called Reimu.
+  // separate them even though both cards are called Mallory.
   assert.match(html, /data-dupe-keep="x" data-dupe-remove="y"/);
   assert.match(html, /data-dupe-keep="y" data-dupe-remove="x"/);
   assert.match(html, /class="lib-dupe-mark">B<\/span>Keep this one/);
@@ -294,7 +294,7 @@ test("the comparison states each copy's use and age once, on the keeper buttons"
   // The header carries the portrait and the letter the legend and diff refer to.
   // Repeating the counts there too said the same thing at both ends of the diff.
   const side = (id, avatar, total) => ({
-    card: { id, name: "Reimu", tags: [], alternate_greetings: [], has_avatar: avatar, created_at: "2026-07-12T00:00:00+00:00" },
+    card: { id, name: "Mallory", tags: [], alternate_greetings: [], has_avatar: avatar, created_at: "2026-07-12T00:00:00+00:00" },
     activity: { total, last_used_at: null },
   });
   const html = compareHtml({ a: side("x", true, 4), b: side("y", false, 1) });

@@ -620,14 +620,14 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
     _voice_on(monkeypatch)
     baseline = (
         "As president of the Literature Club, it's my duty to make the club fun and "
-        "exciting for everyone! *Monika smiles kindly at you.* Tell me, what brings you here today?"
+        "exciting for everyone! *Heidi smiles kindly at you.* Tell me, what brings you here today?"
     )
-    draft = "Welcome to the club. *Monika waits by the desk.* Please, take a seat."
+    draft = "Welcome to the club. *Heidi waits by the desk.* Please, take a seat."
     seen = _classifier(
         monkeypatch,
         {
-            "Monika smiles kindly at you.": ("third", "present"),
-            "Monika waits by the desk.": ("third", "present"),
+            "Heidi smiles kindly at you.": ("third", "present"),
+            "Heidi waits by the desk.": ("third", "present"),
         },
     )
     calls = _forced_call(monkeypatch, "should not be used")
@@ -636,7 +636,7 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
 
     assert events == []
     assert calls == []
-    assert seen == ["Monika smiles kindly at you.", "Monika waits by the desk."]
+    assert seen == ["Heidi smiles kindly at you.", "Heidi waits by the desk."]
 
 
 @pytest.mark.parametrize("cached_dialogue", [None, "quoted"])
@@ -645,14 +645,14 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
     msg = {
         "id": 7,
         "role": "assistant",
-        "content": "Stay with me. *Monika waits by the desk.* We can talk here.",
+        "content": "Stay with me. *Heidi waits by the desk.* We can talk here.",
     }
     cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
     cached_payload["content_sha256"] = voice._content_digest(msg["content"])
     cached_payload["classifier"] = voice.local_model_identity(voice.FEATURE)
     if cached_dialogue is not None:
         cached_payload["dialogue"] = cached_dialogue
-    seen = _classifier(monkeypatch, {"Monika waits by the desk.": THIRD_PAST})
+    seen = _classifier(monkeypatch, {"Heidi waits by the desk.": THIRD_PAST})
     written: list[dict] = []
 
     async def cached(message_id, workflow_id):
@@ -666,7 +666,7 @@ async def test_labels_are_reclassified_when_the_cached_convention_differs(monkey
 
     assert classify_axes(msg["content"]).dialogue == Dialogue.BARE
     assert await _labels(msg) == THIRD_PAST
-    assert seen == ["Monika waits by the desk."]
+    assert seen == ["Heidi waits by the desk."]
     assert written == [
         {
             "pov": "third",
@@ -1034,7 +1034,7 @@ async def test_one_markup_reading_per_window_row_serves_both_halves(monkeypatch)
     """The voice check extracts narration under the markup classifier's reading, and
     the row is read once for the markup target and the voice check together."""
     _voice_on(monkeypatch)
-    row = "Stay with me. *Monika waits by the desk.* We can talk here."
+    row = "Stay with me. *Heidi waits by the desk.* We can talk here."
     assert classify_axes(row).dialogue == Dialogue.BARE
     seen = _markup_model(monkeypatch, {row: ("bare", "quoted"), CONSISTENT_DRAFT: ("bare", "quoted")})
     narration = narration_only(row, Dialogue.QUOTED)

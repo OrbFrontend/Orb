@@ -24,7 +24,7 @@ def test_filters_to_known_labels_and_flattens_paths():
     out = extract_expressions_zip(
         _zip(
             {
-                "Ashley Leyley/joy.png": b"joybytes",  # nested → basename
+                "Wendy Hollis/joy.png": b"joybytes",  # nested → basename
                 "ADMIRATION.PNG": b"admirebytes",  # case-insensitive label + ext
                 "readme.txt": b"nope",  # wrong ext
                 "notalabel.png": b"nope",  # not a go-emotions label

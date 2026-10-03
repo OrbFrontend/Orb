@@ -24,11 +24,20 @@ DOMAIN_ROOTS: dict[str, str] = {
     "mood_fragments": "fragments",
     "interactive_fragments": "fragments",
     "phrase_bank": "phrase_bank",
+    # Suggestion keys the user dismissed: decisions about the bank, so they
+    # travel with it. The suggestions themselves are derived and excluded below.
+    "slop_dismissals": "phrase_bank",
     "documents": "documents",
     "settings": "configs",
     "endpoints": "configs",
     "user_personas": "configs",
 }
+
+# Excluded tables whose rows an install derives from its own data and rebuilds on
+# its own: the suggestion miner's output and bookkeeping. An export clears them,
+# because the suggestions quote chat sentences, which must not ride along in a
+# preset that leaves the chats out.
+DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state"})
 
 # Touch when: you add a table the engine must never export or merge -- bookkeeping,
 # caches, or migration-only artefacts. The coverage test forces the choice for every
@@ -37,7 +46,10 @@ DOMAIN_ROOTS: dict[str, str] = {
 #   * schema_migrations    -- migration bookkeeping (stamped separately)
 #   * message_attachments  -- legacy, empty post-0020; gone from schema.py but still
 #     present (empty) in DBs upgraded under older builds whose init_db recreated it
-EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"})
+#   * DERIVED_TABLES       -- above
+EXCLUDED_TABLES: frozenset[str] = (
+    frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"}) | DERIVED_TABLES
+)
 
 # Touch when: a migration adds a column holding a key, the user's identity, or their
 # prompts (the coverage test will fail and point you here); drop an entry only when

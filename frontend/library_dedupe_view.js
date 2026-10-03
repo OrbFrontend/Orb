@@ -16,7 +16,7 @@ const COMPARE_FIELDS = [
 ];
 
 // A duplicate cluster is precisely the case where names identify nothing: three
-// cards called "Reimu" make "Keep Reimu" read identically on every button. Each
+// cards called "Mallory" make "Keep Mallory" read identically on every button. Each
 // member therefore gets a letter that is assigned once per cluster and travels
 // into the comparison, so the letter the reader picked in the list is the letter
 // on the button that keeps it.

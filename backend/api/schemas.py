@@ -792,6 +792,10 @@ class PhraseGroupUpdate(BaseModel):
     pattern: str = ""
 
 
+class SlopSuggestionAccept(BaseModel):
+    pattern: str
+
+
 # Keep avatar blobs bounded before they reach SQLite.
 MAX_PERSONA_AVATAR_BYTES = 2 * 1024 * 1024
 

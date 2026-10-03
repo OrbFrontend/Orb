@@ -17,6 +17,9 @@ const MAX_USER_PROFILE_DESC = 1000;
 const MAX_PERSONA_NAME = 50;
 const MAX_PERSONA_DESC = 1000;
 const MAX_PHRASE_VARIANT = 100;
+// Mirrors MAX_PHRASE_REGEX in backend/analysis/detectors/slop_detector.py. A
+// suggested shape with two pronoun slots runs past the literal variant cap.
+const MAX_PHRASE_REGEX = 300;
 const MAX_BROWSE_SEARCH = 200;
 const MAX_CONVERSATION_TITLE = 100;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -454,8 +457,8 @@ export function validatePhraseRegex(pattern) {
   if (!src) {
     return { valid: false, error: "A regex pattern is required" };
   }
-  if (src.length > MAX_PHRASE_VARIANT) {
-    return { valid: false, error: `Pattern must be ${MAX_PHRASE_VARIANT} characters or less` };
+  if (src.length > MAX_PHRASE_REGEX) {
+    return { valid: false, error: `Pattern must be ${MAX_PHRASE_REGEX} characters or less` };
   }
   try {
     new RegExp(src);

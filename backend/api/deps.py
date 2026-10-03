@@ -28,6 +28,7 @@ import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from ..analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from ..database import (
     get_conversation,
     get_lorebook_entry,
@@ -950,6 +951,8 @@ def _validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tupl
         pattern = (pattern or "").strip()
         if not pattern:
             raise HTTPException(status_code=400, detail="A regex pattern is required")
+        if len(pattern) > MAX_PHRASE_REGEX:
+            raise HTTPException(status_code=400, detail=f"Pattern must be {MAX_PHRASE_REGEX} characters or less")
         try:
             re.compile(pattern)
         except re.error as e:

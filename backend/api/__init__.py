@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sqlite3
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, close_wal_anchor, init_db, open_wal_anchor
+from ..features import slop_suggestions
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
@@ -69,15 +71,19 @@ async def lifespan(app: FastAPI):
     # migrations, init_db and the VACUUM above all want the file to themselves,
     # and the anchor is only useful once requests start.
     await open_wal_anchor()
+    # The Phrase Bank's suggestion miner checks for staleness once the server has
+    # settled. A run happens in a child process, so it never competes with a turn.
+    suggestion_check = asyncio.create_task(slop_suggestions.refresh_after_startup())
     try:
         yield
     finally:
+        suggestion_check.cancel()
         try:
-            # Every supervised llama-server child. These are Orb's only managed
-            # subprocesses, and without this teardown an orphan keeps its model
-            # resident and holds the GPU after Orb exits. A process that never
-            # imported a workflow or feature that owns one has an empty registry and nothing
-            # to do.
+            await slop_suggestions.shutdown()
+            # Every supervised llama-server child. Without this teardown an orphan
+            # keeps its model resident and holds the GPU after Orb exits. A process
+            # that never imported a workflow or feature that owns one has an empty
+            # registry and nothing to do.
             await manager.shutdown_all()
             # ONNX sessions are not subprocesses, but a 385 MB graph held past
             # shutdown is the same class of leak as an orphaned child, and the

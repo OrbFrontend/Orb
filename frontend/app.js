@@ -160,8 +160,10 @@ import {
 } from "./presets.js";
 import {
   activatePersona,
+  addPhraseSuggestion,
   applyTheme,
   deletePersona,
+  dismissPhraseSuggestion,
   editPersona,
   initTheme,
   initThemeList,
@@ -452,6 +454,8 @@ registerAction("chat-compression", "cancel", cancelCompression);
 registerAction("chat-compression", "apply", applyCompression);
 registerAction("queued-edit", "retry", retryQueuedEdits);
 registerAction("queued-edit", "discard", discardQueuedEdit);
+registerAction("phrase-suggestion", "add", addPhraseSuggestion);
+registerAction("phrase-suggestion", "dismiss", dismissPhraseSuggestion);
 document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();

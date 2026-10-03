@@ -73,7 +73,7 @@ THREAD_TEXTS = (
     "Who hired the masked courier?",
     "Mara owes the smugglers forty silver by the new moon.",
     "The stolen ledger is hidden somewhere in the warehouse.",
-    "Captain Voss suspects Mara of informing.",
+    "Captain Trent suspects Mara of informing.",
     "The lighthouse keeper promised to signal if the patrol ships return.",
     "Mara's brother has not written in three weeks.",
     "The user agreed to meet Ilse at the chapel at dusk.",

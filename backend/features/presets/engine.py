@@ -502,7 +502,7 @@ def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
 
 # Excluded tables that may legitimately hold rows (bookkeeping, not domain data).
 # Every *other* excluded table must stay empty, or its data would ship in no backup.
-_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations", "dataset_meta"})
+_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations", "dataset_meta", *ps.DERIVED_TABLES})
 
 
 def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:
@@ -617,6 +617,8 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                     f"its data would silently never be backed up. Give its root a domain in "
                     f"DOMAIN_ROOTS, or confirm it must stay excluded."
                 )
+        for tbl in ps.DERIVED_TABLES:
+            c.execute(f"DELETE FROM {tbl}")  # nosec B608 — constant identifier
         # Prune each unselected domain by deleting its root tables: with FK on, a
         # CASCADE prunes the owned children and a SET NULL clears soft pointers, so
         # no per-child delete is hand-coded. configs is special (it scrubs the

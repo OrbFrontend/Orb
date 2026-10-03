@@ -108,11 +108,11 @@ def test_mid_sentence_italics_are_still_not_action_beats():
 # ---------- first-person action beats ----------
 
 FIRST_PERSON_BEAT = (
-    "*I smile kindly at you.* Hello, Kai. Thank you for coming to our club. "
+    "*I smile kindly at you.* Hello, Kit. Thank you for coming to our club. "
     "As president of the Literature Club, it's my duty to make the club fun and "
     "exciting for everyone! Tell me, what brings you here today?"
 )
-THIRD_PERSON_BEAT = FIRST_PERSON_BEAT.replace("*I smile kindly at you.*", "*Monika smiles kindly at you.*")
+THIRD_PERSON_BEAT = FIRST_PERSON_BEAT.replace("*I smile kindly at you.*", "*Heidi smiles kindly at you.*")
 
 
 def test_a_first_person_action_beat_classifies_like_its_third_person_twin():
@@ -141,12 +141,12 @@ def test_narration_only_obeys_the_resolved_dialogue_convention():
     """Equivalent scenes expose narration rather than whichever spans have quotes."""
     bare = (
         "As president of the Literature Club, it's my duty to make the club fun and exciting for everyone! "
-        "*Monika smiles kindly at you.* Tell me, what brings you here today?"
+        "*Heidi smiles kindly at you.* Tell me, what brings you here today?"
     )
     quoted = (
         '"As president of the Literature Club, it\'s my duty to make the club fun and exciting for everyone!" '
-        'Monika smiles kindly at you. She waits by the desk. "Tell me, what brings you here today?"'
+        'Heidi smiles kindly at you. She waits by the desk. "Tell me, what brings you here today?"'
     )
 
-    assert narration_only(bare, Dialogue.BARE) == "Monika smiles kindly at you."
-    assert narration_only(quoted, Dialogue.QUOTED) == "Monika smiles kindly at you. She waits by the desk."
+    assert narration_only(bare, Dialogue.BARE) == "Heidi smiles kindly at you."
+    assert narration_only(quoted, Dialogue.QUOTED) == "Heidi smiles kindly at you. She waits by the desk."
