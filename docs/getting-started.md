@@ -30,6 +30,43 @@ The launcher creates `.venv`, installs `requirements.txt`, and starts the server
 You do not need to activate the environment for normal use. Activate it only
 when you run one of the project scripts yourself.
 
+## Network access
+
+Orb listens on port 8899 on every network interface, so a phone or another
+computer on the same network can open `http://<this computer's IP>:8899`.
+
+!!! warning "Orb has no login"
+    Anyone who can reach port 8899 can use Orb: read and change your chats,
+    characters, and settings, and read the API keys saved in **Endpoints**.
+    Use the default only on a network you trust.
+
+Set the `ORB_HOST` environment variable to choose the address Orb listens on:
+
+| `ORB_HOST` | Who can connect |
+|---|---|
+| Not set, or `0.0.0.0` | This computer and every device on its networks |
+| `127.0.0.1` | This computer only |
+| One of this computer's addresses, such as `192.168.1.20` | Devices that reach that address |
+
+=== "Linux/macOS"
+
+    ```bash
+    ORB_HOST=127.0.0.1 ./run_unix.sh
+    ```
+
+=== "Windows"
+
+    ```bat
+    set ORB_HOST=127.0.0.1
+    run_windows.bat
+    ```
+
+    In PowerShell, set it with `$env:ORB_HOST = "127.0.0.1"`.
+
+When `ORB_HOST` is a specific address, the launcher opens that address instead
+of `localhost`. Orb listens on one address at a time; to allow some networks and
+block others, keep the default and use a firewall rule.
+
 ## First run
 
 1. Open the **Endpoints** panel and configure the Writer and Agent endpoints.

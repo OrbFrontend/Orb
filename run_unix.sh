@@ -41,12 +41,19 @@ fi
 # Create data directory
 mkdir -p backend/data
 
+# ORB_HOST narrows the listen address; the default serves the LAN so phones can connect
+HOST="${ORB_HOST:-0.0.0.0}"
+case "$HOST" in
+    0.0.0.0 | ::) URL_HOST="localhost" ;;
+    *:*) URL_HOST="[$HOST]" ;;
+    *) URL_HOST="$HOST" ;;
+esac
+URL="http://$URL_HOST:8899"
+
 echo ""
-echo "Starting server on http://localhost:8899"
+echo "Starting server on $URL"
 echo "Press Ctrl+C to stop"
 echo ""
-
-URL="http://localhost:8899"
 
 # Detect the right "open URL" command for this platform.
 if command -v xdg-open >/dev/null 2>&1; then
@@ -72,4 +79,4 @@ fi
 
 # Reload watches backend/ only; the default is the whole repo, .venv and
 # node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload --reload-dir backend
+uvicorn backend.main:app --host "$HOST" --port 8899 --reload --reload-dir backend

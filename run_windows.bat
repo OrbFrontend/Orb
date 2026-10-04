@@ -42,17 +42,25 @@ echo Starting with the versions already in .venv.
 
 if not exist "backend\data" mkdir backend\data
 
+REM ORB_HOST narrows the listen address -- see the note in run_unix.sh.
+if not defined ORB_HOST set "ORB_HOST=0.0.0.0"
+set "URL_HOST=%ORB_HOST%"
+if not "%URL_HOST%"=="%URL_HOST::=%" set "URL_HOST=[%URL_HOST%]"
+if "%ORB_HOST%"=="0.0.0.0" set "URL_HOST=localhost"
+if "%ORB_HOST%"=="::" set "URL_HOST=localhost"
+set "URL=http://%URL_HOST%:8899"
+
 echo.
-echo Starting server on http://localhost:8899
+echo Starting server on %URL%
 echo Press Ctrl+C to stop
 echo.
 
 REM Wait for the server to come up in the background, then open the browser once.
-start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul http://localhost:8899 && (start "" http://localhost:8899 & exit) || timeout /t 1 /nobreak >nul)"
+start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul %URL% && (start "" %URL% & exit) || timeout /t 1 /nobreak >nul)"
 
 REM Reload watches backend/ only; the default is the whole repo, .venv and
 REM node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload --reload-dir backend
+uvicorn backend.main:app --host %ORB_HOST% --port 8899 --reload --reload-dir backend
 if errorlevel 1 goto uvicorn_failed
 exit /b 0
 
