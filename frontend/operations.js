@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { responseError } from "./errors.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { notify, S } from "./state.js";
 import { createStreamOperation } from "./stream_settle.js";
@@ -42,7 +43,7 @@ export async function* streamEvents(record, path, body, what) {
   let terminal = false;
   try {
     const resp = await streamPost(`${path}?operation_id=${record.id}`, body, op.signal);
-    if (!resp.ok) throw new Error((await resp.text()) || `${what} returned ${resp.status}`);
+    if (!resp.ok) throw await responseError(resp);
     for await (const event of sseEvents(resp.body, { signal: op.signal })) {
       terminal ||= event.event === "done" || event.event === "error";
       yield event;

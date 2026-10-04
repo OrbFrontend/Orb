@@ -29,6 +29,7 @@ describe the contracts that a fork needs to preserve:
 | Provider transport or request adaptation | `backend/inference/` | [Endpoint routing](docs/architecture/endpoints.md) |
 | Persisted fields or defaults | `backend/database/` | [Schema change checklist](docs/architecture/database.md#changing-the-schema) |
 | HTTP endpoints | `backend/api/routes/` and `backend/api/schemas.py` | Register the router in `backend/api/routes/__init__.py` |
+| Failure responses and warnings | `backend/api/errors.py`, `backend/pipeline/failures.py`, and `frontend/errors.js` | [Shared failure handling](docs/architecture/sse-stream.md#shared-failure-handling) |
 | Core UI | `frontend/`, with shared state in `state.js` | Module layers in `scripts/check_frontend_layers.py` and action registration in `actions.js` |
 
 An optional feature that fits the workflow hooks belongs in a workflow. Backend

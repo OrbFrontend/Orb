@@ -86,25 +86,21 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
     continuer = DocumentContinuer(client, settings)
 
     async def _gen():
-        try:
-            finish = ""
-            async for chunk in continuer.stream(
-                data.prompt, settings.get("model_name", ""), assisted=data.assisted, token_probs=data.token_probs
-            ):
-                if chunk["type"] == "content":
-                    # Byte-identical wire: plain string, \n-escaped by sse_stream.
-                    yield {"event": "token", "data": chunk["delta"]}
-                elif chunk["type"] == "token_probs":
-                    # dict data auto-JSON-serialized by sse_stream
-                    yield {"event": "probs", "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]}}
-                else:  # done — carries the transport's finish_reason
-                    finish = chunk.get("finish_reason") or ""
-            # Like `probs`, the done payload is a JSON dict the client must not unescapeSSE. "length" marks a token-budget
-            # cutoff (Output Auditor trims the dangling half-sentence before scanning).
-            yield {"event": "done", "data": {"finish": finish}}
-        except Exception as e:
-            logger.error("Document generate error: %s", e)
-            yield {"event": "error", "data": "Generation failed; see server logs"}
+        finish = ""
+        async for chunk in continuer.stream(
+            data.prompt, settings.get("model_name", ""), assisted=data.assisted, token_probs=data.token_probs
+        ):
+            if chunk["type"] == "content":
+                # Byte-identical wire: plain string, \n-escaped by sse_stream.
+                yield {"event": "token", "data": chunk["delta"]}
+            elif chunk["type"] == "token_probs":
+                # dict data auto-JSON-serialized by sse_stream
+                yield {"event": "probs", "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]}}
+            else:  # done — carries the transport's finish_reason
+                finish = chunk.get("finish_reason") or ""
+        # Like `probs`, the done payload is a JSON dict the client must not unescapeSSE. "length" marks a token-budget
+        # cutoff (Output Auditor trims the dangling half-sentence before scanning).
+        yield {"event": "done", "data": {"finish": finish}}
 
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=f"doc:{did}"), media_type="text/event-stream"

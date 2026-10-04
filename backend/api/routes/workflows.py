@@ -67,7 +67,6 @@ from ...workflows.attachment_cache import (
     variant_on_show,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ...workflows.errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from ..deps import (
     attachment_content_response,
     committing_workflow_job,
@@ -78,6 +77,7 @@ from ..deps import (
     workflow_event_stream_response,
     workflow_group_in_flight,
 )
+from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 
 logger = logging.getLogger(__name__)
@@ -138,10 +138,8 @@ def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str)
 
     try:
         yield
-    except WorkflowUserFacingError as exc:
-        logger.warning("%s: %s", where(), exc)
-        status = 400 if isinstance(exc, WorkflowInputError) else 503 if isinstance(exc, WorkflowUnavailableError) else 502
-        raise HTTPException(status_code=status, detail=str(exc)) from None
+    except API_PASSTHROUGH_ERRORS:
+        raise
     except Exception:
         logger.exception("%s", where())
         raise HTTPException(status_code=500, detail=defect) from None
@@ -396,8 +394,10 @@ async def api_regenerate_attachment(
             yield {"event": update[0], "data": update[1]}
         try:
             yield {"event": "regenerate_done", "data": await _finished_job(task)}
-        except HTTPException as exc:
-            yield {"event": "regenerate_error", "data": {"status": exc.status_code, "detail": exc.detail}}
+        except API_PASSTHROUGH_ERRORS as exc:
+            error = http_failure(exc)
+            logger.warning("Regenerate failed: %s", error.detail)
+            yield {"event": "regenerate_error", "data": {"status": error.status_code, "detail": error.detail}}
 
     return workflow_event_stream_response(WorkflowEventStream(events=events()))
 

@@ -22,6 +22,7 @@ FE = ROOT / "frontend"
 LAYERS = {
     # L0 core leaves — import nothing.
     "api.js": 0,
+    "errors.js": 0,
     "document_saves.js": 0,
     "sse.js": 0,
     "validate.js": 0,
@@ -150,6 +151,8 @@ FROZEN_ABI = {
     "registerAction",
     # http / dom helpers
     "api",
+    "responseError",
+    "sseError",
     "convUrl",
     "esc",
     "escAttr",

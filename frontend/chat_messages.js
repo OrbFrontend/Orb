@@ -17,6 +17,7 @@ import {
   turnPayload,
 } from "./chat_stream.js";
 import { replayAttachmentInvalidations } from "./chat_workflow.js";
+import { responseError, sseError } from "./errors.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
@@ -164,12 +165,7 @@ async function rewriteMessageProse(msgId) {
       {},
       op.signal,
     );
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      const error = new Error(body || `Orb returned HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
+    if (!response.ok) throw await responseError(response);
     for await (const { event, data } of sseEvents(response.body, { signal: op.signal })) {
       if (event === "prose_rewrite_update") {
         // Previews hold still once Stop is pressed; the saved row replaces them.
@@ -183,7 +179,7 @@ async function rewriteMessageProse(msgId) {
         else if (result.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
         else toast(result.changed ? "Message rewritten" : "No prose changes needed");
       } else if (event === "error") {
-        throw new Error(data || "Prose rewrite failed");
+        throw sseError(data, "Prose rewrite failed");
       }
     }
     if (!result) throw new Error("Prose rewrite stream ended before completion");
@@ -192,7 +188,7 @@ async function rewriteMessageProse(msgId) {
     else if (e.status === 503) toast("Turn on the Prose Rewriter and download a model in Workflow → Secondary");
     else {
       console.error("prose rewrite failed", e);
-      toast("Prose rewrite failed", true);
+      toast(e.message || "Prose rewrite failed", true);
     }
     // A broken stream may leave the server still writing, so drop it and let
     // settle() ask /stop. A refused request (an HTTP status) never opened one.

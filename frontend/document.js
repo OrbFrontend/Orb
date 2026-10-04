@@ -23,6 +23,7 @@ import {
   syncContent,
 } from "./document_probs.js";
 import { createDocumentSaveQueue } from "./document_saves.js";
+import { sseError } from "./errors.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showConfirmModal } from "./modal.js";
 import { beginStream, finish, streamEvents } from "./operations.js";
@@ -659,7 +660,7 @@ async function generate(record, did, assisted, probs) {
         } catch {}
       } else if (event === "error") {
         genErrored = true;
-        toast(unescapeSSE(data) || "Generation error", true);
+        toast(sseError(data).message, true);
         break;
       } else if (event === "done") {
         try {

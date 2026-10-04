@@ -7,15 +7,13 @@ from typing import Any, TypeVar
 
 import httpx
 
-from ..inference import AbortToken, EndpointConfigError, LLMCallError, provider_sentence
+from ..inference import AbortToken, DecisionTransportError, EndpointConfigError, LLMCallError, provider_sentence
 from ..inference.claude_code import ClaudeCodeError
+from ..inference.errors import BODY_LIMIT
 from ..workflows.errors import WorkflowUserFacingError
 
 # Cap on an unclassified exception's repr. The full traceback is in the log; this is the line that reaches a chat bubble.
 INTERNAL_SENTENCE_LIMIT = 300
-
-# Same cap the transport applies, for the branch that reads a body itself.
-BODY_LIMIT = 20_000
 
 # Which pass raised, written onto the exception by ``staged``. An attribute rather than a parameter because the failure travels
 # from inside a pass generator to ``entrypoints._run_turn_handler`` with no shared object between them, and the alternatives are
@@ -178,6 +176,14 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
             "sentence": _internal_sentence(exc),
             "host": _host_of(exc),
             "kind": "transport",
+            "stage": stage,
+        }
+
+    if isinstance(exc, (DecisionTransportError, httpx.HTTPError)):
+        return {
+            "headline": "The endpoint returned an invalid response.",
+            "sentence": _internal_sentence(exc),
+            "kind": "provider",
             "stage": stage,
         }
 

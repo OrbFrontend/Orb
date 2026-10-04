@@ -1,3 +1,4 @@
+import { sseError } from "./errors.js";
 // Character Library manager tools.
 
 import { api } from "./api.js";
@@ -312,7 +313,7 @@ async function startRun(force = false) {
         failed += 1;
         showProgress(data.done, data.total, `${data.name} → failed`);
       } else if (event.event === "error") {
-        toast(typeof data === "string" ? data : data.message || "Tagging failed", true);
+        toast(sseError(event.data, "Tagging failed").message, true);
       }
     }
   } catch (e) {

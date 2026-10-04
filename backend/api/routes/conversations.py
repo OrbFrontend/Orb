@@ -485,13 +485,9 @@ async def api_summarize_conversation(
     )
 
     async def _gen():
-        try:
-            async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
-                yield {"event": "token", "data": delta}
-            yield {"event": "done", "data": ""}
-        except Exception as e:
-            logger.error("Summarize error: %s", e)
-            yield {"event": "error", "data": "Summarize failed; see server logs"}
+        async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
+            yield {"event": "token", "data": delta}
+        yield {"event": "done", "data": ""}
 
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=cid), media_type="text/event-stream"

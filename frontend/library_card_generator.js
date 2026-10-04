@@ -1,6 +1,7 @@
 // Character Library card generator: each mounted panel owns its request.
+import { responseError, sseError } from "./errors.js";
 import { SPARKLE_ICON } from "./icons.js";
-import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
+import { sseEvents, streamPost } from "./sse.js";
 
 let _unmount = null;
 
@@ -107,12 +108,12 @@ export function mountCardGenerator(root, callbacks = {}) {
         { idea: idea.value.trim(), reasoning: reasoning.checked, tailoring: tailoring.value },
         runController.signal,
       );
-      if (!response.ok) throw new Error(`Generation request failed (${response.status})`);
+      if (!response.ok) throw await responseError(response);
       let finished = false;
       for await (const { event, data } of sseEvents(response.body, { signal: runController.signal })) {
         if (runController.signal.aborted || !root.isConnected) return;
         if (event === "progress") status(JSON.parse(data).label);
-        else if (event === "error") throw new Error(unescapeSSE(data));
+        else if (event === "error") throw sseError(data);
         else if (event === "done") {
           finished = true;
           status("Draft ready to review.");

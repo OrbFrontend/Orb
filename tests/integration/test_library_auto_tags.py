@@ -17,6 +17,7 @@ import pytest
 import backend.api.routes.library as library_routes
 from backend.database import replace_vocabulary
 from backend.features.library_tags import vocabulary_hash
+from backend.inference.errors import llm_call_error
 
 
 def _tag_call(tags: list[str]) -> list[dict]:
@@ -331,7 +332,8 @@ async def test_the_run_stops_after_five_consecutive_failures(client, llm_mock):
     assert [e["event"] for e in events][-1] == "error"
 
 
-async def test_an_exhausted_transport_failure_stops_before_trying_more_cards(client, llm_mock):
+@pytest.mark.parametrize("kind", ["transport", "status", "provider"])
+async def test_an_exhausted_endpoint_failure_stops_before_trying_more_cards(client, llm_mock, kind):
     await _cards(client, "Lira", "Rook", "Zara")
     await _vocab(client, ["Fantasy"])
     real_tag_card = library_routes.tag_card
@@ -340,7 +342,13 @@ async def test_an_exhausted_transport_failure_stops_before_trying_more_cards(cli
     async def unreachable(*args, **kwargs):
         nonlocal calls
         calls += 1
-        raise httpx.ConnectError("offline")
+        if kind == "transport":
+            raise httpx.ConnectError("offline")
+        request = httpx.Request("POST", "https://provider.invalid")
+        response = httpx.Response(429, request=request, json={"error": {"message": "Out of credits"}})
+        if kind == "status":
+            response.raise_for_status()
+        raise llm_call_error(response=response, body=response.text, url=str(request.url), model="agent", api_key="")
 
     library_routes.tag_card = unreachable
     try:
@@ -350,6 +358,10 @@ async def test_an_exhausted_transport_failure_stops_before_trying_more_cards(cli
 
     assert calls == 1
     assert [event["event"] for event in events] == ["start", "card_error", "error"]
+    failure = json.loads(events[-1]["data"])
+    assert failure["kind"] == ("transport" if kind == "transport" else "provider")
+    if kind != "transport":
+        assert (failure["status"], failure["sentence"]) == (429, "Out of credits")
 
 
 async def test_a_run_with_no_vocabulary_is_refused_before_any_call(client, llm_mock):

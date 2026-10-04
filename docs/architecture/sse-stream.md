@@ -243,6 +243,44 @@ draft the Editor reached, and the turn continues through workflows and the
 after-reply steps. Workflow hooks may emit custom events, but names owned by the
 core dispatcher or names beginning with `_` are reserved.
 
+### Shared failure handling
+
+`backend/inference/errors.py` constructs provider failures, extracts their useful
+sentence, redacts the API key, and bounds the response body. Credential-bearing
+calls must raise `LLMCallError` through that seam; a bare `HTTPStatusError` has no
+credential available to redact.
+
+`backend/pipeline/failures.py` classifies failures into `headline`, `sentence`,
+`kind`, and `stage`, with provider status, host, model, and body when available.
+Passes add their stage and use the same classification for optional warnings.
+The API reuses this contract in `backend/api/errors.py`: uncaught generator or
+event-encoding errors become terminal `error` frames, including document,
+summary, library, and lazy workflow streams. Internal defects keep their full
+traceback in the server log. Cancellation still unwinds through cleanup instead
+of becoming an error frame; streams retain their existing Stop and settlement
+ownership.
+
+Before response headers are sent, shared exception handlers return FastAPI's
+`{"detail": ...}` shape. Configuration problems answer 409, invalid workflow
+input 400, unavailable workflow resources 503, and provider failures 502.
+Explicit `HTTPException` responses retain their status and detail. Unexpected
+defects answer 500 with a generic message and log a traceback. Local route guards
+may add context for defects, but must pass `API_PASSTHROUGH_ERRORS` through so
+expected failures keep their meaning. Attachment regeneration translates these
+same failures into its existing `regenerate_error` payload with `status` and
+`detail`.
+
+`frontend/errors.js` owns failure parsing for both request styles.
+`responseError(response)` retains `status`, the raw `body`, and a readable
+message; body-read failures propagate, including `AbortError`.
+`sseError(data)` accepts the structured failure object or a legacy string and
+retains the normalized object on `error.failure`. It parses JSON before
+unescaping legacy text, so JSON newlines and provider response bodies survive.
+Workflow plug-ins access both helpers through `/static/workflow_api.js`.
+
+New features should use these boundaries, keep feature-specific recovery near
+the feature, and preserve specialized terminal events their callers rely on.
+
 ## Routes using the stream
 
 `/send`, `/continue`, regenerate, fork-edit, super-regenerate, and Magic Rewrite

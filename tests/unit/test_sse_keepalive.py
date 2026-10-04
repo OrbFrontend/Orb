@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
+
+import httpx
+import pytest
+from fastapi import HTTPException
 
 import backend.api.deps as deps
-from backend.inference import AbortToken
+from backend.inference import AbortToken, EndpointConfigError
+from backend.inference.errors import llm_call_error
 
 
 class _FakeReq:
@@ -142,3 +148,99 @@ async def test_a_request_whose_client_left_before_registration_never_generates()
 
     assert seen == [True]
     assert frames == ["event: done\ndata: \n\n"]
+
+
+@pytest.mark.parametrize("kind", ["config", "provider", "internal", "request"])
+async def test_uncaught_stream_failures_are_terminal_and_release_the_lane(kind, caplog):
+    request = httpx.Request("POST", "https://provider.invalid")
+    errors = {
+        "config": EndpointConfigError("Choose a model\n\nevent: done"),
+        "provider": llm_call_error(
+            response=httpx.Response(429, request=request),
+            body='{"error":{"message":"No credits; key secret-key"}}',
+            url=str(request.url),
+            model="writer",
+            api_key="secret-key",
+        ),
+        "internal": RuntimeError("broken feature"),
+        "request": HTTPException(409, detail={"message": "The message changed"}),
+    }
+    closed = []
+
+    async def gen():
+        try:
+            yield {"event": "token", "data": "partial"}
+            raise errors[kind]
+        finally:
+            closed.append(True)
+
+    cid = f"failure-{kind}"
+    frames = [frame async for frame in deps.sse_stream(gen(), _Req(), abort_token=AbortToken(), cid=cid)]
+    assert len(frames) == 2
+    assert frames[-1].startswith("event: error\ndata: ")
+    failure = json.loads(frames[-1].split("data: ", 1)[1])
+    assert failure["kind"] == kind
+    assert closed == [True]
+    assert not deps._conversation_stream_locks[cid].locked()
+    assert await deps.stop_active_stream(cid) == {"active": False, "settled": True}
+    if kind == "provider":
+        assert (failure["status"], failure["model"]) == (429, "writer")
+        assert "secret-key" not in frames[-1]
+    if kind == "internal":
+        assert any(record.exc_info and record.exc_info[0] is RuntimeError for record in caplog.records)
+    if kind == "request":
+        assert (failure["status"], failure["sentence"]) == (409, "The message changed")
+
+
+async def test_generator_cancellation_stays_cancellation_and_releases_the_lane():
+    frames = []
+    closed = []
+
+    async def gen():
+        try:
+            yield {"event": "token", "data": "partial"}
+            raise asyncio.CancelledError
+        finally:
+            closed.append(True)
+
+    with pytest.raises(asyncio.CancelledError):
+        async for frame in deps.sse_stream(gen(), _Req(), abort_token=AbortToken(), cid="cancelled-generator"):
+            frames.append(frame)
+    assert frames == ["event: token\ndata: partial\n\n"]
+    assert closed == [True]
+    assert not deps._conversation_stream_locks["cancelled-generator"].locked()
+
+
+async def test_lazy_workflow_failures_use_the_same_terminal_error_contract():
+    closed = []
+
+    async def gen():
+        try:
+            yield {"event": "phase_status", "data": {"label": "Rendering"}}
+            raise EndpointConfigError("Choose a model")
+        finally:
+            closed.append(True)
+
+    frames = [frame async for frame in deps._encode_workflow_event_stream(gen())]
+    assert len(frames) == 2
+    failure = json.loads(frames[-1].split("data: ", 1)[1])
+    assert (failure["kind"], failure["sentence"]) == ("config", "Choose a model")
+    assert closed == [True]
+
+
+async def test_an_unserializable_event_reports_failure_and_closes_the_generator():
+    closed = []
+
+    async def gen():
+        try:
+            yield {"event": "progress", "data": {"invalid": object()}}
+            raise AssertionError("generation must not advance after an encoding failure")
+        finally:
+            closed.append(True)
+
+    frames = [frame async for frame in deps.sse_stream(gen(), _Req(), cid="invalid-event")]
+    assert len(frames) == 1
+    assert frames[0].startswith("event: error\ndata: ")
+    assert json.loads(frames[0].split("data: ", 1)[1])["kind"] == "internal"
+    assert closed == [True]
+    assert not deps._conversation_stream_locks["invalid-event"].locked()

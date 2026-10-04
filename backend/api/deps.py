@@ -16,7 +16,6 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
-import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
@@ -24,8 +23,9 @@ from ..analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from ..database import get_conversation, get_lorebook_entry, get_workflow_attachment_by_id, get_world, get_world_changeset
 from ..database.models import ConversationRow
 from ..features.cards import ProfileDraftUnavailable
-from ..inference import AbortToken, EndpointConfigError, LLMCallError, provider_sentence
+from ..inference import AbortToken
 from ..workflows import WorkflowEventStream, public_event_error
+from .errors import API_PASSTHROUGH_ERRORS, failure_event
 
 logger = logging.getLogger(__name__)
 
@@ -444,11 +444,6 @@ async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = 
             except StopAsyncIteration:
                 finished = True
                 break
-            except EndpointConfigError as exc:
-                # A settings problem the message already names: end the stream with it rather than with a broken connection.
-                finished = True
-                yield f"event: error\ndata: {exc}\n\n"
-                break
             except BaseException:
                 finished = True
                 raise
@@ -459,6 +454,11 @@ async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = 
             elif isinstance(evt_data, str):
                 evt_data = evt_data.replace("\n", "\\n")
             yield f"event: {evt_type}\ndata: {evt_data}\n\n"
+    except Exception as exc:
+        # Headers have already gone out. Generator and encoding failures both
+        # need a terminal verdict; settlement still closes the generator and lane.
+        finished = True
+        yield f"event: error\ndata: {json.dumps(failure_event(exc)['data'])}\n\n"
     finally:
         if watcher is not None:
             watcher.cancel()
@@ -508,6 +508,8 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
             else:
                 data = data.replace("\n", "\\n")
             yield f"event: {name}\ndata: {data}\n\n"
+    except Exception as exc:
+        yield f"event: error\ndata: {json.dumps(failure_event(exc)['data'])}\n\n"
     finally:
         if hasattr(events, "aclose"):
             await _safe_aclose(cast(AsyncGenerator[Any, None], events))
@@ -557,10 +559,6 @@ def pipeline_sse_response(
     return CleanupStreamingResponse(
         sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid), media_type="text/event-stream"
     )
-
-
-# What a transport failure says when the provider gave us no words of its own.
-_PROFILE_UPSTREAM = "The model endpoint did not answer the profile request."
 
 
 def rows_response(rows: Sequence[Mapping[str, Any]]) -> JSONResponse:
@@ -659,16 +657,8 @@ def profile_draft_failures(what: str):
     except ProfileDraftUnavailable as exc:
         logger.warning("%s: %s", what, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    except LLMCallError as exc:
-        logger.warning("%s: %s", what, exc.sentence or exc)
-        raise HTTPException(status_code=502, detail=exc.sentence or _PROFILE_UPSTREAM) from None
-    except httpx.HTTPStatusError as exc:
-        sentence = provider_sentence(exc.response.text if exc.response is not None else "")
-        logger.warning("%s: %s", what, sentence or exc)
-        raise HTTPException(status_code=502, detail=sentence or _PROFILE_UPSTREAM) from None
-    except httpx.HTTPError as exc:
-        logger.warning("%s: %s", what, exc)
-        raise HTTPException(status_code=502, detail=_PROFILE_UPSTREAM) from None
+    except API_PASSTHROUGH_ERRORS:
+        raise
     except Exception:
         logger.exception("%s", what)
         raise HTTPException(status_code=500, detail="Profile drafting failed; see server logs") from None

@@ -148,7 +148,7 @@ async def test_deep_tailoring_first_step_failure_is_an_sse_error(client, monkeyp
     response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "error"]
-    assert events[-1][1] == "Context too long"
+    assert json.loads(events[-1][1])["sentence"] == "Context too long"
 
 
 @pytest.mark.parametrize("idea", ["", " \n ", "x" * 2001])
@@ -183,7 +183,7 @@ async def test_model_failures_are_sse_errors(client, monkeypatch, failure):
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "error"]
     if failure in ("provider", "status"):
-        assert events[-1][1] == "Model is unavailable"
+        assert json.loads(events[-1][1])["sentence"] == "Model is unavailable"
 
 
 async def test_empty_digest_is_explicit(client, db):

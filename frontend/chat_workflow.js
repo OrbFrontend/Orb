@@ -12,6 +12,7 @@ import {
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
 import { patchHtml } from "./dom_reconcile.js";
+import { responseError, sseError } from "./errors.js";
 import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { conversationState, effectiveWorkflowEnabled, S } from "./state.js";
@@ -408,9 +409,10 @@ function _isNetworkError(e) {
 function _showActionFailure(container, cls, action, e) {
   if (!container || container.querySelector(`.${cls}`)) return;
   const reason = typeof e?.message === "string" ? e.message.trim() : "";
+  const userFacing = e?.status ? e.status !== 500 : e?.failure?.kind && e.failure.kind !== "internal";
   const cap = document.createElement("div");
   cap.className = cls;
-  cap.textContent = reason && e?.status && e.status !== 500 ? `${action} failed: ${reason}` : `${action} failed`;
+  cap.textContent = reason && userFacing ? `${action} failed: ${reason}` : `${action} failed`;
   container.appendChild(cap);
 }
 
@@ -418,13 +420,14 @@ function _showActionFailure(container, cls, action, e) {
 // The workflow's own events (`ctx.emit`) go to its registered event handlers.
 async function _regenerateStreamed(path, wid, onPhase, onSibling) {
   const resp = await streamPost(path, {});
-  if (!resp.ok) throw Object.assign(new Error((await resp.json().catch(() => ({}))).detail), { status: resp.status });
+  if (!resp.ok) throw await responseError(resp);
   for await (const { event, data } of sseEvents(resp.body)) {
+    if (event === "error") throw sseError(data);
     const payload = JSON.parse(data);
     if (event === "phase_status") onPhase(payload.label);
     else if (event === "regenerate_sibling") await onSibling();
     else if (event === "regenerate_done") return payload;
-    else if (event === "regenerate_error") throw Object.assign(new Error(payload.detail), { status: payload.status });
+    else if (event === "regenerate_error") throw Object.assign(sseError(payload), { status: payload.status });
     else _dispatchWorkflowEvent(wid, event, payload);
   }
   throw new TypeError("regenerate stream ended without a result");

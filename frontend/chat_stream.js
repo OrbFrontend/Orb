@@ -29,6 +29,7 @@ import {
 import { mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
+import { responseError, sseError } from "./errors.js";
 import {
   beginExpressionPrewarm,
   bufferExpressionReply,
@@ -643,30 +644,6 @@ function swapStreamingDraft(text, onRewrite, options, state = S) {
   onRewrite(text, options);
 }
 
-function foreignSentence(o) {
-  const first = (v) => {
-    if (typeof v === "string") return v;
-    if (Array.isArray(v)) return v.map(first).filter(Boolean).join("; ");
-    if (v && typeof v === "object") return first(v.msg ?? v.message ?? v.detail);
-    return "";
-  };
-  return first(o.detail) || first(o.error?.message) || first(o.error) || first(o.message) || "";
-}
-
-function parseFailure(data) {
-  const raw = String(data ?? "");
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      if (typeof parsed.headline === "string" && parsed.headline) {
-        return { sentence: "", kind: "internal", ...parsed };
-      }
-      return { headline: "", sentence: foreignSentence(parsed), kind: "internal", body: raw };
-    }
-  } catch (_) {}
-  return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
-}
-
 function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
   if ((event === "token" || event === "reasoning") && state.pendingGenerationStep) {
     state.generationStep = state.pendingGenerationStep;
@@ -840,7 +817,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
     }
     case "error":
       {
-        const f = parseFailure(data);
+        const f = sseError(data).failure;
         state.turnError = {
           ...f,
           headline: f.headline || "Generation failed.",
@@ -852,7 +829,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       break;
     case "warning":
       {
-        const w = parseFailure(data);
+        const w = sseError(data).failure;
         notifyError(w.headline || "A workflow step failed.", { sentence: w.sentence });
       }
       break;
@@ -953,8 +930,7 @@ export async function runStreamRequest(
       op.signal,
     );
     if (!resp.ok) {
-      const raw = await resp.text().catch(() => "");
-      const f = parseFailure(raw);
+      const { failure: f } = await responseError(resp);
       state.turnError = {
         ...f,
         status: resp.status,

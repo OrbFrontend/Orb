@@ -1,3 +1,5 @@
+import { responseError } from "./errors.js";
+
 // The dataset this page loaded from; a preset restore replaces it, and a write
 // carrying the old one is refused with `refresh_required`.
 let _epoch = null;
@@ -21,32 +23,10 @@ export async function apiFetch(path, opts = {}) {
   return response;
 }
 
-function _detail(body) {
-  try {
-    const parsed = JSON.parse(body);
-    const detail = parsed?.detail;
-    if (typeof detail === "string" && detail) return detail;
-    if (typeof detail?.message === "string" && detail.message) return detail.message;
-    if (Array.isArray(detail)) {
-      return detail
-        .map((entry) => entry?.msg)
-        .filter(Boolean)
-        .join("; ");
-    }
-  } catch {}
-  return "";
-}
-
 export const api = {
   async _req(path, opts = {}) {
     const r = await apiFetch(`/api${path}`, opts);
-    if (!r.ok) {
-      const body = await r.text();
-      const err = new Error(_detail(body) || body);
-      err.status = r.status;
-      err.body = body;
-      throw err;
-    }
+    if (!r.ok) throw await responseError(r);
     return r.json();
   },
   get(p) {

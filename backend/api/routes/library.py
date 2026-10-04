@@ -50,13 +50,12 @@ from ...inference import (
     DecisionCancelled,
     DecisionClient,
     DecisionTransportError,
-    LLMCallError,
     agent_lane_from_settings,
     client_from_settings,
-    provider_sentence,
 )
 from ...pipeline import resolve_judge_config
 from ..deps import CleanupStreamingResponse, idle_chats_guard, sse_stream, stop_active_stream
+from ..errors import failure_event
 from ..schemas import (
     AutoTagRunRequest,
     CardGeneratorRunRequest,
@@ -110,12 +109,6 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
                 yield {"event": "done", "data": {"card": card}}
         except CardGenerationUnavailable as exc:
             yield {"event": "error", "data": str(exc)}
-        except LLMCallError as exc:
-            yield {"event": "error", "data": exc.sentence or "The Agent endpoint failed"}
-        except httpx.HTTPStatusError as exc:
-            yield {"event": "error", "data": provider_sentence(exc.response.text) or "The Agent endpoint failed"}
-        except httpx.HTTPError:
-            yield {"event": "error", "data": "The Agent endpoint could not be reached"}
 
     return CleanupStreamingResponse(sse_stream(_gen(), request, abort_token=abort_token), media_type="text/event-stream")
 
@@ -222,39 +215,15 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         }
                         return
                     continue
-                except LLMCallError as e:
+                except httpx.HTTPError as exc:
                     failed += 1
-                    logger.warning("Auto-tag endpoint failed for card %s: %s", scrub_log(card_id), e.sentence or e)
+                    error = failure_event(exc)
+                    reason = error["data"]["sentence"] or error["data"]["headline"]
                     yield {
                         "event": "card_error",
-                        "data": {
-                            "done": done,
-                            "total": total,
-                            "name": str(card.get("name") or ""),
-                            "error": e.sentence or "The Agent endpoint failed",
-                        },
+                        "data": {"done": done, "total": total, "name": str(card.get("name") or ""), "error": reason},
                     }
-                    yield {
-                        "event": "error",
-                        "data": "The Agent endpoint failed after its retries; the remaining cards were not sent",
-                    }
-                    return
-                except httpx.HTTPError as e:
-                    failed += 1
-                    logger.warning("Auto-tag transport failed for card %s: %s", scrub_log(card_id), e)
-                    yield {
-                        "event": "card_error",
-                        "data": {
-                            "done": done,
-                            "total": total,
-                            "name": str(card.get("name") or ""),
-                            "error": "The Agent endpoint could not be reached",
-                        },
-                    }
-                    yield {
-                        "event": "error",
-                        "data": "The Agent endpoint could not be reached after its retries; the remaining cards were not sent",
-                    }
+                    yield error
                     return
 
                 consecutive = 0
@@ -326,9 +295,8 @@ async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token
                     card, tags = result
                 except DecisionCancelled:
                     return
-                except (LLMCallError, DecisionTransportError, httpx.HTTPError) as exc:
-                    logger.warning("Judge auto-tag endpoint failed for card %s: %r", scrub_log(card_id), exc)
-                    yield {"event": "error", "data": "The Judge endpoint failed; tagging stopped"}
+                except (DecisionTransportError, httpx.HTTPError) as exc:
+                    yield failure_event(exc)
                     return
                 except AutoTagUnavailable as exc:
                     failed += 1

@@ -164,24 +164,29 @@ test("Cancel restores controls and never opens a card", async () => {
   assert.equal(root.classList.contains("ml-busy"), false);
 });
 
-test("provider errors display as text and allow another attempt", async () => {
-  const root = mount();
-  generate(root);
-  await tick();
-  send(requests[0], "error", "Provider unavailable <script>");
-  requests[0].writer.close();
-  await tick();
-  const progress = root.querySelector("[data-cardgen-progress]");
-  assert.equal(progress.textContent, "Provider unavailable <script>");
-  assert.equal(progress.classList.contains("is-error"), true);
-  assert.equal(root.querySelectorAll("script").length, 0);
-  generate(root);
-  await tick();
-  assert.equal(requests.length, 2);
-  assert.equal(root.classList.contains("ml-busy"), true);
-  assert.equal(progress.textContent, "");
-  assert.equal(progress.classList.contains("is-error"), false);
-});
+for (const failure of [
+  "Provider unavailable <script>",
+  { headline: "Provider unavailable <script>", sentence: "Choose another model.", kind: "provider" },
+]) {
+  test(`provider errors display as text and allow another attempt (${typeof failure})`, async () => {
+    const root = mount();
+    generate(root);
+    await tick();
+    send(requests[0], "error", failure);
+    requests[0].writer.close();
+    await tick();
+    const progress = root.querySelector("[data-cardgen-progress]");
+    assert.equal(progress.textContent, typeof failure === "string" ? failure : `${failure.headline} ${failure.sentence}`);
+    assert.equal(progress.classList.contains("is-error"), true);
+    assert.equal(root.querySelectorAll("script").length, 0);
+    generate(root);
+    await tick();
+    assert.equal(requests.length, 2);
+    assert.equal(root.classList.contains("ml-busy"), true);
+    assert.equal(progress.textContent, "");
+    assert.equal(progress.classList.contains("is-error"), false);
+  });
+}
 
 test("an incomplete stream reports failure without opening an editor", async () => {
   const root = mount(() => assert.fail("No draft was returned"));

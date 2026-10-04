@@ -6,6 +6,7 @@ import { clearInspectedMessage, renderInspector } from "./chat_inspector.js";
 import { inspectMessage } from "./chat_messages.js";
 import { cancelStreamingPaint, restoreStreamingView, setStreaming, syncSendButton } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
+import { sseError } from "./errors.js";
 import { groupFamily, groupRootId } from "./group_cast.js";
 import { loadGroupCast, renderGroupCast, renderGroupList } from "./group_setup.js";
 import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
@@ -552,7 +553,7 @@ export async function generateCompressionSummary() {
         summaryText += unescapeSSE(data);
         if (textarea) textarea.value = summaryText;
       } else if (event === "error") {
-        throw new Error(data);
+        throw sseError(data);
       }
     }
     if (statusEl) statusEl.textContent = "Review and edit the summary, then create the new conversation.";

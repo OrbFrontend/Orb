@@ -1,3 +1,4 @@
+import { sseError } from "./errors.js";
 // Character Library duplicate finder controller.
 
 import { api } from "./api.js";
@@ -184,7 +185,7 @@ async function scan(record, mount) {
       } else if (event.event === "done") {
         _report = data;
       } else if (event.event === "error") {
-        toast(typeof data === "string" ? data : data?.message || "Duplicate scan failed", true);
+        toast(sseError(event.data, "Duplicate scan failed").message, true);
       }
     }
   } catch (error) {

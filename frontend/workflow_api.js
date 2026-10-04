@@ -26,6 +26,7 @@ import {
   stepWorkflowVariant,
   workflowActionJob,
 } from "./chat.js";
+import { responseError, sseError } from "./errors.js";
 import { closeModal, setModalCloseGuard, showConfirmModal, showModal } from "./modal.js";
 import { refreshLocalMlStatus } from "./settings.js";
 import { sseEvents, streamPost } from "./sse.js";
@@ -47,7 +48,7 @@ import { clearTextEffect, startTextEffect } from "./workflow_text_effects.js";
 
 // Workflow modules use this facade for registration, requests, and playback.
 
-export const WORKFLOW_API_VERSION = 10;
+export const WORKFLOW_API_VERSION = 11;
 
 export {
   activateWorkflowVariant,
@@ -81,6 +82,7 @@ export {
   registerWorkflowToolsPanelCard,
   rehydrateWorkflowAttachment,
   replayChannel,
+  responseError,
   resumeChannel,
   seekChannel,
   selectWorkflowPipelinePass,
@@ -90,6 +92,7 @@ export {
   setWorkflowPhase,
   showConfirmModal,
   showModal,
+  sseError,
   sseEvents,
   startTextEffect,
   startWorkflowJob,

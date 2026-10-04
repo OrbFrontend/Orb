@@ -86,6 +86,12 @@ decisions only that feature makes.
 Frontend workflow code imports `/static/workflow_api.js` and its own relative
 modules. It should not import core frontend modules directly.
 
+Use the facade's `responseError(response)` for a failed HTTP response and
+`sseError(data)` for a terminal core `error` event. Both preserve useful messages
+from structured payloads. Lazy workflow streams can emit a core `error` when a
+hook raises, so handle it alongside the workflow's own terminal events. See the
+[shared failure contract](sse-stream.md#shared-failure-handling).
+
 ## Declare a workflow
 
 A plug-in package declares its workflow as `WORKFLOW` in its `__init__.py`: a

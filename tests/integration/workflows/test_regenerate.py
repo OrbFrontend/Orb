@@ -7,6 +7,8 @@ import os
 import tempfile
 from types import SimpleNamespace
 
+import pytest
+
 from backend.api import deps
 from backend.api.routes import workflows as routes
 from backend.database import (
@@ -16,6 +18,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
+from backend.inference import EndpointConfigError
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from backend.workflows.errors import WorkflowUserFacingError
 
@@ -322,12 +325,15 @@ async def test_regenerate_on_sibling_tags_rejection_with_root_id(client):
     assert rej["originating_attachment_id"] != sibling_id
 
 
-async def test_streamed_regenerate_failure_carries_the_status(client):
+@pytest.mark.parametrize(
+    ("error", "status"), [(WorkflowUserFacingError("refused"), 502), (EndpointConfigError("refused"), 409)]
+)
+async def test_streamed_regenerate_failure_carries_the_status(client, error, status):
     cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="refused")
 
     async def regen(ctx, body):
-        raise WorkflowUserFacingError("refused")
+        raise error
 
     wf = make_workflow("refused", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
@@ -336,7 +342,7 @@ async def test_streamed_regenerate_failure_carries_the_status(client):
             json={},
             headers={"Accept": "text/event-stream"},
         )
-    assert resp.text == 'event: regenerate_error\ndata: {"status":502,"detail":"refused"}\n\n'
+    assert resp.text == f'event: regenerate_error\ndata: {{"status":{status},"detail":"refused"}}\n\n'
 
 
 async def test_streamed_regenerate_lands_the_sibling_after_the_client_drops(client):
