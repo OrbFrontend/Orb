@@ -2,7 +2,7 @@
 
 ![Orb](assets/Orb.png)
 
-Orb is a roleplay and writing app that connects your characters and conversations
+Orb is a roleplay and writing harness that connects your characters and conversations
 to an LLM. It can also use optional local or cloud tools for scene direction,
 editing, images, and speech.
 
