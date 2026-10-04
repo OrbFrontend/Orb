@@ -1,4 +1,4 @@
-"""Migration 0080 drops the settings row's connection, model and sampler columns, also from a backup made before it."""
+"""Migration 0079 drops the settings row's connection, model and sampler columns, also from a backup made before it."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ import pytest
 from backend.database import get_settings
 from backend.database.schema import table_create_sql
 
-_NAME = "0080_drop_flat_connection_settings"
+_NAME = "0079_drop_legacy_storage"
 _migration = importlib.import_module(f"backend.database.migrations.{_NAME}")
 
-# The columns as a pre-0080 settings row carries them, holding values no current endpoint or model config has.
+# The columns as a pre-0079 settings row carries them, holding values no current endpoint or model config has.
 _LEGACY = (
     "endpoint_url TEXT NOT NULL DEFAULT 'http://stale/v1'",
     "api_key TEXT NOT NULL DEFAULT 'sk-stale'",
