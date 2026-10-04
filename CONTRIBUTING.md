@@ -10,10 +10,15 @@ Start the backend with `./run_unix.sh` (or `run_windows.bat` on Windows). Python
 
 ### Optional: Auto-formatting on commit
 
-Run `npm install` (requires Node.js) to install the pinned frontend tools and set up git hooks via Lefthook. The hooks format staged files before each commit:
+Run `npm ci` (requires Node.js) to install frontend tools from the committed lockfile and set up git hooks via Lefthook. The hooks format staged files before each commit:
 
 - **Python** — Ruff (import sorting, formatting, and linting). The hook calls `python3 -m ruff`, so commit with the `.venv` the scripts create activated.
 - **JavaScript** — Biome (formatting)
+
+Keep `package.json` and `package-lock.json` together when changing dependencies.
+Use `npm install --save-dev --save-exact <package>@<version>` for an intentional
+update, review the lockfile, and verify it with `npm ci`. CI and the formatting
+and lint scripts install from the same lockfile.
 
 Ruff and Biome read their settings from `ruff.toml` and `biome.json`, so an editor's format-on-save produces the same output as the hooks and CI.
 

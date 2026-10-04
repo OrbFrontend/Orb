@@ -26,14 +26,14 @@ if errorlevel 1 goto stale_venv
 
 call .venv\Scripts\activate.bat
 echo Installing dependencies...
-REM A failed install is only fatal when it leaves nothing to run -- see the note
-REM in run_unix.sh. An offline launch keeps whatever .venv already has.
+REM An offline launch requires usable mandatory dependencies, without loading
+REM the application, database or optional models.
 pip install -q -r requirements.txt
 if errorlevel 1 goto pip_degraded
 goto deps_ready
 
 :pip_degraded
-python -c "import fastapi, uvicorn"
+python scripts\check_runtime.py
 if errorlevel 1 goto pip_failed
 echo Warning: could not install dependencies (offline?).
 echo Starting with the versions already in .venv.

@@ -29,7 +29,7 @@ source .venv/bin/activate
 echo "Installing dependencies..."
 # Allow offline startup after an install failure if runtime dependencies remain usable.
 if ! pip install -q -r requirements.txt; then
-    if python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
+    if python scripts/check_runtime.py; then
         echo "Warning: could not install dependencies (offline?)."
         echo "Starting with the versions already in .venv."
     else

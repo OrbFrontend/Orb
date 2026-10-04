@@ -38,6 +38,7 @@ jobs:
               - 'tests/frontend/**'
               - 'biome.json'
               - 'package.json'
+              - 'package-lock.json'
               - 'scripts/lint.sh'
               - 'scripts/format_frontend.sh'
               - 'scripts/check_frontend_layers.py'
@@ -162,7 +163,7 @@ jobs:
       # The pinned devDependencies, so CI formats with the same Biome as a
       # contributor's checkout. Skips `prepare`, which only installs git hooks.
       - name: Install frontend dev dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Biome check
         run: node_modules/.bin/biome check frontend/

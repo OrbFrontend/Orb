@@ -6,11 +6,7 @@ source "$(dirname "$0")/_venv.sh"
 # Install missing frontend dev dependencies; use npm ci with a lockfile to preserve pins.
 if [ ! -d "node_modules" ] && [ -f "package.json" ]; then
     echo "Installing frontend dev dependencies..."
-    if [ -f "package-lock.json" ]; then
-        npm ci
-    else
-        npm install
-    fi
+    npm ci
 fi
 
 echo ""
