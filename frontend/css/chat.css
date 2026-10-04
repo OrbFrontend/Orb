@@ -354,8 +354,16 @@
    pinned to the bubble's top-left corner. */
 #chat-messages[data-avatars="on"] .message .msg-num { position: absolute; top: calc(var(--msg-avatar-size) + 4px);
   left: calc(var(--msg-avatar-size) / 2); transform: translateX(-50%); }
-#chat-messages[data-avatars="on"] .message.user .msg-role { justify-content: flex-start; }
-#chat-messages[data-avatars="on"] .message.user .msg-toolbar { justify-content: flex-start; }
+
+/* The user's turns mirror the layout: avatar, number, name and toolbar sit on
+   the right, matching the right-aligned role line and toolbar without avatars. */
+#chat-messages[data-avatars="on"] .message.user { grid-template-columns: 1fr var(--msg-avatar-size); margin-left: 0;
+  margin-right: calc(-1 * var(--msg-avatar-shift)); padding-right: 0;
+  padding-left: calc(var(--msg-avatar-size) + 10px - var(--msg-avatar-shift)); }
+#chat-messages[data-avatars="on"] .message.user > .msg-avatar { grid-column: 2; }
+#chat-messages[data-avatars="on"] .message.user > *:not(.msg-avatar) { grid-column: 1; }
+#chat-messages[data-avatars="on"] .message.user .msg-num { left: auto; right: calc(var(--msg-avatar-size) / 2);
+  transform: translateX(50%); }
 .msg-avatar { width: var(--msg-avatar-size, 34px); height: var(--msg-avatar-size, 34px); border-radius: 50%;
   background: var(--bg-elevated); border: 1px solid var(--border); overflow: hidden; display: flex; align-items: center;
   justify-content: center; font-size: 15px; font-weight: 600; color: var(--text-muted); flex-shrink: 0; }
