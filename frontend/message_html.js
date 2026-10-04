@@ -15,8 +15,9 @@ import {
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
 
-// ── Class vocabulary ──────────────────────────────────────────────────────── Classes emitted by formatProse. Other
-// model classes are prefixed with `custom-`; classes added after sanitising are intentionally not listed here.
+// ── Class vocabulary ────────────────────────────────────────────────────────
+// Classes emitted by formatProse. Other model classes are prefixed with `custom-`; classes added after sanitising are
+// intentionally not listed here.
 export const ORB_CLASSES = new Set([
   "quoted",
   "code-block",
@@ -93,8 +94,8 @@ export const BLOCK_TAGS = new Set([
 // Elements whose text is data, not prose: a `<br>` in here corrupts it.
 export const NON_PROSE_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
 
-// ── Unknown-tag escaping ──────────────────────────────────────────────────── Leave fenced code and style/SVG bodies
-// alone; their contents are handled as data by formatProse or the browser.
+// ── Unknown-tag escaping ────────────────────────────────────────────────────
+// Leave fenced code and style/SVG bodies alone; their contents are handled as data by formatProse or the browser.
 const PASSTHROUGH_RE = /```[\s\S]*?```|```[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi;
 const TAG_START_RE = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
 const COMMENT_OPEN = "<!--";
@@ -308,8 +309,9 @@ function scopeClassAttr(token) {
   return scopeClassName(token);
 }
 
-// ── Card CSS ────────────────────────────────────────────────────────────────── message_css.js owns the policy; this
-// half only has to give it the message's scope and hand the same rename table to the sheet and to the style attributes.
+// ── Card CSS ──────────────────────────────────────────────────────────────────
+// message_css.js owns the policy; this half only has to give it the message's scope and hand the same rename table to
+// the sheet and to the style attributes.
 
 const CUSTOM_STYLE_RE = /<custom-style>([^<]*)<\/custom-style>/gi;
 
@@ -343,8 +345,8 @@ function applyCustomStyles(root, css) {
   }
 }
 
-// ── Orb's own chrome ──────────────────────────────────────────────────────── Build the code-block toolbar after
-// sanitising so its delegated actions are never model-controlled.
+// ── Orb's own chrome ────────────────────────────────────────────────────────
+// Build the code-block toolbar after sanitising so its delegated actions are never model-controlled.
 
 function codeBlockButton(action, label, icon, pressed) {
   const btn = document.createElement("button");
@@ -530,8 +532,9 @@ export function renderMessageDiffHtml(ops) {
   return finish(formatProseWithDiff(escaped), cssScope(ops.map((op) => op.text).join("\0")));
 }
 
-// ── Delegated actions ─────────────────────────────────────────────────────── Delegate actions because sanitising
-// removes handlers and data attributes from model markup; Orb adds its own code-block actions afterward.
+// ── Delegated actions ───────────────────────────────────────────────────────
+// Delegate actions because sanitising removes handlers and data attributes from model markup; Orb adds its own
+// code-block actions afterward.
 
 const CODE_BLOCK_ACTIONS = new Set(["wrap", "copy"]);
 

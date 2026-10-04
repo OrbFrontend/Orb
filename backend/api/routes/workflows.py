@@ -16,9 +16,9 @@ from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Resp
 
 from ...core import scrub_log, workflow_character_state_lock, workflow_config_lock, workflow_state_lock
 from ...database import (
+    conversation_attachment_ids,
     get_character_card,
     get_conversation,
-    get_db,
     get_group_member,
     get_message_by_id,
     get_messages,
@@ -981,18 +981,8 @@ async def api_record_workflow_attachment_access(
     if not int_ids:
         return {"ok": True, "recorded": 0}
 
-    placeholders = ",".join("?" * len(int_ids))
-    async with get_db() as db_conn:
-        rows = list(
-            await db_conn.execute_fetchall(
-                f"SELECT wa.id FROM workflow_attachments wa "  # nosec B608 -- placeholders only
-                f"JOIN messages m ON m.id = wa.message_id "
-                f"WHERE m.conversation_id = ? AND wa.id IN ({placeholders})",
-                (cid, *int_ids),
-            )
-        )
-    valid_ids_set = {r["id"] for r in rows}
-    ordered_valid = [i for i in int_ids if i in valid_ids_set]
+    valid_ids = await conversation_attachment_ids(cid, int_ids)
+    ordered_valid = [i for i in int_ids if i in valid_ids]
 
     await record_access(ordered_valid)
     return {"ok": True, "recorded": len(ordered_valid)}

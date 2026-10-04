@@ -202,6 +202,7 @@ from .queries.user_personas import (
     update_user_persona,
 )
 from .queries.workflow_attachments import (
+    conversation_attachment_ids,
     get_workflow_attachment_by_id,
     get_workflow_attachment_bytes,
     get_workflow_attachment_meta,
@@ -281,6 +282,7 @@ __all__ = [
     "clear_writer_draft",
     "decision_evaluations_of",
     "close_wal_anchor",
+    "conversation_attachment_ids",
     "convert_to_group",
     "copy_state_events",
     "count_pending_changesets",

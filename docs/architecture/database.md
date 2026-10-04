@@ -46,7 +46,7 @@ A schema change touches these together:
 
 | File | Change |
 |---|---|
-| `backend/database/migrations/NNNN_description.py` | The next free number, with a `migrate(conn)` that takes a plain `sqlite3.Connection`. Make it safe to rerun: it is recorded as applied only after it returns |
+| `backend/database/migrations/NNNN_description.py` | The next free number, with a `migrate(conn)` that takes a plain `sqlite3.Connection`. Make it safe to rerun: it is recorded as applied only after it returns. A migration that only adds columns can be `migrate = column_migration(table, *declarations)` from `migrations/helpers.py` |
 | `backend/database/schema.py` | The same table or column, so a fresh install matches an upgraded one |
 | `backend/database/seeds.py` | Any default rows the migration inserts |
 | `backend/database/models.py` | The row `TypedDict` the queries return |
@@ -61,6 +61,22 @@ migration and the current schema disagree.
 `run_unix.sh` and `run_windows.bat` start uvicorn with `--reload` on `backend/`,
 so a new migration file runs against your real database, and is recorded as
 applied, as soon as it is saved. Stop the server while writing one.
+
+## Writing queries
+
+SQL lives in `backend/database/queries/`, and each module's public functions are
+re-exported from `backend/database/__init__.py`. Routes, features, and the
+pipeline call those functions rather than opening a connection themselves.
+`backend/database/connection.py` has one helper for each kind of access:
+
+| Helper | Use it for |
+|---|---|
+| `select_rows(sql, params)` | A single read. The connection closes before the query decodes the rows. |
+| `get_db()` | Several statements that need one connection, such as a read loop or a write that calls `commit()` itself. |
+| `immediate_tx()` | Read-modify-write. It holds `BEGIN IMMEDIATE` for the whole block, commits on success, and rolls back on any exception, including cancellation. |
+
+Decode JSON columns in the query function and return the row `TypedDict` from
+`models.py`, so callers never see raw column text.
 
 ## Concurrent saves and dataset replacement
 

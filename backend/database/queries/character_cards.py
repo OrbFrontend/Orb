@@ -62,31 +62,28 @@ async def list_character_cards() -> list[CharacterCardRow]:
 
 
 async def get_character_card(card_id: str, include_avatar: bool = False) -> CharacterCardRow | None:
-    async with get_db() as db:
-        cols = (
-            "*"
-            if include_avatar
-            else (
-                "id, name, description, personality, scenario, first_mes, mes_example, "
-                "creator_notes, system_prompt, post_history_instructions, tags, creator, "
-                "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, "
-                "extensions, created_at, updated_at"
-            )
+    cols = (
+        "*"
+        if include_avatar
+        else (
+            "id, name, description, personality, scenario, first_mes, mes_example, "
+            "creator_notes, system_prompt, post_history_instructions, tags, creator, "
+            "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, "
+            "extensions, created_at, updated_at"
         )
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT {cols} FROM character_cards WHERE id = ?",
-                (card_id,),  # nosec B608 — cols is a hardcoded literal, not user input
-            )
-        )
-        if not rows:
-            return None
-        d = dict(rows[0])
-        d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
-        d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
-        d["extensions"] = json.loads(d["extensions"]) if d.get("extensions") else {}
-        d["has_avatar"] = d.get("avatar_mime") is not None
-        return cast(CharacterCardRow, d)
+    )
+    rows = await select_rows(
+        f"SELECT {cols} FROM character_cards WHERE id = ?",
+        (card_id,),  # nosec B608 — cols is a hardcoded literal, not user input
+    )
+    if not rows:
+        return None
+    d = dict(rows[0])
+    d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
+    d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
+    d["extensions"] = json.loads(d["extensions"]) if d.get("extensions") else {}
+    d["has_avatar"] = d.get("avatar_mime") is not None
+    return cast(CharacterCardRow, d)
 
 
 # Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card fragment ids become LLM tool-schema property names,

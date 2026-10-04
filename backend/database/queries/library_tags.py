@@ -106,16 +106,13 @@ async def get_auto_tag_counts(vocab_hash: str | None) -> dict[str, int]:
 
 async def list_pending_auto_tag_ids(vocab_hash: str, *, force: bool = False) -> list[str]:
     """Return pending (or, when forced, all) card IDs, newest first."""
-    async with get_db() as db:
-        where = "" if force else _PENDING_WHERE
-        params = () if force else (vocab_hash,)
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT id FROM character_cards {where} ORDER BY created_at DESC",  # nosec B608
-                params,
-            )
-        )
-        return [str(r["id"]) for r in rows]
+    where = "" if force else _PENDING_WHERE
+    params = () if force else (vocab_hash,)
+    rows = await select_rows(
+        f"SELECT id FROM character_cards {where} ORDER BY created_at DESC",  # nosec B608
+        params,
+    )
+    return [str(r["id"]) for r in rows]
 
 
 async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_updated_at: str) -> bool:

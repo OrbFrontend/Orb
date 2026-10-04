@@ -121,13 +121,12 @@ _DEFAULT_ON_SQL = (
 
 async def get_effective_world_ids(cid: str) -> list[str]:
     """Explicit scene choices override global and cast-linked defaults."""
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            "SELECT w.id FROM worlds w LEFT JOIN conversation_worlds cw ON cw.world_id = w.id AND cw.conversation_id = ? "
-            f"WHERE COALESCE(cw.enabled, {_DEFAULT_ON_SQL}) = 1 ORDER BY w.id",  # nosec B608 -- constant fragment
-            (cid, cid, cid),
-        )
-        return [str(row[0]) for row in rows]
+    rows = await select_rows(
+        "SELECT w.id FROM worlds w LEFT JOIN conversation_worlds cw ON cw.world_id = w.id AND cw.conversation_id = ? "
+        f"WHERE COALESCE(cw.enabled, {_DEFAULT_ON_SQL}) = 1 ORDER BY w.id",  # nosec B608 -- constant fragment
+        (cid, cid, cid),
+    )
+    return [str(row[0]) for row in rows]
 
 
 async def set_conversation_world(cid: str, world_id: str, enabled: bool) -> None:

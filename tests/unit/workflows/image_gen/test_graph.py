@@ -169,8 +169,9 @@ def test_size_slots_are_validated_when_present_and_ignored_when_not():
     validate_graph_structure(*_core(), OBJECT_INFO)
 
 
-# ── structural validation against a server's /object_info ──────────────────── All render-free: `/prompt` has no dry-run, so a
-# submission that validates executes, and preflighting by submitting would spend a full render per save.
+# ── structural validation against a server's /object_info ────────────────────
+# All render-free: `/prompt` has no dry-run, so a submission that validates executes, and preflighting by submitting would spend
+# a full render per save.
 
 
 def test_a_valid_graph_passes_structural_validation():

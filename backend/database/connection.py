@@ -155,18 +155,15 @@ def build_set_clause(
 # safe (a table name cannot be a bound parameter).
 async def get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this row, or None if the row is missing or the slot empty."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM {table} WHERE {id_col} = ?", (workflow_id, row_id)
-            )
-        )
-        if not rows:
-            return None
-        slot = rows[0]["slot"]
-        if slot is None:
-            return None
-        return json.loads(slot)
+    rows = await select_rows(
+        f"SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM {table} WHERE {id_col} = ?", (workflow_id, row_id)
+    )
+    if not rows:
+        return None
+    slot = rows[0]["slot"]
+    if slot is None:
+        return None
+    return json.loads(slot)
 
 
 async def set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, payload: dict | None) -> None:

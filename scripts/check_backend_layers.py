@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BACKEND = ROOT / "backend"
 
 # The source of truth for cross-package imports. Same-package imports are
 # allowed implicitly. Features and workflows deliberately remain siblings.

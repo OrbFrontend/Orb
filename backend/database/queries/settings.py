@@ -302,7 +302,8 @@ async def update_settings(data: dict) -> SettingsRow:
         return await get_settings()
 
 
-# ── Decision classifier configuration ── Keep endpoint-kind validation out of the generic settings writer.
+# ── Decision classifier configuration ──
+# Keep endpoint-kind validation out of the generic settings writer.
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
     sets, vals = build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
     if sets:

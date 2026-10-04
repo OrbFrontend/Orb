@@ -1,5 +1,5 @@
 // SSE parser fixtures for frontend/sse.js — the app-wide single SSE path. Zero deps (node --test, node v22+); no jsdom.
-// Exercises the wire contract from backend/api/deps.py `_sse_stream`: frame terminators, keepalive comments,
+// Exercises the wire contract from backend/api/deps.py `sse_stream`: frame terminators, keepalive comments,
 // chunk-boundary splits, and the parser's must-NOT-unescape guarantee (token escaping vs raw probs-JSON are opposite
 // rules — un-escaping is consumer-side).
 import assert from "node:assert/strict";

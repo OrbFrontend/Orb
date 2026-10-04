@@ -96,9 +96,9 @@ async def test_aclassify_pov_tense_chunks_reads_each_window(monkeypatch):
     assert labels == [("second", "present"), ("second", "present")]
 
 
-# --- the tense half of the povtense grid ---------------------------------------- The POV half is pinned by its first consumer,
-# in tests/unit/workflows/image_gen/test_pov.py; the tense half has no single owning workflow, so its grid math is pinned here
-# beside the model surface itself.
+# --- the tense half of the povtense grid ----------------------------------------
+# The POV half is pinned by its first consumer, in tests/unit/workflows/image_gen/test_pov.py; the tense half has no single
+# owning workflow, so its grid math is pinned here beside the model surface itself.
 
 
 @pytest.mark.parametrize("col,label", list(enumerate(local_ml.TENSE_COLS)))
@@ -138,9 +138,10 @@ async def test_pov_reads_short_circuit_on_empty_shaping(monkeypatch):
     assert await local_ml.aclassify_pov("") == "ambiguous"
 
 
-# --- markup classifier input shaping ------------------------------------------ Shared with ../RP-Markup-Classifier: its build
-# manifests record MARKUP_INPUT_VERSION and a digest of these outputs, so a shaping change that does not bump the version fails
-# that repo's audit instead of silently mixing two input distributions in one training build.
+# --- markup classifier input shaping ------------------------------------------
+# Shared with ../RP-Markup-Classifier: its build manifests record MARKUP_INPUT_VERSION and a digest of these outputs, so a
+# shaping change that does not bump the version fails that repo's audit instead of silently mixing two input distributions in
+# one training build.
 
 
 @pytest.mark.parametrize(
@@ -175,9 +176,9 @@ def test_markup_input_hides_exactly_what_classify_axes_hides():
         assert local_ml.markup_input(text) == strip_protected_markup(text)
 
 
-# --- the markup head ------------------------------------------------------------ Narration rows x dialogue columns, row-major
-# (../RP-Markup-Classifier/src/schema.py). A transposed read maps "asterisk" onto "quoted" and still looks plausible, so every
-# cell is pinned.
+# --- the markup head ------------------------------------------------------------
+# Narration rows x dialogue columns, row-major (../RP-Markup-Classifier/src/schema.py). A transposed read maps "asterisk" onto
+# "quoted" and still looks plausible, so every cell is pinned.
 
 
 @pytest.mark.parametrize("col,dialogue", list(enumerate(local_ml.DIALOGUE_COLS)))

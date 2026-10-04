@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
@@ -60,6 +61,19 @@ async def get_workflow_attachment_by_id(att_id: int) -> WorkflowAttachmentRow | 
         (att_id,),
     )
     return cast(WorkflowAttachmentRow, dict(rows[0])) if rows else None
+
+
+async def conversation_attachment_ids(cid: str, ids: Sequence[int]) -> set[int]:
+    """The subset of *ids* that are attachments on messages of conversation *cid*."""
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    rows = await select_rows(
+        "SELECT wa.id FROM workflow_attachments wa JOIN messages m ON m.id = wa.message_id "  # nosec B608 -- placeholders only
+        f"WHERE m.conversation_id = ? AND wa.id IN ({placeholders})",
+        (cid, *ids),
+    )
+    return {int(row["id"]) for row in rows}
 
 
 async def get_workflow_attachment_meta(att_id: int) -> WorkflowAttachmentMeta | None:

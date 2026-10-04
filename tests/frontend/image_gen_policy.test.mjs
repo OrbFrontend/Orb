@@ -262,9 +262,10 @@ test("reference support is a provider fact and is never asked of the model", () 
   assert.equal(providerTakesReferences(null), false);
 });
 
-// ── resolution ─────────────────────────────────────────────────────────────── The picker's job is to offer only what
-// the target will actually render. Anything else is a label that lies at the moment the user is choosing what to pay
-// for -- the backend does snap it, but it says so afterwards, on an image already billed.
+// ── resolution ───────────────────────────────────────────────────────────────
+// The picker's job is to offer only what the target will actually render. Anything else is a label that lies at the
+// moment the user is choosing what to pay for -- the backend does snap it, but it says so afterwards, on an image
+// already billed.
 
 test("a provider that names its own sizes is offered exactly those", () => {
   // OpenAI names them in its own rejection: "Supported sizes are 1024x1024,

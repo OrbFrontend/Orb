@@ -129,10 +129,10 @@ LAYERS = {
     "workflow_api.js": 6,
 }
 
-# ── 4. Frozen ABI ──────────────────────────────────────────────────────────── workflow_api.js's complete export surface,
-# additive-only. A rename or removal fails; a genuinely new export is added here in the same commit -- and, because that is a
-# new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with it. The check below reads that constant back so the
-# number cannot drift from the surface it describes.
+# ── 4. Frozen ABI ────────────────────────────────────────────────────────────
+# workflow_api.js's complete export surface, additive-only. A rename or removal fails; a genuinely new export is added here in
+# the same commit -- and, because that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with it. The check
+# below reads that constant back so the number cannot drift from the surface it describes.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
     # registrars

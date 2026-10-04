@@ -110,12 +110,11 @@ async def get_director_log_for_message(message_id: int) -> ConversationLogRow | 
 async def get_director_logs_for_messages(message_ids: Sequence[int]) -> dict[int, ConversationLogRow]:
     """The newest log of each message, keyed by message id; messages without one are absent."""
     marks = ",".join("?" * len(message_ids))
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"{_LOG_SELECT} WHERE l.id IN (SELECT MAX(id) FROM conversation_logs "  # nosec B608 -- module literal, placeholders only
-            f"WHERE message_id IN ({marks}) GROUP BY message_id)",
-            list(message_ids),
-        )
+    rows = await select_rows(
+        f"{_LOG_SELECT} WHERE l.id IN (SELECT MAX(id) FROM conversation_logs "  # nosec B608 -- module literal, placeholders only
+        f"WHERE message_id IN ({marks}) GROUP BY message_id)",
+        list(message_ids),
+    )
     return {row["message_id"]: cast(ConversationLogRow, _decoded_log(row)) for row in rows}
 
 

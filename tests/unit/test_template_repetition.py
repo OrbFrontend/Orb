@@ -178,8 +178,8 @@ class TestEdgeCases:
         """Repetition score should reflect template reuse."""
         text = "Template A here. Template A again. Something completely different."
         result = detect_template_repetition(text, max_words=2)
-        # Score should be > 0 since there's repetition Note: templates are "template a" and "something completely" So no exact
-        # template is repeated 2+ times
+        # Score should be > 0 since there's repetition.
+        # Note: templates are "template a" and "something completely", so no exact template is repeated 2+ times.
         assert result.total_sentences == 3
 
     def test_similarity_threshold_effect(self):

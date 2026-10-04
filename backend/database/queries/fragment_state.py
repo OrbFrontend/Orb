@@ -92,11 +92,10 @@ async def get_state_events_for_message(
 async def get_state_events_for_messages(message_ids: Sequence[int]) -> dict[int, list[FragmentStateEventRow]]:
     """Each message's own events in row order, keyed by message id; messages without events are absent."""
     marks = ",".join("?" * len(message_ids))
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"SELECT * FROM fragment_state_events WHERE message_id IN ({marks}) ORDER BY id",  # nosec B608 -- placeholders only
-            list(message_ids),
-        )
+    rows = await select_rows(
+        f"SELECT * FROM fragment_state_events WHERE message_id IN ({marks}) ORDER BY id",  # nosec B608 -- placeholders only
+        list(message_ids),
+    )
     out: dict[int, list[FragmentStateEventRow]] = {}
     for r in rows:
         out.setdefault(r["message_id"], []).append(cast(FragmentStateEventRow, dict(r)))

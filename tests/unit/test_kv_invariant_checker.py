@@ -73,9 +73,9 @@ def test_different_conversations_and_singletons_are_skipped():
     )
 
 
-# ── Batch lanes ────────────────────────────────────────────────────────────── A batch pass sends one call per item, so
-# ``messages[1]`` differs on every one. Under the conversation-identity rule each lands in its own group of one and is skipped —
-# the hole the auto-tagger would otherwise have shipped through.
+# ── Batch lanes ──────────────────────────────────────────────────────────────
+# A batch pass sends one call per item, so ``messages[1]`` differs on every one. Under the conversation-identity rule each lands
+# in its own group of one and is skipped — the hole the auto-tagger would otherwise have shipped through.
 
 
 def _batch_call(system=_SYS, tools=_TOOLS_SINGLE, user="card A"):

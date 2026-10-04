@@ -101,10 +101,10 @@ test("every context mode fills every field both modals render", () => {
   }
 });
 
-// ── Context-mode recommendation ───────────────────────────────────────────── The rule was fitted against simulated
-// 30-beat, three-pass group sessions rendered through the shipped prompt builders, on a server holding several
-// prefix-cache lanes. These pin the boundary it landed on and, more importantly, the direction it is allowed to be
-// wrong in.
+// ── Context-mode recommendation ─────────────────────────────────────────────
+// The rule was fitted against simulated 30-beat, three-pass group sessions rendered through the shipped prompt
+// builders, on a server holding several prefix-cache lanes. These pin the boundary it landed on and, more importantly,
+// the direction it is allowed to be wrong in.
 
 // `def_chars` arrives from the library list, which is the only card payload creation ever holds.
 const card = (defChars) => ({ id: `c${defChars}`, name: "x", def_chars: defChars });
@@ -269,9 +269,9 @@ test("a display name cannot inject markup into the rail or the empty state", () 
   assert.doesNotMatch(sceneEmptyStateHtml(), /<img src=x/);
 });
 
-// ── Speaker labels ────────────────────────────────────────────────────────── The role line over every reply. This
-// reads `speakerNames`, never `members`, and the distinction is the whole point: the active roster is what the rail
-// paints, but the transcript outlives it.
+// ── Speaker labels ──────────────────────────────────────────────────────────
+// The role line over every reply. This reads `speakerNames`, never `members`, and the distinction is the whole point:
+// the active roster is what the rail paints, but the transcript outlives it.
 
 test("a reply is labelled with its speaker's name", () => {
   scene();
@@ -310,9 +310,9 @@ test("an id no roster has ever held is named as unknown rather than blank", () =
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "gone" }), "Unknown speaker");
 });
 
-// ── Group families ────────────────────────────────────────────────────────── A checkpoint of a group is a branch of
-// that group. These cover the grouping the sidebar reads: what a fork belongs to, and which conversation in a family
-// supplies the name and the click target.
+// ── Group families ──────────────────────────────────────────────────────────
+// A checkpoint of a group is a branch of that group. These cover the grouping the sidebar reads: what a fork belongs
+// to, and which conversation in a family supplies the name and the click target.
 
 // Conversations arrive newest-active first, which is the order the sidebar and
 // the reopen-the-group click both depend on.
@@ -382,8 +382,9 @@ test("a family whose root is missing still renders, led by its newest member", (
   assert.equal(families[0].shown.id, "g2");
 });
 
-// ── Sidebar cap ───────────────────────────────────────────────────────────── The Groups section is capped the way
-// Worlds and Documents are: a recent slice by default, a search box and a "show all" behind it.
+// ── Sidebar cap ─────────────────────────────────────────────────────────────
+// The Groups section is capped the way Worlds and Documents are: a recent slice by default, a search box and a "show
+// all" behind it.
 
 // n families in conversation order, the (openIndex)th marked open.
 function families(n, openIndex = -1) {

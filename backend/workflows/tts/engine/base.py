@@ -12,6 +12,9 @@ class SpeakableChunk:
     """A unit of text ready for TTS synthesis.
 
     Speech extractors produce these from writer output. Each chunk has its own emotion/prosody settings.
+
+    Clips record their chunks with ``asdict`` and replay them with ``SpeakableChunk(**chunk)``, so a removed or renamed
+    field breaks replay of clips already stored.
     """
 
     text: str
@@ -21,25 +24,7 @@ class SpeakableChunk:
     emotion: str = "neutral"
     pause_before_ms: int = 0
     pause_after_ms: int = 0
-    voice_hint: str = ""  # For multi-character voice switching (Phase 3)
-
-    # Valid emotions (shared across all backends)
-    EMOTIONS = frozenset(
-        {
-            "neutral",
-            "warm",
-            "soft",
-            "playful",
-            "teasing",
-            "sad",
-            "angry",
-            "fearful",
-            "surprised",
-            "whispered",
-            "breathless",
-            "amused",
-        }
-    )
+    voice_hint: str = ""  # Read by no backend; kept so recorded chunks still replay.
 
 
 @dataclass

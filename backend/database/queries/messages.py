@@ -296,7 +296,7 @@ async def add_message(
     rejected_workflow_atts: list[dict] = []
 
     async with get_db() as db:
-        # BEGIN IMMEDIATE so the workflow batch's read-then-evict-then- insert sequence executes under the write lock alongside
+        # BEGIN IMMEDIATE so the workflow batch's read-then-evict-then-insert sequence executes under the write lock alongside
         # the message INSERT. The cache helper enforces this -- it raises if its conn is not already in a transaction.
         await db.execute("BEGIN IMMEDIATE")
         now = datetime.now(UTC).isoformat()
@@ -403,11 +403,10 @@ async def get_message_by_id(msg_id: int) -> MessageRow | None:
 async def get_messages_decisions(cid: str, message_ids: Sequence[int]) -> dict[int, dict]:
     """Decoded decision records of the given messages that belong to *cid*, keyed by id."""
     marks = ",".join("?" * len(message_ids))
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"SELECT id, decision_evaluations FROM messages WHERE conversation_id = ? AND id IN ({marks})",  # nosec B608 -- placeholders only
-            (cid, *message_ids),
-        )
+    rows = await select_rows(
+        f"SELECT id, decision_evaluations FROM messages WHERE conversation_id = ? AND id IN ({marks})",  # nosec B608 -- placeholders only
+        (cid, *message_ids),
+    )
     return {row["id"]: decision_evaluations_of(dict(row)) for row in rows}
 
 

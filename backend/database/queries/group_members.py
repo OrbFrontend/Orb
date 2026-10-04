@@ -8,7 +8,7 @@ from typing import Any, cast
 from typing import cast as typed_cast
 
 from ...core import CardScripts, CastMember, GroupContextMode, TurnCast
-from ..connection import get_db, immediate_tx, select_rows
+from ..connection import immediate_tx, select_rows
 from ..models import ConversationRow, GroupMemberRow
 from .character_cards import get_character_card, render_public_profile
 
@@ -27,11 +27,10 @@ def allocate_speaker_key(name: str, used: set[str]) -> str:
 
 async def get_group_members(conversation_id: str, *, include_inactive: bool = False) -> list[GroupMemberRow]:
     where = "conversation_id = ?" if include_inactive else "conversation_id = ? AND active = 1"
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"SELECT * FROM group_members WHERE {where} ORDER BY sort_order, id",  # nosec B608 -- fixed clauses
-            (conversation_id,),
-        )
+    rows = await select_rows(
+        f"SELECT * FROM group_members WHERE {where} ORDER BY sort_order, id",  # nosec B608 -- fixed clauses
+        (conversation_id,),
+    )
     return [cast(GroupMemberRow, dict(row)) for row in rows]
 
 

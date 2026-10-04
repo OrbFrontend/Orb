@@ -665,9 +665,10 @@ async def test_compression_prompts_stay_on_the_public_cast_projection(client, ll
     assert "## Character dossier" not in system
 
 
-# ── The scene-local sheet override ────────────────────────────────────────── `public_profile_override` is what the rest of the
-# cast sees; `card_sheet_override` is what the member reads about *itself*. A card asserts turn one forever, so a long scene
-# needs somewhere scene-local to say the coat burned — without writing the card, which stays a reusable shared asset.
+# ── The scene-local sheet override ──────────────────────────────────────────
+# `public_profile_override` is what the rest of the cast sees; `card_sheet_override` is what the member reads about *itself*. A
+# card asserts turn one forever, so a long scene needs somewhere scene-local to say the coat burned — without writing the card,
+# which stays a reusable shared asset.
 
 
 async def _put_members(client, conv, members: list[dict]):
@@ -747,9 +748,9 @@ async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(cli
     assert "### Aria" in system and "### Kael" in system
 
 
-# ── The post-exchange sheet-update pass ───────────────────────────────────────── One call per member the exchange touched,
-# staged pending, never applied. Routed through the mock's `workflow` queue for the reason `_profile_call` states: the schema is
-# deliberately absent from `prompting.tool_catalog.TOOLS`.
+# ── The post-exchange sheet-update pass ─────────────────────────────────────────
+# One call per member the exchange touched, staged pending, never applied. Routed through the mock's `workflow` queue for the
+# reason `_profile_call` states: the schema is deliberately absent from `prompting.tool_catalog.TOOLS`.
 
 
 def _sheet_call(**arguments) -> dict:
@@ -1274,8 +1275,9 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
     )
 
 
-# ── Scene-profile drafting ────────────────────────────────────────────────── The generator behind Manage cast's Draft /
-# Redraft buttons. One LLM call per member, never batched -- the leak that batching would open is pinned below.
+# ── Scene-profile drafting ──────────────────────────────────────────────────
+# The generator behind Manage cast's Draft / Redraft buttons. One LLM call per member, never batched -- the leak that batching
+# would open is pinned below.
 
 
 def _profile_call(**arguments) -> dict:

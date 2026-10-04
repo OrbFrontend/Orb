@@ -613,7 +613,7 @@ async def insert_workflow_attachments(
     new_total = sum(sizes.values())
 
     async def _run(conn) -> tuple[list[int], list[dict]]:
-        # Enforce the caller-owned-transaction contract: the read-then- evict-then-insert sequence below relies on the write
+        # Enforce the caller-owned-transaction contract: the read-then-evict-then-insert sequence below relies on the write
         # lock to keep the candidate snapshot stable. Self-managed branch below acquires BEGIN IMMEDIATE before calling in, so
         # this guard only ever fires for a caller-provided `db` that skipped it.
         if not getattr(conn, "in_transaction", False):

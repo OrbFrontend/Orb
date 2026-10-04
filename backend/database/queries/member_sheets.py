@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import get_db, immediate_tx
+from ..connection import immediate_tx, select_rows
 from ..models import MemberSheetProposalRow
 from .character_cards import get_character_card
 from .group_members import resolve_private_sheet
@@ -53,11 +53,10 @@ async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberS
 
     Read by the staging pass so a fresh exchange can carry an undecided proposal forward rather than competing with it.
     """
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM member_sheet_proposals WHERE conversation_id = ? AND status = 'pending' ORDER BY id",
-            (conversation_id,),
-        )
+    rows = await select_rows(
+        "SELECT * FROM member_sheet_proposals WHERE conversation_id = ? AND status = 'pending' ORDER BY id",
+        (conversation_id,),
+    )
     return {str(row["member_id"]): cast(MemberSheetProposalRow, dict(row)) for row in rows}
 
 
@@ -116,12 +115,11 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
                 ids.append(int(cur.lastrowid))
     if not ids:
         return []
-    async with get_db() as db:
-        placeholders = ",".join("?" for _ in ids)
-        rows = await db.execute_fetchall(
-            f"SELECT * FROM member_sheet_proposals WHERE id IN ({placeholders}) ORDER BY id",  # nosec B608 -- ints
-            tuple(ids),
-        )
+    placeholders = ",".join("?" for _ in ids)
+    rows = await select_rows(
+        f"SELECT * FROM member_sheet_proposals WHERE id IN ({placeholders}) ORDER BY id",  # nosec B608 -- ints
+        tuple(ids),
+    )
     return [cast(MemberSheetProposalRow, dict(row)) for row in rows]
 
 
@@ -136,8 +134,7 @@ async def get_sheet_proposals(
             return []
         sql += f" AND status IN ({','.join('?' for _ in statuses)})"  # nosec B608 -- fixed vocabulary
         args += tuple(statuses)
-    async with get_db() as db:
-        rows = await db.execute_fetchall(sql + " ORDER BY id DESC", args)
+    rows = await select_rows(sql + " ORDER BY id DESC", args)
     return [cast(MemberSheetProposalRow, dict(row)) for row in rows]
 
 

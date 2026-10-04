@@ -455,9 +455,9 @@ async def test_the_run_body_can_turn_thinking_on(client, llm_mock):
     assert all(p["chat_template_kwargs"] == {"enable_thinking": True, "thinking": True} for p in params)
 
 
-# ── What a run costs ───────────────────────────────────────────────────────── The run rewrites a column that leaves this
-# install: ``tags`` is what ``to_png`` writes into an exported card's V2/V3 chunk. There is no second list and no way back, so
-# these pin the loss as deliberate rather than letting it drift back in.
+# ── What a run costs ─────────────────────────────────────────────────────────
+# The run rewrites a column that leaves this install: ``tags`` is what ``to_png`` writes into an exported card's V2/V3 chunk.
+# There is no second list and no way back, so these pin the loss as deliberate rather than letting it drift back in.
 
 
 def _exported_tags(png: bytes) -> list[str]:

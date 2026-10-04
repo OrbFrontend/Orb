@@ -104,8 +104,9 @@ class SourcePolicy(NamedTuple):
     all_of: bool = False
 
 
-# Where a style's reference images come from. The combined `previous_or_character` is the default so the choice has no
-# cold-start cliff: a style pinned to `previous` alone hard-fails on a new conversation's first Visualize.
+# Where a style's reference images come from; a style without one sends prompts only. The combined `previous_or_character`
+# is listed first because it has no cold-start cliff: a style pinned to `previous` alone hard-fails on a new conversation's
+# first Visualize.
 #
 # **One reference image per character.** `character` means the people this render is a picture *of*, one image each and never
 # the same person twice -- in a solo chat that is one image, in a group it is one per member in frame, in `subjects.py`'s order.
@@ -120,7 +121,6 @@ REFERENCE_SOURCES: dict[str, SourcePolicy] = {
 # The names this field used to carry, and what a stored one now means. Both asked for a
 # likeness of somebody in the scene, which `character` now sends for everyone in frame.
 RETIRED_REFERENCE_SOURCES = {"cast": "character", "cast_or_character": "character"}
-DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 
 CONFIG_DEFAULTS = {
     "source": DEFAULT_SOURCE,
