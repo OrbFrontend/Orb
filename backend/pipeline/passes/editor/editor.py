@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
+from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
@@ -278,7 +279,7 @@ async def editor_stage(
     editor_audit_msgs: list[str] | None,
     kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Gating + writer->editor boundary event + editor pass + event translation.
 
     Decides whether the editor runs (``cfg.do_edit`` or feedback wanted, given a non-empty draft), emits the ``writer_done``

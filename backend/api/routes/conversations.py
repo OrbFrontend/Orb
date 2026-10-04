@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -81,6 +81,7 @@ from ...prompting import (
     render_state_block,
     resolve_mood_fragment_randoms,
 )
+from ...workflows.contracts import PublicEvent
 from ..deps import (
     CleanupStreamingResponse,
     deleting_resources,
@@ -484,7 +485,7 @@ async def api_summarize_conversation(
         speaker_names=speaker_names,
     )
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent]:
         async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
             yield {"event": "token", "data": delta}
         yield {"event": "done", "data": ""}

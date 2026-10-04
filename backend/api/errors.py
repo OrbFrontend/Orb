@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -12,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from ..inference import DecisionTransportError, EndpointConfigError
 from ..inference.claude_code import ClaudeCodeError
+from ..pipeline.events import FailureData, FailureEvent
 from ..pipeline.failures import describe_failure
 from ..workflows.errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 
@@ -29,12 +29,12 @@ API_PASSTHROUGH_ERRORS = (
 )
 
 
-def failure_event(exc: Exception) -> dict[str, Any]:
+def failure_event(exc: Exception) -> FailureEvent:
     """Describe and log one uncaught stream failure using the turn contract."""
     if isinstance(exc, HTTPException):
         detail = exc.detail
         sentence = detail if isinstance(detail, str) else detail.get("message", "") if isinstance(detail, dict) else ""
-        data = {
+        data: FailureData = {
             "headline": "Orb refused the request.",
             "sentence": sentence,
             "kind": "request",

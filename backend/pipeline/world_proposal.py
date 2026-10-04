@@ -13,6 +13,7 @@ from ..inference import CachedBase, agent_lane_from_settings, client_from_settin
 from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
 from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
+from .events import CoreTurnEvent
 from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .passes.world_change import world_change_step
 from .state import PipelineConfig, TurnState, WorldProposalTurn
@@ -41,7 +42,7 @@ async def _load_targets(world_ids: Sequence[str], conversation_id: str) -> tuple
 
 async def world_proposal_stage(
     cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: WorldProposalTurn, kv_tracker=None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Run World proposals into state with Editor-labelled reasoning and Inspector calls.
 
     Failures leave world_proposals empty and report a ``warning``; this post-reply step must not fail the turn.

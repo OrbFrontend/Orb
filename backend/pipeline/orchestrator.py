@@ -10,6 +10,7 @@ from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macro
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from .config import resolve_pipeline_config, split_interactive_fragments
+from .events import CoreTurnEvent, PipelineEvent, ResultEvent
 from .failures import (
     STAGE_AFTER_REPLY,
     STAGE_DIRECTOR,
@@ -33,7 +34,7 @@ from .world_proposal import world_proposal_stage
 logger = logging.getLogger(__name__)
 
 
-def _make_result(state: TurnState) -> dict:
+def _make_result(state: TurnState) -> ResultEvent:
     """Build the terminal ``_result`` SSE event from *state*."""
     return {"event": "_result", "data": state.as_result_event_data()}
 
@@ -86,7 +87,7 @@ async def run_director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Announce the state changes *state* was seeded with, then direct the turn.
 
     The one Director entry for a solo turn and for a group exchange's shared Director, so both label a failure as the Director's
@@ -154,7 +155,7 @@ async def run_pipeline(
     run_exchange_final: bool = True,
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PipelineEvent]:
     """Run the director -> writer -> editor passes for one turn.
 
     Streams SSE events as each pass runs, retains the post-Editor draft, then runs the local prose rewriter and post-pipeline

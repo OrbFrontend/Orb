@@ -309,8 +309,29 @@ enabled tools, schema overrides, client, and cache tracker so the call follows
 the same prompt and cache rules as the main turn. Its budget is the Agent lane's
 configured `max_tokens`, unchanged; a workflow does not pick its own.
 
-Public hook events pass through to SSE. Core events and names beginning with
-`_` are reserved. A useful custom event is `phase_status` with a channel that
+Public hook events pass through to SSE after envelope and turn-ownership
+validation at both `PRE_PIPELINE` and `POST_PIPELINE`. Names beginning with `_`
+are internal. The turn host protects terminal verdicts (`done`, `error`), message
+identity (`user_message_created`), group events (`speaking_plan`, `speaker_start`,
+`speaker_done`), authoritative content (`token`, `writer_rewrite`), and its pass
+and persistence reports (`director_start`, `director_done`, `step_start`,
+`writer_done`, `editor_done`, `decisions`, `feedback`, `state`,
+`world_change_proposed`, `workflow_attachments_rejected`). A hook cannot publish
+these directly. Invalid events are dropped with a logged reason; that hook and
+later hooks continue. A `draft_replaced` control still asks the bridge to publish
+its own `writer_rewrite`; attachment and message-state controls stay internal.
+
+Four shared events are supported: `phase_status` requires a string `channel`
+and a string `label` or `state`; `reasoning` requires string `pass` and `delta`;
+`draft_update` requires a string `draft`; `warning` requires a string `headline`.
+When supplied, warning text fields and phase fields must be strings, and
+`warning.status` must be an integer. Feature-owned JSON extensions remain open,
+as do custom event payloads. A cosmetic `draft_update` never changes the saved
+reply; only a completed replacement control does. This turn policy does not
+apply to on-demand, regeneration, document, or library event streams, whose
+hosts own different contracts.
+
+A useful shared event is `phase_status` with a channel that
 starts with `workflow:<id>`. On a turn stream its label becomes the status
 bar's text for the running step, so keep it a short description of the work
 (`Rewriting prose…`); outside a turn it shows as a separate pill.

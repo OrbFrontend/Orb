@@ -28,6 +28,7 @@ from ....inference import (
     ScoreAnswer,
     cache_key,
 )
+from ...events import DecisionsData
 from . import cooldown
 from .guidance import decision_guidance_block
 from .records import (
@@ -166,9 +167,9 @@ class JudgeResult:
     def writer_guidance(self) -> str:
         return decision_guidance_block(self.evaluations, "writer")
 
-    def as_event_data(self) -> dict[str, Any]:
+    def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
-        data: dict[str, Any] = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
+        data: DecisionsData = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
         if self.inherited:
             data["inherited"] = 1
         return data

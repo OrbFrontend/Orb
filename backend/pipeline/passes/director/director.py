@@ -24,6 +24,7 @@ from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_call
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
+from ...events import CoreTurnEvent, StateData
 from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
@@ -433,7 +434,7 @@ def _resolve_random_in_value(value: Any) -> Any:
     return value
 
 
-def state_event_payload(state: TurnState) -> dict:
+def state_event_payload(state: TurnState) -> StateData:
     """The ``state`` SSE payload: this turn's changes so far and what was refused."""
     return {
         "changes": [dict(event) for event in state.state_events],
@@ -468,7 +469,7 @@ async def director_stage(
     speaker_keys: str = "",
     director_decision_guidance: str = "",
     writer_decision_guidance: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Prepare and run the Director, apply before-Writer state updates, then build injection and lorebook blocks. Stop skips
     remaining assembly.
 

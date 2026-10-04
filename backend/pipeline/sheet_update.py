@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import database as db
 from ..features.cards import SHEET_TOOL_NAME, SheetUpdateUnavailable, build_exchange_transcript, propose_sheet_update
+from .events import CoreTurnEvent
 from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .state import PipelineConfig, SheetUpdateTurn, TurnState
 
@@ -27,7 +28,7 @@ def _exchange_transcript(turn: SheetUpdateTurn, state: TurnState, speaker_name: 
 
 async def sheet_update_stage(
     cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: SheetUpdateTurn
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Propose and stage sheet updates for the members this exchange touched.
 
     A failure that costs proposals reports a ``warning`` and never fails the exchange.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
 from ..core.llm_types import ParsedToolCall
@@ -68,31 +68,31 @@ class PipelineConfig:
     agent_lane: ModelLane
 
 
-# Fields included in the terminal ``_result`` event.
-_RESULT_FIELDS = (
-    "active_moods",
-    "agent_raw",
-    "calls",
-    "latency",
-    "effective_msg",
-    "resp_text",
-    "writer_draft",
-    "inj_block",
-    "extra_fields",
-    "fragment_cooldowns",
-    "decision_evaluations",
-    "decision_cooldowns",
-    "reasoning_director",
-    "reasoning_writer",
-    "reasoning_editor",
-    "feedback_values",
-    "state_events",
-    "state_report",
-    "staged_attachments",
-    "staged_message_state",
-    "macro_choices",
-    "world_proposals",
-)
+class TurnResultData(TypedDict):
+    """The stable persistence projection of a finished turn; feature JSON stays open."""
+
+    active_moods: list[str]
+    agent_raw: str
+    calls: list[ParsedToolCall]
+    latency: int
+    effective_msg: str
+    resp_text: str
+    writer_draft: str
+    inj_block: str
+    extra_fields: dict
+    fragment_cooldowns: dict[str, int]
+    decision_evaluations: dict
+    decision_cooldowns: dict[str, int]
+    reasoning_director: str
+    reasoning_writer: str
+    reasoning_editor: str
+    feedback_values: dict
+    state_events: list[dict]
+    state_report: dict
+    staged_attachments: list[dict]
+    staged_message_state: dict
+    macro_choices: dict[str, str]
+    world_proposals: list[dict]
 
 
 # Fields copied from the shared Director result to each group speaker.
@@ -202,9 +202,32 @@ class TurnState:
         setattr(self, buffer, getattr(self, buffer) + delta)
         return delta
 
-    def as_result_event_data(self) -> dict:
+    def as_result_event_data(self) -> TurnResultData:
         """Return the stable field subset for the ``_result`` SSE event."""
-        return {name: getattr(self, name) for name in _RESULT_FIELDS}
+        return {
+            "active_moods": self.active_moods,
+            "agent_raw": self.agent_raw,
+            "calls": self.calls,
+            "latency": self.latency,
+            "effective_msg": self.effective_msg,
+            "resp_text": self.resp_text,
+            "writer_draft": self.writer_draft,
+            "inj_block": self.inj_block,
+            "extra_fields": self.extra_fields,
+            "fragment_cooldowns": self.fragment_cooldowns,
+            "decision_evaluations": self.decision_evaluations,
+            "decision_cooldowns": self.decision_cooldowns,
+            "reasoning_director": self.reasoning_director,
+            "reasoning_writer": self.reasoning_writer,
+            "reasoning_editor": self.reasoning_editor,
+            "feedback_values": self.feedback_values,
+            "state_events": self.state_events,
+            "state_report": self.state_report,
+            "staged_attachments": self.staged_attachments,
+            "staged_message_state": self.staged_message_state,
+            "macro_choices": self.macro_choices,
+            "world_proposals": self.world_proposals,
+        }
 
     def as_director_output(self) -> dict:
         """Return the read-only Director output for post-pipeline workflows."""

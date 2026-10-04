@@ -164,15 +164,25 @@ it("EOF without a terminal event waits for settlement and keeps unconfirmed pros
   assert.equal(S.streamOp, null);
 });
 
-it("done and error are terminal, but speaker_done is not", async () => {
+it("done and error are terminal; group, shared and custom progress cannot confirm persistence", async () => {
   const container = document.getElementById("chat-messages");
   for (const event of ["done", "error"]) {
     const response = new Response(`event: ${event}\ndata: Test result\n\n`);
     await stream.processSSEStream(response, container, { el: null });
     if (event === "error") assert.equal(S.turnError.headline, "Test result");
   }
-  const response = new Response("event: speaker_done\ndata: {}\n\n");
-  await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+  for (const [event, data] of [
+    ["speaker_done", {}],
+    ["phase_status", { channel: "workflow:x", state: "done" }],
+    ["reasoning", { pass: "workflow:x", delta: "thinking" }],
+    ["draft_update", { draft: "cosmetic preview" }],
+    ["writer_rewrite", { refined_text: "authoritative, awaiting persistence" }],
+    ["warning", { headline: "Optional work declined" }],
+    ["custom_done", {}],
+  ]) {
+    const response = new Response(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+  }
 });
 
 it("Expression Playback keeps saved Editor prose buffered through settlement and reveals expression runs", async () => {

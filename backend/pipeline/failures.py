@@ -11,6 +11,7 @@ from ..inference import AbortToken, DecisionTransportError, EndpointConfigError,
 from ..inference.claude_code import ClaudeCodeError
 from ..inference.errors import BODY_LIMIT
 from ..workflows.errors import WorkflowUserFacingError
+from .events import FailureData, PublicTurnEvent, WarningEvent
 
 # Cap on an unclassified exception's repr. The full traceback is in the log; this is the line that reaches a chat bubble.
 INTERNAL_SENTENCE_LIMIT = 300
@@ -120,7 +121,7 @@ def _body_of(exc: httpx.HTTPStatusError) -> str:
         return ""
 
 
-def describe_failure(exc: BaseException) -> dict[str, Any]:
+def describe_failure(exc: BaseException) -> FailureData:
     """Turn *exc* into the ``error`` event's data payload.
 
     Keys: ``headline`` (always), ``sentence`` (always, possibly empty), ``kind`` (always), ``stage`` (always, ``""`` when no
@@ -153,7 +154,7 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
         # Read response details for bare status failures; fall back to repr if empty. This branch has no credential to redact
         # and is for internal calls only: never route a credential-bearing provider error through bare raise_for_status.
         body = _body_of(exc)
-        payload = {
+        payload: FailureData = {
             "headline": headline_for_status(exc.response.status_code),
             "sentence": provider_sentence(body) or _internal_sentence(exc),
             "status": exc.response.status_code,
@@ -219,7 +220,7 @@ _STEP_HEADLINES = {
 }
 
 
-def step_failure_warning(error: BaseException, step: str, *, stage: str, label: str = "") -> dict:
+def step_failure_warning(error: BaseException, step: str, *, stage: str, label: str = "") -> WarningEvent:
     """The non-terminal ``warning`` for a failure its step survived.
 
     The headline names the step; the failure's own account becomes the sentence, so a timeout still reads as a timeout.
@@ -240,7 +241,7 @@ def _warning_cause(data: Mapping[str, Any]) -> tuple:
     return (data.get("kind"), data.get("sentence"))
 
 
-async def reported_once(events: AsyncIterator[dict], abort: AbortToken | None) -> AsyncIterator[dict]:
+async def reported_once(events: AsyncIterator[PublicTurnEvent], abort: AbortToken | None) -> AsyncIterator[PublicTurnEvent]:
     """Pass one turn's SSE events through, thinning its ``warning`` events.
 
     The rule every step follows: a failed call ends its own step, never the turn -- only the Writer's failure is the turn's

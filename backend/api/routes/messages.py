@@ -49,6 +49,7 @@ from ...pipeline import (
 )
 from ...pipeline.predicates import resolve_persona_id
 from ...pipeline.workflow_bridge import PostPipelineResult, run_post_pipeline
+from ...workflows.contracts import PublicEvent
 from ...workflows.prose_rewriter_host import RERUN_AFTER_REWRITE, ProseRewriteConfig, resolve_config, rewrite_events
 from ..deps import (
     attachment_content_response,
@@ -265,7 +266,7 @@ async def api_magic_rewrite_msg(
 
 async def _stream_prose_rewrite_message(
     cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Mapping[str, Any] | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicEvent]:
     """Stream the retained draft or saved text through the local rewriter.
 
     Load after acquiring the conversation lock to avoid stale edits. Persist only

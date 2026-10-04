@@ -22,6 +22,7 @@ from ...core import (
 from ...core.llm_types import ContentDelta, ReasoningDelta
 from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
+from ..events import CoreTurnEvent
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
@@ -169,7 +170,7 @@ async def writer_stage(
     speaker_cue: str = "",
     macros: Macros | None = None,
     context_mode: GroupContextMode = "private",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CoreTurnEvent]:
     """Input-prep + writer pass + event translation.
 
     Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs

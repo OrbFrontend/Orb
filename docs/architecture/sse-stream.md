@@ -138,6 +138,18 @@ A turn with no reply text saves nothing, including the Director's moods.
 Persistence happens before `done`, so the browser can trust the server when the
 stream closes.
 
+`pipeline/events.py` owns the fixed public turn payloads and the two internal
+handoffs. `run_pipeline` yields `PipelineEvent`; persistence consumes those
+internal events and yields `PublicTurnEvent` through the entrypoints to the API.
+`TurnState.as_result_event_data()` explicitly projects a typed `TurnResultData`,
+so reconstruction and saving check the same fields. Feature and provider JSON
+inside those fields remains open. Validated hook envelopes use the nominal
+`HookEvent` wrapper (still a dictionary at runtime), so an open custom event
+cannot erase fixed core payload checks or narrowing. Consumers distinguish that
+wrapper before narrowing core events by name. The public SSE encoder rejects
+internal names, and its input type excludes both internal handoffs. Its generic
+envelope validation imposes no turn ownership policy on other streams.
+
 The reply is saved at most once. Once the `_result` save has started, a
 cancellation waits for that same save and the fallback never runs; its INSERT
 may already have committed. A save that fails is raised as a `saving the reply`

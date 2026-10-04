@@ -24,6 +24,7 @@ from ..database import get_conversation, get_lorebook_entry, get_workflow_attach
 from ..database.models import ConversationRow
 from ..features.cards import ProfileDraftUnavailable
 from ..inference import AbortToken
+from ..pipeline.events import PublicTurnEvent
 from ..workflows import PublicEvent, WorkflowEventStream, public_event_error
 from .errors import API_PASSTHROUGH_ERRORS, failure_event
 
@@ -280,16 +281,19 @@ async def stop_active_stream(
     return {"active": True, "settled": True}
 
 
-async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
+async def _safe_aclose(gen: AsyncIterator[Any]) -> None:
     """Close *gen*, shielding the close from cancellation so the generator's own
     finally blocks (e.g. the orchestrator's fallback persistence of incomplete
     messages) always run to completion. If the shield itself is cancelled, retry
     the close once unshielded and swallow any error."""
+    close = getattr(gen, "aclose", None)
+    if close is None:
+        return
     try:
-        await asyncio.shield(gen.aclose())
+        await asyncio.shield(close())
     except asyncio.CancelledError:
         try:
-            await gen.aclose()
+            await close()
         except Exception:
             pass
 
@@ -343,7 +347,7 @@ async def _drain_after_stop(gen_iter: AsyncIterator[Any], pending: asyncio.Futur
 
 
 async def _settle_stream(
-    gen: AsyncGenerator[Any, None],
+    gen: AsyncIterator[Any],
     gen_iter: AsyncIterator[Any] | None,
     pending: asyncio.Future | None,
     *,
@@ -384,7 +388,13 @@ async def _settle_stream(
 _SETTLING: set[asyncio.Task] = set()
 
 
-async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = None, cid: str | None = None):
+async def sse_stream(
+    gen: AsyncIterator[PublicEvent | PublicTurnEvent],
+    request: Request,
+    *,
+    abort_token: AbortToken | None = None,
+    cid: str | None = None,
+) -> AsyncGenerator[str, None]:
     """Encode async events as SSE; a disconnect stops the turn, which still saves."""
 
     async def _watch_disconnect() -> None:
@@ -447,6 +457,8 @@ async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = 
             except BaseException:
                 finished = True
                 raise
+            if reason := public_event_error(event):
+                raise ValueError(f"Invalid public SSE event: {reason}")
             evt_type = event["event"]
             evt_data = event.get("data", "")
             if isinstance(evt_data, dict):
@@ -548,7 +560,7 @@ def workflow_event_stream_response(
 
 
 def pipeline_sse_response(
-    make_gen: Callable[[AbortToken], AsyncIterator[Any]], request: Request, cid: str
+    make_gen: Callable[[AbortToken], AsyncIterator[PublicTurnEvent | PublicEvent]], request: Request, cid: str
 ) -> CleanupStreamingResponse:
     """Standard SSE response for a turn-lifecycle event generator.
 

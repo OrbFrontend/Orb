@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
 from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
@@ -21,33 +21,32 @@ from ..workflows import (
     PreCtx,
     get_workflow,
     iter_subscriptions,
-    public_event_error,
     readonly_view,
 )
 from ..workflows.enablement import effective_workflow_enabled
 from ..workflows.errors import WorkflowUserFacingError
+from .events import HookEvent, PublicTurnEvent, WarningEvent
 from .failures import describe_failure
 
 logger = logging.getLogger(__name__)
 _EventT = TypeVar("_EventT")
 
 
-def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict | None:
+def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> HookEvent | None:
     """Return a valid public SSE event, or log and drop malformed output.
 
     Control events are consumed before this boundary. Anything left must use the public ``{"event": <non-empty str>, ...}``
-    shape; accepting arbitrary objects here merely defers the failure to the SSE adapter. Shape validation lives in
-    ``workflows.contracts.public_event_error`` so this bridge and the API on-demand SSE encoder enforce one definition of a
-    public event.
+    shape. Generic envelope validation remains shared with on-demand SSE; the pipeline
+    adds turn ownership and shared-payload validation before wrapping open hook JSON.
     """
-    reason = public_event_error(ev)
-    if reason is not None:
-        logger.warning("%s hook %r yielded an invalid public event (%s); dropping", hook_type, workflow_id, reason)
+    try:
+        return HookEvent(ev)
+    except ValueError as exc:
+        logger.warning("%s hook %r yielded an invalid public event (%s); dropping", hook_type, workflow_id, exc)
         return None
-    return cast(dict, ev)
 
 
-def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
+def _hook_warning(exc: Exception, workflow_id: str) -> WarningEvent | None:
     """Return a non-terminal warning for WorkflowUserFacingError; defects stay log-only.
 
     Hook failures do not invalidate prose. Do not emit error here: SSE reserves it for terminal failure.
@@ -95,7 +94,7 @@ async def run_post_pipeline(
     agent_model_name: str = "",
     post_workflow_ids: Collection[str] | None = None,
     on_accepted: Callable[[PostPipelineResult], None] | None = None,
-) -> AsyncIterator[dict | PostPipelineResult]:
+) -> AsyncIterator[PublicTurnEvent | PostPipelineResult]:
     """Run selected POST_PIPELINE hooks over the post-Editor draft.
 
     Yield public events and a final PostPipelineResult; log and skip hook failures. post_workflow_ids restricts dispatch. Stop
@@ -319,7 +318,7 @@ async def iterate_pre_pipeline_hooks(
     kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Run PRE_PIPELINE hooks, forwarding events and merging tools/system extras.
 
     Prepopulate accumulators with merged_enabled_tools and extras. Log and skip

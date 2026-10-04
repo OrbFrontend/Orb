@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -19,6 +20,7 @@ from ...database import (
 from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
+from ...workflows.contracts import PublicEvent
 from ..deps import CleanupStreamingResponse, deleting_resources, sse_stream, stop_active_stream
 from ..schemas import (
     DocumentAuditRequest,
@@ -85,7 +87,7 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
     client = client_from_settings(settings, abort_token=abort_token)
     continuer = DocumentContinuer(client, settings)
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent]:
         finish = ""
         async for chunk in continuer.stream(
             data.prompt, settings.get("model_name", ""), assisted=data.assisted, token_probs=data.token_probs

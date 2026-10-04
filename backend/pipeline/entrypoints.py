@@ -15,6 +15,7 @@ from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_prefixes, load_pipeline_context, prepare_turn
+from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
 from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
@@ -102,10 +103,10 @@ def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str
 async def _run_turn_handler(
     conversation_id: str,
     abort_token: AbortToken | None,
-    body: Callable[[PipelineContext], AsyncIterator[dict]],
+    body: Callable[[PipelineContext], AsyncIterator[PublicTurnEvent]],
     *,
     log_label: str,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Shared wrapper for the public turn handlers.
 
     Loads the pipeline context, guards the missing-conversation case, and converts any pipeline exception into the terminal SSE
@@ -139,7 +140,7 @@ async def _run_judge(
     macros: Any,
     anchor_message_id: int | None,
     director_runs: bool,
-) -> AsyncIterator[dict | JudgeResult]:
+) -> AsyncIterator[CoreTurnEvent | JudgeResult]:
     prior = ctx.director.get("decision_cooldowns") or {}
     snapshot = build_snapshot(
         history=history,
@@ -294,7 +295,7 @@ async def _open_turn(
     decision_request: str,
     decision_anchor: int | None,
     committed: JudgeResult | None = None,
-) -> AsyncIterator[dict | _OpenedTurn]:
+) -> AsyncIterator[PublicTurnEvent | _OpenedTurn]:
     """Freeze the turn's context, then settle its decisions, for either driver.
 
     *committed* is a result an earlier reply of the same exchange already persisted; it is re-announced rather than re-judged.
@@ -358,7 +359,7 @@ async def _generate_reply(
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
     decision_input: tuple[Sequence[Mapping[str, Any]], str] | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Run setup, pipeline and persistence, yielding SSE events.
 
     The user row must already be saved. user_message may be steered while last_user_message retains the original. decision_input
@@ -444,7 +445,7 @@ async def _generate_group_exchange(
     editor_audit_msgs: list[str] | None = None,
     decision_exchange_id: str | None = None,
     decision_steering: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Run one shared Director setup followed by zero or more speaker pipelines."""
     settings = ctx.settings
     rows = list(ctx.group_members)
@@ -539,7 +540,7 @@ async def _generate_group_exchange(
     # previous one into this one's evidence. Named through `ctx.speaker_names`, which covers members the roster has since
     # dropped -- their lines are still part of the round the sheet pass reads.
     prior_user, prior_lines = ("", []) if user_message else _round_prefix(history, ctx.speaker_names)
-    public_plan = [
+    public_plan: list[SpeakerPlanItem] = [
         {"member_id": row["id"], "card_id": row.get("character_card_id"), "name": row["display_name"], "cue": cue}
         for row, cue in plan_rows
     ]
@@ -677,7 +678,7 @@ async def _generate_group_exchange(
             emit_done=False,
             world_source_user_msg_id=source_user_message_id,
         ):
-            if event["event"] == "speaker_done":
+            if not isinstance(event, HookEvent) and event["event"] == "speaker_done":
                 persisted_id = event["data"].get("message_id")
                 persisted_content = event["data"].get("content") or ""
             yield event
@@ -716,7 +717,7 @@ async def handle_turn(
     attachments: list[dict] | None = None,
     abort_token: AbortToken | None = None,
     speaker_member_id: str | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Save the user message, run the pipeline, and stream the reply.
 
     Entry point for ``POST /send`` and ``POST /continue``. For ``/continue`` (``skip_user_persist=True``) the user row already
@@ -728,7 +729,7 @@ async def handle_turn(
     if attachments is None:
         attachments = []
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if error := _group_pin_error(ctx, speaker_member_id):
             yield {"event": "error", "data": error}
             return
@@ -828,10 +829,10 @@ async def handle_turn(
 
 async def handle_speak(
     conversation_id: str, speaker_member_id: str, abort_token: AbortToken | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Generate a pinned group exchange without inserting a synthetic user row."""
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if not ctx.cast.grouped:
             yield {"event": "error", "data": "Conversation is not a group"}
             return
@@ -864,7 +865,7 @@ async def handle_fork_edit(
     new_content: str,
     abort_token: AbortToken | None = None,
     speaker_member_id: str | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Fork the conversation at a user message: save the edit and generate a fresh reply.
 
     Entry point for ``POST /messages/{id}/fork-edit``. Saves the edited text as a new sibling of *user_msg_id* (same parent and
@@ -874,7 +875,7 @@ async def handle_fork_edit(
     Logs at the assistant turn (not the user turn) so this branch's log row is distinct from the original turn's log.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if error := _group_pin_error(ctx, speaker_member_id):
             yield {"event": "error", "data": error}
             return
@@ -957,7 +958,7 @@ async def handle_fork_edit(
 
 async def handle_regenerate(
     conversation_id: str, assistant_msg_id: int, abort_token: AbortToken | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate an assistant message as a new sibling branch.
 
     Entry point for ``POST /messages/{id}/regenerate``. Resets the director to the pre-turn baseline and re-runs the pipeline
@@ -965,7 +966,7 @@ async def handle_regenerate(
     both.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -1032,7 +1033,7 @@ async def _regenerate_with_steering(
     abort_token: AbortToken | None = None,
     *,
     log_label: str = "Steered regenerate",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate an assistant reply as a new sibling, steered by an OOC message.
 
     Extends history with the original exchange so the model sees what it wrote, then runs the full pipeline with *steer_msg* as
@@ -1040,7 +1041,7 @@ async def _regenerate_with_steering(
     reply is left intact on its own branch.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -1116,7 +1117,7 @@ async def _regenerate_with_steering(
 
 async def handle_super_regenerate(
     conversation_id: str, assistant_msg_id: int, abort_token: AbortToken | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate a reply, nudging the model toward a different direction.
 
     Entry point for ``POST /messages/{id}/super_regenerate``. Sends a canned OOC
@@ -1134,7 +1135,7 @@ _MAGIC_STEER_SUFFIX = ". Keep it consistent with the established scene, characte
 
 async def handle_magic_rewrite(
     conversation_id: str, assistant_msg_id: int, direction: str, abort_token: AbortToken | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Rewrite an assistant reply following a user-supplied direction.
 
     Entry point for ``POST /messages/{id}/magic_rewrite``. Wraps *direction* in an OOC steering message and regenerates as a new

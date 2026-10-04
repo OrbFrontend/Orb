@@ -5,31 +5,34 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
 from ..features import lorebook
 from ..workflows.attachment_cache import project_rejected_attachment
+from .events import HookEvent, PipelineEvent, PublicTurnEvent, WorldChangeData
 from .failures import STAGE_SAVE, mark_stage
 from .predicates import agent_enabled
 from .state import TurnState
 
 logger = logging.getLogger(__name__)
 
+ResultCallback = Callable[[TurnState, int | None], Awaitable[None]]
+
 # What ``_persist_result`` returns: the assistant row id, rejected attachments, and the staged World proposals.
-_Saved = tuple[int | None, list[dict], list[dict]]
+_Saved = tuple[int | None, list[dict], list[WorldChangeData]]
 
 
-def conversation_log_writer(conversation_id: str, log_turn_index: int):
+def conversation_log_writer(conversation_id: str, log_turn_index: int) -> ResultCallback:
     """Return an async callback that writes the ``conversation_logs`` row for this turn.
 
     The callback runs right after the assistant message is saved. Normal turns log at the user turn index; branch-creating paths
     (fork-edit, regenerate) log at the assistant turn index so their log rows stay distinguishable.
     """
 
-    async def _on_result(res: TurnState, asst_id):
+    async def _on_result(res: TurnState, asst_id: int | None) -> None:
         await db.add_conversation_log(
             conversation_id,
             log_turn_index,
@@ -48,12 +51,12 @@ def conversation_log_writer(conversation_id: str, log_turn_index: int):
     return _on_result
 
 
-async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_id: int) -> list[dict]:
+async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_id: int) -> list[WorldChangeData]:
     """Stage validated proposals after assistant persistence, returning event payloads in World order.
 
     Log failures per World without failing the already committed reply or dropping other proposals.
     """
-    payloads: list[dict] = []
+    payloads: list[WorldChangeData] = []
     for proposal in res.world_proposals:
         try:
             changeset = await lorebook.stage_proposal(
@@ -152,7 +155,7 @@ async def _fallback_persist(
     speaker_member_id: str | None,
     exchange_id: str | None,
     world_source_user_msg_id: int | None,
-    extra_on_result,
+    extra_on_result: ResultCallback | None,
 ) -> Exception | None:
     """Best-effort persist of live state when the pipeline exits before _result.
 
@@ -213,7 +216,7 @@ async def _finish_save(task: asyncio.Future[_Saved]) -> _Saved:
         raise
 
 
-async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | None):
+async def _shielded_log_save(extra_on_result: ResultCallback, res: TurnState, asst_id: int | None) -> None:
     """Run the ``extra_on_result`` callback exactly once under ``asyncio.shield``.
 
     The callback writes a ``conversation_logs`` row (a bare INSERT with no dedup guard). Cancellation is not retried -- a partial
@@ -233,20 +236,20 @@ async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | Non
 
 
 async def consume_pipeline(
-    pipeline: AsyncIterator[dict],
+    pipeline: AsyncIterator[PipelineEvent],
     conversation_id: str,
     settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
     *,
-    extra_on_result=None,
+    extra_on_result: ResultCallback | None = None,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
     speaker_name: str = "",
     card_id: str | None = None,
     emit_done: bool = True,
     world_source_user_msg_id: int | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Forward pipeline events, persist _result, then emit done.
 
     After saving, call extra_on_result(res, asst_id) if supplied. Finally saves live state on abort/error before _result. Save
@@ -266,13 +269,15 @@ async def consume_pipeline(
 
     try:
         async for event in pipeline:
-            etype = event["event"]
-            if etype == "token":
+            if isinstance(event, HookEvent):
+                yield event
+                continue
+            if event["event"] == "token":
                 accumulated_text += event["data"]
                 yield event
-            elif etype == "_turn_state":
+            elif event["event"] == "_turn_state":
                 live = event["data"]
-            elif etype == "_result":
+            elif event["event"] == "_result":
                 res = TurnState(**event["data"])
                 saving = asyncio.ensure_future(
                     _persist_result(

@@ -244,3 +244,27 @@ async def test_an_unserializable_event_reports_failure_and_closes_the_generator(
     assert json.loads(frames[0].split("data: ", 1)[1])["kind"] == "internal"
     assert closed == [True]
     assert not deps._conversation_stream_locks["invalid-event"].locked()
+
+
+async def test_shared_encoder_keeps_other_streams_terminal_payloads():
+    async def gen():
+        yield {"event": "done", "data": {"card": {"name": "library result"}}}
+        yield {"event": "phase_status", "data": {"label": "on-demand needs no channel"}}
+        yield {"event": "regenerate_done", "data": {"attachments": []}}
+
+    frames = [frame async for frame in deps.sse_stream(gen(), _FakeReq())]
+    assert len(frames) == 3
+    assert json.loads(frames[0].split("data: ")[1])["card"]["name"] == "library result"
+    assert frames[1].startswith("event: phase_status")
+    assert frames[2].startswith("event: regenerate_done")
+
+
+@pytest.mark.parametrize("name", ["_turn_state", "_result"])
+async def test_internal_event_is_rejected_by_generic_encoder(name):
+    async def gen():
+        yield {"event": name, "data": {"secret": "internal"}}
+
+    frames = [frame async for frame in deps.sse_stream(gen(), _FakeReq())]
+    assert len(frames) == 1 and frames[0].startswith("event: error")
+    assert "reserved internal prefix" in frames[0]
+    assert "secret" not in frames[0]

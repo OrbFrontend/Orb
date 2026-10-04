@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -54,6 +55,8 @@ from ...inference import (
     client_from_settings,
 )
 from ...pipeline import resolve_judge_config
+from ...pipeline.events import FailureEvent
+from ...workflows.contracts import PublicEvent
 from ..deps import CleanupStreamingResponse, idle_chats_guard, sse_stream, stop_active_stream
 from ..errors import failure_event
 from ..schemas import (
@@ -83,7 +86,7 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
     settings = await get_settings()
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         yield {"event": "start", "data": {}}
         try:
             digest = ""
@@ -150,7 +153,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
     settings = await get_settings()
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         if _run_lock.locked():
             yield {"event": "error", "data": "The library is busy — a tagging run or a vocabulary save is already under way"}
             return
@@ -253,7 +256,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
     )
 
 
-async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token):
+async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token) -> AsyncIterator[PublicEvent | FailureEvent]:
     """Keep the Judge busy across cards while committing each completed card."""
     total = len(pending)
     client = DecisionClient(config.url, config.api_key, config.model, timeout=_JUDGE_TIMEOUT_SECONDS, proxy=config.proxy)
@@ -343,7 +346,7 @@ async def api_scan_library_duplicates(request: Request):
     """Rebuild the server-side duplicate report and stream avatar-cache progress."""
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         if _run_lock.locked():
             yield {
                 "event": "error",

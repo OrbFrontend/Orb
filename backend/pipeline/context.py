@@ -47,6 +47,7 @@ from ..prompting.lorebook import (
     compute_lorebook_injection_block,
 )
 from .config import build_writer_tools_blob, split_interactive_fragments
+from .events import PublicTurnEvent
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .passes.state import StateContract
 from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
@@ -352,7 +353,7 @@ async def prepare_turn(
     settings: Mapping[str, Any],
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
-) -> AsyncIterator[dict | TurnSetup]:
+) -> AsyncIterator[PublicTurnEvent | TurnSetup]:
     """Load and freeze per-turn context."""
     macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
     macros = Macros.from_settings(

@@ -20,6 +20,8 @@ from backend.database import (
     set_workflow_config,
 )
 from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline import handle_turn
+from backend.pipeline.events import PROTECTED_TURN_EVENTS
 from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.persistence import consume_pipeline
 from backend.pipeline.workflow_bridge import (
@@ -988,3 +990,125 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
     assert not [e for e in events if isinstance(e, dict) and e.get("event") in ("tts_autoplay", "later")]
     assert isinstance(events[-1], PostPipelineResult)
     assert [att["filename"] for att in events[-1].staged_attachments] == ["a.png"]
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+@pytest.mark.parametrize("name", sorted(PROTECTED_TURN_EVENTS))
+async def test_turn_hooks_drop_protected_events_and_continue(phase, name, caplog):
+    async def hook(ctx):
+        yield {"event": name, "data": {"forged": True}}
+        yield {"event": "custom_after_rejection", "data": {"extension": [1, 2]}}
+
+    async def later(ctx):
+        yield {"event": "later_hook", "data": "still runs"}
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "real reply"}
+
+    with (
+        register_for_test(make_workflow("tw_owner", priority=-20, **{phase: hook})),
+        register_for_test(make_workflow("tw_later_owner", priority=20, **{phase: later})),
+    ):
+        if phase == "pre_pipeline":
+            events = await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+        else:
+            events = await _run_with_writer(writer)
+    assert not any(e.get("data") == {"forged": True} for e in events)
+    assert [e["event"] for e in events if e["event"] in {"custom_after_rejection", "later_hook"}] == [
+        "custom_after_rejection",
+        "later_hook",
+    ]
+    assert f"event {name!r} is protected by the turn host" in caplog.text
+    assert "tw_owner" in caplog.text and phase in caplog.text
+
+
+_SHARED_EVENTS = [
+    {"event": "phase_status", "data": {"channel": "workflow:tw_shared", "label": "Working", "extra": [1]}},
+    {"event": "phase_status", "data": {"channel": "workflow:tw_shared", "state": "done"}},
+    {"event": "reasoning", "data": {"pass": "workflow:tw_shared", "delta": "thought", "feature": {"x": 1}}},
+    {"event": "draft_update", "data": {"draft": "cosmetic", "feature": True}},
+    {"event": "warning", "data": {"headline": "Optional work declined", "sentence": "reason", "status": 503, "extra": [2]}},
+    {"event": "tts_autoplay", "data": {}},
+    {"event": "custom_without_data"},
+    {"event": "custom_text", "data": "text"},
+]
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+async def test_turn_hooks_preserve_shared_and_custom_json(phase):
+    async def hook(ctx):
+        for event in _SHARED_EVENTS:
+            yield event
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "authoritative"}
+
+    with register_for_test(make_workflow("tw_shared", **{phase: hook})):
+        if phase == "pre_pipeline":
+            events = await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+        else:
+            events = await _run_with_writer(writer)
+            assert next(e["data"] for e in events if e["event"] == "_result")["resp_text"] == "authoritative"
+    assert [e for e in events if e in _SHARED_EVENTS] == _SHARED_EVENTS
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+@pytest.mark.parametrize(
+    "bad_event,reason",
+    [
+        ({"event": "phase_status", "data": {"label": "working"}}, "phase_status.channel"),
+        ({"event": "phase_status", "data": {"channel": "workflow:x"}}, "requires label or state"),
+        ({"event": "phase_status", "data": {"channel": "workflow:x", "state": 1}}, "phase_status.state"),
+        ({"event": "reasoning", "data": {"pass": "writer", "delta": 3}}, "reasoning.delta"),
+        ({"event": "draft_update", "data": {"draft": None}}, "draft_update.draft"),
+        ({"event": "warning", "data": {"headline": 1}}, "warning.headline"),
+        ({"event": "warning", "data": {"headline": "failed", "status": True}}, "warning.status"),
+        ({"event": "warning", "data": {"headline": "failed", "body": []}}, "warning.body"),
+    ],
+)
+async def test_turn_hooks_drop_invalid_shared_fields(phase, bad_event, reason, caplog):
+    async def hook(ctx):
+        yield bad_event
+        yield {"event": "custom_survives"}
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "reply"}
+
+    with register_for_test(make_workflow("tw_bad_shared", **{phase: hook})):
+        events = (
+            await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+            if phase == "pre_pipeline"
+            else await _run_with_writer(writer)
+        )
+    assert bad_event not in events
+    assert {"event": "custom_survives"} in events
+    assert reason in caplog.text
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+async def test_premature_hook_done_cannot_precede_the_successful_save(client, phase):
+    await create_conversation("hook_done", "T", "X", "")
+    await client.put("/api/settings", json={"enable_agent": False})
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "saved reply"}
+
+    async def hook(ctx):
+        yield {"event": "done"}
+        yield {"event": "custom_after_done"}
+
+    seen = []
+    with (
+        register_for_test(make_workflow("tw_done", **{phase: hook})),
+        patch("backend.pipeline.passes.writer.writer_pass", new=writer),
+    ):
+        async for event in handle_turn("hook_done", "hi"):
+            seen.append(event)
+            if event["event"] == "custom_after_done":
+                assert not [m for m in await get_messages("hook_done") if m["role"] == "assistant"]
+            if event["event"] == "done":
+                replies = [m for m in await get_messages("hook_done") if m["role"] == "assistant"]
+                assert len(replies) == 1 and replies[0]["content"] == "saved reply"
+    assert [e["event"] for e in seen].count("done") == 1
+    assert seen[-1] == {"event": "done"}
+    assert not any(e["event"].startswith("_") for e in seen)
