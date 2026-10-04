@@ -8,12 +8,14 @@ import os
 import sqlite3
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..database import close_wal_anchor, current_db_path, init_db, open_wal_anchor
 from ..features import slop_suggestions
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
+from ..inference import EndpointConfigError
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
 from .admission import DatasetAdmissionMiddleware
@@ -90,6 +92,11 @@ def build_app() -> FastAPI:
 
     for router in ROUTERS:
         app.include_router(router)
+
+    @app.exception_handler(EndpointConfigError)
+    async def _endpoint_config_error(_request: Request, exc: EndpointConfigError) -> JSONResponse:
+        # Every route that resolves a model lane answers an unusable setting the same way: by naming it.
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     # Mount static files last so concrete routes match before this catch-all.
     if os.path.isdir(FRONTEND_DIR):

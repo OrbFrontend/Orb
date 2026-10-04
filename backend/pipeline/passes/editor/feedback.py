@@ -74,7 +74,7 @@ async def feedback_step(
         {"role": "user", "content": request},
     ]
 
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.4})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
     resp: dict = {}
     # Errors propagate; editor_pass reports them as a non-terminal warning.

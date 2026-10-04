@@ -33,7 +33,7 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - A leading underscore means module-private. Give a name a public spelling before another module imports it; both layer checkers reject cross-module `_name` imports.
 - When changing the schema, update the schema definition, models, API schemas where applicable, seeds, and migrations together.
 - Add routes under `api/routes/` and register their router in `api/routes/__init__.py`.
-- Backend workflow plug-ins under `backend/workflows/<id>/` import only their own package and `backend.workflows.toolkit`, naming toolkit exports explicitly; wildcard, module-object, and non-`__all__` toolkit imports are not part of the plug-in API. Root modules directly under `backend/workflows/` are host adapters and may bridge to lower application layers.
+- Backend workflow plug-ins under `backend/workflows/<id>/` import only their own package and `backend.workflows.toolkit`, naming toolkit exports explicitly; wildcard, module-object, and non-`__all__` toolkit imports are not part of the plug-in API. A plug-in declares itself as `WORKFLOW` in its package `__init__.py`, with its hook subscriptions, and is discovered at startup; host files do not wire plug-ins. Root modules directly under `backend/workflows/` are host adapters and may bridge to lower application layers.
 
 ## Frontend conventions
 

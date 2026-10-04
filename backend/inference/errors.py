@@ -29,6 +29,14 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _MAX_UNWRAP = 3
 
 
+class EndpointConfigError(ValueError):
+    """The model settings name a lane that cannot run as configured.
+
+    The message names the setting to change and is safe to show as-is. Raised instead of substituting another lane, so a
+    configuration choice never silently means something else.
+    """
+
+
 class LLMCallError(httpx.HTTPStatusError):
     """A provider rejection with the provider's own words kept alongside the status.
 

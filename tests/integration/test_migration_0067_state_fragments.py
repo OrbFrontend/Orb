@@ -45,8 +45,7 @@ def _run_0067(conn: sqlite3.Connection) -> None:
 
 def _settings(conn: sqlite3.Connection, *, record: int, inject: str, tools: dict) -> None:
     conn.execute(
-        "INSERT OR REPLACE INTO settings (id, endpoint_url, model_name, direction_notes_record, direction_notes_inject, "
-        "enabled_tools) VALUES (1, 'http://x', 'm', ?, ?, ?)",
+        "INSERT OR REPLACE INTO settings (id, direction_notes_record, direction_notes_inject, enabled_tools) VALUES (1, ?, ?, ?)",
         (record, inject, json.dumps(tools)),
     )
 

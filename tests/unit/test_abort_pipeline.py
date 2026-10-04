@@ -19,7 +19,7 @@ import pytest
 
 from backend.inference import AbortToken, KVCacheTracker, LLMClient
 from backend.pipeline import entrypoints, persistence
-from backend.pipeline.failures import STAGE_SAVE, mark_stage, stage_of
+from backend.pipeline.failures import STAGE_SAVE, mark_stage, reported_once, stage_of
 from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.passes.director import DirectorResult
 from backend.pipeline.state import TurnState
@@ -207,7 +207,7 @@ class TestErrorAborts:
 
     async def test_an_editor_error_after_stop_is_not_reported(self):
         """A failure racing the user's Stop is explained by the Stop itself: no
-        warning, and the stopped turn still saves the Writer's draft."""
+        warning reaches the turn's stream, and the stopped turn still saves the Writer's draft."""
         client = _make_client()
 
         async def mock_writer(*args, **kwargs):
@@ -230,15 +230,18 @@ class TestErrorAborts:
             patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             events = await _drain(
-                run_pipeline(
-                    client,
-                    settings,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    phrase_bank=[[]],
-                    **_pipeline_kwargs(settings["enabled_tools"]),
+                reported_once(
+                    run_pipeline(
+                        client,
+                        settings,
+                        _DIRECTOR_STATE,
+                        [],
+                        [],
+                        "hello",
+                        phrase_bank=[[]],
+                        **_pipeline_kwargs(settings["enabled_tools"]),
+                    ),
+                    client.abort_token,
                 )
             )
 

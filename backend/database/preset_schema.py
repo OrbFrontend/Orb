@@ -43,7 +43,6 @@ EXCLUDED_TABLES: frozenset[str] = (
 # non-singleton table (e.g. endpoints.api_key) are deleted with their whole row on export -- list them anyway so the coverage
 # check and the generic key-strip path both see them.
 SECRET_COLUMNS: dict[tuple[str, str], str] = {
-    ("settings", "api_key"): "",
     ("settings", "user_name"): "User",
     ("settings", "user_description"): "",
     ("settings", "system_prompt"): "",

@@ -56,8 +56,7 @@ def _borrowed_judge(conn: sqlite3.Connection, *, override: str = "") -> int:
     )
     endpoint_id = cursor.lastrowid
     conn.execute(
-        "INSERT INTO settings (id, endpoint_url, model_name, decision_endpoint_id, decision_url, decision_model) "
-        "VALUES (1, 'http://localhost:5000/v1', 'default', ?, ?, 'typesafe/jev-1.13')",
+        "INSERT INTO settings (id, decision_endpoint_id, decision_url, decision_model) VALUES (1, ?, ?, 'typesafe/jev-1.13')",
         (endpoint_id, override),
     )
     conn.commit()

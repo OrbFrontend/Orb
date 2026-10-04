@@ -347,9 +347,9 @@ async def test_apply_errors_reach_the_model_in_id_vocabulary():
 
 # ── The protected-sequence guard, in the loop ─────────────────────────────────
 #
-# Two audit findings, so the pass does not take the `total_issues <= 1` skip and the ReAct loop actually runs — a single-target
-# fixture measures the patch function, not the orchestration around it. What these pin is the guard's real user-visible effect:
-# a rejected patch means the flagged span *keeps its slop*, not that it gets a better repair.
+# Two audit findings, so a patch rejected on one still leaves the loop a target -- a single-target fixture measures the patch
+# function, not the orchestration around it. What these pin is the guard's real user-visible effect: a rejected patch means the
+# flagged span *keeps its slop*, not that it gets a better repair.
 
 GUARDED_DRAFT = (
     '"Don\'t touch it," Mara said. She said softly, her voice thick with tension. '
@@ -385,7 +385,7 @@ async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
 
 async def test_a_rejected_patch_does_not_block_its_neighbour():
     # One clone, one clean replacement: the clean one lands, the flagged span behind the rejection keeps the writer's original
-    # text, and the `<= 1` break ends the pass with it still unrepaired.
+    # text, and when the retry clones again the no-progress stop ends the pass with it still unrepaired.
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
@@ -393,7 +393,7 @@ async def test_a_rejected_patch_does_not_block_its_neighbour():
 
     client.complete = fake_complete
 
-    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION])]
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), *[_make_report([GUARDED_NARRATION])] * 2]
     events = await _run(client, audits, GUARDED_DRAFT)
 
     assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_CLOSER, "Nobody spoke.")
@@ -415,8 +415,8 @@ def _tool_turns(messages: list) -> list[str]:
 
 
 async def test_thinking_mode_is_told_when_and_why_a_patch_was_rejected():
-    # Without this the model is left believing its patch landed: the rejected target keeps the writer's text, so the issue count
-    # cannot improve, so the `<= 1` stop fires before the tool-result turn that carries the reason.
+    # Without this the model is left believing its patch landed: the rejected target keeps the writer's text, and its retry
+    # repeats the rejected clone unless the tool-result turn carries the reason.
     client = LLMClient("http://localhost:9999")
     seen: list[list] = []
     client.complete = _scripted(
@@ -456,20 +456,17 @@ async def test_the_rejection_is_explained_once_not_chased_forever():
 
 
 async def test_non_thinking_mode_still_stops_quietly():
-    # The flat recap has no tool-result slot to carry the reason, so those models keep the phase-one behaviour: the flagged span
-    # keeps its slop, and the rejection is logged rather than replayed.
+    # The flat recap has no tool-result slot to carry the reason, so a pass whose only patch was rejected makes no progress and
+    # stops: the flagged span keeps its slop, and the rejection is logged rather than replayed.
     client = LLMClient("http://localhost:9999")
     seen: list[list] = []
-    client.complete = _scripted(
-        [_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}])],
-        seen,
-    )
+    client.complete = _scripted([_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}])], seen)
 
-    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION])]
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2
     events = await _run(client, audits, GUARDED_DRAFT)
 
     assert len(seen) == 1
-    assert events[-1]["draft"] == GUARDED_DRAFT.replace(GUARDED_CLOSER, "Nobody spoke.")
+    assert events[-1]["draft"] is None
 
 
 async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():

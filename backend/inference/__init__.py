@@ -23,7 +23,7 @@ from .endpoint_profiles import (
     note_forced_tool_choice_ignored,
     profile_for,
 )
-from .errors import LLMCallError, provider_sentence, redact
+from .errors import EndpointConfigError, LLMCallError, provider_sentence, redact
 from .jev import (
     MAX_QUESTION_BYTES,
     MAX_QUESTIONS_PER_REQUEST,
@@ -66,6 +66,7 @@ __all__ = [
     # retry
     "RetryPolicy",
     # errors — the provider's own words, kept
+    "EndpointConfigError",
     "LLMCallError",
     "provider_sentence",
     "redact",

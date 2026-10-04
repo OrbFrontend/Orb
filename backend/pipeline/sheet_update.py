@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import database as db
 from ..features.cards import SHEET_TOOL_NAME, SheetUpdateUnavailable, build_exchange_transcript, propose_sheet_update
+from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .state import PipelineConfig, SheetUpdateTurn, TurnState
 
 logger = logging.getLogger(__name__)
@@ -27,15 +28,19 @@ def _exchange_transcript(turn: SheetUpdateTurn, state: TurnState, speaker_name: 
 async def sheet_update_stage(
     cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: SheetUpdateTurn
 ) -> AsyncIterator[dict]:
-    """Propose and stage sheet updates for the members this exchange touched."""
+    """Propose and stage sheet updates for the members this exchange touched.
+
+    A failure that costs proposals reports a ``warning`` and never fails the exchange.
+    """
     try:
         conv = await db.get_conversation(turn.conversation_id)
         # Re-resolved here rather than read off the turn: the sheet a proposal is derived from is also the value its apply
         # re-checks, so it has to be the member's sheet as it stands *now* -- after the exchange's own latency, and after any
         # hand edit made while the exchange was generating.
         cast = await db.resolve_cast(conv) if conv else None
-    except Exception:
+    except Exception as exc:
         logger.exception("Sheet-update stage could not resolve the cast for %s; proposing nothing", turn.conversation_id)
+        yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)
         return
     if cast is None or not cast.grouped:
         return
@@ -86,8 +91,9 @@ async def sheet_update_stage(
         except SheetUpdateUnavailable as exc:
             logger.info("Sheet update for %s produced nothing usable: %s", member.name, exc)
             continue
-        except Exception:
+        except Exception as exc:
             logger.exception("Sheet update call failed for member %s; the rest of the exchange is unaffected", member.member_id)
+            yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)
             continue
         # A stop cut this call short; the members already finished still stage.
         if client.is_aborted:
@@ -127,7 +133,8 @@ async def sheet_update_stage(
     try:
         rows = await db.create_sheet_proposals(staged)
         logger.info("Staged %d sheet proposal(s) for exchange %s", len(rows), turn.exchange_id)
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Failed to stage %d sheet proposal(s) for exchange %s; the reply is unaffected", len(staged), turn.exchange_id
         )
+        yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)

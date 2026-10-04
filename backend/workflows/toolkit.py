@@ -85,6 +85,7 @@ from .contracts import (
     EV_SYSTEM_PROMPT,
     ExportCtx,
     ExportedFile,
+    HookType,
     OnDemandCtx,
     PostCtx,
     PreCtx,
@@ -97,6 +98,7 @@ from .contracts import (
 )
 from .errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from .registry import (
+    Subscription,
     Workflow,
     get_workflow_character_state,
     get_workflow_config,
@@ -107,6 +109,7 @@ from .registry import (
     set_workflow_config,
     set_workflow_message_state,
     set_workflow_state,
+    subscription,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,7 @@ __all__ = [
     "EV_SYSTEM_PROMPT",
     "ExportCtx",
     "ExportedFile",
+    "HookType",
     "Macros",
     "Narration",
     "OPEN_QUOTES",
@@ -133,6 +137,7 @@ __all__ = [
     "QueryCtx",
     "RegenCtx",
     "RerollGenCtx",
+    "Subscription",
     "TOGGLE_QUOTES",
     "ToolSpec",
     "TurnCast",
@@ -203,6 +208,7 @@ __all__ = [
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
+    "subscription",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",

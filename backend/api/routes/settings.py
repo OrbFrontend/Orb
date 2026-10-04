@@ -21,9 +21,6 @@ async def api_get_settings():
 @router.put("/api/settings")
 async def api_update_settings(data: SettingsUpdate):
     payload = data.model_dump(exclude_unset=True)
-    for key in ("endpoint_url", "agent_endpoint_url"):
-        if isinstance(payload.get(key), str) and payload[key].lower().startswith("claude-code:"):
-            check_claude_endpoint(payload[key])
     for key in ("active_endpoint_id", "agent_endpoint_id"):
         if payload.get(key):
             endpoint = await get_endpoint(payload[key])

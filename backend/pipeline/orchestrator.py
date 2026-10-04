@@ -10,7 +10,16 @@ from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macro
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from .config import resolve_pipeline_config, split_interactive_fragments
-from .failures import STAGE_DIRECTOR, STAGE_EDITOR, STAGE_WORKFLOWS, STAGE_WRITER, mark_stage, staged
+from .failures import (
+    STAGE_AFTER_REPLY,
+    STAGE_DIRECTOR,
+    STAGE_EDITOR,
+    STAGE_WORKFLOWS,
+    STAGE_WRITER,
+    mark_stage,
+    staged,
+    step_failure_warning,
+)
 from .passes.director import apply_state_step_result, cooldown, director_stage, state_event_payload
 from .passes.editor import editor_stage
 from .passes.judge import JudgeConfig, JudgeResult
@@ -332,7 +341,7 @@ async def run_pipeline(
     if run_exchange_final and after_reply and state.resp_text.strip() and not client.is_aborted:
         yield {"event": "step_start", "data": {"step": "state"}}
         async for ev in staged(
-            STAGE_EDITOR,
+            STAGE_AFTER_REPLY,
             state_step(
                 cfg.agent_lane.client,
                 cfg.agent_lane.base,
@@ -352,6 +361,8 @@ async def run_pipeline(
         ):
             if ev["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
+            elif ev["type"] == "failure":
+                yield step_failure_warning(ev["error"], "state", stage=STAGE_AFTER_REPLY)
             elif ev["type"] == "done":
                 step_result: StateStepResult = ev["result"]
                 apply_state_step_result(state, step_result, contract)
@@ -363,7 +374,7 @@ async def run_pipeline(
     # derive world state from, and a stop must not start a fresh call.
     if run_exchange_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
         async for ev in staged(
-            STAGE_EDITOR, world_proposal_stage(cfg, state, settings=settings, turn=world_proposal, kv_tracker=kv_tracker)
+            STAGE_AFTER_REPLY, world_proposal_stage(cfg, state, settings=settings, turn=world_proposal, kv_tracker=kv_tracker)
         ):
             yield ev
 
@@ -372,7 +383,7 @@ async def run_pipeline(
     # `run_exchange_final` is what makes it once-per-exchange rather than once-per-speaker; the driver only builds a turn for
     # the final speaker, and the gate here is what keeps that true if another caller forgets.
     if run_exchange_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
-        async for ev in staged(STAGE_EDITOR, sheet_update_stage(cfg, state, settings=settings, turn=sheet_update)):
+        async for ev in staged(STAGE_AFTER_REPLY, sheet_update_stage(cfg, state, settings=settings, turn=sheet_update)):
             yield ev
 
     yield _make_result(state)

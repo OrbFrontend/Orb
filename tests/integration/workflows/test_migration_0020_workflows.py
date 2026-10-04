@@ -234,7 +234,7 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
     conn = sqlite3.connect(str(mig_db))
     try:
         conn.executescript(CREATE_TABLES_SQL)
-        conn.execute("INSERT INTO settings (id, endpoint_url, model_name) VALUES (1, '', '')")
+        conn.execute("INSERT INTO settings (id) VALUES (1)")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))"
         )

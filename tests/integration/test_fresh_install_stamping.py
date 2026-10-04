@@ -103,7 +103,7 @@ async def test_stamped_fresh_db_equals_migrated_fresh_db(tmp_path: Path, monkeyp
 
     assert settings_row(stamped) == settings_row(migrated)
 
-    from backend.workflows.tts import tts_workflow
+    from backend.workflows.tts import WORKFLOW as tts_workflow
 
     ported = json.loads(sqlite3.connect(migrated).execute("SELECT workflow_config FROM settings").fetchone()[0]).get("tts", {})
     for key, val in ported.items():

@@ -63,9 +63,7 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     )
     cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
-    await client.put_checked(
-        "/api/settings", json={"model_name": "writer-model", "enable_agent": True, "enabled_tools": {"direct_scene": True}}
-    )
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
     # Suspend the format normalizer so the seeded and rewritten contents stay
     # exact; the probe under test is the only post-pipeline hook that should run.
     await set_workflow_enabled("format_consistency", False)

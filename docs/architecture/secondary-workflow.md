@@ -29,16 +29,16 @@ chrome. The workflow owns its feature logic.
 
 | Path | Purpose |
 |---|---|
-| `backend/workflows/registry.py` | Workflow records, subscriptions, lookups, and state access |
+| `backend/workflows/registry.py` | Workflow records, subscriptions, plug-in discovery, lookups, and state access |
 | `backend/workflows/contracts.py` | Hook types, context dataclasses, and `ToolSpec` |
 | `backend/workflows/toolkit.py` | Stable imports for workflow authors |
 | `backend/prompting/tool_catalog.py` | Ordered tool lookup and workflow-tool registration |
 | `backend/workflows/attachment_cache.py` | Attachment storage, variants, budget, and eviction |
-| `backend/workflows/__init__.py` | Built-in registration and hook subscriptions |
+| `backend/workflows/__init__.py` | Plug-in discovery and host-adapter hook bindings |
 | `backend/pipeline/workflow_bridge.py` | Pipeline hook dispatch and attachment staging |
 | `backend/api/routes/workflows.py` | Workflow and attachment routes |
 
-Each workflow has a directory such as `backend/workflows/tts/`.
+Each workflow is a package such as `backend/workflows/tts/`, named for its id.
 
 Code under `backend/workflows/<id>/` is a plug-in slice. It may import its own
 package and `backend.workflows.toolkit`, but not other framework modules,
@@ -86,42 +86,58 @@ decisions only that feature makes.
 Frontend workflow code imports `/static/workflow_api.js` and its own relative
 modules. It should not import core frontend modules directly.
 
-## Declare and register a workflow
+## Declare a workflow
 
-The workflow module declares data. The package-level `backend/workflows/__init__.py`
-registers it and binds its hooks.
+A plug-in package declares its workflow as `WORKFLOW` in its `__init__.py`: a
+`Workflow` record whose `id` is the package name, carrying its hook
+subscriptions. `subscription(...)` builds each one and holds the hook to the
+signature its slot calls it with.
 
 ```python
-Workflow(
+from ..toolkit import HookType, Workflow, subscription
+from . import hooks
+
+WORKFLOW = Workflow(
     id="my_workflow",
     display_name="My workflow",
     tools=[],
     config_defaults={},
     config_schema=None,
     produces_artifacts=False,
+    subscriptions=[
+        subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=0),
+    ],
 )
 ```
 
 `id` is the boundary key used in URLs, JSON, tools, and static module paths.
 Tool names must be unique and must agree across `ToolSpec.name`, the schema,
-and `tool_choice`.
+and `tool_choice`. A workflow binds each hook type at most once, and only a
+`produces_artifacts=True` workflow may bind `REGENERATE`, `REROLL_GEN`, or
+`EXPORT`.
 
-Workflow tools append after the fixed built-in tool order. Re-registering an
-existing tool replaces its contract without changing its position; removing a
-tool on workflow replacement removes it through the framework-owned catalog
-API. The catalog itself is not part of the plug-in API.
+Adding a workflow needs no edit to a host file. When `backend.workflows` is
+imported, it registers every package directly under `backend/workflows/` in
+package-name order, then calls `finalize_registry()`, which verifies that an
+artifact-producing workflow has both regeneration hooks. Modules beside those
+packages are host modules and are never registered. Startup stops with the
+error when a package fails to import, lacks a `WORKFLOW` record, declares an id
+other than its package name, or declares an invalid subscription, and when a
+directory of Python modules has no `__init__.py`.
 
-Registration follows this shape:
+Registration order is the manifest order. The frontend loads workflow modules
+in that order, so it also orders the workflow rows in the Tools panel and the
+workflow buttons on a message. Re-registering a workflow keeps its position.
 
-```python
-register_workflow(my_workflow)
-subscribe(my_workflow.id, HookType.POST_PIPELINE, post_pipeline)
-finalize_registry()
-```
+A hook that needs a layer below the toolkit lives in a host adapter, which
+binds it to the plug-in's id with `subscribe` in `backend/workflows/__init__.py`.
+The Prose Rewriter's post hook is bound this way because it runs the local model
+runtime.
 
-`finalize_registry()` verifies that an artifact-producing workflow has both
-regeneration hooks. Registration order determines manifest order and is stable
-on re-registration.
+Workflow tools append after the fixed built-in tool order, in registration
+order. Re-registering an existing tool replaces its contract without changing
+its position; removing a tool on workflow replacement removes it through the
+framework-owned catalog API. The catalog itself is not part of the plug-in API.
 
 ### Hook types
 
@@ -235,13 +251,14 @@ SSE done
 
 Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
 can replace the draft, set message state, stage attachments, or emit public
-events. Hooks run in subscription priority order. The Prose Rewriter is a
-registered post-hook; its negative priority puts it before Format Consistency
-and artifact workflows. Its standard workflow toggle turns the rewriter on for
-both automatic runs and the saved-message rewrite route, and its `automatic`
-config gates the post-hook alone. Its workflow card manages the model through
-the generic Local ML routes, which also own the shared llama-server runtime.
-A hook failure is isolated so the main reply and other workflows can continue.
+events. Hooks run in subscription priority order, and equal priorities run in
+registration order. The Prose Rewriter is a registered post-hook; its negative
+priority puts it before Format Consistency and artifact workflows. Its standard
+workflow toggle turns the rewriter on for both automatic runs and the
+saved-message rewrite route, and its `automatic` config gates the post-hook
+alone. Its workflow card manages the model through the generic Local ML
+routes, which also own the shared llama-server runtime. A hook failure is
+isolated so the main reply and other workflows can continue.
 
 Stop is checked before each hook and after its locks are acquired, so no hook
 starts once the turn is stopped. The running hook is interrupted: its pending
@@ -488,10 +505,10 @@ message refreshes resume.
 
 ## Authoring checklist
 
-1. Create `backend/workflows/<id>/` and declare a `Workflow` record.
+1. Create the package `backend/workflows/<id>/`; its name is the workflow id.
 2. Implement hooks with the context and return shapes above.
-3. Register the workflow and subscriptions in
-   `backend/workflows/__init__.py`.
+3. Export the `Workflow` record as `WORKFLOW` from the package's `__init__.py`,
+   with a `subscription(...)` for each hook. Discovery registers it.
 4. Use the toolkit and matching locks for state changes.
 5. If producing artifacts, implement `REGENERATE` and `REROLL_GEN`, and store
    recovery metadata where rehydrate is useful.

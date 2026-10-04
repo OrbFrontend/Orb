@@ -54,7 +54,7 @@ async def world_change_step(
 ) -> AsyncIterator[dict]:
     """Make one forced proposal call over all opted-in Worlds.
 
-    Yield reasoning then done with WorldChangeResult. Operations are stamped with their World for split_by_world.
+    Yield reasoning, a ``failure`` if the call fails, then done with WorldChangeResult. Operations are stamped with their World for split_by_world.
     """
     catalog = build_world_change_catalog(entries, worlds=worlds, exchange_text=exchange_text)
     request = build_world_change_prompt(
@@ -65,7 +65,7 @@ async def world_change_step(
         {"role": "assistant", "content": reply_text},
         {"role": "user", "content": request},
     ]
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.3})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
     resp: dict = {}
     try:
@@ -80,8 +80,9 @@ async def world_change_step(
             **reasoning_cfg(reasoning_on, reasoning_prefill),
         ):
             yield event
-    except Exception:
+    except Exception as exc:
         logger.exception("World-change proposal call failed; proposing nothing")
+        yield {"type": "failure", "error": exc}
         yield {"type": "done", "result": WorldChangeResult(failed=True)}
         return
     # A stop cut the call short: a half-streamed proposal proposes nothing.

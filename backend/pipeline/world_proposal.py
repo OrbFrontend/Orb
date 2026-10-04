@@ -13,6 +13,7 @@ from ..inference import CachedBase, agent_lane_from_settings, client_from_settin
 from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
 from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
+from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .passes.world_change import world_change_step
 from .state import PipelineConfig, TurnState, WorldProposalTurn
 
@@ -43,12 +44,13 @@ async def world_proposal_stage(
 ) -> AsyncIterator[dict]:
     """Run World proposals into state with Editor-labelled reasoning and Inspector calls.
 
-    Failures leave world_proposals empty; this post-reply step must not fail the turn.
+    Failures leave world_proposals empty and report a ``warning``; this post-reply step must not fail the turn.
     """
     try:
         worlds, entries = await _load_targets(turn.world_ids, turn.conversation_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("World-change stage could not load worlds %s; proposing nothing", list(turn.world_ids))
+        yield step_failure_warning(exc, "world_changes", stage=STAGE_AFTER_REPLY)
         return
     if not worlds:
         return
@@ -77,6 +79,8 @@ async def world_proposal_stage(
     ):
         if ev["type"] == "reasoning":
             yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
+        elif ev["type"] == "failure":
+            yield step_failure_warning(ev["error"], "world_changes", stage=STAGE_AFTER_REPLY)
         elif ev["type"] == "done":
             result = ev["result"]
 

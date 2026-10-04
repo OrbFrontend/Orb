@@ -141,9 +141,8 @@ def build_generation_messages(prompt: str, *, assisted: bool, completion_mode: s
 class DocumentContinuer:
     def __init__(self, client: LLMClient, settings: Mapping[str, Any]):
         self.client = client
-        # guard an unset max_tokens: a raw /completion with n_predict=-1 runs away.
         self.settings = settings
-        self.params = extract_hyperparams(settings, defaults={"max_tokens": 512})
+        self.params = extract_hyperparams(settings)
 
     async def stream(
         self, prompt: str, model: str, assisted: bool = False, token_probs: bool = False

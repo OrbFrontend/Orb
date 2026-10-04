@@ -23,6 +23,7 @@ from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_call
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
+from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
@@ -212,7 +213,7 @@ async def director_pass(
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
 ) -> AsyncIterator[dict]:
-    """Yield reasoning deltas, then one done event with DirectorResult.
+    """Yield reasoning deltas and a ``failure`` per failed call, then one done event with DirectorResult.
 
     Speaker keys and decision guidance belong only in the trailing request, never cached schema properties.
     """
@@ -262,7 +263,7 @@ async def director_pass(
         plans_speakers = SPEAKING_PLAN_FIELD in scene_fields
         if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-            hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+            hyperparams = extract_hyperparams(settings, lane="agent")
 
             # One forced call per fragment, each shown the values already chosen this turn so later fragments build on earlier
             # ones. Moods are resolved last, in a call of their own, so they are picked to fit the scene already directed (the
@@ -310,11 +311,12 @@ async def director_pass(
                         **reasoning_params,
                     ):
                         yield event
-                except Exception:
+                except Exception as exc:
                     # A failed call skips this fragment but must not propagate: the remaining fragments and the writer still
                     # run, like the lorebook-select and state steps. Aborting the turn here would also skip persisting the
                     # finished reply.
                     logger.exception("Agent tool=direct_scene target=%s: call failed; skipping", target)
+                    yield {"type": "failure", "error": exc}
                     continue
                 last_raw = json.dumps(resp, default=str)
                 logger.info("Agent tool=direct_scene target=%s output:\n%s", target, last_raw)
@@ -369,7 +371,7 @@ async def director_pass(
         # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
         # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-        hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+        hyperparams = extract_hyperparams(settings, lane="agent")
         try:
             async for event in base.complete_into(
                 client,
@@ -383,8 +385,9 @@ async def director_pass(
                 **reasoning_params,
             ):
                 yield event
-        except Exception:
+        except Exception as exc:
             logger.exception("Agent tool=%s: call failed; skipping", name)
+            yield {"type": "failure", "error": exc}
             continue
         last_raw = json.dumps(resp, default=str)
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
@@ -513,6 +516,8 @@ async def director_stage(
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "director", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 result: DirectorResult = event["result"]
                 state.active_moods = result.active_moods
@@ -554,6 +559,8 @@ async def director_stage(
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "lorebook", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 sel: LorebookSelectResult = event["result"]
                 state.selected_lorebook_entries = sel.selected
@@ -627,6 +634,8 @@ async def director_stage(
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "state", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 step_result: StateStepResult = event["result"]
                 apply_state_step_result(state, step_result, state_contract)

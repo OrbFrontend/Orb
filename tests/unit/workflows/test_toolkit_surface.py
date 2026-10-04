@@ -33,17 +33,20 @@ _PLUGIN_CONTRACTS = (
     "EV_SET_MESSAGE_STATE",
     "EV_SYSTEM_PROMPT",
     "ExportCtx",
+    "HookType",
     "OnDemandCtx",
     "PostCtx",
     "PreCtx",
     "QueryCtx",
     "RegenCtx",
     "RerollGenCtx",
+    "Subscription",
     "ToolSpec",
     "UploadCtx",
     "Workflow",
     "WorkflowEventStream",
     "WorkflowUserFacingError",
+    "subscription",
 )
 
 

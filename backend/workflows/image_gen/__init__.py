@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ..toolkit import Workflow
+from ..toolkit import HookType, Workflow, subscription
+from . import export, hooks, queries
 from .config import CONFIG_DEFAULTS, MAX_REFINE_TURNS, SOURCES, normalize_config
 from .pov import POV_MODES
 from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
@@ -25,7 +26,7 @@ _CONFIG_SCHEMA = {
     },
 }
 
-image_gen_workflow = Workflow(
+WORKFLOW = Workflow(
     id="image_gen",
     display_name="Image Generation",
     produces_artifacts=True,
@@ -35,4 +36,11 @@ image_gen_workflow = Workflow(
     # The config carries user-authored graphs and style entries that `normalize_config` bounds and drops; without this the
     # settings panel would keep listing a workflow the render path silently ignores.
     config_normalizer=normalize_config,
+    subscriptions=[
+        subscription(HookType.ON_DEMAND, hooks.on_demand),
+        subscription(HookType.QUERY, queries.query),
+        subscription(HookType.REGENERATE, hooks.regenerate),
+        subscription(HookType.REROLL_GEN, hooks.reroll_gen),
+        subscription(HookType.EXPORT, export.export),
+    ],
 )

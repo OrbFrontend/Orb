@@ -84,8 +84,8 @@ def make_workflow(
     """Construct a ``Workflow`` with test-friendly defaults.
 
     Hook kwargs are staged onto a ``_pending_hooks`` attribute that ``register_for_test`` consumes via ``subscribe`` after
-    registration -- direct construction of ``Workflow`` cannot bind subscriptions because that requires the record to be in the
-    registry first.
+    registration, rather than declared in ``Workflow.subscriptions``: the block's exit clears ``subscriptions``, and re-entry
+    binds the staged hooks again.
     """
     meta = Workflow(
         id=workflow_id,

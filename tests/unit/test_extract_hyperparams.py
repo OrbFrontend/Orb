@@ -28,13 +28,8 @@ def test_a_partial_mapping_falls_back_per_key():
     assert params == {**_WRITER, "temperature": 0.2}
 
 
-def test_defaults_only_fill_keys_no_lane_supplied():
-    params = extract_hyperparams({"temperature": 0.8}, lane="agent", defaults={"temperature": 0.25, "max_tokens": 2048})
-    assert params == {"temperature": 0.8, "max_tokens": 2048}
-
-
-def test_explicit_null_omits_a_parameter_without_falling_back_to_call_defaults():
-    params = extract_hyperparams({**_WRITER, "temperature": None}, defaults={"temperature": 0.25, "max_tokens": 2048})
+def test_explicit_null_omits_a_parameter():
+    params = extract_hyperparams({**_WRITER, "temperature": None})
     assert "temperature" not in params
     assert params["max_tokens"] == 4096
 

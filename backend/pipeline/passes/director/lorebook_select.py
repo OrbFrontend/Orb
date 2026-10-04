@@ -60,6 +60,7 @@ async def lorebook_select_step(
 
     Yields:
         ``{"type": "reasoning", "delta": str}``
+        ``{"type": "failure", "error": Exception}`` when the call fails
         ``{"type": "done", "result": LorebookSelectResult}``
     """
     if not catalog:
@@ -68,7 +69,7 @@ async def lorebook_select_step(
 
     request = build_lorebook_select_prompt(catalog, user_message, reasoning_on=reasoning_on)
     trailing = [{"role": "user", "content": request}]
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
     resp: dict = {}
     try:
@@ -83,10 +84,11 @@ async def lorebook_select_step(
             **reasoning_cfg(reasoning_on, reasoning_prefill),
         ):
             yield event
-    except Exception:
+    except Exception as exc:
         # A failed call selects nothing but must not propagate: the writer still runs
         # with the deterministic constant/keyword lorebook entries.
         logger.exception("Lorebook-select call failed; selecting nothing")
+        yield {"type": "failure", "error": exc}
         yield {"type": "done", "result": LorebookSelectResult()}
         return
 

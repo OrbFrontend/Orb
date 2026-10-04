@@ -88,3 +88,14 @@ async def test_a_director_prelude_failure_is_labelled_the_director_pass(monkeypa
         ):
             pass
     assert stage_of(caught.value) == "director pass"
+
+
+async def test_a_half_configured_agent_lane_fails_the_turn_by_naming_the_setting(client, llm_mock):
+    # "Same as Writer" off with no Agent endpoint picked must not run the Agent passes on the Writer without a word.
+    await client.put("/api/settings", json={"agent_same_as_writer": False})
+    conv_id = await _conversation(client, "solo")
+
+    response = await client.post(f"/api/conversations/{conv_id}/send", json={"content": "Hello"})
+
+    assert _error(response.text)["kind"] == "config"
+    assert not llm_mock.captured

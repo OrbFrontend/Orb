@@ -14,7 +14,7 @@ from ..core.llm_types import ReasoningReplay
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
-from .errors import LLMCallError, llm_call_error
+from .errors import EndpointConfigError, LLMCallError, llm_call_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
@@ -624,6 +624,16 @@ class LLMClient:
                                         recovery_count += 1
                                         logger.warning("LLM recovery: %s", fix)
                                         continue
+                                # Uncounted: each refusal sheds a key the body still carries, so a strict server that names
+                                # one unknown field per rejection is walked to a body it takes. The Anthropic translation
+                                # has its own sampling recovery above.
+                                if route.protocol == "openai" and (
+                                    fix := endpoint_profiles.recover_refused_field(
+                                        self.base_url, model, outbound, resp.status_code, err_text
+                                    )
+                                ):
+                                    logger.warning("LLM recovery: %s", fix)
+                                    continue
                                 auths = endpoint_profiles.auth_families(route, resp.status_code, err_text)
                                 if not auth_retried and len(auths) > 1:
                                     auth_family = auths[1]
@@ -1090,6 +1100,8 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
     The single construction seam for writer clients: ``LLMClient`` is resolved from this module's globals at call time, so tests
     substitute the client everywhere by patching ``backend.inference.client.LLMClient`` alone.
     """
+    if not settings.get("endpoint_url"):
+        raise EndpointConfigError("No Writer endpoint is selected. Pick an endpoint and its model in the model settings.")
     if settings["endpoint_url"] == "claude-code://local":
         from .claude_code import ClaudeCodeClient  # noqa: PLC0415 — claude_code imports this module
 
@@ -1138,13 +1150,22 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
 
 
 def separate_agent_lane_configured(settings: Mapping[str, Any]) -> bool:
-    """Whether settings resolve to a usable, physically separate Agent lane."""
-    return (
-        not bool(settings.get("agent_same_as_writer", True))
-        and bool(settings.get("agent_endpoint_id"))
-        and bool(settings.get("agent_endpoint_url"))
-        and bool(settings.get("agent_model_name"))
-    )
+    """Whether the Agent runs on a lane of its own rather than the Writer's.
+
+    Turning "Same as Writer" off chooses a separate lane, so one missing its endpoint or model raises
+    :class:`EndpointConfigError` naming what to pick -- it never quietly runs the Agent on the Writer.
+    """
+    if bool(settings.get("agent_same_as_writer", True)):
+        return False
+    if not settings.get("agent_endpoint_id"):
+        raise EndpointConfigError(
+            "Agent “Same as Writer” is off, but no Agent endpoint is selected. Pick one, or turn Same as Writer back on."
+        )
+    if not settings.get("agent_endpoint_url") or not settings.get("agent_model_name"):
+        raise EndpointConfigError(
+            "Agent “Same as Writer” is off, but the Agent endpoint has no model selected. Pick one, or turn Same as Writer back on."
+        )
+    return True
 
 
 def agent_lane_from_settings(

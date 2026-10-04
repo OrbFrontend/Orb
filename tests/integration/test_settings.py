@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from backend.core import extract_hyperparams
 from backend.database.queries.settings import get_settings
-from backend.inference import client_from_settings
+from backend.database.seeds import DEFAULT_CONNECTION
+from backend.inference import EndpointConfigError, client_from_settings
 
 
 async def test_get_settings_returns_defaults(client, db):
@@ -35,17 +38,31 @@ async def test_update_settings_persists_to_db(client, db):
     assert row["user_description"] == "A test user"
 
 
-async def test_update_settings_ignores_hyperparams(client, db):
-    # Hyperparameters live on the active model_config, not the settings row. A /settings PUT that includes them must not touch
-    # the settings table's flat columns (extra fields are ignored, mirroring completion_mode).
-    async with db.execute("SELECT max_tokens FROM settings WHERE id = 1") as cur:
-        before = (await cur.fetchone())["max_tokens"]
+async def test_update_settings_ignores_connection_and_hyperparams(client):
+    # The connection, model and hyperparameters live on the active endpoint and model_config, not the settings row. The frontend
+    # still sends them to /settings; they are ignored there (mirroring completion_mode) and reads keep the overlaid values.
+    before = (await client.get("/api/settings")).json()
 
-    await client.put_checked("/api/settings", json={"max_tokens": before + 1000})
+    payload = {"endpoint_url": "http://elsewhere/v1", "api_key": "sk-x", "model_name": "other", "max_tokens": 1}
+    after = await client.put_json("/api/settings", json=payload)
 
-    async with db.execute("SELECT max_tokens FROM settings WHERE id = 1") as cur:
-        after = (await cur.fetchone())["max_tokens"]
-    assert after == before
+    assert {key: after[key] for key in payload} == {key: before[key] for key in payload}
+
+
+async def test_connection_keys_survive_deleting_the_active_model_and_endpoint(client):
+    endpoint_id = (await client.get("/api/settings")).json()["active_endpoint_id"]
+    endpoint = (await client.get(f"/api/endpoints/{endpoint_id}")).json()
+
+    await client.delete(f"/api/models/{endpoint['active_model_config_id']}")
+    no_model = await get_settings()
+    assert (no_model["endpoint_url"], no_model["model_name"]) == (endpoint["url"], "")
+    assert no_model["max_tokens"] == DEFAULT_CONNECTION["max_tokens"]
+
+    await client.delete(f"/api/endpoints/{endpoint_id}")
+    no_endpoint = await get_settings()
+    assert (no_endpoint["endpoint_url"], no_endpoint["api_key"], no_endpoint["model_name"]) == ("", "", "")
+    with pytest.raises(EndpointConfigError):
+        client_from_settings(no_endpoint)
 
 
 async def test_update_settings_reflected_in_get(client, db):

@@ -15,7 +15,7 @@ from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
 from .context import PipelineContext, TurnSetup, build_prefixes, load_pipeline_context, prepare_turn
-from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, stage_of, staged
+from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
@@ -110,14 +110,15 @@ async def _run_turn_handler(
 
     Loads the pipeline context, guards the missing-conversation case, and converts any pipeline exception into the terminal SSE
     error event — one place defines the error wire contract for every handler. The payload is ``describe_failure``'s dict, so
-    the provider's own sentence survives to the browser instead of being replaced by a constant (see failures.py).
+    the provider's own sentence survives to the browser instead of being replaced by a constant (see failures.py). Failures a
+    step survived arrive as ``warning`` events, thinned by ``reported_once``.
     """
     try:
         ctx = await load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-        async for event in body(ctx):
+        async for event in reported_once(body(ctx), abort_token):
             yield event
     except Exception as e:
         # A call the stop cut short can fail on the way out; the stop is its own

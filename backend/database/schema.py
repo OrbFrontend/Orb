@@ -5,16 +5,8 @@ import re
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    endpoint_url TEXT NOT NULL,
-    api_key TEXT NOT NULL DEFAULT '',
-    model_name TEXT NOT NULL,
-    temperature REAL NOT NULL DEFAULT 0.8,
-    min_p REAL NOT NULL DEFAULT 0.05,
-    top_k INTEGER NOT NULL DEFAULT 40,
-    top_p REAL NOT NULL DEFAULT 0.95,
-    repetition_penalty REAL NOT NULL DEFAULT 1.0,
-    max_tokens INTEGER NOT NULL DEFAULT 4096,
     shared_system_prompt TEXT NOT NULL DEFAULT '',
+    -- Read only while no Writer model config is active; the active config's system_prompt replaces it otherwise.
     system_prompt TEXT NOT NULL DEFAULT '',
     user_name TEXT NOT NULL DEFAULT 'User',
     user_description TEXT NOT NULL DEFAULT '',

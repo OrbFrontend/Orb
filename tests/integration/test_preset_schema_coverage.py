@@ -639,7 +639,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
     # mood fragment (stable upsert) so those domains carry real data round-trip.
-    await client.put("/api/settings", json={"user_name": "Ada", "api_key": "sk-keep"})
+    await client.put("/api/settings", json={"user_name": "Ada", "system_prompt": "keep me"})
     seed = sqlite3.connect(path)
     try:
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")

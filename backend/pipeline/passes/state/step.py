@@ -141,7 +141,7 @@ async def state_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
-    """Yield reasoning chunks, then the validated result of the update call(s)."""
+    """Yield reasoning chunks and a ``failure`` per failed call, then the validated result of the update call(s)."""
     result = StateStepResult()
     if not fragments:
         yield {"type": "done", "result": result}
@@ -149,7 +149,7 @@ async def state_step(
 
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
     groups = [[fragment] for fragment in fragments] if per_fragment_on else [list(fragments)]
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.4})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
     for group in groups:
         if client.is_aborted:
@@ -192,9 +192,10 @@ async def state_step(
                 **reasoning_cfg(reasoning_on, reasoning_prefill),
             ):
                 yield event
-        except Exception:
+        except Exception as exc:
             # Keep the reply saveable if an after-reply update fails.
             logger.exception("State update call failed; keeping this group's state")
+            yield {"type": "failure", "error": exc}
             continue
         # A stop cut the call short: its operations may be half-written, so only the groups that finished apply.
         if client.is_aborted:

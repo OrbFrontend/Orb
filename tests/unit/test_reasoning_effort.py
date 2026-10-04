@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from backend.inference import EndpointConfigError
 from backend.inference.client import (
     LLMClient,
     agent_client_from_settings,
@@ -118,17 +121,15 @@ def test_agent_lane_reuses_writer_client_in_single_model():
     assert model == "writer-model"
 
 
-def test_agent_lane_reuses_writer_client_when_dual_config_is_incomplete():
-    settings = {
-        "endpoint_url": "http://writer:5000/v1",
-        "model_name": "writer-model",
-        "agent_same_as_writer": False,
-        "agent_endpoint_id": 2,
-    }
+@pytest.mark.parametrize(
+    ("agent", "missing"), [({}, "no Agent endpoint is selected"), ({"agent_endpoint_id": 2}, "has no model selected")]
+)
+def test_a_half_configured_agent_lane_names_what_to_pick(agent, missing):
+    # Turning "Same as Writer" off is the choice of a separate lane; running the Agent on the Writer instead would make it a lie.
+    settings = {"endpoint_url": "http://writer:5000/v1", "model_name": "writer-model", "agent_same_as_writer": False, **agent}
     writer = client_from_settings(settings)
-    client, model = agent_lane_from_settings(settings, writer_client=writer)
-    assert client is writer
-    assert model == "writer-model"
+    with pytest.raises(EndpointConfigError, match=missing):
+        agent_lane_from_settings(settings, writer_client=writer)
 
 
 def test_agent_lane_uses_configured_dual_model_client():
@@ -176,13 +177,3 @@ async def test_wire_reasoning_off_sends_no_effort():
     body = await _wire_body(client, **reasoning_cfg(False))
     assert "reasoning_effort" not in body
     assert body["reasoning"] == {"effort": "none", "enabled": False}
-
-
-async def test_wire_deepseek_profile_strips_effort():
-    # DeepSeek's allowlist passes 'thinking' but drops the OpenAI/OpenRouter
-    # effort dialects; the injection must not survive the profile.
-    client = LLMClient("https://api.deepseek.com/v1", reasoning_effort="high")
-    body = await _wire_body(client, **reasoning_cfg(True))
-    assert "reasoning_effort" not in body
-    assert "reasoning" not in body
-    assert body["thinking"] == {"type": "enabled"}

@@ -233,7 +233,7 @@ async def patch_document(
     report_text = format_numbered_report(targets)
     # Writer lane on purpose: the route serves this call from the writer endpoint,
     # for byte parity with the prompt that generated the draft.
-    params = extract_hyperparams(settings, defaults={"temperature": 0.25})
+    params = extract_hyperparams(settings)
     editor_patch = require_tool("editor_apply_patch")
     schema = editor_patch["schema"]
     if client.completion_mode == "text":

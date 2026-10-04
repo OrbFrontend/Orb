@@ -150,19 +150,26 @@ async def test_apply_configs_leaves_no_orphaned_model_configs(client, db):
 # ── configs / key stripping ────────────────────────────────────────────────
 
 
+async def _set_active_endpoint_key(client, api_key: str) -> None:
+    endpoint_id = (await client.get("/api/settings")).json()["active_endpoint_id"]
+    await client.put_checked(f"/api/endpoints/{endpoint_id}", json={"api_key": api_key})
+
+
 async def test_export_strips_api_keys_by_default(client, db_path):
-    await client.put("/api/settings", json={"api_key": "sk-secret"})
+    await _set_active_endpoint_key(client, "sk-secret")
     name = (await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": True})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
-    assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == ""
-    assert all(r[0] == "" for r in conn.execute("SELECT api_key FROM endpoints").fetchall())
+    keys = [r[0] for r in conn.execute("SELECT api_key FROM endpoints").fetchall()]
+    assert keys and all(key == "" for key in keys)
 
 
 async def test_export_without_configs_scrubs_keys(client, db_path):
-    await client.put("/api/settings", json={"api_key": "sk-secret"})
+    await _set_active_endpoint_key(client, "sk-secret")
+    await client.put_checked("/api/settings", json={"system_prompt": "private"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
-    assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == ""
+    assert conn.execute("SELECT COUNT(*) FROM endpoints").fetchone()[0] == 0
+    assert conn.execute("SELECT system_prompt FROM settings WHERE id=1").fetchone()[0] == ""
 
 
 # ── snapshot / restore ─────────────────────────────────────────────────────

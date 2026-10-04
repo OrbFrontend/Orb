@@ -276,7 +276,9 @@ SEED_INTERACTIVE_FRAGMENTS = [
 
 DEFAULT_ENABLED_TOOLS = {"direct_scene": True, "editor_apply_patch": False, "editor_rewrite": False}
 
-DEFAULT_SETTINGS = {
+# The endpoint and model a fresh install or a reset starts on. They seed the endpoints row and its Writer and Agent
+# model_configs; the settings table has no columns for them.
+DEFAULT_CONNECTION = {
     "endpoint_url": "http://localhost:5000/v1",
     "api_key": "",
     "model_name": "default",
@@ -286,6 +288,12 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
+}
+
+DEFAULT_SETTINGS = {
+    # get_settings() overlays these keys from the active endpoint and model config; with no settings row at all they read as
+    # the default connection.
+    **DEFAULT_CONNECTION,
     "shared_system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.",
     "system_prompt": "",
     "user_name": "User",

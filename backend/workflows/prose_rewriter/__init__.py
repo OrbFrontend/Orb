@@ -26,7 +26,9 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     return {"automatic": automatic if isinstance(automatic, bool) else CONFIG_DEFAULTS["automatic"]}
 
 
-prose_rewriter_workflow = Workflow(
+# The post hook runs the local rewrite model, which sits below the toolkit, so
+# the host adapter ``backend/workflows/prose_rewriter_host.py`` binds it.
+WORKFLOW = Workflow(
     id=WORKFLOW_ID,
     display_name="Prose Rewriter",
     config_schema=CONFIG_SCHEMA,
@@ -34,4 +36,4 @@ prose_rewriter_workflow = Workflow(
     config_normalizer=normalize_config,
 )
 
-__all__ = ["WORKFLOW_ID", "normalize_config", "prose_rewriter_workflow"]
+__all__ = ["WORKFLOW", "WORKFLOW_ID", "normalize_config"]

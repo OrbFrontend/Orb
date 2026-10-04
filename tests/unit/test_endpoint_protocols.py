@@ -34,6 +34,7 @@ def _clear_learned_state():
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
     ep._CACHE_MARKERS_REFUSED.clear()
+    ep._BODY_FIELDS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
     yield
@@ -43,6 +44,7 @@ def _clear_learned_state():
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
     ep._CACHE_MARKERS_REFUSED.clear()
+    ep._BODY_FIELDS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
 
@@ -921,6 +923,69 @@ async def test_configured_cache_control_replaces_the_breakpoints(endpoint):
     assert body["cache_control"] == automatic
     assert _marked_indexes(body["messages"]) == []
     assert "cache_control" not in json.dumps(body["messages"]) + json.dumps(body.get("system"))
+
+
+_STRICT_BODY = {
+    "model": "m",
+    "messages": [],
+    "temperature": 0.8,
+    "max_tokens": 4096,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "top_k": 40,
+    "repetition_penalty": 1.0,
+    "reasoning": {"enabled": False},
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "refused"),
+    [
+        # serde lists the accepted fields after the refused one; the refused key is the one beside the marker.
+        (
+            "Failed to deserialize the JSON body into the target type: unknown field `min_p`, expected one of `model`, "
+            "`messages`, `temperature`, `max_tokens`, `top_p` at line 1 column 300",
+            "min_p",
+        ),
+        ("Unrecognized request argument supplied: top_k", "top_k"),
+        (
+            "[{'type': 'extra_forbidden', 'loc': ('body', 'repetition_penalty'), 'msg': 'Extra inputs are not permitted'}]",
+            "repetition_penalty",
+        ),
+        # The budget is the visible Max Tokens setting: its refusal surfaces rather than costing the field.
+        ("max_tokens 100000 is not supported; the maximum for this model is 8192", None),
+        # An error-type token is not refusal wording.
+        ('{"error":{"message":"Invalid temperature value 3.0","type":"unknown_error"}}', None),
+        # A path segment names a message's field, not the body's.
+        ("messages.1.reasoning: unexpected property", None),
+    ],
+)
+def test_a_refusal_names_the_one_body_field_it_refuses(text, refused):
+    assert ep._refused_body_field(_STRICT_BODY, 400, text) == refused
+
+
+async def test_a_strict_server_is_walked_field_by_field_and_remembered():
+    """A server that names one unknown field per rejection, past the counted quirk budget, still reaches a body it takes."""
+
+    def unknown(field):
+        return _Response(400, error=f'{{"error":{{"message":"unknown field `{field}`, expected one of `model`, `messages`"}}}}')
+
+    refused = ["min_p", "top_k", "repetition_penalty", "reasoning"]
+    fake = _HTTP([*(unknown(field) for field in refused), _Response(lines=OPENAI_DONE)])
+    client = LLMClient("https://strict.test/v1", "key")
+    params = {"temperature": 0.8, "max_tokens": 64, "min_p": 0.05, "top_k": 40, "repetition_penalty": 1.0}
+
+    events = await _run_transcript(client, fake, "m", **params, **reasoning_cfg(False))
+
+    assert events[-1]["message"]["content"] == "ok"
+    sent = fake.requests[-1]["body"]
+    assert not set(refused) & set(sent)
+    assert sent["temperature"] == 0.8 and sent["max_tokens"] == 64
+
+    again = _HTTP([_Response(lines=OPENAI_DONE)])
+    await _run_transcript(client, again, "m", **params, **reasoning_cfg(False))
+    assert len(again.requests) == 1
+    assert not set(refused) & set(again.requests[0]["body"])
 
 
 async def test_refused_cache_markers_retry_unmarked_and_are_remembered():

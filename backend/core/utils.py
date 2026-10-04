@@ -36,33 +36,22 @@ def scrub_log(value: object) -> str:
 _HYPERPARAM_KEYS = ("temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty")
 
 
-def extract_hyperparams(
-    settings: Mapping[str, Any], *, lane: AgentLane = "writer", defaults: Mapping[str, Any] | None = None
-) -> dict:
+def extract_hyperparams(settings: Mapping[str, Any], *, lane: AgentLane = "writer") -> dict:
     """Extract hyperparameters for the calling lane.
 
-    Agent keys fall back per key to Writer values when absent. Explicit None omits a parameter; defaults fill only absent keys.
-    Send max_tokens exactly as configured, without raising the budget for single-reply calls.
+    Agent keys fall back per key to Writer values when absent. Explicit None omits a parameter. Every value goes out exactly as
+    configured: no call substitutes its own sampler or raises the budget.
     """
     prefix = "agent_" if lane == "agent" else ""
     params: dict[str, Any] = {}
-    explicit: set[str] = set()
     for key in _HYPERPARAM_KEYS:
         lane_key = f"{prefix}{key}"
         if prefix and lane_key in settings:
             value = settings[lane_key]
-            explicit.add(key)
-        elif key in settings:
-            value = settings[key]
-            explicit.add(key)
         else:
-            value = None
+            value = settings.get(key)
         if value is not None:
             params[key] = value
-    if defaults:
-        for k, v in defaults.items():
-            if k not in params and k not in explicit:
-                params[k] = v
     return params
 
 

@@ -58,7 +58,11 @@ async def test_proposal_stage_honours_a_world_disabled_during_the_turn(monkeypat
     async def entries_must_not_be_read(_world_id):
         raise AssertionError("a disabled world must stop before loading its entries")
 
+    async def still_active(_conversation_id):
+        return ["w1"]
+
     monkeypatch.setattr(proposal_module.db, "get_world", disabled_world)
+    monkeypatch.setattr(proposal_module.db, "get_effective_world_ids", still_active)
     monkeypatch.setattr(proposal_module.db, "get_lorebook_entries", entries_must_not_be_read)
     state = TurnState(user_message="hello", resp_text="reply")
     turn = WorldProposalTurn(world_ids=("w1",), conversation_id="c1", user_message="hello")

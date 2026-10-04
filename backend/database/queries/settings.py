@@ -6,7 +6,17 @@ from typing import Any, cast
 
 from ..connection import build_set_clause, get_db, select_rows
 from ..models import SettingsRow
-from ..seeds import DEFAULT_SETTINGS
+from ..seeds import DEFAULT_CONNECTION, DEFAULT_SETTINGS
+
+# What get_settings() reports when no active endpoint, or no active Writer model config on it, supplies these keys: no
+# connection and no model, so a turn fails at the client instead of reaching a server nobody selected, and the default
+# connection's samplers.
+_UNSELECTED_CONNECTION: dict[str, Any] = {
+    "endpoint_url": "",
+    "api_key": "",
+    "model_name": "",
+    **{key: DEFAULT_CONNECTION[key] for key in ("temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens")},
+}
 
 
 async def get_settings() -> SettingsRow:
@@ -41,8 +51,8 @@ async def get_settings() -> SettingsRow:
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
-        # Overlay endpoint_url, api_key, model_name, and hyperparameters from the active endpoint's active model config so
-        # callers always get live values rather than the stale flat columns.
+        # The active endpoint supplies the connection, and its active model config the model and hyperparameters.
+        s.update(_UNSELECTED_CONNECTION)
         active_ep_id = s.get("active_endpoint_id")
         if active_ep_id:
             ep_rows = list(
@@ -53,6 +63,8 @@ async def get_settings() -> SettingsRow:
             )
             if ep_rows:
                 ep = dict(ep_rows[0])
+                s["endpoint_url"] = ep["url"]
+                s["api_key"] = ep["api_key"]
                 s["completion_mode"] = ep.get("completion_mode", "chat")
                 s["proxy"] = ep.get("proxy", "")
                 mc_id = ep.get("active_model_config_id")
@@ -84,9 +96,8 @@ async def get_settings() -> SettingsRow:
                             "extra_headers",
                             "extra_body",
                         ):
-                            # A NULL sampler is an explicit instruction to omit
-                            # that request key.  Do not retain the legacy flat
-                            # setting beneath it, or it would be sent anyway.
+                            # A NULL sampler is an explicit instruction to omit that request key, so it replaces the
+                            # fallback rather than falling through to it.
                             s[field] = mc.get(field)
                         if mc.get("system_prompt") is not None:
                             s["system_prompt"] = mc["system_prompt"]
@@ -237,12 +248,8 @@ async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
 async def update_settings(data: dict) -> SettingsRow:
     async with get_db() as db:
         allowed = [
-            "endpoint_url",
-            "api_key",
-            "model_name",
-            # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) are deliberately excluded:
-            # get_settings() always overlays them from the active model_config, so writing them here is a dead path. They are
-            # edited via /models/{id}. See SettingsUpdate for the contract.
+            # The connection, model name and hyperparameters are not settings columns: they are edited on the endpoint
+            # (/endpoints/{id}) and its model config (/models/{id}). See SettingsUpdate for the contract.
             "shared_system_prompt",
             "system_prompt",
             "user_name",

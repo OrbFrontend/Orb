@@ -8,9 +8,6 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-# Body keys always sent; never subject to allowlist filtering.
-ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
-
 # Assistant-message fields that carry a model's reasoning back to it. The chat transport stores reasoning under the names the
 # provider streamed, and a replay echoes them unchanged, because servers disagree about what they read: llama.cpp reads only
 # ``reasoning_content``, vLLM only ``reasoning``, and OpenRouter also needs ``reasoning_details`` to keep signed reasoning
@@ -37,11 +34,6 @@ class ModelProfile:
     one-off transforms that don't yet warrant a named field.
     """
 
-    # Extra body keys allowed past ALWAYS_ALLOWED. Anything else is dropped. None disables the drop step entirely (no allowlist
-    # filtering) -- use for lenient backends (e.g. OpenRouter) where enumerating params risks dropping ones the model actually
-    # wants.
-    allow_extra: frozenset[str] | None
-
     # If False, coerce forced-function tool_choice dicts and "required" to
     # "auto". True means the caller's value passes through unchanged.
     allow_forced_tool_choice: bool = True
@@ -65,14 +57,6 @@ class ModelProfile:
         """Apply this profile to *body* in place. Returns log lines for each mutation."""
         actions: list[str] = []
 
-        if self.allow_extra is not None:
-            allowed = ALWAYS_ALLOWED | self.allow_extra
-            dropped = [k for k in body if k not in allowed]
-            for k in dropped:
-                body.pop(k)
-            if dropped:
-                actions.append(f"dropped={dropped}")
-
         if not self.allow_forced_tool_choice:
             tc = body.get("tool_choice")
             if is_forced_tool_choice(tc):
@@ -91,28 +75,6 @@ class ModelProfile:
                 actions.append(log)
 
         return actions
-
-
-# https://api-docs.deepseek.com/api/create-chat-completion
-_DEEPSEEK_DEFAULT_EXTRA: frozenset[str] = frozenset(
-    {
-        "temperature",
-        "top_p",
-        "max_tokens",
-        "presence_penalty",
-        "frequency_penalty",
-        "stop",
-        "response_format",
-        "logprobs",
-        "top_logprobs",
-        "stream_options",
-        "thinking",
-    }
-)
-
-# deepseek-reasoner rejects logprobs/top_logprobs with HTTP 400. Other "unsupported" params
-# (temperature/top_p/presence_penalty/frequency_penalty) are silently ignored per DeepSeek docs, so keeping them in is harmless.
-_DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {"logprobs", "top_logprobs"}
 
 
 def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
@@ -140,14 +102,10 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
         # deepseek-chat supports forced-function tool_choice in chat mode but rejects it whenever the request also carries
         # thinking=enabled (the API silently routes thinking-on requests through reasoner semantics). The custom transform
         # handles that conditional case.
-        None: ModelProfile(
-            allow_extra=_DEEPSEEK_DEFAULT_EXTRA,
-            allow_forced_tool_choice=True,
-            custom=(_deepseek_coerce_tool_choice_when_thinking,),
-        ),
+        None: ModelProfile(custom=(_deepseek_coerce_tool_choice_when_thinking,)),
         # deepseek-reasoner is unconditionally thinking-on, so coerce statically. Equivalent to the conditional above for this
         # model; kept as a static knob for clarity. Graceful-skip paths in Director/Editor handle any unselected tool calls.
-        "deepseek-reasoner": ModelProfile(allow_extra=_DEEPSEEK_REASONER_EXTRA, allow_forced_tool_choice=False),
+        "deepseek-reasoner": ModelProfile(allow_forced_tool_choice=False),
     },
     # NanoGPT is a *proxy*: each model id it fronts sits behind a different upstream engine with its own config, so no
     # endpoint-wide statement about decoding is true of every model. Its own tool-argument decoding is unconstrained (observed:
@@ -155,12 +113,7 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
     # mode is honored by the routes that implement it -- so the opt-in here is the *optimistic default*, not a claim about the
     # whole catalogue. An upstream that quietly ignores the schema is demoted per model on the first reply that proves it
     # (``note_structured_output_ignored``), which is why this stays one endpoint-wide knob instead of a hand-kept model list.
-    "nano-gpt.com": {
-        None: ModelProfile(
-            allow_extra=None,  # lenient passthrough; drop nothing
-            structured_tool_calls=True,
-        )
-    },
+    "nano-gpt.com": {None: ModelProfile(structured_tool_calls=True)},
 }
 
 
@@ -199,7 +152,7 @@ def _gemini_reasoning_off(body: dict) -> str | None:
 
 # Google's OpenAI compatibility API accepts ordinary OpenAI request fields
 # (unknown additions are ignored) and honors strict json_schema output.
-_GEMINI_PROFILE = ModelProfile(allow_extra=None, structured_tool_calls=True, custom=(_gemini_reasoning_off,))
+_GEMINI_PROFILE = ModelProfile(structured_tool_calls=True, custom=(_gemini_reasoning_off,))
 
 
 Protocol = Literal["openai", "anthropic"]
@@ -436,10 +389,10 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
 
 # Request preparation + error recovery (the provider seam LLMClient calls)
 #
-# These two module-level functions are the *entire* provider-specific surface LLMClient depends on. The client stays
-# transport-only: it builds the body, sends it, and on a >=400 asks here whether the failure is a recognised quirk worth one
-# retry. Everything that knows about a provider -- URL matching, error-text sniffing, the session memory of what a model rejects
-# -- lives here, not in llm_client.
+# ``prepare_request_body``, ``recover_from_error`` and ``recover_refused_field`` are the *entire* provider-specific surface
+# LLMClient depends on. The client stays transport-only: it builds the body, sends it, and on a >=400 asks here whether the
+# failure is a recognised quirk worth a retry. Everything that knows about a provider -- URL matching, error-text sniffing, the
+# session memory of what a model rejects -- lives here, not in llm_client.
 
 # (endpoint_url, model) pairs seen to reject the tool_choice param this session. In-memory only (cleared on restart); lets later
 # calls drop it up front instead of paying the round-trip + retry again.
@@ -476,6 +429,22 @@ _FIELD_REFUSAL_MARKERS = (
     "unknown",
     "unrecognized",
 )
+
+# Top-level body keys each pair refused this session. Orb forwards keys only some servers read -- the min_p/top_k/repetition
+# samplers, every reasoning dialect, the user's extra body -- and a server that validates its schema answers 400/422 naming the
+# one it does not take. Learning each refusal stands in for a hand-kept list of what every provider accepts.
+_BODY_FIELDS_REFUSED: dict[tuple[str, str], set[str]] = {}
+
+# Keys a request cannot shed and stay the request it was, so a refusal naming one is the error itself. ``max_tokens`` is the
+# visible budget setting: a refusal of it surfaces instead of the call quietly running unbounded. ``tool_choice`` has its own
+# recoveries.
+_ESSENTIAL_BODY_FIELDS = frozenset({"model", "messages", "stream", "tools", "tool_choice", "max_tokens"})
+
+# How close a key must sit to the refusal wording to be the key it refuses. A schema error that goes on to list every accepted
+# field (serde's "unknown field `min_p`, expected one of ...") names several body keys; the refused one is next to the marker.
+_REFUSAL_WINDOW = 48
+
+_REFUSAL_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(marker) for marker in _FIELD_REFUSAL_MARKERS) + r")(?!\w)")
 
 
 def _is_openrouter(endpoint_url: str) -> bool:
@@ -554,6 +523,43 @@ def _refused_replay_fields(body: dict, status: int, text: str) -> set[str]:
     return {field for field in carried if re.search(rf"(?<!\w){field}(?!\w)", low)}
 
 
+def _refused_body_field(body: Mapping[str, Any], status: int, text: str) -> str | None:
+    """Return the one top-level body key a rejection refuses, or ``None``.
+
+    Only a 400/422 with refusal wording counts, and only a key the body carries and can shed. The key named nearest that wording
+    wins, within :data:`_REFUSAL_WINDOW` characters. A key spelled as a path segment (``messages.1.reasoning``) belongs to a
+    message, not the body.
+    """
+    if status not in {400, 422}:
+        return None
+    low = text.lower()
+    markers = [match.span() for match in _REFUSAL_RE.finditer(low)]
+    if not markers:
+        return None
+    best: tuple[int, str] | None = None
+    for key in body:
+        if key in _ESSENTIAL_BODY_FIELDS:
+            continue
+        for found in re.finditer(rf"(?<![\w.]){re.escape(key.lower())}(?!\w)", low):
+            gap = min(max(0, start - found.end(), found.start() - end) for start, end in markers)
+            if gap <= _REFUSAL_WINDOW and (best is None or gap < best[0]):
+                best = (gap, key)
+    return best[1] if best else None
+
+
+def recover_refused_field(endpoint_url: str, model: str, body: Mapping[str, Any], status: int, text: str) -> str | None:
+    """Learn a top-level body key the endpoint refused, so this and every later request omits it.
+
+    Returns a log line (triggering a retry) or ``None``. Each recovery sheds a key the body still carried, so a run of them ends
+    once the body holds only keys the endpoint takes.
+    """
+    key = _refused_body_field(body, status, text)
+    if key is None:
+        return None
+    _BODY_FIELDS_REFUSED.setdefault((endpoint_url, model), set()).add(key)
+    return f"Model {model} refused the {key!r} request field; retrying without it."
+
+
 def sends_cache_markers(endpoint_url: str, model: str) -> bool:
     """Whether requests to this pair still carry prompt-cache breakpoints."""
     return (endpoint_url, model) not in _CACHE_MARKERS_REFUSED
@@ -574,6 +580,12 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     profile = profile_for(endpoint_url, model)
     if profile is not None:
         actions.extend(profile.apply(body))
+
+    refused_fields = sorted(key for key in _BODY_FIELDS_REFUSED.get((endpoint_url, model), ()) if key in body)
+    for key in refused_fields:
+        body.pop(key)
+    if refused_fields:
+        actions.append(f"{refused_fields} dropped (session-learned unsupported)")
 
     if "reasoning_effort" in body and (endpoint_url, model) in _REASONING_EFFORT_UNSUPPORTED:
         effort = body.pop("reasoning_effort")

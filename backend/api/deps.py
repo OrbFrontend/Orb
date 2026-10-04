@@ -24,7 +24,7 @@ from ..analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from ..database import get_conversation, get_lorebook_entry, get_workflow_attachment_by_id, get_world, get_world_changeset
 from ..database.models import ConversationRow
 from ..features.cards import ProfileDraftUnavailable
-from ..inference import AbortToken, LLMCallError, provider_sentence
+from ..inference import AbortToken, EndpointConfigError, LLMCallError, provider_sentence
 from ..workflows import WorkflowEventStream, public_event_error
 
 logger = logging.getLogger(__name__)
@@ -443,6 +443,11 @@ async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = 
                 event = nxt.result()
             except StopAsyncIteration:
                 finished = True
+                break
+            except EndpointConfigError as exc:
+                # A settings problem the message already names: end the stream with it rather than with a broken connection.
+                finished = True
+                yield f"event: error\ndata: {exc}\n\n"
                 break
             except BaseException:
                 finished = True

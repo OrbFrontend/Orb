@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, TypeVar
 
 import httpx
 
-from ..inference import LLMCallError, provider_sentence
+from ..inference import AbortToken, EndpointConfigError, LLMCallError, provider_sentence
 from ..inference.claude_code import ClaudeCodeError
 from ..workflows.errors import WorkflowUserFacingError
 
@@ -28,6 +28,8 @@ STAGE_DIRECTOR = "director pass"
 STAGE_WRITER = "writer pass"
 STAGE_EDITOR = "editor pass"
 STAGE_WORKFLOWS = "workflow hook"
+# The steps that read the finished reply: the after-reply state update, World proposals and sheet reviews.
+STAGE_AFTER_REPLY = "after-reply update"
 # Saving the reply is not a pass, but a failure there is the one a stopped turn
 # must still report: the user was told nothing else about losing the reply.
 STAGE_SAVE = "saving the reply"
@@ -78,6 +80,7 @@ TRANSPORT_HEADLINE = "Couldn't reach the endpoint."
 SERVER_HEADLINE = "The provider had an internal error."
 GENERIC_HTTP_HEADLINE = "The model provider rejected the request."
 WORKFLOW_HEADLINE = "A workflow step failed."
+CONFIG_HEADLINE = "The model settings are incomplete."
 INTERNAL_HEADLINE = "Something went wrong inside Orb."
 
 
@@ -178,6 +181,10 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
             "stage": stage,
         }
 
+    if isinstance(exc, EndpointConfigError):
+        # The message names the setting to change; it carries nothing from a provider.
+        return {"headline": CONFIG_HEADLINE, "sentence": str(exc), "kind": "config", "stage": stage}
+
     if isinstance(exc, WorkflowUserFacingError):
         # The message is already sanitized -- that is what raising this type promises.
         return {
@@ -188,3 +195,64 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
         }
 
     return {"headline": INTERNAL_HEADLINE, "sentence": _internal_sentence(exc), "kind": "internal", "stage": stage}
+
+
+# The ``warning`` headline for each step a failed call can leave unfinished, named as the status line names the step
+# (frontend/generation_status.js).
+_STEP_HEADLINES = {
+    "director": "The Director didn't finish.",
+    "lorebook": "The lorebook selection didn't finish.",
+    "state": "The state update didn't finish.",
+    "output_auditor": "The draft audit didn't finish.",
+    "length_guard": "The length check didn't finish.",
+    "post_processing": "Post-processing “{label}” didn't finish.",
+    "feedback": "Feedback didn't finish.",
+    "editor": "The Editor didn't finish.",
+    "world_changes": "The World change check didn't finish.",
+    "sheet_updates": "The character sheet review didn't finish.",
+}
+
+
+def step_failure_warning(error: BaseException, step: str, *, stage: str, label: str = "") -> dict:
+    """The non-terminal ``warning`` for a failure its step survived.
+
+    The headline names the step; the failure's own account becomes the sentence, so a timeout still reads as a timeout.
+    """
+    payload = describe_failure(error)
+    reason = " ".join(part for part in (payload["headline"], payload["sentence"]) if part)
+    payload["headline"] = _STEP_HEADLINES[step].format(label=label or "fragment")
+    payload["sentence"] = reason
+    payload["stage"] = stage
+    return {"event": "warning", "data": payload}
+
+
+def _warning_cause(data: Mapping[str, Any]) -> tuple:
+    """What a warning reports as having gone wrong. A provider or transport failure is its host and status -- their bodies can
+    carry per-request ids -- and anything else is its sentence."""
+    if data.get("host"):
+        return (data.get("kind"), data["host"], data.get("status"))
+    return (data.get("kind"), data.get("sentence"))
+
+
+async def reported_once(events: AsyncIterator[dict], abort: AbortToken | None) -> AsyncIterator[dict]:
+    """Pass one turn's SSE events through, thinning its ``warning`` events.
+
+    The rule every step follows: a failed call ends its own step, never the turn -- only the Writer's failure is the turn's
+    ``error`` -- and the step says so with a ``warning``. One outage fails every Agent call of a turn, so a warning whose step or
+    whose cause this stream already reported is dropped (the log keeps each failure), and none is sent once the turn is
+    stopped, which explains itself.
+    """
+    steps: set[str] = set()
+    causes: set[tuple] = set()
+    async for event in events:
+        if event.get("event") == "warning":
+            data = event.get("data")
+            if abort is not None and abort.is_aborted:
+                continue
+            if isinstance(data, Mapping):
+                step, cause = str(data.get("headline", "")), _warning_cause(data)
+                if step in steps or cause in causes:
+                    continue
+                steps.add(step)
+                causes.add(cause)
+        yield event

@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
-from ...failures import STAGE_EDITOR, describe_failure
+from ...failures import STAGE_EDITOR, step_failure_warning
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import PostProcessingResult, post_processing_active, post_processing_step
@@ -252,16 +252,6 @@ async def editor_pass(
     yield done
 
 
-# The ``warning`` headline for each sub-step's failure, named as the status line names the step (frontend/generation_status.js).
-_FAILURE_HEADLINES = {
-    "output_auditor": "The draft audit didn't finish.",
-    "length_guard": "The length check didn't finish.",
-    "post_processing": "Post-processing “{label}” didn't finish.",
-    "feedback": "Feedback didn't finish.",
-    "editor": "The Editor didn't finish.",
-}
-
-
 async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
     """Pass *events* through, turning a failure that escapes them into a
     ``failure`` event -- a defect outside the sub-steps' own reporting, such as
@@ -272,20 +262,6 @@ async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict
     except Exception as exc:
         logger.exception("Editor pass failed; keeping the draft it had reached")
         yield {"type": "failure", "during": "editor", "label": "", "error": exc}
-
-
-def _failure_warning(event: Mapping[str, Any]) -> dict:
-    """The non-terminal ``warning`` for one failed Editor call.
-
-    The headline names the sub-step; the provider's own account of the failure
-    becomes the sentence, so a timeout still reads as a timeout.
-    """
-    payload = describe_failure(event["error"])
-    reason = " ".join(part for part in (payload["headline"], payload["sentence"]) if part)
-    payload["headline"] = _FAILURE_HEADLINES[event["during"]].format(label=event.get("label") or "fragment")
-    payload["sentence"] = reason
-    payload["stage"] = STAGE_EDITOR
-    return {"event": "warning", "data": payload}
 
 
 async def editor_stage(
@@ -328,8 +304,8 @@ async def editor_stage(
         )
         # The draft the browser was last told is authoritative.
         announced = state.resp_text
-        # A failed Editor call does not abort the turn: editor_pass keeps the best draft reached and reports the failure, which
-        # surfaces as a non-terminal ``warning`` -- unless the user already stopped the turn, which is its own explanation.
+        # A failed Editor call does not abort the turn: editor_pass keeps the best draft reached and reports the failure as a
+        # non-terminal ``warning``.
         async for event in _reporting_failures(
             editor_pass(
                 cfg.agent_lane.client,
@@ -355,8 +331,7 @@ async def editor_stage(
             if event["type"] == "step":
                 yield {"event": "step_start", "data": {"step": event["step"]}}
             elif event["type"] == "failure":
-                if not cfg.agent_lane.client.is_aborted:
-                    yield _failure_warning(event)
+                yield step_failure_warning(event["error"], event["during"], stage=STAGE_EDITOR, label=event.get("label", ""))
             elif event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
                 # editor sub-step, so it shares the Editor reasoning toggle and box).
@@ -482,8 +457,8 @@ async def _run_edit_loop(
         logger.info("Editor: length guard triggered (word_count=%d > max_words=%d)", lg_word_count, length_guard["max_words"])
         debug_parts.append(f"Length guard triggered: {lg_word_count} words (max {length_guard['max_words']})")
 
-    if report.total_issues <= 1 and not length_guard_triggered:
-        logger.info("Editor: %d issue(s) within threshold and no length guard, skipping LLM loop", report.total_issues)
+    if report.is_clean and not length_guard_triggered:
+        logger.info("Editor: audit clean and no length guard, skipping LLM loop")
         yield _editor_done_event(None, debug_parts, t0)
         return
 
@@ -535,7 +510,7 @@ async def _run_edit_loop(
             break
         logger.debug("Editor iteration %d/%d, %d issues remaining", iteration + 1, MAX_EDITOR_ITERATIONS, report.total_issues)
         try:
-            hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+            hyperparams = extract_hyperparams(settings, lane="agent")
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
@@ -633,7 +608,7 @@ async def _run_edit_loop(
                 if audit_enabled:
                     debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
 
-                if report.total_issues <= 1:
+                if report.is_clean:
                     break
                 if not targets and not rewrite:
                     logger.info("Editor: %d issue(s) left, none addressable, stopping", report.total_issues)
@@ -721,13 +696,13 @@ async def _run_edit_loop(
                 )
                 debug_parts.append("Protected-sequence rejection replayed to the model:\n" + "\n".join(rejected))
 
-            if report.total_issues <= 1 and not explain_rejection:
+            if report.is_clean and not explain_rejection:
                 if not length_guard_triggered:
                     break
                 # Audit clean but length guard still pending: next iteration's tool_choice forces editor_rewrite
                 # (length_guard_triggered is still True). The schema blob is left untouched so the KV cache survives the
                 # hand-off.
-                logger.info("Editor: audit within threshold, length guard still pending — queuing rewrite")
+                logger.info("Editor: audit clean, length guard still pending — queuing rewrite")
 
             if not targets and not rewrite:
                 logger.info("Editor: %d issue(s) left, none addressable, stopping", report.total_issues)

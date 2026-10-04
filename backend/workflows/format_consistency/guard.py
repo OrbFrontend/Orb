@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from ..toolkit import protected_runs, spoken_lines
-from . import VOICE_REWRITE_TOOL_NAME
+from .config import VOICE_REWRITE_TOOL_NAME
 
 # A restatement may be slightly shorter, and may grow only by the few words a
 # person or tense shift costs ("she'd" -> "I would"), which scales with length.

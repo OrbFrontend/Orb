@@ -15,7 +15,13 @@ from ..toolkit import (
     local_feature_ready,
     markup_axes,
 )
-from . import VOICE_REWRITE_LENGTH_RULE, VOICE_REWRITE_TOOL_NAME, WORKFLOW_ID, capture, normalize_config
+from . import capture
+from .config import (
+    VOICE_REWRITE_LENGTH_RULE,
+    VOICE_REWRITE_TOOL_NAME,
+    WORKFLOW_ID,
+    normalize_config,
+)
 from .guard import rejection, unwrap
 from .normalization import normalize_to_baseline, vote_axes
 from .voice import FEATURE, UNKNOWN_LABELS, VoiceLabels, drift, labels_for, read, target

@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from backend.database import add_message, insert_workflow_attachment_row, reset_to_defaults, set_active_leaf
+from backend.database import DEFAULT_SETTINGS, add_message, insert_workflow_attachment_row, reset_to_defaults, set_active_leaf
 from backend.workflows.attachment_cache import record_access
 
 from ._fixtures import registered_artifact_workflow
@@ -73,7 +73,7 @@ async def test_reset_keeps_counter_above_retained_recent_accesses(client, db):
 async def test_reset_retains_attachment_rows_and_clears_settings(client, db):
     att_id = await _seed_attachment(client)
     # Mutate a setting that reset is supposed to restore.
-    await db.execute("UPDATE settings SET temperature = 1.99 WHERE id = 1")
+    await db.execute("UPDATE settings SET length_guard_max_words = 999 WHERE id = 1")
     await db.commit()
 
     await reset_to_defaults()
@@ -81,6 +81,6 @@ async def test_reset_retains_attachment_rows_and_clears_settings(client, db):
     # The attachment row survives.
     rows = list(await db.execute_fetchall("SELECT id FROM workflow_attachments WHERE id = ?", (att_id,)))
     assert len(rows) == 1
-    # The tuned setting is back to its default (i.e. not 1.99).
-    temp = list(await db.execute_fetchall("SELECT temperature FROM settings WHERE id = 1"))[0]["temperature"]
-    assert temp != pytest.approx(1.99)
+    # The tuned setting is back to its default.
+    words = list(await db.execute_fetchall("SELECT length_guard_max_words FROM settings WHERE id = 1"))[0]
+    assert words["length_guard_max_words"] == DEFAULT_SETTINGS["length_guard_max_words"]

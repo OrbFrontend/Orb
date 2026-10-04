@@ -1,11 +1,13 @@
-"""Register workflows and expose their scoped storage helpers."""
+"""Discover and register workflows and expose their scoped storage helpers."""
 
 from __future__ import annotations
 
+import importlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Literal, overload
 
 from ..database import get_workflow_character_state as _db_get_workflow_character_state
@@ -33,7 +35,11 @@ from .contracts import (
 
 @dataclass
 class Workflow:
-    """Per-workflow metadata and subscriptions."""
+    """Per-workflow metadata and subscriptions.
+
+    A plug-in declares its hooks in ``subscriptions``; ``register_workflow``
+    validates them and stamps each with the workflow's id.
+    """
 
     id: str
     display_name: str
@@ -76,6 +82,10 @@ class WorkflowDeclarationError(ValueError):
 
 _WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_ARTIFACT_HOOKS = frozenset({HookType.REGENERATE, HookType.REROLL_GEN, HookType.EXPORT})
+
+# The name a plug-in package exports its ``Workflow`` under.
+PLUGIN_EXPORT = "WORKFLOW"
 
 
 _WORKFLOWS_BY_ID: dict[str, Workflow] = {}
@@ -88,12 +98,38 @@ def _declared_function_name(payload: object) -> object:
     return function.get("name") if isinstance(function, dict) else None
 
 
+def _check_hook(w: Workflow, hook_type: HookType, bound: Collection[HookType]) -> None:
+    """Reject a second binding of one slot, or an artifact slot on a workflow without artifacts."""
+    if hook_type in bound:
+        raise WorkflowDeclarationError(f"workflow {w.id!r} already has a {hook_type.value} subscription")
+    if hook_type in _ARTIFACT_HOOKS and not w.produces_artifacts:
+        raise WorkflowDeclarationError(
+            f"workflow {w.id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True"
+        )
+
+
+def _declared_subscriptions(w: Workflow) -> list[Subscription]:
+    """Validate the subscriptions *w* declares and stamp each with its id."""
+    stamped: list[Subscription] = []
+    for sub in w.subscriptions:
+        if not isinstance(sub, Subscription) or not isinstance(sub.hook_type, HookType) or not callable(sub.callable):
+            raise WorkflowDeclarationError(
+                f"workflow {w.id!r} subscriptions must be Subscription(HookType, callable, priority) records"
+            )
+        if sub.workflow_id not in ("", w.id):
+            raise WorkflowDeclarationError(f"workflow {w.id!r} declares a subscription for workflow {sub.workflow_id!r}")
+        _check_hook(w, sub.hook_type, [s.hook_type for s in stamped])
+        stamped.append(replace(sub, workflow_id=w.id))
+    return stamped
+
+
 def register_workflow(w: Workflow) -> None:
-    """Register or replace a workflow."""
+    """Register or replace a workflow, with the subscriptions it declares."""
     if not isinstance(w.id, str) or _WORKFLOW_ID_RE.fullmatch(w.id) is None:
         raise WorkflowDeclarationError(
             f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"
         )
+    subscriptions = _declared_subscriptions(w)
 
     seen_tool_names: set[str] = set()
     for spec in w.tools:
@@ -137,10 +173,64 @@ def register_workflow(w: Workflow) -> None:
     for orphan in old_tool_names - new_tool_names:
         remove_tool(orphan)
 
+    w.subscriptions[:] = subscriptions
     _WORKFLOWS_BY_ID[w.id] = w
 
 
+def register_plugins(package: str, directory: Path) -> None:
+    """Import and register every workflow plug-in package in *directory*, in package-name order.
+
+    A plug-in is a subdirectory with an ``__init__.py`` that exports
+    ``WORKFLOW``: a ``Workflow`` whose id is the package name, carrying its
+    hook subscriptions. Modules directly in *directory* are host modules, not
+    plug-ins. An import error propagates, and a directory of Python modules
+    without an ``__init__.py`` or a package without a valid ``WORKFLOW`` raises
+    ``WorkflowDeclarationError``, so a broken plug-in stops startup instead of
+    going missing.
+    """
+    for path in sorted(directory.iterdir(), key=lambda entry: entry.name):
+        if not path.is_dir() or path.name == "__pycache__":
+            continue
+        if not (path / "__init__.py").is_file():
+            if any(path.rglob("*.py")):
+                raise WorkflowDeclarationError(
+                    f"{path} holds Python modules but no __init__.py; a workflow plug-in must be a package"
+                )
+            continue
+        module = importlib.import_module(f"{package}.{path.name}")
+        workflow = getattr(module, PLUGIN_EXPORT, None)
+        if not isinstance(workflow, Workflow):
+            raise WorkflowDeclarationError(f"workflow plug-in {module.__name__} must export {PLUGIN_EXPORT} as a Workflow")
+        if workflow.id != path.name:
+            raise WorkflowDeclarationError(
+                f"workflow plug-in {module.__name__} declares id {workflow.id!r}; its id must be its package name"
+            )
+        register_workflow(workflow)
+
+
 # One overload per slot, so the type checker holds each hook to the shape its route or the bridge calls it with.
+@overload
+def subscription(hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> Subscription: ...
+@overload
+def subscription(hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: HookType, fn: Callable, *, priority: int = 0) -> Subscription:
+    """A hook binding for a plug-in's ``Workflow.subscriptions``, typed per slot."""
+    return Subscription(hook_type, fn, priority)
+
+
+# The same per-slot overloads, for a hook a host adapter binds to a registered plug-in.
 @overload
 def subscribe(workflow_id: str, hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> None: ...
 @overload
@@ -158,13 +248,14 @@ def subscribe(workflow_id: str, hook_type: Literal[HookType.UPLOAD], fn: UploadH
 @overload
 def subscribe(workflow_id: str, hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> None: ...
 def subscribe(workflow_id: str, hook_type: HookType, fn: Callable, *, priority: int = 0) -> None:
+    """Bind *fn* to a registered workflow's hook slot.
+
+    Plug-ins declare their hooks in ``Workflow.subscriptions``; this binds a hook a host adapter supplies for a plug-in.
+    """
     record = _WORKFLOWS_BY_ID.get(workflow_id)
     if record is None:
         raise LookupError(f"subscribe: workflow {workflow_id!r} not registered")
-    if any(s.hook_type is hook_type for s in record.subscriptions):
-        raise ValueError(f"workflow {workflow_id!r} already has a {hook_type.value} subscription")
-    if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN, HookType.EXPORT) and not record.produces_artifacts:
-        raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
+    _check_hook(record, hook_type, [s.hook_type for s in record.subscriptions])
     record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
 
 
@@ -198,8 +289,8 @@ def workflow_has_hook(w: Workflow, hook_type: HookType) -> bool:
 def finalize_registry() -> None:
     """Validate that every ``produces_artifacts=True`` workflow has both ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
 
-    Invoke at the bottom of any module that completes a workflow's wiring -- this is the only hook that fails import on a
-    partially-bound artifact workflow rather than deferring the crash to the first regen click.
+    Invoke once every plug-in is registered and every host-adapter hook is bound -- this is the only hook that fails import on
+    a partially-bound artifact workflow rather than deferring the crash to the first regen click.
     """
     for w in _WORKFLOWS_BY_ID.values():
         if not w.produces_artifacts:

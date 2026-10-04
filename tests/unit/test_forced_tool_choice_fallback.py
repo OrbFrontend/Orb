@@ -1,7 +1,6 @@
 """Tests for the forced-tool_choice fallback (endpoint_profiles + llm_client).
 
 Covers:
-  - ModelProfile.allow_extra=None disables drop-filtering entirely.
   - OpenRouter catalog models are not encoded as permanent profiles.
   - LLMClient.complete()'s provider-gated, error-specific retry: drops
     tool_choice once for the matching OpenRouter 404 (regardless of its value),
@@ -19,19 +18,11 @@ import pytest
 from backend.inference import LLMClient
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep_mod
-from backend.inference.endpoint_profiles import ModelProfile, _is_tool_choice_unsupported, is_forced_tool_choice, profile_for
+from backend.inference.endpoint_profiles import _is_tool_choice_unsupported, is_forced_tool_choice, profile_for
 from tests.http_stream import ScriptedClient as _FakeAsyncClient
 from tests.http_stream import StreamResponse as _FakeStreamResponse
 
 # ---- Layer 1: ModelProfile / PROFILES -------------------------------------
-
-
-def test_allow_extra_none_drops_nothing():
-    prof = ModelProfile(allow_extra=None, allow_forced_tool_choice=True)
-    body = {"model": "m", "messages": [], "temperature": 0.7, "reasoning": {}, "weird": 1}
-    actions = prof.apply(body)
-    assert "temperature" in body and "reasoning" in body and "weird" in body
-    assert not any("dropped" in a for a in actions)
 
 
 def test_honors_forced_tool_choice_dry_run():
@@ -46,14 +37,6 @@ def test_honors_forced_tool_choice_dry_run():
     # deepseek-reasoner drops it unconditionally; unknown endpoints pass through.
     assert not honors_forced_tool_choice("https://api.deepseek.com", "deepseek-reasoner")
     assert honors_forced_tool_choice("http://localhost:5000/v1", "any-model", thinking_on)
-
-
-def test_allow_extra_frozenset_still_drops():
-    prof = ModelProfile(allow_extra=frozenset({"temperature"}))
-    body = {"model": "m", "messages": [], "temperature": 0.7, "weird": 1}
-    prof.apply(body)
-    assert "temperature" in body
-    assert "weird" not in body
 
 
 def test_openrouter_unlisted_model_is_passthrough():

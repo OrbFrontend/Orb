@@ -93,6 +93,8 @@ class _SettingsBase(TypedDict):
     Keep this required base in sync with DEFAULT_SETTINGS; conditional keys belong on SettingsRow.
     """
 
+    # Not settings columns: overlaid from the active endpoint and its active Writer model config, with fixed fallbacks when
+    # neither is selected.
     endpoint_url: str
     api_key: str
     model_name: str
@@ -103,7 +105,7 @@ class _SettingsBase(TypedDict):
     repetition_penalty: float | None
     max_tokens: int | None
     shared_system_prompt: str
-    system_prompt: str
+    system_prompt: str  # the active Writer model config's system_prompt replaces the column's value
     user_name: str
     user_description: str
     enable_agent: bool

@@ -14,15 +14,10 @@ from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
 
 
 class SettingsUpdate(BaseModel):
-    model_config = {"protected_namespaces": ()}
-
-    endpoint_url: str | None = None
-    api_key: str | None = None
-    model_name: str | None = None
-    # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) are intentionally NOT on this contract:
-    # they live on the active endpoint's model_config and are edited via /models/{id}. get_settings() overlays them for reads,
-    # so a write here would be silently discarded. The frontend still includes them in its /settings PUT payload; extra fields
-    # are ignored (default Pydantic behavior), mirroring completion_mode.
+    # The connection (endpoint_url, api_key), model_name and hyperparameters (temperature, min_p, top_k, top_p,
+    # repetition_penalty, max_tokens) are NOT on this contract: they live on the active endpoint and its model_config, edited
+    # via /endpoints/{id} and /models/{id}, and get_settings() overlays them for reads. The frontend still includes them in its
+    # /settings PUT payload; extra fields are ignored (default Pydantic behavior), mirroring completion_mode.
     shared_system_prompt: str | None = None
     system_prompt: str | None = None
     user_name: str | None = None

@@ -230,13 +230,12 @@ async def test_chat_path_builds_system_user_and_suppresses_thinking():
 
 async def test_text_path_calls_complete_raw_with_verbatim_prompt():
     client = _StubClient("text")
-    cont = DocumentContinuer(client, {})
+    cont = DocumentContinuer(client, {"max_tokens": 300})
     out = await _drain(cont.stream("continue me", "m"))
 
     assert _deltas(out) == ["raw-out"]
     assert client.raw_calls[0]["prompt"] == "continue me"
-    # unset max_tokens defaults to 512 (guards n_predict=-1 runaway).
-    assert client.raw_calls[0]["params"]["max_tokens"] == 512
+    assert client.raw_calls[0]["params"]["max_tokens"] == 300
     assert not client.chat_calls
 
 
