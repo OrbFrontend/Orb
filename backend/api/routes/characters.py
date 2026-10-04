@@ -8,7 +8,6 @@ import hashlib
 import logging
 import os
 import tempfile
-import time
 import uuid
 import zipfile
 from typing import Annotated, Any, Literal
@@ -150,11 +149,13 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
 
 
 async def _source_token(source: str) -> str | None:
-    """The saved session for a source, unless it has expired; a stale token would only browse as a guest anyway."""
+    """The saved session for a source. A stale one is harmless: the site answers it as it would a guest."""
     auth = await get_card_source_auth(source)
-    if auth is None or 0 < auth["expires_at"] <= time.time():
-        return None
-    return auth["token"]
+    return auth["token"] if auth else None
+
+
+def _account_state(username: str | None = None, *, expired: bool = False, supported: bool = True) -> dict:
+    return {"supported": supported, "username": username, "expired": expired}
 
 
 @router.get("/api/characters/browse")
@@ -175,21 +176,18 @@ async def api_card_source_account(source: str):
     dropped, so the next browse is a guest's. A site that cannot be reached keeps the login and reports it as signed in.
     """
     if not card_downloader.supports_login(source):
-        return {"supported": False, "username": None, "expired": False}
+        return _account_state(supported=False)
     auth = await get_card_source_auth(source)
     if auth is None:
-        return {"supported": True, "username": None, "expired": False}
-    if 0 < auth["expires_at"] <= time.time():
-        username = None
-    else:
-        try:
-            username = await card_downloader.account(source, auth["token"])
-        except HTTPException:
-            return {"supported": True, "username": auth["username"], "expired": False}
+        return _account_state()
+    try:
+        username = await card_downloader.account(source, auth["token"])
+    except HTTPException:
+        return _account_state(auth["username"])
     if username is None:
         await set_card_source_auth(source, None)
-        return {"supported": True, "username": None, "expired": True}
-    return {"supported": True, "username": username or auth["username"], "expired": False}
+        return _account_state(expired=True)
+    return _account_state(username or auth["username"])
 
 
 @router.post("/api/characters/sources/{source}/login")
@@ -197,7 +195,7 @@ async def api_card_source_login(source: str, req: CardSourceLoginRequest):
     """Sign in to a card site and save its session token; the password is not kept."""
     auth = await card_downloader.login(source, req.username.strip(), req.password)
     await set_card_source_auth(source, auth)
-    return {"supported": True, "username": auth["username"], "expired": False}
+    return _account_state(auth["username"])
 
 
 @router.delete("/api/characters/sources/{source}/login")
@@ -205,7 +203,7 @@ async def api_card_source_logout(source: str):
     """Forget a card site's saved session on this machine."""
     supported = card_downloader.supports_login(source)  # an unknown source is a 400 before it reaches the JSON path
     await set_card_source_auth(source, None)
-    return {"supported": supported, "username": None, "expired": False}
+    return _account_state(supported=supported)
 
 
 @router.post("/api/characters/import-url")

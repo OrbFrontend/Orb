@@ -203,13 +203,12 @@ class SettingsRow(_SettingsBase, total=False):
 class CardSourceAuth(TypedDict):
     """One card source's saved login: one entry of the ``settings.card_source_auth`` JSON object, keyed by source name.
 
-    Holds the site's session token, never the password. ``expires_at`` is the token's own expiry in Unix seconds, 0 when the
-    site does not say. get_settings() leaves the column out, so the token never reaches the settings payload.
+    Holds the site's session token, never the password; the site alone decides when it has expired. get_settings() leaves the
+    column out, so the token never reaches the settings payload.
     """
 
     username: str
     token: str
-    expires_at: int
 
 
 class ConversationRow(TypedDict):

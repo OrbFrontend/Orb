@@ -321,11 +321,7 @@ async def get_card_source_auth(source: str) -> CardSourceAuth | None:
     auth = json.loads(raw) if raw else None
     if not isinstance(auth, dict) or not auth.get("token"):
         return None
-    return {
-        "username": str(auth.get("username") or ""),
-        "token": str(auth["token"]),
-        "expires_at": int(auth.get("expires_at") or 0),
-    }
+    return {"username": str(auth.get("username") or ""), "token": str(auth["token"])}
 
 
 async def set_card_source_auth(source: str, auth: CardSourceAuth | None) -> None:

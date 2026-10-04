@@ -55,7 +55,6 @@ const INTERNET_SOURCES = [
 let _internetSource = "characterhub";
 // Per source: the server's account answer ({ supported, username, expired }), cached for the page's lifetime.
 const _sourceAccounts = new Map();
-let _sourceAccountBusy = false;
 let _internetQuery = "";
 let _internetPage = 1;
 let _internetResults = [];
@@ -473,13 +472,13 @@ function renderSourceAccountBody() {
   if (account.username) {
     return `
       <div class="internet-account">
-        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong>, so member-only cards are included.</span>
-        <button class="btn btn-sm" data-wf-action="browser:sourceLogout" ${_sourceAccountBusy ? "disabled" : ""}>Sign out</button>
+        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong>, so exclusive cards are included.</span>
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogout">Sign out</button>
       </div>`;
   }
   const hint = account.expired
-    ? `Your ${esc(label)} sign-in has expired. Sign in again to include member-only cards.`
-    : `Sign in to ${esc(label)} to include member-only cards. Orb keeps the session, not the password.`;
+    ? `Your ${esc(label)} sign-in has expired. Sign in again to see exclusive cards.`
+    : `Sign in to ${esc(label)} to see exclusive cards. Orb keeps the session, not the password.`;
   return `
     <div class="internet-account">
       <span>${hint}</span>
@@ -488,7 +487,7 @@ function renderSourceAccountBody() {
                data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
         <input id="internet-login-pass" type="password" placeholder="Password" autocomplete="current-password"
                data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
-        <button class="btn btn-sm" data-wf-action="browser:sourceLogin" ${_sourceAccountBusy ? "disabled" : ""}>${_sourceAccountBusy ? "Signing in…" : "Sign in"}</button>
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogin">Sign in</button>
       </div>
     </div>`;
 }
@@ -508,23 +507,23 @@ async function loadSourceAccount(source) {
   if (source === _internetSource) refreshSourceAccount();
 }
 
-/** A sign-in change alters what the source lists, so results already on screen are fetched again. */
+/** A sign-in change alters what the source lists, so results already on screen are fetched again. A failure leaves the row
+ *  as typed. */
 async function changeSourceAccount(request) {
-  if (_sourceAccountBusy) return;
+  const button = document.querySelector("#internet-account .btn");
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
   const source = _internetSource;
-  _sourceAccountBusy = true;
-  refreshSourceAccount();
   try {
     _sourceAccounts.set(source, await request(source));
   } catch (e) {
     toast(`Sign-in failed: ${e.message}`, true);
-  } finally {
-    _sourceAccountBusy = false;
-    if (source === _internetSource) {
-      refreshSourceAccount();
-      if (_internetResults.length) searchInternet();
-    }
+    if (button) button.disabled = false;
+    return;
   }
+  if (source !== _internetSource) return;
+  refreshSourceAccount();
+  if (_internetResults.length) searchInternet();
 }
 
 function loginSource() {

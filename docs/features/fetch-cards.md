@@ -27,7 +27,7 @@ are one batch, so **Load More** is hidden for that view.
 
 Botbooru shows guests only its SFW cards. When you select **Botbooru**, a sign-in
 row appears under the search bar. Sign in with a Botbooru account to include
-member-only cards in search and **🎲 Randomize** results.
+exclusive cards in search and **🎲 Randomize** results.
 
 Orb sends the password to Botbooru once and stores only the session Botbooru
 returns. The session lasts about 90 days. When Botbooru stops accepting it, the row

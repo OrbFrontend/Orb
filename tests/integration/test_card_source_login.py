@@ -3,15 +3,9 @@ token itself never leaves the backend through the settings payload."""
 
 from __future__ import annotations
 
-import base64
-import json
-import time
-
 import httpx
 
-_TOKEN = (
-    "header." + base64.urlsafe_b64encode(json.dumps({"exp": int(time.time()) + 3600}).encode()).decode().rstrip("=") + ".sig"
-)
+_TOKEN = "botbooru-session"
 
 
 class _FakeBotbooru:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import logging
 import os
 import random
@@ -465,54 +464,42 @@ def _bearer(token: str | None) -> dict | None:
     return {"Authorization": f"Bearer {token}"} if token else None
 
 
-def _jwt_expiry(token: str) -> int:
-    """A JWT's ``exp`` claim, read without verifying the signature (only the site can); 0 when there is none."""
-    try:
-        payload = token.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-        return int(claims.get("exp") or 0) if isinstance(claims, dict) else 0
-    except (IndexError, ValueError, TypeError):
-        return 0
-
-
-async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
-    """Exchange a Botbooru username and password for its session token (OAuth2 password form, no captcha on sign-in)."""
+async def _botbooru_call(method: str, path: str, *, what: str, **kwargs) -> tuple[int, dict]:
+    """Send one account request and return ``(status, JSON object or {})``; refusals are the caller's to read, not raised."""
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(f"{_BOTBOORU_BASE}/auth/token", data={"username": username, "password": password})
+            resp = await client.request(method, f"{_BOTBOORU_BASE}{path}", **kwargs)
     except httpx.HTTPError as e:
-        logger.exception("Botbooru sign-in failed")
-        raise HTTPException(status_code=502, detail=f"Botbooru sign-in failed: {e}") from e
+        logger.exception("%s", what)
+        raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
     try:
         body = resp.json()
     except ValueError:
         body = None
-    body = body if isinstance(body, dict) else {}
-    if resp.status_code in (400, 401, 403):
+    return resp.status_code, body if isinstance(body, dict) else {}
+
+
+async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
+    """Exchange a Botbooru username and password for its session token (OAuth2 password form, no captcha on sign-in)."""
+    what = "Botbooru sign-in failed"
+    status, body = await _botbooru_call("POST", "/auth/token", what=what, data={"username": username, "password": password})
+    if status in (400, 401, 403):
         # 401 is a wrong password; 403 is a right password on a timed-out or banned account. Both carry the site's own words.
         raise HTTPException(status_code=400, detail=str(body.get("detail") or "Botbooru refused the sign-in"))
     token = body.get("access_token")
-    if not resp.is_success or not isinstance(token, str) or not token:
-        logger.error("Botbooru sign-in answered %s without a token", resp.status_code)
-        raise HTTPException(status_code=502, detail="Botbooru sign-in failed: the site sent an unexpected response")
-    return {"username": username, "token": token, "expires_at": _jwt_expiry(token)}
+    if status != 200 or not isinstance(token, str) or not token:
+        raise HTTPException(status_code=502, detail=f"{what}: the site sent an unexpected response ({status})")
+    return {"username": username, "token": token}
 
 
 async def _botbooru_account(token: str) -> str | None:
-    """Ask Botbooru whose session this is; None when it rejects the token."""
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{_BOTBOORU_BASE}/auth/me", headers=_bearer(token))
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Botbooru could not be reached: {e}") from e
-    if resp.status_code in (401, 403):
+    """Ask Botbooru whose session this is; None when it rejects the token, expired ones included."""
+    what = "Botbooru could not confirm the sign-in"
+    status, me = await _botbooru_call("GET", "/auth/me", what=what, headers=_bearer(token))
+    if status in (401, 403):
         return None
-    try:
-        me = resp.json() if resp.is_success else None
-    except ValueError:
-        me = None
-    if not isinstance(me, dict):
-        raise HTTPException(status_code=502, detail=f"Botbooru could not confirm the sign-in ({resp.status_code})")
+    if status != 200 or not me:
+        raise HTTPException(status_code=502, detail=f"{what} ({status})")
     return str(me.get("username") or "")
 
 
