@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS settings (
     workflow_enabled TEXT NOT NULL DEFAULT '{}',
     local_ml_enabled TEXT NOT NULL DEFAULT '{}',
     local_ml_config TEXT NOT NULL DEFAULT '{}',
+    card_source_auth TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL,

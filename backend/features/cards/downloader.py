@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import random
@@ -13,6 +14,7 @@ import uuid
 import httpx
 from fastapi import HTTPException
 
+from ...database.models import CardSourceAuth
 from . import parsing
 
 logger = logging.getLogger(__name__)
@@ -30,9 +32,19 @@ _CHUB_SITE_HEADERS = {
 SOURCES: dict[str, dict] = {}
 
 
-def register_source(name: str, browse_fn, download_fn, randomize_fn):
-    """Register an external source for character-card browsing and downloading."""
-    SOURCES[name] = {"browse": browse_fn, "download": download_fn, "randomize": randomize_fn}
+def register_source(name: str, browse_fn, download_fn, randomize_fn, *, login_fn=None, account_fn=None):
+    """Register an external source for character-card browsing and downloading.
+
+    A source with an account hands ``login_fn(username, password) -> CardSourceAuth`` and ``account_fn(token) -> username |
+    None``, and its browse and randomize functions take a ``token`` keyword (None browses as a guest).
+    """
+    SOURCES[name] = {
+        "browse": browse_fn,
+        "download": download_fn,
+        "randomize": randomize_fn,
+        "login": login_fn,
+        "account": account_fn,
+    }
 
 
 def _get_source(source: str) -> dict:
@@ -42,14 +54,45 @@ def _get_source(source: str) -> dict:
     return src
 
 
-async def browse(source: str, q: str = "", page: int = 1) -> dict:
+def supports_login(source: str) -> bool:
+    """Whether a source has accounts that change what it lists."""
+    return _get_source(source)["login"] is not None
+
+
+def _account_source(source: str) -> dict:
+    src = _get_source(source)
+    if src["login"] is None:
+        raise HTTPException(status_code=400, detail=f"{source} has no account to sign in to")
+    return src
+
+
+async def browse(source: str, q: str = "", page: int = 1, *, token: str | None = None) -> dict:
     """Proxy external character-card search providers (avoids browser CORS)."""
-    return await _get_source(source)["browse"](q, page)
+    src = _get_source(source)
+    if src["login"] is not None:
+        return await src["browse"](q, page, token=token)
+    return await src["browse"](q, page)
 
 
-async def randomize(source: str, q: str = "") -> dict:
+async def randomize(source: str, q: str = "", *, token: str | None = None) -> dict:
     """Return a randomized selection from a source."""
-    return await _get_source(source)["randomize"](q)
+    src = _get_source(source)
+    if src["login"] is not None:
+        return await src["randomize"](q, token=token)
+    return await src["randomize"](q)
+
+
+async def login(source: str, username: str, password: str) -> CardSourceAuth:
+    """Sign in to a source's account and return the session to save; a refused login is a 400 naming the site's reason."""
+    return await _account_source(source)["login"](username, password)
+
+
+async def account(source: str, token: str) -> str | None:
+    """The account name a saved session still belongs to, or None when the site rejects it.
+
+    A site that cannot be reached is not a rejection: that raises a 502, so a brief outage never discards the login.
+    """
+    return await _account_source(source)["account"](token)
 
 
 async def download_card(source: str, full_path: str) -> dict:
@@ -80,9 +123,11 @@ async def _fetch(
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
 
 
-async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeout: float = 30) -> dict:
+async def _fetch_json(
+    url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
+) -> dict:
     """GET a JSON object; a body that is not one (an HTML error page, a bare list) is a 502 like a failed request."""
-    resp = await _fetch(url, what=what, params=params, timeout=timeout)
+    resp = await _fetch(url, what=what, params=params, timeout=timeout, headers=headers)
     try:
         payload = resp.json()
     except ValueError:
@@ -407,9 +452,68 @@ register_source("chararc", _browse_chararc, _download_chararc_card, _randomize_c
 # Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a JSON browse API whose `q` matches both tags and
 # character names. Unlike the other two sources it has a native random sort, so the randomizer is a single query-filtered
 # request rather than a random-page hack.
+#
+# Guests see only the SFW slice of the catalog (about a tenth of it); a signed-in account sees every card. Only the listing is
+# gated: previews and PNG downloads answer anyone. The site ignores a token it does not accept and answers as if to a guest, so
+# only /auth/me can tell a stale login from a live one.
 
 _BOTBOORU_BASE = "https://botbooru.com"
 _BOTBOORU_PAGE_SIZE = 24
+
+
+def _bearer(token: str | None) -> dict | None:
+    return {"Authorization": f"Bearer {token}"} if token else None
+
+
+def _jwt_expiry(token: str) -> int:
+    """A JWT's ``exp`` claim, read without verifying the signature (only the site can); 0 when there is none."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        return int(claims.get("exp") or 0) if isinstance(claims, dict) else 0
+    except (IndexError, ValueError, TypeError):
+        return 0
+
+
+async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
+    """Exchange a Botbooru username and password for its session token (OAuth2 password form, no captcha on sign-in)."""
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(f"{_BOTBOORU_BASE}/auth/token", data={"username": username, "password": password})
+    except httpx.HTTPError as e:
+        logger.exception("Botbooru sign-in failed")
+        raise HTTPException(status_code=502, detail=f"Botbooru sign-in failed: {e}") from e
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    body = body if isinstance(body, dict) else {}
+    if resp.status_code in (400, 401, 403):
+        # 401 is a wrong password; 403 is a right password on a timed-out or banned account. Both carry the site's own words.
+        raise HTTPException(status_code=400, detail=str(body.get("detail") or "Botbooru refused the sign-in"))
+    token = body.get("access_token")
+    if not resp.is_success or not isinstance(token, str) or not token:
+        logger.error("Botbooru sign-in answered %s without a token", resp.status_code)
+        raise HTTPException(status_code=502, detail="Botbooru sign-in failed: the site sent an unexpected response")
+    return {"username": username, "token": token, "expires_at": _jwt_expiry(token)}
+
+
+async def _botbooru_account(token: str) -> str | None:
+    """Ask Botbooru whose session this is; None when it rejects the token."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{_BOTBOORU_BASE}/auth/me", headers=_bearer(token))
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Botbooru could not be reached: {e}") from e
+    if resp.status_code in (401, 403):
+        return None
+    try:
+        me = resp.json() if resp.is_success else None
+    except ValueError:
+        me = None
+    if not isinstance(me, dict):
+        raise HTTPException(status_code=502, detail=f"Botbooru could not confirm the sign-in ({resp.status_code})")
+    return str(me.get("username") or "")
 
 
 def _botbooru_to_result(post: dict) -> dict:
@@ -435,7 +539,7 @@ def _botbooru_to_result(post: dict) -> dict:
     }
 
 
-async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict], int, int]:
+async def _botbooru_posts(params: dict, q: str, *, what: str, token: str | None) -> tuple[list[dict], int, int]:
     """Run one Botbooru ``/posts/`` query. Returns ``(results, fetched, total)``.
 
     ``fetched`` counts the raw posts, not the normalized results, so a
@@ -443,28 +547,30 @@ async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict
     """
     if q:
         params["q"] = q
-    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)
+    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20, headers=_bearer(token))
     posts = data.get("posts") or []
     return [_botbooru_to_result(p) for p in posts if isinstance(p, dict)], len(posts), int(data.get("total") or 0)
 
 
-async def _browse_botbooru(q: str, page: int) -> dict:
+async def _browse_botbooru(q: str, page: int, *, token: str | None = None) -> dict:
     """Run a Botbooru browse query and normalize the response shape."""
     offset = (max(1, int(page)) - 1) * _BOTBOORU_PAGE_SIZE
     results, fetched, total = await _botbooru_posts(
-        {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}, q, what="Botbooru search failed"
+        {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}, q, what="Botbooru search failed", token=token
     )
     return {"results": results, "has_more": offset + fetched < total}
 
 
-async def _randomize_botbooru(q: str) -> dict:
+async def _randomize_botbooru(q: str, *, token: str | None = None) -> dict:
     """Surface a random batch of cards from Botbooru.
 
     Botbooru has a native server-side random sort, so a single query-filtered request gives a fresh selection each call.
     Randomized results are a one-shot batch; paging "Load More" would silently switch back to ranked order, so don't advertise
     more.
     """
-    results, _, _ = await _botbooru_posts({"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed")
+    results, _, _ = await _botbooru_posts(
+        {"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed", token=token
+    )
     return {"results": results, "has_more": False}
 
 
@@ -485,7 +591,14 @@ async def _download_botbooru_card(full_path: str):
     return _parse_png_card(content, "Botbooru")
 
 
-register_source("botbooru", _browse_botbooru, _download_botbooru_card, _randomize_botbooru)
+register_source(
+    "botbooru",
+    _browse_botbooru,
+    _download_botbooru_card,
+    _randomize_botbooru,
+    login_fn=_login_botbooru,
+    account_fn=_botbooru_account,
+)
 
 
 # Wyvern search returns card definitions but only lorebook ids; download the character detail to embed V2 lorebook entries.

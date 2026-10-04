@@ -8,6 +8,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import time
 import uuid
 import zipfile
 from typing import Annotated, Any, Literal
@@ -20,6 +21,7 @@ from ...database import (
     create_character_card,
     delete_character_card,
     delete_character_expressions,
+    get_card_source_auth,
     get_character_avatar,
     get_character_avatar_stamp,
     get_character_card,
@@ -31,6 +33,7 @@ from ...database import (
     get_world,
     list_character_cards,
     list_expression_labels,
+    set_card_source_auth,
     set_character_expressions,
     set_public_profile,
     sync_conversations_for_card,
@@ -44,7 +47,13 @@ from ...features.cards import parsing as tavern_cards
 from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...inference import agent_lane_from_settings, client_from_settings
 from ..deps import cached_image_response, idle_chats_guard, image_not_modified, profile_draft_failures, rows_response
-from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest, PublicProfilePayload
+from ..schemas import (
+    CardSourceLoginRequest,
+    CharacterCardCreate,
+    CharacterCardUpdate,
+    ImportUrlRequest,
+    PublicProfilePayload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,16 +149,63 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
     return card_dict
 
 
+async def _source_token(source: str) -> str | None:
+    """The saved session for a source, unless it has expired; a stale token would only browse as a guest anyway."""
+    auth = await get_card_source_auth(source)
+    if auth is None or 0 < auth["expires_at"] <= time.time():
+        return None
+    return auth["token"]
+
+
 @router.get("/api/characters/browse")
 async def api_browse_characters(source: str = "characterhub", q: str = "", page: int = 1):
     """Proxy external character-card search providers (avoids browser CORS)."""
-    return await card_downloader.browse(source, q, page)
+    return await card_downloader.browse(source, q, page, token=await _source_token(source))
 
 
 @router.get("/api/characters/randomize")
 async def api_randomize_characters(source: str = "characterhub", q: str = ""):
     """Return a randomized selection from a source that supports randomize."""
-    return await card_downloader.randomize(source, q)
+    return await card_downloader.randomize(source, q, token=await _source_token(source))
+
+
+@router.get("/api/characters/sources/{source}/account")
+async def api_card_source_account(source: str):
+    """Who this machine is signed in to a card site as. ``expired`` means a saved login the site no longer accepts; it is
+    dropped, so the next browse is a guest's. A site that cannot be reached keeps the login and reports it as signed in.
+    """
+    if not card_downloader.supports_login(source):
+        return {"supported": False, "username": None, "expired": False}
+    auth = await get_card_source_auth(source)
+    if auth is None:
+        return {"supported": True, "username": None, "expired": False}
+    if 0 < auth["expires_at"] <= time.time():
+        username = None
+    else:
+        try:
+            username = await card_downloader.account(source, auth["token"])
+        except HTTPException:
+            return {"supported": True, "username": auth["username"], "expired": False}
+    if username is None:
+        await set_card_source_auth(source, None)
+        return {"supported": True, "username": None, "expired": True}
+    return {"supported": True, "username": username or auth["username"], "expired": False}
+
+
+@router.post("/api/characters/sources/{source}/login")
+async def api_card_source_login(source: str, req: CardSourceLoginRequest):
+    """Sign in to a card site and save its session token; the password is not kept."""
+    auth = await card_downloader.login(source, req.username.strip(), req.password)
+    await set_card_source_auth(source, auth)
+    return {"supported": True, "username": auth["username"], "expired": False}
+
+
+@router.delete("/api/characters/sources/{source}/login")
+async def api_card_source_logout(source: str):
+    """Forget a card site's saved session on this machine."""
+    supported = card_downloader.supports_login(source)  # an unknown source is a 400 before it reaches the JSON path
+    await set_card_source_auth(source, None)
+    return {"supported": supported, "username": None, "expired": False}
 
 
 @router.post("/api/characters/import-url")

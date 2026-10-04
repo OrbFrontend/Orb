@@ -167,8 +167,10 @@ from .queries.phrase_bank import (
     update_phrase_group,
 )
 from .queries.settings import (
+    get_card_source_auth,
     get_settings,
     get_workflow_config,
+    set_card_source_auth,
     set_local_ml_config,
     set_local_ml_enabled,
     set_workflow_config,
@@ -370,6 +372,7 @@ __all__ = [
     "get_pending_sheet_proposals",
     "get_phrase_bank",
     "get_phrase_bank_rows",
+    "get_card_source_auth",
     "get_settings",
     "get_sheet_proposals",
     "get_speaker_names",
@@ -436,6 +439,7 @@ __all__ = [
     "resolve_cast",
     "set_active_leaf",
     "set_character_expressions",
+    "set_card_source_auth",
     "set_local_ml_config",
     "set_local_ml_enabled",
     "set_public_profile",

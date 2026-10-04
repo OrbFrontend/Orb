@@ -842,6 +842,9 @@ def test_secret_json_paths_declare_every_workflow_credential():
     assert undeclared == [], f"declare these in preset_schema.SECRET_JSON_PATHS: {undeclared}"
 
 
+_WORKFLOW_JSON_COLUMNS = ("workflow_config", "workflow_state")
+
+
 def test_every_free_form_workflow_json_column_is_declared(tmp_path):
     """An absent key and an empty tuple say different things.
 
@@ -855,11 +858,11 @@ def test_every_free_form_workflow_json_column_is_declared(tmp_path):
             if table in presets.ps.EXCLUDED_TABLES:
                 continue
             for row in conn.execute(f"PRAGMA table_info({table})").fetchall():
-                if row[1] in ("workflow_config", "workflow_state"):
+                if row[1] in _WORKFLOW_JSON_COLUMNS:
                     columns.add((table, row[1]))
     finally:
         conn.close()
-    assert columns == set(presets.ps.SECRET_JSON_PATHS)
+    assert columns == {key for key in presets.ps.SECRET_JSON_PATHS if key[1] in _WORKFLOW_JSON_COLUMNS}
 
 
 async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_path):
@@ -970,11 +973,11 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     assert json_canaries, "SECRET_JSON_PATHS declares no path; this test would prove nothing"
 
     all_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS] + json_canaries
-    api_key_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS if c == "api_key"] + [
+    api_key_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS if c in presets.ps.CREDENTIAL_LEAVES] + [
         json_canary(t, c, leaf)
         for (t, c), paths in presets.ps.SECRET_JSON_PATHS.items()
         for leaf in paths
-        if leaf[-1] == "api_key"
+        if leaf[-1] in presets.ps.CREDENTIAL_LEAVES
     ]
 
     # (a) every single domain that does NOT pull in configs -> nothing personal ships.
@@ -985,7 +988,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
-    # (b) full export with strip_keys -> only the api_key sentinels must be gone.
+    # (b) full export with strip_keys -> only the credential sentinels must be gone.
     name = (await client.post("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True})).json()[
         "name"
     ]

@@ -45,7 +45,17 @@ const onIdle =
     ? (fn) => requestIdleCallback(fn, { timeout: 200 })
     : (fn) => setTimeout(() => fn(NO_BUDGET), 0);
 
+const INTERNET_SOURCES = [
+  { id: "characterhub", label: "Chub" },
+  { id: "chararc", label: "Bernkastel" },
+  { id: "botbooru", label: "Botbooru" },
+  { id: "wyvern", label: "Wyvern" },
+];
+
 let _internetSource = "characterhub";
+// Per source: the server's account answer ({ supported, username, expired }), cached for the page's lifetime.
+const _sourceAccounts = new Map();
+let _sourceAccountBusy = false;
 let _internetQuery = "";
 let _internetPage = 1;
 let _internetResults = [];
@@ -440,10 +450,7 @@ function renderInternetPanel() {
     <div class="char-browser-internet">
       <div class="internet-controls">
         <select id="internet-source" data-wf-action="browser:source" data-wf-on="change">
-          <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>Chub</option>
-          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Bernkastel</option>
-          <option value="botbooru" ${_internetSource === "botbooru" ? "selected" : ""}>Botbooru</option>
-          <option value="wyvern" ${_internetSource === "wyvern" ? "selected" : ""}>Wyvern</option>
+          ${INTERNET_SOURCES.map((src) => `<option value="${src.id}" ${_internetSource === src.id ? "selected" : ""}>${src.label}</option>`).join("")}
         </select>
         <input id="internet-search-input" type="text"
                placeholder="Search characters…"
@@ -452,8 +459,88 @@ function renderInternetPanel() {
         <button class="btn" data-wf-action="browser:searchInternet">Search</button>
         <button class="btn" data-wf-action="browser:randomize" title="Show a random selection">🎲 Randomize</button>
       </div>
+      <div id="internet-account">${renderSourceAccountBody()}</div>
       <div id="internet-results">${renderInternetResultsBody()}</div>
     </div>`;
+  if (!_sourceAccounts.has(_internetSource)) loadSourceAccount(_internetSource);
+}
+
+/** The sign-in row for a source whose account widens what it lists; empty for the others. */
+function renderSourceAccountBody() {
+  const account = _sourceAccounts.get(_internetSource);
+  if (!account?.supported) return "";
+  const label = INTERNET_SOURCES.find((src) => src.id === _internetSource)?.label || _internetSource;
+  if (account.username) {
+    return `
+      <div class="internet-account">
+        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong>, so member-only cards are included.</span>
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogout" ${_sourceAccountBusy ? "disabled" : ""}>Sign out</button>
+      </div>`;
+  }
+  const hint = account.expired
+    ? `Your ${esc(label)} sign-in has expired. Sign in again to include member-only cards.`
+    : `Sign in to ${esc(label)} to include member-only cards. Orb keeps the session, not the password.`;
+  return `
+    <div class="internet-account">
+      <span>${hint}</span>
+      <div class="internet-account-form">
+        <input id="internet-login-user" type="text" placeholder="Username" autocomplete="username"
+               data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
+        <input id="internet-login-pass" type="password" placeholder="Password" autocomplete="current-password"
+               data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogin" ${_sourceAccountBusy ? "disabled" : ""}>${_sourceAccountBusy ? "Signing in…" : "Sign in"}</button>
+      </div>
+    </div>`;
+}
+
+function refreshSourceAccount() {
+  const el = $("internet-account");
+  if (el) el.innerHTML = renderSourceAccountBody();
+}
+
+async function loadSourceAccount(source) {
+  try {
+    _sourceAccounts.set(source, await api.get(`/characters/sources/${encodeURIComponent(source)}/account`));
+  } catch (e) {
+    console.error("Failed to read the card source sign-in:", e);
+    return;
+  }
+  if (source === _internetSource) refreshSourceAccount();
+}
+
+/** A sign-in change alters what the source lists, so results already on screen are fetched again. */
+async function changeSourceAccount(request) {
+  if (_sourceAccountBusy) return;
+  const source = _internetSource;
+  _sourceAccountBusy = true;
+  refreshSourceAccount();
+  try {
+    _sourceAccounts.set(source, await request(source));
+  } catch (e) {
+    toast(`Sign-in failed: ${e.message}`, true);
+  } finally {
+    _sourceAccountBusy = false;
+    if (source === _internetSource) {
+      refreshSourceAccount();
+      if (_internetResults.length) searchInternet();
+    }
+  }
+}
+
+function loginSource() {
+  const username = $("internet-login-user")?.value.trim() || "";
+  const password = $("internet-login-pass")?.value || "";
+  if (!username || !password) {
+    toast("Enter a username and password", true);
+    return;
+  }
+  changeSourceAccount((source) =>
+    api.post(`/characters/sources/${encodeURIComponent(source)}/login`, { username, password }),
+  );
+}
+
+function logoutSource() {
+  changeSourceAccount((source) => api.del(`/characters/sources/${encodeURIComponent(source)}/login`));
 }
 
 function renderInternetResultsBody() {
@@ -592,4 +679,9 @@ registerActions("browser", {
   randomize: () => randomizeInternet(),
   loadMore: () => loadMoreInternet(),
   importInternet: (el) => importInternetChar(el.dataset.path),
+  sourceLogin: () => loginSource(),
+  sourceLoginKey: (_el, e) => {
+    if (e.key === "Enter") loginSource();
+  },
+  sourceLogout: () => logoutSource(),
 });

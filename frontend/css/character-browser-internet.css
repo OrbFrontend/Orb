@@ -8,6 +8,15 @@
   border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
   transition: border-color .15s; }
 .internet-controls input:focus { border-color: var(--accent-dim); }
+.internet-account { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--text-muted); }
+.internet-account strong { color: var(--text-primary); font-weight: 600; }
+.internet-account-form { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; }
+.internet-account-form input { flex: 1 1 0; min-width: 0; padding: 6px 10px; font-size: 12px; background: var(--bg-deep);
+  border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
+  transition: border-color .15s; }
+.internet-account-form input:focus { border-color: var(--accent-dim); }
+.internet-account .btn { flex: 0 0 auto; white-space: nowrap; }
 .internet-result-card { cursor: default; }
 .internet-result-card:hover { background: transparent; }
 .internet-result-meta { font-size: 11px; color: var(--text-muted); text-align: center; margin: 4px 0; overflow: hidden;

@@ -65,6 +65,8 @@ SECRET_JSON_PATHS: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
         ("image_gen", "cloud", "providers", "*", "api_key"),
     ),
     ("character_cards", "workflow_state"): (("tts", "api_key"),),
+    # Card-site logins, keyed by source; the account name beside each token is not a credential.
+    ("settings", "card_source_auth"): (("*", "token"),),
     ("conversations", "workflow_state"): (),
     ("messages", "workflow_state"): (),
     ("group_members", "workflow_state"): (),
@@ -86,8 +88,14 @@ PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
         "workflow_enabled",
         "local_ml_enabled",
         "local_ml_config",
+        # A card-site login belongs to this machine; an imported preset never signs it out or into someone else's account.
+        "card_source_auth",
     )
 }
+
+# Leaf names an export with ``strip_keys`` blanks wherever a declared secret ends in one: plain SECRET_COLUMNS by column name,
+# SECRET_JSON_PATHS by the path's last key. Other declared secrets (prompts, the user's name) are config worth sharing.
+CREDENTIAL_LEAVES: frozenset[str] = frozenset({"api_key", "token"})
 
 # Sensitive-name suffixes trip coverage checks unless declared in SECRET_COLUMNS. Add patterns for missed secrets; handle false
 # positives by declaration, not by narrowing detection. Suffix matching avoids max_tokens/top_k false positives.

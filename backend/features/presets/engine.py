@@ -578,12 +578,12 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 if schema.tables[root].kind != "singleton":
                     c.execute(f"DELETE FROM {root}")  # nosec B608 -- schema-derived identifier, values parameterised
         if "configs" in selected and strip_keys:
-            for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
+            for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col in ps.CREDENTIAL_LEAVES):
                 c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 -- schema-derived identifier, values parameterised
-            # The same rule, one level deeper: "every declared secret whose leaf is api_key", not "every column literally named
-            # api_key". A key inside a JSON column is the same key.
+            # The same rule, one level deeper: "every declared secret whose leaf is a credential", not "every column literally
+            # named api_key". A key inside a JSON column is the same key.
             for (table, col), paths in ps.SECRET_JSON_PATHS.items():
-                _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] == "api_key"))
+                _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] in ps.CREDENTIAL_LEAVES))
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
