@@ -7,6 +7,14 @@ import logging
 import os
 
 from ..toolkit import (
+    EV_ATTACH_ARTIFACT,
+    OnDemandCtx,
+    PostCtx,
+    PreCtx,
+    QueryCtx,
+    RegenCtx,
+    RerollGenCtx,
+    UploadCtx,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
@@ -58,7 +66,7 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
     }
 
 
-async def pre_pipeline(ctx):
+async def pre_pipeline(ctx: PreCtx):
     """Freeze this turn's voice before any model call; playback remains live."""
     if ctx.character_id:
         ctx.turn_scratch.setdefault("tts_profiles", {})[ctx.character_id] = normalize_profile(
@@ -69,7 +77,7 @@ async def pre_pipeline(ctx):
         yield {}
 
 
-async def post_pipeline(ctx):
+async def post_pipeline(ctx: PostCtx):
     """Synthesize the finished reply for a character whose voice profile is enabled. Yields one ``attach_artifact`` and, when
     auto-play is on, a pass-through event the frontend uses to start playback.
 
@@ -96,14 +104,14 @@ async def post_pipeline(ctx):
 
     att = _attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)
     att["source"] = f"workflow:{WORKFLOW_ID}"
-    yield {"type": "attach_artifact", "attachment": att}
+    yield {"type": EV_ATTACH_ARTIFACT, "attachment": att}
     yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}
 
     if normalize_config(await get_workflow_config(WORKFLOW_ID))["auto_play"]:
         yield {"event": "tts_autoplay", "data": {}}
 
 
-async def regenerate(ctx, body):
+async def regenerate(ctx: RegenCtx, body: dict) -> list[dict]:
     """Re-synthesize the message under the character's CURRENT voice profile.
 
     Unlike reroll, this ignores the original's stored parameters and re-reads both the message text and the live profile, so an
@@ -123,7 +131,7 @@ async def regenerate(ctx, body):
     return [_attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)]
 
 
-async def reroll_gen(ctx, params, seed):
+async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
     """Re-synthesize from the stored parameters. Returns ``(bytes, consumption_metadata)``.
 
     The framework-supplied ``seed`` is ignored because TTS synthesis takes no seed input -- there is nothing for it to influence
@@ -138,7 +146,7 @@ async def reroll_gen(ctx, params, seed):
     return audio, {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks)}
 
 
-async def on_demand(ctx, body):
+async def on_demand(ctx: OnDemandCtx, body: dict):
     action = body.get("action") if isinstance(body, dict) else None
     if action == "create":
         return await _create(ctx, body)
@@ -206,7 +214,7 @@ async def _clear_voice(ctx) -> dict:
     return {"ok": True, "profile": profile}
 
 
-async def upload(ctx, params):
+async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
     """Enroll the uploaded clip as the character's cloned voice.
 
     Enrollment runs before the state lock is taken, so a long clip holds nothing.
@@ -231,7 +239,7 @@ async def upload(ctx, params):
 # own failures in-band -- the caller degrades (empty list, status text) rather than treating a probe failure as an HTTP error.
 
 
-async def query(ctx, body):
+async def query(ctx: QueryCtx, body: dict) -> dict:
     action = body.get("action") if isinstance(body, dict) else None
     if action == "list_backends":
         return {"backends": list_backends()}

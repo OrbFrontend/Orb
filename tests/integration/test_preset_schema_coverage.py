@@ -13,6 +13,7 @@ import importlib
 import json
 import sqlite3
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -980,7 +981,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     non_configs = [d for d in presets.ALL_DOMAINS if d != "configs"]
     for domain in non_configs:
         name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
-        blob = open(presets._library_path(name), "rb").read()
+        blob = Path(presets._library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
@@ -988,7 +989,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     name = (await client.post("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True})).json()[
         "name"
     ]
-    blob = open(presets._library_path(name), "rb").read()
+    blob = Path(presets._library_path(name)).read_bytes()
     leaked_keys = [c.decode() for c in api_key_canaries if c in blob]
     assert leaked_keys == [], leaked_keys
 
@@ -1001,5 +1002,5 @@ async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_
 
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
         name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
-        blob = open(presets._library_path(name), "rb").read()
+        blob = Path(presets._library_path(name)).read_bytes()
         assert canary not in blob, domain

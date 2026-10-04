@@ -265,5 +265,7 @@ OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
 QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
+# The second argument is the upload request's query-string parameters.
+UploadHook = Callable[[UploadCtx, dict[str, str]], Awaitable[dict]]
 # None means there is nothing left to export: the bytes are evicted and the workflow cannot fetch the file from anywhere else.
 ExportHook = Callable[[ExportCtx], Awaitable[ExportedFile | None]]

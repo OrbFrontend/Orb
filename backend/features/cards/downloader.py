@@ -69,10 +69,7 @@ async def download_card(source: str, full_path: str) -> dict:
 async def _fetch(
     url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
 ) -> httpx.Response:
-    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail.
-
-    Callers decode bodies and decide how malformed responses map to errors.
-    """
+    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail."""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             resp = await client.get(url, params=params)
@@ -81,6 +78,19 @@ async def _fetch(
     except httpx.HTTPError as e:
         logger.exception("%s", what)
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
+
+
+async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeout: float = 30) -> dict:
+    """GET a JSON object; a body that is not one (an HTML error page, a bare list) is a 502 like a failed request."""
+    resp = await _fetch(url, what=what, params=params, timeout=timeout)
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        logger.error("%s: %s answered %s without a JSON object", what, url, resp.status_code)
+        raise HTTPException(status_code=502, detail=f"{what}: the site sent an unexpected response")
+    return payload
 
 
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
@@ -149,7 +159,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         "venus": "true",
     }
     url = "https://api.chub.ai/search"
-    payload = (await _fetch(url, what="Chub search failed", params=params, timeout=15)).json()
+    payload = await _fetch_json(url, what="Chub search failed", params=params, timeout=15)
 
     # Results come wrapped in a `data` envelope; tolerate a flat response too.
     body = payload if isinstance(payload.get("nodes"), list) else (payload.get("data") or {})
@@ -167,7 +177,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         results.append(
             {
                 "name": n.get("name", ""),
-                "tagline": n.get("tagline", "") or n.get("description", "")[:140],
+                "tagline": n.get("tagline") or (n.get("description") or "")[:140],
                 "avatar_url": avatar_url,
                 "full_path": full_path,
                 "topics": topics,
@@ -219,7 +229,7 @@ async def _chub_expression_pack(full_path: str) -> dict | None:
         ext = (node.get("definition") or {}).get("extensions") or {}
         pack = (ext.get("chub") or {}).get("expressions")
         return pack if isinstance(pack, dict) else None
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, ValueError, AttributeError) as e:  # AttributeError: a level that is not an object
         logger.warning("Failed to fetch Chub expression pack for %s: %s", full_path, e)
         return None
 
@@ -326,7 +336,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
     page = max(1, int(page))
     params = {"query": q or "", "page": page, "count": _CHARARC_PAGE_SIZE}
     url = f"{_CHARARC_API}/v3/search/query"
-    data = (await _fetch(url, what="Bernkastel search failed", params=params, timeout=20)).json()
+    data = await _fetch_json(url, what="Bernkastel search failed", params=params, timeout=20)
 
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
@@ -362,11 +372,7 @@ async def _download_chararc_card(token: str):
         raise HTTPException(status_code=400, detail=f"Invalid card path: {token}")
 
     url = f"{_CHARARC_API}/v1/{token}"
-    definition = (await _fetch(url, what="Failed to download card")).json()
-
-    if not isinstance(definition, dict):
-        raise HTTPException(status_code=400, detail="Unexpected card definition format")
-
+    definition = await _fetch_json(url, what="Failed to download card")
     try:
         card = parsing.from_json_obj(definition)
         card_dict = parsing.card_to_dict(card)
@@ -437,7 +443,7 @@ async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict
     """
     if q:
         params["q"] = q
-    data = (await _fetch(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)).json()
+    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)
     posts = data.get("posts") or []
     return [_botbooru_to_result(p) for p in posts if isinstance(p, dict)], len(posts), int(data.get("total") or 0)
 
@@ -515,10 +521,7 @@ async def _wyvern_search(q: str, page: int) -> dict:
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    data = (await _fetch(url, what="Wyvern search failed", params=params, timeout=20)).json()
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=502, detail="Unexpected Wyvern search response")
-    return data
+    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20)
 
 
 async def _browse_wyvern(q: str, page: int) -> dict:
@@ -648,11 +651,7 @@ async def _download_wyvern_card(full_path: str):
         raise HTTPException(status_code=400, detail=f"Invalid Wyvern character id: {full_path}")
 
     url = f"{_WYVERN_BASE}/characters/{char_id}"
-    obj = (await _fetch(url, what="Failed to download card")).json()
-
-    if not isinstance(obj, dict):
-        raise HTTPException(status_code=400, detail="Unexpected Wyvern character format")
-
+    obj = await _fetch_json(url, what="Failed to download card")
     try:
         card = parsing.from_json_obj(_wyvern_to_v2_jobj(obj))
         card_dict = parsing.card_to_dict(card)

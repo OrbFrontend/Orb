@@ -7,6 +7,7 @@ from typing import cast
 
 from ..connection import build_set_clause, get_db, get_workflow_slot, immediate_tx, select_rows, set_workflow_slot
 from ..models import ConversationListRow, ConversationRow
+from .group_members import create_group_conversation, get_group_members
 
 
 async def list_conversations() -> list[ConversationListRow]:
@@ -113,8 +114,6 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     """Create a conversation seeded from the source framing."""
     new_cid = str(uuid.uuid4())
     if source.get("kind", "solo") == "group":
-        from .group_members import create_group_conversation, get_group_members
-
         members = await get_group_members(source["id"], include_inactive=True)
         await create_group_conversation(
             new_cid,

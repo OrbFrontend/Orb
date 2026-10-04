@@ -180,6 +180,13 @@ framework.
 | `UploadCtx` | Settings, character id and card, filename, file bytes | No conversation, client, or lock |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
 
+Every context, and every control-event `type` a hook yields (`EV_ENABLE_TOOLS`,
+`EV_SYSTEM_PROMPT`, `EV_DRAFT_REPLACED`, `EV_ATTACH_ARTIFACT`,
+`EV_SET_MESSAGE_STATE`), is a toolkit export, so a plug-in annotates its hooks
+without reaching past the toolkit. `subscribe` is typed per hook type: Pyright
+rejects a hook whose signature does not fit its slot, such as a post hook that
+returns instead of yielding.
+
 For group work, `character` identifies the relevant speaker. A
 `RerollGenCtx` with `replay=True` reproduces stored generation parameters;
 `replay=False` lets a new variant use current workflow settings.

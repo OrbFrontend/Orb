@@ -11,9 +11,16 @@ line-length = 128
 # Keep the complete lint policy here so local hooks, scripts, and CI cannot
 # silently select different rule sets. UP enforces syntax supported by the
 # Python 3.11 floor; I keeps import ordering in the same source of truth.
-select = ["E", "W", "F", "B", "I", "UP"]
+# PLC0415: a function-local import in backend/ names its reason in a noqa comment
+# (an optional ML dependency, an import cycle). Tests and the export scripts defer
+# imports as a matter of course, so the rule stops at backend/.
+select = ["E", "W", "F", "B", "I", "UP", "PLC0415"]
 
 # Raising the target activates B905, but changing every zip() call to spell
 # strict=False is unrelated to the runtime/security upgrade and preserves no
 # additional invariant. Keep the existing truncating behavior explicitly.
 ignore = ["E203", "E501", "B905"]
+
+[lint.per-file-ignores]
+"tests/**" = ["PLC0415"]
+"scripts/**" = ["PLC0415"]

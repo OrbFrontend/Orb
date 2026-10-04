@@ -4,6 +4,11 @@
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if [ ! -d ".venv" ]; then
+    # Same floor as run_unix.sh: an older interpreter installs fine and then fails on 3.11-only imports mid-test.
+    if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+        echo "Error: Python 3.11 or newer is required to create .venv." >&2
+        exit 1
+    fi
     echo "Creating virtual environment..."
     python3 -m venv .venv
 fi

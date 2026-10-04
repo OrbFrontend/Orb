@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, overload
 
 from ..database import get_workflow_character_state as _db_get_workflow_character_state
 from ..database import get_workflow_config as _db_get_workflow_config
@@ -17,7 +17,18 @@ from ..database import set_workflow_config as _db_set_workflow_config
 from ..database import set_workflow_message_state as _db_set_workflow_message_state
 from ..database import set_workflow_state as _db_set_workflow_state
 from ..prompting.tool_catalog import BUILTIN_TOOL_NAMES, register_tool, remove_tool
-from .contracts import HookType, ToolSpec
+from .contracts import (
+    ExportHook,
+    HookType,
+    OnDemandHook,
+    PostHook,
+    PreHook,
+    QueryHook,
+    RegenHook,
+    RerollGenHook,
+    ToolSpec,
+    UploadHook,
+)
 
 
 @dataclass
@@ -129,6 +140,23 @@ def register_workflow(w: Workflow) -> None:
     _WORKFLOWS_BY_ID[w.id] = w
 
 
+# One overload per slot, so the type checker holds each hook to the shape its route or the bridge calls it with.
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> None: ...
 def subscribe(workflow_id: str, hook_type: HookType, fn: Callable, *, priority: int = 0) -> None:
     record = _WORKFLOWS_BY_ID.get(workflow_id)
     if record is None:

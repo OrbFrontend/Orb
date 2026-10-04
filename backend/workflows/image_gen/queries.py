@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..toolkit import get_workflow_config
+from ..toolkit import QueryCtx, get_workflow_config
 from . import pov as pov_mod
 from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config, style_source
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
@@ -129,7 +129,7 @@ _QUERY_ACTIONS = {
 }
 
 
-async def query(ctx, body):
+async def query(ctx: QueryCtx, body: dict) -> dict:
     action = body.get("action") if isinstance(body, dict) else None
     handler = _QUERY_ACTIONS.get(action) if isinstance(action, str) else None
     return await handler(body) if handler else {"error": f"unknown action: {action!r}"}

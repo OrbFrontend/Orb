@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -151,8 +152,6 @@ def _covered(victims: list[dict], shortfall: int) -> bool:
 
 async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_metadata: dict | None = None) -> None:
     """Restore evicted bytes into an attachment row."""
-    import base64
-
     new_size = len(data)
     data_b64 = base64.b64encode(bytes(data)).decode("ascii")
     cm_json = (

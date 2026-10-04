@@ -1091,7 +1091,7 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
     substitute the client everywhere by patching ``backend.inference.client.LLMClient`` alone.
     """
     if settings["endpoint_url"] == "claude-code://local":
-        from .claude_code import ClaudeCodeClient
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 — claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(settings["endpoint_url"]).lower().startswith("claude-code:"):
@@ -1118,7 +1118,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     """
     agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
     if agent_url == "claude-code://local":
-        from .claude_code import ClaudeCodeClient
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 — claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(agent_url).lower().startswith("claude-code:"):

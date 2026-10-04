@@ -38,7 +38,6 @@ jobs:
               - 'tests/frontend/**'
               - 'biome.json'
               - 'package.json'
-              - 'package-lock.json'
               - 'scripts/lint.sh'
               - 'scripts/format_frontend.sh'
               - 'scripts/check_frontend_layers.py'

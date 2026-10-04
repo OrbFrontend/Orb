@@ -362,7 +362,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     """Return the report in the API's JSON shape."""
     # Imported here rather than at module scope: targets.py reads the report
     # shape this module defines, so a top-level import would cycle.
-    from .targets import build_targets, negation_target_ids, target_ids_for
+    from .targets import build_targets, negation_target_ids, target_ids_for  # noqa: PLC0415 — import cycle
 
     targets = build_targets(report, draft) if draft else []
 

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import secrets
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import partial
@@ -634,8 +635,6 @@ def _build_reroll_gen_ctx(
 
 
 def _generated_seed() -> str:
-    import secrets
-
     return secrets.token_hex(16)
 
 

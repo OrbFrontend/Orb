@@ -25,7 +25,26 @@ _LOWER_LAYER_INTERNALS = (
     "reasoning_cfg",
 )
 
-_PLUGIN_CONTRACTS = ("EV_DRAFT_REPLACED", "ToolSpec", "Workflow", "WorkflowEventStream", "WorkflowUserFacingError")
+# A plug-in may import nothing but the toolkit, so every hook context and event name it is handed must be spelled there.
+_PLUGIN_CONTRACTS = (
+    "EV_ATTACH_ARTIFACT",
+    "EV_DRAFT_REPLACED",
+    "EV_ENABLE_TOOLS",
+    "EV_SET_MESSAGE_STATE",
+    "EV_SYSTEM_PROMPT",
+    "ExportCtx",
+    "OnDemandCtx",
+    "PostCtx",
+    "PreCtx",
+    "QueryCtx",
+    "RegenCtx",
+    "RerollGenCtx",
+    "ToolSpec",
+    "UploadCtx",
+    "Workflow",
+    "WorkflowEventStream",
+    "WorkflowUserFacingError",
+)
 
 
 def test_locks_exported_from_toolkit():

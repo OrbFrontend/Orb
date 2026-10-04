@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Mapping, Sequence
 from functools import partial
@@ -456,8 +457,6 @@ def _user_graph(raw: Any, legacy_sources: dict[str, list[str]] | None = None) ->
     slots_raw = raw.get("slots")
     if not _ID_RE.fullmatch(gid) or not isinstance(graph, dict) or not isinstance(slots_raw, Mapping):
         return None
-    import json
-
     graph = _strip_machine_local_state(graph)
     if len(json.dumps(graph, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > MAX_GRAPH_BYTES:
         return None

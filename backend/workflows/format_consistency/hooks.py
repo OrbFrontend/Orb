@@ -6,7 +6,15 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from ..toolkit import EV_DRAFT_REPLACED, AxisStyle, forced_tool_call, get_workflow_config, local_feature_ready, markup_axes
+from ..toolkit import (
+    EV_DRAFT_REPLACED,
+    AxisStyle,
+    PostCtx,
+    forced_tool_call,
+    get_workflow_config,
+    local_feature_ready,
+    markup_axes,
+)
 from . import VOICE_REWRITE_LENGTH_RULE, VOICE_REWRITE_TOOL_NAME, WORKFLOW_ID, capture, normalize_config
 from .guard import rejection, unwrap
 from .normalization import normalize_to_baseline, vote_axes
@@ -133,7 +141,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     return rewritten
 
 
-async def post_pipeline(ctx):
+async def post_pipeline(ctx: PostCtx):
     """Normalize the finished draft's markup and, optionally, its narrative voice."""
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]

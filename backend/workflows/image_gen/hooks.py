@@ -10,6 +10,9 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
+    OnDemandCtx,
+    RegenCtx,
+    RerollGenCtx,
     WorkflowEventStream,
     build_offturn_prefix,
     conversation_macros,
@@ -674,13 +677,13 @@ async def _set_profile(ctx, body) -> dict:
 _ON_DEMAND_ACTIONS = {"generate": _generate_response, "get_profile": _get_profile, "set_profile": _set_profile}
 
 
-async def on_demand(ctx, body):
+async def on_demand(ctx: OnDemandCtx, body: dict):
     action = body.get("action") if isinstance(body, dict) else None
     handler = _ON_DEMAND_ACTIONS.get(action) if isinstance(action, str) else None
     return await handler(ctx, body) if handler else {"error": f"unknown action: {action!r}"}
 
 
-async def regenerate(ctx, body):
+async def regenerate(ctx: RegenCtx, body: dict) -> list[dict]:
     message = await get_message_by_id(ctx.message_id)
     if message is None or message.get("role") != "assistant":
         return []
@@ -704,7 +707,7 @@ async def regenerate(ctx, body):
     return returned
 
 
-async def reroll_gen(ctx, params, seed):
+async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
     if not isinstance(params, dict):
         raise ValueError("stored image parameters are missing")
     prompt, negative, style_id = params.get("prompt"), params.get("negative_prompt"), params.get("style_id")

@@ -129,7 +129,8 @@ def test_exported_chara_chunk_still_parses_as_v2(tmp_path):
     out = tmp_path / "export.png"
     out.write_bytes(to_png(d))
 
-    chara = json.loads(base64.b64decode(Image.open(out).info["chara"]))
+    with Image.open(out) as image:
+        chara = json.loads(base64.b64decode(image.info["chara"]))
     assert chara["spec"] == "chara_card_v2"
     assert chara["data"]["tags"] == ["t"]
     # V3-only fields stay out of the V2 projection's top level.
