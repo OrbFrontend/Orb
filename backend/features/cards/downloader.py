@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import tempfile
+import time
 import uuid
 
 import httpx
@@ -509,11 +510,11 @@ def _bearer(token: str | None) -> dict | None:
     return {"Authorization": f"Bearer {token}"} if token else None
 
 
-async def _botbooru_call(method: str, path: str, *, what: str, **kwargs) -> tuple[int, dict]:
+async def _account_call(method: str, url: str, *, what: str, **kwargs) -> tuple[int, dict]:
     """Send one account request and return ``(status, JSON object or {})``; refusals are the caller's to read, not raised."""
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.request(method, f"{_BOTBOORU_BASE}{path}", **kwargs)
+            resp = await client.request(method, url, **kwargs)
     except httpx.HTTPError as e:
         logger.exception("%s", what)
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
@@ -527,7 +528,9 @@ async def _botbooru_call(method: str, path: str, *, what: str, **kwargs) -> tupl
 async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
     """Exchange a Botbooru username and password for its session token (OAuth2 password form, no captcha on sign-in)."""
     what = "Botbooru sign-in failed"
-    status, body = await _botbooru_call("POST", "/auth/token", what=what, data={"username": username, "password": password})
+    status, body = await _account_call(
+        "POST", f"{_BOTBOORU_BASE}/auth/token", what=what, data={"username": username, "password": password}
+    )
     if status in (400, 401, 403):
         # 401 is a wrong password; 403 is a right password on a timed-out or banned account. Both carry the site's own words.
         raise HTTPException(status_code=400, detail=str(body.get("detail") or "Botbooru refused the sign-in"))
@@ -540,7 +543,7 @@ async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
 async def _botbooru_account(token: str) -> str | None:
     """Ask Botbooru whose session this is; None when it rejects the token, expired ones included."""
     what = "Botbooru could not confirm the sign-in"
-    status, me = await _botbooru_call("GET", "/auth/me", what=what, headers=_bearer(token))
+    status, me = await _account_call("GET", f"{_BOTBOORU_BASE}/auth/me", what=what, headers=_bearer(token))
     if status in (401, 403):
         return None
     if status != 200 or not me:
@@ -636,9 +639,75 @@ register_source(
 
 # Wyvern search returns card definitions but only lorebook ids; download the character detail to embed V2 lorebook entries.
 # Avatars use Cloudflare Images. Random selection reads the page count first to handle narrow queries.
+#
+# Guests see only unrated cards (about a sixth of the catalog); a signed-in account sees every rating. Only the listing is gated:
+# any card downloads in full for anyone. Accounts live in Firebase Auth: sign-in yields a long-lived refresh token, which is the
+# session Orb saves, and each browse sends an hour-long ID token minted from it. Like Botbooru, the API answers a bearer it does
+# not accept as if to a guest.
 
 _WYVERN_BASE = "https://api.wyvern.chat"
 _WYVERN_PAGE_SIZE = 24
+# Wyvern's public web-app key from its page bundle; it names the Firebase project, it is not a secret.
+_WYVERN_FIREBASE_KEY = "AIzaSyCqumrbjUy-EoMpfN4Ev0ppnqjkdpnOTTw"
+# Refresh token -> (ID token, monotonic deadline). ID tokens live an hour; renew five minutes early.
+_wyvern_id_tokens: dict[str, tuple[str, float]] = {}
+
+
+def _keep_id_token(refresh_token: str, id_token: object) -> str:
+    if not isinstance(id_token, str) or not id_token:
+        raise HTTPException(status_code=502, detail="Wyvern sign-in: the site sent an unexpected response")
+    _wyvern_id_tokens[refresh_token] = (id_token, time.monotonic() + 3300)
+    return id_token
+
+
+async def _login_wyvern(email: str, password: str) -> CardSourceAuth:
+    """Sign in to Wyvern's Firebase project with an email and password (no captcha) and keep its refresh token."""
+    status, body = await _account_call(
+        "POST",
+        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
+        what="Wyvern sign-in failed",
+        params={"key": _WYVERN_FIREBASE_KEY},
+        json={"email": email, "password": password, "returnSecureToken": True},
+    )
+    refresh_token = body.get("refreshToken")
+    if status != 200 or not isinstance(refresh_token, str) or not refresh_token:
+        # Firebase refuses with a code such as `INVALID_LOGIN_CREDENTIALS` or `TOO_MANY_ATTEMPTS_TRY_LATER : <detail>`.
+        error = body.get("error")
+        code = str(error.get("message") or "").split(" : ")[0] if isinstance(error, dict) else ""
+        raise HTTPException(
+            status_code=400 if status == 400 else 502,
+            detail=code.replace("_", " ").capitalize() or f"Wyvern sign-in failed ({status})",
+        )
+    _keep_id_token(refresh_token, body.get("idToken"))
+    return {"username": str(body.get("displayName") or email), "token": refresh_token}
+
+
+async def _wyvern_id_token(token: str | None, *, renew: bool = False) -> str | None:
+    """The bearer for a saved session: the cached ID token while it is fresh, else a renewed one. None browses as a guest, and
+    is also the answer when Firebase rejects the refresh token (password changed, account gone)."""
+    if not token:
+        return None
+    cached = _wyvern_id_tokens.get(token)
+    if cached and cached[1] > time.monotonic() and not renew:
+        return cached[0]
+    status, body = await _account_call(
+        "POST",
+        "https://securetoken.googleapis.com/v1/token",
+        what="Wyvern could not renew the sign-in",
+        params={"key": _WYVERN_FIREBASE_KEY},
+        data={"grant_type": "refresh_token", "refresh_token": token},
+    )
+    if status == 400:
+        _wyvern_id_tokens.pop(token, None)
+        return None
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"Wyvern could not renew the sign-in ({status})")
+    return _keep_id_token(token, body.get("id_token"))
+
+
+async def _wyvern_account(token: str) -> str | None:
+    """Renew the session to prove Firebase still honours it; "" keeps the name saved at sign-in."""
+    return "" if await _wyvern_id_token(token, renew=True) else None
 
 
 def _wyvern_to_result(item: dict) -> dict:
@@ -668,36 +737,40 @@ def _wyvern_to_result(item: dict) -> dict:
     }
 
 
-async def _wyvern_search(q: str, page: int) -> dict:
-    """Run a Wyvern explore search and return the raw (parsed) JSON response."""
+async def _wyvern_search(q: str, page: int, bearer: str | None) -> dict:
+    """Run a Wyvern explore search and return the raw (parsed) JSON response.
+
+    No ``rating`` filter: a signed-in search then spans every rating, while a guest's is held to unrated cards whatever it asks.
+    """
     page = max(1, int(page))
     params = {"page": page, "limit": _WYVERN_PAGE_SIZE, "sort": "created_at", "order": "DESC"}
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20)
+    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20, headers=_bearer(bearer))
 
 
-async def _browse_wyvern(q: str, page: int) -> dict:
-    data = await _wyvern_search(q, page)
+async def _browse_wyvern(q: str, page: int, *, token: str | None = None) -> dict:
+    data = await _wyvern_search(q, page, await _wyvern_id_token(token))
     items = data.get("results") or []
     results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
     return {"results": results, "has_more": bool(data.get("hasMore"))}
 
 
-async def _randomize_wyvern(q: str) -> dict:
+async def _randomize_wyvern(q: str, *, token: str | None = None) -> dict:
     """Surface a random batch of cards from Wyvern.
 
     Wyvern has no native random sort, so -- like the CharacterHub randomizer -- we jump to a random page of the (optionally
     query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
     even when a query narrows the catalog to a handful of pages.
     """
-    first = await _wyvern_search(q, 1)
+    bearer = await _wyvern_id_token(token)
+    first = await _wyvern_search(q, 1, bearer)
     total_pages = int(first.get("totalPages") or 1)
     if total_pages <= 1:
         data = first
     else:
-        data = await _wyvern_search(q, random.randint(1, total_pages))
+        data = await _wyvern_search(q, random.randint(1, total_pages), bearer)
     items = data.get("results") or []
     results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
     # Randomized results are a one-shot batch; paging "Load More" would silently
@@ -825,4 +898,11 @@ async def _download_wyvern_card(full_path: str):
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source("wyvern", _browse_wyvern, _download_wyvern_card, _randomize_wyvern)
+register_source(
+    "wyvern",
+    _browse_wyvern,
+    _download_wyvern_card,
+    _randomize_wyvern,
+    login_fn=_login_wyvern,
+    account_fn=_wyvern_account,
+)

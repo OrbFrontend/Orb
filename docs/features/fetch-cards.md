@@ -26,16 +26,20 @@ Select **🎲 Randomize** for a random batch. Botbooru uses its own random order
 the other sources select a random page from the available catalog. Random results
 are one batch, so **Load More** is hidden for that view.
 
-## Botbooru sign-in
+## Site sign-in
 
-Botbooru shows guests only its SFW cards. When you select **Botbooru**, a sign-in
-row appears under the search bar. Sign in with a Botbooru account to include
-exclusive cards in search and **🎲 Randomize** results.
+Botbooru and Wyvern show guests only their SFW cards. When you select either one, a
+sign-in row appears under the search bar. Sign in with an account on that site to
+include exclusive cards in search and **🎲 Randomize** results. Botbooru asks for
+the username, Wyvern for the account's email address. A Wyvern account made through
+**Continue with Discord** or **Continue with Featherless** has no password, so it
+cannot sign in from Orb.
 
-Orb sends the password to Botbooru once and stores only the session Botbooru
-returns. The session lasts about 90 days. When Botbooru stops accepting it, the row
-says the sign-in has expired and results fall back to guest results until you sign
-in again. **Sign out** forgets the session on this machine.
+Orb sends the password to the site once and stores only the session the site
+returns. A Botbooru session lasts about 90 days. A Wyvern session lasts until the
+password changes. When the site stops accepting the session, the row says the
+sign-in has expired and results fall back to guest results until you sign in
+again. **Sign out** forgets the session on this machine.
 
 Preset exports leave out the session unless they include **Configs**, and
 **Strip keys** removes it. Importing a preset never changes the sign-in on this

@@ -57,9 +57,11 @@ const onIdle =
 const INTERNET_SOURCES = [
   { id: "characterhub", label: "Chub" },
   { id: "chararc", label: "Bernkastel" },
-  { id: "botbooru", label: "Botbooru" },
-  { id: "wyvern", label: "Wyvern" },
+  // `login` names the sign-in field of a site with accounts.
+  { id: "botbooru", label: "Botbooru", login: "Username" },
+  { id: "wyvern", label: "Wyvern", login: "Email" },
 ];
+const currentSource = () => INTERNET_SOURCES.find((src) => src.id === _internetSource);
 
 let _internetSource = "characterhub";
 // Per source: the server's account answer ({ supported, username, expired }), cached for the page's lifetime.
@@ -477,11 +479,11 @@ function renderInternetPanel() {
 function renderSourceAccountBody() {
   const account = _sourceAccounts.get(_internetSource);
   if (!account?.supported) return "";
-  const label = INTERNET_SOURCES.find((src) => src.id === _internetSource)?.label || _internetSource;
+  const { label, login } = currentSource();
   if (account.username) {
     return `
       <div class="internet-account">
-        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong>, so exclusive cards are included.</span>
+        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong></span>
         <button class="btn btn-sm" data-wf-action="browser:sourceLogout">Sign out</button>
       </div>`;
   }
@@ -492,7 +494,7 @@ function renderSourceAccountBody() {
     <div class="internet-account">
       <span>${hint}</span>
       <div class="internet-account-form">
-        <input id="internet-login-user" type="text" placeholder="Username" autocomplete="username"
+        <input id="internet-login-user" type="text" placeholder="${login}" autocomplete="username"
                data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
         <input id="internet-login-pass" type="password" placeholder="Password" autocomplete="current-password"
                data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
@@ -539,7 +541,7 @@ function loginSource() {
   const username = $("internet-login-user")?.value.trim() || "";
   const password = $("internet-login-pass")?.value || "";
   if (!username || !password) {
-    toast("Enter a username and password", true);
+    toast(`Enter your ${currentSource().login.toLowerCase()} and password`, true);
     return;
   }
   changeSourceAccount((source) =>
