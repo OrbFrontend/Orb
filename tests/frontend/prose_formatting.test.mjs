@@ -76,3 +76,9 @@ test("inline links follow showdown", () => {
   assert.equal(formatProse("`[a](b)`"), '<code class="inline-code">[a](b)</code>');
   assert.equal(formatProse('<span title="[a](b)">z</span>'), '<span title="[a](b)">z</span>');
 });
+
+test("an image embed needs no file extension, as in SillyTavern", () => {
+  installEscapingDocument();
+  const html = formatProse("a ![pic](https://pbs.twimg.com/media/G7N?format=jpg&name=large) b");
+  assert.ok(html.includes('<img class="msg-image" src="https://pbs.twimg.com/media/G7N?format=jpg&amp;name=large" alt="pic"'));
+});
