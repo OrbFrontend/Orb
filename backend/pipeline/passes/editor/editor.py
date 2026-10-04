@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 # share them; re-imported here under their original names so this module's surface is unchanged.
 from ....analysis.patching import PatchErrorKind, apply_id_patches, filter_audit_report_to_text
 from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams, reasoning_delta_event
+from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
@@ -116,7 +117,9 @@ async def _run_contextual_audit(
     return filtered, build_targets(filtered, draft)
 
 
-def _editor_done_event(draft: str | None, debug_parts: list[str], t0: float, tool_calls: list[dict] | None = None) -> dict:
+def _editor_done_event(
+    draft: str | None, debug_parts: list[str], t0: float, tool_calls: list[ParsedToolCall] | None = None
+) -> dict:
     """Build a done event dict for the editor pass."""
     event = {
         "type": "done",
@@ -146,7 +149,7 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Run the audit/edit loop, post-processing fragments, and feedback.
 
     A failing call does not end the pass. Its sub-step reports it as a ``failure`` event and keeps what its finished calls
@@ -158,7 +161,7 @@ async def editor_pass(
         yield {"type": "step", "step": "output_auditor"}
     elif length_guard is not None:
         yield {"type": "step", "step": "length_guard"}
-    edit_done: dict | None = None
+    edit_done: Mapping[str, Any] | None = None
     async for ev in _run_edit_loop(
         client,
         base,
@@ -186,7 +189,7 @@ async def editor_pass(
     edited_draft = edit_done.get("draft") if edit_done else None
     final_text = draft if edited_draft is None else edited_draft
 
-    post_processing_calls: list[dict] = []
+    post_processing_calls: list[ParsedToolCall] = []
     if post_processing_fragments and not client.is_aborted:
         yield {"type": "step", "step": "post_processing"}
         async for ev in post_processing_step(
@@ -252,7 +255,7 @@ async def editor_pass(
     yield done
 
 
-async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+async def _reporting_failures(events: AsyncIterator[Mapping[str, Any]]) -> AsyncIterator[Mapping[str, Any]]:
     """Pass *events* through, turning a failure that escapes them into a
     ``failure`` event -- a defect outside the sub-steps' own reporting, such as
     the initial audit. The draft stays what the last ``done`` made it."""
@@ -388,7 +391,7 @@ async def _run_edit_loop(
     writer_user_msg: str
     | list[ContentPart]
     | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Run the edit loop with optional audit and length guard.
 
     Yield reasoning, whole draft_update snapshots after mutations, failure on a failed iteration, then done with the final
@@ -499,7 +502,7 @@ async def _run_edit_loop(
 
     current_draft = draft
     prev_issues = report.total_issues
-    all_calls: list[dict] = []
+    all_calls: list[ParsedToolCall] = []
     # At most one extra iteration per pass is spent explaining a guard rejection; see where it is set.
     guard_retry_spent = False
 
@@ -522,7 +525,7 @@ async def _run_edit_loop(
                 json.dumps([*base.prefix, *trailing], default=str, indent=2),
             )
 
-            resp: dict = {}
+            resp: CompletionMessage = {}
             try:
                 async for event in base.complete_into(
                     client,
@@ -835,7 +838,13 @@ def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bo
 
 
 def _append_iteration_context(
-    msgs: list[WireMessage], resp: dict, errors: Sequence[str], report_text: str, *, renumbered: bool, rules: str = ""
+    msgs: list[WireMessage],
+    resp: Mapping[str, Any],
+    errors: Sequence[str],
+    report_text: str,
+    *,
+    renumbered: bool,
+    rules: str = "",
 ):
     """Append the assistant tool-call recap + tool-result turn for the next iteration, in structured tool-use format (role=tool)
     so the model sees its exact call and the remaining issues in the form it was trained on. Only the

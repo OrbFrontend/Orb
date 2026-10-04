@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..core.llm_types import ParsedToolCall
 from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import compute_agentic_lorebook_block
@@ -142,7 +143,7 @@ class TurnState:
     macro_choices: dict[str, str] = field(default_factory=dict)
 
     agent_raw: str = ""
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)

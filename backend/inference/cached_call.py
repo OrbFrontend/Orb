@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..core import mark_call_start, reasoning_delta_event
+from ..core.llm_types import CompletionEvent, CompletionMessage, ReasoningDelta
 
 if TYPE_CHECKING:
     from .client import LLMClient
@@ -42,7 +43,7 @@ async def cached_complete(
     kv_tracker: KVCacheTracker | None = None,
     record: bool = True,
     **params: Any,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CompletionEvent]:
     """Run ``client.complete`` and snapshot the KV tracker from the same args.
 
     Every pass funnels through here so the tracker sees exactly what was sent. ``record=True`` snapshots before the call, and
@@ -61,7 +62,7 @@ async def cached_complete(
         yield event
 
 
-async def _relay_reasoning(stream: AsyncIterator[dict], reply: dict) -> AsyncIterator[dict]:
+async def _relay_reasoning(stream: AsyncIterator[CompletionEvent], reply: CompletionMessage) -> AsyncIterator[ReasoningDelta]:
     """Forward *stream*'s reasoning deltas; collect its ``done`` message in *reply*."""
     async for event in stream:
         if event["type"] == "reasoning":
@@ -89,7 +90,7 @@ class CachedBase:
         kv_tracker: KVCacheTracker | None = None,
         record: bool = True,
         **params: Any,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """Issue one completion extending this base with *trailing*.
 
         The cached bottom (prefix + tools + model) comes from ``self``; only *trailing* and *tool_choice* vary per call. The
@@ -113,7 +114,18 @@ class CachedBase:
             **params,
         )
 
-    def complete_into(self, client: LLMClient, reply: dict, **kw: Any) -> AsyncIterator[dict]:
+    def complete_into(
+        self,
+        client: LLMClient,
+        reply: CompletionMessage,
+        *,
+        label: str,
+        trailing: Sequence[Mapping[str, Any]],
+        tool_choice: dict | str | None = None,
+        kv_tracker: KVCacheTracker | None = None,
+        record: bool = True,
+        **params: Any,
+    ) -> AsyncIterator[ReasoningDelta]:
         """:meth:`complete`, demuxed the way every agentic pass consumes it.
 
         Yields only the reasoning deltas — for the pass to forward onto its own event stream — and collects the terminal
@@ -121,4 +133,15 @@ class CachedBase:
         a value; it stays ``{}`` when the call produced no message, which is the "model skipped" shape the passes already
         handle.
         """
-        return _relay_reasoning(self.complete(client, **kw), reply)
+        return _relay_reasoning(
+            self.complete(
+                client,
+                label=label,
+                trailing=trailing,
+                tool_choice=tool_choice,
+                kv_tracker=kv_tracker,
+                record=record,
+                **params,
+            ),
+            reply,
+        )

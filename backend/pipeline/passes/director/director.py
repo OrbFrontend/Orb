@@ -19,6 +19,7 @@ from ....core import (
     resolve_inline,
     value_text,
 )
+from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
@@ -165,12 +166,14 @@ class DirectorResult:
 
     active_moods: list[str] = field(default_factory=list)
     agent_raw: str = ""
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
 
 
-def apply_tool_calls(tool_calls: list[dict], current_moods: list[str], mood_ids: Collection[str]) -> tuple[list[str], dict]:
+def apply_tool_calls(
+    tool_calls: Sequence[Mapping[str, Any]], current_moods: list[str], mood_ids: Collection[str]
+) -> tuple[list[str], dict]:
     """Extract values from tool calls.
 
     Returns ``(moods, extra_fields)``. ``extra_fields`` holds all ``direct_scene`` args except moods. Moods are kept only when
@@ -212,7 +215,7 @@ async def director_pass(
     decision_guidance: str = "",
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning deltas and a ``failure`` per failed call, then one done event with DirectorResult.
 
     Speaker keys and decision guidance belong only in the trailing request, never cached schema properties.
@@ -223,7 +226,7 @@ async def director_pass(
         attachments = []
 
     extra_fields: dict = {}
-    all_calls: list[dict] = []
+    all_calls: list[ParsedToolCall] = []
     last_raw = ""
 
     tool_names = [n for n, on in enabled_tools.items() if on and n in DIRECTOR_LOOP_TOOL_NAMES]
@@ -297,7 +300,7 @@ async def director_pass(
                 step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
                 trailing = [{"role": "user", "content": content}]
-                resp = {}
+                resp: CompletionMessage = {}
                 try:
                     async for event in base.complete_into(
                         client,
@@ -367,7 +370,7 @@ async def director_pass(
         tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
         trailing: list[ChatMessage] = [{"role": "user", "content": content}]
-        resp: dict = {}
+        resp: CompletionMessage = {}
         # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
         # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)

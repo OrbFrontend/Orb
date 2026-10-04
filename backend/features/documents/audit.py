@@ -19,6 +19,7 @@ from ...analysis import (
     run_audit,
 )
 from ...core import ChatMessage, extract_hyperparams
+from ...core.llm_types import CompletionMessage
 from ...core.text_segmentation import ends_with_sentence_terminator, sentence_boundary_ends
 from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_catalog import require_tool
@@ -133,7 +134,7 @@ def build_patch_messages(context: str, draft_core: str, report_text: str, *, ass
     ]
 
 
-def _extract_patches(resp: dict) -> list:
+def _extract_patches(resp: Mapping[str, Any]) -> list:
     """``{id, replace}`` patches from either forced-call response shape: a ``tool_calls`` message (message transports — grammar
     and response_format paths both re-synthesize ``forced_tool_message``) or the grammar-constrained JSON content of a raw
     ``/completion``. Unparseable content → ``[]``.
@@ -260,7 +261,7 @@ async def patch_document(
             **params,
             **reasoning_cfg(False),
         )
-    resp: dict = {}
+    resp: CompletionMessage = {}
     async for event in stream:
         if event["type"] == "done":
             resp = event["message"]

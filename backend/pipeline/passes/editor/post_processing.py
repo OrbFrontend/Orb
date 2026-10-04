@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
 from ..judge import JudgeConfig
@@ -68,7 +69,7 @@ class PostProcessingResult:
     """The evolving draft and normalized calls produced by all fragments."""
 
     draft: str
-    tool_calls: list[dict] = field(default_factory=list)
+    tool_calls: list[ParsedToolCall] = field(default_factory=list)
 
 
 async def post_processing_step(
@@ -85,7 +86,7 @@ async def post_processing_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Run one forced exact-edit call per fragment in ``sort_order``.
 
     A fragment with a gate question first asks the Judge about the draft as the earlier fragments left it, and is skipped on a
@@ -96,7 +97,7 @@ async def post_processing_step(
     the later ones still run.
     """
     current = draft
-    all_calls: list[dict] = []
+    all_calls: list[ParsedToolCall] = []
     fragments = sorted(post_processing_fragments, key=lambda item: item.get("sort_order", 0))
     judge_allowance = GATE_BUDGET_SECONDS
 
@@ -134,7 +135,7 @@ async def post_processing_step(
             {"role": "user", "content": edit_prompt},
         ]
         hyperparams = extract_hyperparams(settings, lane="agent")
-        resp: dict = {}
+        resp: CompletionMessage = {}
         try:
             async for event in base.complete_into(
                 client,

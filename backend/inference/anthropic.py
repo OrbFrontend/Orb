@@ -7,6 +7,7 @@ import json
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
+from ..core.llm_types import CompletionDelta
 from .chat_stream import ChatStream
 from .errors import llm_stream_error
 from .schema import strictify_schema
@@ -278,7 +279,7 @@ async def consume_stream(
     model: str,
     api_key: str,
     is_aborted: Callable[[], bool],
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CompletionDelta]:
     """Fold Messages stream payloads into *acc* in OpenAI terms, yielding live deltas.
 
     An ``error`` event, or a stream that ends before ``message_stop`` without an abort, raises the provider error *url*, *model*

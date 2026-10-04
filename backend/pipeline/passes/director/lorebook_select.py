@@ -6,8 +6,10 @@ import json
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from ....core import extract_hyperparams
+from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.lorebook import director_pick_diagnostics
 from ....prompting.tool_schemas import SELECT_LOREBOOK_CHOICE
@@ -39,7 +41,7 @@ class LorebookSelectResult:
     """
 
     selected: list[str] = field(default_factory=list)
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
 
 
 async def lorebook_select_step(
@@ -53,7 +55,7 @@ async def lorebook_select_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning chunks during the call, then a single done dict.
 
     One forced ``select_lorebook`` call; the catalog rides the OOC trailing.
@@ -71,7 +73,7 @@ async def lorebook_select_step(
     trailing = [{"role": "user", "content": request}]
     hyperparams = extract_hyperparams(settings, lane="agent")
 
-    resp: dict = {}
+    resp: CompletionMessage = {}
     try:
         async for event in base.complete_into(
             client,

@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from ....core.llm_types import ParsedToolCall
 from ....inference import (
     MAX_QUESTION_BYTES,
     MAX_STATE_BYTES,
@@ -60,7 +61,7 @@ def gate_state(effective_msg: str, draft: str, previous_replies: Sequence[str] =
 
 def _record(
     fragment: Mapping[str, Any], question: str, *, fired: bool, reason: str, previous_replies: int = 0, **extra: Any
-) -> dict[str, Any]:
+) -> ParsedToolCall:
     arguments: dict[str, Any] = {
         "fragment_id": fragment.get("id", ""),
         "label": fragment.get("label") or fragment.get("id", ""),
@@ -83,7 +84,7 @@ async def judge_gate(
     timeout_seconds: float,
     recent_replies: Sequence[str] = (),
     abort: AbortToken | None = None,
-) -> dict[str, Any]:
+) -> ParsedToolCall:
     """Evaluate *fragment*'s gate on *draft* and return its Inspector record.
 
     *recent_replies* is the conversation's assistant replies, newest first; the gate shows the Judge as many as the fragment

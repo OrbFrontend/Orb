@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any
 
 from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_max_tokens, mark_call_start
+from ..core.llm_types import CompletionMessage
 from ..inference import (
     KVCacheTracker,
     LLMClient,
@@ -128,7 +129,7 @@ async def forced_tool_call(
     if kv_tracker is not None:
         kv_tracker.record(kv_label, messages, tools, model=resolved_model, endpoint=base_url, shape=cache_shape)
 
-    resp: dict = {}
+    resp: CompletionMessage = {}
     # Keep retries in the same workflow buffer so their reasoning is separated.
     reasoning = ReasoningChannel()
 

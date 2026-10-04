@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncGenerator, Mapping
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from ...core import ChatMessage, extract_hyperparams
+from ...core.llm_types import ContentDelta, TokenProbsEvent
 from ...inference import LLMClient, reasoning_cfg
+
+
+class DocumentDone(TypedDict):
+    type: Literal["done"]
+    finish_reason: str
+
+
+DocumentEvent = ContentDelta | TokenProbsEvent | DocumentDone
 
 # Single place to iterate on chat-fallback quality. Text mode (raw /completion) is the recommended path; this only fires on
 # chat-completion endpoints, where assistant-continuation is unreliable so we frame it as a system instruction + the document
@@ -146,7 +155,7 @@ class DocumentContinuer:
 
     async def stream(
         self, prompt: str, model: str, assisted: bool = False, token_probs: bool = False
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[DocumentEvent, None]:
         # Branch on client.completion_mode and assisted:
         #   text + raw: verbatim /completion
         #   text + assisted: parsed turns with open prefill
@@ -172,7 +181,7 @@ class DocumentContinuer:
         # tell EOS ("stop") from a token-budget cutoff ("length") — the Output Auditor trims the dangling half-sentence on
         # cutoffs. The route is this generator's only consumer.
         async for chunk in gen:
-            if chunk["type"] in ("content", "token_probs"):
+            if chunk["type"] == "content" or chunk["type"] == "token_probs":
                 yield chunk
             elif chunk["type"] == "done":
                 yield {"type": "done", "finish_reason": (chunk.get("message") or {}).get("finish_reason", "")}

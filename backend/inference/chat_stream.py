@@ -12,6 +12,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..core.llm_types import CompletionDelta, TokenProbability, ToolCall
 from . import text_completion
 from .errors import llm_stream_error
 
@@ -25,11 +26,11 @@ class ChatStream:
     # The field name the provider streamed reasoning under, replayed as-is.
     reasoning_key: str = "reasoning_content"
     reasoning_details: list[dict] = field(default_factory=list)
-    tool_calls: dict[int, dict] = field(default_factory=dict)
+    tool_calls: dict[int, ToolCall] = field(default_factory=dict)
     finish_reason: str | None = None
     usage: dict | None = None
 
-    def tool_entry(self, index: int) -> dict:
+    def tool_entry(self, index: int) -> ToolCall:
         """The accumulator slot for tool call *index*, opened on first use."""
         if index not in self.tool_calls:
             self.tool_calls[index] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
@@ -59,7 +60,7 @@ def merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
                 block[key] = value
 
 
-def parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
+def parse_chat_logprobs(choice: Mapping[str, Any]) -> list[TokenProbability]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
     Thin wrapper over :func:`text_completion.normalize_prob_records`: the ``logprobs.content`` records carry the same fields as
@@ -81,7 +82,7 @@ async def consume_openai(
     model: str,
     api_key: str,
     is_aborted: Callable[[], bool],
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CompletionDelta]:
     """Fold ``/chat/completions`` stream payloads into *acc*, yielding live deltas.
 
     A *forced* call buffers its content as the tool-arguments payload instead of streaming it, so the caller never sees a

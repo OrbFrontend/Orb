@@ -5,6 +5,22 @@ stream events, terminal messages, and usage have the same shape regardless of
 the provider. The inference layer resolves the configured URL and translates at
 the network boundary.
 
+`core/llm_types.py` defines the normalized completion stream as a discriminated
+`CompletionEvent` union: content and reasoning carry text deltas, token
+probabilities carry their own records, and `done` carries a `CompletionMessage`
+plus nullable provider usage. Chat, text, raw, and Claude Code transports, retry,
+and cached calls preserve this contract. Reasoning relays retain the optional
+call-boundary marker. The Writer consumes only content and reasoning; Document
+mode also consumes probabilities and projects `done` to its finish reason.
+
+Assembled message fields remain optional, including on an empty reply. Wire tool
+arguments are JSON strings; `parse_tool_calls` returns `ParsedToolCall` records
+with decoded JSON objects. Tool-owned arguments, usage extensions, and provider
+reasoning details stay open. Raw provider frames are adapted before entering
+the normalized stream. `CachedBase.complete_into` requires its label and tail
+explicitly, yields reasoning, and fills a typed reply without adding absent
+fields. An aborted call emits no assembled reply.
+
 ## Accepted endpoint forms
 
 A configured endpoint may be a versioned base or a full generation resource.

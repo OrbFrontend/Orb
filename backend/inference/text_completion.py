@@ -6,7 +6,9 @@ import logging
 import math
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from ..core.llm_types import CompletionMessage, TokenAlternative, TokenProbability
 
 # Stream parsing is separate from template discovery and prompt preparation.
 from .reasoning_format import ReasoningFormat, SplitterStart, ThinkTags
@@ -62,11 +64,11 @@ def _routes_to_self(header: str) -> bool:
 class Splitter(Protocol):
     """Reasoning/content split contract used by the text transport."""
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Classify one stream delta into ``(kind, text)`` pieces."""
         ...
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Release whatever was held back when the stream ended."""
         ...
 
@@ -79,7 +81,9 @@ class _SplitBase:
         self._trim_lead = trim_lead
         self._trim_pending = trim_lead
 
-    def _emit(self, out: list[tuple[str, str]], kind: str, text: str) -> None:
+    def _emit(
+        self, out: list[tuple[Literal["content", "reasoning"], str]], kind: Literal["content", "reasoning"], text: str
+    ) -> None:
         """Append a classified piece, trimming leading content whitespace."""
         if kind == "content" and self._trim_pending:
             text = text.lstrip()
@@ -104,8 +108,8 @@ class ThinkSplitter(_SplitBase):
         else:
             self._state = "pre"
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
-        out: list[tuple[str, str]] = []
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._buf += delta
         while True:
             if self._state == "content":
@@ -129,12 +133,12 @@ class ThinkSplitter(_SplitBase):
                 self._state = "content"
         return out
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Emit any held tail using the current state."""
         if not self._buf:
             return []
         kind = "reasoning" if self._state == "reasoning" else "content"
-        out: list[tuple[str, str]] = []
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._emit(out, kind, self._buf)
         self._buf = ""
         return out
@@ -145,12 +149,12 @@ class ChannelSplitter(_SplitBase):
 
     def __init__(self, *, start: SplitterStart = "auto", trim_lead: bool = True) -> None:
         super().__init__(trim_lead)
-        self._state: str = "header" if start == "auto" else start
+        self._state: Literal["header", "content", "reasoning"] = "header" if start == "auto" else start
         self._header = ""
         self._resolved = start != "auto"
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
-        out: list[tuple[str, str]] = []
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._buf += delta
         while self._buf:
             if self._state == "header":
@@ -173,7 +177,7 @@ class ChannelSplitter(_SplitBase):
             self._state = "header"
         return out
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Emit a held body; drop incomplete headers after the first message."""
         buf, header, self._buf, self._header = self._buf, self._header, "", ""
         kind = self._state
@@ -183,7 +187,7 @@ class ChannelSplitter(_SplitBase):
             buf, kind = header + buf, "content"
         if not buf:
             return []
-        out: list[tuple[str, str]] = []
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._emit(out, kind, buf)
         return out
 
@@ -267,11 +271,11 @@ def _tok_str(rec: Mapping[str, Any]) -> str | None:
     return None
 
 
-def normalize_prob_records(records: Any) -> list[dict]:
+def normalize_prob_records(records: Any) -> list[TokenProbability]:
     """Normalize per-token probability records."""
     if not isinstance(records, list):
         return []
-    out: list[dict] = []
+    out: list[TokenProbability] = []
     for rec in records:
         if not isinstance(rec, dict):
             continue
@@ -279,7 +283,7 @@ def normalize_prob_records(records: Any) -> list[dict]:
         if token is None:
             continue
         raw_alts = rec.get("top_probs") or rec.get("top_logprobs") or rec.get("probs") or []
-        top: list[dict] = []
+        top: list[TokenAlternative] = []
         if isinstance(raw_alts, list):
             for alt in raw_alts:
                 if not isinstance(alt, dict):
@@ -296,7 +300,7 @@ def normalize_prob_records(records: Any) -> list[dict]:
     return out
 
 
-def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
+def parse_token_probs(data: Mapping[str, Any]) -> list[TokenProbability]:
     """Normalize a ``/completion`` chunk's ``completion_probabilities`` to Orb's shape.
 
     See :func:`normalize_prob_records` for the accepted record shapes and degrade behaviour.
@@ -368,7 +372,7 @@ def terminal_state(final: Mapping[str, Any]) -> tuple[dict, str]:
     return synthesize_usage(final), "length" if limit else "stop"
 
 
-def forced_tool_message(name: str, arguments: str) -> dict:
+def forced_tool_message(name: str, arguments: str) -> CompletionMessage:
     """Assemble the ``done`` message for a grammar-forced tool call.
 
     Byte-symmetric with chat mode: empty content, one ``tool_calls`` entry whose ``arguments`` is the raw JSON string the

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core.llm_types import CompletionMessage
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import GIVE_FEEDBACK_CHOICE, build_feedback_tool
 from .prompts import build_feedback_prompt
@@ -28,7 +29,7 @@ class FeedbackResult:
     agent_raw: str = ""
 
 
-def extract_feedback_values(tool_calls: list[dict]) -> dict:
+def extract_feedback_values(tool_calls: Sequence[Mapping[str, Any]]) -> dict:
     """Pull the ``give_feedback`` arguments from parsed tool calls.
 
     Empty or None entries are dropped. A later call wins on key collisions, matching ``apply_tool_calls`` semantics. Each value
@@ -54,7 +55,7 @@ async def feedback_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Yield call reasoning followed by one result event."""
     if not feedback_fragments:
         yield {"type": "done", "result": FeedbackResult()}
@@ -76,7 +77,7 @@ async def feedback_step(
 
     hyperparams = extract_hyperparams(settings, lane="agent")
 
-    resp: dict = {}
+    resp: CompletionMessage = {}
     # Errors propagate; editor_pass reports them as a non-terminal warning.
     async for event in base.complete_into(
         client,

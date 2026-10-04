@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ..core import ChatMessage
+from ..core.llm_types import CompletionMessage
 from .client import LLMClient, parse_tool_calls, reasoning_cfg
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -51,9 +52,9 @@ async def forced_turn(
     forced: str,
     max_tokens: int,
     reasoning_on: bool,
-) -> dict[str, Any]:
+) -> CompletionMessage:
     """Make one forced tool call and return its complete response."""
-    response: dict[str, Any] = {}
+    response: CompletionMessage = {}
     async for event in client.complete(
         messages=messages,
         model=model or "",
@@ -63,6 +64,6 @@ async def forced_turn(
         max_tokens=max_tokens,
         **reasoning_cfg(reasoning_on),
     ):
-        if event.get("type") == "done":
+        if event["type"] == "done":
             response = event.get("message") or {}
     return response

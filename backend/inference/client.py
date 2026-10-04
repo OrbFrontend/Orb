@@ -10,7 +10,7 @@ from typing import Any, TypeVar, cast
 
 import httpx
 
-from ..core.llm_types import ReasoningReplay
+from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
@@ -183,24 +183,29 @@ def parse_extra_body(text: str) -> dict:
     return parsed
 
 
-def _text_message(content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content") -> dict:
+def _text_message(
+    content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content"
+) -> CompletionMessage:
     """Assemble the free-decoded half of a ``done`` message from its deltas.
 
     Both transports build the same shape: content and reasoning are included only when non-empty, so a pass can test presence
     rather than emptiness. Reasoning is stored under *reasoning_key*, the name the provider streamed it under. Tool calls and
     ``finish_reason`` are transport-specific and layered on by the caller.
     """
-    message: dict = {}
+    message: CompletionMessage = {}
     content = "".join(content_parts)
     if content:
         message["content"] = content
     reasoning = "".join(reasoning_parts)
     if reasoning:
-        message[reasoning_key] = reasoning
+        if reasoning_key == "reasoning":
+            message["reasoning"] = reasoning
+        else:
+            message["reasoning_content"] = reasoning
     return message
 
 
-def _done(label: str, message: dict, usage: dict | None) -> dict:
+def _done(label: str, message: CompletionMessage, usage: dict | None) -> CompletionDone:
     """Log the assembled completion and return the terminal ``done`` event."""
     logger.info(
         "LLM complete%s: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
@@ -393,7 +398,7 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """Stream one completion and yield deltas followed by the assembled message."""
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
@@ -417,7 +422,7 @@ class LLMClient:
         async for event in self._with_retry(lambda: transport(messages, model, tools, tool_choice, **params)):
             yield event
 
-    async def _with_retry(self, open_stream: Callable[[], AsyncIterator[dict]]) -> AsyncIterator[dict]:
+    async def _with_retry(self, open_stream: Callable[[], AsyncIterator[CompletionEvent]]) -> AsyncIterator[CompletionEvent]:
         """Retry fresh streams on transient failures only before the first yielded event.
 
         Race the entire attempt against Stop, including setup and template preparation.
@@ -490,7 +495,7 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """The OpenAI-compatible ``/chat/completions`` transport (default)."""
         # Rewrite forced tool calls as strict response_format when the profile opts in
         # or tools_in_prompt=False. Use any caller json_schema override to narrow it.
@@ -574,7 +579,7 @@ class LLMClient:
 
         acc = ChatStream()
 
-        async def _issue(body: dict, forced_name: str | None) -> AsyncIterator[dict]:
+        async def _issue(body: dict, forced_name: str | None) -> AsyncIterator[CompletionEvent]:
             """Stream one request into a fresh ``acc``, replacing anything already there.
 
             Yielding is the reason this is a generator and not a coroutine: the content/reasoning deltas belong to the caller as
@@ -928,7 +933,7 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """llama.cpp native text-completion transport (``/apply-template`` + ``/completion``).
 
         Preserves the ``complete()`` event contract. Falls back to the chat transport on any ``/apply-template`` HTTP error (odd
@@ -1024,7 +1029,10 @@ class LLMClient:
                 else:
                     for kind, text in splitter.feed(delta):
                         (reasoning_parts if kind == "reasoning" else content_parts).append(text)
-                        yield {"type": kind, "delta": text}
+                        if kind == "reasoning":
+                            yield {"type": "reasoning", "delta": text}
+                        else:
+                            yield {"type": "content", "delta": text}
             # Per-token alternatives ride a separate channel (Document mode's token-swap steering); never for a forced tool
             # call, whose output is buffered as arguments rather than surfaced as content.
             if forced_name is None:
@@ -1039,19 +1047,22 @@ class LLMClient:
         else:
             for kind, text in splitter.flush():
                 (reasoning_parts if kind == "reasoning" else content_parts).append(text)
-                yield {"type": kind, "delta": text}
+                if kind == "reasoning":
+                    yield {"type": "reasoning", "delta": text}
+                else:
+                    yield {"type": "content", "delta": text}
             message = _text_message(content_parts, reasoning_parts)
         if finish_reason:
             message["finish_reason"] = finish_reason
 
         yield _done(" (text)", message, usage)
 
-    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
+    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Stream a raw completion for prompt."""
         async for event in self._with_retry(lambda: self._complete_raw(prompt, **params)):
             yield event
 
-    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[dict]:
+    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[CompletionEvent]:
         """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
         grammar = params.pop("grammar", None)
         schema = params.pop("json_schema", None)
@@ -1088,7 +1099,7 @@ class LLMClient:
             if stop:
                 break
 
-        message: dict = {"content": "".join(content_parts)}
+        message: CompletionMessage = {"content": "".join(content_parts)}
         if finish_reason:
             message["finish_reason"] = finish_reason
         yield {"type": "done", "message": message, "usage": usage}
@@ -1234,7 +1245,7 @@ def _first_json(text: str, open_ch: str, close_ch: str) -> Any | None:
         return None
 
 
-def _sanitize_args(obj):
+def _sanitize_args(obj: Any) -> Any:
     """Recursively strip tokenizer-artifact quote tokens (``<|"|>``) from string values."""
     if isinstance(obj, str):
         return obj.replace('<|"|>', "")
@@ -1245,7 +1256,7 @@ def _sanitize_args(obj):
     return obj
 
 
-def _make_tool_call(name: str, arguments) -> dict:
+def _make_tool_call(name: str, arguments: Any) -> ParsedToolCall:
     """Build a normalized tool-call dictionary."""
     raw = arguments if isinstance(arguments, str) else None
     if raw is not None:
@@ -1265,13 +1276,13 @@ def _make_tool_call(name: str, arguments) -> dict:
     return {"name": name, "arguments": _sanitize_args(arguments)}
 
 
-def parse_tool_calls(message: dict) -> list[dict]:
+def parse_tool_calls(message: Mapping[str, Any]) -> list[ParsedToolCall]:
     """Extract tool calls from a completion message.
 
     Tries, in order: the standard ``tool_calls`` array, Hermes-style ``<tool_call>...</tool_call>`` tags, Gemma 4 native
     ``<|tool_call>call:NAME{...}<tool_call|>`` tokens, then JSON embedded in the content body (common with some local servers).
     """
-    tool_calls = []
+    tool_calls: list[ParsedToolCall] = []
 
     # Standard OpenAI tool_calls format
     if "tool_calls" in message and message["tool_calls"]:

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...core import ChatMessage, ContentPart, extract_hyperparams
+from ...core.llm_types import CompletionMessage, ParsedToolCall
 from ...features.lorebook import build_world_change_catalog, parse_proposal_call, validate_proposal
 from ...inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_schemas import PROPOSE_WORLD_CHANGES_CHOICE, PROPOSE_WORLD_CHANGES_TOOL
@@ -29,7 +30,7 @@ class WorldChangeResult:
 
     summary: str = ""
     operations: list[dict] = field(default_factory=list)
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
     failed: bool = False
 
     @property
@@ -51,7 +52,7 @@ async def world_change_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Make one forced proposal call over all opted-in Worlds.
 
     Yield reasoning, a ``failure`` if the call fails, then done with WorldChangeResult. Operations are stamped with their World for split_by_world.
@@ -67,7 +68,7 @@ async def world_change_step(
     ]
     hyperparams = extract_hyperparams(settings, lane="agent")
 
-    resp: dict = {}
+    resp: CompletionMessage = {}
     try:
         async for event in base.complete_into(
             client,

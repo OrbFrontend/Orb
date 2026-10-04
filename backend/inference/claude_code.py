@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from ..core.llm_types import CompletionEvent, CompletionMessage, ToolCall
 from .client import AbortToken, LLMClient
 
 ENDPOINT = "claude-code://local"
@@ -181,7 +182,7 @@ def _tool_schema(tools: list[dict], choice: dict | str | None) -> tuple[dict | N
     raise ClaudeCodeError("Claude Code local transport does not support this tool choice.")
 
 
-def _structured_message(output: Any, schema: dict, forced: str | None) -> dict:
+def _structured_message(output: Any, schema: dict, forced: str | None) -> CompletionMessage:
     try:
         from jsonschema import Draft202012Validator, SchemaError, ValidationError  # noqa: PLC0415 — venv may predate it
     except ImportError as exc:
@@ -199,7 +200,7 @@ def _structured_message(output: Any, schema: dict, forced: str | None) -> dict:
         raise ClaudeCodeError("Claude Code declined a required tool call.")
     if name == "none":
         return {"content": "", "finish_reason": "stop"}
-    call = {
+    call: ToolCall = {
         "id": f"call_{uuid.uuid4().hex}",
         "type": "function",
         "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))},
@@ -222,10 +223,10 @@ class ClaudeCodeClient(LLMClient):
     ) -> str:
         raise ClaudeCodeError("Claude Code local transport does not support raw Document prompt rendering.")
 
-    async def complete_raw(self, prompt: str, model: str, **params: Any) -> AsyncIterator[dict]:
+    async def complete_raw(self, prompt: str, model: str, **params: Any) -> AsyncIterator[CompletionEvent]:
         raise ClaudeCodeError("Claude Code local transport does not support raw Document completion.")
         if False:  # Keep this an async iterator, matching LLMClient.complete_raw.
-            yield {}
+            yield {"type": "done", "message": {}, "usage": None}
 
     async def complete(
         self,
@@ -234,7 +235,7 @@ class ClaudeCodeClient(LLMClient):
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params: Any,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         if self.is_aborted:
             return
         executable = shutil.which("claude")
@@ -348,7 +349,7 @@ class ClaudeCodeClient(LLMClient):
                         "Claude Code failed. Check login with `claude auth status --json`, the selected model alias, and subscription availability."
                     )
                 if schema is None:
-                    message = {"content": "".join(content), "finish_reason": "stop"}
+                    message: CompletionMessage = {"content": "".join(content), "finish_reason": "stop"}
                 else:
                     message = _structured_message(result.get("structured_output"), schema, forced)
                 yield {"type": "done", "message": message, "usage": result.get("usage")}

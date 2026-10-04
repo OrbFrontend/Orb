@@ -19,6 +19,7 @@ from ...core import (
     extract_hyperparams,
     resolve_inline,
 )
+from ...core.llm_types import ContentDelta, ReasoningDelta
 from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
 from .editor.length_guard import LengthGuard, writer_nudge
@@ -123,10 +124,10 @@ async def writer_pass(
     settings: Mapping[str, Any],
     content: str | list[ContentPart],
     *,
-    kv_tracker=None,
+    kv_tracker: KVCacheTracker | None = None,
     reasoning_on: bool = True,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[ContentDelta | ReasoningDelta]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
     *content* is the writer's user-message body, prebuilt by ``build_writer_content`` and shared with the editor. The tool blob
@@ -152,7 +153,8 @@ async def writer_pass(
     ):
         if item["type"] == "done":
             return
-        yield item
+        if item["type"] == "content" or item["type"] == "reasoning":
+            yield item
 
 
 async def writer_stage(

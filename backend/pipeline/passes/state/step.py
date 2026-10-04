@@ -19,6 +19,7 @@ from ....core import (
     extract_hyperparams,
     plan_state_ops,
 )
+from ....core.llm_types import CompletionMessage
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import UPDATE_STATE_CHOICE, build_state_tool
 from .prompts import AliasedEntry, build_state_request, entry_aliases
@@ -140,7 +141,7 @@ async def state_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning chunks and a ``failure`` per failed call, then the validated result of the update call(s)."""
     result = StateStepResult()
     if not fragments:
@@ -178,7 +179,7 @@ async def state_step(
         else:
             trailing = [{"role": "user", "content": request}]
 
-        resp: dict = {}
+        resp: CompletionMessage = {}
         try:
             async for event in base.complete_into(
                 client,

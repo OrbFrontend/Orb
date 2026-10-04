@@ -5,25 +5,28 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
+from .llm_types import CompletionEvent, ReasoningDelta
+
 __all__ = ["CALL_BREAK", "ReasoningChannel", "joined_delta", "mark_call_start", "reasoning_delta_event"]
 
 # Two newlines render as one blank line in the reasoning box.
 CALL_BREAK = "\n\n"
 
 
-async def mark_call_start(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+async def mark_call_start(events: AsyncIterator[CompletionEvent]) -> AsyncIterator[CompletionEvent]:
     """Mark the first reasoning delta in one completion stream."""
     marked = False
     async for event in events:
-        if not marked and event.get("type") == "reasoning":
+        if not marked and event["type"] == "reasoning":
             marked = True
-            event = {**event, "call_start": True}
+            first: ReasoningDelta = {**event, "call_start": True}
+            event = first
         yield event
 
 
-def reasoning_delta_event(event: Mapping[str, Any]) -> dict:
+def reasoning_delta_event(event: Mapping[str, Any]) -> ReasoningDelta:
     """Copy a reasoning event while preserving its call-boundary marker."""
-    out: dict = {"type": "reasoning", "delta": event.get("delta", "")}
+    out: ReasoningDelta = {"type": "reasoning", "delta": event.get("delta", "")}
     if event.get("call_start"):
         out["call_start"] = True
     return out
