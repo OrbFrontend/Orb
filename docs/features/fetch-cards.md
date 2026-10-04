@@ -17,7 +17,10 @@ Open the character browser and select **Internet**.
 ## Browse
 
 Enter a search term and press Enter. Results show the card name, avatar, and
-tagline. Use **Load More** for another page.
+creator, with the site's tallies underneath: rating, downloads, favorites, or
+chats, whichever two the site reports first. A site that reports none shows when
+the card was last updated. Hover the avatar for the tagline, every tally, the
+token count, and tags. Use **Load More** for another page.
 
 Select **🎲 Randomize** for a random batch. Botbooru uses its own random ordering;
 the other sources select a random page from the available catalog. Random results

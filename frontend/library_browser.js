@@ -1,7 +1,16 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { selectChar } from "./chat.js";
-import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
+import {
+  CHAT_ICON,
+  DOWNLOAD_ICON,
+  GLOBE_ICON,
+  GRID_ICON,
+  HEART_ICON,
+  LIST_ICON,
+  STAR_ICON,
+  WRENCH_ICON,
+} from "./icons.js";
 import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
@@ -556,19 +565,68 @@ function renderInternetResultsBody() {
   return `<div class="char-browser-grid">${cards}</div>${more}`;
 }
 
+const COMPACT = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+const EXACT = new Intl.NumberFormat();
+
+// The tallies a site reports, in tile order. A tile has room for two; the tooltip lists them all.
+function internetStats(item) {
+  const stats = [];
+  if (item.rating != null) {
+    const n = item.rating_count;
+    stats.push({
+      icon: STAR_ICON,
+      kind: "rating",
+      short: item.rating.toFixed(1),
+      full: `Rated ${item.rating.toFixed(1)} by ${EXACT.format(n)} ${n === 1 ? "person" : "people"}`,
+    });
+  }
+  for (const [key, icon, noun] of [
+    ["downloads", DOWNLOAD_ICON, "downloads"],
+    ["favorites", HEART_ICON, "favorites"],
+    ["chats", CHAT_ICON, "chats"],
+  ]) {
+    const n = item[key];
+    if (n != null) stats.push({ icon, kind: key, short: COMPACT.format(n), full: `${EXACT.format(n)} ${noun}` });
+  }
+  return stats;
+}
+
 function renderInternetResultCard(item) {
   const av = avatarCell(item.avatar_url ? escAttr(item.avatar_url) : "", { attrs: 'loading="lazy" decoding="async"' });
   const topics = (item.topics || []).slice(0, 12);
-  const updated = item.date_updated ? `Updated: ${formatRelativeDate(item.date_updated)}` : "";
-  const tooltipParts = [item.name, item.tagline, updated, topics.length ? `Tags: ${topics.join(", ")}` : ""].filter(
-    Boolean,
-  );
+  const updated = item.date_updated ? formatRelativeDate(item.date_updated) : "";
+  const stats = internetStats(item);
+  const tooltipParts = [
+    item.name,
+    item.creator ? `by ${item.creator}` : "",
+    item.tagline,
+    [...stats.map((s) => s.full), item.tokens != null ? `${EXACT.format(item.tokens)} tokens` : ""]
+      .filter(Boolean)
+      .join(" · "),
+    updated ? `Updated: ${updated}` : "",
+    topics.length ? `Tags: ${topics.join(", ")}` : "",
+  ].filter(Boolean);
   const tooltip = tooltipParts.map(esc).join("\n");
+  // A site with no tallies still says how fresh the card is.
+  const statRow = stats.length
+    ? stats
+        .slice(0, 2)
+        .map(
+          (s) =>
+            `<span class="internet-stat internet-stat-${s.kind}" title="${escAttr(s.full)}">${s.icon}${esc(s.short)}</span>`,
+        )
+        .join("")
+    : updated
+      ? `<span class="internet-stat">${esc(updated)}</span>`
+      : "";
   return `
     <div class="char-browser-card internet-result-card">
       <div class="char-browser-avatar" title="${tooltip}">${av}</div>
       <div class="char-browser-card-name">${esc(item.name || "")}</div>
-      <div class="internet-result-meta">${esc(item.tagline || "")}</div>
+      <div class="internet-result-meta">
+        <div class="internet-result-creator">${item.creator ? `by ${esc(item.creator)}` : ""}</div>
+        <div class="internet-result-stats">${statRow}</div>
+      </div>
       <button class="internet-import-btn" data-wf-action="browser:importInternet" data-path="${escAttr(item.full_path || "")}">Import</button>
     </div>`;
 }

@@ -137,6 +137,40 @@ async def _fetch_json(
     return payload
 
 
+def _count(value: object) -> int | None:
+    """A site's tally as an int, or None when it sent none or something that is not a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _card_stats(
+    *,
+    creator: object = None,
+    rating: object = None,
+    rating_count: object = None,
+    downloads: object = None,
+    favorites: object = None,
+    chats: object = None,
+    tokens: object = None,
+) -> dict:
+    """The browse-result fields a result tile shows under its name. A source passes what its site reports; the rest are None.
+
+    A rating with no ratings behind it is the site's placeholder, not a score, so it is dropped.
+    """
+    rated = _count(rating_count)
+    score = rating if rated and isinstance(rating, (int, float)) and not isinstance(rating, bool) else None
+    return {
+        "creator": (creator.strip() or None) if isinstance(creator, str) else None,
+        "rating": float(score) if score is not None else None,
+        "rating_count": rated if score is not None else None,
+        "downloads": _count(downloads),
+        "favorites": _count(favorites),
+        "chats": _count(chats),
+        "tokens": _count(tokens),
+    }
+
+
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
     """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
 
@@ -226,6 +260,16 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
                 "full_path": full_path,
                 "topics": topics,
                 "date_updated": date_updated,
+                # `starCount` is Chub's download count: it is what sort=download_count orders by.
+                **_card_stats(
+                    creator=full_path.split("/", 1)[0] if "/" in full_path else None,
+                    rating=None if n.get("ratings_disabled") else n.get("rating"),
+                    rating_count=n.get("ratingCount"),
+                    downloads=n.get("starCount"),
+                    favorites=n.get("n_favorites"),
+                    chats=n.get("nChats"),
+                    tokens=n.get("nTokens"),
+                ),
             }
         )
     has_more = len(nodes) >= _CHUB_PAGE_SIZE
@@ -373,6 +417,7 @@ def _chararc_to_result(item: dict) -> dict | None:
         "full_path": token,
         "topics": tags,
         "date_updated": item.get("updated") or item.get("created") or item.get("added") or "",
+        **_card_stats(creator=item.get("author")),
     }
 
 
@@ -523,6 +568,7 @@ def _botbooru_to_result(post: dict) -> dict:
         "full_path": str(post.get("id", "")),
         "topics": topics,
         "date_updated": post.get("created_at", ""),
+        **_card_stats(downloads=post.get("downloads"), favorites=post.get("favorite_count"), tokens=post.get("token_count")),
     }
 
 
@@ -604,6 +650,8 @@ def _wyvern_to_result(item: dict) -> dict:
     if not isinstance(tags, list):
         tags = []
     topics = [t for t in tags if isinstance(t, str)]
+    creator = item.get("creator")
+    stats = item.get("entity_statistics")
     return {
         "name": item.get("name", "") or "",
         "tagline": tagline,
@@ -611,6 +659,12 @@ def _wyvern_to_result(item: dict) -> dict:
         "full_path": str(item.get("id") or item.get("_id") or ""),
         "topics": topics,
         "date_updated": item.get("updated_at") or item.get("created_at") or "",
+        **_card_stats(
+            creator=creator.get("displayName") if isinstance(creator, dict) else None,
+            favorites=item.get("likes"),
+            chats=stats.get("total_chats") if isinstance(stats, dict) else None,
+            tokens=item.get("token_count"),
+        ),
     }
 
 

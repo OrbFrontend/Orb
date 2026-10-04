@@ -40,6 +40,14 @@ export const TAG_ICON = icon(
   `<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/>${dot(7, 7, 1.3)}`,
 );
 export const COPY_ICON = icon(COPY_ICON_PATHS);
+// Card-site tallies on Internet results: rating, favorites, chats (downloads reuse DOWNLOAD_ICON).
+export const STAR_ICON = icon(
+  '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z" fill="currentColor"/>',
+);
+export const HEART_ICON = icon(
+  '<path d="M12 20s-7.5-4.6-9-9.3C1.9 7.4 4 4 7.4 4c2 0 3.5 1.1 4.6 2.7C13.1 5.1 14.6 4 16.6 4 20 4 22.1 7.4 21 10.7 19.5 15.4 12 20 12 20z"/>',
+);
+export const CHAT_ICON = icon('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/>');
 // Generation, as ✨ marks it in Document mode; the pencil already means "edit".
 // The star is filled: stroked at badge size, a four-point star closes into a diamond.
 export const SPARKLE_ICON = icon(

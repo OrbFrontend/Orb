@@ -35,3 +35,12 @@ async def test_a_chub_result_with_a_null_description_still_lists(monkeypatch):
 async def test_a_malformed_chub_expression_pack_is_skipped_not_raised(monkeypatch):
     _serve(monkeypatch, lambda request: httpx.Response(200, json={"node": {"definition": "not an object"}}))
     assert await downloader._chub_expression_pack("someone/amy") is None
+
+
+async def test_a_chub_result_carries_the_sites_tallies_but_not_an_unrated_score(monkeypatch):
+    rated = {"name": "Amy", "fullPath": "maker/amy", "rating": 4, "ratingCount": 65, "starCount": 50972, "n_favorites": 5956}
+    unrated = {"name": "Bea", "fullPath": "maker/bea", "rating": 5, "ratingCount": 0, "starCount": "lots"}
+    _serve(monkeypatch, lambda request: httpx.Response(200, json={"data": {"nodes": [rated, unrated], "count": 2}}))
+    amy, bea = (await downloader.browse("characterhub", "", 1))["results"]
+    assert (amy["creator"], amy["rating"], amy["downloads"], amy["favorites"]) == ("maker", 4.0, 50972, 5956)
+    assert (bea["rating"], bea["rating_count"], bea["downloads"]) == (None, None, None)
