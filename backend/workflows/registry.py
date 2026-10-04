@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import importlib
 import re
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, Generic, Literal, TypeVar, overload
 
 from ..database import get_workflow_character_state as _db_get_workflow_character_state
 from ..database import get_workflow_config as _db_get_workflow_config
@@ -30,7 +30,10 @@ from .contracts import (
     RerollGenHook,
     ToolSpec,
     UploadHook,
+    WorkflowHook,
 )
+
+_HookT = TypeVar("_HookT", bound=WorkflowHook, covariant=True)
 
 
 @dataclass
@@ -47,12 +50,12 @@ class Workflow:
     config_defaults: dict = field(default_factory=dict)
     config_schema: dict | None = None
     produces_artifacts: bool = False
-    subscriptions: list[Subscription] = field(default_factory=list)
+    subscriptions: list[Subscription[WorkflowHook]] = field(default_factory=list)
     config_normalizer: Callable[[Any], dict] | None = None
 
 
 @dataclass(frozen=True)
-class Subscription:
+class Subscription(Generic[_HookT]):
     """A workflow's binding into one pipeline hook slot.
 
     ``priority`` only matters for fan-out slots (``PRE_PIPELINE``, ``POST_PIPELINE``); single-dispatch slots are resolved by
@@ -60,7 +63,7 @@ class Subscription:
     """
 
     hook_type: HookType
-    callable: Callable
+    callable: _HookT
     priority: int = 0
     workflow_id: str = ""
 
@@ -108,9 +111,9 @@ def _check_hook(w: Workflow, hook_type: HookType, bound: Collection[HookType]) -
         )
 
 
-def _declared_subscriptions(w: Workflow) -> list[Subscription]:
+def _declared_subscriptions(w: Workflow) -> list[Subscription[WorkflowHook]]:
     """Validate the subscriptions *w* declares and stamp each with its id."""
-    stamped: list[Subscription] = []
+    stamped: list[Subscription[WorkflowHook]] = []
     for sub in w.subscriptions:
         if not isinstance(sub, Subscription) or not isinstance(sub.hook_type, HookType) or not callable(sub.callable):
             raise WorkflowDeclarationError(
@@ -210,22 +213,26 @@ def register_plugins(package: str, directory: Path) -> None:
 
 # One overload per slot, so the type checker holds each hook to the shape its route or the bridge calls it with.
 @overload
-def subscription(hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> Subscription[PreHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> Subscription[PostHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0) -> Subscription: ...
+def subscription(
+    hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0
+) -> Subscription[OnDemandHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> Subscription[RegenHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0) -> Subscription: ...
+def subscription(
+    hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0
+) -> Subscription[RerollGenHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> Subscription[QueryHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> Subscription: ...
+def subscription(hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> Subscription[UploadHook]: ...
 @overload
-def subscription(hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> Subscription: ...
-def subscription(hook_type: HookType, fn: Callable, *, priority: int = 0) -> Subscription:
+def subscription(hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> Subscription[ExportHook]: ...
+def subscription(hook_type: HookType, fn: WorkflowHook, *, priority: int = 0) -> Subscription[WorkflowHook]:
     """A hook binding for a plug-in's ``Workflow.subscriptions``, typed per slot."""
     return Subscription(hook_type, fn, priority)
 
@@ -247,7 +254,7 @@ def subscribe(workflow_id: str, hook_type: Literal[HookType.QUERY], fn: QueryHoo
 def subscribe(workflow_id: str, hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> None: ...
 @overload
 def subscribe(workflow_id: str, hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> None: ...
-def subscribe(workflow_id: str, hook_type: HookType, fn: Callable, *, priority: int = 0) -> None:
+def subscribe(workflow_id: str, hook_type: HookType, fn: WorkflowHook, *, priority: int = 0) -> None:
     """Bind *fn* to a registered workflow's hook slot.
 
     Plug-ins declare their hooks in ``Workflow.subscriptions``; this binds a hook a host adapter supplies for a plug-in.
@@ -259,8 +266,26 @@ def subscribe(workflow_id: str, hook_type: HookType, fn: Callable, *, priority: 
     record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
 
 
-def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
-    """Return subscriptions of ``hook_type`` sorted by priority ascending.
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.PRE_PIPELINE]) -> Sequence[Subscription[PreHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.POST_PIPELINE]) -> Sequence[Subscription[PostHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.ON_DEMAND]) -> Sequence[Subscription[OnDemandHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.REGENERATE]) -> Sequence[Subscription[RegenHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.REROLL_GEN]) -> Sequence[Subscription[RerollGenHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.QUERY]) -> Sequence[Subscription[QueryHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.UPLOAD]) -> Sequence[Subscription[UploadHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.EXPORT]) -> Sequence[Subscription[ExportHook]]: ...
+@overload
+def iter_subscriptions(hook_type: HookType) -> Sequence[Subscription[WorkflowHook]]: ...
+def iter_subscriptions(hook_type: HookType) -> Sequence[Subscription[WorkflowHook]]:
+    """Return subscriptions of ``hook_type`` with that slot's callable type, sorted by priority ascending.
 
     Tie-break is registration order: ``dict`` insertion order plus
     Python's stable sort preserves it without an explicit secondary key.
@@ -270,8 +295,26 @@ def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
     return subs
 
 
-def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription | None:
-    """Return the workflow's subscription for ``hook_type``, or None.
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.PRE_PIPELINE]) -> Subscription[PreHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.POST_PIPELINE]) -> Subscription[PostHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.ON_DEMAND]) -> Subscription[OnDemandHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.REGENERATE]) -> Subscription[RegenHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.REROLL_GEN]) -> Subscription[RerollGenHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.QUERY]) -> Subscription[QueryHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.UPLOAD]) -> Subscription[UploadHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.EXPORT]) -> Subscription[ExportHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription[WorkflowHook] | None: ...
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription[WorkflowHook] | None:
+    """Return the workflow's subscription with that slot's callable type, or None.
 
     Collapses "unregistered" and "no binding" into one None -- the routes
     that use this (regenerate, reroll_gen) treat both as 404 anyway.

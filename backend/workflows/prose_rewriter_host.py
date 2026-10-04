@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from ..database import get_settings, set_local_ml_config
@@ -12,7 +12,7 @@ from ..inference.local_models.llama_server import LaunchProfile
 from ..inference.local_models.prose_rewriter import catalog, config
 from ..inference.local_models.prose_rewriter.config import ProseRewriteConfig, UnknownVariant, UnsupportedBatchSize
 from ..inference.local_models.prose_rewriter.service import HOST, rewrite_events, state
-from .contracts import EV_DRAFT_REPLACED, PostCtx
+from .contracts import EV_DRAFT_REPLACED, PostCtx, PostEvent
 from .enablement import effective_workflow_enabled
 from .prose_rewriter import normalize_config
 from .registry import get_workflow_config
@@ -56,7 +56,7 @@ def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
     }
 
 
-async def post_pipeline(ctx: PostCtx):
+async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
     """Rewrite the post-Editor draft before later secondary workflows."""
     draft = ctx.draft
     if not draft or not normalize_config(await get_workflow_config(FEATURE))["automatic"]:

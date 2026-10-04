@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
 from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
@@ -29,6 +29,7 @@ from ..workflows.errors import WorkflowUserFacingError
 from .failures import describe_failure
 
 logger = logging.getLogger(__name__)
+_EventT = TypeVar("_EventT")
 
 
 def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict | None:
@@ -59,7 +60,7 @@ def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
     return {"event": "warning", "data": payload}
 
 
-def _hook_events(events: AsyncIterator[Any], abort: AbortToken | None) -> AsyncIterator[Any]:
+def _hook_events(events: AsyncIterator[_EventT], abort: AbortToken | None) -> AsyncIterator[_EventT]:
     """A hook's events, interrupted by a stop when the turn has an abort token."""
     return events if abort is None else until_aborted(events, abort)
 
@@ -314,8 +315,8 @@ async def iterate_pre_pipeline_hooks(
     prefix_base: list[ChatMessage],
     enabled_tools_pre_merge: Mapping[str, bool],
     turn_scratch: dict,
-    client,
-    kv_tracker,
+    client: LLMClient,
+    kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
 ) -> AsyncIterator[dict]:

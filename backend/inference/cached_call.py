@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ..core import mark_call_start, reasoning_delta_event
 
 if TYPE_CHECKING:
+    from .client import LLMClient
     from .kv_tracker import KVCacheTracker
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
 
 
 async def cached_complete(
-    client: Any,
+    client: LLMClient,
     *,
     label: str,
     messages: Sequence[Mapping[str, Any]],
@@ -80,7 +81,7 @@ class CachedBase:
 
     def complete(
         self,
-        client: Any,
+        client: LLMClient,
         *,
         label: str,
         trailing: Sequence[Mapping[str, Any]],
@@ -112,7 +113,7 @@ class CachedBase:
             **params,
         )
 
-    def complete_into(self, client: Any, reply: dict, **kw: Any) -> AsyncIterator[dict]:
+    def complete_into(self, client: LLMClient, reply: dict, **kw: Any) -> AsyncIterator[dict]:
         """:meth:`complete`, demuxed the way every agentic pass consumes it.
 
         Yields only the reasoning deltas — for the pass to forward onto its own event stream — and collects the terminal

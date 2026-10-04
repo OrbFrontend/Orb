@@ -8,10 +8,10 @@ import logging
 import os
 import re
 import secrets
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from functools import partial
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeVar
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Response, UploadFile
 
@@ -37,6 +37,7 @@ from ...workflows import (
     ExportedFile,
     HookType,
     OnDemandCtx,
+    PublicEvent,
     QueryCtx,
     RegenCtx,
     RerollGenCtx,
@@ -66,6 +67,7 @@ from ...workflows.attachment_cache import (
     validate_workflow_attachment_shape,
     variant_on_show,
 )
+from ...workflows.contracts import RerollGenHook, WorkflowHook
 from ...workflows.enablement import effective_workflow_enabled
 from ..deps import (
     attachment_content_response,
@@ -83,6 +85,7 @@ from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_HookT = TypeVar("_HookT", bound=WorkflowHook)
 
 
 async def _resolve_workflow_character(
@@ -112,8 +115,8 @@ async def _resolve_workflow_character(
 
 
 def _gate_workflow_sub(
-    sub: Subscription | None, wid: str, settings: Mapping[str, Any], *, action: str, detail: str
-) -> Subscription:
+    sub: Subscription[_HookT] | None, wid: str, settings: Mapping[str, Any], *, action: str, detail: str
+) -> Subscription[_HookT]:
     """Shared missing-handler / disabled gate, applied before any lock is taken.
 
     Returns the live subscription; raises 404 otherwise. A disabled workflow is indistinguishable from a missing handler to the
@@ -161,7 +164,7 @@ def _normalized(workflow_id: str, config: Any) -> Any:
     value the normalizer clamps or an entry it drops must not survive in the UI as a setting that appears to have taken effect.
     """
     workflow = get_workflow(workflow_id)
-    normalizer = getattr(workflow, "config_normalizer", None) if workflow else None
+    normalizer = workflow.config_normalizer if workflow else None
     return normalizer(config) if normalizer else config
 
 
@@ -389,7 +392,7 @@ async def api_regenerate_attachment(
         return await _finished_job(task)
     task.add_done_callback(lambda _: updates.put_nowait(None))
 
-    async def events():
+    async def events() -> AsyncIterator[PublicEvent]:
         while (update := await updates.get()) is not None:
             yield {"event": update[0], "data": update[1]}
         try:
@@ -674,7 +677,7 @@ async def api_reroll_gen_attachment(
 
 
 async def _reroll_gen(
-    cid: str, mid: int, aid: int, body: dict, sub: Subscription, settings_snapshot: Mapping[str, Any]
+    cid: str, mid: int, aid: int, body: dict, sub: Subscription[RerollGenHook], settings_snapshot: Mapping[str, Any]
 ) -> dict:
     wid = sub.workflow_id
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock

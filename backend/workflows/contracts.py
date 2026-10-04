@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from ..inference import KVCacheTracker, LLMClient
 
 
 def readonly_view(obj: Any) -> Any:
@@ -26,11 +29,47 @@ def readonly_view(obj: Any) -> Any:
 # Control-event discriminators a workflow hook may yield (the ``"type"`` key the bridge dispatches on). Defined once here, where
 # the seam owns its contract, so the bridge and any workflow import the same names instead of duplicating bare string literals.
 # The string values are the stable wire shape.
-EV_ENABLE_TOOLS = "enable_tools"  # pre-pipeline
-EV_SYSTEM_PROMPT = "system_prompt"  # pre-pipeline
-EV_DRAFT_REPLACED = "draft_replaced"  # post-pipeline
-EV_ATTACH_ARTIFACT = "attach_artifact"  # post-pipeline
-EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
+EV_ENABLE_TOOLS: Final = "enable_tools"  # pre-pipeline
+EV_SYSTEM_PROMPT: Final = "system_prompt"  # pre-pipeline
+EV_DRAFT_REPLACED: Final = "draft_replaced"  # post-pipeline
+EV_ATTACH_ARTIFACT: Final = "attach_artifact"  # post-pipeline
+EV_SET_MESSAGE_STATE: Final = "set_message_state"  # post-pipeline
+
+
+class PublicEvent(TypedDict):
+    """A public SSE event. Workflow-specific JSON data stays open."""
+
+    event: str
+    data: NotRequired[str | dict[str, Any]]
+
+
+class EnableToolsEvent(TypedDict):
+    type: Literal["enable_tools"]
+    tools: set[str] | frozenset[str] | dict[str, Literal[True]]
+
+
+class SystemPromptEvent(TypedDict):
+    type: Literal["system_prompt"]
+    block: str
+
+
+class DraftReplacedEvent(TypedDict):
+    type: Literal["draft_replaced"]
+    draft: str
+
+
+class AttachArtifactEvent(TypedDict):
+    type: Literal["attach_artifact"]
+    attachment: dict[str, Any]
+
+
+class SetMessageStateEvent(TypedDict):
+    type: Literal["set_message_state"]
+    state: dict[str, Any]
+
+
+PreEvent = PublicEvent | EnableToolsEvent | SystemPromptEvent
+PostEvent = PublicEvent | DraftReplacedEvent | AttachArtifactEvent | SetMessageStateEvent
 
 
 @dataclass
@@ -52,17 +91,17 @@ class PreCtx:
     """Inputs available to a workflow's pre-pipeline hook."""
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    prefix: tuple
-    enabled_tools_pre_merge: MappingProxyType
-    turn_scratch: dict
-    client: Any
-    kv_tracker: Any
-    schema_overrides: MappingProxyType
+    settings: Mapping[str, Any]
+    prefix: tuple[Mapping[str, Any], ...]
+    enabled_tools_pre_merge: Mapping[str, bool]
+    turn_scratch: dict[str, Any]
+    client: LLMClient
+    kv_tracker: KVCacheTracker
+    schema_overrides: Mapping[str, Mapping[str, Any]]
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,20 +114,20 @@ class PostCtx:
     """
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     draft: str
     effective_msg: str
-    director_output: MappingProxyType
-    settings: MappingProxyType
-    prefix: tuple
-    enabled_tools: MappingProxyType
-    turn_scratch: dict
-    client: Any
-    kv_tracker: Any
-    schema_overrides: MappingProxyType
+    director_output: Mapping[str, Any]
+    settings: Mapping[str, Any]
+    prefix: tuple[Mapping[str, Any], ...]
+    enabled_tools: Mapping[str, bool]
+    turn_scratch: dict[str, Any]
+    client: LLMClient
+    kv_tracker: KVCacheTracker
+    schema_overrides: Mapping[str, Mapping[str, Any]]
     character_id: str | None = None
-    character: MappingProxyType | None = None
-    agent_client: Any = None
+    character: Mapping[str, Any] | None = None
+    agent_client: LLMClient | None = None
     agent_model_name: str = ""
 
 
@@ -102,14 +141,14 @@ class OnDemandCtx:
     """
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    client: Any
-    agent_client: Any
+    settings: Mapping[str, Any]
+    client: LLMClient
+    agent_client: LLMClient
     agent_model_name: str
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -119,15 +158,15 @@ class RegenCtx:
     conversation_id: str
     message_id: int
     attachment_id: int
-    original_attachment: MappingProxyType
-    history: tuple
+    original_attachment: Mapping[str, Any]
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    client: Any
-    agent_client: Any
+    settings: Mapping[str, Any]
+    client: LLMClient
+    agent_client: LLMClient
     agent_model_name: str
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
     phase: Callable[[str], None] = lambda _label: None  # step label, streamed to a client that asks
     # Saves one attachment as a sibling now, instead of with the handler's return, and answers its id (None when the cache
     # rejected it). A handler that makes several renders keeps each as it lands, so Stop keeps them and the client sees them
@@ -145,10 +184,10 @@ class RerollGenCtx:
     conversation_id: str
     message_id: int
     attachment_id: int
-    original_attachment: MappingProxyType
-    settings: MappingProxyType
-    client: Any
-    prior_consumption_metadata: MappingProxyType | None = None
+    original_attachment: Mapping[str, Any]
+    settings: Mapping[str, Any]
+    client: LLMClient
+    prior_consumption_metadata: Mapping[str, Any] | None = None
     # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it required -- so the default covers only a ctx
     # constructed directly, in a test or out of tree. Reproducing is the safe end of it: a wrong ``True`` costs a render nobody
     # asked for, while a wrong ``False`` hands ``/rehydrate`` a *different* image and overwrites the row with it, which is the
@@ -160,7 +199,7 @@ class RerollGenCtx:
 class QueryCtx:
     """Inputs available to a workflow's query hook."""
 
-    settings: MappingProxyType
+    settings: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -171,9 +210,9 @@ class UploadCtx:
     any state it rewrites, so slow processing of the file holds nothing.
     """
 
-    settings: MappingProxyType
+    settings: Mapping[str, Any]
     character_id: str
-    character: MappingProxyType
+    character: Mapping[str, Any]
     filename: str
     data: bytes
 
@@ -187,8 +226,8 @@ class ExportCtx:
     """
 
     attachment_id: int
-    attachment: MappingProxyType
-    consumption_metadata: MappingProxyType | None
+    attachment: Mapping[str, Any]
+    consumption_metadata: Mapping[str, Any] | None
     stored_bytes: Callable[[], Awaitable[bytes | None]]
 
 
@@ -210,7 +249,7 @@ class ExportedFile:
 class WorkflowEventStream:
     """Transport-neutral stream of public workflow events."""
 
-    events: AsyncIterator[dict]
+    events: AsyncIterator[PublicEvent]
 
 
 def public_event_error(ev: object) -> str | None:
@@ -256,8 +295,8 @@ class HookType(Enum):
     EXPORT = "export"
 
 
-PreHook = Callable[[PreCtx], AsyncIterator[dict]]
-PostHook = Callable[[PostCtx], AsyncIterator[dict]]
+PreHook = Callable[[PreCtx], AsyncIterator[PreEvent]]
+PostHook = Callable[[PostCtx], AsyncIterator[PostEvent]]
 # An on-demand hook returns either a plain JSON object (the API renders it as a
 # JSON response) or a WorkflowEventStream (the API renders it as an SSE stream).
 OnDemandResult = dict | WorkflowEventStream
@@ -269,3 +308,5 @@ QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
 UploadHook = Callable[[UploadCtx, dict[str, str]], Awaitable[dict]]
 # None means there is nothing left to export: the bytes are evicted and the workflow cannot fetch the file from anywhere else.
 ExportHook = Callable[[ExportCtx], Awaitable[ExportedFile | None]]
+
+WorkflowHook = PreHook | PostHook | OnDemandHook | RegenHook | RerollGenHook | QueryHook | UploadHook | ExportHook

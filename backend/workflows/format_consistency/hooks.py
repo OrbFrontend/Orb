@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
     EV_DRAFT_REPLACED,
     AxisStyle,
     PostCtx,
+    PostEvent,
     forced_tool_call,
     get_workflow_config,
     local_feature_ready,
@@ -61,7 +62,7 @@ _REFERENCE = (
 _PASSAGE = "PASSAGE:\n{draft}"
 
 
-def _baseline_window(history) -> list[Mapping[str, Any]]:
+def _baseline_window(history: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Return up to three recent plain-text assistant rows, newest first."""
     window: list[Mapping[str, Any]] = []
     for msg in reversed(history):
@@ -74,14 +75,14 @@ def _baseline_window(history) -> list[Mapping[str, Any]]:
     return window
 
 
-async def _voice_enabled(ctx) -> bool:
+async def _voice_enabled(ctx: PostCtx) -> bool:
     """Whether the local classifier and opt-in voice check are enabled."""
     if not local_feature_ready(FEATURE, ctx.settings):
         return False
     return normalize_config(await get_workflow_config(WORKFLOW_ID))["voice_consistency"]
 
 
-async def _voice_rewrite(ctx, text: str, phrases: list[str], reference: str = "") -> str:
+async def _voice_rewrite(ctx: PostCtx, text: str, phrases: list[str], reference: str = "") -> str:
     """Restate *text* on a self-contained voice-rewrite lane."""
     instruction = _INSTRUCTION.format(voice="\n".join(f"- {p}" for p in phrases))
     if reference:
@@ -108,7 +109,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str], reference: str = ""
     return rewritten if isinstance(rewritten, str) else ""
 
 
-async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: list[AxisStyle]) -> str:
+async def _hold_voice(ctx: PostCtx, text: str, window: list[Mapping[str, Any]], styles: list[AxisStyle]) -> str:
     """Return *text* in the window's voice, or unchanged when it is ambiguous.
 
     *styles* are the window rows' markup readings, in window order.
@@ -147,7 +148,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     return rewritten
 
 
-async def post_pipeline(ctx: PostCtx):
+async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
     """Normalize the finished draft's markup and, optionally, its narrative voice."""
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]

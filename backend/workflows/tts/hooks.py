@@ -5,12 +5,15 @@ from __future__ import annotations
 import base64
 import logging
 import os
+from collections.abc import AsyncIterator
 
 from ..toolkit import (
     EV_ATTACH_ARTIFACT,
     OnDemandCtx,
     PostCtx,
+    PostEvent,
     PreCtx,
+    PreEvent,
     QueryCtx,
     RegenCtx,
     RerollGenCtx,
@@ -66,7 +69,7 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
     }
 
 
-async def pre_pipeline(ctx: PreCtx):
+async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
     """Freeze this turn's voice before any model call; playback remains live."""
     if ctx.character_id:
         ctx.turn_scratch.setdefault("tts_profiles", {})[ctx.character_id] = normalize_profile(
@@ -77,7 +80,7 @@ async def pre_pipeline(ctx: PreCtx):
         yield {}
 
 
-async def post_pipeline(ctx: PostCtx):
+async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
     """Synthesize the finished reply for a character whose voice profile is enabled. Yields one ``attach_artifact`` and, when
     auto-play is on, a pass-through event the frontend uses to start playback.
 

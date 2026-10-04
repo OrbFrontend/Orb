@@ -24,7 +24,7 @@ from ..database import get_conversation, get_lorebook_entry, get_workflow_attach
 from ..database.models import ConversationRow
 from ..features.cards import ProfileDraftUnavailable
 from ..inference import AbortToken
-from ..workflows import WorkflowEventStream, public_event_error
+from ..workflows import PublicEvent, WorkflowEventStream, public_event_error
 from .errors import API_PASSTHROUGH_ERRORS, failure_event
 
 logger = logging.getLogger(__name__)
@@ -472,7 +472,7 @@ async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = 
         await asyncio.shield(settle)
 
 
-async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGenerator[str, None]:
+async def _encode_workflow_event_stream(events: AsyncIterator[PublicEvent]) -> AsyncGenerator[str, None]:
     """Encode workflow events as SSE."""
     try:
         it = events.__aiter__()

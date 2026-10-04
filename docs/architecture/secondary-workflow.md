@@ -205,9 +205,36 @@ framework.
 Every context, and every control-event `type` a hook yields (`EV_ENABLE_TOOLS`,
 `EV_SYSTEM_PROMPT`, `EV_DRAFT_REPLACED`, `EV_ATTACH_ARTIFACT`,
 `EV_SET_MESSAGE_STATE`), is a toolkit export, so a plug-in annotates its hooks
-without reaching past the toolkit. `subscribe` is typed per hook type: Pyright
-rejects a hook whose signature does not fit its slot, such as a post hook that
-returns instead of yielding.
+without reaching past the toolkit. Both `subscription` and `subscribe` are
+typed per hook type: Pyright rejects a hook whose signature does not fit its
+slot, such as a post hook that returns instead of yielding. The host's
+`get_subscription` and `iter_subscriptions` preserve that callable type through
+lookup and route gating, so dispatch is checked too.
+
+Annotate pre/post generators with `AsyncIterator[PreEvent]` or
+`AsyncIterator[PostEvent]`, and on-demand event streams with
+`AsyncIterator[PublicEvent]`. These types are toolkit exports, as are their
+individual control-event types. Pyright checks required payload keys and the
+instructions allowed in each slot; for example, a pre-hook cannot replace a
+draft. Public events require `event: str` and optionally `data: str | dict`;
+workflow-specific JSON remains open. The runtime still validates output from
+untyped plug-ins and drops malformed events.
+
+```python
+from collections.abc import AsyncIterator
+
+from ..toolkit import EV_SYSTEM_PROMPT, PreCtx, PreEvent
+
+
+async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
+    yield {"type": EV_SYSTEM_PROMPT, "block": "A workflow instruction."}
+```
+
+Context collections are annotated as read-only mappings and tuples, and
+clients and cache trackers use their concrete service types. `turn_scratch`
+remains a mutable dictionary for workflow-owned data. Static contract
+regressions in `tests/unit/workflows/test_static_contracts.py` check valid
+declarations and dispatch alongside deliberately invalid examples.
 
 For group work, `character` identifies the relevant speaker. A
 `RerollGenCtx` with `replay=True` reproduces stored generation parameters;

@@ -6,11 +6,12 @@ import asyncio
 import base64
 import logging
 import secrets
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
     OnDemandCtx,
+    PublicEvent,
     RegenCtx,
     RerollGenCtx,
     WorkflowEventStream,
@@ -80,7 +81,7 @@ def _fresh_seed() -> int:
     return fold_seed(secrets.token_hex(16))
 
 
-async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
+async def _render_inputs(ctx: OnDemandCtx | RegenCtx, body: Mapping[str, Any]) -> tuple[dict, str, dict]:
     """What every fresh render reads before composing: `(config, style_id, profile)`.
 
     One place, because the on-demand and regenerate paths must answer "which style, which character appearance" identically -- a
@@ -92,17 +93,17 @@ async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
     return config, requested or config["default_style"], profile
 
 
-def _phase(label: str) -> dict:
+def _phase(label: str) -> PublicEvent:
     return {"event": "phase_status", "data": {"label": label}}
 
 
-def _terminal(attachment_id: int | None, error: str | None) -> list[dict]:
+def _terminal(attachment_id: int | None, error: str | None) -> list[PublicEvent]:
     """The events every generate stream ends on, success or failure.
 
     Clients finish on `image_gen_done`, not on stream close, so this sequence is the contract: at most one error, the phase
     reset, then the terminal event. Transport-neutral; the API layer serializes them to SSE frames.
     """
-    events: list[dict] = [{"event": "image_gen_error", "data": {"message": error}}] if error else []
+    events: list[PublicEvent] = [{"event": "image_gen_error", "data": {"message": error}}] if error else []
     events.append({"event": "phase_status", "data": {"state": "done"}})
     events.append({"event": "image_gen_done", "data": {"attachment_id": attachment_id}})
     return events
@@ -115,7 +116,7 @@ def _failed_stream(message: str) -> WorkflowEventStream:
     no terminal event, and a button that silently re-enables with nothing shown.
     """
 
-    async def events():
+    async def events() -> AsyncIterator[PublicEvent]:
         for event in _terminal(None, message):
             yield event
 
@@ -567,7 +568,7 @@ async def _generate_fresh(
         attachment = await save(revised, revised_prompt, revised_negative)
 
 
-async def _generate_response(ctx, body) -> WorkflowEventStream:
+async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> WorkflowEventStream:
     mid = body.get("message_id")
     if not isinstance(mid, int) or isinstance(mid, bool):
         return _failed_stream("message_id (int) required")
@@ -584,10 +585,10 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         return _failed_stream(str(exc))
     prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
 
-    async def stream():
+    async def stream() -> AsyncIterator[PublicEvent]:
         kept: list[int] = []
         error: str | None = None
-        updates: asyncio.Queue[dict] = asyncio.Queue()
+        updates: asyncio.Queue[PublicEvent] = asyncio.Queue()
 
         def phase(label: str) -> None:
             updates.put_nowait(_phase(label))

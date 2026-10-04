@@ -10,6 +10,8 @@ from typing import Any
 
 from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_max_tokens, mark_call_start
 from ..inference import (
+    KVCacheTracker,
+    LLMClient,
     honors_forced_tool_choice,
     note_forced_tool_choice_ignored,
     parse_tool_calls,
@@ -63,16 +65,16 @@ def _replay(resp: Mapping[str, Any], tool_name: str, args: Mapping[str, Any], ca
 
 async def forced_tool_call(
     *,
-    client: Any,
-    prefix: Sequence[dict],
-    tail_messages: Sequence[dict],
+    client: LLMClient,
+    prefix: Sequence[Mapping[str, Any]],
+    tail_messages: Sequence[Mapping[str, Any]],
     tool_name: str,
     settings: Mapping[str, Any],
     pass_id: str | None = None,
     enabled_tools: Mapping[str, bool] | None = None,
-    schema_overrides: Mapping[str, Mapping] | None = None,
+    schema_overrides: Mapping[str, Mapping[str, Any]] | None = None,
     offer_tools: Sequence[str] | None = None,
-    kv_tracker: Any = None,
+    kv_tracker: KVCacheTracker | None = None,
     cache_shape: str = "",
     model_name: str | None = None,
     reasoning_on: bool = True,
