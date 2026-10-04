@@ -27,15 +27,7 @@
    - Windows: `run_windows.bat`
 
 The launcher creates `.venv`, installs `requirements.txt`, and starts the server.
-You do not need to activate the environment for normal use. Activate it only
-when you run one of the project scripts yourself.
-
-After an installation failure (for example, without network access), the launcher
-can use the packages already in `.venv` if every mandatory runtime import is
-usable. Both launchers run `scripts/check_runtime.py` to check those imports
-without loading the application, initializing the database, or starting models.
-The probe reports missing or broken packages; optional local ML packages are
-not required. An offline launch does not enforce the pinned package versions.
+You do not need to activate the environment for normal use.
 
 ## Network access
 

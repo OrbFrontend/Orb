@@ -24,31 +24,8 @@ Ruff and Biome read their settings from `ruff.toml` and `biome.json`, so an edit
 
 ### Where to extend
 
-Start with [AGENTS.md](AGENTS.md) for the dependency rules. The architecture notes
-describe the contracts that a fork needs to preserve:
-
-| Change | Start here | Contract to read |
-|---|---|---|
-| Optional processing, media, or message actions | `backend/workflows/<id>/` and `frontend/workflows/<id>/` | [Secondary workflows](docs/architecture/secondary-workflow.md) |
-| Core turn behavior or a new pass | `backend/pipeline/` | [Prompting boundary](docs/architecture/prompting.md), [KV cache reuse](docs/architecture/kv-cache.md), and [SSE stream](docs/architecture/sse-stream.md) |
-| Provider transport or request adaptation | `backend/inference/` | [Endpoint routing](docs/architecture/endpoints.md) |
-| Persisted fields or defaults | `backend/database/` | [Schema change checklist](docs/architecture/database.md#changing-the-schema) |
-| HTTP endpoints | `backend/api/routes/` and `backend/api/schemas.py` | Register the router in `backend/api/routes/__init__.py` |
-| Failure responses and warnings | `backend/api/errors.py`, `backend/pipeline/failures.py`, and `frontend/errors.js` | [Shared failure handling](docs/architecture/sse-stream.md#shared-failure-handling) |
-| Core UI | `frontend/`, with shared state in `state.js` | Module layers in `scripts/check_frontend_layers.py` and action registration in `actions.js` |
-
-An optional feature that fits the workflow hooks belongs in a workflow. Backend
-plug-ins use named exports from `backend.workflows.toolkit`; frontend plug-ins
-use `/static/workflow_api.js`. If a capability is missing, add it to the facade
-and its contract checks. Keep frontend exports additive, update `FROZEN_ABI`, and
-bump `WORKFLOW_API_VERSION` together.
-
-Asynchronous UI work should capture its resource id before awaiting. Core chat
-work keeps its data in `conversationState(cid)` and registers long operations
-through `operations.js`; workflow renders use the job helpers in the facade.
-The [SSE note](docs/architecture/sse-stream.md#concurrent-ownership-and-deletion)
-explains ownership, Stop, and reconciliation. Orb runs in one uvicorn process;
-its in-memory locks are not shared across workers.
+[Where to Extend](docs/architecture/extending.md) maps each kind of change to the
+code and contract that own it. [AGENTS.md](AGENTS.md) lists the dependency rules.
 
 ## 2. Run the checks
 
@@ -63,12 +40,9 @@ Everything lives in `scripts/`. The scripts create and sync `.venv` themselves. 
 If any of these fail, fix it before submitting. CI runs the tests, format, and lint checks.
 
 For a focused backend run, use `./scripts/tests.sh tests/unit/test_example.py`;
-`PYTEST_WORKERS=0` disables parallel workers when debugging. Backend integration
-tests use temporary databases and a shared fake LLM in
-`tests/integration/conftest.py`. Frontend tests live in `tests/frontend/` and run
-with `node --test tests/frontend/*.test.mjs`. Add regression coverage for changed
-contracts and behavior; reuse the existing fixtures rather than calling live
-providers or downloaded models.
+`PYTEST_WORKERS=0` disables parallel workers when debugging. Add regression
+coverage for changed behavior; [Where to Extend](docs/architecture/extending.md#tests)
+describes the shared fixtures.
 
 For documentation changes, install `requirements-docs.txt` into the development
 venv and run `python -m mkdocs build --strict`.

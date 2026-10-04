@@ -71,6 +71,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Architecture:
+      - Where to Extend: architecture/extending.md
       - Backend Layers and Prompting: architecture/prompting.md
       - Database Init and Upgrades: architecture/database.md
       - LLM Endpoint Routing: architecture/endpoints.md

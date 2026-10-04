@@ -9,8 +9,8 @@ feature requests.
 
 ## Extending a fork
 
-The [contributing guide's extension map](https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md#where-to-extend)
-points to the code and checks for each kind of change. Read
+[Where to Extend](architecture/extending.md) points to the code and checks for
+each kind of change. Read
 [Backend layers and prompting](architecture/prompting.md) for dependency rules,
 [Secondary workflows](architecture/secondary-workflow.md) for optional features,
 and [Database init and upgrades](architecture/database.md#changing-the-schema)

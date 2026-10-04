@@ -480,7 +480,8 @@ At boot, the frontend fetches the manifest and imports
 run when the module loads.
 
 The facade in `workflow_api.js` is the frontend ABI. It is additive-only: new
-exports may be added, with a `WORKFLOW_API_VERSION` bump, but existing names and
+exports may be added, with a `WORKFLOW_API_VERSION` bump and a matching entry in
+`FROZEN_ABI` in `scripts/check_frontend_layers.py`, but existing names and
 signatures do not change. Common registration points are:
 
 ```js
