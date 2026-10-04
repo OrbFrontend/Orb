@@ -1,8 +1,7 @@
 """Shared workflow-integration contract for regenerate and magic rewrite.
 
-Both routes run the full pipeline and persist a new sibling, so post-pipeline
-effects must land on that sibling while the original remains intact. Magic
-rewrite additionally forwards the user's direction to the model.
+Both routes run the full pipeline and persist a new sibling, so post-pipeline effects must land on that sibling while the
+original remains intact. Magic rewrite additionally forwards the user's direction to the model.
 """
 
 from __future__ import annotations
@@ -52,51 +51,32 @@ def _probe_workflow():
         return b"unused"
 
     return make_workflow(
-        _WID,
-        post_pipeline=post_pipeline,
-        regenerate=regenerate,
-        reroll_gen=reroll_gen,
-        produces_artifacts=True,
+        _WID, post_pipeline=post_pipeline, regenerate=regenerate, reroll_gen=reroll_gen, produces_artifacts=True
     )
 
 
 async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     """Create a conversation and one assistant reply with no probe workflow
     active, returning the conversation id and the original reply's id."""
-    card = await client.post(
-        "/api/characters",
-        json={"name": "Aria", "description": "An elf ranger.", "first_mes": "The woods are quiet."},
+    card = await client.post_json(
+        "/api/characters", json={"name": "Aria", "description": "An elf ranger.", "first_mes": "The woods are quiet."}
     )
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
-    cid = conv.json()["id"]
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
-    resp = await client.put(
-        "/api/settings",
-        json={"model_name": "writer-model", "enable_agent": True, "enabled_tools": {"direct_scene": True}},
-    )
-    assert resp.status_code == 200
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
     # Suspend the format normalizer so the seeded and rewritten contents stay
     # exact; the probe under test is the only post-pipeline hook that should run.
     await set_workflow_enabled("format_consistency", False)
 
     llm_mock.enqueue_writer("The original reply.")
-    send = await client.post(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
-    assert send.status_code == 200
+    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
     _ = send.text
 
     original = [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]
     return cid, original["id"]
 
 
-@pytest.mark.parametrize(
-    ("action", "payload"),
-    [
-        ("regenerate", {}),
-        ("magic_rewrite", {"direction": _DIRECTION}),
-    ],
-)
+@pytest.mark.parametrize(("action", "payload"), [("regenerate", {}), ("magic_rewrite", {"direction": _DIRECTION})])
 async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_mock, action, payload):
     cid, original_id = await _seed_reply(client, llm_mock)
     original = await get_message_by_id(original_id)
@@ -106,11 +86,7 @@ async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_m
         llm_mock.enqueue_writer("A fresh draft the probe will replace.")
         logs_before = len(await get_conversation_logs(cid))
         start = len(llm_mock.captured)
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{original_id}/{action}",
-            json=payload,
-        )
-        assert resp.status_code == 200
+        resp = await client.post_checked(f"/api/conversations/{cid}/messages/{original_id}/{action}", json=payload)
         _ = resp.text
         captured = llm_mock.captured[start:]
         logs_after = await get_conversation_logs(cid)

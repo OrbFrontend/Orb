@@ -2,20 +2,18 @@ from __future__ import annotations
 
 from typing import cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db, select_rows
 from ..models import MoodFragmentRow
 
 
 async def get_mood_fragments() -> list[MoodFragmentRow]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM mood_fragments ORDER BY label ASC"))
-        return [cast(MoodFragmentRow, dict(r)) for r in rows]
+    rows = await select_rows("SELECT * FROM mood_fragments ORDER BY label ASC")
+    return [cast(MoodFragmentRow, dict(r)) for r in rows]
 
 
 async def get_mood_fragment(fid: str) -> MoodFragmentRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM mood_fragments WHERE id = ?", (fid,)))
-        return cast(MoodFragmentRow, dict(rows[0])) if rows else None
+    rows = await select_rows("SELECT * FROM mood_fragments WHERE id = ?", (fid,))
+    return cast(MoodFragmentRow, dict(rows[0])) if rows else None
 
 
 async def create_mood_fragment(data: dict) -> MoodFragmentRow:
@@ -42,11 +40,11 @@ async def create_mood_fragment(data: dict) -> MoodFragmentRow:
 async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
     async with get_db() as db:
         allowed = ["label", "description", "prompt_text", "negative_prompt", "cooldown_turns", "enabled"]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(fid)
             await db.execute(
-                f"UPDATE mood_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE mood_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

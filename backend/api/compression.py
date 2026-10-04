@@ -1,15 +1,6 @@
-"""Gzip for text responses: JSON, scripts, stylesheets and markup.
+"""Gzip whole 200 text responses using Starlette's compressor.
 
-Starlette's ``GZipMiddleware`` compresses everything except SSE. That is wrong
-for two kinds of response Orb serves:
-
-* media that is already compressed (avatars, generated images, audio, woff2),
-  where gzip spends CPU to make the body no smaller;
-* a ``206`` byte range, where the ``Content-Range`` offsets name the
-  uncompressed bytes, so a gzipped slice breaks audio seeking.
-
-This keeps Starlette's compressor and narrows *what* it compresses: a whole
-``200`` of a text-like type. Everything else passes through untouched.
+Skip compressed media, SSE and byte ranges; compressing a 206 response would invalidate Content-Range offsets and break seeking.
 """
 
 from __future__ import annotations

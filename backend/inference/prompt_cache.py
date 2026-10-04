@@ -1,10 +1,8 @@
 """Explicit prompt-cache breakpoints and upstream affinity for chat requests.
 
-Claude-style caches find an entry only at a position some earlier request
-marked, and Orb's per-call tail means the last block never repeats, so the
-breakpoints sit where prompts do repeat: the system prompt and the end of the
-shared base (1 h), plus the final block (5 min) for requests that extend this
-one within the turn. See "Providers that cache only where asked" in
+Claude-style caches find an entry only at a position some earlier request marked, and Orb's per-call tail means the last block
+never repeats, so the breakpoints sit where prompts do repeat: the system prompt and the end of the shared base (1 h), plus the
+final block (5 min) for requests that extend this one within the turn. See "Providers that cache only where asked" in
 docs/architecture/kv-cache.md.
 """
 
@@ -39,12 +37,10 @@ def _last_text(message: Mapping[str, Any]) -> int | None:
 def mark_cache_breakpoints(messages: Sequence[Mapping[str, Any]], prefix_len: int | None) -> list[Mapping[str, Any]]:
     """Return *messages* with cache breakpoints at the system, base, and tail ends.
 
-    *prefix_len* is how many leading messages every call on this base shares;
-    ``None`` leaves only the system and tail anchors. Each anchor walks back to
-    the nearest message with text, never past the previous anchor, and TTLs only
-    shorten from one anchor to the next, as Anthropic requires. A marked string
-    becomes a one-part text list, which renders to the same bytes. Changed
-    messages are copies; the caller's transcript is untouched.
+    *prefix_len* is how many leading messages every call on this base shares; ``None`` leaves only the system and tail anchors.
+    Each anchor walks back to the nearest message with text, never past the previous anchor, and TTLs only shorten from one
+    anchor to the next, as Anthropic requires. A marked string becomes a one-part text list, which renders to the same bytes.
+    Changed messages are copies; the caller's transcript is untouched.
     """
     out = list(messages)
     system_end = 0
@@ -68,11 +64,9 @@ def mark_cache_breakpoints(messages: Sequence[Mapping[str, Any]], prefix_len: in
 def affinity_headers(model: str, messages: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     """Name the request's cache lane so a router keeps it on one upstream.
 
-    OpenRouter spreads a model across upstreams with separate caches, and
-    without a session id it turns sticky only after a cache hit, which a lane
-    changing upstream on every call may never get. The id comes from the model
-    and the lane's first message, so every pass and turn of a conversation
-    shares it.
+    OpenRouter spreads a model across upstreams with separate caches, and without a session id it turns sticky only after a
+    cache hit, which a lane changing upstream on every call may never get. The id comes from the model and the lane's first
+    message, so every pass and turn of a conversation shares it.
     """
     if not messages:
         return {}

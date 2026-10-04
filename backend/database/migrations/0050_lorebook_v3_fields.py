@@ -1,8 +1,7 @@
-"""
-0050_lorebook_v3_fields -- Character Card V3 lorebook entry semantics.
+"""0050_lorebook_v3_fields -- Character Card V3 lorebook entry semantics.
 
-`use_regex` (keys are regular expressions), `selective` + `secondary_keys`
-(a secondary key must also match). Parsed on import before this, then dropped.
+`use_regex` (keys are regular expressions), `selective` + `secondary_keys` (a secondary key must also match). Parsed on import
+before this, then dropped.
 """
 
 from __future__ import annotations

@@ -8,12 +8,7 @@ import pytest
 
 from backend.database import set_workflow_enabled
 from backend.workflows import set_workflow_config
-from backend.workflows.format_consistency import (
-    VOICE_REWRITE_LENGTH_RULE,
-    VOICE_REWRITE_TOOL_NAME,
-    hooks,
-    voice,
-)
+from backend.workflows.format_consistency import VOICE_REWRITE_LENGTH_RULE, VOICE_REWRITE_TOOL_NAME, hooks, voice
 
 # Third/past baseline, second/present draft -> a drift the hook must repair.
 BASELINE = "She smiles and steps back. The woods were quiet that evening."
@@ -42,15 +37,12 @@ def voice_on(monkeypatch):
 
 
 async def _seed(client) -> str:
-    card = await client.post(
-        "/api/characters",
-        json={"name": "Aria", "description": "An elf ranger.", "first_mes": BASELINE},
+    card = await client.post_json(
+        "/api/characters", json={"name": "Aria", "description": "An elf ranger.", "first_mes": BASELINE}
     )
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card["id"]})
 
-    resp = await client.put(
+    await client.put_checked(
         "/api/settings",
         json={
             "model_name": "writer-model",
@@ -59,11 +51,10 @@ async def _seed(client) -> str:
             "length_guard_enabled": False,
         },
     )
-    assert resp.status_code == 200
 
     await set_workflow_enabled("format_consistency", True)
     await set_workflow_config("format_consistency", {"voice_consistency": True})
-    return conv.json()["id"]
+    return conv["id"]
 
 
 async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on):
@@ -77,17 +68,13 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
                 {
                     "id": "c2",
                     "type": "function",
-                    "function": {
-                        "name": VOICE_REWRITE_TOOL_NAME,
-                        "arguments": json.dumps({"rewritten_text": REWRITTEN}),
-                    },
+                    "function": {"name": VOICE_REWRITE_TOOL_NAME, "arguments": json.dumps({"rewritten_text": REWRITTEN})},
                 }
             ]
         }
     )
 
-    send = await client.post(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
-    assert send.status_code == 200
+    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
     _ = send.text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
@@ -119,8 +106,7 @@ async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
     llm_mock.enqueue_director([{"id": "c1", "type": "function", "function": {"name": "direct_scene", "arguments": "{}"}}])
     llm_mock.enqueue_writer(DRIFTING_DRAFT)
 
-    send = await client.post(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
-    assert send.status_code == 200
+    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
     _ = send.text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
@@ -141,10 +127,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
                     {
                         "id": "c2",
                         "type": "function",
-                        "function": {
-                            "name": VOICE_REWRITE_TOOL_NAME,
-                            "arguments": json.dumps({"rewritten_text": REWRITTEN}),
-                        },
+                        "function": {"name": VOICE_REWRITE_TOOL_NAME, "arguments": json.dumps({"rewritten_text": REWRITTEN})},
                     }
                 ]
             }
@@ -154,8 +137,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
     for msg in ("and then?", "what happens next?"):
         _queue_turn()
         start = len(llm_mock.captured)
-        send = await client.post(f"/api/conversations/{cid}/send", json={"content": msg, "attachments": []})
-        assert send.status_code == 200
+        send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": msg, "attachments": []})
         _ = send.text
         rewrites.append(next(c for c in llm_mock.captured[start:] if c["pass"] == "workflow"))
 

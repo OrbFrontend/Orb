@@ -14,17 +14,10 @@ from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
 
 
 class SettingsUpdate(BaseModel):
-    model_config = {"protected_namespaces": ()}
-
-    endpoint_url: str | None = None
-    api_key: str | None = None
-    model_name: str | None = None
-    # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
-    # max_tokens) are intentionally NOT on this contract: they live on the active
-    # endpoint's model_config and are edited via /models/{id}. get_settings()
-    # overlays them for reads, so a write here would be silently discarded. The
-    # frontend still includes them in its /settings PUT payload; extra fields are
-    # ignored (default Pydantic behavior), mirroring completion_mode.
+    # The connection (endpoint_url, api_key), model_name and hyperparameters (temperature, min_p, top_k, top_p,
+    # repetition_penalty, max_tokens) are NOT on this contract: they live on the active endpoint and its model_config, edited
+    # via /endpoints/{id} and /models/{id}, and get_settings() overlays them for reads. The frontend still includes them in its
+    # /settings PUT payload; extra fields are ignored (default Pydantic behavior), mirroring completion_mode.
     shared_system_prompt: str | None = None
     system_prompt: str | None = None
     user_name: str | None = None
@@ -91,11 +84,10 @@ class WorkflowEnabledUpdate(BaseModel):
 
 
 class EndpointCreate(BaseModel):
-    """A saved connection. ``kind`` picks the lane that may select it: the
-    Writer/Agent ``chat`` pool, or the decision classifier's own ``judge`` rows.
-    It is set once, at creation, and ``EndpointUpdate`` deliberately omits it —
-    a row that changed lanes would silently take its credentials somewhere the
-    user never pointed them."""
+    """A saved connection. ``kind`` picks the lane that may select it: the Writer/Agent ``chat`` pool, or the decision
+    classifier's own ``judge`` rows. It is set once, at creation, and ``EndpointUpdate`` deliberately omits it -- a row that
+    changed lanes would silently take its credentials somewhere the user never pointed them.
+    """
 
     url: str
     api_key: str = ""
@@ -113,9 +105,8 @@ class EndpointUpdate(BaseModel):
     @field_validator("proxy")
     @classmethod
     def _validate_proxy(cls, v: str | None) -> str | None:
-        # Empty/blank means "no proxy". A set value must use a scheme httpx
-        # accepts (http/https, or socks5 via the httpx[socks] extra); reject
-        # anything else here so a typo fails at save time, not on every LLM turn.
+        # Empty/blank means "no proxy". A set value must use a scheme httpx accepts (http/https, or socks5 via the httpx[socks]
+        # extra); reject anything else here so a typo fails at save time, not on every LLM turn.
         if v is None:
             return v
         v = v.strip()
@@ -126,9 +117,8 @@ class EndpointUpdate(BaseModel):
         return v
 
 
-# RFC 7230 token: the only characters a header name may contain. h11 rejects
-# anything else when the request is sent, and that exception is not retryable,
-# so an unchecked name kills every subsequent turn with an opaque error.
+# RFC 7230 token: the only characters a header name may contain. h11 rejects anything else when the request is sent, and that
+# exception is not retryable, so an unchecked name kills every subsequent turn with an opaque error.
 _HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 
 
@@ -337,16 +327,14 @@ class WorldDynamicToggle(BaseModel):
 class ChangesetOperation(BaseModel):
     """One reviewed operation in a changeset edit.
 
-    Deliberately permissive: the route re-validates every field against the live
-    World (``features.lorebook.validate_proposal``) before anything is applied,
-    so this shape is a transport contract, not the authority on what is legal.
+    Deliberately permissive: the route re-validates every field against the live World (``features.lorebook.validate_proposal``)
+    before anything is applied, so this shape is a transport contract, not the authority on what is legal.
     """
 
     op: Literal["create", "replace", "suppress", "update", "archive"]
     target_entry_id: int | None = None
-    # Round-tripped from the proposal so an edit-then-apply does not drop the
-    # before/after the card was reviewed against; re-derived on validation
-    # anyway, so a client that omits or fakes them changes nothing.
+    # Round-tripped from the proposal so an edit-then-apply does not drop the before/after the card was reviewed against;
+    # re-derived on validation anyway, so a client that omits or fakes them changes nothing.
     target_name: str = ""
     target_content: str = ""
     name: str = ""
@@ -370,8 +358,7 @@ class ChangesetEdit(BaseModel):
 class ChangesetApply(ChangesetEdit):
     """Apply a pending proposal, optionally editing it in the same request.
 
-    One request so the edit and the apply share a transaction boundary: what the
-    user reviewed is exactly what commits.
+    One request so the edit and the apply share a transaction boundary: what the user reviewed is exactly what commits.
     """
 
 
@@ -404,14 +391,8 @@ class LorebookEntryUpdate(BaseModel):
 
 
 class LorebookImportPayload(BaseModel):
-    # Accepts raw lorebook JSON as parsed by the frontend.
-    # Supports three common formats:
-    #   - standalone World Info export: {"entries": {"0": {...}, "1": {...}}}
-    #     where each entry has `key` (list), `comment`, `content`, `disable`, `order`, `caseSensitive`,
-    #     plus `selective` / `keysecondary` and `position` (4 = "@ Depth" → `at_depth`)
-    #   - Tavern V2 character_book: {"entries": [...]}
-    #     where each entry has `keys`, `name`, `content`, `enabled`, `insertion_order`, `case_sensitive`
-    #   - Character Card V3 character_book: as V2, plus `use_regex` and `selective`/`secondary_keys`
+    # Accept raw standalone World Info, Tavern V2 or V3 character_book JSON.
+    # Entry-field normalization belongs to the lorebook importer.
     entries: Any
 
 
@@ -421,10 +402,9 @@ class GroupMemberSpec(BaseModel):
     character_card_id: str | None = None
     display_name: str = ""
     public_profile_override: str | None = None
-    # The member's own sheet for this scene. Accepted under every
-    # ``group_context_mode``, like ``public_profile_override`` and the
-    # scene-profile drafter: which modes *send* it is a UI concern, not a
-    # server rule, and a half-gated field would leave the two disagreeing.
+    # The member's own sheet for this scene. Accepted under every ``group_context_mode``, like ``public_profile_override`` and
+    # the scene-profile drafter: which modes *send* it is a UI concern, not a server rule, and a half-gated field would leave
+    # the two disagreeing.
     card_sheet_override: str | None = None
     member_kind: Literal["character", "narrator"] = "character"
     muted: bool = False
@@ -474,17 +454,10 @@ class PublicProfilePayload(BaseModel):
 
 
 class SceneProfileGenerateRequest(BaseModel):
-    """One member's scene-profile drafting request.
+    """Draft one member's scene profile.
 
-    ``character_card_id`` is optional on purpose: Manage cast can draft for any
-    row, and a narrator row has no card. A narrator deserves a sentence saying
-    why, not a Pydantic 422 the UI has to translate.
-
-    ``cast_names`` comes from the client because the modal is client-side until
-    Save — a member added seconds ago exists only in the DOM. Names only, ever:
-    accepting another member's profile or description text here would put member
-    B's card into member A's draft, which is the one thing Private perspective
-    promises does not happen. Omit the field to fall back to the stored roster.
+    Card id is optional for narrator rows. Client cast_names includes unsaved modal members but accepts names only to preserve
+    private perspective; omitting it falls back to the stored roster.
     """
 
     character_card_id: str | None = None
@@ -513,10 +486,9 @@ class CheckpointRequest(BaseModel):
 
 
 class DocumentSpan(BaseModel):
-    # Offsets are JS/UTF-16-domain and opaque to the backend — only shape-validated.
-    # ge=0 only, deliberately NO coupling to len(content): Python counts code points
-    # and JS counts UTF-16 units, so a valid JS offset can legitimately exceed
-    # Python's string length on emoji-bearing docs (see plan design table).
+    # Offsets are JS/UTF-16-domain and opaque to the backend -- only shape-validated. ge=0 only, deliberately NO coupling to
+    # len(content): Python counts code points and JS counts UTF-16 units, so a valid JS offset can legitimately exceed Python's
+    # string length on emoji-bearing docs (see plan design table).
     start: int = Field(ge=0)
     end: int = Field(ge=0)
 
@@ -533,10 +505,9 @@ class DocumentUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _spans_need_content(self) -> DocumentUpdate:
-        # content and generated_spans must travel together: spans without content
-        # would apply offsets to stale server-side text. Title-only updates are
-        # unaffected (neither field set). Uses model_fields_set so an explicit
-        # content="" still counts as "provided".
+        # content and generated_spans must travel together: spans without content would apply offsets to stale server-side text.
+        # Title-only updates are unaffected (neither field set). Uses model_fields_set so an explicit content="" still counts as
+        # "provided".
         if "generated_spans" in self.model_fields_set and "content" not in self.model_fields_set:
             raise ValueError("generated_spans requires content in the same update")
         if "content" in self.model_fields_set and self.expected_revision is None:
@@ -547,21 +518,19 @@ class DocumentUpdate(BaseModel):
 class DocumentGenerateRequest(BaseModel):
     prompt: str
     # Assisted continuation: interpret ### SYSTEM/USER/ASSISTANT line macros and
-    # render through the model's chat template. Defaults false → Raw (verbatim).
+    # render through the model's chat template. Defaults false -> Raw (verbatim).
     assisted: bool = False
-    # Capture per-token alternatives (mikupad-style token swapping). Off by
-    # default: logprobs cost generation speed on llama.cpp, and providers that
-    # can't supply them degrade to no-popup. Emits `event: probs` SSE frames.
+    # Capture per-token alternatives (mikupad-style token swapping). Off by default: logprobs cost generation speed on
+    # llama.cpp, and providers that can't supply them degrade to no-popup. Emits `event: probs` SSE frames.
     token_probs: bool = False
 
 
 class DocumentAuditRequest(BaseModel):
-    # The generated run to audit/patch. `context` is the FULL document text that
-    # preceded the run — i.e. the generation prompt. /patch byte-extends it so
-    # the server's KV prefix survives; the scanners get a server-side cap.
+    # The generated run to audit/patch. `context` is the FULL document text that preceded the run -- i.e. the generation prompt.
+    # /patch byte-extends it so the server's KV prefix survives; the scanners get a server-side cap.
     draft: str
     context: str = ""
-    # Same flag as DocumentGenerateRequest — drives the context-scrubbing
+    # Same flag as DocumentGenerateRequest -- drives the context-scrubbing
     # heuristic (assisted note macros vs raw template markers).
     assisted: bool = False
     # True when the run ended early (Stop, or finish == "length"); the server
@@ -570,10 +539,9 @@ class DocumentAuditRequest(BaseModel):
 
 
 class AuditReportPayload(BaseModel):
-    # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per
-    # scanner with issues, keyed by its AUDIT_TYPES name. Every entry also
-    # carries `ids` — the numbered issues /patch addresses, empty when the
-    # finding has no patchable span (structural repetition).
+    # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per scanner with issues, keyed by its AUDIT_TYPES
+    # name. Every entry also carries `ids` -- the numbered issues /patch addresses, empty when the finding has no patchable span
+    # (structural repetition).
     total_issues: int
     is_clean: bool
     sections: dict[str, Any]
@@ -601,12 +569,10 @@ class DocumentPatchResponse(BaseModel):
 
 
 class CharacterCardCreate(BaseModel):
-    # id and source_format are normally omitted (manual creation). They are
-    # supplied by the import flow: /api/characters/import parses the PNG and
-    # computes a stable deterministic ID (orb_id embedded in the card, or a
-    # SHA-256-derived UUID of the raw bytes), then the frontend passes it back
-    # here on Save. Preserving the original ID means re-importing a card after
-    # deletion relinks its conversation history instead of creating an orphan.
+    # id and source_format are normally omitted (manual creation). They are supplied by the import flow: /api/characters/import
+    # parses the PNG and computes a stable deterministic ID (orb_id embedded in the card, or a SHA-256-derived UUID of the raw
+    # bytes), then the frontend passes it back here on Save. Preserving the original ID means re-importing a card after deletion
+    # relinks its conversation history instead of creating an orphan.
     id: str | None = None
     source_format: str | None = None
     name: str
@@ -634,9 +600,8 @@ class CharacterCardCreate(BaseModel):
     avatar_mime: str | None = None
     world_id: str | None = None
     character_book: dict | None = None
-    # V2 card extensions dict, stored verbatim (third-party keys round-trip
-    # through export). Orb's card-embedded fragments live at orb.fragments;
-    # card_embedded_fragments() validates that subtree on consumption.
+    # V2 card extensions dict, stored verbatim (third-party keys round-trip through export). Orb's card-embedded fragments live
+    # at orb.fragments; card_embedded_fragments() validates that subtree on consumption.
     extensions: dict | None = None
 
 
@@ -673,12 +638,10 @@ class CharacterCardUpdate(BaseModel):
     persona_lock_id: int | None = None
 
 
-# Attachment ceilings, mirroring what the composer enforces client-side
-# (frontend/validate.js). They are re-checked here because the composer is not
-# the only thing that can reach this route, and because an attachment is stored
-# base64 on the message row and re-rendered as a `data:` URL on every read of
-# the conversation — the cost of one oversized upload is paid on every repaint,
-# forever.
+# Attachment ceilings, mirroring what the composer enforces client-side (frontend/validate.js). They are re-checked here because
+# the composer is not the only thing that can reach this route, and because an attachment is stored base64 on the message row
+# and re-rendered as a `data:` URL on every read of the conversation -- the cost of one oversized upload is paid on every
+# repaint, forever.
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_ATTACHMENTS_PER_MESSAGE = 10
 MAX_ATTACHMENT_TOTAL_BYTES = 20 * 1024 * 1024
@@ -708,18 +671,16 @@ class AttachmentIn(BaseModel):
     def validate_filename(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        # Control characters are invisible wherever the name is shown, which is
-        # exactly what makes them useful for disguising one. Bound the length
-        # too: the name is rendered on every read of the message.
+        # Control characters are invisible wherever the name is shown, which is exactly what makes them useful for disguising
+        # one. Bound the length too: the name is rendered on every read of the message.
         name = "".join(ch for ch in v if ch.isprintable()).strip()[:MAX_ATTACHMENT_FILENAME]
         return name or None
 
     @model_validator(mode="after")
     def _payload_within_limits(self) -> AttachmentIn:
-        # `size` is client-supplied and was previously the only thing checked, so
-        # a client could declare 1 KB and send 500 MB. What is stored is the
-        # decoded payload, so that is what is measured — and `size` is then
-        # overwritten with the truth rather than trusted.
+        # `size` is client-supplied and was previously the only thing checked, so a client could declare 1 KB and send 500 MB.
+        # What is stored is the decoded payload, so that is what is measured -- and `size` is then overwritten with the truth
+        # rather than trusted.
         if len(self.b64) // 4 * 3 > MAX_ATTACHMENT_BYTES:
             # Cheap pre-check: refuse before allocating the decoded copy.
             raise ValueError("Attachment size exceeds 10 MB limit")
@@ -764,16 +725,14 @@ class EditMessage(BaseModel):
 
 class RegenerateMsg(BaseModel):
     enable_agent: bool = True
-    # Shared with `/continue`, which is the one route here that starts a *new*
-    # exchange and so may pin its speaker. `/regenerate` and `/super_regenerate`
-    # ignore it: they replace an existing assistant row, whose speaker is
-    # already recorded on it.
+    # Shared with `/continue`, which is the one route here that starts a *new* exchange and so may pin its speaker.
+    # `/regenerate` and `/super_regenerate` ignore it: they replace an existing assistant row, whose speaker is already recorded
+    # on it.
     speaker_member_id: str | None = None
 
 
-# No `speaker_member_id`: a magic rewrite always re-writes an existing assistant
-# row, so the speaker is the one on that row and a client override could only
-# disagree with history.
+# No `speaker_member_id`: a magic rewrite always re-writes an existing assistant row, so the speaker is the one on that row and
+# a client override could only disagree with history.
 class MagicRewriteMsg(BaseModel):
     direction: str
 

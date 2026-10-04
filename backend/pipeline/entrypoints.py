@@ -13,16 +13,11 @@ from ..core import card_description, resolve_inline
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
-from .config import _resolve_pipeline_config
-from .context import (
-    PipelineContext,
-    _build_prefixes,
-    _load_pipeline_context,
-    _prepare_turn,
-    _TurnSetup,
-)
-from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, stage_of, staged
-from .orchestrator import _run_pipeline, open_turn_state, run_director_stage
+from .config import resolve_pipeline_config
+from .context import PipelineContext, TurnSetup, build_prefixes, load_pipeline_context, prepare_turn
+from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
+from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
+from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
@@ -34,7 +29,7 @@ from .passes.judge import (
     judge_pass,
     stored_evaluations,
 )
-from .persistence import _consume_pipeline, _conversation_log_writer
+from .persistence import consume_pipeline, conversation_log_writer
 from .predicates import agent_enabled
 from .state import SheetUpdateTurn, empty_state_report
 from .tools import DIRECTOR_LOOP_TOOL_NAMES
@@ -45,11 +40,10 @@ logger = logging.getLogger(__name__)
 def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]:
     """Re-key uploads into the shape history rows carry.
 
-    The wire format (``mime``/``b64``) reaches a turn straight from the browser,
-    while ``format_message_with_attachments`` reads history rows through the DB
-    names. A later speaker in an exchange sees the user's image only as part of the
-    replayed history — not as its own trailing attachment — so the two spellings
-    have to meet here or the picture silently stops at the first speaker.
+    The wire format (``mime``/``b64``) reaches a turn straight from the browser, while ``format_message_with_attachments`` reads
+    history rows through the DB names. A later speaker in an exchange sees the user's image only as part of the replayed history
+    -- not as its own trailing attachment -- so the two spellings have to meet here or the picture silently stops at the first
+    speaker.
     """
     out: list[dict] = []
     for att in attachments:
@@ -60,25 +54,19 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
     return out
 
 
-# The largest round any strategy can legitimately schedule (``group_max_speakers``
-# is capped at 8). A chip-click scene can chain requests without ever inserting a
-# user row, so the lookback needs a ceiling that is not "the whole conversation".
+# The largest round any strategy can legitimately schedule (``group_max_speakers`` is capped at 8). A chip-click scene can chain
+# requests without ever inserting a user row, so the lookback needs a ceiling that is not "the whole conversation".
 _ROUND_MAX_REPLIES = 8
 
 
-def _round_prefix(
-    history: Sequence[Mapping[str, Any]],
-    names: Mapping[str, str],
-) -> tuple[str, list[tuple[str, str]]]:
+def _round_prefix(history: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> tuple[str, list[tuple[str, str]]]:
     """The round already on the branch: the user's last message and every reply since.
 
-    An exchange is *request*-scoped. Under `manual` — and for any cast-chip click on a
-    resting scene — one round is several requests, so this request's own replies
-    are not the round. The sheet pass would otherwise be asked "did this exchange
-    durably change Kael?" with the line that changed him in a different request,
-    and on `handle_speak` with no user message at all. This is the same round
-    ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is
-    consulted only when the request did not bring a user message of its own.
+    An exchange is *request*-scoped. Under `manual` -- and for any cast-chip click on a resting scene -- one round is several
+    requests, so this request's own replies are not the round. The sheet pass would otherwise be asked "did this exchange
+    durably change Kael?" with the line that changed him in a different request, and on `handle_speak` with no user message at
+    all. This is the same round ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is consulted only when
+    the request did not bring a user message of its own.
     """
     lines: list[tuple[str, str]] = []
     user_message = ""
@@ -107,32 +95,31 @@ def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Shared turn driver + regenerate helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 async def _run_turn_handler(
     conversation_id: str,
     abort_token: AbortToken | None,
-    body: Callable[[PipelineContext], AsyncIterator[dict]],
+    body: Callable[[PipelineContext], AsyncIterator[PublicTurnEvent]],
     *,
     log_label: str,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Shared wrapper for the public turn handlers.
 
-    Loads the pipeline context, guards the missing-conversation case, and
-    converts any pipeline exception into the terminal SSE error event — one
-    place defines the error wire contract for every handler. The payload is
-    ``describe_failure``'s dict, so the provider's own sentence survives to the
-    browser instead of being replaced by a constant (see failures.py).
+    Loads the pipeline context, guards the missing-conversation case, and converts any pipeline exception into the terminal SSE
+    error event -- one place defines the error wire contract for every handler. The payload is ``describe_failure``'s dict, so
+    the provider's own sentence survives to the browser instead of being replaced by a constant (see failures.py). Failures a
+    step survived arrive as ``warning`` events, thinned by ``reported_once``.
     """
     try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
+        ctx = await load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-        async for event in body(ctx):
+        async for event in reported_once(body(ctx), abort_token):
             yield event
     except Exception as e:
         # A call the stop cut short can fail on the way out; the stop is its own
@@ -153,7 +140,7 @@ async def _run_judge(
     macros: Any,
     anchor_message_id: int | None,
     director_runs: bool,
-) -> AsyncIterator[dict | JudgeResult]:
+) -> AsyncIterator[CoreTurnEvent | JudgeResult]:
     prior = ctx.director.get("decision_cooldowns") or {}
     snapshot = build_snapshot(
         history=history,
@@ -231,19 +218,13 @@ def _committed_exchange_decisions(
 
 
 async def _load_fragment_state(
-    ctx: PipelineContext,
-    conversation_id: str,
-    path: Sequence[Mapping[str, Any]],
-    *,
-    replacing: Mapping[str, Any] | None = None,
+    ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]], *, replacing: Mapping[str, Any] | None = None
 ) -> None:
     """Seed ``ctx.director`` with the branch's state-fragment state.
 
-    ``fragment_state`` folds every event anchored on *path*, so the state is
-    branch-correct. When the turn regenerates *replacing*, the user-made changes
-    anchored on that reply ride along as ``state_carried``: the new reply is
-    written with the correction, while the discarded reply's model-made changes
-    are regenerated rather than copied.
+    ``fragment_state`` folds every event anchored on *path*, so the state is branch-correct. When the turn regenerates
+    *replacing*, the user-made changes anchored on that reply ride along as ``state_carried``: the new reply is written with the
+    correction, while the discarded reply's model-made changes are regenerated rather than copied.
     """
     ctx.director["fragment_state"] = await db.fold_path_state(conversation_id, [m["id"] for m in path])
     carried = await db.get_state_events_for_message(replacing["id"], sources={"user"}) if replacing else []
@@ -253,17 +234,7 @@ async def _load_fragment_state(
 async def _resolve_target_and_parent(
     conversation_id: str, assistant_msg_id: int
 ) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
-    """Load an assistant message and its parent message.
-
-    Returns ``(target, user_msg)`` on success, or an error string if the
-    message is missing, belongs to a different conversation, or is not an
-    assistant message.
-
-    The three cases get three sentences: a client can hold a target id that the
-    view it was painted from no longer has (another tab deleted the message),
-    and a single opaque "invalid" leaves the reader unable to tell a stale id
-    from a mis-wired button.
-    """
+    """Return (assistant target, parent) or a specific error for missing, foreign or non-assistant targets."""
     target = await db.get_message_by_id(assistant_msg_id)
     if not target or target["conversation_id"] != conversation_id:
         return "That message is no longer in this conversation — reload it"
@@ -277,16 +248,12 @@ async def _resolve_target_and_parent(
 
 
 async def _prepare_regen_context(
-    ctx: PipelineContext,
-    conversation_id: str,
-    target: Mapping[str, Any],
-    parent_msg: Mapping[str, Any],
+    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], parent_msg: Mapping[str, Any]
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Load history and attachments for a regeneration, and reset the director.
 
-    Resets the director's active moods and state fragments to the pre-turn
-    baseline so the regenerated reply starts from the same state as the original,
-    plus the user's corrections anchored on it. Returns ``(history, attachments)``.
+    Resets the director's active moods and state fragments to the pre-turn baseline so the regenerated reply starts from the
+    same state as the original, plus the user's corrections anchored on it. Returns ``(history, attachments)``.
     """
     if parent_msg.get("role") == "user":
         history_parent_id: int | None = parent_msg.get("parent_id")
@@ -300,9 +267,8 @@ async def _prepare_regen_context(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
     )
     ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
-    # State folds through the parent even when *history* stops short of it: a
-    # correction the user anchored on the parent user message (the leaf before
-    # this reply existed) is on this reply's path, exactly as on the first turn.
+    # State folds through the parent even when *history* stops short of it: a correction the user anchored on the parent user
+    # message (the leaf before this reply existed) is on this reply's path, exactly as on the first turn.
     state_path = [*history, parent_msg] if parent_msg.get("role") == "user" else history
     await _load_fragment_state(ctx, conversation_id, state_path, replacing=target)
     attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
@@ -313,7 +279,7 @@ async def _prepare_regen_context(
 class _OpenedTurn:
     """What :func:`_open_turn` settled: the frozen per-turn context and the decisions."""
 
-    setup: _TurnSetup
+    setup: TurnSetup
     judge: JudgeResult | None
 
 
@@ -329,17 +295,15 @@ async def _open_turn(
     decision_request: str,
     decision_anchor: int | None,
     committed: JudgeResult | None = None,
-) -> AsyncIterator[dict | _OpenedTurn]:
+) -> AsyncIterator[PublicTurnEvent | _OpenedTurn]:
     """Freeze the turn's context, then settle its decisions, for either driver.
 
-    *committed* is a result an earlier reply of the same exchange already
-    persisted; it is re-announced rather than re-judged. Ends without an
-    ``_OpenedTurn`` when stop was pressed by then: cancellation is not a provider
-    failure, and the Director pass would refuse to call anyway, so the caller
-    closes the request instead of announcing a directing phase it will not run.
+    *committed* is a result an earlier reply of the same exchange already persisted; it is re-announced rather than re-judged.
+    Ends without an ``_OpenedTurn`` when stop was pressed by then: cancellation is not a provider failure, and the Director pass
+    would refuse to call anyway, so the caller closes the request instead of announcing a directing phase it will not run.
     """
-    setup: _TurnSetup | None = None
-    async for ev in _prepare_turn(
+    setup: TurnSetup | None = None
+    async for ev in prepare_turn(
         ctx,
         conversation_id,
         history=history,
@@ -347,7 +311,7 @@ async def _open_turn(
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
     ):
-        if isinstance(ev, _TurnSetup):
+        if isinstance(ev, TurnSetup):
             setup = ev
         else:
             yield ev
@@ -395,18 +359,11 @@ async def _generate_reply(
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
     decision_input: tuple[Sequence[Mapping[str, Any]], str] | None = None,
-) -> AsyncIterator[dict]:
-    """Run setup → pipeline → persist and stream all SSE events.
+) -> AsyncIterator[PublicTurnEvent]:
+    """Run setup, pipeline and persistence, yielding SSE events.
 
-    The user message row must already be persisted before this is called.
-
-    *user_message* is what the writer actually receives; it may differ from
-    *last_user_message* (the steered paths send an OOC message as the writer
-    input while *last_user_message* carries the original).
-
-    *decision_input* is the ``(history, current request)`` the judge reads when
-    it must differ from the writer's, as on the steered paths; ``None`` means
-    the writer's own *history* and *user_message*.
+    The user row must already be saved. user_message may be steered while last_user_message retains the original. decision_input
+    overrides the Judge's (history, request); None uses the Writer input.
     """
     decision_history, decision_request = decision_input or (history, user_message)
     opened: _OpenedTurn | None = None
@@ -432,7 +389,7 @@ async def _generate_reply(
         return
     setup = opened.setup
 
-    pipeline = _run_pipeline(
+    pipeline = run_pipeline(
         ctx.client,
         settings,
         ctx.director,
@@ -460,13 +417,13 @@ async def _generate_reply(
         state_contract=ctx.state_contract,
         judge_config=ctx.judge_config,
     )
-    async for event in _consume_pipeline(
+    async for event in consume_pipeline(
         pipeline,
         conversation_id,
         settings,
         user_msg_id,
         asst_turn_index,
-        extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
+        extra_on_result=conversation_log_writer(conversation_id, log_turn_index),
         world_source_user_msg_id=user_msg_id,
     ):
         yield event
@@ -488,7 +445,7 @@ async def _generate_group_exchange(
     editor_audit_msgs: list[str] | None = None,
     decision_exchange_id: str | None = None,
     decision_steering: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Run one shared Director setup followed by zero or more speaker pipelines."""
     settings = ctx.settings
     rows = list(ctx.group_members)
@@ -497,11 +454,9 @@ async def _generate_group_exchange(
         yield {"event": "error", "data": error}
         return
 
-    # `manual` with nobody picked is the scene resting, which is the same empty
-    # plan the Director may choose in `director` mode — the user's message has
-    # landed and no one answers it yet. It exits here rather than falling
-    # through to plan resolution because a rest that has already been decided
-    # must not cost a Director call, and `_prepare_turn` would run one.
+    # `manual` with nobody picked is the scene resting, which is the same empty plan the Director may choose in `director` mode
+    # -- the user's message has landed and no one answers it yet. It exits here rather than falling through to plan resolution
+    # because a rest that has already been decided must not cost a Director call, and `prepare_turn` would run one.
     if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
         yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": []}}
         yield {"event": "done"}
@@ -532,7 +487,7 @@ async def _generate_group_exchange(
         return
     setup = opened.setup
 
-    cfg = _resolve_pipeline_config(
+    cfg = resolve_pipeline_config(
         settings,
         setup.merged_enabled_tools,
         macros=setup.macros,
@@ -547,9 +502,8 @@ async def _generate_group_exchange(
     if opened.judge is not None:
         opened.judge.apply_to(shared)
 
-    # One Director stage for the whole exchange, including its before-Writer state
-    # changes: they ride the exchange's first reply, the row `_consume_pipeline`
-    # anchors them to, and every speaker writes with the resulting state.
+    # One Director stage for the whole exchange, including its before-Writer state changes: they ride the exchange's first
+    # reply, the row `consume_pipeline` anchors them to, and every speaker writes with the resulting state.
     async for ev in run_director_stage(
         cfg,
         shared,
@@ -562,11 +516,9 @@ async def _generate_group_exchange(
         kv_tracker=setup.kv_tracker,
         lorebook=setup.lorebook,
         macros=setup.macros,
-        # The castable roster rides the Director's request, not the shared tool
-        # blob: mute is otherwise prefix-neutral, and a schema that named the cast
-        # turned every mute toggle into a full re-prefill (kv-cache.md, Invariant 3).
-        # Same list the plan is validated against below, so the request cannot
-        # advertise a key `parse_speaking_plan` would then reject.
+        # The castable roster rides the Director's request, not the shared tool blob: mute is otherwise prefix-neutral, and a
+        # schema that named the cast turned every mute toggle into a full re-prefill (kv-cache.md, Invariant 3). Same list the
+        # plan is validated against below, so the request cannot advertise a key `parse_speaking_plan` would then reject.
         speaker_keys=", ".join(str(member["speaker_key"]) for member in eligible),
     ):
         yield ev
@@ -584,18 +536,12 @@ async def _generate_group_exchange(
     )
 
     cast_by_id = {member.member_id: member for member in ctx.cast.members}
-    # Only when this request brought no user message of its own: a `/send` starts a
-    # new round, so looking back would drag the previous one into this one's evidence.
-    # Named through `ctx.speaker_names`, which covers members the roster has since
+    # Only when this request brought no user message of its own: a `/send` starts a new round, so looking back would drag the
+    # previous one into this one's evidence. Named through `ctx.speaker_names`, which covers members the roster has since
     # dropped -- their lines are still part of the round the sheet pass reads.
     prior_user, prior_lines = ("", []) if user_message else _round_prefix(history, ctx.speaker_names)
-    public_plan = [
-        {
-            "member_id": row["id"],
-            "card_id": row.get("character_card_id"),
-            "name": row["display_name"],
-            "cue": cue,
-        }
+    public_plan: list[SpeakerPlanItem] = [
+        {"member_id": row["id"], "card_id": row.get("character_card_id"), "name": row["display_name"], "cue": cue}
         for row, cue in plan_rows
     ]
     yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": public_plan}}
@@ -611,23 +557,20 @@ async def _generate_group_exchange(
                 "parent_id": history[-1]["id"] if history else None,
                 "speaker_member_id": None,
                 "exchange_id": exchange_id,
-                # Only the first speaker receives the uploads as its own trailing
-                # attachments; every later one has to read them off this row, or
-                # an exchange would answer an image only one member ever saw.
+                # Only the first speaker receives the uploads as its own trailing attachments; every later one has to read them
+                # off this row, or an exchange would answer an image only one member ever saw.
                 "user_attachments": _history_attachments(attachments),
             }
         )
 
-    # Under Classic card swap the shared setup base is the *neutral* one — the
-    # Director ran before a speaker was known — so even the first speaker has to
-    # rebuild its prefix around its own card. Reusing the setup base there is a
-    # correctness bug in that mode, not merely a cache miss.
+    # Under Classic card swap the shared setup base is the *neutral* one -- the Director ran before a speaker was known -- so even
+    # the first speaker has to rebuild its prefix around its own card. Reusing the setup base there is a correctness bug in that
+    # mode, not merely a cache miss.
     speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
     current_parent = parent_message_id
-    # What the exchange has actually said so far, in order: (member id, name, reply).
-    # The sheet stage is gated on this rather than on the plan -- a planned
-    # speaker that never persisted a reply left no prose, so there is nothing
-    # about it to record and nothing to bill a call for.
+    # What the exchange has actually said so far, in order: (member id, name, reply). The sheet stage is gated on this rather
+    # than on the plan -- a planned speaker that never persisted a reply left no prose, so there is nothing about it to record
+    # and nothing to bill a call for.
     spoke: list[tuple[str, str, str]] = []
     for index, (row, speaker_cue) in enumerate(plan_rows):
         if ctx.client.is_aborted:
@@ -662,14 +605,11 @@ async def _generate_group_exchange(
         if index == 0 and not speaker_scoped:
             prefix, agent_prefix = setup.prefix, setup.agent_prefix
         else:
-            prefix, agent_prefix = _build_prefixes(
-                ctx,
-                pipeline_history,
-                extra_system_blocks=list(setup.extra_system_blocks),
-                speaker=speaker,
+            prefix, agent_prefix = build_prefixes(
+                ctx, pipeline_history, extra_system_blocks=list(setup.extra_system_blocks), speaker=speaker
             )
         card = await db.get_character_card(speaker.card_id) if speaker.card_id else None
-        pipeline = _run_pipeline(
+        pipeline = run_pipeline(
             ctx.client,
             settings,
             ctx.director,
@@ -693,27 +633,23 @@ async def _generate_group_exchange(
             schema_overrides=setup.schema_overrides,
             history=pipeline_history,
             world_proposal=setup.world_proposal,
-            # Once per exchange, on the last speaker: the pass reads the whole exchange,
-            # and running it per speaker would bill the same members again for
-            # the same scene with one more line in it.
+            # Once per exchange, on the last speaker: the pass reads the whole exchange, and running it per speaker would bill
+            # the same members again for the same scene with one more line in it.
             sheet_update=(
                 SheetUpdateTurn(
                     conversation_id=conversation_id,
                     exchange_id=exchange_id,
-                    # This request's speakers, not the round's: `spoke` is who to
-                    # propose *about*, and an earlier request already billed a call
-                    # for the members it ran. Only the evidence below widens.
+                    # This request's speakers, not the round's: `spoke` is who to propose *about*, and an earlier request
+                    # already billed a call for the members it ran. Only the evidence below widens.
                     member_ids=(*(mid for mid, _, _ in spoke), speaker.member_id),
                     user_message=user_message or prior_user,
                     speaker_name=speaker.name,
                     lines=(*prior_lines, *((name, text) for _, name, text in spoke)),
                 )
-                # The mode belongs in this condition and not only in Group settings.
-                # Under Shared and Swap a member's sheet is rendered into the *cached*
-                # body, so an applied update rebuilds the whole scene prefix — the exact
-                # cost the opt-in is gated on avoiding. Leaving that invariant to one
-                # line of the client meant a `PUT` that changed only the mode left the
-                # pass running against the layout it was never priced for.
+                # The mode belongs in this condition and not only in Group settings. Under Shared and Swap a member's sheet is
+                # rendered into the *cached* body, so an applied update rebuilds the whole scene prefix -- the exact cost the
+                # opt-in is gated on avoiding. Leaving that invariant to one line of the client meant a `PUT` that changed only
+                # the mode left the pass running against the layout it was never priced for.
                 if is_final and ctx.conv.get("group_sheet_updates") and tail_carries_identity(ctx.cast.context_mode)
                 else None
             ),
@@ -728,13 +664,13 @@ async def _generate_group_exchange(
         )
         persisted_id: int | None = None
         persisted_content = ""
-        async for event in _consume_pipeline(
+        async for event in consume_pipeline(
             pipeline,
             conversation_id,
             settings,
             current_parent,
             turn_index,
-            extra_on_result=_conversation_log_writer(conversation_id, turn_index),
+            extra_on_result=conversation_log_writer(conversation_id, turn_index),
             speaker_member_id=speaker.member_id,
             exchange_id=exchange_id,
             speaker_name=speaker.name,
@@ -742,17 +678,16 @@ async def _generate_group_exchange(
             emit_done=False,
             world_source_user_msg_id=source_user_message_id,
         ):
-            if event["event"] == "speaker_done":
+            if not isinstance(event, HookEvent) and event["event"] == "speaker_done":
                 persisted_id = event["data"].get("message_id")
                 persisted_content = event["data"].get("content") or ""
             yield event
         if persisted_id is None:
             break
         spoke.append((speaker.member_id, speaker.name, persisted_content))
-        # The exchange's before-Writer state changes have now landed on its first
-        # reply. They are one update, not one per speaker, so the seed stops
-        # carrying them before the next speaker copies (and re-persists) the same
-        # rows; the resulting state view stays, so every speaker reads it.
+        # The exchange's before-Writer state changes have now landed on its first reply. They are one update, not one per
+        # speaker, so the seed stops carrying them before the next speaker copies (and re-persists) the same rows; the resulting
+        # state view stays, so every speaker reads it.
         shared.state_events = []
         shared.state_report = empty_state_report()
         grown_history.append(
@@ -770,9 +705,9 @@ async def _generate_group_exchange(
     yield {"event": "done"}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Public entry points
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 async def handle_turn(
@@ -782,26 +717,24 @@ async def handle_turn(
     attachments: list[dict] | None = None,
     abort_token: AbortToken | None = None,
     speaker_member_id: str | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Save the user message, run the pipeline, and stream the reply.
 
-    Entry point for ``POST /send`` and ``POST /continue``. For ``/continue``
-    (``skip_user_persist=True``) the user row already exists; the pipeline runs
-    from there without creating a duplicate.
+    Entry point for ``POST /send`` and ``POST /continue``. For ``/continue`` (``skip_user_persist=True``) the user row already
+    exists; the pipeline runs from there without creating a duplicate.
 
-    Streams: ``user_message_created``, then pipeline events (``director_done``,
-    ``token``, ``editor_done``, etc.), and finally ``done``.
+    Streams: ``user_message_created``, then pipeline events (``director_done``, ``token``, ``editor_done``, etc.), and finally
+    ``done``.
     """
     if attachments is None:
         attachments = []
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if error := _group_pin_error(ctx, speaker_member_id):
             yield {"event": "error", "data": error}
             return
-        # Inline macros ({{roll}}/{{random}}) resolve exactly once, before the
-        # row is persisted, so history holds the final text and never re-rolls.
-        # For /continue the content came from the DB and is already resolved.
+        # Inline macros ({{roll}}/{{random}}) resolve exactly once, before the row is persisted, so history holds the final text
+        # and never re-rolls. For /continue the content came from the DB and is already resolved.
         nonlocal user_message
         user_message = resolve_inline(user_message)
 
@@ -895,13 +828,11 @@ async def handle_turn(
 
 
 async def handle_speak(
-    conversation_id: str,
-    speaker_member_id: str,
-    abort_token: AbortToken | None = None,
-) -> AsyncIterator[dict]:
+    conversation_id: str, speaker_member_id: str, abort_token: AbortToken | None = None
+) -> AsyncIterator[PublicTurnEvent]:
     """Generate a pinned group exchange without inserting a synthetic user row."""
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if not ctx.cast.grouped:
             yield {"event": "error", "data": "Conversation is not a group"}
             return
@@ -934,19 +865,17 @@ async def handle_fork_edit(
     new_content: str,
     abort_token: AbortToken | None = None,
     speaker_member_id: str | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Fork the conversation at a user message: save the edit and generate a fresh reply.
 
-    Entry point for ``POST /messages/{id}/fork-edit``. Saves the edited text as a
-    new sibling of *user_msg_id* (same parent and turn index), resets the director
-    to the branch point, then runs the full pipeline. The original message and its
-    subtree are left intact; branch navigation shows both.
+    Entry point for ``POST /messages/{id}/fork-edit``. Saves the edited text as a new sibling of *user_msg_id* (same parent and
+    turn index), resets the director to the branch point, then runs the full pipeline. The original message and its subtree are
+    left intact; branch navigation shows both.
 
-    Logs at the assistant turn (not the user turn) so this branch's log row is
-    distinct from the original turn's log.
+    Logs at the assistant turn (not the user turn) so this branch's log row is distinct from the original turn's log.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         if error := _group_pin_error(ctx, speaker_member_id):
             yield {"event": "error", "data": error}
             return
@@ -1028,19 +957,16 @@ async def handle_fork_edit(
 
 
 async def handle_regenerate(
-    conversation_id: str,
-    assistant_msg_id: int,
-    abort_token: AbortToken | None = None,
-) -> AsyncIterator[dict]:
+    conversation_id: str, assistant_msg_id: int, abort_token: AbortToken | None = None
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate an assistant message as a new sibling branch.
 
-    Entry point for ``POST /messages/{id}/regenerate``. Resets the director to
-    the pre-turn baseline and re-runs the pipeline from the parent user message,
-    producing a new reply at the same turn index. The original is kept; branch
-    navigation shows both.
+    Entry point for ``POST /messages/{id}/regenerate``. Resets the director to the pre-turn baseline and re-runs the pipeline
+    from the parent user message, producing a new reply at the same turn index. The original is kept; branch navigation shows
+    both.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -1084,10 +1010,7 @@ async def handle_regenerate(
             history=history,
             settings=settings,
             last_user_message=user_msg["content"],
-            lorebook_messages=[
-                *history,
-                {"role": "user", "content": user_msg["content"]},
-            ],
+            lorebook_messages=[*history, {"role": "user", "content": user_msg["content"]}],
             user_message=user_msg["content"],
             attachments=attachments,
             user_msg_id=user_msg_id,
@@ -1110,16 +1033,15 @@ async def _regenerate_with_steering(
     abort_token: AbortToken | None = None,
     *,
     log_label: str = "Steered regenerate",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate an assistant reply as a new sibling, steered by an OOC message.
 
-    Extends history with the original exchange so the model sees what it wrote,
-    then runs the full pipeline with *steer_msg* as the current-turn user
-    message: the director reads it when shaping the scene and the writer rewrites
-    against it. The original reply is left intact on its own branch.
+    Extends history with the original exchange so the model sees what it wrote, then runs the full pipeline with *steer_msg* as
+    the current-turn user message: the director reads it when shaping the scene and the writer rewrites against it. The original
+    reply is left intact on its own branch.
     """
 
-    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+    async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -1130,9 +1052,8 @@ async def _regenerate_with_steering(
         user_msg_id = target["parent_id"]
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
 
-        # Include the original parent and target so the model sees what it
-        # wrote before being steered. In a group cascade the parent may itself
-        # be an assistant and may already be the end of ``history``.
+        # Include the original parent and target so the model sees what it wrote before being steered. In a group cascade the
+        # parent may itself be an assistant and may already be the end of ``history``.
         extended_history = list(history)
         if not extended_history or extended_history[-1].get("id") != user_msg.get("id"):
             extended_history.append(user_msg)
@@ -1158,9 +1079,8 @@ async def _regenerate_with_steering(
                 attachments=attachments,
                 parent_message_id=user_msg_id,
                 first_turn_index=target["turn_index"],
-                # The target's own exchange, as `handle_regenerate` does: this is a
-                # sibling at the same turn index under the same parent, so it
-                # occupies the same slot in the exchange it is replacing.
+                # The target's own exchange, as `handle_regenerate` does: this is a sibling at the same turn index under the
+                # same parent, so it occupies the same slot in the exchange it is replacing.
                 exchange_id=str(target.get("exchange_id") or uuid.uuid4()),
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
@@ -1196,10 +1116,8 @@ async def _regenerate_with_steering(
 
 
 async def handle_super_regenerate(
-    conversation_id: str,
-    assistant_msg_id: int,
-    abort_token: AbortToken | None = None,
-) -> AsyncIterator[dict]:
+    conversation_id: str, assistant_msg_id: int, abort_token: AbortToken | None = None
+) -> AsyncIterator[PublicTurnEvent]:
     """Regenerate a reply, nudging the model toward a different direction.
 
     Entry point for ``POST /messages/{id}/super_regenerate``. Sends a canned OOC
@@ -1216,17 +1134,13 @@ _MAGIC_STEER_SUFFIX = ". Keep it consistent with the established scene, characte
 
 
 async def handle_magic_rewrite(
-    conversation_id: str,
-    assistant_msg_id: int,
-    direction: str,
-    abort_token: AbortToken | None = None,
-) -> AsyncIterator[dict]:
+    conversation_id: str, assistant_msg_id: int, direction: str, abort_token: AbortToken | None = None
+) -> AsyncIterator[PublicTurnEvent]:
     """Rewrite an assistant reply following a user-supplied direction.
 
-    Entry point for ``POST /messages/{id}/magic_rewrite``. Wraps *direction* in an
-    OOC steering message and regenerates as a new sibling branch. The message is
-    assembled by concatenation rather than string formatting so braces in
-    *direction* are inert (it is macro-resolved downstream).
+    Entry point for ``POST /messages/{id}/magic_rewrite``. Wraps *direction* in an OOC steering message and regenerates as a new
+    sibling branch. The message is assembled by concatenation rather than string formatting so braces in *direction* are inert
+    (it is macro-resolved downstream).
     """
     steer = _MAGIC_STEER_PREFIX + direction + _MAGIC_STEER_SUFFIX
     async for event in _regenerate_with_steering(

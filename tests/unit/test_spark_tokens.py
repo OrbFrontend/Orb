@@ -1,5 +1,3 @@
-"""Tests for the Spark-TTS token contract."""
-
 from __future__ import annotations
 
 import pytest
@@ -40,8 +38,7 @@ def test_clone_prompt_rejects_a_malformed_voice_before_it_reaches_the_model():
 
 
 @pytest.mark.parametrize(
-    "raw",
-    [None, "not a list", list(range(31)), list(range(33)), [0.5] * 32, [True] * 32, [-1] * 32, [4096] * 32],
+    "raw", [None, "not a list", list(range(31)), list(range(33)), [0.5] * 32, [True] * 32, [-1] * 32, [4096] * 32]
 )
 def test_validate_rejects(raw):
     with pytest.raises(tokens.InvalidSpeakerTokens):

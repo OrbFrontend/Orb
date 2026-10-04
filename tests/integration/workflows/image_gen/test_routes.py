@@ -14,23 +14,13 @@ from backend.database import (
     get_workflow_attachments_for_message,
     set_active_leaf,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.workflow_bridge import _run_post_pipeline
-from backend.workflows import (
-    get_workflow_config,
-    set_workflow_character_state,
-    set_workflow_config,
-)
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.workflow_bridge import run_post_pipeline
+from backend.workflows import get_workflow_config, set_workflow_character_state, set_workflow_config
 from backend.workflows.image_gen.composer import SkillSelection, _sheets
-from backend.workflows.image_gen.config import (
-    CONFIG_DEFAULTS,
-    active_style,
-    normalize_config,
-)
+from backend.workflows.image_gen.config import CONFIG_DEFAULTS, active_style, normalize_config
 from backend.workflows.image_gen.engine import ImageGenerationError, ImageResult, health
-from backend.workflows.image_gen.engine.adapters.external_comfy import (
-    ExternalComfyAdapter,
-)
+from backend.workflows.image_gen.engine.adapters.external_comfy import ExternalComfyAdapter
 
 
 def _avatar(red: int = 30) -> str:
@@ -59,9 +49,8 @@ def _image(**info) -> ImageResult:
 
 
 async def _status(client) -> dict:
-    response = await client.post("/api/workflows/image_gen/query", json={"action": "status"})
-    assert response.status_code == 200
-    return response.json()
+    response = await client.post_json("/api/workflows/image_gen/query", json={"action": "status"})
+    return response
 
 
 @pytest.fixture(autouse=True)
@@ -92,9 +81,8 @@ async def test_manifest_and_status_report_the_active_source_and_its_capabilities
         "can_list_models": True,
         "can_install_curated_models": False,
         "managed_runtime": False,
-        # Per-graph in practice, so the static answer is "this backend can express
-        # all of them" and the RenderTarget says what one graph will honour --
-        # including the size, now that a graph can map `width`/`height` slots.
+        # Per-graph in practice, so the static answer is "this backend can express all of them" and the RenderTarget says what
+        # one graph will honour -- including the size, now that a graph can map `width`/`height` slots.
         "supports_negative_prompt": True,
         "supports_seed": True,
         "supports_dimensions": True,
@@ -147,11 +135,10 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
+    response = await client.post_checked(
         "/api/conversations/ig-conv/workflows/image_gen/trigger",
         json={"action": "generate", "message_id": mid, "style_id": "anime"},
     )
-    assert response.status_code == 200
     assert "event: image_gen_done" in response.text
 
     # Count anchor leads and the style follows immediately (see assemble_prompts).
@@ -220,11 +207,10 @@ async def test_saved_style_and_appearance_macros_resolve_against_this_conversati
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
+    response = await client.post_checked(
         "/api/conversations/mac-conv/workflows/image_gen/trigger",
         json={"action": "generate", "message_id": mid, "style_id": "macro"},
     )
-    assert response.status_code == 200
     assert "event: image_gen_done" in response.text
 
     compose = captured["compose"]
@@ -286,11 +272,10 @@ async def test_composition_skill_prose_resolves_but_its_id_stays_addressable(cli
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
+    response = await client.post_checked(
         "/api/conversations/skill-conv/workflows/image_gen/trigger",
         json={"action": "generate", "message_id": mid, "style_id": "anime"},
     )
-    assert response.status_code == 200
 
     offered = captured["select"]["skills"][0]
     assert offered["id"] == "over_shoulder"
@@ -317,10 +302,9 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
-    response = await client.post(
+    response = await client.post_checked(
         f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json={"action": "generate", "message_id": mid}
     )
-    assert response.status_code == 200
     return response.text
 
 
@@ -368,13 +352,12 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
         "graph": {str(i): {"class_type": "CLIPTextEncode", "inputs": {"text": "x" * 200}} for i in range(4_000)},
         "slots": {"positive": ["0", "text"], "seed": ["0", "text"], "output": ["0", "text"]},
     }
-    response = await client.put(
+    response = await client.put_json(
         "/api/workflows/image_gen/config",
         json={"config": {"external_comfy": {"api_url": "http://comfy.test:8188", "user_graphs": [oversized]}}},
     )
 
-    assert response.status_code == 200
-    stored = response.json()["config"]
+    stored = response["config"]
     assert stored["external_comfy"]["user_graphs"] == []
     # And the read path agrees, so reopening settings shows what will be used.
     assert (await client.get("/api/workflows/image_gen/config")).json()["config"] == stored
@@ -390,12 +373,7 @@ _OVERRIDE_GRAPH = {
         "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
     },
     # A model-override graph: the checkpoint slot marks the input Orb replaces.
-    "slots": {
-        "positive": ["0", "text"],
-        "seed": ["s", "seed"],
-        "output": ["o", "images"],
-        "checkpoint": ["m", "ckpt_name"],
-    },
+    "slots": {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"], "checkpoint": ["m", "ckpt_name"]},
 }
 # The same graph carrying its own loaders, which needs no checkpoint from Orb.
 _SELF_CONTAINED = {
@@ -434,16 +412,14 @@ async def test_status_reports_why_the_style_that_will_render_cannot(client):
     assert ready["ready"] is True
     assert ready["style_count"] == 2
 
-    # A half-finished style, or one rendering somewhere else entirely, does not take
-    # the whole card offline...
+    # A half-finished style, or one rendering somewhere else entirely, does not take the whole card offline...
     styles.append({"id": "cloud_style", "label": "Grok", "connection": "xai"})
     styles.append({"id": "half_done", "label": "New style"})
     still_ready = await store(user_graphs=graphs)
     assert still_ready["ready"] is True
     assert still_ready["source"] == "external_comfy"
 
-    # ...but pointing the config at the unfinished one names that style, rather than
-    # a generic "assign one to each".
+    # ...but pointing the config at the unfinished one names that style, rather than a generic "assign one to each".
     await set_workflow_config(
         "image_gen", {"default_style": "half_done", "external_comfy": {"styles": styles, "user_graphs": graphs}}
     )
@@ -487,11 +463,9 @@ async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(
     await create_conversation("ig-drop-conv", "Images", "Iris", "A room", character_card_id="ig-drop")
 
     async def save(profile: dict) -> dict:
-        response = await client.post(
-            "/api/conversations/ig-drop-conv/workflows/image_gen/trigger",
-            json={"action": "set_profile", "profile": profile},
+        response = await client.post_checked(
+            "/api/conversations/ig-drop-conv/workflows/image_gen/trigger", json={"action": "set_profile", "profile": profile}
         )
-        assert response.status_code == 200
         return response.json()
 
     # A GIF is `image/*` and is not one of the three mimes Orb declares.
@@ -515,33 +489,27 @@ async def test_a_group_addresses_one_cast_member_s_appearance_at_a_time(client):
     """A group names no character, so the panel says which member it is editing.
     Without that the route falls back to whoever spoke last -- a reading of the
     history rather than a choice, and unaddressable before anyone has spoken."""
-    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
-    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    aria = await client.create("/api/characters", json={"name": "Aria"})
+    kael = await client.create("/api/characters", json={"name": "Kael"})
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
 
     async def profile(action: str, member: dict, **body) -> dict:
-        response = await client.post(
+        response = await client.post_checked(
             f"/api/conversations/{conv['id']}/workflows/image_gen/trigger",
             json={"action": action, "speaker_member_id": member["id"], **body},
         )
-        assert response.status_code == 200
         return response.json()
 
     await profile("set_profile", members[0], profile={"appearance_prompt": "silver hair"})
     await profile("set_profile", members[1], profile={"appearance_prompt": "scarred jaw"})
 
-    # Each member keeps its own appearance, and each is reachable by name rather
-    # than by being the last one to speak.
+    # Each member keeps its own appearance, and each is reachable by name rather than by being the last one to speak.
     assert (await profile("get_profile", members[0]))["profile"]["appearance_prompt"] == "silver hair"
     assert (await profile("get_profile", members[1]))["profile"]["appearance_prompt"] == "scarred jaw"
     assert (await profile("get_profile", members[0]))["character_id"] == aria
@@ -553,16 +521,12 @@ async def _two_hander(client, *, source, connection="comfy"):
     Returns the ids the assertions need. Both replies are on the branch, so a test can
     anchor on either and say what the difference is worth.
     """
-    aria = (await client.post("/api/characters", json={"name": "Aria", "avatar_b64": _AVATAR})).json()["id"]
-    kael = (await client.post("/api/characters", json={"name": "Kael", "avatar_b64": _OTHER_AVATAR})).json()["id"]
+    aria = await client.create("/api/characters", json={"name": "Aria", "avatar_b64": _AVATAR})
+    kael = await client.create("/api/characters", json={"name": "Kael", "avatar_b64": _OTHER_AVATAR})
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -643,12 +607,10 @@ async def test_a_comfy_graph_carries_one_image_per_person_in_the_round(client, m
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
-        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": ids["last"]},
+    response = await client.post_checked(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger", json={"action": "generate", "message_id": ids["last"]}
     )
 
-    assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
     assert [(r.slot, r.origin) for r in captured["request"].references] == [
         (("r", "image"), f"character:{ids['aria']}"),
@@ -679,12 +641,10 @@ async def test_a_cloud_array_carries_one_image_per_person_in_the_round(client, m
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
-        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": ids["last"]},
+    response = await client.post_checked(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger", json={"action": "generate", "message_id": ids["last"]}
     )
 
-    assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
     assert [(r.slot, r.origin) for r in captured["request"].references] == [
         (("cloud", "image_0"), f"character:{ids['aria']}"),
@@ -695,13 +655,12 @@ async def test_a_cloud_array_carries_one_image_per_person_in_the_round(client, m
 
 @pytest.mark.asyncio
 async def test_visualizing_the_first_reply_of_a_round_needs_no_other_speaker(client, monkeypatch):
-    """A render reads the branch only up to the reply being visualized -- a stated
-    invariant of `_history_through`. That used to decide which cast member a slot drew,
-    and a first reply with nobody else in the round could not fill one at all.
+    """A render reads the branch only up to the reply being visualized -- a stated invariant of `_history_through`. That used to
+    decide which cast member a slot drew, and a first reply with nobody else in the round could not fill one at all.
 
-    It cannot fail that way any more: the likeness is the speaker's own, and the speaker
-    is always there. The cut still shapes the *prompt* -- Kael is not described into the
-    first reply of a round he has not spoken in yet -- which is the part worth keeping.
+    It cannot fail that way any more: the likeness is the speaker's own, and the speaker is always there. The cut still shapes
+    the *prompt* -- Kael is not described into the first reply of a round he has not spoken in yet -- which is the part worth
+    keeping.
     """
     ids = await _two_hander(client, source="character")
     captured: dict = {}
@@ -717,12 +676,10 @@ async def test_visualizing_the_first_reply_of_a_round_needs_no_other_speaker(cli
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
-        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": ids["first"]},
+    response = await client.post_checked(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger", json={"action": "generate", "message_id": ids["first"]}
     )
 
-    assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
     assert [r.origin for r in captured["request"].references] == [f"character:{ids['kael']}"] * 2
     assert [s.name for s in captured["compose"]["subjects"]] == ["Kael"]
@@ -758,16 +715,13 @@ async def test_two_members_with_one_name_are_still_told_apart_in_the_prompt(clie
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
-        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": ids["last"]},
+    response = await client.post_checked(
+        f"/api/conversations/{ids['conv']}/workflows/image_gen/trigger", json={"action": "generate", "message_id": ids["last"]}
     )
 
-    assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
     assert [s.name for s in captured["compose"]["subjects"]] == ["Guard", "Guard 2"]
-    # The numbered roster attributes each image, so the two must not collapse onto
-    # one name or one card.
+    # The numbered roster attributes each image, so the two must not collapse onto one name or one card.
     assert captured["compose"]["referenced_subjects"] == [(1, "Guard"), (2, "Guard 2")]
 
 
@@ -805,10 +759,9 @@ async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_say
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    response = await client.post(
+    response = await client.post_checked(
         "/api/conversations/ig-optional/workflows/image_gen/trigger", json={"action": "generate", "message_id": mid}
     )
-    assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
 
     assert captured["request"].references == ()
@@ -824,13 +777,13 @@ async def test_the_query_surface_reports_its_own_failures_in_band(client):
     """A bad request shape or an unknown action answers 200 + `{"error"}` like the
     rest of the query surface, so the caller degrades rather than treating it as a
     transport failure. Only a missing QUERY *binding* is a route-level 404."""
-    bad_shape = await client.post("/api/workflows/image_gen/query", json={"action": "node_types", "class_types": "KSampler"})
-    assert bad_shape.status_code == 200
-    assert "class_types" in bad_shape.json()["error"]
+    bad_shape = await client.post_json(
+        "/api/workflows/image_gen/query", json={"action": "node_types", "class_types": "KSampler"}
+    )
+    assert "class_types" in bad_shape["error"]
 
-    unknown = await client.post("/api/workflows/image_gen/query", json={"action": "does_not_exist"})
-    assert unknown.status_code == 200
-    assert "unknown action" in unknown.json()["error"]
+    unknown = await client.post_json("/api/workflows/image_gen/query", json={"action": "does_not_exist"})
+    assert "unknown action" in unknown["error"]
 
     # An unregistered workflow and a registered one with no QUERY binding are
     # indistinguishable, and both 404 at the route before any hook.
@@ -856,7 +809,7 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
 
     events = [
         event
-        async for event in _run_post_pipeline(
+        async for event in run_post_pipeline(
             draft="She turns toward the door.",
             conversation_id="ig-turn",
             character_id=None,
@@ -869,7 +822,7 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
             enabled_tools={},
             turn_scratch={},
             client=LLMClient("http://localhost:9999"),
-            kv_tracker=_KVCacheTracker(),
+            kv_tracker=KVCacheTracker(),
             schema_overrides={},
         )
     ]
@@ -898,9 +851,8 @@ async def _probe(client, style_id: str = "") -> dict:
     body = {"action": "probe"}
     if style_id:
         body["style_id"] = style_id
-    response = await client.post("/api/workflows/image_gen/query", json=body)
-    assert response.status_code == 200
-    return response.json()
+    response = await client.post_json("/api/workflows/image_gen/query", json=body)
+    return response
 
 
 @pytest.mark.asyncio
@@ -978,8 +930,7 @@ async def test_an_unreachable_server_is_reported_rather_than_500ing(client, monk
 @pytest.mark.asyncio
 async def test_an_unfinished_style_is_not_probed_on_top_of_its_setup_prompt(client, monkeypatch):
     await set_workflow_config(
-        "image_gen",
-        {"default_style": "new", "external_comfy": {"styles": [{"id": "new", "label": "New style"}]}},
+        "image_gen", {"default_style": "new", "external_comfy": {"styles": [{"id": "new", "label": "New style"}]}}
     )
 
     async def forbidden(self, *, allow_cached=True):

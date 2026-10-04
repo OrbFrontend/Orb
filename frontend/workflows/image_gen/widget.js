@@ -11,7 +11,9 @@ import {
   registerRerollParams,
   registerRerollSuccess,
   requestRepaint,
+  responseError,
   setWorkflowPhase,
+  sseError,
   sseEvents,
   startWorkflowJob,
   stopButtonState,
@@ -86,12 +88,7 @@ async function download(el) {
   el.disabled = true;
   try {
     const response = await fetch(`/api/workflow-attachments/${attId}/export`);
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(
-        typeof body?.detail === "string" && body.detail ? body.detail : `Download failed (${response.status})`,
-      );
-    }
+    if (!response.ok) throw await responseError(response);
     const href = URL.createObjectURL(await response.blob());
     const a = document.createElement("a");
     a.href = href;
@@ -184,12 +181,13 @@ async function generate(msgId, button) {
       { action: "generate", message_id: msgId, style_id: styleId },
       controller.signal,
     );
-    if (!response.ok) throw new Error(`generate returned ${response.status}`);
+    if (!response.ok) throw await responseError(response);
     let attachmentId = null;
     let terminated = false;
     let failure = null;
     let landed = 0;
     for await (const event of sseEvents(response.body, { signal: controller.signal })) {
+      if (event.event === "error") throw sseError(event.data);
       let data = {};
       try {
         data = event.data ? JSON.parse(event.data) : {};

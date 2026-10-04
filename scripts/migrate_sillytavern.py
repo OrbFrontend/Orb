@@ -1,34 +1,15 @@
 #!/usr/bin/env python3
-"""Migrate a SillyTavern install into Orb's database.
+"""Migrate SillyTavern characters, expressions, lorebooks, chats, personas and groups
+into Orb SQLite, using pure backend parsers and enforcing query-layer invariants.
 
-Reads an unmodified SillyTavern data directory and writes characters (with their
-expression sprites and embedded lorebooks), standalone lorebooks, chat history,
-personas, and group chats into Orb's SQLite file.
-
-This is the one job Orb's HTTP API cannot do: no route inserts a message without
-running the LLM, so chat history has to be written to the tables directly. The
-script therefore owns its own connection and its own INSERTs, and reproduces the
-invariants the query layer would otherwise enforce (see ``check_schema`` and the
-per-dataset comments). It imports pure helpers from ``backend/`` -- card parsing,
-lorebook field mapping, expression labelling -- rather than restating them, so
-the two cannot drift apart.
-
-Deliberately NOT migrated, because Orb has nothing to map them onto:
-  * prompts and generation settings (context/, instruct/, sysprompt/, */Settings/,
-    reasoning/, QuickReplies/) -- Orb assembles prompts through the
-    Director/Writer/Editor pipeline with a cache-stable prefix
-  * endpoints and API keys (secrets.json) -- configure those in Orb
-  * UI chrome (themes/, backgrounds/, movingUI/, assets/, thumbnails/, backups/)
-  * per-message generation metadata (reasoning traces, token counts, gen ids)
-  * author's notes, and the ST tag taxonomy
-  * ST-only lorebook knobs: recursion, probability, sticky/cooldown/delay,
-    inclusion groups, roles, per-entry scan depth (docs/features/lorebooks.md)
+Skip generation settings/prompts, endpoints/keys, UI assets, generation metadata,
+author notes, tag taxonomy and unsupported lorebook controls.
 
 Usage:
     python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern --dry-run
     python scripts/migrate_sillytavern.py --st-dir /path/to/SillyTavern
 
-Stop Orb before running: it is single-user, single-tab by design.
+Stop Orb before running.
 """
 
 from __future__ import annotations
@@ -55,14 +36,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Pure helpers, imported rather than copied. `_normalise_lorebook_entry` is
-# private to the API layer, but pinning the one real ST field mapping beats
-# duplicating it into scripts/ where it would silently drift from the routes.
-from backend.api.deps import _normalise_lorebook_entry  # noqa: E402
+# Pure helpers, imported rather than copied, so the one real ST field mapping cannot drift from the one the import routes use.
 from backend.database.queries.group_members import allocate_speaker_key  # noqa: E402
 from backend.features.cards.expressions import extract_expressions_zip  # noqa: E402
 from backend.features.cards.parsing import card_to_dict, read_orb_id  # noqa: E402
 from backend.features.cards.parsing import parse as parse_card  # noqa: E402
+from backend.features.lorebook import normalise_lorebook_entry  # noqa: E402
 
 DATASETS = ("worlds", "characters", "personas", "chats", "groups")
 
@@ -128,8 +107,7 @@ class Report:
 
 
 # --------------------------------------------------------------------------- #
-# Identity -- every id is derived, so a re-run is a no-op and an interrupted run
-# resumes where it stopped.
+# Identity -- every id is derived, so a re-run is a no-op and an interrupted run resumes where it stopped.
 # --------------------------------------------------------------------------- #
 
 
@@ -454,10 +432,7 @@ def insert_conversation(conn: sqlite3.Connection, row: dict) -> None:
                    :group_turn_mode, :group_max_speakers, :group_context_mode, 0, :group_root_id)""",
         row,
     )
-    conn.execute(
-        "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-        (row["id"],),
-    )
+    conn.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (row["id"],))
 
 
 def insert_message(
@@ -569,7 +544,7 @@ def write_world(conn: sqlite3.Connection, name: str, entries: list[dict], enable
     for item in entries:
         # entry_layer/overlay_action pin the row to the user-authored layer; the
         # overlay is the Agent's to write, never an importer's.
-        data = _normalise_lorebook_entry(item)
+        data = normalise_lorebook_entry(item)
         conn.execute(
             """INSERT INTO lorebook_entries
                (world_id, name, content, keywords, case_insensitive, constant, at_depth, use_regex, selective,
@@ -630,9 +605,8 @@ def import_worlds(conn: sqlite3.Connection, tx: Tx, paths: STPaths, report: Repo
             report.add("worlds", "failed", problem=f"{path.name}: {exc}")
             continue
         if not entries:
-            # Empty here does not mean empty everywhere: a card may carry a book
-            # of the same name with real content, and leaving the name free lets
-            # that one land instead of colliding with a hollow World.
+            # Empty here does not mean empty everywhere: a card may carry a book of the same name with real content, and leaving
+            # the name free lets that one land instead of colliding with a hollow World.
             report.add("worlds", "skipped", "no entries in the file")
             continue
         if find_world(conn, name):
@@ -905,8 +879,7 @@ def import_chats(
             continue
         if card_id and card_id not in card_rows:
             row = conn.execute(
-                "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",
-                (card_id,),
+                "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?", (card_id,)
             ).fetchone()
             if row is None:
                 continue
@@ -993,12 +966,7 @@ def speaker_resolver(member_ids: dict[str, str], by_display: dict[str, str]) -> 
 
 
 def import_groups(
-    conn: sqlite3.Connection,
-    tx: Tx,
-    paths: STPaths,
-    cards: dict[str, str],
-    personas: dict[str, int],
-    report: Report,
+    conn: sqlite3.Connection, tx: Tx, paths: STPaths, cards: dict[str, str], personas: dict[str, int], report: Report
 ) -> None:
     if not paths.groups.is_dir():
         return
@@ -1170,9 +1138,8 @@ def run(options: Options) -> tuple[Report, list[str]]:
 
         if "worlds" in selected:
             import_worlds(conn, tx, paths, report)
-        # Chats and groups need the avatar-to-card and name-to-persona maps even
-        # when those datasets were not selected -- but they must only *read*
-        # then, or --only chats would quietly import the whole library too.
+        # Chats and groups need the avatar-to-card and name-to-persona maps even when those datasets were not selected -- but
+        # they must only *read* then, or --only chats would quietly import the whole library too.
         cards: dict[str, str] = {}
         if selected & {"characters", "chats", "groups"}:
             cards = import_characters(conn, tx, paths, report, create="characters" in selected)

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ..toolkit import Workflow
+from ..toolkit import HookType, Workflow, subscription
+from . import export, hooks, queries
 from .config import CONFIG_DEFAULTS, MAX_REFINE_TURNS, SOURCES, normalize_config
 from .pov import POV_MODES
 from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
@@ -10,11 +11,7 @@ from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
 _CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
-        "source": {
-            "type": "string",
-            "enum": list(SOURCES),
-            "title": "Image backend",
-        },
+        "source": {"type": "string", "enum": list(SOURCES), "title": "Image backend"},
         "default_style": {"type": "string", "title": "Default style"},
         "styles": {"type": "array", "title": "Styles"},
         "pov_mode": {"type": "string", "enum": list(POV_MODES), "title": "Camera"},
@@ -23,26 +20,27 @@ _CONFIG_SCHEMA = {
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
         "prompter_reference": {"type": "boolean", "title": "Show the prompter the last image"},
         "refine_turns": {"type": "integer", "minimum": 0, "maximum": MAX_REFINE_TURNS, "title": "Review turns"},
-        "timeout_seconds": {
-            "type": "number",
-            "minimum": 10,
-            "maximum": 900,
-            "title": "Render timeout",
-        },
+        "timeout_seconds": {"type": "number", "minimum": 10, "maximum": 900, "title": "Render timeout"},
         "external_comfy": {"type": "object", "title": "External ComfyUI"},
         "cloud": {"type": "object", "title": "Cloud API"},
     },
 }
 
-image_gen_workflow = Workflow(
+WORKFLOW = Workflow(
     id="image_gen",
     display_name="Image Generation",
     produces_artifacts=True,
     tools=[READ_IMAGE_SKILLS_TOOL, COMPOSE_TOOL, REFINE_TOOL],
     config_schema=_CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
-    # The config carries user-authored graphs and style entries that
-    # `normalize_config` bounds and drops; without this the settings panel would
-    # keep listing a workflow the render path silently ignores.
+    # The config carries user-authored graphs and style entries that `normalize_config` bounds and drops; without this the
+    # settings panel would keep listing a workflow the render path silently ignores.
     config_normalizer=normalize_config,
+    subscriptions=[
+        subscription(HookType.ON_DEMAND, hooks.on_demand),
+        subscription(HookType.QUERY, queries.query),
+        subscription(HookType.REGENERATE, hooks.regenerate),
+        subscription(HookType.REROLL_GEN, hooks.reroll_gen),
+        subscription(HookType.EXPORT, export.export),
+    ],
 )

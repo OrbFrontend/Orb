@@ -1,15 +1,7 @@
-"""Sentence keys: the units the slop miner counts across characters.
+"""Build narration (n) and speech (d) sentence keys.
 
-Each block of a reply is tagged ``n`` (narration, including ``*emphasis*``) or
-``d`` (speech), and each sentence in it is abstracted into a skeleton: function
-words and punctuation stay literal, pronouns become ``P``, and each run of
-content words becomes one ``X``. ``No hate, no anger, just... despair.`` is
-``^ no X , no X , just … X .``.
-
-A sentence yields *shape keys* (skeleton n-grams such as ``n:no X , no X ,
-just``) and, when it is at most six words long, one *literal key* (``n:= a
-beat``). Keys carry their tag so narration is compared with card narration and
-speech with card speech.
+Skeletons retain function words/punctuation, replace pronouns with P and content-word runs with X. Yield skeleton n-grams and
+literal keys for sentences of at most six words; tags keep speech/narration corpora separate.
 """
 
 from __future__ import annotations
@@ -111,10 +103,9 @@ def sentences(text: str) -> Iterator[Sentence]:
 def shape_bodies(tokens: Sequence[str]) -> list[str]:
     """The shape keys of one skeleton, without their tag.
 
-    A key is a 3-8 token n-gram holding at least one ``X``. It starts with
-    neither ``,`` nor ``.``, does not end with ``,``, and has two words or
-    spans the whole sentence with one. Prefix counts keep this linear in the
-    number of grams; it runs for every sentence of every reply, twice.
+    A key is a 3-8 token n-gram holding at least one ``X``. It starts with neither ``,`` nor ``.``, does not end with ``,``, and
+    has two words or spans the whole sentence with one. Prefix counts keep this linear in the number of grams; it runs for every
+    sentence of every reply, twice.
     """
     length = len(tokens)
     slots = [0]
@@ -153,7 +144,7 @@ def key_core(key: str) -> tuple[str, ...]:
     return tuple(tokens)
 
 
-# ── card-authored baseline ──────────────────────────────────────────────────
+# -- card-authored baseline --------------------------------------------------
 
 _START_RE = re.compile(r"<START>", re.IGNORECASE)
 _EXAMPLE_LABEL_RE = re.compile(r"^[ \t]*(?:(?i:\{\{(?:char|user)\}\})|[A-Z][\w .'’-]{0,30}?)[ \t]*:[ \t]*", re.MULTILINE)
@@ -163,25 +154,23 @@ _MACRO_RE = re.compile(r"\{\{(?:char|user)\}\}", re.IGNORECASE)
 def card_baseline_text(first_mes: str, alternate_greetings: Iterable[str], mes_example: str) -> str:
     """A card's authored roleplay prose: greetings plus cleaned dialogue examples.
 
-    ``mes_example`` loses its ``<START>`` separators and leading ``Name:``
-    labels, and macros become a placeholder name. Each part is its own
-    paragraph so no sentence runs across two of them.
+    ``mes_example`` loses its ``<START>`` separators and leading ``Name:`` labels, and macros become a placeholder name. Each
+    part is its own paragraph so no sentence runs across two of them.
     """
     example = _EXAMPLE_LABEL_RE.sub("", _START_RE.sub("\n\n", mes_example or ""))
     parts = [first_mes or "", *(greeting for greeting in alternate_greetings if isinstance(greeting, str)), example]
     return _MACRO_RE.sub(PLACEHOLDER_NAME, "\n\n".join(part for part in parts if part.strip()))
 
 
-# ── names ───────────────────────────────────────────────────────────────────
+# -- names -------------------------------------------------------------------
 
 
 def build_names(names: Iterable[str], descriptions: Iterable[str], card_texts: Iterable[str]) -> frozenset[str]:
     """Lowercased name tokens that keep a short sentence out of the literal keys.
 
-    Explicit *names* (characters, personas, cards, group members) are joined by
-    tokens capitalized mid-sentence in card *descriptions* that never appear
-    lowercase in the descriptions or *card_texts*. Stopwords and tokens of two
-    letters or fewer are dropped: "Oscar" belongs here, "He" and "Al" do not.
+    Explicit *names* (characters, personas, cards, group members) are joined by tokens capitalized mid-sentence in card
+    *descriptions* that never appear lowercase in the descriptions or *card_texts*. Stopwords and tokens of two letters or fewer
+    are dropped: "Oscar" belongs here, "He" and "Al" do not.
     """
     found = {word.lower() for name in names for word in WORD_RE.findall(name.replace("’", "'"))}
     found.add(PLACEHOLDER_NAME.lower())

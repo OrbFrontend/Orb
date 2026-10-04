@@ -1,5 +1,3 @@
-"""Tests for the RP format-consistency normalizer."""
-
 from backend.analysis.text.markup import classify_axes
 from backend.analysis.text.roleplay import AxisStyle, Dialogue, Narration
 from backend.workflows.format_consistency.normalization import (
@@ -60,10 +58,7 @@ def test_full_markup_to_quotes_only_strips_narration_asterisks():
     assert '"You came back,"' in out  # dialogue untouched
 
 
-QUOTES_BASELINE = [
-    'She smiles. "Hello there," she says warmly.',
-    'He nods. "Welcome back," he replies.',
-]
+QUOTES_BASELINE = ['She smiles. "Hello there," she says warmly.', 'He nods. "Welcome back," he replies.']
 
 
 # ---------- no-op safety ----------
@@ -149,10 +144,7 @@ def test_emphasis_in_dialogue_survives_narration_strip():
 
 
 def test_emphasis_survives_dialogue_flattening_against_asterisk_baseline():
-    base = [
-        "*She smiles, stepping back.* Hello there.",
-        "*He follows her in.* Good to see you.",
-    ]
+    base = ["*She smiles, stepping back.* Hello there.", "*He follows her in.* Good to see you."]
     draft = 'He frowns. "Do you think I am *stupid*?"'
     new, rep = normalize_to_baseline(draft, base, enabled=True)
     assert rep.changed
@@ -219,10 +211,7 @@ def test_stable_multiturn_asterisk_baseline_converts_quotes_turn():
 
 
 def test_drift_in_only_the_latest_turn_does_not_change_a_consistent_draft():
-    base = [
-        'She smiles. "Hello there."',
-        'He nods. "Welcome back."',
-    ]
+    base = ['She smiles. "Hello there."', 'He nods. "Welcome back."']
     draft = 'She tilts her head. "What brings you here?"'
     _assert_unchanged(draft, base)
 
@@ -238,8 +227,7 @@ FULL_MARKUP_BASELINE = [
 
 def test_stray_bare_dialogue_tag_is_wrapped_when_dominant_style_matches():
     draft = (
-        "*She pulled the curtain aside and glanced out at the street.*\n\n"
-        '"It looks like it might rain," she replied.\n\n'
+        '*She pulled the curtain aside and glanced out at the street.*\n\n"It looks like it might rain," she replied.\n\n'
         "*She let the fabric fall back and turned to the window latch.*"
     )
     new, rep = normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True)
@@ -295,8 +283,7 @@ def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
 
 HALF_ASTERISKED_DRAFT = (
     "Amaryllis blinked, caught off guard by how serious the question was.\n\n"
-    "Her fingers tightened around the spine of the book.\n\n"
-    "*She let out a short, breathy laugh, the first in weeks.*\n\n"
+    "Her fingers tightened around the spine of the book.\n\n*She let out a short, breathy laugh, the first in weeks.*\n\n"
     '"Battle scenes?" *she asked, her accent lilting.* "Aye, there\'s a few."\n\n'
     '*She cleared her throat and looked away.* "There\'s a siege in the third act."'
 )
@@ -347,10 +334,7 @@ def test_question_and_exclamation_preserved_through_inversion():
 
 
 def test_mixed_draft_against_quotes_baseline_strips_only_narration_asterisks():
-    base = [
-        'She smiles. "Hello there."',
-        'He nods. "Welcome back."',
-    ]
+    base = ['She smiles. "Hello there."', 'He nods. "Welcome back."']
     draft = '*He steps inside, shaking off the rain.* "Quite a storm out there," he says.'
     new, rep = normalize_to_baseline(draft, base, enabled=True)
     assert rep.changed
@@ -359,10 +343,7 @@ def test_mixed_draft_against_quotes_baseline_strips_only_narration_asterisks():
 
 
 def test_mixed_draft_against_asterisk_baseline_strips_only_dialogue_quotes():
-    base = [
-        "*She smiles, stepping back.* Hello there.",
-        "*He follows her in.* Welcome back.",
-    ]
+    base = ["*She smiles, stepping back.* Hello there.", "*He follows her in.* Welcome back."]
     draft = '*He steps inside, shaking off the rain.* "Quite a storm out there," he says.'
     new, rep = normalize_to_baseline(draft, base, enabled=True)
     assert rep.changed
@@ -384,8 +365,7 @@ def test_asterisk_narration_without_quotes_reads_as_bare_dialogue():
 
 def test_italic_thoughts_in_prose_are_not_read_as_bare_dialogue():
     draft = (
-        "Peggy's phone slips from her numb fingers.\n\n"
-        "*He still likes me. He really does.*\n\n"
+        "Peggy's phone slips from her numb fingers.\n\n*He still likes me. He really does.*\n\n"
         "The thought is not a comfort but an accusation."
     )
     style = classify_axes(draft)
@@ -423,9 +403,7 @@ def test_a_talkative_bare_dialogue_baseline_still_sets_the_axes():
     assert baseline_axes([greeting]) == AxisStyle(Dialogue.BARE, Narration.ASTERISK)
 
     draft = (
-        "Heidi's smile is still perfectly in place.\n\n"
-        '"Ah... Peggy."\n\n'
-        "She laughs quietly and airily.\n\n"
+        'Heidi\'s smile is still perfectly in place.\n\n"Ah... Peggy."\n\nShe laughs quietly and airily.\n\n'
         "\"But now that you're here, let's focus on you.\""
     )
     new, rep = normalize_to_baseline(draft, [greeting], enabled=True)
@@ -549,8 +527,7 @@ def test_italic_thoughts_keep_their_marks_in_a_chat_that_sets_nothing_in_asteris
         'The lights flicker once and die, and the hum of the fridge goes with them. *Not again.* "Stay close," she says.',
         '*Such a strange boy,* she thinks, and presses the key into his palm before he can argue. "Don\'t lose it."',
         "He sets the cup down on the saucer without a sound and leans back in his chair, arms folded.\n\n"
-        "*He got lucky with that one. Let's see how long it lasts.*\n\n"
-        '"Again," he says, and deals the cards.',
+        '*He got lucky with that one. Let\'s see how long it lasts.*\n\n"Again," he says, and deals the cards.',
     ):
         assert skip_reasons(draft) == [], draft
         assert classify_axes(draft).narration != Narration.ASTERISK, draft

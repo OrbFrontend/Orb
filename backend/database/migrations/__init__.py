@@ -1,11 +1,6 @@
-"""
-backend/database/migrations/__init__.py — lightweight migration runner.
+"""Run numbered migrations once, recording them in schema_migrations.
 
-To add a new migration, create backend/database/migrations/NNNN_description.py
-with a migrate(conn) function.
-
-Applied migrations are recorded in the `schema_migrations` table so each runs
-exactly once, even across restarts.
+Add migrations as NNNN_description.py with a migrate(conn) function.
 """
 
 from __future__ import annotations
@@ -32,9 +27,8 @@ _CREATE_TABLE_SQL = """
 async def stamp_all(conn: aiosqlite.Connection) -> None:
     """Record the fresh-install baseline without importing or running migrations.
 
-    The caller owns the transaction: schema, seeds and this ledger must commit
-    together so a failed first start can retry without entering the upgrade path.
-    Never stamp an existing database; it may still need schema or data upgrades.
+    The caller owns the transaction: schema, seeds and this ledger must commit together so a failed first start can retry
+    without entering the upgrade path. Never stamp an existing database; it may still need schema or data upgrades.
     """
     await conn.execute(_CREATE_TABLE_SQL)
     await conn.executemany("INSERT INTO schema_migrations (id) VALUES (?)", [(n,) for n in MIGRATIONS])
@@ -48,9 +42,8 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
 def run_pending(db_path: str | Path) -> int:
     """Apply all unapplied migrations against db_path.
 
-    Returns the number of migrations applied (0 when already current), so a
-    caller holding a private copy (restore_full) can skip its post-migration
-    VACUUM when nothing changed.
+    Returns the number of migrations applied (0 when already current), so a caller holding a private copy (restore_full) can
+    skip its post-migration VACUUM when nothing changed.
     """
     conn = sqlite3.connect(db_path)
     try:

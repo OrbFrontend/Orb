@@ -30,7 +30,7 @@ def reference_clip(wav: np.ndarray, *, trim: bool = True) -> np.ndarray:
 @onnx_runtime.using
 def enroll_signal(signal: np.ndarray) -> list[int]:
     """The 32 speaker tokens for a prepared :func:`reference_clip` signal."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     ok, reason = catalog.codec_ready()
     if not ok:

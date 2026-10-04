@@ -5,13 +5,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from ....core import (
-    CastMember,
-    DecisionDefinition,
-    Macros,
-    outside_literals,
-    resolve_inline,
-)
+from ....core import CastMember, DecisionDefinition, Macros, outside_literals, resolve_inline
 from ....prompting import format_message_with_attachments, group_speaker_label
 
 DECISION_RENDERER_VERSION = "1"
@@ -59,10 +53,9 @@ class DecisionSnapshot:
     def roll_seed(self, fragment_id: str | None, field: str) -> str:
         """Seed one field's inline macros: fixed within an exchange, fresh across exchanges.
 
-        A regeneration renders the same bytes, so replay and the answer cache still
-        match. ``None`` shares the seed across fragments -- the Situation's, so one
-        exchange shows every question the same world and equal templates still
-        batch. No seed means fresh rolls.
+        A regeneration renders the same bytes, so replay and the answer cache still match. ``None`` shares the seed across
+        fragments -- the Situation's, so one exchange shows every question the same world and equal templates still batch. No
+        seed means fresh rolls.
         """
         return f"{self.seed}|{self.anchor_message_id}|{fragment_id or ''}|{field}" if self.seed else ""
 

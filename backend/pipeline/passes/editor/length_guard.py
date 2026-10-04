@@ -9,9 +9,8 @@ from typing import Any, TypedDict
 class LengthGuard(TypedDict):
     """Resolved length-guard config threaded through the pipeline.
 
-    Built only when the guard is enabled, so a non-None value means enabled and
-    ``None`` means disabled. The writer uses it for the preventive nudge (only
-    when ``enforce`` is True); the editor uses it for the corrective rewrite.
+    Built only when the guard is enabled, so a non-None value means enabled and ``None`` means disabled. The writer uses it for
+    the preventive nudge (only when ``enforce`` is True); the editor uses it for the corrective rewrite.
     """
 
     enforce: bool
@@ -33,7 +32,7 @@ def resolve_length_guard(settings: Mapping[str, Any], agent_on: bool) -> LengthG
     """Resolve the length-guard config from *settings*, or ``None`` when disabled.
 
     Agent-gated: returns ``None`` when the agent is off. The returned dict is the
-    on/off state downstream — ``cfg.length_guard is not None`` means enabled.
+    on/off state downstream -- ``cfg.length_guard is not None`` means enabled.
     """
     if not agent_on or not bool(settings.get("length_guard_enabled", 0)):
         return None
@@ -58,8 +57,7 @@ def apply_length_guard_tools(enabled_tools: Mapping[str, bool], length_guard: Le
 def writer_nudge(length_guard: LengthGuard | None) -> str:
     """Return the writer's self-limiting instruction, or ``""`` when not in enforce mode.
 
-    A non-None *length_guard* already means the guard is enabled; this fires only
-    when ``enforce`` is also True.
+    A non-None *length_guard* already means the guard is enabled; this fires only when ``enforce`` is also True.
     """
     if not length_guard or not length_guard["enforce"]:
         return ""
@@ -71,10 +69,9 @@ def writer_nudge(length_guard: LengthGuard | None) -> str:
 def evaluate_length_guard(draft: str, length_guard: LengthGuard | None) -> tuple[bool, str, int]:
     """Return whether *draft* overshoots its word budget.
 
-    Returns ``(triggered, instruction, word_count)``. When triggered,
-    *instruction* is the formatted directive the editor passes to the model
-    (``editor_rewrite`` is forced via ``tool_choice``). A ``None`` guard or an
-    in-budget draft yields ``(False, "", word_count)``.
+    Returns ``(triggered, instruction, word_count)``. When triggered, *instruction* is the formatted directive the editor passes
+    to the model (``editor_rewrite`` is forced via ``tool_choice``). A ``None`` guard or an in-budget draft yields ``(False, "",
+    word_count)``.
     """
     if length_guard is None:
         return False, "", 0
@@ -82,8 +79,6 @@ def evaluate_length_guard(draft: str, length_guard: LengthGuard | None) -> tuple
     if word_count <= length_guard["max_words"]:
         return False, "", word_count
     instruction = LENGTH_GUARD_INSTRUCTIONS.format(
-        word_count=word_count,
-        max_paragraphs=length_guard["max_paragraphs"],
-        max_words=length_guard["max_words"],
+        word_count=word_count, max_paragraphs=length_guard["max_paragraphs"], max_words=length_guard["max_words"]
     )
     return True, instruction, word_count

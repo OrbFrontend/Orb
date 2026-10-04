@@ -2,15 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { cssScope, sanitizeCss } from "../../frontend/message_css.js";
+import { compileCss, cssScope } from "../../frontend/message_css.js";
 
-// Card CSS is the one grammar in a message body that the sanitiser cannot help
-// with: DOMPurify sees a `<style>` element, not the sheet inside it. sanitizeCss
-// is therefore the whole containment, and it is a pure string pass precisely so
-// it can be pinned here rather than through a browser's CSSOM.
+// Card CSS is the one grammar in a message body that the sanitiser cannot help with: DOMPurify sees a `<style>`
+// element, not the sheet inside it. compileCss is therefore the whole containment, and it is a pure string pass
+// precisely so it can be pinned here rather than through a browser's CSSOM.
 
 const SCOPE = "msg-stest";
-const css = (text) => sanitizeCss(text, SCOPE);
+const css = (text) => compileCss(text, SCOPE).css;
 
 test("every surviving selector is scoped to the one message that wrote it", () => {
   // Without the scope class, `.msg-body p` would restyle every bubble in the
@@ -77,9 +76,8 @@ test("a data attribute selector follows the name the sanitiser gave the attribut
 });
 
 test("a URL is checked by scheme rather than banned outright", () => {
-  // Remote CSS fetches are allowed for the same reason the sanitiser allows a
-  // remote `<img src>`: a card's art and web fonts are the point of rendering it.
-  // What the policy owes is that only a scheme that fetches an image or a font
+  // Remote CSS fetches are allowed for the same reason the sanitiser allows a remote `<img src>`: a card's art and web
+  // fonts are the point of rendering it. What the policy owes is that only a scheme that fetches an image or a font
   // gets through, and that it is judged on the decoded URL.
   for (const source of [
     ".a { background: url(https://cdn.test/pixel.png) }",
@@ -109,9 +107,8 @@ test("an @import still dies: it would pull in a sheet nothing here ever scopes",
 });
 
 test("an escape is decoded before it is judged, not rejected for being one", () => {
-  // `\75 rl(…)` is `url(…)` once the engine unescapes it. The tokenizer decodes
-  // it the same way, so the URL policy sees the scheme the browser would see --
-  // which is what lets escapes stay a capability instead of a ban.
+  // `\75 rl(...)` is `url(...)` once the engine unescapes it. The tokenizer decodes it the same way, so the URL policy sees
+  // the scheme the browser would see -- which is what lets escapes stay a capability instead of a ban.
   assert.match(css(".a { background-image: \\75 rl(https://cdn.test/x.png) }"), /url\("https:\/\/cdn\.test\/x\.png"\)/);
   assert.equal(css(".a { background: \\000075rl(javascript:alert(1)) }"), "");
   assert.equal(css(".a { background: url(\\6a avascript:alert(1)) }"), "");
@@ -143,9 +140,8 @@ test("a global name is renamed into the scope; what cannot be renamed is dropped
   assert.match(css("@layer base { p { color: red } }"), /@layer msg-stest-base \{/);
   assert.match(css("@layer a, b;"), /@layer msg-stest-a, msg-stest-b;/);
   for (const source of [
-    // `@page` styles the printed page and `@scope` a subtree of it; neither has
-    // a per-message spelling. `@font-face` with no `src` names a face that is
-    // not one, which would leave a renamed family resolving to nothing.
+    // `@page` styles the printed page and `@scope` a subtree of it; neither has a per-message spelling. `@font-face`
+    // with no `src` names a face that is not one, which would leave a renamed family resolving to nothing.
     "@font-face { font-family: x }",
     "@page { margin: 0 }",
     "@scope (.a) { p { color: red } }",
@@ -156,8 +152,7 @@ test("a global name is renamed into the scope; what cannot be renamed is dropped
   assert.match(media, /@media \(max-width: 600px\) \{/);
   assert.match(media, /\.msg-body \.msg-stest \.custom-b \{ color: green \}/);
   assert.match(css("@supports (display: grid) { .b { display: grid } }"), /@supports \(display: grid\)/);
-  // A condition is tested, never applied or fetched, so its values may use any
-  // function -- `url()` included.
+  // A condition is tested, never applied or fetched, so its values may use any function -- `url()` included.
   for (const condition of [
     "(color: color-mix(in srgb, red, blue))",
     "(width: calc(1px + 1%))",
@@ -179,10 +174,9 @@ test("@starting-style is an ordinary block of scoped rules", () => {
 });
 
 test("positioning is contained by the wrapper rather than clamped by the policy", () => {
-  // `position: fixed` and a large `z-index` are allowed because .msg-css-scope
-  // takes paint containment: the wrapper is the containing block for a fixed
-  // descendant and opens a stacking context. The two halves are load-bearing
-  // together, so the stylesheet half is asserted in the test below.
+  // `position: fixed` and a large `z-index` are allowed because .msg-css-scope takes paint containment: the wrapper is
+  // the containing block for a fixed descendant and opens a stacking context. The two halves are load-bearing together,
+  // so the stylesheet half is asserted in the test below.
   for (const value of ["fixed", "sticky", "absolute", "relative", "static"]) {
     assert.match(css(`.a { position: ${value} }`), new RegExp(`position: ${value}`), value);
   }
@@ -206,8 +200,7 @@ test("property names are open, except the ones that act outside the bubble", () 
     assert.match(css(`.a { ${decl} }`), new RegExp(decl.replace(/[()]/g, "\\$&")), decl);
   }
   assert.equal(css(".a { word-wrap: url(javascript:alert(1)) }"), "");
-  // Script hooks, editing, window chrome and the view-transition overlay, under
-  // any prefix and any value.
+  // Script hooks, editing, window chrome and the view-transition overlay, under any prefix and any value.
   for (const decl of [
     "behavior: url(x.htc)",
     "-moz-binding: url(x)",
@@ -248,10 +241,9 @@ test("a sheet cannot close its own style element on the way back through innerHT
 });
 
 test("a truncated sheet still comes out contained, never half-scoped", () => {
-  // A card cut off mid-generation is the common case, not the adversarial one:
-  // the scanner closes the open blocks at end of input, so what it recovers is
-  // still scoped and still allowlisted. What must never happen is a rule
-  // escaping with its original selector.
+  // A card cut off mid-generation is the common case, not the adversarial one: the scanner closes the open blocks at
+  // end of input, so what it recovers is still scoped and still allowlisted. What must never happen is a rule escaping
+  // with its original selector.
   for (const source of ["@media (max-width: 600px) { .a { color: red }", ".a { color: red", ".a { color: red } b {"]) {
     for (const line of css(source).trim().split("\n")) {
       const rule = line.trim();
@@ -262,7 +254,7 @@ test("a truncated sheet still comes out contained, never half-scoped", () => {
   // Nothing recoverable at all is dropped rather than guessed at.
   assert.equal(css("}}} .a"), "");
   assert.equal(css(""), "");
-  assert.equal(sanitizeCss(".a { color: red }", ""), "");
+  assert.equal(compileCss(".a { color: red }", "").css, "");
 });
 
 test("a comment cannot hide a declaration from the allowlist", () => {
@@ -271,9 +263,8 @@ test("a comment cannot hide a declaration from the allowlist", () => {
 });
 
 test("a nested rule is resolved against its parent, never emitted unscoped", () => {
-  // `&` in any position resolves to the parent, which is already anchored inside
-  // the wrapper -- so the rule's subject is a descendant or a sibling of an
-  // element in this message, and both of those are inside the wrapper too.
+  // `&` in any position resolves to the parent, which is already anchored inside the wrapper -- so the rule's subject
+  // is a descendant or a sibling of an element in this message, and both of those are inside the wrapper too.
   const out = css(".a { color: red; &:hover { color: blue } .b { color: green } .c & { color: teal } }");
   assert.ok(!out.includes("&"), out);
   for (const line of out.trim().split("\n")) {

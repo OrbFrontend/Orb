@@ -6,7 +6,9 @@ import logging
 import math
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+from ..core.llm_types import CompletionMessage, TokenAlternative, TokenProbability
 
 # Stream parsing is separate from template discovery and prompt preparation.
 from .reasoning_format import ReasoningFormat, SplitterStart, ThinkTags
@@ -21,9 +23,8 @@ _RECIPIENT_RE = re.compile(r"to=(\S+)")
 def _max_overlap(buf: str, target: str) -> int:
     """Length of the longest suffix of *buf* that is a (proper) prefix of *target*.
 
-    Used to hold back a possible tag split across chunk boundaries. A full match
-    is handled by ``str.find`` before this is reached, so the answer is at most
-    ``len(target) - 1``.
+    Used to hold back a possible tag split across chunk boundaries. A full match is handled by ``str.find`` before this is
+    reached, so the answer is at most ``len(target) - 1``.
     """
     m = min(len(buf), len(target) - 1)
     for k in range(m, 0, -1):
@@ -63,11 +64,11 @@ def _routes_to_self(header: str) -> bool:
 class Splitter(Protocol):
     """Reasoning/content split contract used by the text transport."""
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Classify one stream delta into ``(kind, text)`` pieces."""
         ...
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Release whatever was held back when the stream ended."""
         ...
 
@@ -80,7 +81,9 @@ class _SplitBase:
         self._trim_lead = trim_lead
         self._trim_pending = trim_lead
 
-    def _emit(self, out: list[tuple[str, str]], kind: str, text: str) -> None:
+    def _emit(
+        self, out: list[tuple[Literal["content", "reasoning"], str]], kind: Literal["content", "reasoning"], text: str
+    ) -> None:
         """Append a classified piece, trimming leading content whitespace."""
         if kind == "content" and self._trim_pending:
             text = text.lstrip()
@@ -94,12 +97,7 @@ class ThinkSplitter(_SplitBase):
     """Split streamed text into reasoning and content on a literal tag pair."""
 
     def __init__(
-        self,
-        tags: ThinkTags,
-        already_open: bool = False,
-        trim_lead: bool = True,
-        *,
-        start: SplitterStart = "auto",
+        self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True, *, start: SplitterStart = "auto"
     ) -> None:
         super().__init__(trim_lead)
         self._open, self._close = tags
@@ -110,8 +108,8 @@ class ThinkSplitter(_SplitBase):
         else:
             self._state = "pre"
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
-        out: list[tuple[str, str]] = []
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._buf += delta
         while True:
             if self._state == "content":
@@ -135,12 +133,12 @@ class ThinkSplitter(_SplitBase):
                 self._state = "content"
         return out
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Emit any held tail using the current state."""
         if not self._buf:
             return []
         kind = "reasoning" if self._state == "reasoning" else "content"
-        out: list[tuple[str, str]] = []
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._emit(out, kind, self._buf)
         self._buf = ""
         return out
@@ -151,12 +149,12 @@ class ChannelSplitter(_SplitBase):
 
     def __init__(self, *, start: SplitterStart = "auto", trim_lead: bool = True) -> None:
         super().__init__(trim_lead)
-        self._state: str = "header" if start == "auto" else start
+        self._state: Literal["header", "content", "reasoning"] = "header" if start == "auto" else start
         self._header = ""
         self._resolved = start != "auto"
 
-    def feed(self, delta: str) -> list[tuple[str, str]]:
-        out: list[tuple[str, str]] = []
+    def feed(self, delta: str) -> list[tuple[Literal["content", "reasoning"], str]]:
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._buf += delta
         while self._buf:
             if self._state == "header":
@@ -179,7 +177,7 @@ class ChannelSplitter(_SplitBase):
             self._state = "header"
         return out
 
-    def flush(self) -> list[tuple[str, str]]:
+    def flush(self) -> list[tuple[Literal["content", "reasoning"], str]]:
         """Emit a held body; drop incomplete headers after the first message."""
         buf, header, self._buf, self._header = self._buf, self._header, "", ""
         kind = self._state
@@ -189,7 +187,7 @@ class ChannelSplitter(_SplitBase):
             buf, kind = header + buf, "content"
         if not buf:
             return []
-        out: list[tuple[str, str]] = []
+        out: list[tuple[Literal["content", "reasoning"], str]] = []
         self._emit(out, kind, buf)
         return out
 
@@ -204,8 +202,7 @@ def make_splitter(fmt: ReasoningFormat, *, start: SplitterStart = "auto", trim_l
 def reasoning_enabled(params: Mapping[str, Any]) -> bool:
     """Read the per-call reasoning flag from ``reasoning_cfg``-style params.
 
-    Defaults to ``True`` (thinking on) when no reasoning hint is present, matching
-    the templates' default render.
+    Defaults to ``True`` (thinking on) when no reasoning hint is present, matching the templates' default render.
     """
     ctk = params.get("chat_template_kwargs")
     if isinstance(ctk, dict) and "enable_thinking" in ctk:
@@ -223,11 +220,9 @@ _PASSTHROUGH = ("temperature", "top_p", "top_k", "min_p")
 def build_completion_params(params: Mapping[str, Any]) -> dict:
     """Remap chat-completion hyperparams to a ``/completion`` request body.
 
-    Renames ``max_tokens``->``n_predict`` and ``repetition_penalty``->
-    ``repeat_penalty``; passes temperature/top_p/top_k/min_p through; adds
-    ``cache_prompt: true``. Everything else (reasoning/thinking/
-    chat_template_kwargs/stream_options/prefill/...) is dropped by omission —
-    this is an allowlist.
+    Renames ``max_tokens``->``n_predict`` and ``repetition_penalty``-> ``repeat_penalty``; passes temperature/top_p/top_k/min_p
+    through; adds ``cache_prompt: true``. Everything else (reasoning/thinking/ chat_template_kwargs/stream_options/prefill/...)
+    is dropped by omission -- this is an allowlist.
     """
     out: dict[str, Any] = {"cache_prompt": True}
     for k in _PASSTHROUGH:
@@ -238,10 +233,9 @@ def build_completion_params(params: Mapping[str, Any]) -> dict:
         out["n_predict"] = params["max_tokens"]
     if params.get("repetition_penalty") is not None:
         out["repeat_penalty"] = params["repetition_penalty"]
-    # Per-token alternatives (mikupad-style steering). ``post_sampling_probs``
-    # asks for linear probabilities after sampling (matches what a writer sees);
-    # old servers ignore both unknown fields. ``bool`` is an ``int`` subclass, so
-    # exclude it explicitly — ``n_probs=True`` is not a request for 1 alternative.
+    # Per-token alternatives (mikupad-style steering). ``post_sampling_probs`` asks for linear probabilities after sampling
+    # (matches what a writer sees); old servers ignore both unknown fields. ``bool`` is an ``int`` subclass, so exclude it
+    # explicitly -- ``n_probs=True`` is not a request for 1 alternative.
     n_probs = params.get("n_probs")
     if isinstance(n_probs, int) and not isinstance(n_probs, bool) and n_probs > 0:
         out["n_probs"] = n_probs
@@ -252,9 +246,8 @@ def build_completion_params(params: Mapping[str, Any]) -> dict:
 def _linear_prob(rec: Mapping[str, Any]) -> float | None:
     """Read a linear probability from a prob record, converting ``logprob`` via exp.
 
-    Prefers an explicit ``prob`` (post_sampling_probs / legacy); falls back to
-    ``math.exp(logprob)`` (the OpenAI-style logprob shape). Returns ``None`` when
-    neither is a finite number.
+    Prefers an explicit ``prob`` (post_sampling_probs / legacy); falls back to ``math.exp(logprob)`` (the OpenAI-style logprob
+    shape). Returns ``None`` when neither is a finite number.
     """
     if "prob" in rec:
         try:
@@ -278,11 +271,11 @@ def _tok_str(rec: Mapping[str, Any]) -> str | None:
     return None
 
 
-def normalize_prob_records(records: Any) -> list[dict]:
+def normalize_prob_records(records: Any) -> list[TokenProbability]:
     """Normalize per-token probability records."""
     if not isinstance(records, list):
         return []
-    out: list[dict] = []
+    out: list[TokenProbability] = []
     for rec in records:
         if not isinstance(rec, dict):
             continue
@@ -290,7 +283,7 @@ def normalize_prob_records(records: Any) -> list[dict]:
         if token is None:
             continue
         raw_alts = rec.get("top_probs") or rec.get("top_logprobs") or rec.get("probs") or []
-        top: list[dict] = []
+        top: list[TokenAlternative] = []
         if isinstance(raw_alts, list):
             for alt in raw_alts:
                 if not isinstance(alt, dict):
@@ -301,18 +294,16 @@ def normalize_prob_records(records: Any) -> list[dict]:
                     top.append({"t": t, "p": p})
         prob = _linear_prob(rec)
         if prob is None:
-            # Legacy shape has no top-level prob: read the sampled token's own
-            # entry from the alternatives list.
+            # Legacy shape has no top-level prob: read the sampled token's own entry from the alternatives list.
             prob = next((a["p"] for a in top if a["t"] == token), 0.0)
         out.append({"token": token, "prob": prob, "top": top})
     return out
 
 
-def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
+def parse_token_probs(data: Mapping[str, Any]) -> list[TokenProbability]:
     """Normalize a ``/completion`` chunk's ``completion_probabilities`` to Orb's shape.
 
-    See :func:`normalize_prob_records` for the accepted record shapes and
-    degrade behaviour.
+    See :func:`normalize_prob_records` for the accepted record shapes and degrade behaviour.
     """
     return normalize_prob_records(data.get("completion_probabilities"))
 
@@ -320,9 +311,8 @@ def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
 def has_image_parts(messages: Sequence[Mapping[str, Any]]) -> bool:
     """True if any message's content is a parts list containing an ``image_url``.
 
-    Text mode can't render images (no multimodal /apply-template path yet), so
-    such a call routes back through the chat transport — same server + template,
-    so the KV cache stays warm.
+    Text mode can't render images (no multimodal /apply-template path yet), so such a call routes back through the chat
+    transport -- same server + template, so the KV cache stays warm.
     """
     for m in messages:
         content = m.get("content")
@@ -336,11 +326,9 @@ def has_image_parts(messages: Sequence[Mapping[str, Any]]) -> bool:
 def forced_schema(tools: Sequence[Mapping[str, Any]] | None, tool_choice: Any) -> dict | None:
     """Return the JSON schema to grammar-constrain a forced tool call, or ``None``.
 
-    *tool_choice* is Orb's only forced shape:
-    ``{"type":"function","function":{"name":X}}``. Looks *X* up in *tools* and
-    returns its ``function.parameters``. ``"required"``/``"auto"``/``"none"``/
-    ``None`` -> ``None`` (no grammar; the ``parse_tool_calls`` chain handles any
-    calls the model makes on its own).
+    *tool_choice* is Orb's only forced shape: ``{"type":"function","function":{"name":X}}``. Looks *X* up in *tools* and returns
+    its ``function.parameters``. ``"required"``/``"auto"``/``"none"``/ ``None`` -> ``None`` (no grammar; the
+    ``parse_tool_calls`` chain handles any calls the model makes on its own).
     """
     if not isinstance(tool_choice, dict) or not tools:
         return None
@@ -357,10 +345,9 @@ def forced_schema(tools: Sequence[Mapping[str, Any]] | None, tool_choice: Any) -
 def synthesize_usage(final: Mapping[str, Any]) -> dict:
     """Build an OpenAI-shaped ``usage`` dict from a ``/completion`` final chunk.
 
-    Provider-truth, exact (probe-verified F8): ``prompt_tokens`` =
-    ``tokens_evaluated``, ``completion_tokens`` = ``tokens_predicted``,
-    ``cached_tokens`` = ``tokens_evaluated - timings.prompt_n`` (the prefix the
-    server reused). Consumed unchanged by the KV tracker's ``extract_cache_stats``.
+    Provider-truth, exact (probe-verified F8): ``prompt_tokens`` = ``tokens_evaluated``, ``completion_tokens`` =
+    ``tokens_predicted``, ``cached_tokens`` = ``tokens_evaluated - timings.prompt_n`` (the prefix the server reused). Consumed
+    unchanged by the KV tracker's ``extract_cache_stats``.
     """
     evaluated = int(final.get("tokens_evaluated") or 0)
     predicted = int(final.get("tokens_predicted") or 0)
@@ -377,29 +364,21 @@ def synthesize_usage(final: Mapping[str, Any]) -> dict:
 def terminal_state(final: Mapping[str, Any]) -> tuple[dict, str]:
     """``(usage, finish_reason)`` for a ``/completion`` final chunk.
 
-    llama.cpp flags a token-budget cutoff as ``stopped_limit`` (older builds)
-    or ``stop_type == "limit"`` (newer). Mapping either to ``"length"`` mirrors
-    the chat transport's ``finish_reason``, so consumers (doc-mode cut-off
-    detection) see one contract across both transports.
+    llama.cpp flags a token-budget cutoff as ``stopped_limit`` (older builds) or ``stop_type == "limit"`` (newer). Mapping
+    either to ``"length"`` mirrors the chat transport's ``finish_reason``, so consumers (doc-mode cut-off detection) see one
+    contract across both transports.
     """
     limit = bool(final.get("stopped_limit") or final.get("stop_type") == "limit")
     return synthesize_usage(final), "length" if limit else "stop"
 
 
-def forced_tool_message(name: str, arguments: str) -> dict:
+def forced_tool_message(name: str, arguments: str) -> CompletionMessage:
     """Assemble the ``done`` message for a grammar-forced tool call.
 
-    Byte-symmetric with chat mode: empty content, one ``tool_calls`` entry whose
-    ``arguments`` is the raw JSON string the grammar produced. It flows through
-    the existing ``json.loads`` path in ``parse_tool_calls`` unchanged.
+    Byte-symmetric with chat mode: empty content, one ``tool_calls`` entry whose ``arguments`` is the raw JSON string the
+    grammar produced. It flows through the existing ``json.loads`` path in ``parse_tool_calls`` unchanged.
     """
     return {
         "content": "",
-        "tool_calls": [
-            {
-                "id": "call_0",
-                "type": "function",
-                "function": {"name": name, "arguments": arguments},
-            }
-        ],
+        "tool_calls": [{"id": "call_0", "type": "function", "function": {"name": name, "arguments": arguments}}],
     }

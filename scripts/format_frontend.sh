@@ -4,14 +4,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-# Auto-install Biome if not present
-if ! command -v biome &> /dev/null; then
-    echo "Biome not found, installing..."
-    npm install -g @biomejs/biome
+# Use the pinned Biome version so local formatting matches CI.
+if [ ! -x "node_modules/.bin/biome" ]; then
+    echo "Installing frontend dev dependencies..."
+    npm ci
 fi
 
 echo "Formatting JavaScript with Biome..."
-biome format frontend/ --write "$@"
+node_modules/.bin/biome format frontend/ --write "$@"
 
 echo "Checking JavaScript with Biome..."
-biome check frontend/ "$@"
+node_modules/.bin/biome check frontend/ "$@"

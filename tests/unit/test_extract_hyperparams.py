@@ -22,20 +22,14 @@ def test_the_agent_lane_prefers_its_own_values():
 
 
 def test_a_partial_mapping_falls_back_per_key():
-    # A real settings row is all-or-nothing -- every `agent_` twin comes from the
-    # same overlay of six NOT NULL columns -- so this guards callers that hand in a
-    # hand-built mapping rather than a state the database can reach.
+    # A real settings row is all-or-nothing -- every `agent_` twin comes from the same overlay of six NOT NULL columns -- so
+    # this guards callers that hand in a hand-built mapping rather than a state the database can reach.
     params = extract_hyperparams({**_WRITER, "agent_temperature": 0.2}, lane="agent")
     assert params == {**_WRITER, "temperature": 0.2}
 
 
-def test_defaults_only_fill_keys_no_lane_supplied():
-    params = extract_hyperparams({"temperature": 0.8}, lane="agent", defaults={"temperature": 0.25, "max_tokens": 2048})
-    assert params == {"temperature": 0.8, "max_tokens": 2048}
-
-
-def test_explicit_null_omits_a_parameter_without_falling_back_to_call_defaults():
-    params = extract_hyperparams({**_WRITER, "temperature": None}, defaults={"temperature": 0.25, "max_tokens": 2048})
+def test_explicit_null_omits_a_parameter():
+    params = extract_hyperparams({**_WRITER, "temperature": None})
     assert "temperature" not in params
     assert params["max_tokens"] == 4096
 
@@ -52,12 +46,7 @@ def test_the_budget_goes_out_as_configured():
 
 
 @pytest.mark.parametrize(
-    ("settings", "expected"),
-    [
-        ({"agent_max_tokens": 32768, "max_tokens": 600}, 32768),
-        ({"max_tokens": 600}, 600),
-        ({}, 4096),
-    ],
+    ("settings", "expected"), [({"agent_max_tokens": 32768, "max_tokens": 600}, 32768), ({"max_tokens": 600}, 600), ({}, 4096)]
 )
 def test_agent_lane_max_tokens_is_the_configured_budget(settings, expected):
     assert agent_lane_max_tokens(settings) == expected

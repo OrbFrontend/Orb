@@ -1,13 +1,12 @@
 """Unit coverage for the attachment-group lock stabilization.
 
-The group root id (``parent_attachment_id or id``) is a *mutable* identity:
-deleting a root promotes a surviving sibling to a new root. ``locked_attachment_group``
-must resolve the root, lock it, then RE-READ under the lock and retry on the
-promoted root if the identity moved while acquiring -- otherwise a caller mutates
-the group under a stale lock key or feeds a generative hook a since-deleted parent.
+The group root id (``parent_attachment_id or id``) is a *mutable* identity: deleting a root promotes a surviving sibling to a
+new root. ``locked_attachment_group`` must resolve the root, lock it, then RE-READ under the lock and retry on the promoted root
+if the identity moved while acquiring -- otherwise a caller mutates the group under a stale lock key or feeds a generative hook
+a since-deleted parent.
 
-These drive the context manager directly with a scripted ``get_workflow_attachment_by_id``
-so the retry is deterministic -- no sleeps, no real concurrency.
+These drive the context manager directly with a scripted ``get_workflow_attachment_by_id`` so the retry is deterministic -- no
+sleeps, no real concurrency.
 """
 
 from __future__ import annotations
@@ -75,9 +74,7 @@ async def test_target_that_is_its_own_root(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "row",
-    [None, {"id": 2, "message_id": 999, "parent_attachment_id": None}],
-    ids=["missing", "off-message"],
+    "row", [None, {"id": 2, "message_id": 999, "parent_attachment_id": None}], ids=["missing", "off-message"]
 )
 async def test_404_when_target_missing_or_off_message(monkeypatch, row):
     async def fake_get(aid):

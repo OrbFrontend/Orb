@@ -23,10 +23,9 @@ def _can_spawn_async() -> bool:
 def _decode(raw: bytes) -> str:
     """One log line as text.
 
-    Decoded as UTF-8 explicitly: llama.cpp writes UTF-8, and on Windows the
-    locale code page cannot represent most of what a GGUF's metadata puts in
-    that log -- a decode error here would kill the only reader that could have
-    told us why the child refused to load.
+    Decoded as UTF-8 explicitly: llama.cpp writes UTF-8, and on Windows the locale code page cannot represent most of what a
+    GGUF's metadata puts in that log -- a decode error here would kill the only reader that could have told us why the child
+    refused to load.
     """
     return raw.decode("utf-8", "replace").rstrip()
 
@@ -65,9 +64,7 @@ class _AsyncChild:
 
     async def start(self, argv: Sequence[str]) -> None:
         self._process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
         )
         self._drain = asyncio.create_task(self._pump())
 
@@ -109,10 +106,9 @@ class _AsyncChild:
 class _ThreadChild:
     """``subprocess.Popen`` plus a reader thread, for a loop that cannot spawn.
 
-    Nothing blocking runs on the event loop: the thread's entire job is reading
-    the pipe, and both waits go through :func:`asyncio.to_thread`. The thread is
-    a daemon because a child that ignores ``kill`` must not hold up interpreter
-    exit -- ``shutdown()`` has already done all it can by then.
+    Nothing blocking runs on the event loop: the thread's entire job is reading the pipe, and both waits go through
+    :func:`asyncio.to_thread`. The thread is a daemon because a child that ignores ``kill`` must not hold up interpreter exit --
+    ``shutdown()`` has already done all it can by then.
     """
 
     def __init__(self, sink: Callable[[str], None]) -> None:
@@ -121,14 +117,13 @@ class _ThreadChild:
         self._reader: threading.Thread | None = None
 
     async def start(self, argv: Sequence[str]) -> None:
-        self._process = subprocess.Popen(  # noqa: S603 — local executable; request choices use closed argv allowlists
+        self._process = subprocess.Popen(  # noqa: S603 -- local executable; request choices use closed argv allowlists
             list(argv),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            # The child is a console program and Orb may have been started from
-            # a shortcut rather than a console: without this a black window sits
-            # on the desktop for as long as the model is loaded. Zero everywhere
-            # else, where Popen rejects a non-zero value outright.
+            # The child is a console program and Orb may have been started from a shortcut rather than a console: without this a
+            # black window sits on the desktop for as long as the model is loaded. Zero everywhere else, where Popen rejects a
+            # non-zero value outright.
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         self._reader = threading.Thread(target=self._pump, name="orb-llama-log", daemon=True)
@@ -138,9 +133,8 @@ class _ThreadChild:
         process = self._process
         assert process is not None and process.stdout is not None
         try:
-            # `iter(readline, b"")` rather than iterating the file: a pipe read
-            # ahead in block-sized chunks would hold back the very lines a boot
-            # failure is diagnosed from until the buffer filled.
+            # `iter(readline, b"")` rather than iterating the file: a pipe read ahead in block-sized chunks would hold back the
+            # very lines a boot failure is diagnosed from until the buffer filled.
             for raw in iter(process.stdout.readline, b""):
                 self._sink(_decode(raw))
         finally:
@@ -178,9 +172,8 @@ class _ThreadChild:
     async def aclose(self) -> None:
         reader, self._reader = self._reader, None
         if reader is not None:
-            # The read loop ends at EOF, which is the child's death, so by the
-            # time this is called the join is only collecting last words. Still
-            # bounded: a child that survived kill() must not hang shutdown.
+            # The read loop ends at EOF, which is the child's death, so by the time this is called the join is only collecting
+            # last words. Still bounded: a child that survived kill() must not hang shutdown.
             await asyncio.to_thread(reader.join, 5.0)
 
 

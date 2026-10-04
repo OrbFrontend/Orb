@@ -53,13 +53,7 @@ class SparkTTSAdapter(TTSAdapter):
             async def speak(chunk: SpeakableChunk) -> tuple[bytes, int]:
                 response = await client.post(
                     url,
-                    json={
-                        "text": chunk.text,
-                        "voice": voice,
-                        "speed": rate,
-                        "pitch": pitch,
-                        "lang": language,
-                    },
+                    json={"text": chunk.text, "voice": voice, "speed": rate, "pitch": pitch, "lang": language},
                     headers=_headers(api_key),
                 )
                 response.raise_for_status()
@@ -83,13 +77,7 @@ class SparkTTSAdapter(TTSAdapter):
             duration_ms=pcm_duration_ms(raw_pcm, sample_rate),
         )
 
-    async def list_voices(
-        self,
-        language: str = "",
-        api_url: str = "",
-        api_key: str | None = None,
-        **kwargs,
-    ) -> list[dict]:
+    async def list_voices(self, language: str = "", api_url: str = "", api_key: str | None = None, **kwargs) -> list[dict]:
         """Fetch presets from the sidecar; empty when it is not running."""
         try:
             async with httpx.AsyncClient(timeout=_LIST_TIMEOUT) as client:

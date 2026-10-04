@@ -1,9 +1,8 @@
 // The Character Library's filter predicate. library_filter.js is pure and
 // imports nothing, so it loads under node --test with no DOM stub at all.
 //
-// What matters here is what the 31-bit tag mask could not do and what it must
-// not start doing wrong: more than 31 tags, an imported tag matching a curated
-// one across casing, and no substring false positives.
+// What matters here is what the 31-bit tag mask could not do and what it must not start doing wrong: more than 31 tags,
+// an imported tag matching a curated one across casing, and no substring false positives.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -83,12 +82,10 @@ test("tag matching is not confused by numeric prefixes", () => {
   assert.ok(!matchesFilter("lira", tagsAttrFor(["Tag40"]), "", ["Tag4"]));
 });
 
-// ── the chip row ─────────────────────────────────────────────────────────────
+// -- the chip row -------------------------------------------------------------
 //
-// One derivation over the cards' own tags, since the auto-tagger writes the
-// curated vocabulary onto them. What matters is that it folds casing the same
-// way the predicate above does, and that a chip it emits always selects
-// something.
+// One derivation over the cards' own tags, since the auto-tagger writes the curated vocabulary onto them. What matters
+// is that it folds casing the same way the predicate above does, and that a chip it emits always selects something.
 
 test("topTags ranks by use and caps the row", () => {
   const cards = [["Fantasy", "Romance"], ["Fantasy"], ["Fantasy", "Sci-Fi"], ["Romance"]];
@@ -97,8 +94,7 @@ test("topTags ranks by use and caps the row", () => {
 });
 
 test("topTags merges spellings the filter cannot tell apart", () => {
-  // Two chips here would be one tag drawn twice: selecting either matches both
-  // cards, because the predicate lowercases.
+  // Two chips here would be one tag drawn twice: selecting either matches both cards, because the predicate lowercases.
   const cards = [["Fantasy"], ["fantasy"], ["  FANTASY "]];
   assert.deepEqual(topTags(cards, 15), ["Fantasy"]);
 });

@@ -1,13 +1,10 @@
-import { renderToolsPanel } from "./settings.js";
 import { S } from "./state.js";
 
 const workflowEntry = (w) => (w && typeof w.id === "string" ? `/static/workflows/${w.id}/index.js` : null);
 
 /**
- * Start fetching every workflow's entry module without evaluating it, so the
- * sequential imports in loadWorkflowModules find those files already in flight.
- * Chrome preloads only the named module; each entry's own imports still load
- * when it evaluates.
+ * Preload workflow entry modules for later sequential imports.
+ * Chrome fetches their dependencies only when each entry evaluates.
  */
 export function preloadWorkflowModules() {
   for (const w of S.workflowManifest) {
@@ -20,6 +17,7 @@ export function preloadWorkflowModules() {
   }
 }
 
+/** Import each workflow entry in manifest order; resolves true if any loaded. */
 export async function loadWorkflowModules() {
   let loaded = false;
   for (const w of S.workflowManifest) {
@@ -32,5 +30,5 @@ export async function loadWorkflowModules() {
       console.error(`workflow module "${w.id}" failed to load:`, e);
     }
   }
-  if (loaded) renderToolsPanel();
+  return loaded;
 }

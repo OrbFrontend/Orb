@@ -18,10 +18,9 @@ class ManagedLlamaServerHost:
     """One resident llama-server, loaded lazily and swapped by profile."""
 
     def __init__(self, *, name: str, idle_timeout: float, register: bool = True) -> None:
-        """*register* is default-on because the failure mode of forgetting it is
-        the one this subsystem warns about three times: an orphaned child
-        holding the GPU after Orb exits. A test that builds a throwaway host
-        passes ``register=False``."""
+        """*register* is default-on because the failure mode of forgetting it is the one this subsystem warns about three times:
+        an orphaned child holding the GPU after Orb exits. A test that builds a throwaway host passes ``register=False``.
+        """
         self.name = name
         self.state = "idle"  # idle | loading | ready | failed
         self.error = ""
@@ -40,11 +39,9 @@ class ManagedLlamaServerHost:
     def mark_stale(self, profile: LaunchProfile | None) -> None:
         """Record a new selection without touching the running child.
 
-        A settings route calls this and returns immediately: a turn may be
-        mid-generation, and a settings write has no business blocking on it or
-        killing it. The restart happens on the next :meth:`ensure`. An
-        identical profile is not a change, which is what stops a settings write
-        that altered nothing from restarting a healthy child.
+        A settings route calls this and returns immediately: a turn may be mid-generation, and a settings write has no business
+        blocking on it or killing it. The restart happens on the next :meth:`ensure`. An identical profile is not a change,
+        which is what stops a settings write that altered nothing from restarting a healthy child.
         """
         if self.profile is not None and profile is not None and self.profile == profile:
             return
@@ -63,17 +60,15 @@ class ManagedLlamaServerHost:
         """``ensure`` with the swap lock already held."""
         if self.profile == profile and self.healthy and self.server is not None:
             return self.server
-        # THE GPU SWITCH IS THIS LINE, not `--n-gpu-layers` alone. Every build
-        # accepts that flag and a CPU-only one then offloads nothing, silently
-        # and with a zero exit status, so asking for the build that can honour
-        # it is what makes the setting real.
+        # THE GPU SWITCH IS THIS LINE, not `--n-gpu-layers` alone. Every build accepts that flag and a CPU-only one then
+        # offloads nothing, silently and with a zero exit status, so asking for the build that can honour it is what makes the
+        # setting real.
         wants_gpu = profile.gpu_layers > 0
         executable = binary.find_binary(gpu=wants_gpu)
         if wants_gpu and binary.gpu_capable(executable) is False:
             logger.warning("%s was asked for GPU but %s reports no GPU device; it will run on CPU.", self.name, executable)
-        # The flag goes up BEFORE the drain, not after it: new work has to
-        # stop arriving for the drain to end, and `state` is what callers
-        # read to turn themselves away with a message.
+        # The flag goes up BEFORE the drain, not after it: new work has to stop arriving for the drain to end, and `state` is
+        # what callers read to turn themselves away with a message.
         self.profile, self.state, self.error, self._stale = profile, "loading", "", False
         server: LlamaServerClient | None = None
         try:
@@ -92,9 +87,8 @@ class ManagedLlamaServerHost:
             await server.start()
             await server.wait_ready()
         except asyncio.CancelledError:
-            # An abandoned load (an aborted turn, the feature switched off) is
-            # not a failure, but nothing else holds its child: without the stop
-            # it keeps its VRAM for good and the panel reads "loading" forever.
+            # An abandoned load (an aborted turn, the feature switched off) is not a failure, but nothing else holds its child:
+            # without the stop it keeps its VRAM for good and the panel reads "loading" forever.
             previous = self.server
             live = previous is not None and previous.alive and previous.ready
             self.state, self._stale = ("ready" if live else "idle"), True
@@ -119,10 +113,9 @@ class ManagedLlamaServerHost:
     async def use(self, profile: LaunchProfile):
         """Yield a client protected from config-driven reloads.
 
-        The in-flight count is raised before the swap lock is released. This
-        closes the small but real gap an ensure-then-account sequence would
-        leave, where a Settings change could otherwise stop a child that a
-        caller had just received but had not started sending requests to yet.
+        The in-flight count is raised before the swap lock is released. This closes the small but real gap an
+        ensure-then-account sequence would leave, where a Settings change could otherwise stop a child that a caller had just
+        received but had not started sending requests to yet.
         """
         async with self._lock:
             server = await self._ensure_locked(profile)
@@ -156,8 +149,7 @@ class ManagedLlamaServerHost:
     async def exclusive_release(self):
         """Drain users and keep admission closed through a model file mutation.
 
-        Unlike a swap or a plain release, a file mutation refuses rather than
-        stopping a child someone is still using.
+        Unlike a swap or a plain release, a file mutation refuses rather than stopping a child someone is still using.
         """
         async with self._lock:
             if not await self._drain():
@@ -172,8 +164,7 @@ class ManagedLlamaServerHost:
             await self._release_locked()
 
     async def shutdown(self) -> None:
-        """Stop the child and the idle watcher. Reached from the app lifespan
-        through :func:`manager.shutdown_all`."""
+        """Stop the child and the idle watcher. Reached from the app lifespan through :func:`manager.shutdown_all`."""
         if self._idle_task is not None:
             self._idle_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):

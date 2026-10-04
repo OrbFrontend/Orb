@@ -1,8 +1,7 @@
 """Keyword-scan matcher: V3 `use_regex` + `selective`/`secondary_keys`.
 
-The scan feeds the *trailing* block only — constant entries ride the cached
-system prefix, so this path must never change which constants are selected
-(KV-cache prefix parity; see test_constant_lorebook_prefix.py for the seam).
+The scan feeds the *trailing* block only -- constant entries ride the cached system prefix, so this path must never change which
+constants are selected (KV-cache prefix parity; see test_constant_lorebook_prefix.py for the seam).
 """
 
 from __future__ import annotations
@@ -53,7 +52,6 @@ def test_selective_with_empty_secondary_keys_does_not_gate():
 
 
 def test_constant_entries_are_still_excluded_from_the_trailing_block():
-    """Prefix parity: constants never come back from the per-turn selection,
-    whatever the new flags say."""
+    """Prefix parity: constants never come back from the per-turn selection, whatever the new flags say."""
     const = _entry(id=2, name="Canon", keywords=["doom"], constant=1, use_regex=1, selective=1)
     assert select_active_entries([const, _entry()], _msgs("doom"), scan_depth=6) == [_entry()]

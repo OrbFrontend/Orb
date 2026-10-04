@@ -1,6 +1,5 @@
-"""
-0001_editor_rename — rename legacy `refine_assistant_output` → `editor_apply_patch`
-in settings.enabled_tools, and `refiner` → `editor` in settings.reasoning_enabled_passes.
+"""0001_editor_rename -- rename legacy `refine_assistant_output` -> `editor_apply_patch` in settings.enabled_tools, and `refiner`
+-> `editor` in settings.reasoning_enabled_passes.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ def migrate(conn: sqlite3.Connection) -> None:
 
     row_id, raw_tools, raw_passes = row
 
-    # --- enabled_tools: refine_assistant_output → editor_apply_patch ---
+    # --- enabled_tools: refine_assistant_output -> editor_apply_patch ---
     tools: dict = json.loads(raw_tools) if raw_tools else {}
     if "refine_assistant_output" in tools:
         value = tools.pop("refine_assistant_output")
@@ -27,7 +26,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             f"editor_apply_patch={tools['editor_apply_patch']!r}"
         )
 
-    # --- reasoning_enabled_passes: refiner → editor ---
+    # --- reasoning_enabled_passes: refiner -> editor ---
     passes: dict = json.loads(raw_passes) if raw_passes else {}
     if "refiner" in passes:
         value = passes.pop("refiner")

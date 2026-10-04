@@ -1,10 +1,8 @@
 """Spawning the llama-server child on both kinds of event loop, and its argv.
 
-The threaded path is Windows-only in production (see
-``process._can_spawn_async``). A branch that only ever runs on the platform CI
-does not cover is how ``NotImplementedError`` reached a user's chat bubble in
-the first place, so both implementations are exercised here against the same
-expectations.
+The threaded path is Windows-only in production (see ``process._can_spawn_async``). A branch that only ever runs on the platform
+CI does not cover is how ``NotImplementedError`` reached a user's chat bubble in the first place, so both implementations are
+exercised here against the same expectations.
 """
 
 from __future__ import annotations
@@ -79,11 +77,9 @@ async def test_returncode_reports_an_exit_without_being_waited_on(impl):
     while child.returncode is None and asyncio.get_running_loop().time() < deadline:
         await asyncio.sleep(0.02)
     assert child.returncode == 3
-    # ``aclose`` cancels the reader by contract ("stop reading the log"), so the
-    # line has to be waited for before it, not after: the child can be reaped --
-    # which is all ``returncode`` reports -- while the pump has yet to be
-    # scheduled even once, and cancelling it there drops the output. Observed as
-    # ``assert [] == ['bye']`` on a loaded box.
+    # ``aclose`` cancels the reader by contract ("stop reading the log"), so the line has to be waited for before it, not after:
+    # the child can be reaped -- which is all ``returncode`` reports -- while the pump has yet to be scheduled even once, and
+    # cancelling it there drops the output. Observed as ``assert [] == ['bye']`` on a loaded box.
     await _lines(sink, 1)
     await child.aclose()
     assert sink == ["bye"]
@@ -111,12 +107,11 @@ async def test_spawn_picks_the_implementation_the_loop_can_support(monkeypatch, 
 
 
 async def test_can_spawn_async_rejects_only_a_windows_loop_that_is_not_proactor(monkeypatch):
-    """The exact configuration ``run_windows.bat`` produces: win32 + --reload,
-    which uvicorn answers with a SelectorEventLoop that cannot spawn.
+    """The exact configuration ``run_windows.bat`` produces: win32 + --reload, which uvicorn answers with a SelectorEventLoop
+    that cannot spawn.
 
-    Patched on ``binary``, the module that defines the flag, because
-    ``process`` reads it as an attribute rather than binding it at import —
-    which is what keeps this test on the branch instead of on the constant.
+    Patched on ``binary``, the module that defines the flag, because ``process`` reads it as an attribute rather than binding it
+    at import -- which is what keeps this test on the branch instead of on the constant.
     """
     monkeypatch.setattr(P.binary, "IS_WINDOWS", False)
     assert P._can_spawn_async() is True
@@ -131,7 +126,7 @@ async def test_can_spawn_async_rejects_only_a_windows_loop_that_is_not_proactor(
 
 async def test_boot_failure_reports_the_child_log(monkeypatch, tmp_path):
     """``stop()`` closes the drain *after* the process is reaped precisely so
-    this tail is not empty — it is the whole diagnostic for a bad GGUF or a
+    this tail is not empty -- it is the whole diagnostic for a bad GGUF or a
     Vulkan build with no loader."""
     monkeypatch.setattr(B, "supports_flag", lambda _binary, _flag: False)
     monkeypatch.setattr(C, "_free_port", lambda: 12345)
@@ -164,8 +159,7 @@ async def test_argv_is_read_off_the_profile_and_nothing_else(monkeypatch, tmp_pa
 
 
 async def test_the_web_ui_flag_is_only_sent_to_a_build_that_knows_it(monkeypatch, tmp_path):
-    """A flag an older llama-server has never heard of is not a warning, it is
-    an immediate exit with a usage message."""
+    """A flag an older llama-server has never heard of is not a warning, it is an immediate exit with a usage message."""
     monkeypatch.setattr(B, "supports_flag", lambda _binary, _flag: False)
     assert "--no-webui" not in C._argv(_profile(), tmp_path / "llama-server", 1)
 

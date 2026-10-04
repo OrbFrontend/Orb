@@ -3,17 +3,10 @@ import { begin, finish } from "./operations.js";
 import { S } from "./state.js";
 import { convUrl, escAttr } from "./utils.js";
 
-// A workflow render the button that started it can stop. While it runs, that
-// button is its Stop button (`wf-running`). The request names the job's id, so
-// Stop cancels this render and leaves the conversation's others running; a
-// render that answers to its own AbortController is stopped by aborting it.
+// Render jobs turn their initiating button into Stop, using a job id or AbortController. Use `show` for live buttons
+// and `stopButtonState` during repaint; `end` restores every button carrying the job id.
 //
-// A repaint rebuilds only rows whose markup changed, so the Stop button has to
-// hold both ways: `show` turns the live button over in place, and a renderer
-// that repaints the button mid-render emits `stopButtonState` instead of its
-// idle title. `end` finds every copy by the job's id and turns it back.
-
-// A double click's second press is not a Stop.
+// A double click's second press is not Stop.
 const STOP_ARM_MS = 400;
 
 export function startWorkflowJob({ convId = null, title, controller = null, messageId = null, attachmentId = null }) {

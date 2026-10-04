@@ -1,8 +1,7 @@
 """Per-fragment director mode: the prompt builder and the director_pass loop.
 
-Covers ``build_director_scene_step_prompt`` (pure) and the branch in
-``director_pass`` that issues one forced ``direct_scene`` call per interactive
-fragment when ``director_individual_fragments`` is on.
+Covers ``build_director_scene_step_prompt`` (pure) and the branch in ``director_pass`` that issues one forced ``direct_scene``
+call per interactive fragment when ``director_individual_fragments`` is on.
 """
 
 from __future__ import annotations
@@ -84,13 +83,12 @@ async def _run(base, fragments, settings, director=None, resting=frozenset()):
     return events[-1]["result"]
 
 
-# ── build_director_scene_step_prompt ──────────────────────────────────────────
+# -- build_director_scene_step_prompt ------------------------------------------
 
 
 class TestStepPrompt:
-    # These assert on what the builder *interpolates* -- fragment ids, descriptions,
-    # decided values, the field-type hint -- never on the surrounding instruction
-    # copy, which gets reworded whenever the director prompt is tuned.
+    # These assert on what the builder *interpolates* -- fragment ids, descriptions, decided values, the field-type hint --
+    # never on the surrounding instruction copy, which gets reworded whenever the director prompt is tuned.
 
     def test_moods_stage_targets_moods_only(self):
         out = build_director_scene_step_prompt("msg", ["tense"], _MOODS, target_fragment=None)
@@ -142,7 +140,7 @@ class TestStepPrompt:
         assert "hp 42/100" not in plain
 
 
-# ── director_pass per-fragment loop ───────────────────────────────────────────
+# -- director_pass per-fragment loop -------------------------------------------
 
 
 class TestPerFragmentLoop:
@@ -160,7 +158,7 @@ class TestPerFragmentLoop:
         assert len(base.calls) == 4  # one per fragment + one moods call
         assert result.active_moods == ["tense"]  # fragment-stage moods are ignored
         assert result.extra_fields == {"user_intent": "wants X", "keywords": ["a", "b"]}  # empty next_event skipped
-        # Each recorded call keeps only its stage's field — extras the model
+        # Each recorded call keeps only its stage's field -- extras the model
         # volunteered (moods on call 1, user_intent on call 2) are stripped.
         assert [tc["arguments"] for tc in result.calls] == [
             {"user_intent": "wants X"},
@@ -215,17 +213,15 @@ class TestPerFragmentLoop:
         assert result.active_moods == []
 
     async def test_null_moods_clear_like_an_omission(self):
-        # A model that declines the moods step by emitting `"moods": null` must
-        # land on [], not None -- director_stage set()-unions active_moods, so a
-        # None there aborts the whole turn.
+        # A model that declines the moods step by emitting `"moods": null` must land on [], not None -- director_stage
+        # set()-unions active_moods, so a None there aborts the whole turn.
         responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": None})]
         base = _FakeBase(_FRAGMENTS[:1], responses)
         result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
         assert result.active_moods == []
 
     async def test_non_string_moods_are_dropped(self):
-        # Nothing but a fragment id can be a mood, and an unhashable item would
-        # blow up the same set() union.
+        # Nothing but a fragment id can be a mood, and an unhashable item would blow up the same set() union.
         responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": ["tense", {"id": "tense"}, 7]})]
         base = _FakeBase(_FRAGMENTS[:1], responses)
         result = await _run(base, _FRAGMENTS[:1], self._toggle_on())
@@ -264,11 +260,7 @@ class TestPerFragmentLoop:
         assert result.active_moods == ["tense"]
 
     async def test_resting_fragment_skips_its_call(self):
-        responses = [
-            _ds_message({"keywords": ["a"]}),
-            _ds_message({"next_event": "she leaves"}),
-            _ds_message({"moods": []}),
-        ]
+        responses = [_ds_message({"keywords": ["a"]}), _ds_message({"next_event": "she leaves"}), _ds_message({"moods": []})]
         base = _FakeBase(_FRAGMENTS, responses)
         result = await _run(base, _FRAGMENTS, self._toggle_on(), resting=frozenset({"user_intent"}))
 
@@ -278,12 +270,7 @@ class TestPerFragmentLoop:
 
     async def test_all_resting_still_uses_per_fragment_path(self):
         base = _FakeBase(_FRAGMENTS, [_ds_message({"moods": []})])
-        await _run(
-            base,
-            _FRAGMENTS,
-            self._toggle_on(),
-            resting=frozenset(fragment["id"] for fragment in _FRAGMENTS),
-        )
+        await _run(base, _FRAGMENTS, self._toggle_on(), resting=frozenset(fragment["id"] for fragment in _FRAGMENTS))
 
         assert len(base.calls) == 1
         assert "Fill ONLY: moods" in base.calls[0][1]
@@ -300,13 +287,9 @@ class TestDirectSceneRequiredStripped:
     ]
 
     def _blob(self, per_fragment: int) -> dict:
-        from backend.pipeline.config import _build_writer_tools_blob
+        from backend.pipeline.config import build_writer_tools_blob
 
-        blob, _ = _build_writer_tools_blob(
-            {"director_individual_fragments": per_fragment},
-            self._REQUIRED_FRAGS,
-            {},
-        )
+        blob, _ = build_writer_tools_blob({"director_individual_fragments": per_fragment}, self._REQUIRED_FRAGS, {})
         return blob
 
     def test_required_dropped_when_per_fragment_on(self):

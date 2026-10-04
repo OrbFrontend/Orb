@@ -1,10 +1,8 @@
 """A failure after billed calls keeps what those calls produced.
 
-A Writer failure still ends the turn with the terminal ``error`` event, and the
-save keeps the Director's moods and cooldowns on the reply row and its Scene
-Guidance, tool calls and reasoning in the Inspector's log. A failing Editor
-call is only a ``warning``: the turn completes with the edits that finished,
-and the Editor's remaining sub-steps still run.
+A Writer failure still ends the turn with the terminal ``error`` event, and the save keeps the Director's moods and cooldowns on
+the reply row and its Scene Guidance, tool calls and reasoning in the Inspector's log. A failing Editor call is only a
+``warning``: the turn completes with the edits that finished, and the Editor's remaining sub-steps still run.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ import pytest
 import backend.database as dbmod
 from backend.inference import AbortToken
 from backend.pipeline import handle_turn
-from backend.pipeline.persistence import _consume_pipeline
+from backend.pipeline.persistence import consume_pipeline
 from backend.pipeline.state import TurnState
 
 REPLY = "Her voice was barely a whisper."
@@ -40,16 +38,13 @@ def _search_replace(search: str, replace: str, *, call_id: str) -> list[dict]:
         {
             "id": call_id,
             "type": "function",
-            "function": {
-                "name": "editor_search_replace",
-                "arguments": {"patches": [{"search": search, "replace": replace}]},
-            },
+            "function": {"name": "editor_search_replace", "arguments": {"patches": [{"search": search, "replace": replace}]}},
         }
     ]
 
 
 async def _post_processing_fragment(client, fid: str, sort_order: int) -> None:
-    response = await client.post(
+    await client.post_checked(
         "/api/interactive-fragments",
         json={
             "id": fid,
@@ -62,7 +57,6 @@ async def _post_processing_fragment(client, fid: str, sort_order: int) -> None:
             "sort_order": sort_order,
         },
     )
-    assert response.status_code == 200, response.text
 
 
 async def _directed_turn_setup(client, llm_mock, cid: str) -> None:
@@ -81,9 +75,8 @@ async def _assistant(cid: str) -> dict:
 
 
 async def _director_log(client, cid: str, message_id: int) -> dict:
-    response = await client.get(f"/api/conversations/{cid}/messages/{message_id}/director-log")
-    assert response.status_code == 200
-    return response.json()
+    response = await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
+    return response
 
 
 async def _assert_director_record_kept(client, cid: str, reply: dict) -> dict:
@@ -234,7 +227,7 @@ async def test_cancelling_the_fallback_save_writes_the_reply_once(client, monkey
         raise RuntimeError("connection lost")
 
     settings = await dbmod.get_settings()
-    task = asyncio.create_task(_drain(_consume_pipeline(failing(), cid, settings, user_id, 1)))
+    task = asyncio.create_task(_drain(consume_pipeline(failing(), cid, settings, user_id, 1)))
     await reached.wait()
     task.cancel()
     release.set()

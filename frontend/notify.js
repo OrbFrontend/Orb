@@ -5,7 +5,7 @@ const TRANSIENT_MS = 3000; // match notifications.css
 const FADE_MS = 200;
 const COPIED_MS = 1200; // copy feedback duration
 
-export async function copyText(text) {
+async function copyText(text) {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);

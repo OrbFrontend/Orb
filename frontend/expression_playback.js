@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import { expressionSegments, settledSentences } from "./expression_segments.js";
@@ -21,9 +22,8 @@ export async function expressionLabels(charId) {
 
 const PREWARM_INTERVAL_MS = 250;
 
-// This turn's classifier labels by sentence. Sentences the stream has settled
-// are classified while the reply generates, so settlement only waits on the
-// ones a later pass rewrote and the final one.
+// This turn's classifier labels by sentence. Sentences the stream has settled are classified while the reply generates,
+// so settlement only waits on the ones a later pass rewrote and the final one.
 let _classified = new Map();
 let _warm = null;
 
@@ -81,8 +81,7 @@ export function prewarmExpressionLabels(content, speakerMemberId) {
   }, PREWARM_INTERVAL_MS);
 }
 
-// One request at a time, so warming never floods a local classifier that may
-// share the machine with generation.
+// One request at a time, so warming never floods a local classifier that may share the machine with generation.
 async function drainPrewarm(warm) {
   warm.running = true;
   try {
@@ -211,3 +210,5 @@ export function handleExpressionPlaybackKey(event) {
     return;
   if (advanceExpressionPlayback()) event.preventDefault();
 }
+
+registerAction("expression-playback", "advance", () => advanceExpressionPlayback());

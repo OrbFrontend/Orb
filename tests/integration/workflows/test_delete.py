@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-)
+from backend.database import add_message, insert_workflow_attachment_row
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 
 from ._fixtures import must_get_workflow_attachment, new_conversation, seed_message
@@ -20,17 +17,14 @@ async def _insert(mid: int, *, parent: int | None = None, annotation: str | None
 
 async def _delete(client, cid: str, mid: int, aid: int, scope):
     return await client.post(
-        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete",
-        json={"scope": scope},
+        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete", json={"scope": scope}
     )
 
 
 async def _activate(client, cid: str, mid: int, root_id: int, sibling_id: int | None) -> None:
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate",
-        json={"sibling_id": sibling_id},
+    await client.post_checked(
+        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate", json={"sibling_id": sibling_id}
     )
-    assert resp.status_code == 200
 
 
 async def test_variant_delete_of_active_nulls_root_pointer(client):
@@ -154,8 +148,6 @@ async def test_bad_scope_returns_400(client):
 async def test_missing_scope_returns_400(client):
     cid, mid = await seed_message(client)
     root = await _insert(mid)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root}/delete",
-        json={},
+    await client.post_checked(
+        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root}/delete", json={}, expected_status=400
     )
-    assert resp.status_code == 400

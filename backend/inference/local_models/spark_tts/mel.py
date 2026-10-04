@@ -21,7 +21,7 @@ NUM_MELS = 128
 
 def mel_filterbank() -> np.ndarray:
     """Return the Slaney-normalized mel filterbank."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     n_freqs = N_FFT // 2 + 1
     all_freqs = np.linspace(0, SAMPLE_RATE // 2, n_freqs, dtype=np.float64)
@@ -38,7 +38,7 @@ def mel_filterbank() -> np.ndarray:
 
 def _hann_periodic(length: int) -> np.ndarray:
     """Return the periodic Hann window used by torch."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     n = np.arange(length, dtype=np.float64)
     return 0.5 - 0.5 * np.cos(2.0 * np.pi * n / length)
@@ -46,7 +46,7 @@ def _hann_periodic(length: int) -> np.ndarray:
 
 def _stft_magnitude(wav: np.ndarray) -> np.ndarray:
     """``(n_freqs, frames)`` magnitudes, matching ``torch.stft``'s framing."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     # Match torch.stft's centered, reflect-padded framing.
     padded = np.pad(np.asarray(wav, dtype=np.float64), N_FFT // 2, mode="reflect")
@@ -66,7 +66,7 @@ def _stft_magnitude(wav: np.ndarray) -> np.ndarray:
 
 def mel_spectrogram(wav: np.ndarray) -> np.ndarray:
     """``(n_mels, frames)`` float32 mel magnitudes for 16 kHz mono *wav*."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     spec = _stft_magnitude(wav)  # power=1: magnitude, not energy
     return (mel_filterbank().T @ spec).astype(np.float32)

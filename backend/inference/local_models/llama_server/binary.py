@@ -17,7 +17,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 #: The repo root. Four parents up from
-#: ``backend/inference/local_models/llama_server/`` — a wrong count does not
+#: ``backend/inference/local_models/llama_server/`` -- a wrong count does not
 #: raise, it silently points ``bin_dir()`` at a directory nothing ever put a
 #: binary in. Pinned by ``tests/unit/test_local_models_paths.py``.
 _ROOT = Path(__file__).resolve().parents[4]
@@ -57,10 +57,9 @@ def bin_dir() -> str:
 def flavour_dir(gpu: bool) -> str:
     """Where one build lives: ``llama-bin/gpu/`` or ``llama-bin/cpu/``.
 
-    Kept apart rather than swapped in place because swapping is what made the
-    GPU setting a lie — the panel wrote ``--n-gpu-layers 999`` onto whichever
-    single binary had last been unpacked, and a CPU build accepts that flag and
-    ignores it, silently and with a zero exit status.
+    Kept apart rather than swapped in place because swapping is what made the GPU setting a lie -- the panel wrote
+    ``--n-gpu-layers 999`` onto whichever single binary had last been unpacked, and a CPU build accepts that flag and ignores
+    it, silently and with a zero exit status.
     """
     return os.path.join(bin_dir(), "gpu" if gpu else "cpu")
 
@@ -68,10 +67,9 @@ def flavour_dir(gpu: bool) -> str:
 def _executable(path: Path) -> bool:
     """Whether this path names a program that can be run.
 
-    ``os.access(..., X_OK)`` is the whole answer everywhere except Windows,
-    which has no execute bit: there the call degrades to "does this file exist"
-    and would cheerfully hand back a README. The extension is the only signal
-    that survives, and PATHEXT is the machine's own list of which ones count.
+    ``os.access(..., X_OK)`` is the whole answer everywhere except Windows, which has no execute bit: there the call degrades to
+    "does this file exist" and would cheerfully hand back a README. The extension is the only signal that survives, and PATHEXT
+    is the machine's own list of which ones count.
     """
     if not path.is_file():
         return False
@@ -93,19 +91,10 @@ def _named(path: Path) -> tuple[Path, ...]:
 
 
 def find_binary(gpu: bool = True) -> Path:
-    """The llama-server to run: env override → PATH → ``data/llama-bin/<flavour>/``.
+    """Resolve llama-server from env override, PATH, then managed CPU/GPU builds.
 
-    *gpu* picks which of the two fetched builds to run, and it is the entire
-    GPU switch — the caller passes ``profile.gpu_layers > 0`` and gets a binary
-    that can honour it.
-
-    An override and a PATH binary answer for both flavours: somebody who
-    supplied their own llama-server gets that one either way, and their toggle
-    then moves ``--n-gpu-layers`` alone, which is the right meaning for a build
-    this code did not choose. An explicit ``ORB_LLAMA_SERVER`` that does not
-    resolve stays a hard error rather than a fallthrough — someone who set it
-    wants *that* binary, and quietly running a different one is how a Vulkan
-    build gets swapped for a CPU one without anybody noticing.
+    Custom binaries serve both GPU settings; only gpu_layers changes.
+    An invalid explicit ORB_LLAMA_SERVER is an error, never a fallback.
     """
     explicit = os.environ.get("ORB_LLAMA_SERVER")
     if explicit:
@@ -129,12 +118,10 @@ def find_binary(gpu: bool = True) -> Path:
 def runtime_ok() -> bool:
     """Whether the runtime is installed. The panel's runtime gate.
 
-    BOTH flavours have to resolve, because the GPU toggle switches between them
-    with no download in the way: half a pair is a toggle that works in one
-    direction and silently does nothing in the other. An install from before
-    the split has a flat ``llama-bin/`` and reads as missing here, which puts
-    the Download button back on screen — one press installs the pair, and that
-    is the whole migration.
+    BOTH flavours have to resolve, because the GPU toggle switches between them with no download in the way: half a pair is a
+    toggle that works in one direction and silently does nothing in the other. An install from before the split has a flat
+    ``llama-bin/`` and reads as missing here, which puts the Download button back on screen -- one press installs the pair, and
+    that is the whole migration.
     """
     try:
         for gpu in (False, True):
@@ -152,7 +139,7 @@ def _help_text(binary: Path) -> str:
     key = str(binary)
     if key not in _HELP_CACHE:
         try:
-            done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
+            done = subprocess.run(  # noqa: S603 -- binary resolved by find_binary
                 [key, "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
             )
             _HELP_CACHE[key] = (done.stdout or "") + (done.stderr or "")
@@ -164,9 +151,8 @@ def _help_text(binary: Path) -> str:
 def supports_flag(binary: Path, flag: str) -> bool:
     """Whether this build accepts *flag*.
 
-    People bring their own llama-server — a distro package, a release tarball,
-    a build from last year — and a flag the binary has never heard of is not a
-    warning, it is an immediate exit with a usage message.
+    People bring their own llama-server -- a distro package, a release tarball, a build from last year -- and a flag the binary
+    has never heard of is not a warning, it is an immediate exit with a usage message.
     """
     return flag in _help_text(binary)
 
@@ -181,26 +167,17 @@ _DEVICES_HEADER = "available devices:"
 def _forget_probes() -> None:
     """Drop every cached probe. Called after a fetch.
 
-    A re-fetch writes the SAME path, so a cache keyed by path would keep
-    answering for the build that was just replaced — the CPU one, in the case
-    somebody swapping to Vulkan is trying to get out of.
+    A re-fetch writes the SAME path, so a cache keyed by path would keep answering for the build that was just replaced -- the
+    CPU one, in the case somebody swapping to Vulkan is trying to get out of.
     """
     _HELP_CACHE.clear()
     _DEVICE_CACHE.clear()
 
 
 def _parse_devices(text: str) -> tuple[str, ...] | None:
-    """The device names under llama-server's ``Available devices:`` header.
+    """Read non-CPU device names under Available devices.
 
-    Everything above the header is backend chatter — a Vulkan build narrates
-    its own enumeration before it answers — so the header is the anchor, and
-    the indented lines under it are the answer. ``(none)`` is what a build with
-    no non-CPU backend prints: a device list of length zero, not a device. The
-    CPU never appears in this list, which is what makes "non-empty" mean "can
-    offload".
-
-    ``None`` when there is no header at all: a build too old to know the flag
-    has not said it has no GPU, it has said nothing.
+    Ignore preceding chatter; (none) means no devices. Missing header returns None for older builds whose capability is unknown.
     """
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -220,13 +197,8 @@ def _probe_devices(binary: Path) -> tuple[str, ...] | None:
     if not supports_flag(binary, "--list-devices"):
         return None
     try:
-        done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
-            [str(binary), "--list-devices"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
+        done = subprocess.run(  # noqa: S603 -- binary resolved by find_binary
+            [str(binary), "--list-devices"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
         )
     except Exception:  # a build that will not enumerate fails properly at boot
         return None
@@ -248,18 +220,16 @@ def devices(binary: Path) -> tuple[str, ...] | None:
 def gpu_capable(binary: Path) -> bool | None:
     """Whether ``--n-gpu-layers`` means anything to this build. Tri-state.
 
-    THE FLAG IS NOT THE CAPABILITY. Every build parses ``--n-gpu-layers`` and
-    documents it in ``--help``; a CPU-only build then has nowhere to put the
-    layers and offloads none of them, silently and with a zero exit status.
-    Asking the binary what devices it found is the only honest answer, and it
-    is what stops the panel offering a GPU switch that cannot do anything.
+    THE FLAG IS NOT THE CAPABILITY. Every build parses ``--n-gpu-layers`` and documents it in ``--help``; a CPU-only build then
+    has nowhere to put the layers and offloads none of them, silently and with a zero exit status. Asking the binary what
+    devices it found is the only honest answer, and it is what stops the panel offering a GPU switch that cannot do anything.
     """
     found = devices(binary)
     return None if found is None else bool(found)
 
 
 def _arch() -> str:
-    import platform  # noqa: PLC0415 — only needed on the fetch path
+    import platform  # noqa: PLC0415 -- only needed on the fetch path
 
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
@@ -270,17 +240,9 @@ def _arch() -> str:
 
 
 def gpu_build_published(*, system: str, arch: str) -> bool:
-    """Whether a GPU-capable archive exists for this platform at all.
+    """Whether this platform offers a general GPU build, without fetching it.
 
-    macOS carries Metal inside the one asset per arch, so the answer is yes and
-    the choice never reaches the archive. Windows on arm64 publishes no Vulkan
-    build — its GPU assets are OpenCL for Adreno and CUDA for Grace, both
-    narrower than "any card" — so the answer is no.
-
-    Split out of :func:`asset_name` because the panel has to ask it WITHOUT
-    fetching anything: "ticking this box cannot help you here" is a different
-    message from "the build you have cannot help you", and a platform that has
-    no GPU build to offer must not be shown a button offering one.
+    macOS includes Metal; Windows arm64 has no Vulkan archive.
     """
     if system == "windows":
         return arch == "x64"
@@ -304,7 +266,7 @@ def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
 
 
 def _system() -> str:
-    import sys  # noqa: PLC0415 — fetch path only
+    import sys  # noqa: PLC0415 -- fetch path only
 
     if sys.platform == "darwin":
         return "darwin"
@@ -315,7 +277,7 @@ def _system() -> str:
 
 def _api(url: str):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 — fixed https host
+    with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 -- fixed https host
         return json.load(response)
 
 
@@ -333,19 +295,16 @@ def resolve_release(tag: str | None = None) -> dict:
 def _unpack(archive: Path, into: Path) -> None:
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(into)  # noqa: S202 — official release archive
+            zf.extractall(into)  # nosec B202 -- official release archive; zipfile strips absolute and .. paths
     else:
         with tarfile.open(archive) as tf:
-            # `filter="data"` refuses absolute paths, `..` escapes, links that
-            # point out of the tree, and device nodes. Asked for explicitly
-            # rather than left to the default: it only becomes the default in
-            # 3.14, warns in between, and this is unpacking something fetched
-            # over the network. Probed because the keyword arrived in 3.11.4 as
-            # a backport and the three 3.11 patch releases before it raise
-            # TypeError on it — the same reason `--no-webui` is probed on the
-            # binary rather than simply sent.
+            # `filter="data"` refuses absolute paths, `..` escapes, links that point out of the tree, and device nodes. Asked
+            # for explicitly rather than left to the default: it only becomes the default in 3.14, warns in between, and this is
+            # unpacking something fetched over the network. Probed because the keyword arrived in 3.11.4 as a backport and the
+            # three 3.11 patch releases before it raise TypeError on it -- the same reason `--no-webui` is probed on the binary
+            # rather than simply sent.
             if hasattr(tarfile, "data_filter"):
-                tf.extractall(into, filter="data")  # noqa: S202 — official release archive
+                tf.extractall(into, filter="data")  # nosec B202 -- data filter refuses escapes and links
             else:
                 base = into.resolve()
                 for member in tf.getmembers():
@@ -355,16 +314,14 @@ def _unpack(archive: Path, into: Path) -> None:
                     target = (base / member_path).resolve()
                     if os.path.commonpath([str(base), str(target)]) != str(base):
                         raise LlamaServerMissing(f"Illegal tar archive entry: {member.name}")
-                    tf.extract(member, into)  # noqa: S202 — validated member path
+                    tf.extract(member, into)  # nosec B202 -- validated member path
 
 
 def _flatten(unpacked: Path, dest: Path) -> Path:
     """Move the directory that actually contains llama-server into *dest*.
 
-    The Windows zips are flat today and the Linux tarballs are not, and this
-    project has to name one stable path either way — the same thing
-    ``tar --strip-components=1`` does, but derived from where the binary
-    landed rather than assumed.
+    The Windows zips are flat today and the Linux tarballs are not, and this project has to name one stable path either way --
+    the same thing ``tar --strip-components=1`` does, but derived from where the binary landed rather than assumed.
     """
     matches = sorted(unpacked.rglob(BINARY_NAME))
     if not matches:
@@ -387,7 +344,7 @@ def _download(release: dict, wanted: str, into: Path) -> Path:
     logger.info("Fetching %s (%.0f MB)", wanted, asset.get("size", 0) / 1e6)
     archive = into / wanted
     request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # noqa: S310 — github release URL
+    with urllib.request.urlopen(request, timeout=120) as response, open(archive, "wb") as fh:  # nosec B310 -- github release URL
         shutil.copyfileobj(response, fh)
     return archive
 
@@ -395,11 +352,10 @@ def _download(release: dict, wanted: str, into: Path) -> Path:
 def _prove(binary: Path) -> None:
     """Run ``--version`` before calling a binary installed.
 
-    An archive for the wrong glibc, or a Vulkan build on a machine with no
-    loader, fails here — which is a message — rather than at the first turn,
-    which is a hang.
+    An archive for the wrong glibc, or a Vulkan build on a machine with no loader, fails here -- which is a message -- rather than
+    at the first turn, which is a hang.
     """
-    proof = subprocess.run(  # noqa: S603 — path we just wrote, fixed argv
+    proof = subprocess.run(  # noqa: S603 -- path we just wrote, fixed argv
         [str(binary), "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
     )
     if proof.returncode != 0:
@@ -410,10 +366,8 @@ def _prove(binary: Path) -> None:
 def _clear_legacy_builds() -> None:
     """Remove a pre-split flat install from ``llama-bin/``.
 
-    Before the CPU and GPU builds were kept apart, the binary and its ~40
-    shared objects sat loose at this level. Nothing resolves them any more and
-    they are a couple of hundred MB that ``bin_bytes`` would still report on
-    the storage row.
+    Before the CPU and GPU builds were kept apart, the binary and its ~40 shared objects sat loose at this level. Nothing
+    resolves them any more and they are a couple of hundred MB that ``bin_bytes`` would still report on the storage row.
     """
     root = Path(bin_dir())
     for entry in root.iterdir():
@@ -423,16 +377,9 @@ def _clear_legacy_builds() -> None:
 
 
 def fetch() -> str:
-    """Download and unpack BOTH llama-server builds. Blocking.
+    """Download both managed CPU/GPU builds and verify each with --version. Blocking.
 
-    Both in one press, because the GPU setting is a switch between them: paying
-    for a second download at the moment somebody ticks a checkbox is the reason
-    that checkbox used to do nothing instead. Each is proved with ``--version``
-    before it counts as installed. Returns the GPU build's path.
-
-    Platforms that publish one archive for both — macOS carries Metal inside
-    it — download once and unpack it into each directory, so every caller
-    downstream can assume the pair exists.
+    Shared archives such as macOS are fetched once and unpacked into both directories. Return the GPU build path.
     """
     release = resolve_release()
     tag = release["tag_name"]
@@ -445,25 +392,22 @@ def fetch() -> str:
             wanted = asset_name(tag, flavour, system=system, arch=arch)
             if wanted not in archives:
                 archives[wanted] = _download(release, wanted, Path(tmp))
-            # Unpacked per flavour even when the archive is shared: `_flatten`
-            # MOVES what it finds, so a second pass over one unpack directory
-            # would find it empty.
+            # Unpacked per flavour even when the archive is shared: `_flatten` MOVES what it finds, so a second pass over one
+            # unpack directory would find it empty.
             unpacked = Path(tmp) / f"unpacked-{flavour}"
             _unpack(archives[wanted], unpacked)
             dest = Path(flavour_dir(flavour == "gpu"))
             binary = _flatten(unpacked, dest)
             if not IS_WINDOWS:
-                # Windows has no execute bit; everywhere else the archive's mode
-                # may not have survived, and a binary nobody may execute is not
-                # a binary.
+                # Windows has no execute bit; everywhere else the archive's mode may not have survived, and a binary nobody may
+                # execute is not a binary.
                 for entry in dest.iterdir():
                     if entry.is_file():
                         entry.chmod(entry.stat().st_mode | 0o755)
             _prove(binary)
             installed[flavour] = binary
-    # The paths did not change, so every cached answer about them is now about
-    # a build that is gone. Dropped wholesale rather than per key: `_flatten`
-    # replaced directories, not files inside them.
+    # The paths did not change, so every cached answer about them is now about a build that is gone. Dropped wholesale rather
+    # than per key: `_flatten` replaced directories, not files inside them.
     _forget_probes()
     logger.info("llama-server %s ready: %s", tag, ", ".join(f"{k} at {v}" for k, v in installed.items()))
     return str(installed["gpu"])

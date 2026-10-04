@@ -1,5 +1,3 @@
-"""Tests for Spark-TTS waveform decoding."""
-
 from __future__ import annotations
 
 import pytest

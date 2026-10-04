@@ -1,8 +1,7 @@
-"""
-0017_prevent_prompt_overrides -- add prevent_prompt_overrides column to settings.
+"""0017_prevent_prompt_overrides -- add prevent_prompt_overrides column to settings.
 
-When enabled, system_prompt and post_history_instructions from character cards
-are ignored at inference time. Default 0 preserves prior behaviour.
+When enabled, system_prompt and post_history_instructions from character cards are ignored at inference time. Default 0
+preserves prior behaviour.
 """
 
 from __future__ import annotations

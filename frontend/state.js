@@ -23,9 +23,8 @@ export const S = {
   interactiveFragments: [],
   cardMoodFragments: [],
   cardInteractiveFragments: [],
-  // The solo card's Scenario and Creator's Note, shown above the opening line.
-  // Carries the conversation it was read for so a repaint mid-switch cannot
-  // paint the outgoing character's framing over the incoming one's.
+  // The solo card's Scenario and Creator's Note, shown above the opening line. Carries the conversation it was read for
+  // so a repaint mid-switch cannot paint the outgoing character's framing over the incoming one's.
   sceneIntro: null,
 
   personas: [],
@@ -204,10 +203,9 @@ export function conversationState(cid) {
   return state;
 }
 
-/** Forget a conversation's retained view once a fresh load would rebuild all of it.
- *
- * Kept while it still holds work or the user's own
- * intent (a draft, unsaved edits, a speaker pin): only the server's data goes.
+/**
+ * Discard cached server data once reload can rebuild it; retain active work,
+ * drafts, unsaved edits and speaker pins.
  */
 export function releaseConversationState(cid) {
   const state = S.conversationStates.get(cid);
@@ -234,16 +232,10 @@ for (const key of conversationKeys) {
   });
 }
 
-/** Is a Local ML feature usable right now (downloaded, on, deps installed)?
- *
- * The Local ML cards publish the last `/local-ml/status` into `S`, so surfaces
- * that depend on a model -- the Format Consistency card's POV option -- read
- * the live answer here instead of fetching status once and going stale.
- */
+/** Read live Local ML availability (downloaded, enabled, dependencies installed) from S. */
 export function localMlReady(feature) {
   const info = S.localMlFeatures[feature];
-  // `runtime_ok` is absent for in-process features: only a feature that
-  // reports one can fail it.
+  // `runtime_ok` is absent for in-process features: only a feature that reports one can fail it.
   return Boolean(info?.present && info?.enabled && info?.deps_ok && info.runtime_ok !== false);
 }
 
@@ -292,13 +284,8 @@ export function interactiveFragmentsView() {
 }
 
 /**
- * Fragment cooldowns the Director read before the turn that produced *msgId*.
- *
- * A reply carries the state its own turn *leaves behind*, so the fragments
- * resting on a turn are the ones the reply before it carries: a fragment that
- * fired on this turn entered its cooldown here and was not resting on it. Group
- * speakers share one Director run and one snapshot, so the lookup steps back
- * past the whole exchange rather than onto the previous speaker.
+ * Return cooldowns read before *msgId*'s turn, from the preceding exchange.
+ * The reply stores post-turn state; group speakers share one Director snapshot.
  */
 export function restingCooldowns(msgId) {
   const at = S.messages.findIndex((message) => message.id === msgId);

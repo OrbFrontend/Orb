@@ -17,12 +17,7 @@ from backend.core import (
     upgrade_legacy_fragment,
     value_text,
 )
-from backend.pipeline.passes.state import (
-    StateContract,
-    build_state_request,
-    entry_aliases,
-    parse_state_call,
-)
+from backend.pipeline.passes.state import StateContract, build_state_request, entry_aliases, parse_state_call
 from backend.prompting import render_state_block
 from backend.prompting.tool_schemas import build_state_tool
 
@@ -40,7 +35,7 @@ def _add(fid: str, entry_id: str, text: str, **extra) -> dict:
     return {"fragment_id": fid, "entry_id": entry_id, "op": "add", "text": text, **extra}
 
 
-# ── The fold ─────────────────────────────────────────────────────────────────
+# -- The fold -----------------------------------------------------------------
 
 
 def test_fold_applies_explicit_events_in_order_and_ignores_missing_entries():
@@ -74,7 +69,7 @@ def test_value_text_renders_several_entries_as_a_list():
     assert value_text(view.active("place")) == "\n- docks\n- roof"
 
 
-# ── The operation contract ───────────────────────────────────────────────────
+# -- The operation contract ---------------------------------------------------
 
 
 def test_one_value_set_creates_then_retains_the_entry_id():
@@ -164,7 +159,7 @@ def test_carry_applies_adds_and_existing_entries_and_drops_the_rest():
     assert [e.text for e in parent.active("threads")] == ["earlier, fixed", "user fact"]
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# -- Configuration ------------------------------------------------------------
 
 
 def test_state_fragment_row_parses_with_defaults():
@@ -232,7 +227,7 @@ def test_contract_routes_each_fragment_to_its_transport():
     assert [r["id"] for r in contract.direct_scene_rows([scene, *rows])] == ["pacing", "v_before"]
 
 
-# ── Model-facing shape ───────────────────────────────────────────────────────
+# -- Model-facing shape -------------------------------------------------------
 
 
 def test_state_tool_puts_retire_first_and_carries_no_volatile_state():
@@ -277,11 +272,7 @@ def test_request_shares_value_instruction_across_fields():
     for fragments in ([VALUE, other], [VALUE, ENTRIES, other], [ENTRIES]):
         for placement in ("before_writer", "after_reply"):
             request = build_state_request(
-                fragments,
-                view,
-                entry_aliases(fragments, view),
-                placement=placement,
-                tool_schema=build_state_tool(fragments),
+                fragments, view, entry_aliases(fragments, view), placement=placement, tool_schema=build_state_tool(fragments)
             )
             expected = 0 if fragments == [ENTRIES] else 1
             assert request.lower().count("write the complete new value only if it changed.") == expected

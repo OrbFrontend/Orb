@@ -12,9 +12,7 @@ from backend.core.locks import workflow_character_state_lock, workflow_state_loc
 
 LockFactory = Callable[[str, str], AbstractAsyncContextManager[None]]
 lock_cases = pytest.mark.parametrize(
-    "lock",
-    [workflow_state_lock, workflow_character_state_lock],
-    ids=["conversation-state", "character-state"],
+    "lock", [workflow_state_lock, workflow_character_state_lock], ids=["conversation-state", "character-state"]
 )
 
 
@@ -48,10 +46,7 @@ async def test_same_pair_serializes(lock: LockFactory):
 @lock_cases
 @pytest.mark.parametrize(
     ("left", "right"),
-    [
-        (("scope", "workflow-a"), ("scope", "workflow-b")),
-        (("scope-a", "workflow"), ("scope-b", "workflow")),
-    ],
+    [(("scope", "workflow-a"), ("scope", "workflow-b")), (("scope-a", "workflow"), ("scope-b", "workflow"))],
     ids=["different-workflows", "different-scopes"],
 )
 async def test_different_keys_do_not_serialize(lock: LockFactory, left: tuple[str, str], right: tuple[str, str]):

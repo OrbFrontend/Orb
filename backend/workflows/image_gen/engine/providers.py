@@ -24,90 +24,71 @@ class ProviderPreset:
     base_url: str
     generations_path: str = "/images/generations"
     edits_path: str = ""
-    # Joined onto `base_url`, so `../` reaches off the version prefix: NanoGPT's
-    # image catalogue lives at `/api/models` while everything else it serves is
-    # under `/api/v1`.
+    # Joined onto `base_url`, so `../` reaches off the version prefix: NanoGPT's image catalogue lives at `/api/models` while
+    # everything else it serves is under `/api/v1`.
     models_path: str = "/models"
-    # OpenAI answers `{"data":[{id}]}`; xAI's image-model endpoint answers
-    # `{"models":[{id, ...}]}`; Together answers a *bare JSON array*; NanoGPT answers
-    # `{"models": {"image": {id: {...}}}}` -- a mapping keyed by id, not a list at
-    # all. Not the same shape, not interchangeable -- reading the wrong one yields an
-    # empty list and a Test connection button that fails against a healthy provider.
+    # OpenAI answers `{"data":[{id}]}`; xAI's image-model endpoint answers `{"models":[{id, ...}]}`; Together answers a *bare
+    # JSON array*; NanoGPT answers `{"models": {"image": {id: {...}}}}` -- a mapping keyed by id, not a list at all. Not the
+    # same shape, not interchangeable -- reading the wrong one yields an empty list and a Test connection button that fails
+    # against a healthy provider.
     models_response: str = "openai_data"
-    # A free, *authenticated* GET that proves the key works. Only declared where the
-    # model list cannot: NanoGPT serves its catalogue to anonymous callers, so a Test
-    # connection resting on it answers "Connected" to a key that cannot render a
+    # A free, *authenticated* GET that proves the key works. Only declared where the model list cannot: NanoGPT serves its
+    # catalogue to anonymous callers, so a Test connection resting on it answers "Connected" to a key that cannot render a
     # thing. Never a generations path -- see `validate_connection` on ImageAdapter.
     auth_probe_path: str = ""
-    # How a catalogue entry is recognised as an image model, naming a rule in
-    # `_MODEL_FILTERS` (openai_image_client.py); "" keeps every entry. Needed
-    # wherever `/models` is one list of everything the provider hosts: Together's is
-    # 271 entries, 29 of them image models, so without this the picker is 242 chat
-    # models the user has to scroll past. Which *field* answers the question is not
-    # agreed on -- Together tags each entry `type: "image"`, while OpenRouter has no
-    # `type` field at all and declares `architecture.output_modalities` instead --
-    # so the rule is declared per provider rather than inferred from the payload.
+    # How a catalogue entry is recognised as an image model, naming a rule in `_MODEL_FILTERS` (openai_image_client.py); ""
+    # keeps every entry. Needed wherever `/models` is one list of everything the provider hosts: Together's is 271 entries, 29
+    # of them image models, so without this the picker is 242 chat models the user has to scroll past. Which *field* answers the
+    # question is not agreed on -- Together tags each entry `type: "image"`, while OpenRouter has no `type` field at all and
+    # declares `architecture.output_modalities` instead -- so the rule is declared per provider rather than inferred from the
+    # payload.
     models_filter: str = ""
-    # "size" -> `size: "1024x1024"`, "aspect_ratio" -> `aspect_ratio: "16:9"`,
-    # "width_height" -> `width: 1024, height: 576`, "none" -> the provider decides.
-    # Never send the other spelling: xAI rejects `size` outright, which is the
-    # *polite* failure -- the impolite one is Together accepting and ignoring it.
+    # "size" -> `size: "1024x1024"`, "aspect_ratio" -> `aspect_ratio: "16:9"`, "width_height" -> `width: 1024, height: 576`,
+    # "none" -> the provider decides. Never send the other spelling: xAI rejects `size` outright, which is the *polite* failure
+    # -- the impolite one is Together accepting and ignoring it.
     dimension_mode: str = "none"
     aspect_ratios: tuple[str, ...] = ()
     sizes: tuple[str, ...] = ()
-    # `width_height` only: the per-edge pixel bounds and the granularity the provider
-    # accepts. Together 400s on a non-multiple of 16, so this is a hard contract
-    # rather than a rounding preference.
+    # `width_height` only: the per-edge pixel bounds and the granularity the provider accepts. Together 400s on a non-multiple
+    # of 16, so this is a hard contract rather than a rounding preference.
     min_dimension: int = 0
     max_dimension: int = 0
     dimension_step: int = 0
     supports_negative_prompt: bool = False
-    # Models that accept `negative_prompt` and silently drop it -- matched as
-    # lowercase substrings of the model id. A provider-level capability with a
-    # model-level hole: a distilled model runs without CFG, so it has nothing to
-    # apply a negative prompt *with*, and says so by returning the byte-identical
-    # image for one seed with and without one.
+    # Models that accept `negative_prompt` and silently drop it -- matched as lowercase substrings of the model id. A
+    # provider-level capability with a model-level hole: a distilled model runs without CFG, so it has nothing to apply a
+    # negative prompt *with*, and says so by returning the byte-identical image for one seed with and without one.
     #
-    # That comparison is only sound where the seed reproduces, which a third call
-    # proves per model first -- it is what kept `pixelwave` off the NanoGPT row when
-    # two identical requests disagreed. So an id not listed here is one nobody
-    # probed, never one known to work, and never a family name inferred from a peer.
+    # That comparison is only sound where the seed reproduces, which a third call proves per model first -- it is what kept
+    # `pixelwave` off the NanoGPT row when two identical requests disagreed. So an id not listed here is one nobody probed,
+    # never one known to work, and never a family name inferred from a peer.
     negative_prompt_blind: tuple[str, ...] = ()
     supports_seed: bool = False
     supports_quality: bool = False
     supports_references: bool = False
-    # The JSON field references ride in. On a provider with no `edits_path` they
-    # ride the generations body instead -- Together has no `/images/edits` at all,
-    # yet its edit models take an `image_url` on the ordinary generations call, so
-    # "no edits endpoint" and "no reference support" are not the same fact.
+    # The JSON field references ride in. On a provider with no `edits_path` they ride the generations body instead -- Together
+    # has no `/images/edits` at all, yet its edit models take an `image_url` on the ordinary generations call, so "no edits
+    # endpoint" and "no reference support" are not the same fact.
     reference_field: str = "images"
-    # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "image_url_objects"
-    # -> `[{"image_url": ...}]`, "string_list" -> `["<uri>", ...]`, "url_object" ->
-    # `{"url": ...}`, "string" -> the bare URI. Declared rather than inferred from the
-    # field name, because getting it wrong is invisible: Together answers 200 and
-    # renders the prompt alone when the shape is not the one it wanted. Nor is the
-    # *field* name enough to pin the element: OpenAI takes `images` like xAI and then
-    # rejects xAI's `{"url": ...}` element, wanting `{"image_url": "<uri>"}` -- one key
-    # deeper than the field name suggests.
+    # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "image_url_objects" -> `[{"image_url": ...}]`, "string_list"
+    # -> `["<uri>", ...]`, "url_object" -> `{"url": ...}`, "string" -> the bare URI. Declared rather than inferred from the
+    # field name, because getting it wrong is invisible: Together answers 200 and renders the prompt alone when the shape is not
+    # the one it wanted. Nor is the *field* name enough to pin the element: OpenAI takes `images` like xAI and then rejects
+    # xAI's `{"url": ...}` element, wanting `{"image_url": "<uri>"}` -- one key deeper than the field name suggests.
     #
-    # This is the one genuinely irreducible per-provider fact about references, and it
-    # is also what decides **capacity**: a list encoding can carry as many as the
-    # picker allows, a scalar one carries exactly one. Nothing else needs measuring.
+    # This is the one genuinely irreducible per-provider fact about references, and it is also what decides **capacity**: a list
+    # encoding can carry as many as the picker allows, a scalar one carries exactly one. Nothing else needs measuring.
     reference_encoding: str = "url_objects"
-    # Deliberately absent: a per-model reference allowlist. It was a hand-measured table
-    # over catalogues that grow without us -- NanoGPT alone ships 202 image models -- so
-    # it was permanently unfinished, and an unfinished allowlist silently withholds a
-    # capability the user is paying for. A model that will not take what it was sent
-    # says so itself; Orb relays that message and the existing reference control lets
-    # the user turn the field off deliberately.
-    # True when a reference render takes its size from the reference rather than
-    # from the request. An image-to-image model generally follows its input, so the
-    # resolution picker silently stops applying the moment references are on.
+    # Deliberately absent: a per-model reference allowlist. It was a hand-measured table over catalogues that grow without us --
+    # NanoGPT alone ships 202 image models -- so it was permanently unfinished, and an unfinished allowlist silently withholds a
+    # capability the user is paying for. A model that will not take what it was sent says so itself; Orb relays that message and
+    # the existing reference control lets the user turn the field off deliberately. True when a reference render takes its size
+    # from the reference rather than from the request. An image-to-image model generally follows its input, so the resolution
+    # picker silently stops applying the moment references are on.
     reference_drives_size: bool = False
     reference_mimes: tuple[str, ...] = ("image/png", "image/jpeg")
-    # The first entry is sent as `response_format`. **Empty means send no such field**,
-    # which is not a preference but a hard contract on OpenAI: `gpt-image-1` answers
-    # `unknown_parameter` to `response_format` on both paths and always returns
+    # The first entry is sent as `response_format`. **Empty means send no such field**, which is not a preference but a hard
+    # contract on OpenAI: `gpt-image-1` answers `unknown_parameter` to `response_format` on both paths and always returns
     # `b64_json` regardless, so declaring the format Orb wanted rejected every render.
     response_formats: tuple[str, ...] = ("b64_json", "url")
     default_model: str = ""
@@ -115,34 +96,16 @@ class ProviderPreset:
     docs_url: str = ""
     # False until someone has probed the live API and corrected this row.
     verified: bool = False
-    # Permanent capability gaps, stated in the settings panel rather than as a
-    # per-render note: a note that fires on 100% of renders is one users learn to
-    # ignore, which then hides the per-render disclosures that matter.
+    # Permanent capability gaps, stated in the settings panel rather than as a per-render note: a note that fires on 100% of
+    # renders is one users learn to ignore, which then hides the per-render disclosures that matter.
     gaps: tuple[str, ...] = ()
 
 
-_XAI_ASPECTS = (
-    "1:1",
-    "3:4",
-    "4:3",
-    "9:16",
-    "16:9",
-    "2:3",
-    "3:2",
-    "9:19.5",
-    "19.5:9",
-    "9:20",
-    "20:9",
-    "1:2",
-    "2:1",
-)
+_XAI_ASPECTS = ("1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "9:19.5", "19.5:9", "9:20", "20:9", "1:2", "2:1")
 
 _OPENAI_SIZES = ("1024x1024", "1024x1536", "1536x1024")
 
-_GAPS_NO_CONTROLS = (
-    "ignores negative prompts, seed, steps and CFG",
-    "applies style prompts and the resolution",
-)
+_GAPS_NO_CONTROLS = ("ignores negative prompts, seed, steps and CFG", "applies style prompts and the resolution")
 
 PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset(
@@ -159,9 +122,8 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_references=True,
         # Confirmed end-to-end: a JSON body, not multipart.
         reference_field="images",
-        # Measured 2026-08-19: four references whose colours the prompt never named came
-        # back as four objects, and swapping the array swapped the output left-to-right,
-        # so `images` is positional rather than a bag. Recorded because it is the
+        # Measured 2026-08-19: four references whose colours the prompt never named came back as four objects, and swapping the
+        # array swapped the output left-to-right, so `images` is positional rather than a bag. Recorded because it is the
         # evidence a list encoding carries more than its first element at all.
         default_model="grok-imagine-image",
         max_prompt=8_000,
@@ -185,19 +147,16 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_negative_prompt=True,
         negative_prompt_blind=("flux.1-schnell", "juggernaut-lightning"),
         supports_seed=True,
-        # No `/images/edits` -- the reference rides the generations body. Verified on
-        # FLUX.1-kontext pro *and* max: a `data:` URI in `image_url` reproduces the
-        # reference frame, while `image`, `images` and `image_urls` are accepted and
-        # ignored. Off the allowlist the provider is inconsistent, which is why the
-        # model decides whether a slot is offered at all: FLUX.2 and Seedream answer
-        # *"Unsupported use of 'image_url' parameter"*, but FLUX.1-schnell answered 200
-        # and rendered the prompt alone.
+        # No `/images/edits` -- the reference rides the generations body. Verified on FLUX.1-kontext pro *and* max: a `data:`
+        # URI in `image_url` reproduces the reference frame, while `image`, `images` and `image_urls` are accepted and ignored.
+        # Off the allowlist the provider is inconsistent, which is why the model decides whether a slot is offered at all:
+        # FLUX.2 and Seedream answer *"Unsupported use of 'image_url' parameter"*, but FLUX.1-schnell answered 200 and rendered
+        # the prompt alone.
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
-        # Kontext derives the output size from the reference: a 512x512 reference on
-        # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
-        # render says so instead of quietly handing back a different shape.
+        # Kontext derives the output size from the reference: a 512x512 reference on a 1024x576 request came back 1024x1024. The
+        # picker cannot win that, so the render says so instead of quietly handing back a different shape.
         reference_drives_size=True,
         # Keep the default on a currently serverless model.
         default_model="black-forest-labs/FLUX.2-dev",
@@ -216,36 +175,20 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # No `edits_path`: `/images/edits` answers a plain-text "404 Not Found" --
         # not even JSON. Nor does the generations body take one; see below.
         models_response="openai_data",
-        # 337 entries and not one `type` field. 11 declare an image output modality,
-        # two of which are the `openrouter/auto` routers -- they 404 with "No
-        # endpoint found" on this path, and are deliberately left in the picker
-        # rather than denylisted: the provider's own words explain it, and a
-        # hand-maintained exception list rots against a catalogue this size.
+        # 337 entries and not one `type` field. 11 declare an image output modality, two of which are the `openrouter/auto`
+        # routers -- they 404 with "No endpoint found" on this path, and are deliberately left in the picker rather than
+        # denylisted: the provider's own words explain it, and a hand-maintained exception list rots against a catalogue this
+        # size.
         models_filter="output_image",
         # `/models` answers 200 with no key at all, so the list proves the provider
         # is up and nothing about the key. `/key` is free, and 401s.
         auth_probe_path="/key",
-        # Verified: `size` is read, then snapped by the model to its own vocabulary
-        # -- "1024x576" came back 1344x768 and "576x1024" came back 768x1344. Hence
-        # no `sizes` menu, for NanoGPT's reason: each model publishes its own, and
-        # snapping to a menu the next model does not share is a worse answer than
-        # the one the provider itself picks. See `gaps`.
+        # Verified: `size` is read, then snapped by the model to its own vocabulary -- "1024x576" came back 1344x768 and
+        # "576x1024" came back 768x1344. Hence no `sizes` menu, for NanoGPT's reason: each model publishes its own, and snapping
+        # to a menu the next model does not share is a worse answer than the one the provider itself picks. See `gaps`.
         dimension_mode="size",
-        # Everything else is left at its default-off, and each one was measured
-        # rather than read off the catalogue:
-        #
-        # `supports_seed`: the image models all list `seed` in `supported_parameters`
-        # -- that is the *chat* schema, and this endpoint is a shim over it. Two
-        # calls at one seed returned different images on `gemini-2.5-flash-image`
-        # *and* on `gpt-5-image-mini`, so it is a provider fact, not a per-model
-        # hole, and `seed_honored` would be a claim the user cannot check.
-        #
-        # `supports_references`: the image models declare `image` among their input
-        # modalities -- true of `/chat/completions`, not of this path. `image`,
-        # `images` and `image_url` were each sent with an unmistakable reference
-        # (magenta field, black circle) and a keep-the-background prompt; all three
-        # answered 200 having rendered the prompt alone. Unknown fields are accepted
-        # silently here, so "no error" is never evidence a field was read.
+        # This image shim does not honour seed or reference fields despite the chat catalog advertising them. Unknown fields can
+        # return 200 while being ignored, so successful requests alone do not establish support.
         default_model="google/gemini-2.5-flash-image",
         # Verified: 52,812 characters accepted. The real wall is the chosen model's
         # context, which is far past anything Orb assembles, so this is headroom.
@@ -264,43 +207,35 @@ PRESETS: tuple[ProviderPreset, ...] = (
         label="OpenAI",
         base_url="https://api.openai.com/v1",
         edits_path="/images/edits",
-        # `/models` is 125 entries of every modality OpenAI hosts, carrying only
-        # `id`, `object`, `created` and `owned_by` -- no `type` like Together, no
-        # `architecture` like OpenRouter. Nothing in the payload answers "does this
-        # make images", so the rule reads the id, which is the one field there is.
+        # `/models` is 125 entries of every modality OpenAI hosts, carrying only `id`, `object`, `created` and `owned_by` -- no
+        # `type` like Together, no `architecture` like OpenRouter. Nothing in the payload answers "does this make images", so
+        # the rule reads the id, which is the one field there is.
         models_filter="openai_image_ids",
-        # Verified: `/models` 401s on a bad key, so the list already proves it and no
-        # `auth_probe_path` is needed.
+        # Verified: `/models` 401s on a bad key, so the list already proves it and no `auth_probe_path` is needed.
         dimension_mode="size",
-        # Verified on gpt-image-1, -1-mini and -1.5, which name their own menu in the
-        # rejection: "Supported sizes are 1024x1024, 1024x1536, 1536x1024, and auto."
-        # `gpt-image-2` is the hole -- see `gaps`.
+        # Verified on gpt-image-1, -1-mini and -1.5, which name their own menu in the rejection: "Supported sizes are 1024x1024,
+        # 1024x1536, 1536x1024, and auto." `gpt-image-2` is the hole -- see `gaps`.
         sizes=_OPENAI_SIZES,
-        # Verified: 'low', 'medium', 'high' and 'auto', which is CLOUD_QUALITIES plus
-        # the default. dall-e-3's 'hd'/'standard' spelling is rejected -- and no
-        # dall-e model appears in the catalogue at all any more.
+        # Verified: 'low', 'medium', 'high' and 'auto', which is CLOUD_QUALITIES plus the default. dall-e-3's 'hd'/'standard'
+        # spelling is rejected -- and no dall-e model appears in the catalogue at all any more.
         supports_quality=True,
-        # Verified end to end on `/images/edits`: JSON, not multipart, and the magenta
-        # reference came back magenta with `input_tokens_details.image_tokens: 194`
-        # confirming it was read rather than accepted and dropped.
+        # Verified end to end on `/images/edits`: JSON, not multipart, and the magenta reference came back magenta with
+        # `input_tokens_details.image_tokens: 194` confirming it was read rather than accepted and dropped.
         #
-        # Every reachable model takes one, measured rather than assumed: all five were
-        # posted a reference alongside a deliberately invalid `size`, and each got as far
-        # as its own size check, which is only reached once the model and the field have
-        # been accepted. (`chatgpt-image-latest` 403s on org verification before any of
-        # it, and that refusal is shown to the user.)
+        # Every reachable model takes one, measured rather than assumed: all five were posted a reference alongside a
+        # deliberately invalid `size`, and each got as far as its own size check, which is only reached once the model and the
+        # field have been accepted. (`chatgpt-image-latest` 403s on org verification before any of it, and that refusal is shown
+        # to the user.)
         supports_references=True,
-        # NOT `image: {"url": ...}`. The field is `images` (an array) and its element
-        # is `{"image_url": "<data uri>"}`; every other spelling is rejected by name,
-        # which is the polite failure -- `images: [{"url": ...}]` even survives schema
-        # validation against a bogus model and is only rejected once a real one is
-        # named, so a probe that stops at "no error" reads it as accepted.
+        # NOT `image: {"url": ...}`. The field is `images` (an array) and its element is `{"image_url": "<data uri>"}`; every
+        # other spelling is rejected by name, which is the polite failure -- `images: [{"url": ...}]` even survives schema
+        # validation against a bogus model and is only rejected once a real one is named, so a probe that stops at "no error"
+        # reads it as accepted.
         reference_field="images",
         reference_encoding="image_url_objects",
         default_model="gpt-image-1",
-        # Verified: 31,992 characters accepted, 39,996 rejected with "maximum length
-        # 32000". The 4,000 default was dall-e-3's limit and truncated 28,000
-        # characters of prompt that this API takes.
+        # Verified: 31,992 characters accepted, 39,996 rejected with "maximum length 32000". The 4,000 default was dall-e-3's
+        # limit and truncated 28,000 characters of prompt that this API takes.
         max_prompt=32_000,
         # Verified: rejected outright as `unknown_parameter` on both paths.
         response_formats=(),
@@ -318,34 +253,29 @@ PRESETS: tuple[ProviderPreset, ...] = (
         label="NanoGPT",
         base_url="https://nano-gpt.com/api/v1",
         edits_path="/images/edits",
-        # NOT `/v1/models`. That path answers 200 with 653 models and not one of them
-        # makes an image -- the image catalogue is 202 separate entries one level up,
-        # under `models.image`, keyed by id rather than listed.
+        # NOT `/v1/models`. That path answers 200 with 653 models and not one of them makes an image -- the image catalogue is
+        # 202 separate entries one level up, under `models.image`, keyed by id rather than listed.
         models_path="../models",
         models_response="nanogpt_image_map",
         # `/v1/models` answers 200 to a bogus key *and* to no key at all, so a Test
         # connection resting on it is not a test. `/v1/usage` is free and 401s.
         auth_probe_path="/usage",
-        # Verified: `size: "1024x576"` is understood whatever vocabulary the chosen
-        # model publishes -- an aspect-ratio model answered 1344x768 and a named-size
-        # model answered 1024x576. Hence no `sizes` menu: each model publishes its
-        # own, and snapping to a menu the *next* model does not share is a worse
-        # answer than the one the provider itself picks. See `gaps`.
+        # Verified: `size: "1024x576"` is understood whatever vocabulary the chosen model publishes -- an aspect-ratio model
+        # answered 1344x768 and a named-size model answered 1024x576. Hence no `sizes` menu: each model publishes its own, and
+        # snapping to a menu the *next* model does not share is a worse answer than the one the provider itself picks. See
+        # `gaps`.
         dimension_mode="size",
         supports_negative_prompt=True,
         negative_prompt_blind=("hidream-i1",),
         supports_seed=True,
-        # Verified live on `step-image-edit-2`: `image` as a bare `data:` URI, on
-        # either path. `images: [{"url": ...}]` -- the shape xAI and OpenAI want --
-        # is the one spelling NanoGPT rejects outright, with `missing_image_input`.
+        # Verified live on `step-image-edit-2`: `image` as a bare `data:` URI, on either path. `images: [{"url": ...}]` -- the
+        # shape xAI and OpenAI want -- is the one spelling NanoGPT rejects outright, with `missing_image_input`.
         supports_references=True,
-        # NOT `image`, which is single-only. Measured 2026-08-19: `imageDataUrls` is a
-        # bare-string array that carries four references onto `nano-banana` in order,
-        # and takes a *single* element just as happily -- so it replaces `image` outright
-        # rather than adding a second code path for the multi case. Over-capacity is
-        # refused by name (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit), so the
-        # remote message identifies the mismatch: capacity here is genuinely per-model,
-        # from 1 to 14 across the catalogue.
+        # NOT `image`, which is single-only. Measured 2026-08-19: `imageDataUrls` is a bare-string array that carries four
+        # references onto `nano-banana` in order, and takes a *single* element just as happily -- so it replaces `image`
+        # outright rather than adding a second code path for the multi case. Over-capacity is refused by name
+        # (`IMAGE_INPUT_TOO_MANY`, quoting the model's limit), so the remote message identifies the mismatch: capacity here is
+        # genuinely per-model, from 1 to 14 across the catalogue.
         reference_field="imageDataUrls",
         reference_encoding="string_list",
         default_model="cyberrealistic-xl",
@@ -360,23 +290,20 @@ PRESETS: tuple[ProviderPreset, ...] = (
             "reports the cost of each render in USD",
         ),
     ),
-    # Dropped for having no JSON reference field, recorded so nobody re-adds them from
-    # the same docs: **Chutes** has no OpenAI-shaped images endpoint at all -- `/v1` is
-    # chat, `/images/` is *container* images, and its image models answer per-chute at
-    # `{user}-{slug}.chutes.ai/generate`; **Z.AI** documents `model`, `prompt`,
-    # `quality`, `size`, `user_id` and no edits path; **ElectronHub** has
-    # `/images/edits`, but multipart with a PNG file part, over a text-to-image-only
-    # generations body. Each is a row again the day it ships a JSON reference field.
+    # Dropped for having no JSON reference field, recorded so nobody re-adds them from the same docs: **Chutes** has no
+    # OpenAI-shaped images endpoint at all -- `/v1` is chat, `/images/` is *container* images, and its image models answer
+    # per-chute at `{user}-{slug}.chutes.ai/generate`; **Z.AI** documents `model`, `prompt`, `quality`, `size`, `user_id` and no
+    # edits path; **ElectronHub** has `/images/edits`, but multipart with a PNG file part, over a text-to-image-only generations
+    # body. Each is a row again the day it ships a JSON reference field.
     ProviderPreset(
         id="aimlapi",
         label="AI/ML API",
         base_url="https://api.aimlapi.com/v1",
         dimension_mode="size",
         sizes=_OPENAI_SIZES,
-        # No `edits_path`: `/images/edits` here is multipart taking a local file, so the
-        # reference rides the generations body as on Together. The field is documented
-        # as "a list of URLs or local Base64 encoded images" -- unverified like the rest
-        # of the row, so nobody has watched a `data:` URI come back in an image.
+        # No `edits_path`: `/images/edits` here is multipart taking a local file, so the reference rides the generations body as
+        # on Together. The field is documented as "a list of URLs or local Base64 encoded images" -- unverified like the rest of
+        # the row, so nobody has watched a `data:` URI come back in an image.
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
@@ -409,16 +336,13 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
     return _BY_ID.get(provider_id)
 
 
-# What the settings panel is told about a provider. An allowlist, so a field added
-# to the table above reaches the frontend only when someone puts it here -- which is
-# also what keeps a credential from ever riding along, since none is named.
+# What the settings panel is told about a provider. An allowlist, so a field added to the table above reaches the frontend only
+# when someone puts it here -- which is also what keeps a credential from ever riding along, since none is named.
 #
-# The whole dimension contract rides along -- `sizes` for a menu provider, the
-# min/max/step grid for a `width_height` one -- because the panel's resolution menu
-# is otherwise a guess at what `size_for`/`pixels_for` will accept, and a guess there
-# offers sizes that are silently snapped to something else at render time.
-# `reference_drives_size` for the same reason: it is the one capability that decides
-# whether that menu applies *at all*, and only the panel can say so before the bill.
+# The whole dimension contract rides along -- `sizes` for a menu provider, the min/max/step grid for a `width_height` one --
+# because the panel's resolution menu is otherwise a guess at what `size_for`/`pixels_for` will accept, and a guess there offers
+# sizes that are silently snapped to something else at render time. `reference_drives_size` for the same reason: it is the one
+# capability that decides whether that menu applies *at all*, and only the panel can say so before the bill.
 _CATALOGUE_FIELDS = (
     "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps "
     "min_dimension max_dimension dimension_step reference_drives_size "
@@ -466,8 +390,7 @@ def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, st
     best = min(preset.aspect_ratios, key=lambda candidate: ratio_distance(target, _parse_ratio(candidate)))
     chosen = _parse_ratio(best)
     if chosen is None or chosen <= 0:
-        # Nothing usable on this row, so there is no ratio to send and nothing
-        # truthful to say about one.
+        # Nothing usable on this row, so there is no ratio to send and nothing truthful to say about one.
         return "", None
     if abs(chosen - target) / target <= ASPECT_NOTE_THRESHOLD:
         return best, None
@@ -477,9 +400,8 @@ def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, st
 def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
     """The declared `size` string nearest to `width`x`height`, and any disclosure.
 
-    Reached only for a `size` provider, so a preset that declares no menu is taken
-    to accept the request verbatim rather than being sent nothing. Ties on shape are
-    broken by total pixels -- two candidates can share an aspect ratio.
+    Reached only for a `size` provider, so a preset that declares no menu is taken to accept the request verbatim rather than
+    being sent nothing. Ties on shape are broken by total pixels -- two candidates can share an aspect ratio.
     """
     requested = f"{width}x{height}"
     if not preset.sizes or requested in preset.sizes:
@@ -502,10 +424,9 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
 def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, int, str | None]:
     """`width`x`height` snapped to what the provider's pixel grid accepts.
 
-    Unlike `size_for` this is not a menu, so the requested aspect ratio survives:
-    an over-large request is scaled down whole (both edges, one factor) rather than
-    clamped per edge, which would turn 2560x1440 into a 1792x1440 near-square.
-    Snapping to the step comes second, and can only move an edge by <`step` pixels.
+    Unlike `size_for` this is not a menu, so the requested aspect ratio survives: an over-large request is scaled down whole
+    (both edges, one factor) rather than clamped per edge, which would turn 2560x1440 into a 1792x1440 near-square. Snapping to
+    the step comes second, and can only move an edge by <`step` pixels.
     """
     step = preset.dimension_step or 1
     low, high = preset.min_dimension or step, preset.max_dimension or 0
@@ -592,10 +513,9 @@ def build_generation_body(
 ) -> BuiltRequest:
     """The `POST /images/generations` body, as a strict allowlist.
 
-    Deliberately absent on every provider: ``moderation`` (team-gated on xAI, and
-    sending it hard-fails the call), ``user`` (a stable identifier shipped to a third
-    party for no benefit), and ``style`` (Orb styles already inject prompt text, so
-    sending both double-applies it).
+    Deliberately absent on every provider: ``moderation`` (team-gated on xAI, and sending it hard-fails the call), ``user`` (a
+    stable identifier shipped to a third party for no benefit), and ``style`` (Orb styles already inject prompt text, so sending
+    both double-applies it).
     """
     built = _prompt_field(preset, prompt)
     body: dict[str, Any] = {"model": model, **built.body}
@@ -609,10 +529,9 @@ def build_generation_body(
     notes.extend(dimensions.notes)
 
     if preset.supports_negative_prompt and negative_prompt.strip():
-        # Still sent: support is a provider-level fact, and a model that ignores the
-        # field today is one the provider may teach it tomorrow. What changes is that
-        # the user is told, at the render that discarded it, rather than watching a
-        # negative style prompt quietly do nothing.
+        # Still sent: support is a provider-level fact, and a model that ignores the field today is one the provider may teach
+        # it tomorrow. What changes is that the user is told, at the render that discarded it, rather than watching a negative
+        # style prompt quietly do nothing.
         body["negative_prompt"] = negative_prompt
         if drops_negative_prompt(preset, model):
             notes.append(f"{model} ignores negative prompts, so the negative prompt had no effect")
@@ -631,9 +550,8 @@ def _data_uri(reference: ResolvedReference) -> str:
     return f"data:{reference.mime};base64,{base64.b64encode(reference.data).decode('ascii')}"
 
 
-# The array encodings, mapped to the key each wraps its URI in. Two providers take an
-# array under the same field name and disagree about the element: xAI wants
-# `{"url": ...}`, OpenAI wants `{"image_url": ...}` and rejects the other by name.
+# The array encodings, mapped to the key each wraps its URI in. Two providers take an array under the same field name and
+# disagree about the element: xAI wants `{"url": ...}`, OpenAI wants `{"image_url": ...}` and rejects the other by name.
 _LIST_ENCODINGS = {"url_objects": "url", "image_url_objects": "image_url"}
 
 
@@ -652,9 +570,8 @@ def build_edit_body(
 ) -> BuiltRequest:
     """The `POST /images/edits` body. JSON, not multipart -- verified on xAI.
 
-    References travel as `data:` URIs, so nothing is uploaded first and no third
-    party is handed a fetchable URL into Orb. The same allowlist as the generation
-    body, plus the references.
+    References travel as `data:` URIs, so nothing is uploaded first and no third party is handed a fetchable URL into Orb. The
+    same allowlist as the generation body, plus the references.
     """
     built = build_generation_body(
         preset,
@@ -669,9 +586,8 @@ def build_edit_body(
     )
     uris = [_data_uri(reference) for reference in references]
     if not uris:
-        # The caller routes a referenceless render to `build_generation_body`, so
-        # this is unreachable in practice -- but returning early beats emitting the
-        # reference field as a JSON `null` for a provider to make sense of.
+        # The caller routes a referenceless render to `build_generation_body`, so this is unreachable in practice -- but
+        # returning early beats emitting the reference field as a JSON `null` for a provider to make sense of.
         return built
     if preset.reference_encoding == "string_list":
         built.body[preset.reference_field] = uris
@@ -685,9 +601,8 @@ def build_edit_body(
         if len(uris) > 1:
             built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")
     if preset.reference_drives_size:
-        # Verified on Kontext: a 512x512 reference on a 1024x576 request came back
-        # 1024x1024. Disclosed rather than left to be noticed, because the picker
-        # still shows the resolution that no longer applies.
+        # Verified on Kontext: a 512x512 reference on a 1024x576 request came back 1024x1024. Disclosed rather than left to be
+        # noticed, because the picker still shows the resolution that no longer applies.
         built.notes.append("the reference image set the output size, so the resolution setting did not apply")
     return built
 
@@ -695,27 +610,18 @@ def build_edit_body(
 def takes_references(preset: ProviderPreset) -> bool:
     """True when this provider has a JSON field to put a reference in at all.
 
-    Provider-level and nothing finer. Which *models* behind it accept one was a
-    hand-kept allowlist over catalogues that grow without us, and being wrong in the
-    withholding direction is invisible: the user configured a likeness, paid for the
-    render, and got neither the picture nor a word about it. A model that will not
-    take what it was sent refuses, and the remote message tells the user to adjust
-    the existing reference control.
+    Provider-level and nothing finer. Which *models* behind it accept one was a hand-kept allowlist over catalogues that grow
+    without us, and being wrong in the withholding direction is invisible: the user configured a likeness, paid for the render,
+    and got neither the picture nor a word about it. A model that will not take what it was sent refuses, and the remote message
+    tells the user to adjust the existing reference control.
     """
     return preset.supports_references
 
 
 def reference_capacity(preset: ProviderPreset, ceiling: int) -> int:
-    """How many references this provider's dialect can physically carry, capped.
+    """Derive reference capacity from encoding, capped by the caller's ceiling.
 
-    Derived from the encoding rather than declared, because the encoding is the only
-    thing that actually constrains it: a list field takes a list, a scalar field takes
-    one, and no amount of measurement changes either. Whether the model *reads* every
-    element is a different question, and one this deliberately does not try to answer
-    -- guessing high costs an upload, and the prompt no longer depends on the guess.
-
-    `ceiling` is the caller's (`MAX_REFERENCE_SLOTS`), passed in so this module keeps
-    knowing nothing about the picker or the config it is stored under.
+    Lists carry multiple references, scalars one. Capacity does not claim that a model reads every supplied image.
     """
     if not preset.supports_references:
         return 0

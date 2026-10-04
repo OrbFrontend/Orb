@@ -15,12 +15,7 @@ from backend.workflows.image_gen.subjects import Subject
 
 
 def _subject(name: str, appearance: str = "") -> Subject:
-    return Subject(
-        member_id=f"member-{name}",
-        card_id=f"card-{name}",
-        name=name,
-        profile={"appearance_prompt": appearance},
-    )
+    return Subject(member_id=f"member-{name}", card_id=f"card-{name}", name=name, profile={"appearance_prompt": appearance})
 
 
 def _skill(skill_id: str, *, enabled: bool = True, instructions: str | None = None) -> dict:
@@ -60,13 +55,7 @@ async def _select(monkeypatch, result, *, skills=(), subjects=(), calls=None, **
 
 async def _compose(monkeypatch, result, *, calls=None, **kwargs):
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced({"compose_image_prompt": result}, calls))
-    return await compose_scene(
-        client=object(),
-        model_name="agent",
-        prefix=(),
-        settings={"model_name": "writer"},
-        **kwargs,
-    )
+    return await compose_scene(client=object(), model_name="agent", prefix=(), settings={"model_name": "writer"}, **kwargs)
 
 
 def test_tool_contract_and_offered_order_are_stable():
@@ -122,9 +111,7 @@ async def test_selector_sees_only_enabled_summaries_names_and_pov(monkeypatch):
 async def test_selection_filters_caps_deduplicates_and_restores_library_order(monkeypatch):
     skills = [_skill(name) for name in ("a", "b", "c", "d", "e")]
     selection = await _select(
-        monkeypatch,
-        {"skill_ids": ["e", "unknown", "c", "e", "b", "d", "a"], "visible_subjects": []},
-        skills=skills,
+        monkeypatch, {"skill_ids": ["e", "unknown", "c", "e", "b", "d", "a"], "visible_subjects": []}, skills=skills
     )
     # Four valid unique requests survive, then library order controls injection.
     assert [skill["id"] for skill in selection.skills] == ["b", "c", "d", "e"]
@@ -280,8 +267,7 @@ async def test_background_draws_a_place_card_as_the_setting_with_zero_count_firs
         pov=BACKGROUND,
         subjects=[_subject("Backrooms", "yellow wallpaper, damp carpet")],
     )
-    # The place's own sheet rides along, and the zero count stays ahead of the style
-    # block exactly as "1girl" would.
+    # The place's own sheet rides along, and the zero count stays ahead of the style block exactly as "1girl" would.
     positive, _ = assemble_prompts({"prompt_format": "tags", "prompt": "masterpiece"}, {}, scene, "")
     assert positive == "no humans, masterpiece, yellow wallpaper, damp carpet, scenery, empty hallway, buzzing lights"
 

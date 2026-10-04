@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api, apiFetch } from "./api.js";
 import { initDocAudit, onGenerationEnd, renderDocAuditPane } from "./document_audit.js";
 import {
@@ -22,6 +23,7 @@ import {
   syncContent,
 } from "./document_probs.js";
 import { createDocumentSaveQueue } from "./document_saves.js";
+import { sseError } from "./errors.js";
 import { CLOSE_ICON, EDIT_ICON } from "./icons.js";
 import { closeModal, confirmDelete, showConfirmModal } from "./modal.js";
 import { beginStream, finish, streamEvents } from "./operations.js";
@@ -129,7 +131,7 @@ function docRestore(snap) {
   updateUndoButton();
 }
 
-export function docUndo() {
+function docUndo() {
   if (S.docStreaming || !S.activeDocId) return;
   docCheckpoint();
   if (docHistoryIndex <= 0) return;
@@ -137,7 +139,7 @@ export function docUndo() {
   docRestore(docHistory[docHistoryIndex]);
 }
 
-export function docRedo() {
+function docRedo() {
   if (S.docStreaming || !S.activeDocId) return;
   docCheckpoint();
   if (docHistoryIndex >= docHistory.length - 1) return;
@@ -166,7 +168,7 @@ function setDocumentMode(on) {
   }
 }
 
-export function toggleDocumentMode() {
+function toggleDocumentMode() {
   if (S.docStreaming) {
     toast("Stop generation first", true);
     return;
@@ -192,7 +194,7 @@ function reflectAssistedToggle() {
   }
 }
 
-export function setDocAssisted(on) {
+function setDocAssisted(on) {
   docAssisted = !!on;
   localStorage.setItem(LS_ASSISTED, docAssisted ? "1" : "0");
   reflectAssistedToggle();
@@ -202,7 +204,7 @@ function reflectProbsToggle() {
   $("doc-probs-btn")?.classList.toggle("active", docProbsOn);
 }
 
-export function setDocProbs(on) {
+function setDocProbs(on) {
   docProbsOn = !!on;
   localStorage.setItem(LS_PROBS, docProbsOn ? "1" : "0");
   reflectProbsToggle();
@@ -210,18 +212,18 @@ export function setDocProbs(on) {
 
 const _docItemHtml = (
   d,
-) => `<div class="doc-item${S.activeDocId === d.id ? " active" : ""}" onclick="openDocument('${d.id}')">
+) => `<div class="doc-item${S.activeDocId === d.id ? " active" : ""}" data-wf-action="document:open" data-doc-id="${d.id}">
       <div class="doc-item-info">
         <div class="doc-item-name">${esc(d.title)}</div>
         <div class="doc-item-meta">${formatRelativeDate(d.updated_at)}</div>
       </div>
       <div class="doc-item-actions">
-        <button onclick="event.stopPropagation();renameDocument('${d.id}')" title="Rename" aria-label="Rename document">${EDIT_ICON}</button>
-        <button class="del-btn" onclick="event.stopPropagation();deleteDocument('${d.id}')" title="Delete" aria-label="Delete document">${CLOSE_ICON}</button>
+        <button data-wf-action="document:rename" data-doc-id="${d.id}" title="Rename" aria-label="Rename document">${EDIT_ICON}</button>
+        <button class="del-btn" data-wf-action="document:delete" data-doc-id="${d.id}" title="Delete" aria-label="Delete document">${CLOSE_ICON}</button>
       </div>
     </div>`;
 
-export function renderDocuments() {
+function renderDocuments() {
   const list = $("documents-list");
   if (!list) return;
 
@@ -249,25 +251,25 @@ export function renderDocuments() {
   let html = shown.map(_docItemHtml).join("");
   if (!q) {
     if (collapsed) {
-      html += `<button type="button" class="worlds-more" onclick="expandDocs()">+${matched.length - DOC_LIMIT} more — show all</button>`;
+      html += `<button type="button" class="worlds-more" data-wf-action="document:expandList">+${matched.length - DOC_LIMIT} more — show all</button>`;
     } else if (_docsExpanded && matched.length > DOC_LIMIT) {
-      html += `<button type="button" class="worlds-more" onclick="collapseDocs()">Show less</button>`;
+      html += `<button type="button" class="worlds-more" data-wf-action="document:collapseList">Show less</button>`;
     }
   }
   list.innerHTML = html;
 }
 
-export function onDocSearch(value) {
+function onDocSearch(value) {
   _docSearch = value;
   renderDocuments();
 }
 
-export function expandDocs() {
+function expandDocs() {
   _docsExpanded = true;
   renderDocuments();
 }
 
-export function collapseDocs() {
+function collapseDocs() {
   _docsExpanded = false;
   renderDocuments();
 }
@@ -291,7 +293,7 @@ export async function loadDocuments() {
   }
 }
 
-export async function createDocument() {
+async function createDocument() {
   try {
     const doc = await api.post("/documents", {});
     updateDocInList(doc);
@@ -401,7 +403,7 @@ function clearEditor() {
   updateTokenCount();
 }
 
-export function renameDocument(id) {
+function renameDocument(id) {
   const doc = S.documents.find((d) => d.id === id);
   if (!doc) return;
   showConfirmModal(
@@ -432,11 +434,11 @@ export function renameDocument(id) {
   );
 }
 
-export function renameActiveDocument() {
+function renameActiveDocument() {
   if (S.activeDocId) renameDocument(S.activeDocId);
 }
 
-export function deleteDocument(id) {
+function deleteDocument(id) {
   const doc = S.documents.find((d) => d.id === id);
   confirmDelete(
     "document",
@@ -658,7 +660,7 @@ async function generate(record, did, assisted, probs) {
         } catch {}
       } else if (event === "error") {
         genErrored = true;
-        toast(unescapeSSE(data) || "Generation error", true);
+        toast(sseError(data).message, true);
         break;
       } else if (event === "done") {
         try {
@@ -853,3 +855,21 @@ export function initDocumentMode() {
     if (S.docDirty && S.activeDocId) flushSave({ keepalive: true });
   });
 }
+
+registerActions("document", {
+  toggleMode: () => toggleDocumentMode(),
+  create: () => createDocument(),
+  search: (el) => onDocSearch(el.value),
+  expandList: () => expandDocs(),
+  collapseList: () => collapseDocs(),
+  open: (el) => openDocument(el.dataset.docId),
+  rename: (el) => renameDocument(el.dataset.docId),
+  renameActive: () => renameActiveDocument(),
+  delete: (el) => deleteDocument(el.dataset.docId),
+  raw: () => setDocAssisted(false),
+  assisted: () => setDocAssisted(true),
+  toggleProbs: (el) => setDocProbs(!el.classList.contains("active")),
+  generate: () => docGenerate(),
+  stop: () => docStop(),
+  undo: () => docUndo(),
+});

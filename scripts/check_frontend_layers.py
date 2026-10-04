@@ -1,26 +1,11 @@
 #!/usr/bin/env python3
-"""Frontend layering + plugin-boundary guardrail.
+"""Enforce frontend layers, acyclic imports and workflow boundaries.
 
-The frontend is flat vanilla ES modules with no build step, so architecture is
-enforced by convention + this lint rather than by a bundler. It checks, in order:
-
-  1. Layer import-direction. Every top-level frontend/*.js is assigned a layer
-     (LAYERS). A file may import only its own layer or a lower one. The known
-     current upward edges live in ALLOWED_UPWARD and shrink as the deferred
-     stages (3-5) land; a NEW upward edge fails. Top-level module imports
-     must also be acyclic, including imports within the same layer.
-  2. Two ratchets, which may only DECREASE: the count of inline `on*=` handlers
-     (the window-bridge surface) and the count of underscore "private"
-     cross-module imports. Lower them and drop the ceiling; never raise it.
-  3. Plugin boundary. A file under frontend/workflows/** may import only
-     `/static/workflow_api.js` and files inside its own workflow directory.
-     Static, side-effect, and literal dynamic imports are checked; computed
-     dynamic imports are rejected.
-  4. ABI snapshot. workflow_api.js's exports must equal FROZEN_ABI exactly, so an
-     accidental rename/removal of a plugin-facing export fails CI (additive-only:
-     a genuinely new export is added to FROZEN_ABI in the same commit).
-
-Exit non-zero on any violation. Wired into scripts/lint.sh.
+Check that markup reaches code only through registered data-wf-action names (no
+inline handlers, no window globals, no unregistered names), cross-module private
+names, frozen workflow_api exports, and that every other export has an importer.
+Plugins may import only their own modules and workflow_api; computed dynamic
+imports are rejected. Exit non-zero on violations via lint.sh.
 """
 
 from __future__ import annotations
@@ -32,11 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FE = ROOT / "frontend"
 
-# ── 1. Layer manifest ────────────────────────────────────────────────────────
+# -- 1. Layer manifest --------------------------------------------------------
 # Lower number = lower layer. A file may import its own layer or lower.
 LAYERS = {
-    # L0 core leaves — import nothing.
+    # L0 core leaves -- import nothing.
     "api.js": 0,
+    "errors.js": 0,
     "document_saves.js": 0,
     "sse.js": 0,
     "validate.js": 0,
@@ -45,9 +31,8 @@ LAYERS = {
     "icons.js": 0,
     "drag_reorder.js": 0,
     "dom_reconcile.js": 0,
-    # The Character Library's search + tag predicate. A leaf on purpose: the
-    # filter is the one piece of the browser worth testing directly, and
-    # library_browser.js drags in the whole L5 chat chain.
+    # The Character Library's search + tag predicate. A leaf on purpose: the filter is the one piece of the browser worth
+    # testing directly, and library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
     # The desktop-width card rescue: measures a rendered bubble and re-widens a
     # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
@@ -57,9 +42,8 @@ LAYERS = {
     # is its own. A leaf so the settlement rules can be tested without a DOM.
     "stream_settle.js": 0,
     "expression_segments.js": 0,
-    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
-    # A leaf so it can be tested without a DOM, which is the whole point of it
-    # being a string pass rather than a trip through the CSSOM.
+    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper. A leaf so it can be tested without a DOM, which
+    # is the whole point of it being a string pass rather than a trip through the CSSOM.
     "message_css.js": 0,
     # The avatar crop box as pure geometry (hit test, move, aspect-locked
     # resize), split from modal.js so it can be tested without a canvas.
@@ -67,21 +51,21 @@ LAYERS = {
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,
-    # The decision-fragment vocabulary: the cached /api/decisions/config read,
-    # the outcome-space rule, and the wording for each machine reason the stage
-    # reports. Imports only api.js, so it sits with the other shared helpers and
-    # all four decision surfaces can read it.
+    # The decision-fragment vocabulary: the cached /api/decisions/config read, the outcome-space rule, and the wording for each
+    # machine reason the stage reports. Imports only api.js, so it sits with the other shared helpers and all four decision
+    # surfaces can read it.
     "decisions.js": 1,
     "model_catalog.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
+    # The delegated data-wf-action registry. Low so every feature module can
+    # register the handlers for the markup it renders; workflow_api.js re-exports it.
+    "actions.js": 1,
     "notify.js": 1,
-    # A workflow render the button that started it can stop: its job id, the
-    # stop request, and that button's Stop state.
+    # A workflow render the button that started it can stop: its job id, the stop request, and that button's Stop state.
     "workflow_jobs.js": 1,
-    # The browser half of prose rendering: DOMPurify, block layout and <style>
-    # scoping. Sits beside utils.js because it is what makes utils.js output
-    # safe to hand to innerHTML, and imports nothing above it.
+    # The browser half of prose rendering: DOMPurify, block layout and <style> scoping. Sits beside utils.js because it is what
+    # makes utils.js output safe to hand to innerHTML, and imports nothing above it.
     "message_html.js": 1,
     "card_scripts.js": 1,
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
@@ -96,8 +80,7 @@ LAYERS = {
     "modal.js": 3,
     "panels.js": 3,
     "chips.js": 3,
-    # The Inspector's section shell, shared by the panel, the in-chat blocks
-    # and the Decisions section beneath both.
+    # The Inspector's section shell, shared by the panel, the in-chat blocks and the Decisions section beneath both.
     "inspector_section.js": 3,
     "audio_player.js": 3,
     "audio_transport.js": 3,
@@ -111,8 +94,7 @@ LAYERS = {
     "document_editor.js": 4,
     "document_probs.js": 4,
     "slop_score.js": 4,
-    # L5 features (peers; same-layer imports are allowed, cross-feature is not —
-    # the audit's target, enforced loosely here via the layer rule only).
+    # L5 features. Peers may import one another; the cycle check keeps that acyclic.
     "chat.js": 5,
     "chat_core.js": 5,
     "chat_error.js": 5,
@@ -148,25 +130,10 @@ LAYERS = {
     "workflow_api.js": 6,
 }
 
-# Upward edges (importer -> imported, both basenames) currently present and
-# tolerated. Each is a documented consequence of a not-yet-done stage; the set
-# only shrinks. Seed with the current reality.
-ALLOWED_UPWARD: set[tuple[str, str]] = {
-    # The boot orchestrator repaints the Tools panel after loading plugin modules
-    # (see workflow_loader.js). A stage-5 concern; documented until then.
-    ("workflow_loader.js", "settings.js"),
-}
-
-# ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 214  # inline on*= handlers across frontend/ (js + index.html)
-MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
-
-# ── 4. Frozen ABI ────────────────────────────────────────────────────────────
-# workflow_api.js's complete export surface, additive-only. A rename or removal
-# fails; a genuinely new export is added here in the same commit -- and, because
-# that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with
-# it. The check below reads that constant back so the number cannot drift from
-# the surface it describes.
+# -- 4. Frozen ABI ------------------------------------------------------------
+# workflow_api.js's complete export surface, additive-only. A rename or removal fails; a genuinely new export is added here in
+# the same commit -- and, because that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with it. The check
+# below reads that constant back so the number cannot drift from the surface it describes.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
     # registrars
@@ -184,6 +151,8 @@ FROZEN_ABI = {
     "registerAction",
     # http / dom helpers
     "api",
+    "responseError",
+    "sseError",
     "convUrl",
     "esc",
     "escAttr",
@@ -221,6 +190,10 @@ FROZEN_ABI = {
     "workflowActionJob",
     "activateWorkflowVariant",
     "refreshConversationMessages",
+    "regenerateWorkflowAttachment",
+    "rehydrateWorkflowAttachment",
+    "stepWorkflowVariant",
+    "deleteWorkflowAttachment",
     "selectWorkflowPipelinePass",
     "broadcastWorkflowMutation",
     "effectiveWorkflowEnabled",
@@ -238,7 +211,7 @@ FROZEN_ABI = {
     "refreshLocalMlStatus",
 }
 
-# ── Parsing helpers ──────────────────────────────────────────────────────────
+# -- Parsing helpers ----------------------------------------------------------
 # Matches `import ... from "path"` and re-export `export ... from "path"`.
 _IMPORT_FROM = re.compile(r'(?:import|export)\b[^;]*?\bfrom\s+["\']([^"\']+)["\']', re.DOTALL)
 _SIDE_EFFECT_IMPORT = re.compile(r'\bimport\s+["\']([^"\']+)["\']')
@@ -246,10 +219,33 @@ _DYNAMIC_IMPORT_CALL = re.compile(r"\bimport\s*\(")
 _DYNAMIC_IMPORT_LITERAL = re.compile(r'\bimport\s*\(\s*(["\'`])([^"\'`]*?)\1\s*\)', re.DOTALL)
 # Braced import/re-export binding list, possibly multiline.
 _BRACED = re.compile(r'(?:import|export)\s*(?:type\s+)?\{([^}]*)\}\s*from\s+["\']([^"\']+)["\']', re.DOTALL)
-# Inline event handler attribute (on*="...") in a JS template string or HTML.
-_INLINE_ON = re.compile(r'\son[a-z]+\s*=\s*"')
+# Inline event handler attribute (on*="...") in HTML or in a JS string, whether the attribute follows whitespace or opens a
+# quoted string. `.onclick =` is a DOM property, not markup, and is allowed.
+_INLINE_ON = re.compile(r'(?<![\w.$-])on[a-z]{4,}\s*=\s*["\'`]')
+# A name published on window/globalThis for markup or another module to reach.
+_WINDOW_GLOBAL = re.compile(
+    r"\b(?:window|globalThis)\.(?!location\b)[A-Za-z_$][\w$]*\s*=(?!=)|Object\.assign\(\s*(?:window|globalThis)\b"
+)
+# Action registrations. A plugin registers under its WORKFLOW_ID, its directory name.
+_REGISTER_ONE = re.compile(r'registerAction\(\s*(?:"([^"]+)"|WORKFLOW_ID)\s*,\s*"([^"]+)"')
+_REGISTER_MANY = re.compile(r'registerActions\(\s*(?:"([^"]+)"|WORKFLOW_ID)\s*,\s*\{(.*?)\n\s*\}\s*\)', re.DOTALL)
+_HANDLER_KEY = re.compile(r"^([ \t]+)([A-Za-z_$][\w$]*)\s*:", re.MULTILINE)
+# A quoted "scope:name" literal, as markup or a string that becomes markup.
+_ACTION_NAME = re.compile(r'["\'`]([a-z][\w-]*):([A-Za-z]\w*)["\'`]')
+# Literal attributes must be checked even when their entire scope is misspelled.
+# Computed values are checked through their quoted scope:name alternatives above.
+_ACTION_ATTRIBUTE = re.compile(r'\bdata-wf-action\s*=\s*["\'`]([^"\'`\s${}<>]+)["\'`]')
 # workflow_api.js exports: `export function X`, `export const X`, and re-export lists.
 _EXPORT_DECL = re.compile(r"export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z0-9_]+)")
+# Every module's exports and the imports that consume them, for the unused-export check.
+_EXPORTED_DECL = re.compile(r"^export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)", re.MULTILINE)
+_EXPORT_LIST = re.compile(r'^export\s*\{([^{}]*)\}\s*(?:from\s+["\']([^"\']+)["\'])?', re.MULTILINE)
+_IMPORT_NAMED = re.compile(r'\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s+["\']([^"\']+)["\']')
+_IMPORT_NAMESPACE = re.compile(r'\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["\']([^"\']+)["\']')
+# `const { a, b: c } = await import("x")` and `const ns = await import("x")`, the forms tests use.
+_DYNAMIC_DESTRUCTURE = re.compile(r'\{([^{}]*)\}\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
+_COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+_DYNAMIC_NAMESPACE = re.compile(r'\b([A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
 
 
 def rel_basename(importer: Path, spec: str) -> str | None:
@@ -310,6 +306,17 @@ def import_cycle(graph: dict[str, set[str]]) -> list[str] | None:
     return None
 
 
+def registered_actions(path: Path, text: str, workflow_root: Path = FE / "workflows") -> set[str]:
+    """Every "scope:name" *text* registers; WORKFLOW_ID is the plugin's directory."""
+    plugin = path.relative_to(workflow_root).parts[0] if path.is_relative_to(workflow_root) else None
+    names = {f"{scope or plugin}:{name}" for scope, name in _REGISTER_ONE.findall(text)}
+    for scope, body in _REGISTER_MANY.findall(text):
+        keys = _HANDLER_KEY.findall(body)
+        indent = min((len(pad) for pad, _ in keys), default=0)
+        names |= {f"{scope or plugin}:{key}" for pad, key in keys if len(pad) == indent}
+    return names
+
+
 def underscore_import_count(text: str) -> int:
     n = 0
     for names, spec in _BRACED.findall(text):
@@ -320,6 +327,73 @@ def underscore_import_count(text: str) -> int:
             if name.startswith("_"):
                 n += 1
     return n
+
+
+def resolve_spec(importer: Path, spec: str, frontend: Path = FE) -> Path | None:
+    """The file a relative or /static/ import specifier names, else None."""
+    if spec.startswith("/static/"):
+        return (frontend / spec.removeprefix("/static/")).resolve()
+    if spec.startswith(("./", "../")):
+        return (importer.parent / spec).resolve()
+    return None
+
+
+def module_exports(path: Path, text: str, frontend: Path = FE) -> dict[str, tuple[Path, str] | None]:
+    """Each exported name, mapped to the (module, name) it re-exports, or None when declared here."""
+    names: dict[str, tuple[Path, str] | None] = dict.fromkeys(_EXPORTED_DECL.findall(text))
+    for body, spec in _EXPORT_LIST.findall(text):
+        source = resolve_spec(path, spec, frontend) if spec else None
+        for raw in _COMMENT.sub("", body).split(","):
+            original, _, public = raw.strip().partition(" as ")
+            if original:
+                names[(public or original).strip()] = (source, original.strip()) if source else None
+    return names
+
+
+def imported_names(path: Path, text: str, frontend: Path = FE) -> set[tuple[Path, str]]:
+    """Every (module, name) *text* imports, statically, through a dynamic import, or as a namespace member."""
+    used: set[tuple[Path, str]] = set()
+    for body, spec in _IMPORT_NAMED.findall(text) + _DYNAMIC_DESTRUCTURE.findall(text):
+        if target := resolve_spec(path, spec, frontend):
+            names = (re.split(r"\s+as\s+|:", raw)[0].strip() for raw in _COMMENT.sub("", body).split(","))
+            used |= {(target, name) for name in names if name}
+    for namespace, spec in _IMPORT_NAMESPACE.findall(text) + _DYNAMIC_NAMESPACE.findall(text):
+        if target := resolve_spec(path, spec, frontend):
+            members = re.findall(rf"(?<![\w$.]){re.escape(namespace)}\.([A-Za-z_$][\w$]*)", text)
+            used |= {(target, name) for name in members}
+    return used
+
+
+def unused_exports(
+    modules: dict[Path, str], consumers: dict[Path, str], roots: set[Path], frontend: Path = FE
+) -> dict[Path, set[str]]:
+    """Exports nothing imports, per module. *roots* export a public surface and count as used.
+
+    A re-export counts as a use of its source only while something imports the re-export itself.
+    """
+    exports = {path: module_exports(path, text, frontend) for path, text in modules.items()}
+    used: set[tuple[Path, str]] = {(root, name) for root in roots for name in exports.get(root, {})}
+    for path, text in {**modules, **consumers}.items():
+        used |= imported_names(path, text, frontend)
+    pending = list(used)
+    while pending:
+        path, name = pending.pop()
+        source = exports.get(path, {}).get(name)
+        if source and source not in used:
+            used.add(source)
+            pending.append(source)
+    unused = {path: {name for name in names if (path, name) not in used} for path, names in exports.items()}
+    return {path: names for path, names in unused.items() if names}
+
+
+def unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
+    """Unknown literal actions, including a plug-in's WORKFLOW_ID templates."""
+    if workflow_id is not None:
+        text = text.replace("${WORKFLOW_ID}", workflow_id)
+    scopes = {name.split(":")[0] for name in registered}
+    used = set(_ACTION_ATTRIBUTE.findall(text))
+    used |= {f"{scope}:{name}" for scope, name in _ACTION_NAME.findall(text) if scope in scopes}
+    return used - registered
 
 
 def main() -> int:
@@ -345,27 +419,34 @@ def main() -> int:
             if base is None or base not in LAYERS:
                 continue
             hi, lo = LAYERS[name], LAYERS[base]
-            if lo > hi and (name, base) not in ALLOWED_UPWARD:
-                errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — upward edge not in ALLOWED_UPWARD")
+            if lo > hi:
+                errors.append(f"[layer] {name} (L{hi}) imports {base} (L{lo}) — invert the dependency instead")
 
     cycle = import_cycle(graph)
     if cycle:
         errors.append(f"[cycle] {' -> '.join(cycle)}")
 
-    # 2a. Inline on*= ratchet (scope: all of frontend/ + index.html).
-    inline = 0
-    scan = list(FE.rglob("*.js")) + [p for p in (FE / "index.html",) if p.exists()]
-    for path in scan:
-        inline += len(_INLINE_ON.findall(path.read_text(encoding="utf-8")))
-    if inline > MAX_INLINE_ON:
-        errors.append(f"[ratchet] inline on*= count {inline} exceeds ceiling {MAX_INLINE_ON} (ratchet may only decrease)")
+    # 2a. Markup reaches code only through registered actions (scope: all of frontend/ and index.html, vendor/ excluded).
+    scan = [p for p in FE.rglob("*.js") if "vendor" not in p.parts] + [FE / "index.html"]
+    texts = {path: path.read_text(encoding="utf-8") for path in scan}
+    registered: set[str] = set()
+    for path, text in texts.items():
+        rel = path.relative_to(FE)
+        if n := len(_INLINE_ON.findall(text)):
+            errors.append(f"[inline] {rel}: {n} inline on*= handler(s); use data-wf-action and registerAction")
+        if n := len(_WINDOW_GLOBAL.findall(text)):
+            errors.append(f"[global] {rel}: {n} window global(s); import the name, or register an action")
+        if path.suffix == ".js":
+            registered |= registered_actions(path, text)
+    for path, text in texts.items():
+        workflow_id = path.relative_to(FE / "workflows").parts[0] if path in workflow_files else None
+        for name in sorted(unregistered_actions(text, registered, workflow_id=workflow_id)):
+            errors.append(f'[action] {path.relative_to(FE)}: "{name}" is not registered')
 
-    # 2b. Underscore cross-module import ratchet.
-    us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in top_files)
-    if us > MAX_UNDERSCORE_IMPORTS:
-        errors.append(
-            f"[ratchet] underscore cross-module imports {us} exceeds ceiling {MAX_UNDERSCORE_IMPORTS} (may only decrease)"
-        )
+    # 2b. Module-private names stay in their module.
+    us = sum(underscore_import_count(p.read_text(encoding="utf-8")) for p in [*top_files, *workflow_files])
+    if us:
+        errors.append(f"[private] {us} underscore-prefixed import(s) across modules; give the name a public spelling")
 
     # 3. Plugin boundary: imports remain within the workflow or use its facade.
     for path in workflow_files:
@@ -380,8 +461,7 @@ def main() -> int:
                 )
 
     # 4. ABI snapshot: workflow_api.js exports must equal FROZEN_ABI. Only real
-    # `export` statements count — NOT the `import {...}` blocks above them (the
-    # facade imports the same names it re-exports).
+    # `export` statements count -- NOT the `import {...}` blocks above them (the facade imports the same names it re-exports).
     api_text = (FE / "workflow_api.js").read_text(encoding="utf-8")
     exports = set(_EXPORT_DECL.findall(api_text))
     # Re-export blocks: `export { a, b as c };` and `export { a } from "...";`.
@@ -406,10 +486,22 @@ def main() -> int:
             f"[abi] workflow_api.js has NEW exports not in FROZEN_ABI — add them there (additive-only): {sorted(added)}"
         )
 
+    # 5. An export is a contract with an importer. workflow_api.js is exempt: plug-ins outside this tree import it.
+    modules = {path.resolve(): text for path, text in texts.items() if path.suffix == ".js"}
+    tests = ROOT / "tests" / "frontend"
+    consumers = {
+        path.resolve(): path.read_text(encoding="utf-8") for path in tests.rglob("*") if path.suffix in (".js", ".mjs")
+    }
+    unused = unused_exports(modules, consumers, {(FE / "workflow_api.js").resolve()})
+    for path, names in sorted(unused.items()):
+        errors.append(
+            f"[export] {path.relative_to(FE)}: nothing imports {', '.join(sorted(names))}; drop the export or the declaration"
+        )
+
     # Report.
     print(
-        f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
-        f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), "
+        f"frontend layer check: {len(top_files)} modules, {len(registered)} actions, "
+        f"underscore imports={us}, "
         f"ABI v{abi_version} ({len(exports)} exports)"
     )
     if errors:

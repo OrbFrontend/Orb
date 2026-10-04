@@ -24,11 +24,10 @@ async def emit(progress: ProgressCallback | None, stage: str, detail: Mapping[st
 def recorded_edge(value: Any) -> int | None:
     """One recorded pixel edge, or None when it is absent or not a positive whole number.
 
-    `isinstance(True, int)` is True, so bools are excluded by hand -- a hand-edited
-    record must not resolve to a 1-pixel edge.
+    `isinstance(True, int)` is True, so bools are excluded by hand -- a hand-edited record must not resolve to a 1-pixel edge.
 
-    Shared rather than copied per caller: the adapters resolve a replayed size with it
-    and the hook grades a recorded one, and the copy that drifted first lost `> 0`.
+    Shared rather than copied per caller: the adapters resolve a replayed size with it and the hook grades a recorded one, and
+    the copy that drifted first lost `> 0`.
     """
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
@@ -41,16 +40,9 @@ def reference_slot_key(slot: Any) -> tuple[str, str] | None:
 
 
 def fold_seed_into(seed: int, low: int, high: int) -> int:
-    """`seed` folded into the inclusive range `[low, high]`, or unchanged where that
-    is not a range at all.
+    """Fold seed into inclusive [low, high], or leave it unchanged for invalid ranges.
 
-    Backends disagree about how large a seed may be. A ComfyUI node declares
-    `min`/`max` in `/object_info`; a cloud style can carry a ceiling the user entered
-    after reading a provider's refusal. "Make this seed fit" is shared by both.
-
-    Folded rather than clamped: clamping would draw every out-of-range seed as the
-    same image, and folding is idempotent, so the seed Orb records still reproduces
-    this render when it is replayed through the same bound.
+    Modulo folding avoids clamp collisions and is idempotent for replay.
     """
     if high < low:
         return seed
@@ -70,9 +62,8 @@ def ratio_distance(target: float, ratio: float | None) -> float:
 class ImageBackendCapabilities(TypedDict):
     """What a backend *can ever* do -- static, per adapter class.
 
-    Drives the UI (graph importer? model dropdown? resolution picker?) and the
-    permanent-gap disclosure in the settings panel. The dynamic tier -- what one
-    resolved style/graph/model will actually honour -- lives on `RenderTarget`.
+    Drives the UI (graph importer? model dropdown? resolution picker?) and the permanent-gap disclosure in the settings panel.
+    The dynamic tier -- what one resolved style/graph/model will actually honour -- lives on `RenderTarget`.
     """
 
     can_generate: bool
@@ -133,10 +124,9 @@ class ResolvedReference:
 class ImageRequest:
     """What to draw. **Not** what will draw it -- that is `RenderTarget`.
 
-    Resolution rides the target for the same reason `model` does: a replay must
-    pin the resolution the stored image was generated at, and the target is what
-    already reads the stored record. Two homes for it is how the fresh path and
-    the reroll path come to disagree about replay precedence.
+    Resolution rides the target for the same reason `model` does: a replay must pin the resolution the stored image was
+    generated at, and the target is what already reads the stored record. Two homes for it is how the fresh path and the reroll
+    path come to disagree about replay precedence.
     """
 
     prompt: str

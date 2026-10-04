@@ -27,6 +27,9 @@ _DECISION_COLUMNS = tuple(name for name, _ in _FRAGMENT_COLUMNS)
 _LEGACY_FRAGMENT_COLUMNS: tuple[str, ...] = ("decision_default", "decision_facets")
 # Fold any legacy route override into the Judge endpoint before dropping it.
 _LEGACY_SETTINGS_COLUMNS: tuple[str, ...] = ("decision_url", "decision_config_revision")
+# Settings a later migration reads before dropping them itself: 0067 converts the direction-note pair and 0068 honours
+# feedback_enabled. The canonical DDL no longer has them, so the rebuild below carries them over instead of losing them.
+_LATER_MIGRATION_INPUTS: tuple[str, ...] = ("direction_notes_record", "direction_notes_inject", "feedback_enabled")
 
 _ENDPOINT_COLUMNS: tuple[tuple[str, str], ...] = (("kind", "TEXT NOT NULL DEFAULT 'chat' CHECK (kind IN ('chat', 'judge'))"),)
 
@@ -71,7 +74,14 @@ def _rebuild_settings(conn: sqlite3.Connection) -> None:
     block = schema.table_create_sql("settings")
     conn.execute(block.replace("CREATE TABLE IF NOT EXISTS settings", "CREATE TABLE settings_0066_new", 1))
     new_columns = {row[1] for row in conn.execute("PRAGMA table_info(settings_0066_new)").fetchall()}
-    old_columns = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
+    old_info = conn.execute("PRAGMA table_info(settings)").fetchall()
+    for _, name, decl, notnull, default, _ in old_info:
+        if name in _LATER_MIGRATION_INPUTS and name not in new_columns:
+            not_null = " NOT NULL" if notnull else ""
+            default_sql = f" DEFAULT {default}" if default is not None else ""
+            conn.execute(f"ALTER TABLE settings_0066_new ADD COLUMN {name} {decl}{not_null}{default_sql}")  # nosec B608 -- module literals
+            new_columns.add(name)
+    old_columns = [row[1] for row in old_info]
     columns = ", ".join(column for column in old_columns if column in new_columns)
     conn.execute(
         f"INSERT INTO settings_0066_new ({columns}) SELECT {columns} FROM settings"  # nosec B608 -- names from canonical DDL
@@ -143,9 +153,8 @@ def _cleanup_legacy_shape(conn: sqlite3.Connection) -> tuple[list[str], bool]:
     if not (stale or stale_settings or needs_settings_rebuild):
         return [], False
 
-    # DROP COLUMN and DROP/RENAME both require foreign-key enforcement to be off
-    # during the shape change. Commit first because SQLite ignores this pragma
-    # while a transaction is active.
+    # DROP COLUMN and DROP/RENAME both require foreign-key enforcement to be off during the shape change. Commit first because
+    # SQLite ignores this pragma while a transaction is active.
     conn.commit()
     had_foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
     conn.execute("PRAGMA foreign_keys = OFF")
@@ -170,8 +179,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         + _add_missing(conn, "endpoints", _ENDPOINT_COLUMNS)
     )
     _seed_outcome(conn)
-    # Before the cleanup below drops decision_url: the override is what the judge
-    # endpoint's URL should be.
+    # Before the cleanup below drops decision_url: the override is what the judge endpoint's URL should be.
     judge_id = _adopt_judge_endpoint(conn)
     conn.commit()
     dropped, rebuilt_settings = _cleanup_legacy_shape(conn)

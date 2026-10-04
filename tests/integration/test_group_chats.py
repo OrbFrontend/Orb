@@ -16,9 +16,7 @@ from backend.database import (
 
 
 async def _card(client, name: str, **extra) -> str:
-    response = await client.post("/api/characters", json={"name": name, **extra})
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/characters", json={"name": name, **extra})
 
 
 def _direct_scene(**arguments) -> list[dict]:
@@ -44,7 +42,7 @@ def _sse_events(body: str) -> list[tuple[str, object]]:
 async def test_group_creation_allocates_durable_members(client, db):
     aria = await _card(client, "Aria")
     kael = await _card(client, "Kael")
-    response = await client.post(
+    response = await client.post_json(
         "/api/conversations",
         json={
             "kind": "group",
@@ -54,8 +52,7 @@ async def test_group_creation_allocates_durable_members(client, db):
             "members": [{"character_card_id": aria}, {"character_card_id": kael}],
         },
     )
-    assert response.status_code == 200
-    conv = response.json()
+    conv = response
     assert conv["kind"] == "group"
     assert conv["character_card_id"] is None
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -69,11 +66,7 @@ async def test_group_list_includes_active_cast_names_in_roster_order(client, db)
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
 
@@ -90,33 +83,22 @@ async def test_conversion_stamps_existing_assistant_identity(client, db):
         (conv["id"],),
     )
     await db.commit()
-    response = await client.post(f"/api/conversations/{conv['id']}/convert-to-group")
-    assert response.status_code == 200
-    member_id = response.json()["member"]["id"]
+    response = await client.post_json(f"/api/conversations/{conv['id']}/convert-to-group")
+    member_id = response["member"]["id"]
     row = await (await db.execute("SELECT speaker_member_id FROM messages WHERE conversation_id = ?", (conv["id"],))).fetchone()
     assert row["speaker_member_id"] == member_id
 
 
 async def test_roster_removal_tombstones_and_readd_gets_new_identity(client):
     card_id = await _card(client, "Echo")
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": card_id}]},
-        )
-    ).json()
+    conv = (await client.post("/api/conversations", json={"kind": "group", "members": [{"character_card_id": card_id}]})).json()
     original = (await client.get(f"/api/conversations/{conv['id']}/members")).json()[0]
-    narrator = {
-        "display_name": "Narrator",
-        "member_kind": "narrator",
-    }
+    narrator = {"display_name": "Narrator", "member_kind": "narrator"}
     assert (await client.put(f"/api/conversations/{conv['id']}/members", json={"members": [narrator]})).status_code == 200
-    response = await client.put(
-        f"/api/conversations/{conv['id']}/members",
-        json={"members": [narrator, {"character_card_id": card_id}]},
+    response = await client.put_json(
+        f"/api/conversations/{conv['id']}/members", json={"members": [narrator, {"character_card_id": card_id}]}
     )
-    assert response.status_code == 200
-    readded = next(member for member in response.json() if member["character_card_id"] == card_id)
+    readded = next(member for member in response if member["character_card_id"] == card_id)
     assert readded["id"] != original["id"]
     history = (await client.get(f"/api/conversations/{conv['id']}/members?include_inactive=true")).json()
     assert next(member for member in history if member["id"] == original["id"])["active"] == 0
@@ -124,15 +106,9 @@ async def test_roster_removal_tombstones_and_readd_gets_new_identity(client):
 
 async def test_public_profile_merge_preserves_other_orb_extensions(client):
     card_id = await _card(
-        client,
-        "Profiled",
-        extensions={"orb": {"fragments": {"mood": []}, "v3": {"nickname": "P"}}, "vendor": {"x": 1}},
+        client, "Profiled", extensions={"orb": {"fragments": {"mood": []}, "v3": {"nickname": "P"}}, "vendor": {"x": 1}}
     )
-    response = await client.put(
-        f"/api/characters/{card_id}/public-profile",
-        json={"appearance": "Silver hair", "role": "Scout"},
-    )
-    assert response.status_code == 200
+    await client.put_checked(f"/api/characters/{card_id}/public-profile", json={"appearance": "Silver hair", "role": "Scout"})
     card = (await client.get(f"/api/characters/{card_id}")).json()
     assert card["extensions"]["orb"]["public_profile"] == {"appearance": "Silver hair", "role": "Scout"}
     assert card["extensions"]["orb"]["v3"] == {"nickname": "P"}
@@ -145,26 +121,16 @@ async def test_director_group_exchange_streams_and_persists_an_ordered_message_c
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     by_name = {member["display_name"]: member for member in members}
-    llm_mock.enqueue_director(
-        _direct_scene(
-            moods=[],
-            speaking_plan=["aria — Notice the trail", "kael — Explain the ward"],
-        )
-    )
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail", "kael — Explain the ward"]))
     llm_mock.enqueue_writer("**Aria:**\nI found tracks.")
     llm_mock.enqueue_writer("Kael: The ward is broken.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
     events = _sse_events(response.text)
     names = [name for name, _ in events]
     assert names.count("speaking_plan") == 1
@@ -174,10 +140,7 @@ async def test_director_group_exchange_streams_and_persists_an_ordered_message_c
 
     rows = await get_messages(conv["id"])
     user, first, second = rows[-3:]
-    assert [first["speaker_member_id"], second["speaker_member_id"]] == [
-        by_name["Aria"]["id"],
-        by_name["Kael"]["id"],
-    ]
+    assert [first["speaker_member_id"], second["speaker_member_id"]] == [by_name["Aria"]["id"], by_name["Kael"]["id"]]
     assert first["content"] == "I found tracks."
     assert second["content"] == "The ward is broken."
     assert first["parent_id"] == user["id"] and second["parent_id"] == first["id"]
@@ -200,11 +163,7 @@ async def test_every_speaker_in_an_exchange_sees_the_user_s_image(client, llm_mo
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Look", "kael — Look too"]))
@@ -212,11 +171,10 @@ async def test_every_speaker_in_an_exchange_sees_the_user_s_image(client, llm_mo
     llm_mock.enqueue_writer("Kael speaks.")
 
     pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNiAAAABgADNjd8qAAAAABJRU5ErkJggg=="
-    response = await client.post(
+    await client.post_checked(
         f"/api/conversations/{conv['id']}/send",
         json={"content": "What is this?", "attachments": [{"b64": pixel, "mime": "image/png", "filename": "map.png"}]},
     )
-    assert response.status_code == 200
 
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
     assert len(writers) == 2
@@ -227,23 +185,16 @@ async def test_every_speaker_in_an_exchange_sees_the_user_s_image(client, llm_mo
 async def test_manual_group_without_a_pin_rests_instead_of_erroring(client, llm_mock):
     """`Choose` sends fine with nobody picked: the message lands, no one answers.
 
-    The pick is a separate act (a cast chip), so a send that arrives without one
-    is a rest, not a failed turn -- and a rest that is known before any prompt is
-    built must not pay for a Director call.
+    The pick is a separate act (a cast chip), so a send that arrives without one is a rest, not a failed turn -- and a rest that
+    is known before any prompt is built must not pay for a Director call.
     """
     aria = await _card(client, "Aria")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={
-                "kind": "group",
-                "group_turn_mode": "manual",
-                "members": [{"character_card_id": aria}],
-            },
+            "/api/conversations", json={"kind": "group", "group_turn_mode": "manual", "members": [{"character_card_id": aria}]}
         )
     ).json()
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Hello"})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "Hello"})
     events = _sse_events(response.text)
     assert not any(name == "error" for name, _ in events)
     plan = next(data for name, data in events if name == "speaking_plan")
@@ -268,11 +219,9 @@ async def test_manual_group_speaks_for_the_member_the_pin_names(client, llm_mock
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     llm_mock.enqueue_writer("Kael answers.")
-    response = await client.post(
-        f"/api/conversations/{conv['id']}/send",
-        json={"content": "Hello", "speaker_member_id": members[1]["id"]},
+    response = await client.post_checked(
+        f"/api/conversations/{conv['id']}/send", json={"content": "Hello", "speaker_member_id": members[1]["id"]}
     )
-    assert response.status_code == 200
     plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
     assert [entry["name"] for entry in plan["plan"]] == ["Kael"]
 
@@ -282,22 +231,15 @@ async def test_atomic_roster_sync_allows_cards_to_swap_existing_member_slots(cli
     kael = await _card(client, "Kael")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
-    response = await client.put(
+    response = await client.put_json(
         f"/api/conversations/{conv['id']}/members",
-        json={
-            "members": [
-                {**members[0], "character_card_id": kael},
-                {**members[1], "character_card_id": aria},
-            ]
-        },
+        json={"members": [{**members[0], "character_card_id": kael}, {**members[1], "character_card_id": aria}]},
     )
-    assert response.status_code == 200
-    assert [member["character_card_id"] for member in response.json()] == [kael, aria]
+    assert [member["character_card_id"] for member in response] == [kael, aria]
 
 
 async def test_group_compress_remaps_speaker_ids_and_preserves_exchange_ids(client):
@@ -305,8 +247,7 @@ async def test_group_compress_remaps_speaker_ids_and_preserves_exchange_ids(clie
     kael = await _card(client, "Kael")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     old_members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -332,12 +273,11 @@ async def test_group_compress_remaps_speaker_ids_and_preserves_exchange_ids(clie
     )
     await set_active_leaf(conv["id"], second_id)
 
-    response = await client.post(
+    response = await client.post_json(
         f"/api/conversations/{conv['id']}/compress",
         json={"summary": "Summary with Aria and Kael attribution.", "keep_count": 2},
     )
-    assert response.status_code == 200
-    new_cid = response.json()["new_conversation_id"]
+    new_cid = response["new_conversation_id"]
     new_members = (await client.get(f"/api/conversations/{new_cid}/members?include_inactive=true")).json()
     rows = await get_messages(new_cid)
     assert rows[0]["speaker_member_id"] is None
@@ -352,8 +292,7 @@ async def test_group_summarize_labels_history_and_context_size_is_a_maximum(clie
     kael = await _card(client, "Kael", description="KAEL LARGEST PRIVATE SHEET " * 10)
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -372,8 +311,7 @@ async def test_group_summarize_labels_history_and_context_size_is_a_maximum(clie
         )
     await set_active_leaf(conv["id"], parent)
     llm_mock.enqueue_writer("A summary.")
-    response = await client.post(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
-    assert response.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
     prompt = json.dumps(llm_mock.captured[-1]["messages"])
     assert "Aria: Two" in prompt and "Kael: Three" in prompt
 
@@ -389,13 +327,11 @@ async def test_summarizing_a_renamed_group_calls_it_by_its_current_name(client, 
     aria = await _card(client, "Aria")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]},
+            "/api/conversations", json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}]}
         )
     ).json()
     await client.put(
-        f"/api/conversations/{conv['id']}",
-        json={"title": "The Long Watch", "character_scenario": "{{char}} opens at dusk."},
+        f"/api/conversations/{conv['id']}", json={"title": "The Long Watch", "character_scenario": "{{char}} opens at dusk."}
     )
     parent = None
     for index, (role, content) in enumerate([("user", "One"), ("assistant", "Two"), ("user", "Three"), ("assistant", "Four")]):
@@ -403,34 +339,24 @@ async def test_summarizing_a_renamed_group_calls_it_by_its_current_name(client, 
     await set_active_leaf(conv["id"], parent)
     llm_mock.enqueue_writer("A summary.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
-    assert response.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/summarize", json={"keep_count": 2})
     prompt = json.dumps(llm_mock.captured[-1]["messages"])
     assert "The Long Watch opens at dusk." in prompt
     assert "Campfire" not in prompt
 
 
-# ── Character context modes ─────────────────────────────────────────────────
+# -- Character context modes -------------------------------------------------
 
 
 async def _two_card_group(
-    client,
-    *,
-    context_mode: str | None = None,
-    aria_extra: dict | None = None,
-    kael_extra: dict | None = None,
+    client, *, context_mode: str | None = None, aria_extra: dict | None = None, kael_extra: dict | None = None
 ) -> tuple[dict, list[dict]]:
     aria = await _card(client, "Aria", **{"description": "ARIA PRIVATE", "mes_example": "ARIA EXAMPLE", **(aria_extra or {})})
     kael = await _card(client, "Kael", **{"description": "KAEL PRIVATE", "mes_example": "KAEL EXAMPLE", **(kael_extra or {})})
-    payload = {
-        "kind": "group",
-        "title": "Campfire",
-        "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-    }
+    payload = {"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
     conv = (await client.post("/api/conversations", json=payload)).json()
     if context_mode:
-        response = await client.put(f"/api/conversations/{conv['id']}", json={"group_context_mode": context_mode})
-        assert response.status_code == 200
+        response = await client.put_checked(f"/api/conversations/{conv['id']}", json={"group_context_mode": context_mode})
         conv = response.json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     return conv, members
@@ -440,8 +366,7 @@ async def _run_two_speaker_exchange(client, llm_mock, conv):
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Notice the trail", "kael — Explain the ward"]))
     llm_mock.enqueue_writer("I found tracks.")
     llm_mock.enqueue_writer("The ward is broken.")
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
     return response
 
 
@@ -453,18 +378,17 @@ async def test_group_context_mode_defaults_to_private_and_rejects_unknown_values
     conv, _ = await _two_card_group(client)
     assert conv["group_context_mode"] == "private"
 
-    response = await client.put(
+    response = await client.put_checked(
         f"/api/conversations/{conv['id']}",
         json={"title": "Renamed", "group_context_mode": "everyone_sees_everything"},
+        expected_status=422,
     )
-    assert response.status_code == 422
     # A rejected payload must not half-apply: the title edit rode the same call.
     reloaded = (await client.get("/api/conversations")).json()
     assert next(item for item in reloaded if item["id"] == conv["id"])["title"] == "Campfire"
 
     for mode in ("shared", "swap", "private"):
-        response = await client.put(f"/api/conversations/{conv['id']}", json={"group_context_mode": mode})
-        assert response.status_code == 200
+        response = await client.put_checked(f"/api/conversations/{conv['id']}", json={"group_context_mode": mode})
         assert response.json()["group_context_mode"] == mode
 
 
@@ -488,9 +412,8 @@ async def test_context_mode_rides_checkpoint_and_compression_forks(client):
     checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
     assert checkpoint["group_context_mode"] == "shared"
 
-    response = await client.post(f"/api/conversations/{conv['id']}/compress", json={"summary": "So far.", "keep_count": 2})
-    assert response.status_code == 200
-    new_cid = response.json()["new_conversation_id"]
+    response = await client.post_json(f"/api/conversations/{conv['id']}/compress", json={"summary": "So far.", "keep_count": 2})
+    new_cid = response["new_conversation_id"]
     forked = (await client.get("/api/conversations")).json()
     assert next(c for c in forked if c["id"] == new_cid)["group_context_mode"] == "shared"
 
@@ -509,8 +432,7 @@ async def test_shared_dossier_gives_every_speaker_one_prefix_and_never_repeats_i
         assert "ARIA PRIVATE" in system and "KAEL PRIVATE" in system
 
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
-    # The identity fields are in the shared body, so the tail must not re-bill
-    # them; the speaker-only guard stays.
+    # The identity fields are in the shared body, so the tail must not re-bill them; the speaker-only guard stays.
     aria_tail = json.dumps(writers[0]["messages"][-1])
     assert "ARIA PRIVATE" not in aria_tail and "ARIA EXAMPLE" not in aria_tail
     assert "Write the next reply as Aria only" in aria_tail
@@ -530,14 +452,14 @@ async def test_private_perspective_keeps_the_cast_prefix_stable_and_cards_speake
 
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per_speaker(client, llm_mock):
-    """Swap's per-speaker prefix is a *deliberate* cache divergence — hence the
+    """Swap's per-speaker prefix is a *deliberate* cache divergence -- hence the
     marker. What must not happen is the Director seeing an arbitrary member's
     card, or the first planned speaker silently inheriting that neutral base."""
     conv, _ = await _two_card_group(client, context_mode="swap")
     await _run_two_speaker_exchange(client, llm_mock, conv)
 
     director = _systems(llm_mock, "director")[0]
-    # The public cast, and only that — the Director must never see a card.
+    # The public cast, and only that -- the Director must never see a card.
     assert "### Aria" in director and "### Kael" in director
     assert "ARIA PRIVATE" not in director and "KAEL PRIVATE" not in director
 
@@ -547,9 +469,8 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
     assert systems[0] != director and systems[0] != systems[1]
     assert "ARIA PRIVATE" in systems[0] and "KAEL PRIVATE" not in systems[0]
     assert "KAEL PRIVATE" in systems[1] and "ARIA PRIVATE" not in systems[1]
-    # Everything up to the active card is still shared with the neutral base.
-    # The public cast is speaker-independent, so it sits inside that shared
-    # region and the lanes diverge only where the card is substituted.
+    # Everything up to the active card is still shared with the neutral base. The public cast is speaker-independent, so it sits
+    # inside that shared region and the lanes diverge only where the card is substituted.
     shared_head = commonprefix([*systems, director])
     assert "### Aria" in shared_head and "### Kael" in shared_head, shared_head
     assert "ARIA PRIVATE" not in shared_head and "KAEL PRIVATE" not in shared_head
@@ -558,7 +479,7 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
 async def test_the_editor_replays_the_exact_writer_input_in_every_mode(client, llm_mock, mode):
     """The Editor must extend the Writer's stack, never rebuild its own view of
-    the cast — otherwise it audits a draft written from a different prompt."""
+    the cast -- otherwise it audits a draft written from a different prompt."""
     await client.put(
         "/api/settings",
         json={
@@ -582,20 +503,18 @@ async def test_the_editor_replays_the_exact_writer_input_in_every_mode(client, l
 
 async def _dual_model(client) -> None:
     """Put director/editor on their own endpoint, writer on the active one."""
-    ep = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})
-    assert ep.status_code == 200
-    response = await client.put(
+    ep = await client.post_json("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})
+    await client.put_checked(
         "/api/settings",
         json={
             "agent_same_as_writer": False,
-            "agent_endpoint_id": ep.json()["id"],
+            "agent_endpoint_id": ep["id"],
             "enable_agent": True,
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
             "length_guard_enabled": True,
             "length_guard_max_words": 5,
         },
     )
-    assert response.status_code == 200
 
 
 @pytest.mark.parametrize("mode", ["private", "shared"])
@@ -621,11 +540,10 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
 
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(client, llm_mock):
-    """Swap hides cards, not members. The curated profile is the only thing the
-    rest of the cast is ever told about someone, so it rides the system prompt
-    exactly as it does under Private — the active card is appended after it, not
-    instead of it. Pinned end-to-end because the visibility rule and the modal
-    that fills the field are two halves of one feature."""
+    """Swap hides cards, not members. The curated profile is the only thing the rest of the cast is ever told about someone, so
+    it rides the system prompt exactly as it does under Private -- the active card is appended after it, not instead of it.
+    Pinned end-to-end because the visibility rule and the modal that fills the field are two halves of one feature.
+    """
     conv, members = await _two_card_group(client, context_mode="swap")
     # One member curated per scene, one falling back to its card-level profile:
     # both halves of `_public_profile` have to survive the mode.
@@ -638,12 +556,7 @@ async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(clien
     assert (
         await client.put(
             f"/api/conversations/{conv['id']}/members",
-            json={
-                "members": [
-                    {**members[0], "public_profile_override": "Role: the scout who found the trail."},
-                    members[1],
-                ]
-            },
+            json={"members": [{**members[0], "public_profile_override": "Role: the scout who found the trail."}, members[1]]},
         )
     ).status_code == 200
 
@@ -662,7 +575,7 @@ async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(clien
 
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, llm_mock):
-    """Swap diverges both lanes per speaker (hence the marker) — but never
+    """Swap diverges both lanes per speaker (hence the marker) -- but never
     unevenly: an Editor auditing Aria must not be reading Kael's card."""
     await _dual_model(client)
     conv, _ = await _two_card_group(client, context_mode="swap")
@@ -681,10 +594,9 @@ async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, ll
 
 @pytest.mark.parametrize("mode", ["private", "shared"])
 async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding_one(client, llm_mock, mode):
-    """Dynamic Worlds and the direction-note step inherit the mode for free
-    because they extend the speaker's frozen base. Asserted, not assumed: a
-    step that rebuilt its own prefix would show up here as a second system
-    message on the same lane."""
+    """Dynamic Worlds and the direction-note step inherit the mode for free because they extend the speaker's frozen base.
+    Asserted, not assumed: a step that rebuilt its own prefix would show up here as a second system message on the same lane.
+    """
     world = (await client.post("/api/worlds", json={"name": "Gorge", "is_global": True})).json()
     await client.post(f"/api/worlds/{world['id']}/entries", json={"name": "Bridge", "content": "It groans.", "keywords": []})
     await client.put(f"/api/worlds/{world['id']}/dynamic", json={"enabled": True})
@@ -715,14 +627,11 @@ async def test_the_post_turn_steps_ride_the_exchange_base_rather_than_rebuilding
 async def test_context_size_breakdown_follows_the_context_mode(client, mode, expected):
     big = ("ARIA " * 40).strip()
     conv, _ = await _two_card_group(
-        client,
-        context_mode=mode,
-        aria_extra={"description": big},
-        kael_extra={"description": "KAEL"},
+        client, context_mode=mode, aria_extra={"description": big}, kael_extra={"description": "KAEL"}
     )
     breakdown = (await client.get(f"/api/conversations/{conv['id']}/context-size")).json()["breakdown"]
     assert [key for key in expected if key in breakdown] == expected
-    # Exactly one shared-body key per mode — a stale one would double-count.
+    # Exactly one shared-body key per mode -- a stale one would double-count.
     assert {"cast_public", "cast_dossiers"} & set(breakdown) == {expected[0]}
     # The biggest card is billed once wherever the mode puts it, never summed.
     billed = "largest_speaker_tail" if mode == "private" else ("largest_active_card" if mode == "swap" else "cast_dossiers")
@@ -732,8 +641,8 @@ async def test_context_size_breakdown_follows_the_context_mode(client, mode, exp
 
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
 async def test_compression_prompts_stay_on_the_public_cast_projection(client, llm_mock, mode):
-    """Compression is scene-wide narration: paying for every dossier — or
-    swapping in one arbitrary card — buys nothing on the app's longest call."""
+    """Compression is scene-wide narration: paying for every dossier -- or
+    swapping in one arbitrary card -- buys nothing on the app's longest call."""
     conv, members = await _two_card_group(client, context_mode=mode)
     parent = None
     for index, (role, content, speaker) in enumerate(
@@ -756,17 +665,15 @@ async def test_compression_prompts_stay_on_the_public_cast_projection(client, ll
     assert "## Character dossier" not in system
 
 
-# ── The scene-local sheet override ──────────────────────────────────────────
-# `public_profile_override` is what the rest of the cast sees; `card_sheet_override`
-# is what the member reads about *itself*. A card asserts turn one forever, so a
-# long scene needs somewhere scene-local to say the coat burned — without writing
-# the card, which stays a reusable shared asset.
+# -- The scene-local sheet override ------------------------------------------
+# `public_profile_override` is what the rest of the cast sees; `card_sheet_override` is what the member reads about *itself*. A
+# card asserts turn one forever, so a long scene needs somewhere scene-local to say the coat burned -- without writing the card,
+# which stays a reusable shared asset.
 
 
 async def _put_members(client, conv, members: list[dict]):
-    response = await client.put(f"/api/conversations/{conv['id']}/members", json={"members": members})
-    assert response.status_code == 200, response.text
-    return response.json()
+    response = await client.put_json(f"/api/conversations/{conv['id']}/members", json={"members": members})
+    return response
 
 
 def _member_spec(member: dict, **overrides) -> dict:
@@ -785,7 +692,7 @@ def _member_spec(member: dict, **overrides) -> dict:
 async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_the_card(client, llm_mock):
     """`""` is a deliberate blanking and `null` is absence; the two must not
     collapse. Manage cast coerces an empty box to `null`, so today only the API
-    reaches the blanking case — but the resolution rule is the server's, and
+    reaches the blanking case -- but the resolution rule is the server's, and
     collapsing them here would make the distinction unexpressible at all."""
     conv, members = await _two_card_group(client)
     updated = await _put_members(client, conv, [_member_spec(members[0], card_sheet_override=""), _member_spec(members[1])])
@@ -803,9 +710,7 @@ async def test_the_sheet_override_rides_checkpoint_and_compression_forks(client)
     them, so a fork that carried the text under the old ids would carry nothing."""
     conv, members = await _two_card_group(client)
     await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA CURRENT SHEET"), _member_spec(members[1])],
+        client, conv, [_member_spec(members[0], card_sheet_override="ARIA CURRENT SHEET"), _member_spec(members[1])]
     )
     parent = None
     for index, (role, speaker) in enumerate([("user", None), ("assistant", members[0]["id"]), ("user", None)]):
@@ -824,14 +729,12 @@ async def test_the_sheet_override_rides_checkpoint_and_compression_forks(client)
 
 async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(client, llm_mock):
     """Compression forces the public-cast projection, which carries no sheet at
-    all — neither the card's nor the override's. So a summary cannot re-assert
+    all -- neither the card's nor the override's. So a summary cannot re-assert
     pre-update appearance into a fork whose history no longer contradicts it,
     and the sheet needs no compression-side edit."""
     conv, members = await _two_card_group(client)
     await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA SHEET OVERRIDE"), _member_spec(members[1])],
+        client, conv, [_member_spec(members[0], card_sheet_override="ARIA SHEET OVERRIDE"), _member_spec(members[1])]
     )
     parent = None
     for index, (role, speaker) in enumerate([("user", None), ("assistant", members[0]["id"]), ("user", None), ("user", None)]):
@@ -845,10 +748,9 @@ async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(cli
     assert "### Aria" in system and "### Kael" in system
 
 
-# ── The post-exchange sheet-update pass ─────────────────────────────────────────
-# One call per member the exchange touched, staged pending, never applied. Routed
-# through the mock's `workflow` queue for the reason `_profile_call` states: the
-# schema is deliberately absent from `prompting.tool_catalog.TOOLS`.
+# -- The post-exchange sheet-update pass -----------------------------------------
+# One call per member the exchange touched, staged pending, never applied. Routed through the mock's `workflow` queue for the
+# reason `_profile_call` states: the schema is deliberately absent from `prompting.tool_catalog.TOOLS`.
 
 
 def _sheet_call(**arguments) -> dict:
@@ -877,12 +779,11 @@ def _sheet_calls(llm_mock) -> list[str]:
 
 
 async def _proposals(client, conv, status: str | None = None) -> list[dict]:
-    """The scene's proposals. No status means the route's own default — the review
+    """The scene's proposals. No status means the route's own default -- the review
     set the client actually asks for, so the tests exercise the shipped call."""
     params = {"status": status} if status else {}
-    response = await client.get(f"/api/conversations/{conv['id']}/sheet-proposals", params=params)
-    assert response.status_code == 200
-    return response.json()
+    response = await client.get_json(f"/api/conversations/{conv['id']}/sheet-proposals", params=params)
+    return response
 
 
 async def test_the_sheet_pass_is_off_until_the_scene_opts_in(client, llm_mock):
@@ -925,8 +826,7 @@ async def test_a_silent_member_is_never_asked_about(client, llm_mock):
 
 
 async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mock):
-    """The never-batched rule, re-pinned for the new tool: another member's
-    *prose* is shared evidence, their *sheet* is not."""
+    """The never-batched rule, re-pinned for the new tool: another member's *prose* is shared evidence, their *sheet* is not."""
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
@@ -941,7 +841,7 @@ async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mo
 
 
 async def test_the_pass_runs_once_per_exchange_not_once_per_speaker(client, llm_mock):
-    """Two speakers, two members, two calls — not four. `run_exchange_final` is what
+    """Two speakers, two members, two calls -- not four. `run_exchange_final` is what
     makes the difference, and a regression here doubles the exchange's bill."""
     conv, _ = await _sheet_group(client)
     for _ in range(4):
@@ -976,7 +876,7 @@ async def test_applying_a_proposal_changes_the_tail_and_leaves_the_cached_body_a
 
 async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_clobbering(client, llm_mock):
     """The two-writer mitigation. `base_sheet` is to a proposal what
-    `content_revision` is to a changeset — there is no force-apply here either."""
+    `content_revision` is to a changeset -- there is no force-apply here either."""
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
@@ -984,12 +884,9 @@ async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_
     pending = await _proposals(client, conv)
 
     await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
+        client, conv, [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])]
     )
-    response = await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")
-    assert response.status_code == 409
+    await client.post_checked(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply", expected_status=409)
     # A refused proposal is the row that owes the user a reason, so it stays in
     # the route's default listing rather than vanishing at the moment of refusal.
     assert [(item["id"], item["status"]) for item in await _proposals(client, conv)] == [(pending[0]["id"], "stale")]
@@ -1037,7 +934,7 @@ async def test_a_second_exchange_replaces_the_pending_proposal_instead_of_stacki
     # The second call reasoned from the first proposal, not from the stored sheet:
     # that is what makes replacing the row lossless.
     assert "ARIA, shorn." in _sheet_calls(llm_mock)[2]
-    # `base_sheet` still names what an apply must match — the *stored* sheet.
+    # `base_sheet` still names what an apply must match -- the *stored* sheet.
     assert pending[0]["base_sheet"] == "ARIA PRIVATE"
     assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 200
     reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -1055,9 +952,7 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
     await _run_two_speaker_exchange(client, llm_mock, conv)
 
     await _put_members(
-        client,
-        conv,
-        [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])],
+        client, conv, [_member_spec(members[0], card_sheet_override="ARIA, hand-edited."), _member_spec(members[1])]
     )
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
@@ -1068,10 +963,9 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
 
 
 async def test_removing_a_member_retires_its_undecided_proposals(client, llm_mock):
-    """Manage cast renders rows only for the active roster, so a proposal left
-    pending on a tombstoned member sat in the review count forever with no row to
-    dismiss it from — and the apply, which has no active sheet to write onto,
-    could only refuse."""
+    """Manage cast renders rows only for the active roster, so a proposal left pending on a tombstoned member sat in the review
+    count forever with no row to dismiss it from -- and the apply, which has no active sheet to write onto, could only refuse.
+    """
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
@@ -1085,8 +979,8 @@ async def test_removing_a_member_retires_its_undecided_proposals(client, llm_moc
 
 
 async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, llm_mock):
-    """An exchange is request-scoped, so under Manual — and for any cast-chip click on
-    a resting scene — one round is several requests. Judging "did this exchange change
+    """An exchange is request-scoped, so under Manual -- and for any cast-chip click on
+    a resting scene -- one round is several requests. Judging "did this exchange change
     Kael?" from Kael's reply alone leaves out the line that changed him, and on
     `/speak` leaves out the user's message entirely. The evidence is the round,
     which is what `image_gen`'s subject list already reads."""
@@ -1098,8 +992,7 @@ async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, 
 
     llm_mock.enqueue_writer("The ward is broken.")
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
-    response = await client.post(f"/api/conversations/{conv['id']}/speak", json={"speaker_member_id": members[1]["id"]})
-    assert response.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/speak", json={"speaker_member_id": members[1]["id"]})
 
     calls = _sheet_calls(llm_mock)
     assert len(calls) == 2
@@ -1108,14 +1001,12 @@ async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, 
     assert "Character: Kael" in calls[1]
     for evidence in ("What happened?", "I found tracks.", "The ward is broken."):
         assert evidence in calls[1]
-    # Only this request's speaker is proposed *about*: Aria's own call was already
-    # billed by the request she spoke in.
+    # Only this request's speaker is proposed *about*: Aria's own call was already billed by the request she spoke in.
     assert "Character: Aria" not in calls[1]
 
 
 async def test_a_failed_sheet_call_never_costs_the_user_their_reply(client, llm_mock):
-    """It is the last step before `_result` and it is bookkeeping. A malformed
-    answer drops the proposal and nothing else."""
+    """It is the last step before `_result` and it is bookkeeping. A malformed answer drops the proposal and nothing else."""
     conv, _ = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="Has a {{char}} macro in it."))
     llm_mock.enqueue_workflow(_sheet_call(changed=True))  # reports a change, returns no sheet
@@ -1140,15 +1031,13 @@ async def test_group_activation_enables_cast_worlds_and_preserves_floating_world
     await client.put(f"/api/worlds/{floating_off['id']}", json={"is_global": False})
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     before = {world["id"]: world for world in (await client.get("/api/worlds")).json()}
 
-    response = await client.get(f"/api/conversations/{conv['id']}/worlds")
-    assert response.status_code == 200
-    assert set(response.json()["world_ids"]) == {aria_world["id"], kael_world["id"], floating_on["id"]}
+    response = await client.get_json(f"/api/conversations/{conv['id']}/worlds")
+    assert set(response["world_ids"]) == {aria_world["id"], kael_world["id"], floating_on["id"]}
     after = {world["id"]: world for world in (await client.get("/api/worlds")).json()}
     assert after == before, "Reading scene Worlds never changes defaults"
     for world_id in after:
@@ -1161,8 +1050,7 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
     kael = await _card(client, "Kael")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -1177,8 +1065,7 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
 
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=[]))
     llm_mock.enqueue_writer("Kael: Replacement")
-    response = await client.post(f"/api/conversations/{conv['id']}/messages/{target_id}/regenerate", json={})
-    assert response.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/messages/{target_id}/regenerate", json={})
     replacement = await (
         await db.execute("SELECT * FROM messages WHERE parent_id = ? ORDER BY id DESC LIMIT 1", (first_id,))
     ).fetchone()
@@ -1188,11 +1075,9 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
 
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=[]))
     llm_mock.enqueue_writer("**Kael:** Rewritten")
-    response = await client.post(
-        f"/api/conversations/{conv['id']}/messages/{target_id}/magic_rewrite",
-        json={"direction": "Make it quieter"},
+    await client.post_checked(
+        f"/api/conversations/{conv['id']}/messages/{target_id}/magic_rewrite", json={"direction": "Make it quieter"}
     )
-    assert response.status_code == 200
     rewritten = await (
         await db.execute("SELECT * FROM messages WHERE parent_id = ? ORDER BY id DESC LIMIT 1", (first_id,))
     ).fetchone()
@@ -1204,19 +1089,16 @@ async def test_group_regenerate_and_magic_rewrite_keep_target_speaker_and_parent
 async def test_pinned_speaker_still_gets_the_directors_cue(client, db, llm_mock):
     """A pin decides *who* speaks. The Director still decides *what* for them.
 
-    Regenerate is cast by the row it replaces -- the plan's cast is ignored, and
-    has to be, or one message's branch siblings would belong to two different
-    characters. The cue the Director wrote for that very member is not a casting
-    decision though: it is what the Director wants from this reply. Dropping it composed the
-    speaker blind while the scene direction injected alongside was aimed at
-    whoever the plan opened with.
+    Regenerate is cast by the row it replaces -- the plan's cast is ignored, and has to be, or one message's branch siblings
+    would belong to two different characters. The cue the Director wrote for that very member is not a casting decision though:
+    it is what the Director wants from this reply. Dropping it composed the speaker blind while the scene direction injected
+    alongside was aimed at whoever the plan opened with.
     """
     aria = await _card(client, "Aria")
     kael = await _card(client, "Kael")
     conv = (
         await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}, {"character_card_id": kael}]}
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -1232,8 +1114,7 @@ async def test_pinned_speaker_still_gets_the_directors_cue(client, db, llm_mock)
     plan = ["aria — deflect the accusation calmly", "kael — explode at her perfect act"]
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=plan))
     llm_mock.enqueue_writer("Kael: Replacement")
-    response = await client.post(f"/api/conversations/{conv['id']}/messages/{target_id}/regenerate", json={})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/messages/{target_id}/regenerate", json={})
 
     # The cast is the pin's, not the plan's: one reply, still Kael's.
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
@@ -1257,12 +1138,7 @@ async def test_pinned_speaker_still_gets_the_directors_cue(client, db, llm_mock)
 
 async def test_group_delete_preview_counts_invisible_sibling_replies(client):
     card_id = await _card(client, "Aria")
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": card_id}]},
-        )
-    ).json()
+    conv = (await client.post("/api/conversations", json={"kind": "group", "members": [{"character_card_id": card_id}]})).json()
     member = (await client.get(f"/api/conversations/{conv['id']}/members")).json()[0]
     user_id, _ = await add_message(conv["id"], "user", "Question", 0)
     first_id, _ = await add_message(conv["id"], "assistant", "Visible", 1, parent_id=user_id, speaker_member_id=member["id"])
@@ -1272,19 +1148,13 @@ async def test_group_delete_preview_counts_invisible_sibling_replies(client):
     await add_message(conv["id"], "assistant", "Hidden descendant", 2, parent_id=sibling_id, speaker_member_id=member["id"])
     await set_active_leaf(conv["id"], first_id)
 
-    response = await client.get(f"/api/conversations/{conv['id']}/messages/{first_id}/delete-preview")
-    assert response.status_code == 200
-    assert response.json() == {"message_count": 3, "assistant_count": 3}
+    response = await client.get_json(f"/api/conversations/{conv['id']}/messages/{first_id}/delete-preview")
+    assert response == {"message_count": 3, "assistant_count": 3}
 
 
 async def test_group_fork_edit_runs_a_fresh_exchange_from_the_new_user_sibling(client, db, llm_mock):
     aria = await _card(client, "Aria")
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": aria}]},
-        )
-    ).json()
+    conv = (await client.post("/api/conversations", json={"kind": "group", "members": [{"character_card_id": aria}]})).json()
     member = (await client.get(f"/api/conversations/{conv['id']}/members")).json()[0]
     user_id, _ = await add_message(conv["id"], "user", "Old question", 0, exchange_id="old")
     old_reply, _ = await add_message(
@@ -1293,11 +1163,7 @@ async def test_group_fork_edit_runs_a_fresh_exchange_from_the_new_user_sibling(c
     await set_active_leaf(conv["id"], old_reply)
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Answer the edit"]))
     llm_mock.enqueue_writer("Fresh reply")
-    response = await client.post(
-        f"/api/conversations/{conv['id']}/messages/{user_id}/fork-edit",
-        json={"content": "New question"},
-    )
-    assert response.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/messages/{user_id}/fork-edit", json={"content": "New question"})
     new_user = await (
         await db.execute(
             "SELECT * FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1", (conv["id"],)
@@ -1312,10 +1178,9 @@ async def test_group_fork_edit_runs_a_fresh_exchange_from_the_new_user_sibling(c
 async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
     """Queue one director response per step of the per-fragment loop.
 
-    That mode runs one forced call per interactive fragment, then one for the
-    speaking plan, then one for moods — and each step keeps only its own target
-    field, so handing every step the same arguments is safe and saves the test
-    from counting the seeded fragments.
+    That mode runs one forced call per interactive fragment, then one for the speaking plan, then one for moods -- and each step
+    keeps only its own target field, so handing every step the same arguments is safe and saves the test from counting the
+    seeded fragments.
     """
     fragments = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
     for _ in range(len(fragments) + 2):
@@ -1325,14 +1190,13 @@ async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
 async def test_per_fragment_director_still_plans_a_group_exchange(client, llm_mock):
     """`director_individual_fragments` runs each direct_scene field in its own
     forced call. The speaking plan is one of those fields, so it has to survive
-    that loop — it used to take the whole group turn down with it."""
+    that loop -- it used to take the whole group turn down with it."""
     await update_settings({"director_individual_fragments": 1})
     conv, members = await _two_card_group(client)
     await _enqueue_per_fragment_director(llm_mock, speaking_plan=["kael — Answer first"])
     llm_mock.enqueue_writer("The ward is broken.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
     events = _sse_events(response.text)
     assert not [data for name, data in events if name == "error"]
     plan = next(data for name, data in events if name == "speaking_plan")
@@ -1351,36 +1215,32 @@ async def test_an_intentional_rest_survives_both_director_shapes(client, llm_moc
         else:
             llm_mock.enqueue_director(_direct_scene(speaking_plan=[]))
 
-        response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Nobody move."})
-        assert response.status_code == 200
+        response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "Nobody move."})
         plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
         assert plan["plan"] == [], f"director_individual_fragments={individual} overrode the rest"
         assert [m["role"] for m in await get_messages(conv["id"])] == ["user"]
 
 
 async def test_a_missing_plan_falls_back_rather_than_resting(client, llm_mock):
-    """The rest exception is for an explicit `[]` only — a Director that never
+    """The rest exception is for an explicit `[]` only -- a Director that never
     filled the field at all must still get the configured strategy."""
     await update_settings({"director_individual_fragments": 1})
     conv, members = await _two_card_group(client)
     await _enqueue_per_fragment_director(llm_mock, moods=[])
     llm_mock.enqueue_writer("I found tracks.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
     plan = next(data for name, data in _sse_events(response.text) if name == "speaking_plan")
     assert [item["member_id"] for item in plan["plan"]] == [members[0]["id"]]
 
 
 async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(client, llm_mock):
-    """The steered paths hand the editor an explicit baseline window so the new
-    draft is not penalised for resembling the reply being replaced. A group exchange
-    has to receive the same list, or the target rides the prefix into the window
-    and the anti-echo audit scores the draft against itself.
+    """The steered paths hand the editor an explicit baseline window so the new draft is not penalised for resembling the reply
+    being replaced. A group exchange has to receive the same list, or the target rides the prefix into the window and the
+    anti-echo audit scores the draft against itself.
 
-    Driven through the structural-repetition scanner: an identical draft is a
-    finding when its twin is in the window and silence when it is not, so the
-    editor firing at all is the observable.
+    Driven through the structural-repetition scanner: an identical draft is a finding when its twin is in the window and silence
+    when it is not, so the editor firing at all is the observable.
     """
     # The editor only runs with the Agent on, its patch tool enabled and a phrase
     # bank present; without all three `audit_enabled` is False and nothing is scanned.
@@ -1402,8 +1262,7 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
         llm_mock.captured.clear()
         llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Try again"]))
         llm_mock.enqueue_writer(twin)
-        response = await client.post(f"/api/conversations/{conv['id']}/messages/{target}/super_regenerate", json={})
-        assert response.status_code == 200
+        await client.post_checked(f"/api/conversations/{conv['id']}/messages/{target}/super_regenerate", json={})
         return [call for call in llm_mock.captured if call["pass"] == "editor"]
 
     # Positive control: an older reply on the branch stays in the window, so an
@@ -1416,17 +1275,16 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
     )
 
 
-# ── Scene-profile drafting ──────────────────────────────────────────────────
-# The generator behind Manage cast's Draft / Redraft buttons. One LLM call per
-# member, never batched -- the leak that batching would open is pinned below.
+# -- Scene-profile drafting --------------------------------------------------
+# The generator behind Manage cast's Draft / Redraft buttons. One LLM call per member, never batched -- the leak that batching
+# would open is pinned below.
 
 
 def _profile_call(**arguments) -> dict:
     """The forced ``draft_public_profile`` response.
 
-    ``_pass_from_tool_choice`` routes any forced tool name it does not recognise
-    as a core pass tool to the ``workflow`` queue, and this schema is
-    deliberately absent from ``prompting.tool_catalog.TOOLS``.
+    ``_pass_from_tool_choice`` routes any forced tool name it does not recognise as a core pass tool to the ``workflow`` queue,
+    and this schema is deliberately absent from ``prompting.tool_catalog.TOOLS``.
     """
     return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
 
@@ -1442,7 +1300,7 @@ async def _draft(client, cid: str, **body):
 async def test_scene_profile_draft_renders_the_two_liner(client, llm_mock):
     """The same shape `_public_profile()` renders from a card, so an overridden
     member and a non-overridden one read identically in the assembled prompt.
-    Nothing is persisted — Save cast is still what writes it."""
+    Nothing is persisted -- Save cast is still what writes it."""
     conv, members = await _two_card_group(client)
     llm_mock.enqueue_workflow(_profile_call(appearance="Tall, in road-worn green.", role="Scout of the watch."))
 
@@ -1457,20 +1315,15 @@ async def test_scene_profile_draft_renders_the_two_liner(client, llm_mock):
 async def test_scene_profile_draft_sends_only_the_target_card_and_other_names(client, llm_mock):
     """The executable form of the no-batching decision.
 
-    Kael's card must never enter Aria's drafting context: the result is a string
-    every member reads under Private perspective, so a leak here writes his
-    secret into the one place that mode promises it cannot appear. A future
-    "batch the whole cast for speed" optimisation has to break loudly here.
+    Kael's card must never enter Aria's drafting context: the result is a string every member reads under Private perspective,
+    so a leak here writes his secret into the one place that mode promises it cannot appear. A future "batch the whole cast for
+    speed" optimisation has to break loudly here.
     """
     conv, members = await _two_card_group(client, kael_extra={"description": "KAEL SECRET", "personality": "KAEL INNER"})
     llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
 
     response = await _draft(
-        client,
-        conv["id"],
-        character_card_id=members[0]["character_card_id"],
-        display_name="Aria",
-        cast_names=["Kael"],
+        client, conv["id"], character_card_id=members[0]["character_card_id"], display_name="Aria", cast_names=["Kael"]
     )
     assert response.status_code == 200
     sent = _drafting_message(llm_mock)
@@ -1480,7 +1333,7 @@ async def test_scene_profile_draft_sends_only_the_target_card_and_other_names(cl
 
 
 async def test_scene_profile_draft_carries_the_scene_premise(client, llm_mock):
-    """The premise comes from the server, not the modal — it is durable scene
+    """The premise comes from the server, not the modal -- it is durable scene
     configuration, and the client never gets to say what the scene is."""
     conv, members = await _two_card_group(client)
     await client.put(f"/api/conversations/{conv['id']}", json={"character_scenario": "A cold night on the wall."})
@@ -1495,11 +1348,9 @@ async def test_scene_profile_draft_seeds_the_card_level_profile_as_the_default(c
     is asked to adjust it rather than to invent a second one from scratch."""
     conv, members = await _two_card_group(client)
     card_id = members[0]["character_card_id"]
-    saved = await client.put(
-        f"/api/characters/{card_id}/public-profile",
-        json={"appearance": "Green cloak, longbow.", "role": "Ranger."},
+    await client.put_checked(
+        f"/api/characters/{card_id}/public-profile", json={"appearance": "Green cloak, longbow.", "role": "Ranger."}
     )
-    assert saved.status_code == 200
     llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
 
     await _draft(client, conv["id"], character_card_id=card_id)
@@ -1553,10 +1404,7 @@ async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm
     llm_mock.enqueue_workflow(_profile_call(appearance="Tall.", role="Scout."))
 
     await _draft(
-        client,
-        conv["id"],
-        character_card_id=members[0]["character_card_id"],
-        cast_names=[f"Extra{i}" for i in range(17)],
+        client, conv["id"], character_card_id=members[0]["character_card_id"], cast_names=[f"Extra{i}" for i in range(17)]
     )
     sent = _drafting_message(llm_mock)
     assert "Extra15" in sent and "Extra16" not in sent
@@ -1566,50 +1414,40 @@ async def test_a_large_cast_is_bounded_and_says_how_many_it_left_out(client, llm
 async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_mock):
     """Every other scene setting rides `fork_conversation`; this one was dropped.
 
-    Checkpoint, Compress History and "New scene in this group" all fork, so a user
-    who turned the post-exchange pass on lost it the first time they branched — and
-    silently, since nothing reports a setting reverting to its default.
+    Checkpoint, Compress History and "New scene in this group" all fork, so a user who turned the post-exchange pass on lost it
+    the first time they branched -- and silently, since nothing reports a setting reverting to its default.
     """
     conv, _ = await _sheet_group(client)
-    response = await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Checkpoint"})
-    assert response.status_code == 200, response.text
-    assert response.json()["group_sheet_updates"] == 1
+    response = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Checkpoint"})
+    assert response["group_sheet_updates"] == 1
 
     # The same for a fresh scene in the family, which forks the same way.
-    fresh = await client.post(f"/api/conversations/{conv['id']}/group-conversation")
-    assert fresh.status_code == 200, fresh.text
-    assert fresh.json()["group_sheet_updates"] == 1
+    fresh = await client.post_json(f"/api/conversations/{conv['id']}/group-conversation")
+    assert fresh["group_sheet_updates"] == 1
 
 
 async def test_a_reply_the_next_speaker_reads_is_the_one_the_row_holds(client, llm_mock):
     """One inline-macro roll per reply, shared by the DB row and the next speaker.
 
-    Inline macros a model emits (copied out of context) fire once, at the persist
-    boundary. A group exchange is the one place that text has a second reader
-    before it is ever re-read from the DB: speaker 2's history is assembled in
-    memory from what speaker 1 just wrote. Resolving separately for each -- or
-    handing the driver the unresolved draft -- rolls the dice twice, so the
-    history speaker 2 saw disagrees with the row every later request reads, and
-    the provider re-prefills from that message onward for the rest of the scene.
+    Inline macros a model emits (copied out of context) fire once, at the persist boundary. A group exchange is the one place
+    that text has a second reader before it is ever re-read from the DB: speaker 2's history is assembled in memory from what
+    speaker 1 just wrote. Resolving separately for each -- or handing the driver the unresolved draft -- rolls the dice twice,
+    so the history speaker 2 saw disagrees with the row every later request reads, and the provider re-prefills from that
+    message onward for the rest of the scene.
     """
     aria = await _card(client, "Aria")
     kael = await _card(client, "Kael")
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — Roll", "kael — Answer"]))
     llm_mock.enqueue_writer("The die shows {{roll::1d20}}.")
     llm_mock.enqueue_writer("Kael nods.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "Roll for it."})
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "Roll for it."})
 
     messages = await get_messages(conv["id"])
     stored = next(m["content"] for m in messages if m["speaker_member_id"] and "die shows" in m["content"])

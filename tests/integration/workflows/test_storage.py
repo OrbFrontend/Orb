@@ -22,32 +22,20 @@ from ._fixtures import make_workflow, must_get_workflow_attachment, register_for
 
 @pytest.fixture(autouse=True)
 def _register_artifact_workflows():
-    """Register the workflow ids the tests in this module name in
-    attachment dicts. ``add_message`` routes workflow-source attachments
-    through the cache batch helper, which gates on
-    ``produces_artifacts=True``; without registration the gate would drop
-    the attachment before it ever reached the ``workflow_attachments``
-    table the tests inspect."""
-    wf = make_workflow(
-        "wf",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
-    )
+    """Register the workflow ids the tests in this module name in attachment dicts. ``add_message`` routes workflow-source
+    attachments through the cache batch helper, which gates on ``produces_artifacts=True``; without registration the gate
+    would drop the attachment before it ever reached the ``workflow_attachments`` table the tests inspect.
+    """
+    wf = make_workflow("wf", produces_artifacts=True, regenerate=lambda ctx, body: [], reroll_gen=lambda ctx, params, seed: b"")
     imagebot = make_workflow(
-        "imagebot",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
+        "imagebot", produces_artifacts=True, regenerate=lambda ctx, body: [], reroll_gen=lambda ctx, params, seed: b""
     )
     with register_for_test(wf), register_for_test(imagebot):
         yield
 
 
 async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "Storage test"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "Storage test"})
 
 
 async def _seed_message(client) -> tuple[str, int]:
@@ -88,10 +76,7 @@ async def test_insert_workflow_attachment_row_happy_path_persists_all_fields(cli
     ("att", "match"),
     [
         ({"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": ""}, "workflow_id"),
-        (
-            {"filename": "x.png", "mime": "image/png", "data": b"X", "path": "/tmp/x", "workflow_id": "wf"},
-            "exactly one",
-        ),
+        ({"filename": "x.png", "mime": "image/png", "data": b"X", "path": "/tmp/x", "workflow_id": "wf"}, "exactly one"),
         ({"filename": "x.png", "mime": "image/png", "workflow_id": "wf"}, "exactly one"),
         ({"filename": "x.png", "mime": "image/png", "data": "not-bytes", "workflow_id": "wf"}, "data must be bytes"),
         ({"filename": "x.png", "mime": "image/png", "data": b"", "workflow_id": "wf"}, "empty"),
@@ -121,8 +106,7 @@ async def test_insert_workflow_attachment_row_rejects_empty_path_file(client):
     try:
         with pytest.raises(ValueError, match="empty"):
             await insert_workflow_attachment_row(
-                mid,
-                {"filename": "x", "mime": "application/octet-stream", "path": empty_path, "workflow_id": "wf"},
+                mid, {"filename": "x", "mime": "application/octet-stream", "path": empty_path, "workflow_id": "wf"}
             )
     finally:
         os.unlink(empty_path)
@@ -131,8 +115,7 @@ async def test_insert_workflow_attachment_row_rejects_empty_path_file(client):
 async def test_insert_workflow_attachment_row_rejects_missing_message(client):  # noqa: ARG001
     with pytest.raises(LookupError, match="does not exist"):
         await insert_workflow_attachment_row(
-            999999,
-            {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": "wf"},
+            999999, {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": "wf"}
         )
 
 
@@ -142,8 +125,7 @@ async def test_insert_workflow_attachment_row_rejects_traversal_escape(client):
     escape = os.path.join(tempfile.gettempdir(), "..", "etc", "passwd")
     with pytest.raises(ValueError, match="staging root"):
         await insert_workflow_attachment_row(
-            mid,
-            {"filename": "passwd", "mime": "text/plain", "path": escape, "workflow_id": "wf"},
+            mid, {"filename": "passwd", "mime": "text/plain", "path": escape, "workflow_id": "wf"}
         )
 
 
@@ -155,8 +137,7 @@ async def test_insert_workflow_attachment_row_path_shape_reads_bytes(client):
         path = f.name
     try:
         att_id = await insert_workflow_attachment_row(
-            mid,
-            {"filename": "x", "mime": "application/octet-stream", "path": path, "workflow_id": "wf"},
+            mid, {"filename": "x", "mime": "application/octet-stream", "path": path, "workflow_id": "wf"}
         )
     finally:
         os.unlink(path)
@@ -171,8 +152,7 @@ async def test_get_workflow_attachment_by_id_returns_none_when_absent(client):  
 async def test_get_workflow_attachment_by_id_returns_full_column_set(client):
     cid, mid = await _seed_message(client)
     att_id = await insert_workflow_attachment_row(
-        mid,
-        {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": "wf"},
+        mid, {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": "wf"}
     )
     row = await must_get_workflow_attachment(att_id)
     expected_keys = {
@@ -207,8 +187,7 @@ async def test_split_attachment_fields_populated_independently(client):
     )
     await set_active_leaf(cid, user_mid)
     await insert_workflow_attachment_row(
-        mid,
-        {"filename": "wf.bin", "mime": "application/octet-stream", "data": b"WF", "workflow_id": "wf"},
+        mid, {"filename": "wf.bin", "mime": "application/octet-stream", "data": b"WF", "workflow_id": "wf"}
     )
     msgs = await get_messages(cid)
     by_id = {m["id"]: m for m in msgs}
@@ -223,10 +202,7 @@ async def test_split_attachment_fields_populated_independently(client):
 async def test_legacy_attachments_field_absent(client):
     """Reading messages must not synthesize a legacy ``attachments`` field; readers must consume ``user_attachments`` and ``workflow_attachments`` separately."""
     cid, mid = await _seed_message(client)
-    await insert_workflow_attachment_row(
-        mid,
-        {"filename": "x", "mime": "image/png", "data": b"X", "workflow_id": "wf"},
-    )
+    await insert_workflow_attachment_row(mid, {"filename": "x", "mime": "image/png", "data": b"X", "workflow_id": "wf"})
     msgs = await get_messages(cid)
     for m in msgs:
         assert "attachments" not in m
@@ -234,10 +210,7 @@ async def test_legacy_attachments_field_absent(client):
 
 async def test_get_user_attachments_for_message_ignores_workflow_rows(client):
     cid, mid = await _seed_message(client)
-    await insert_workflow_attachment_row(
-        mid,
-        {"filename": "wf.bin", "mime": "image/png", "data": b"X", "workflow_id": "wf"},
-    )
+    await insert_workflow_attachment_row(mid, {"filename": "wf.bin", "mime": "image/png", "data": b"X", "workflow_id": "wf"})
     rows = await get_user_attachments_for_message(mid)
     assert rows == []
 
@@ -295,11 +268,7 @@ async def test_add_message_workflow_attachment_lands_in_workflow_table(client):
 async def test_add_message_user_upload_lands_in_user_table(client):
     cid = await _new_conversation(client)
     mid, _ = await add_message(
-        cid,
-        "user",
-        "hello",
-        0,
-        attachments=[{"mime_type": "image/png", "data_b64": "WA==", "filename": "p.png", "size": 1}],
+        cid, "user", "hello", 0, attachments=[{"mime_type": "image/png", "data_b64": "WA==", "filename": "p.png", "size": 1}]
     )
     user_rows = await get_user_attachments_for_message(mid)
     workflow_rows = await get_workflow_attachments_for_message(mid)

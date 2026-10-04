@@ -4,22 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ...core.text_segmentation import (
-    ends_with_question,
-    find_quote_spans,
-    split_sentences,
-)
+from ...core.text_segmentation import ends_with_question, find_quote_spans, split_sentences
 from ..text.lexical import count_content_words, longest_common_run, tokenize
-from ..text.roleplay_segmentation import (
-    split_narration_sentences,
-    strip_ooc,
-)
+from ..text.roleplay_segmentation import split_narration_sentences, strip_ooc
 
-__all__ = [
-    "detect_anti_echo",
-    "EchoResult",
-    "FlaggedEcho",
-]
+__all__ = ["detect_anti_echo", "EchoResult", "FlaggedEcho"]
 
 
 @dataclass(slots=True)

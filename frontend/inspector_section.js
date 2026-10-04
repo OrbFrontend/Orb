@@ -1,7 +1,4 @@
-// One Inspector section, in the panel and in each reply's block: a heading row
-// (chevron, title, an optional value on the right) over a body flush with the
-// chevron. Content is never framed; sections are told apart by the space between
-// them, and frames are left to what can be acted on: inputs and chips.
+// Shared Inspector section markup for the panel and in-chat blocks.
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 
 /**

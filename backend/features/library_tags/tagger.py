@@ -6,14 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ...core import agent_lane_cut_off, agent_lane_max_tokens
-from ...inference import (
-    AbortToken,
-    DecisionClient,
-    DecisionQuestion,
-    LLMClient,
-    ReplyCutOff,
-    forced_draft,
-)
+from ...inference import AbortToken, DecisionClient, DecisionQuestion, LLMClient, ReplyCutOff, forced_draft
 
 TAG_TOOL_NAME = "assign_character_tags"
 
@@ -145,8 +138,7 @@ async def judge_tag_card(
             raise AutoTagUnavailable("The Judge returned a non-probability tag answer.")
         scored.append((index, float(answer)))
     selected = sorted(
-        ((index, score) for index, score in scored if score >= JUDGE_TAG_THRESHOLD),
-        key=lambda item: (-item[1], item[0]),
+        ((index, score) for index, score in scored if score >= JUDGE_TAG_THRESHOLD), key=lambda item: (-item[1], item[0])
     )[:MAX_TAGS_PER_CARD]
     return [vocabulary[index] for index, _ in sorted(selected)]
 

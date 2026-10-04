@@ -44,7 +44,7 @@ def _card_entry(**overrides) -> dict:
     return entry
 
 
-# ── the definition contract ──────────────────────────────────────────────────
+# -- the definition contract --------------------------------------------------
 
 
 def test_a_complete_definition_parses():
@@ -143,7 +143,7 @@ def test_a_non_decision_row_never_parses():
     assert parse_decision_definition(_row(field_type="string")) is None
 
 
-# ── the authoring validator adds the renderer's macro set ────────────────────
+# -- the authoring validator adds the renderer's macro set --------------------
 
 
 def test_authoring_rejects_a_macro_the_renderer_cannot_supply():
@@ -165,7 +165,7 @@ def test_authoring_accepts_the_default_template():
     assert definition_problems(_row(decision_state_template=DEFAULT_STATE_TEMPLATE)) == []
 
 
-# ── the untrusted-card decoder ───────────────────────────────────────────────
+# -- the untrusted-card decoder -----------------------------------------------
 
 
 def test_a_valid_card_decision_decodes_with_its_columns():
@@ -176,9 +176,8 @@ def test_a_valid_card_decision_decodes_with_its_columns():
 
 
 def test_an_invalid_card_variant_stays_a_decision_not_a_string_field():
-    # A card naming a shape Orb cannot run must never silently mean something
-    # else and join the Director's tool schema. It stays a decision that does not
-    # parse, which the judge stage reports as an invalid definition.
+    # A card naming a shape Orb cannot run must never silently mean something else and join the Director's tool schema. It stays
+    # a decision that does not parse, which the judge stage reports as an invalid definition.
     _, interactive = card_embedded_fragments(_card([_card_entry(decision_type="score")]))
     assert interactive[0]["field_type"] == "decision"
     assert parse_decision_definition(interactive[0]) is None

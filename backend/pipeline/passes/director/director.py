@@ -19,20 +19,13 @@ from ....core import (
     resolve_inline,
     value_text,
 )
-from ....inference import (
-    CachedBase,
-    LLMClient,
-    _KVCacheTracker,
-    parse_tool_calls,
-    reasoning_cfg,
-)
-from ....prompting import (
-    compute_style_injection_block,
-    render_state_block,
-    resolve_mood_fragment_randoms,
-)
+from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
+from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
+from ...events import CoreTurnEvent, StateData
+from ...failures import STAGE_DIRECTOR, step_failure_warning
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
@@ -41,17 +34,15 @@ from .prompts import build_director_scene_step_prompt, build_director_tool_promp
 
 if TYPE_CHECKING:
     from ....core import Macros
-    from ...state import BranchBaseline, LorebookTurn, TurnState, _PipelineConfig
+    from ...state import BranchBaseline, LorebookTurn, PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
 
-# The speaking plan is a director output like any interactive fragment, but it is
-# owned by the group driver rather than by a user-authored fragment row. This is
-# the synthetic stage the per-fragment loop runs it as: same shape the loop reads
-# off a real fragment (``field_type`` included, or the step-prompt builder has no
-# type hint to render), so neither the loop nor the prompt builder needs to know
-# the plan is special.
+# The speaking plan is a director output like any interactive fragment, but it is owned by the group driver rather than by a
+# user-authored fragment row. This is the synthetic stage the per-fragment loop runs it as: same shape the loop reads off a real
+# fragment (``field_type`` included, or the step-prompt builder has no type hint to render), so neither the loop nor the prompt
+# builder needs to know the plan is special.
 SPEAKING_PLAN_FIELD = "speaking_plan"
 SPEAKING_PLAN_STAGE: dict[str, Any] = {
     "id": SPEAKING_PLAN_FIELD,
@@ -60,12 +51,10 @@ SPEAKING_PLAN_STAGE: dict[str, Any] = {
     "description": "Choose the ordered speakers and their one-line cues.",
 }
 
-# The schema half of the speaking plan: static, because it rides the shared tools
-# blob and therefore the cached prefix (kv-cache.md, Invariant 3). It deliberately
-# names no member -- muting one is otherwise prefix-neutral (a muted member still
-# renders in the cast section, in every context mode), so letting the roster reach
-# this string made a mute toggle re-prefill every lane on the backends that render
-# tool declarations ahead of the conversation.
+# The schema half of the speaking plan: static, because it rides the shared tools blob and therefore the cached prefix
+# (kv-cache.md, Invariant 3). It deliberately names no member -- muting one is otherwise prefix-neutral (a muted member still
+# renders in the cast section, in every context mode), so letting the roster reach this string made a mute toggle re-prefill
+# every lane on the backends that render tool declarations ahead of the conversation.
 SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
     "Ordered speakers and cues, formatted `<speaker_key> — <one-line cue>`. "
     "Use only the unmuted speaker keys named in the request. Return [] when nobody should answer."
@@ -75,12 +64,10 @@ SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
 def speaking_plan_instruction(speaker_keys: str) -> str:
     """The live half: which keys are castable *this* exchange, for the trailing message.
 
-    The mirror of the editor's numbered issues — the volatile list is stated in
-    prose on the per-call tail and validated server-side (``cast.parse_speaking_plan``),
-    never expressed as a schema override. It also reaches strictly more of the
-    pipeline there: text mode never renders tool schemas at all, and the
-    per-fragment step prompt only echoes a field's *stage* description, so the
-    roster used to be invisible on both paths.
+    The mirror of the editor's numbered issues -- the volatile list is stated in prose on the per-call tail and validated
+    server-side (``cast.parse_speaking_plan``), never expressed as a schema override. It also reaches strictly more of the
+    pipeline there: text mode never renders tool schemas at all, and the per-fragment step prompt only echoes a field's *stage*
+    description, so the roster used to be invisible on both paths.
     """
     return (
         f"Cast the exchange with `{SPEAKING_PLAN_FIELD}`: ordered lines `<speaker_key> — <one-line cue>`. "
@@ -89,37 +76,21 @@ def speaking_plan_instruction(speaker_keys: str) -> str:
 
 
 def keeps_director_value(field: str, value: Any) -> bool:
-    """Whether a ``direct_scene`` field's value is worth recording.
+    """Whether to record a direct_scene value.
 
-    An empty value normally means "the model declined this field", so it is
-    dropped. The speaking plan is the exception: ``[]`` is the Director's way of
-    saying *nobody answers this exchange*, and discarding it would silently fall the
-    group back to round-robin. Only ``None`` reads as declined there — the
-    combined call omits the key entirely, the per-fragment loop reads it back as
-    ``None``, and both must land on the configured strategy rather than a rest.
-    Both callers ask this one question, so the two cannot disagree about what a
-    rest means.
+    Empty values normally mean declined. A speaking plan of [] means nobody
+    answers; only None falls back to the configured strategy.
     """
     if field == SPEAKING_PLAN_FIELD:
         return value is not None
     return value not in (None, "", [])
 
 
-def build_direct_scene_override(
-    writer_fragments: Sequence[Mapping[str, Any]],
-    grouped: bool = False,
-) -> dict:
-    """Build the ``direct_scene`` tool schema from *writer_fragments*.
+def build_direct_scene_override(writer_fragments: Sequence[Mapping[str, Any]], grouped: bool = False) -> dict:
+    """Build the direct_scene schema from writer fragments.
 
-    Thin wrapper over ``build_direct_scene_tool`` so ``_build_writer_tools_blob``
-    reaches the schema through the director module rather than importing the
-    schema builder directly — symmetric to ``build_feedback_override``.
-
-    *grouped* widens the schema with the speaking-plan field. A bool and not the
-    roster on purpose: nothing about *which* members are in the scene may reach
-    this blob (see :data:`SPEAKING_PLAN_SCHEMA_DESCRIPTION`), and taking the cast
-    as an argument is what previously let it. The live roster ships with the
-    request instead, through :func:`speaking_plan_instruction`.
+    Grouped adds a speaking-plan field without embedding roster data in the
+    cached blob; the trailing instruction supplies the live roster.
     """
     schema = build_direct_scene_tool(writer_fragments)
     if grouped:
@@ -134,9 +105,8 @@ def build_direct_scene_override(
 def _with_description(key: str, prop: dict, descriptions: Mapping[str, str]) -> dict:
     """*prop* with its fragment's description restored, if *key* is a live fragment.
 
-    The blob carries fragment properties as names only. ``moods`` and the
-    speaking plan are reserved ids, so they never appear in *descriptions* and
-    keep the blob's own text.
+    The blob carries fragment properties as names only. ``moods`` and the speaking plan are reserved ids, so they never appear
+    in *descriptions* and keep the blob's own text.
     """
     return {**prop, "description": descriptions[key]} if key in descriptions else prop
 
@@ -144,13 +114,11 @@ def _with_description(key: str, prop: dict, descriptions: Mapping[str, str]) -> 
 def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str, Any]]) -> dict:
     """The blob's ``direct_scene`` narrowed to the fields *fragments* make live.
 
-    The shared blob offers every defined fragment by name only, with nothing
-    required, so an enable toggle never rewrites the cached prefix and a
-    disabled fragment's text never reaches the lane. This view keeps the live
-    fragments, ``moods`` and the speaking plan in blob order, and restores the
-    live fragments' descriptions and requiredness. It shapes the request's
-    parameter list and is the per-call ``json_schema``, which narrows text-mode
-    grammars and structured-output endpoints (the chat transport drops it).
+    The shared blob offers every defined fragment by name only, with nothing required, so an enable toggle never rewrites the
+    cached prefix and a disabled fragment's text never reaches the lane. This view keeps the live fragments, ``moods`` and the
+    speaking plan in blob order, and restores the live fragments' descriptions and requiredness. It shapes the request's
+    parameter list and is the per-call ``json_schema``, which narrows text-mode grammars and structured-output endpoints (the
+    chat transport drops it).
     """
     descriptions = {fragment["id"]: fragment["description"] for fragment in fragments}
     required = {fragment["id"] for fragment in fragments if fragment.get("required")}
@@ -172,12 +140,10 @@ def live_direct_scene_schema(tool_schema: dict, fragments: Sequence[Mapping[str,
 def _step_schema(tool_schema: dict, keep: str, stage: Mapping[str, Any] | None = None) -> dict | None:
     """Single-field variant of the ``direct_scene`` parameters for one step call.
 
-    Passed as the per-call ``json_schema`` decoding constraint so the model
-    physically cannot fill any field but the step's target — text mode applies
-    it to the grammar (prompt bytes and KV cache untouched); the chat transport
-    drops it and relies on the post-parse filter in the loop below. *stage* is
-    the step's fragment, whose description the names-only blob does not carry;
-    the speaking plan's synthetic stage keeps the blob's own text.
+    Passed as the per-call ``json_schema`` decoding constraint so the model physically cannot fill any field but the step's
+    target -- text mode applies it to the grammar (prompt bytes and KV cache untouched); the chat transport drops it and relies
+    on the post-parse filter in the loop below. *stage* is the step's fragment, whose description the names-only blob does not
+    carry; the speaking plan's synthetic stage keeps the blob's own text.
     """
     params = tool_schema["function"]["parameters"]
     prop = params.get("properties", {}).get(keep)
@@ -185,11 +151,7 @@ def _step_schema(tool_schema: dict, keep: str, stage: Mapping[str, Any] | None =
         return None
     if stage is not None and stage is not SPEAKING_PLAN_STAGE:
         prop = _with_description(keep, prop, {keep: stage["description"]})
-    return {
-        "type": "object",
-        "properties": {keep: prop},
-        "required": [keep] if keep in (params.get("required") or []) else [],
-    }
+    return {"type": "object", "properties": {keep: prop}, "required": [keep] if keep in (params.get("required") or []) else []}
 
 
 @dataclass(slots=True)
@@ -205,22 +167,19 @@ class DirectorResult:
 
     active_moods: list[str] = field(default_factory=list)
     agent_raw: str = ""
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
 
 
 def apply_tool_calls(
-    tool_calls: list[dict],
-    current_moods: list[str],
-    mood_ids: Collection[str],
+    tool_calls: Sequence[Mapping[str, Any]], current_moods: list[str], mood_ids: Collection[str]
 ) -> tuple[list[str], dict]:
     """Extract values from tool calls.
 
-    Returns ``(moods, extra_fields)``. ``extra_fields`` holds all
-    ``direct_scene`` args except moods. Moods are kept only when they name one
-    of *mood_ids*, the fragments offered to the model. (Lorebook selection is
-    handled separately by the ``select_lorebook`` step, not this tool.)
+    Returns ``(moods, extra_fields)``. ``extra_fields`` holds all ``direct_scene`` args except moods. Moods are kept only when
+    they name one of *mood_ids*, the fragments offered to the model. (Lorebook selection is handled separately by the
+    ``select_lorebook`` step, not this tool.)
     """
     moods = list(current_moods)
     extra_fields: dict = {}
@@ -257,19 +216,10 @@ async def director_pass(
     decision_guidance: str = "",
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
-) -> AsyncIterator[dict]:
-    """Yield reasoning chunks during each tool call, then a single done dict.
+) -> AsyncIterator[Mapping[str, Any]]:
+    """Yield reasoning deltas and a ``failure`` per failed call, then one done event with DirectorResult.
 
-    *speaker_keys* is the exchange's castable roster, comma-joined. It reaches the
-    model only through the trailing request, never the cached tool blob.
-
-    *decision_guidance* is the same, and for a second reason as well: a decision
-    must never become a ``direct_scene`` property, or the resolved question would
-    reappear as something for the Director to answer.
-
-    Yields:
-        ``{"type": "reasoning", "delta": str}``       — zero or more reasoning chunks
-        ``{"type": "done", "result": DirectorResult}`` — terminal pass result
+    Speaker keys and decision guidance belong only in the trailing request, never cached schema properties.
     """
     active_moods = director["active_moods"]
     mood_ids = {fragment["id"] for fragment in mood_fragments}
@@ -277,16 +227,13 @@ async def director_pass(
         attachments = []
 
     extra_fields: dict = {}
-    all_calls: list[dict] = []
+    all_calls: list[ParsedToolCall] = []
     last_raw = ""
 
     tool_names = [n for n, on in enabled_tools.items() if on and n in DIRECTOR_LOOP_TOOL_NAMES]
 
     if not tool_names:
-        yield {
-            "type": "done",
-            "result": DirectorResult(active_moods=active_moods),
-        }
+        yield {"type": "done", "result": DirectorResult(active_moods=active_moods)}
         return
 
     # The tools blob is resolved once into the shared base; the director reads it
@@ -300,15 +247,13 @@ async def director_pass(
 
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
 
-    # Prepended to direct_scene prompts as "___"-fenced sections (like the lorebook),
-    # so the director decides the scene with the world facts and the saved state
-    # it receives in view.
+    # Prepended to direct_scene prompts as "___"-fenced sections (like the lorebook), so the director decides the scene with the
+    # world facts and the saved state it receives in view.
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
-    # Already-settled facts the Director plans *around*, so they ride the context
-    # section of the tail rather than the instruction. Nothing about probabilities
-    # or dice is in the block (see passes/judge/guidance.py) — a rolled outcome
-    # reaches the model as the story constraint its author wrote.
+    # Already-settled facts the Director plans *around*, so they ride the context section of the tail rather than the
+    # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) -- a rolled outcome reaches
+    # the model as the story constraint its author wrote.
     decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
 
     t0 = time.monotonic()
@@ -322,12 +267,11 @@ async def director_pass(
         plans_speakers = SPEAKING_PLAN_FIELD in scene_fields
         if name == "direct_scene" and per_fragment_on and (interactive_fragments or plans_speakers):
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-            hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+            hyperparams = extract_hyperparams(settings, lane="agent")
 
-            # One forced call per fragment, each shown the values already chosen
-            # this turn so later fragments build on earlier ones. Moods are
-            # resolved last, in a call of their own, so they are picked to fit the
-            # scene already directed (the moods step is shown the decided fields).
+            # One forced call per fragment, each shown the values already chosen this turn so later fragments build on earlier
+            # ones. Moods are resolved last, in a call of their own, so they are picked to fit the scene already directed (the
+            # moods step is shown the decided fields).
             decided: list[tuple[str, Any]] = []
             stages = [
                 *(fragment for fragment in interactive_fragments if fragment["id"] not in resting),
@@ -357,7 +301,7 @@ async def director_pass(
                 step_tail = lorebook_prefix + notes_prefix + decisions_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
                 trailing = [{"role": "user", "content": content}]
-                resp = {}
+                resp: CompletionMessage = {}
                 try:
                     async for event in base.complete_into(
                         client,
@@ -371,12 +315,12 @@ async def director_pass(
                         **reasoning_params,
                     ):
                         yield event
-                except Exception:
-                    # A failed call skips this fragment but must not propagate: the
-                    # remaining fragments and the writer still run, like the
-                    # lorebook-select and state steps. Aborting the turn
-                    # here would also skip persisting the finished reply.
+                except Exception as exc:
+                    # A failed call skips this fragment but must not propagate: the remaining fragments and the writer still
+                    # run, like the lorebook-select and state steps. Aborting the turn here would also skip persisting the
+                    # finished reply.
                     logger.exception("Agent tool=direct_scene target=%s: call failed; skipping", target)
+                    yield {"type": "failure", "error": exc}
                     continue
                 last_raw = json.dumps(resp, default=str)
                 logger.info("Agent tool=direct_scene target=%s output:\n%s", target, last_raw)
@@ -384,20 +328,17 @@ async def director_pass(
                 if not parsed:
                     logger.info("Agent tool=direct_scene target=%s: model skipped", target)
                     continue
-                # The model often fills fields besides the step's target despite the
-                # "Fill ONLY" instruction (the byte-stable schema still offers them
-                # all). Only the target is kept below, so strip the extras from the
-                # recorded call too — otherwise the inspector/tool-call log shows
-                # every step re-deciding fragments already settled earlier.
+                # The model often fills fields besides the step's target despite the "Fill ONLY" instruction (the byte-stable
+                # schema still offers them all). Only the target is kept below, so strip the extras from the recorded call too --
+                # otherwise the inspector/tool-call log shows every step re-deciding fragments already settled earlier.
                 keep = "moods" if stage is None else stage["id"]
                 for tc in parsed:
                     if tc.get("name") == "direct_scene":
                         tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k == keep}
                 all_calls.extend(parsed)
                 if stage is None:
-                    # Reuse the shared unpacker so moods behave exactly as in the
-                    # combined call; any fragment values it returns are dropped,
-                    # each fragment being produced in its own call.
+                    # Reuse the shared unpacker so moods behave exactly as in the combined call; any fragment values it returns
+                    # are dropped, each fragment being produced in its own call.
                     active_moods, _ = apply_tool_calls(parsed, active_moods, mood_ids)
                 else:
                     args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
@@ -430,13 +371,11 @@ async def director_pass(
         tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
         trailing: list[ChatMessage] = [{"role": "user", "content": content}]
-        resp: dict = {}
-        # A failed call skips this tool but must not propagate: the remaining
-        # tools and the writer still run, like the lorebook-select and
-        # state steps. Aborting the turn here would also skip
-        # persisting the finished reply.
+        resp: CompletionMessage = {}
+        # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
+        # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
-        hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+        hyperparams = extract_hyperparams(settings, lane="agent")
         try:
             async for event in base.complete_into(
                 client,
@@ -450,8 +389,9 @@ async def director_pass(
                 **reasoning_params,
             ):
                 yield event
-        except Exception:
+        except Exception as exc:
             logger.exception("Agent tool=%s: call failed; skipping", name)
+            yield {"type": "failure", "error": exc}
             continue
         last_raw = json.dumps(resp, default=str)
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
@@ -483,11 +423,9 @@ async def director_pass(
 def _resolve_random_in_value(value: Any) -> Any:
     """Resolve inline macros in a director-authored field value, fresh rolls.
 
-    The director authored the value this turn, so a {{random}}/{{roll}} it
-    emits re-rolls on every emission — unlike fragment source text, whose
-    picks are pinned in the per-conversation choice map. String values and
-    all-string lists (array fields) are resolved; anything else passes
-    through untouched.
+    The director authored the value this turn, so a {{random}}/{{roll}} it emits re-rolls on every emission -- unlike fragment
+    source text, whose picks are pinned in the per-conversation choice map. String values and all-string lists (array fields)
+    are resolved; anything else passes through untouched.
     """
     if isinstance(value, str):
         return resolve_inline(value)
@@ -496,7 +434,7 @@ def _resolve_random_in_value(value: Any) -> Any:
     return value
 
 
-def state_event_payload(state: TurnState) -> dict:
+def state_event_payload(state: TurnState) -> StateData:
     """The ``state`` SSE payload: this turn's changes so far and what was refused."""
     return {
         "changes": [dict(event) for event in state.state_events],
@@ -515,7 +453,7 @@ def apply_state_step_result(state: TurnState, result: StateStepResult, contract:
 
 
 async def director_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -525,39 +463,25 @@ async def director_stage(
     direct_scene_fragments: Sequence[Mapping[str, Any]],
     state_contract: StateContract,
     attachments: Sequence[Mapping[str, Any]],
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
     speaker_keys: str = "",
     director_decision_guidance: str = "",
     writer_decision_guidance: str = "",
-) -> AsyncIterator[dict]:
-    """Input-prep + director pass + all post-processing for the director stage.
+) -> AsyncIterator[CoreTurnEvent]:
+    """Prepare and run the Director, apply before-Writer state updates, then build injection and lorebook blocks. Stop skips
+    remaining assembly.
 
-    Runs the director pass (when the agent is on and a pre-writer tool is
-    enabled), folds the :class:`DirectorResult` into *state*, applies the
-    before-Writer state updates -- the Director's one-value fields, then the
-    ``update_state`` step for multiple-entry fields -- computes the Writer's
-    injection block (→ ``director_done``), and computes the writer's lorebook
-    block (agentic selection or keyword scan). Returns early on a stop during
-    the director pass so ``director_done`` and lorebook work are skipped.
-
-    *scene_fragments* shape the Scene Guidance; *direct_scene_fragments* are the
-    ``direct_scene`` parameters, which also carry the one-value state fragments
-    updated before the Writer. ``state.state_view`` holds the branch's state and
-    is updated in place.
-
-    Each resolved decision's guidance reaches the passes its Inject setting names:
-    *director_decision_guidance* the Director and its before-Writer state step,
-    *writer_decision_guidance* the Writer's injection block.
+    scene_fragments shape guidance; direct_scene_fragments also carry one-value state fields. Update state_view in place and
+    route decision guidance only to its configured passes.
     """
     prior_cooldowns = director.get("fragment_cooldowns") or {}
     resting = cooldown.blocked(prior_cooldowns)
     view = state.state_view
 
-    # The Director updates these one-value fields through direct_scene. As their
-    # updater it always sees their current value, in the request's own lines; the
-    # injected block carries only what Inject sends it, less those same fields.
+    # The Director updates these one-value fields through direct_scene. As their updater it always sees their current value, in
+    # the request's own lines; the injected block carries only what Inject sends it, less those same fields.
     updating = [fragment for fragment in state_contract.director_values() if fragment.id not in resting]
     updating_ids = {fragment.id for fragment in updating}
     prior_values = {
@@ -595,10 +519,9 @@ async def director_stage(
             resting=resting,
         ):
             if event["type"] == "reasoning":
-                yield {
-                    "event": "reasoning",
-                    "data": {"pass": "director", "delta": state.add_reasoning("director", event)},
-                }
+                yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "director", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 result: DirectorResult = event["result"]
                 state.active_moods = result.active_moods
@@ -607,32 +530,24 @@ async def director_stage(
                 state.latency = result.latency
                 state.extra_fields = result.extra_fields
 
-    # Bail out if stop was clicked during the director pass: skip style injection,
-    # director_done, and the writer-lorebook computation, exactly as before. The
-    # orchestrator's own post-stage abort check then halts the pipeline before the
-    # writer. The writer and agent clients share one abort token, so checking
-    # either is equivalent.
+    # Bail out if stop was clicked during the director pass: skip style injection, director_done, and the writer-lorebook
+    # computation, exactly as before. The orchestrator's own post-stage abort check then halts the pipeline before the writer.
+    # The writer and agent clients share one abort token, so checking either is equivalent.
     if cfg.agent_lane.client.is_aborted:
         return
 
-    # Cooldowns are a volatile per-turn constraint: the schema remains stable,
-    # and anything the model returned for a resting fragment is rejected here.
-    # A resting state fragment keeps -- and still injects -- its saved value.
+    # Cooldowns are a volatile per-turn constraint: the schema remains stable, and anything the model returned for a resting
+    # fragment is rejected here. A resting state fragment keeps -- and still injects -- its saved value.
     state.active_moods = [fragment_id for fragment_id in state.active_moods if fragment_id not in resting]
     state.extra_fields = {fragment_id: value for fragment_id, value in state.extra_fields.items() if fragment_id not in resting}
     # A one-value state field fires only when it actually changes, which the
     # state changes below decide; an echoed or rejected value does not.
     riding_ids = {fragment.id for fragment in state_contract.director_values()}
     fired = [*state.active_moods, *(fid for fid in state.extra_fields if fid not in riding_ids)]
-    state.fragment_cooldowns = cooldown.advance(
-        prior_cooldowns,
-        fired,
-        [*mood_fragments, *direct_scene_fragments],
-    )
+    state.fragment_cooldowns = cooldown.advance(prior_cooldowns, fired, [*mood_fragments, *direct_scene_fragments])
 
-    # Its own forced select_lorebook call, independent of direct_scene, so agentic
-    # lorebook works whether or not the Director's scene-direction tool is enabled.
-    # Runs before director_done so its picks ride state.calls into the inspector/log.
+    # Its own forced select_lorebook call, independent of direct_scene, so agentic lorebook works whether or not the Director's
+    # scene-direction tool is enabled. Runs before director_done so its picks ride state.calls into the inspector/log.
     if lorebook.agentic:
         yield {"event": "step_start", "data": {"step": "lorebook"}}
         async for event in lorebook_select_step(
@@ -648,32 +563,30 @@ async def director_stage(
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "lorebook", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 sel: LorebookSelectResult = event["result"]
                 state.selected_lorebook_entries = sel.selected
-                # Append to the turn's calls so the picks stay visible in the
-                # conversation log / inspector.
+                # Append to the turn's calls so the picks stay visible in the conversation log / inspector.
                 state.calls = [*state.calls, *sel.calls]
 
     # Style injection
     direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
 
-    # {{random}} in fragment text resolves against the per-conversation choice
-    # map (state.macro_choices, persisted with director state): the first turn
-    # rolls and records, later turns reuse the stored pick, so a fragment stays
-    # fixed for the conversation even though its source row is global.
+    # {{random}} in fragment text resolves against the per-conversation choice map (state.macro_choices, persisted with director
+    # state): the first turn rolls and records, later turns reuse the stored pick, so a fragment stays fixed for the
+    # conversation even though its source row is global.
     inj_mood_fragments: Sequence[Mapping[str, Any]] = mood_fragments
     if direct_scene_enabled:
         renderable = set(state.active_moods) | set(director["active_moods"])
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
-        # Interactive values the director authored this turn roll fresh (per
-        # emission, not per conversation); resolving before they become state
-        # changes keeps the saved value consistent with the injected text.
+        # Interactive values the director authored this turn roll fresh (per emission, not per conversation); resolving before
+        # they become state changes keeps the saved value consistent with the injected text.
         state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
 
-    # The Director's one-value state fields become validated state changes. An
-    # omitted or empty field keeps its value; a value of the wrong shape is
-    # rejected and reported rather than coerced.
+    # The Director's one-value state fields become validated state changes. An omitted or empty field keeps its value; a value
+    # of the wrong shape is rejected and reported rather than coerced.
     state_ops: list[StateOp] = []
     shape_rejections: list[StateRejection] = []
     for fragment in updating:
@@ -693,10 +606,8 @@ async def director_stage(
     state.scene_direction = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
-            # A mood suppressed by its cooldown is resting, not deliberately
-            # deactivated. Keep its negative prompt for ordinary Director
-            # removals, but do not emit it merely because cooldown enforcement
-            # filtered the mood out this turn.
+            # A mood suppressed by its cooldown is resting, not deliberately deactivated. Keep its negative prompt for ordinary
+            # Director removals, but do not emit it merely because cooldown enforcement filtered the mood out this turn.
             [fragment_id for fragment_id in director["active_moods"] if fragment_id not in resting],
             inj_mood_fragments,
             scene_fragments,
@@ -727,6 +638,8 @@ async def director_stage(
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
+            elif event["type"] == "failure":
+                yield step_failure_warning(event["error"], "state", stage=STAGE_DIRECTOR)
             elif event["type"] == "done":
                 step_result: StateStepResult = event["result"]
                 apply_state_step_result(state, step_result, state_contract)
@@ -735,10 +648,9 @@ async def director_stage(
         if cfg.agent_lane.client.is_aborted:
             return
 
-    # The Writer's state block rides its Scene Direction whenever a fragment
-    # injects into the Writer -- independent of direct_scene and of whether
-    # updates are on -- and includes this turn's before-Writer changes, a changed
-    # one-value field rendering as ``old -> new``.
+    # The Writer's state block rides its Scene Direction whenever a fragment injects into the Writer -- independent of
+    # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field
+    # rendering as ``old -> new``.
     writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
     state.inj_block = state.scene_direction
     if writer_block:
@@ -759,8 +671,7 @@ async def director_stage(
         },
     }
 
-    # The writer's lorebook block, computed once from the per-turn bundle. In
-    # substring mode this reuses the keyword-scanned block already built up front;
-    # in agentic mode it is the union of constants, the current-turn keyword scan,
-    # and the Director's selection (computed now that the selection is known).
+    # The writer's lorebook block, computed once from the per-turn bundle. In substring mode this reuses the keyword-scanned
+    # block already built up front; in agentic mode it is the union of constants, the current-turn keyword scan, and the
+    # Director's selection (computed now that the selection is known).
     state.writer_lorebook_block = lorebook.writer_block(state.selected_lorebook_entries, macros)

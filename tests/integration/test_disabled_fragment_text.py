@@ -1,10 +1,8 @@
 """A disabled fragment's text reaches no model call.
 
-The shared tools blob offers every defined fragment so an enable toggle never
-rewrites the cached prefix, but it offers them by name and type only. In
-single-model mode the Writer runs on the Director's lane, tools included, so a
-description on the blob would steer the reply toward what the user disabled the
-fragment to avoid.
+The shared tools blob offers every defined fragment so an enable toggle never rewrites the cached prefix, but it offers them by
+name and type only. In single-model mode the Writer runs on the Director's lane, tools included, so a description on the blob
+would steer the reply toward what the user disabled the fragment to avoid.
 """
 
 from __future__ import annotations
@@ -31,15 +29,12 @@ def _requests(llm_mock, pass_name: str) -> list[str]:
 async def test_disabled_fragment_description_reaches_no_pass(client, db, llm_mock):
     cid = "conv-disabled-fragment-text"
     await dbmod.create_conversation(cid, "text", "Bot", "a scenario")
-    resp = await client.put("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
-    assert resp.status_code == 200, resp.text
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
     for fid, enabled in (("user_intent", False), ("suggested_actions", True), ("characterization", True)):
-        resp = await client.put(f"/api/interactive-fragments/{fid}", json={"enabled": enabled})
-        assert resp.status_code == 200, resp.text
+        await client.put_checked(f"/api/interactive-fragments/{fid}", json={"enabled": enabled})
     # A disabled feedback fragment beside a live one: the feedback call is where it would leak.
     tone_check = {"id": "tone_check", "label": "Tone", "description": _TONE_CHECK, "field_type": "feedback"}
-    resp = await client.post("/api/interactive-fragments", json={**tone_check, "enabled": False, "injection_label": "Tone"})
-    assert resp.status_code == 200, resp.text
+    await client.post_checked("/api/interactive-fragments", json={**tone_check, "enabled": False, "injection_label": "Tone"})
 
     llm_mock.enqueue_director(_call("direct_scene", moods=[], keywords=["lantern"], next_event="Rain falls."))
     llm_mock.enqueue_writer("She lights the lantern.")

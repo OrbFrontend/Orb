@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
 # The search API serves at most 100k results and returns empty pages past them,
-# whatever the sort or query — the ceiling for a random page.
+# whatever the sort or query -- the ceiling for a random page.
 _CHUB_MAX_RESULTS = 100_000
 # The detail API 403s a bare "Mozilla/5.0"; a full browser UA passes.
 _CHUB_SITE_HEADERS = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"),
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
 }
 
 SOURCES: dict[str, dict] = {}
@@ -32,11 +32,7 @@ SOURCES: dict[str, dict] = {}
 
 def register_source(name: str, browse_fn, download_fn, randomize_fn):
     """Register an external source for character-card browsing and downloading."""
-    SOURCES[name] = {
-        "browse": browse_fn,
-        "download": download_fn,
-        "randomize": randomize_fn,
-    }
+    SOURCES[name] = {"browse": browse_fn, "download": download_fn, "randomize": randomize_fn}
 
 
 def _get_source(source: str) -> dict:
@@ -71,23 +67,9 @@ async def download_card(source: str, full_path: str) -> dict:
 
 
 async def _fetch(
-    url: str,
-    *,
-    what: str,
-    params: dict | None = None,
-    timeout: float = 30,
-    headers: dict | None = None,
+    url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
 ) -> httpx.Response:
-    """GET *url*, mapping any transport or status failure to HTTP 502.
-
-    The single outbound seam for every source's browse/randomize/download call.
-    *what* is the human phrase for the operation ("Botbooru search failed",
-    "Failed to download card"); it is both logged and returned as the
-    client-facing detail, so each source keeps its own wording without
-    repeating the request block. Body decoding stays with the caller — sources
-    want ``.json()`` or ``.content`` and differ on how a malformed body maps to
-    a status.
-    """
+    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail."""
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             resp = await client.get(url, params=params)
@@ -98,12 +80,24 @@ async def _fetch(
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
 
 
+async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeout: float = 30) -> dict:
+    """GET a JSON object; a body that is not one (an HTML error page, a bare list) is a 502 like a failed request."""
+    resp = await _fetch(url, what=what, params=params, timeout=timeout)
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        logger.error("%s: %s answered %s without a JSON object", what, url, resp.status_code)
+        raise HTTPException(status_code=502, detail=f"{what}: the site sent an unexpected response")
+    return payload
+
+
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
     """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
 
-    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` — the PNG itself
-    doubles as the avatar, and ``card_id`` is the embedded orb id when present,
-    else a stable hash of the bytes so re-importing the same card relinks history.
+    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` -- the PNG itself doubles as the avatar, and ``card_id`` is the
+    embedded orb id when present, else a stable hash of the bytes so re-importing the same card relinks history.
     """
     if not content[:8].startswith(b"\x89PNG"):
         raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
@@ -132,9 +126,8 @@ def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, 
 async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | None, str | None, bytes]:
     """Best-effort fetch of a card's avatar image from a CDN URL.
 
-    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken
-    avatar degrades to ``(None, None, b"")`` — it must not block importing the
-    card text.
+    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken avatar degrades to ``(None, None, b"")`` -- it must
+    not block importing the card text.
     """
     if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
         return None, None, b""
@@ -166,7 +159,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         "venus": "true",
     }
     url = "https://api.chub.ai/search"
-    payload = (await _fetch(url, what="Chub search failed", params=params, timeout=15)).json()
+    payload = await _fetch_json(url, what="Chub search failed", params=params, timeout=15)
 
     # Results come wrapped in a `data` envelope; tolerate a flat response too.
     body = payload if isinstance(payload.get("nodes"), list) else (payload.get("data") or {})
@@ -184,7 +177,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         results.append(
             {
                 "name": n.get("name", ""),
-                "tagline": n.get("tagline", "") or n.get("description", "")[:140],
+                "tagline": n.get("tagline") or (n.get("description") or "")[:140],
                 "avatar_url": avatar_url,
                 "full_path": full_path,
                 "topics": topics,
@@ -207,15 +200,9 @@ def _chub_max_page(count: int) -> int:
 
 
 async def _randomize_characterhub(q: str) -> dict:
-    """Surface a random page of CharacterHub results.
+    """Fetch a random CharacterHub page; sort=random repeats within its reseed window.
 
-    ``sort=random`` reseeds only every few minutes, so consecutive calls repeat;
-    jumping to a random page of the (optionally query-filtered) catalog is what
-    varies the batch. Card quality holds up across the whole ~4166-page window,
-    so the pick spans all of it.
-
-    A query narrows the catalog and the first pick can overshoot its end; the
-    response's own count then gives the real range to re-pick from.
+    If a filtered query overshoots, use the response count to retry within range.
     """
     data, count = await _chub_page(q, random.randint(1, _chub_max_page(_CHUB_MAX_RESULTS)))
     if not data["results"] and count:
@@ -229,10 +216,9 @@ async def _randomize_characterhub(q: str) -> dict:
 async def _chub_expression_pack(full_path: str) -> dict | None:
     """Best-effort fetch of a CharacterHub card's expression pack.
 
-    The pack (``{compressed, expressions}``) lives only in the detail API — the
-    CDN card PNG carries ``expressions: null`` — so we fetch it separately and
-    let the caller merge it into the card's extensions. Never raises: expressions
-    are a nice-to-have and must not block importing the card.
+    The pack (``{compressed, expressions}``) lives only in the detail API -- the CDN card PNG carries ``expressions: null`` -- so
+    we fetch it separately and let the caller merge it into the card's extensions. Never raises: expressions are a nice-to-have
+    and must not block importing the card.
     """
     url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
     try:
@@ -243,7 +229,7 @@ async def _chub_expression_pack(full_path: str) -> dict | None:
         ext = (node.get("definition") or {}).get("extensions") or {}
         pack = (ext.get("chub") or {}).get("expressions")
         return pack if isinstance(pack, dict) else None
-    except (httpx.HTTPError, ValueError) as e:
+    except (httpx.HTTPError, ValueError, AttributeError) as e:  # AttributeError: a level that is not an object
         logger.warning("Failed to fetch Chub expression pack for %s: %s", full_path, e)
         return None
 
@@ -257,10 +243,7 @@ async def _download_characterhub_card(full_path: str):
     if not full_path:
         raise HTTPException(status_code=400, detail="Missing full_path")
     if "/" not in full_path:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid Chub full_path (expected creator/name): {full_path}",
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid Chub full_path (expected creator/name): {full_path}")
     url = f"{_CHUB_AVATARS_BASE}/{full_path}/chara_card_v2.png"
     content = (await _fetch(url, what="Failed to download card")).content
 
@@ -274,20 +257,13 @@ async def _download_characterhub_card(full_path: str):
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "characterhub",
-    _chub_search,
-    _download_characterhub_card,
-    _randomize_characterhub,
-)
+register_source("characterhub", _chub_search, _download_characterhub_card, _randomize_characterhub)
 
 
 #
-# Character Archive mirrors cards from upstream sites (chub, etc.) behind a
-# FastAPI JSON API. Browse hits the meilisearch-backed search endpoint; the
-# per-card definition is served as chara_card_v2 JSON (not embedded in a PNG),
-# so download parses it via parsing.from_json_obj and fetches the avatar
-# image separately.
+# Character Archive mirrors cards from upstream sites (chub, etc.) behind a FastAPI JSON API. Browse hits the meilisearch-backed
+# search endpoint; the per-card definition is served as chara_card_v2 JSON (not embedded in a PNG), so download parses it via
+# parsing.from_json_obj and fetches the avatar image separately.
 
 _CHARARC_BASE = "https://chararc.bernkastel.pictures"
 _CHARARC_API = f"{_CHARARC_BASE}/api/archive"
@@ -311,8 +287,7 @@ def _chararc_full_path_str(src_obj: dict) -> str | None:
 def _chararc_card_token(item: dict) -> str | None:
     """Build the `source/def/type/path` token used to fetch a card definition.
 
-    chub cards carry their creator/slug under `chub.fullPath`; other upstreams
-    expose it under `sourceSpecific`.
+    chub cards carry their creator/slug under `chub.fullPath`; other upstreams expose it under `sourceSpecific`.
     """
     source = item.get("source")
     if not source:
@@ -361,7 +336,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
     page = max(1, int(page))
     params = {"query": q or "", "page": page, "count": _CHARARC_PAGE_SIZE}
     url = f"{_CHARARC_API}/v3/search/query"
-    data = (await _fetch(url, what="Bernkastel search failed", params=params, timeout=20)).json()
+    data = await _fetch_json(url, what="Bernkastel search failed", params=params, timeout=20)
 
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
@@ -370,14 +345,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
 
 
 async def _randomize_chararc(q: str) -> dict:
-    """Surface a random batch of cards from Character Archive.
-
-    The upstream ``random-character-ultra`` feed is reliable but extremely slow
-    (~20s per call, regardless of batch size). The meilisearch-backed search
-    endpoint responds in well under a second, so — like the CharacterHub
-    randomizer — we jump to a random page of the (optionally query-filtered)
-    catalog to give a fresh selection each call. One-shot batch.
-    """
+    """Fetch a random Character Archive search page to avoid the slow random feed."""
     page = random.randint(1, _CHARARC_RANDOM_MAX_PAGE)
     data = await _browse_chararc(q, page)
     # A deep random page can land past the end of a (query-filtered) result set;
@@ -404,11 +372,7 @@ async def _download_chararc_card(token: str):
         raise HTTPException(status_code=400, detail=f"Invalid card path: {token}")
 
     url = f"{_CHARARC_API}/v1/{token}"
-    definition = (await _fetch(url, what="Failed to download card")).json()
-
-    if not isinstance(definition, dict):
-        raise HTTPException(status_code=400, detail="Unexpected card definition format")
-
+    definition = await _fetch_json(url, what="Failed to download card")
     try:
         card = parsing.from_json_obj(definition)
         card_dict = parsing.card_to_dict(card)
@@ -429,27 +393,20 @@ async def _download_chararc_card(token: str):
     # Pull the avatar image (a CDN URL embedded in the definition).
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Bernkastel")
 
-    # Stable id so re-importing the same card relinks history: hash the avatar
-    # bytes when present, else the card path.
+    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the card path.
     seed = avatar_bytes if avatar_bytes else token.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "chararc",
-    _browse_chararc,
-    _download_chararc_card,
-    _randomize_chararc,
-)
+register_source("chararc", _browse_chararc, _download_chararc_card, _randomize_chararc)
 
 
 #
-# Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a
-# JSON browse API whose `q` matches both tags and character names. Unlike the
-# other two sources it has a native random sort, so the randomizer is a single
-# query-filtered request rather than a random-page hack.
+# Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a JSON browse API whose `q` matches both tags and
+# character names. Unlike the other two sources it has a native random sort, so the randomizer is a single query-filtered
+# request rather than a random-page hack.
 
 _BOTBOORU_BASE = "https://botbooru.com"
 _BOTBOORU_PAGE_SIZE = 24
@@ -486,7 +443,7 @@ async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict
     """
     if q:
         params["q"] = q
-    data = (await _fetch(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)).json()
+    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)
     posts = data.get("posts") or []
     return [_botbooru_to_result(p) for p in posts if isinstance(p, dict)], len(posts), int(data.get("total") or 0)
 
@@ -503,18 +460,16 @@ async def _browse_botbooru(q: str, page: int) -> dict:
 async def _randomize_botbooru(q: str) -> dict:
     """Surface a random batch of cards from Botbooru.
 
-    Botbooru has a native server-side random sort, so a single query-filtered
-    request gives a fresh selection each call. Randomized results are a one-shot
-    batch; paging "Load More" would silently switch back to ranked order, so
-    don't advertise more.
+    Botbooru has a native server-side random sort, so a single query-filtered request gives a fresh selection each call.
+    Randomized results are a one-shot batch; paging "Load More" would silently switch back to ranked order, so don't advertise
+    more.
     """
     results, _, _ = await _botbooru_posts({"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed")
     return {"results": results, "has_more": False}
 
 
 async def _download_botbooru_card(full_path: str):
-    """Download the PNG character card from Botbooru and parse it through the
-    same tavern_cards pipeline as file import.
+    """Download the PNG character card from Botbooru and parse it through the same tavern_cards pipeline as file import.
 
     Returns (card_dict, avatar_b64, avatar_mime, card_id).
     """
@@ -530,23 +485,11 @@ async def _download_botbooru_card(full_path: str):
     return _parse_png_card(content, "Botbooru")
 
 
-register_source(
-    "botbooru",
-    _browse_botbooru,
-    _download_botbooru_card,
-    _randomize_botbooru,
-)
+register_source("botbooru", _browse_botbooru, _download_botbooru_card, _randomize_botbooru)
 
 
-#
-# Wyvern exposes an unauthenticated JSON explore API. The search endpoint
-# already returns full card definitions (description/personality/first_mes/…),
-# but only id references for lorebooks; the per-character endpoint embeds the
-# lorebook entries, so download fetches that and converts them to a V2
-# character_book. Avatars are served from a Cloudflare Images CDN. There is no
-# native random sort, so the randomizer jumps to a random page — but unlike the
-# other sources it reads the real page count first so it works for narrow
-# queries too.
+# Wyvern search returns card definitions but only lorebook ids; download the character detail to embed V2 lorebook entries.
+# Avatars use Cloudflare Images. Random selection reads the page count first to handle narrow queries.
 
 _WYVERN_BASE = "https://api.wyvern.chat"
 _WYVERN_PAGE_SIZE = 24
@@ -574,19 +517,11 @@ def _wyvern_to_result(item: dict) -> dict:
 async def _wyvern_search(q: str, page: int) -> dict:
     """Run a Wyvern explore search and return the raw (parsed) JSON response."""
     page = max(1, int(page))
-    params = {
-        "page": page,
-        "limit": _WYVERN_PAGE_SIZE,
-        "sort": "created_at",
-        "order": "DESC",
-    }
+    params = {"page": page, "limit": _WYVERN_PAGE_SIZE, "sort": "created_at", "order": "DESC"}
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    data = (await _fetch(url, what="Wyvern search failed", params=params, timeout=20)).json()
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=502, detail="Unexpected Wyvern search response")
-    return data
+    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20)
 
 
 async def _browse_wyvern(q: str, page: int) -> dict:
@@ -599,10 +534,9 @@ async def _browse_wyvern(q: str, page: int) -> dict:
 async def _randomize_wyvern(q: str) -> dict:
     """Surface a random batch of cards from Wyvern.
 
-    Wyvern has no native random sort, so — like the CharacterHub randomizer — we
-    jump to a random page of the (optionally query-filtered) catalog. We first
-    read the real ``totalPages`` so the random page is always in range, which
-    keeps it working even when a query narrows the catalog to a handful of pages.
+    Wyvern has no native random sort, so -- like the CharacterHub randomizer -- we jump to a random page of the (optionally
+    query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
+    even when a query narrows the catalog to a handful of pages.
     """
     first = await _wyvern_search(q, 1)
     total_pages = int(first.get("totalPages") or 1)
@@ -620,10 +554,9 @@ async def _randomize_wyvern(q: str) -> dict:
 def _wyvern_character_book(obj: dict) -> dict | None:
     """Convert Wyvern's embedded lorebooks into a single V2 character_book.
 
-    A card may reference several lorebooks; the V2 spec allows only one, so we
-    merge all of their entries. Only the spec-defined entry fields are carried
-    over (Wyvern-specific keys like ``key_logic``/``sticky`` and the ambiguous
-    numeric ``position`` are dropped so the V2 parser doesn't choke).
+    A card may reference several lorebooks; the V2 spec allows only one, so we merge all of their entries. Only the spec-defined
+    entry fields are carried over (Wyvern-specific keys like ``key_logic``/``sticky`` and the ambiguous numeric ``position`` are
+    dropped so the V2 parser doesn't choke).
     """
     lorebooks = obj.get("lorebooks")
     if not isinstance(lorebooks, list):
@@ -718,11 +651,7 @@ async def _download_wyvern_card(full_path: str):
         raise HTTPException(status_code=400, detail=f"Invalid Wyvern character id: {full_path}")
 
     url = f"{_WYVERN_BASE}/characters/{char_id}"
-    obj = (await _fetch(url, what="Failed to download card")).json()
-
-    if not isinstance(obj, dict):
-        raise HTTPException(status_code=400, detail="Unexpected Wyvern character format")
-
+    obj = await _fetch_json(url, what="Failed to download card")
     try:
         card = parsing.from_json_obj(_wyvern_to_v2_jobj(obj))
         card_dict = parsing.card_to_dict(card)
@@ -735,17 +664,11 @@ async def _download_wyvern_card(full_path: str):
     # Pull the avatar image (Cloudflare Images CDN URL).
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(obj.get("avatar"), "Wyvern")
 
-    # Stable id so re-importing the same card relinks history: hash the avatar
-    # bytes when present, else the character id.
+    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the character id.
     seed = avatar_bytes if avatar_bytes else char_id.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "wyvern",
-    _browse_wyvern,
-    _download_wyvern_card,
-    _randomize_wyvern,
-)
+register_source("wyvern", _browse_wyvern, _download_wyvern_card, _randomize_wyvern)

@@ -12,11 +12,7 @@ from ..text.roleplay_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_TEMPLATE_REPETITION" in os.environ
 
-__all__ = [
-    "detect_template_repetition",
-    "TemplateResult",
-    "FlaggedTemplate",
-]
+__all__ = ["detect_template_repetition", "TemplateResult", "FlaggedTemplate"]
 
 
 @dataclass(slots=True)
@@ -25,6 +21,9 @@ class FlaggedTemplate:
     count: int
     fraction: float
     sentences: list[str] = field(default_factory=list)
+    # Whether sentences[0] is the cluster's first member -- the original the rest repeat. Filtering to a draft drops it when it
+    # lives in the earlier context, leaving every listed sentence a repeat.
+    original_listed: bool = True
 
 
 @dataclass(slots=True)
@@ -78,8 +77,7 @@ def _templates_similar(t1: str, t2: str, threshold: float, max_words: int) -> bo
     words1 = t1.split()
     words2 = t2.split()
 
-    # Check for prefix match, but only if shorter template is substantial
-    # (prevents "the" from matching everything)
+    # Check for prefix match, but only if shorter template is substantial (prevents "the" from matching everything)
     min_len = min(len(words1), len(words2))
     min_prefix_len = max(1, max_words - 1)  # Require at least max_words-1 words
 
@@ -91,10 +89,7 @@ def _templates_similar(t1: str, t2: str, threshold: float, max_words: int) -> bo
 
 
 def _cluster_templates(
-    sentences: list[str],
-    templates: list[str | None],
-    similarity_threshold: float,
-    max_words: int,
+    sentences: list[str], templates: list[str | None], similarity_threshold: float, max_words: int
 ) -> dict[str, list[tuple[str, str]]]:
     """Group sentences by similar templates."""
     clusters: list[list[tuple[str, str]]] = []
@@ -127,10 +122,7 @@ def _cluster_templates(
 
 
 def detect_template_repetition(
-    text: str,
-    max_words: int = 3,
-    flag_threshold: int = 3,
-    similarity_threshold: float = 0.5,
+    text: str, max_words: int = 3, flag_threshold: int = 3, similarity_threshold: float = 0.5
 ) -> TemplateResult:
     """Return repeated narration-opening templates."""
     sentences = _split_sentences(text)
@@ -167,19 +159,13 @@ def detect_template_repetition(
             # Get sentences in this cluster
             cluster_sentences = [sent for sent, _ in items]
             flagged.append(
-                FlaggedTemplate(
-                    template=canonical,
-                    count=count,
-                    fraction=round(count / total, 4),
-                    sentences=cluster_sentences,
-                )
+                FlaggedTemplate(template=canonical, count=count, fraction=round(count / total, 4), sentences=cluster_sentences)
             )
 
     # Sort by count descending
     flagged.sort(key=lambda x: x.count, reverse=True)
 
-    # Calculate repetition score based on clustered counts
-    # (counts clusters with 2+ sentences, not just exact matches)
+    # Calculate repetition score based on clustered counts (counts clusters with 2+ sentences, not just exact matches)
     repeated_count = sum(len(items) for items in clusters.values() if len(items) >= 2)
     repetition_score = round(repeated_count / total, 4) if total else 0.0
 

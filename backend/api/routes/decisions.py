@@ -10,11 +10,7 @@ from ...core import (
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
 )
-from ...database import (
-    get_endpoint,
-    get_settings,
-    update_decision_config,
-)
+from ...database import get_endpoint, get_settings, update_decision_config
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
 from ...pipeline.passes.judge import (
@@ -100,12 +96,7 @@ async def api_test_decision_endpoint():
     try:
         return await connection_test(config)
     except LLMCallError as error:
-        return {
-            "ok": False,
-            "error": _rejection_sentence(error),
-            "url": config.url,
-            "status": error.response.status_code,
-        }
+        return {"ok": False, "error": _rejection_sentence(error), "url": config.url, "status": error.response.status_code}
     except DecisionTransportError as error:
         return {"ok": False, "error": str(error), "url": config.url}
     except Exception as error:  # noqa: BLE001 -- this diagnostic endpoint reports failures

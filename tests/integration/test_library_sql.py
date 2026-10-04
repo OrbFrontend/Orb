@@ -4,12 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.database import (
-    add_message,
-    create_user_persona,
-    get_persona_conversation_counts,
-    run_library_query,
-)
+from backend.database import add_message, create_user_persona, get_persona_conversation_counts, run_library_query
 from backend.features.card_generator.deep import LIBRARY_VIEWS, VIEW_DOCS
 
 CAPS = {"max_rows": 50, "max_cell_chars": 500, "max_result_chars": 4000, "time_limit_s": 5}
@@ -39,7 +34,7 @@ async def library(client, db):
     await client.put(f"/api/characters/{cards[1]}", json={"persona_lock_id": personas["Quinn"]})
     conversations = []
     for card_id in (cards[0], cards[1], cards[1]):
-        conversations.append((await client.post("/api/conversations", json={"character_card_id": card_id})).json()["id"])
+        conversations.append(await client.create("/api/conversations", json={"character_card_id": card_id}))
     await client.put(f"/api/conversations/{conversations[2]}", json={"persona_lock_id": personas["Kit"]})
     root, _ = await add_message(conversations[0], "user", "I lean on the rail.", 0)
     for text in ("Mara grins.", "Mara scowls."):
@@ -68,9 +63,7 @@ async def test_views_read_rows(library):
 
 
 async def test_persona_id_resolves_like_the_digest_counts(library):
-    result = await query(
-        "SELECT persona_id, count(*) FROM conversations GROUP BY persona_id HAVING persona_id IS NOT NULL",
-    )
+    result = await query("SELECT persona_id, count(*) FROM conversations GROUP BY persona_id HAVING persona_id IS NOT NULL")
     assert {row[0]: row[1] for row in result["rows"]} == await get_persona_conversation_counts()
     personas = library["personas"]
     assert {row[0]: row[1] for row in result["rows"]} == {personas["Kit"]: 2, personas["Quinn"]: 1}
@@ -148,8 +141,7 @@ async def test_refusals_leave_the_library_intact(library, db):
 
 async def test_runaway_query_is_interrupted(library):
     result = await query(
-        "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT count(*) FROM r",
-        time_limit_s=0.05,
+        "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT count(*) FROM r", time_limit_s=0.05
     )
     assert "time limit" in result["error"]
 

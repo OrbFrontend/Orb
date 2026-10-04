@@ -1,5 +1,3 @@
-"""Tests for migration 0062's Spark-TTS backend rename."""
-
 from __future__ import annotations
 
 import importlib

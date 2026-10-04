@@ -1,4 +1,4 @@
-"""Test the voice-enrollment route's stored profile contract."""
+"""Test TTS voice enrollment through the workflow upload route, and forgetting a voice."""
 
 from __future__ import annotations
 
@@ -25,7 +25,18 @@ def _wav(seconds: float = 1.0, rate: int = 16000) -> bytes:
 
 
 async def _make_char(client) -> str:
-    return (await client.post("/api/characters", json={"name": "Cloned"})).json()["id"]
+    return await client.create("/api/characters", json={"name": "Cloned"})
+
+
+def _upload_url(card_id: str, mode: str | None = None) -> str:
+    query = f"?mode={mode}" if mode else ""
+    return f"/api/characters/{card_id}/workflows/tts/upload{query}"
+
+
+async def _clear(client, card_id: str):
+    """Forget the voice the way the panel does: the trigger, in a chat with the character."""
+    conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
+    return await client.post(f"/api/conversations/{conv['id']}/workflows/tts/trigger", json={"action": "clear_voice"})
 
 
 async def _profile(client, card_id: str) -> dict:
@@ -57,22 +68,14 @@ def advanced_ready(monkeypatch, enrolled):
 
 
 async def _upload(client, card_id: str, mode: str | None = None):
-    query = f"?mode={mode}" if mode else ""
-    return await client.post(
-        f"/api/characters/{card_id}/voice-reference{query}",
-        files={"file": ("memo.wav", _wav(), "audio/wav")},
-    )
+    return await client.post(_upload_url(card_id, mode), files={"file": ("memo.wav", _wav(), "audio/wav")})
 
 
 async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled):
     card_id = await _make_char(client)
 
-    response = await client.post(
-        f"/api/characters/{card_id}/voice-reference",
-        files={"file": ("memo.wav", _wav(), "audio/wav")},
-    )
-    assert response.status_code == 200
-    body = response.json()
+    response = await client.post_json(_upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")})
+    body = response
     assert body["speaker_tokens"] == VALID
     assert body["source_name"] == "memo.wav"
 
@@ -86,9 +89,9 @@ async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled)
 
 async def test_clearing_removes_the_tokens(client, enrolled):
     card_id = await _make_char(client)
-    await client.post(f"/api/characters/{card_id}/voice-reference", files={"file": ("memo.wav", _wav(), "audio/wav")})
+    await client.post(_upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")})
 
-    cleared = await client.delete(f"/api/characters/{card_id}/voice-reference")
+    cleared = await _clear(client, card_id)
     assert cleared.status_code == 200
     assert cleared.json()["profile"]["speaker_tokens"] == []
 
@@ -104,11 +107,9 @@ async def test_enrollment_leaves_the_rest_of_the_profile_intact(client, enrolled
 
     card_id = await _make_char(client)
     await set_workflow_character_state(
-        card_id,
-        WORKFLOW_ID,
-        normalize_profile({"backend": "elevenlabs", "api_key": "secret", "rate": 1.4, "enabled": True}),
+        card_id, WORKFLOW_ID, normalize_profile({"backend": "elevenlabs", "api_key": "secret", "rate": 1.4, "enabled": True})
     )
-    await client.post(f"/api/characters/{card_id}/voice-reference", files={"file": ("memo.wav", _wav(), "audio/wav")})
+    await client.post(_upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")})
 
     stored = await _profile(client, card_id)
     assert stored["api_key"] == "secret"
@@ -172,38 +173,32 @@ async def test_an_unknown_mode_keeps_the_profiles(client, advanced_ready):
 async def test_clearing_removes_the_reference(client, advanced_ready):
     card_id = await _make_char(client)
     await _upload(client, card_id, "advanced")
-    await client.delete(f"/api/characters/{card_id}/voice-reference")
+    await _clear(client, card_id)
     stored = await _profile(client, card_id)
     assert stored["reference_tokens"] == []
     assert stored["reference_text"] == ""
 
 
 async def test_an_unknown_card_is_404(client, enrolled):
-    response = await client.post(
-        "/api/characters/does-not-exist/voice-reference",
-        files={"file": ("memo.wav", _wav(), "audio/wav")},
+    await client.post_checked(
+        _upload_url("does-not-exist"), files={"file": ("memo.wav", _wav(), "audio/wav")}, expected_status=404
     )
-    assert response.status_code == 404
 
 
 async def test_an_oversized_upload_is_rejected_before_it_is_decoded(client, enrolled):
     card_id = await _make_char(client)
-    response = await client.post(
-        f"/api/characters/{card_id}/voice-reference",
-        files={"file": ("huge.wav", b"\x00" * (26 * 1024 * 1024), "audio/wav")},
+    response = await client.post_json(
+        _upload_url(card_id), files={"file": ("huge.wav", b"\x00" * (26 * 1024 * 1024), "audio/wav")}, expected_status=400
     )
-    assert response.status_code == 400
-    assert "25 MB" in response.json()["detail"]
+    assert "25 MB" in response["detail"]
 
 
 async def test_an_unreadable_file_is_a_400_not_a_500(client, monkeypatch):
     card_id = await _make_char(client)
     monkeypatch.setattr(spark_tts_host, "enrollment_ready", lambda settings: (True, ""))
-    response = await client.post(
-        f"/api/characters/{card_id}/voice-reference",
-        files={"file": ("notes.txt", b"this is not audio at all", "text/plain")},
+    await client.post_checked(
+        _upload_url(card_id), files={"file": ("notes.txt", b"this is not audio at all", "text/plain")}, expected_status=400
     )
-    assert response.status_code == 400
 
 
 async def test_a_missing_model_is_a_503_naming_what_is_missing(client):
@@ -212,9 +207,15 @@ async def test_a_missing_model_is_a_503_naming_what_is_missing(client):
     ready, _reason = spark_tts_host.enrollment_ready({})
     if ready:
         pytest.skip("Spark-TTS codec is installed on this machine")
-    response = await client.post(
-        f"/api/characters/{card_id}/voice-reference",
-        files={"file": ("memo.wav", _wav(), "audio/wav")},
+    response = await client.post_json(
+        _upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")}, expected_status=503
     )
-    assert response.status_code == 503
-    assert response.json()["detail"]
+    assert response["detail"]
+
+
+async def test_a_disabled_workflow_refuses_uploads(client, enrolled):
+    card_id = await _make_char(client)
+    await client.post("/api/workflows/tts/enabled", json={"enabled": False})
+    response = await _upload(client, card_id)
+    assert response.status_code == 404
+    assert (await _profile(client, card_id))["speaker_tokens"] == []

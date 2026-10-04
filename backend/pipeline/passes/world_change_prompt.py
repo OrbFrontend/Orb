@@ -31,11 +31,7 @@ WORLD_CHANGE_CATALOG_HEADER = (
 
 
 def build_world_change_prompt(
-    catalog: str,
-    *,
-    original_user_message: str = "",
-    reasoning_on: bool = False,
-    tool_schema: dict | None = None,
+    catalog: str, *, original_user_message: str = "", reasoning_on: bool = False, tool_schema: dict | None = None
 ) -> str:
     """Build the post-turn Dynamic Worlds proposal request."""
     preamble = WORLD_CHANGE_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")

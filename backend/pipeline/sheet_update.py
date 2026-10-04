@@ -7,13 +7,10 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from .. import database as db
-from ..features.cards import (
-    SHEET_TOOL_NAME,
-    SheetUpdateUnavailable,
-    build_exchange_transcript,
-    propose_sheet_update,
-)
-from .state import SheetUpdateTurn, TurnState, _PipelineConfig
+from ..features.cards import SHEET_TOOL_NAME, SheetUpdateUnavailable, build_exchange_transcript, propose_sheet_update
+from .events import CoreTurnEvent
+from .failures import STAGE_AFTER_REPLY, step_failure_warning
+from .state import PipelineConfig, SheetUpdateTurn, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +27,21 @@ def _exchange_transcript(turn: SheetUpdateTurn, state: TurnState, speaker_name: 
 
 
 async def sheet_update_stage(
-    cfg: _PipelineConfig,
-    state: TurnState,
-    *,
-    settings: Mapping[str, Any],
-    turn: SheetUpdateTurn,
-) -> AsyncIterator[dict]:
-    """Propose and stage sheet updates for the members this exchange touched."""
+    cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: SheetUpdateTurn
+) -> AsyncIterator[CoreTurnEvent]:
+    """Propose and stage sheet updates for the members this exchange touched.
+
+    A failure that costs proposals reports a ``warning`` and never fails the exchange.
+    """
     try:
         conv = await db.get_conversation(turn.conversation_id)
-        # Re-resolved here rather than read off the turn: the sheet a proposal is
-        # derived from is also the value its apply re-checks, so it has to be the
-        # member's sheet as it stands *now* -- after the exchange's own latency, and
-        # after any hand edit made while the exchange was generating.
+        # Re-resolved here rather than read off the turn: the sheet a proposal is derived from is also the value its apply
+        # re-checks, so it has to be the member's sheet as it stands *now* -- after the exchange's own latency, and after any
+        # hand edit made while the exchange was generating.
         cast = await db.resolve_cast(conv) if conv else None
-    except Exception:
+    except Exception as exc:
         logger.exception("Sheet-update stage could not resolve the cast for %s; proposing nothing", turn.conversation_id)
+        yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)
         return
     if cast is None or not cast.grouped:
         return
@@ -58,9 +54,8 @@ async def sheet_update_stage(
     try:
         pending = await db.get_pending_sheet_proposals(turn.conversation_id)
     except Exception:
-        # A queue that cannot be read costs the carry-forward, not the exchange: the
-        # pass falls back to staging against the stored sheet, which is what it
-        # did before the two were chained.
+        # A queue that cannot be read costs the carry-forward, not the exchange: the pass falls back to staging against the
+        # stored sheet, which is what it did before the two were chained.
         logger.exception("Could not read pending sheet proposals for %s; staging without carry-forward", turn.conversation_id)
         pending = {}
 
@@ -68,53 +63,44 @@ async def sheet_update_stage(
     if not transcript.strip():
         return
 
-    # A standalone two-message call on the agent lane's client, *not* an
-    # extension of its cached base -- the same posture the public-profile
-    # drafter takes. A per-member call carrying the whole scene prefix would
-    # bill the cast's context once per touched member for a question that only
-    # needs one sheet and one exchange.
+    # A standalone two-message call on the agent lane's client, *not* an extension of its cached base -- the same posture the
+    # public-profile drafter takes. A per-member call carrying the whole scene prefix would bill the cast's context once per
+    # touched member for a question that only needs one sheet and one exchange.
     yield {"event": "step_start", "data": {"step": "sheet_updates"}}
     client, model = cfg.agent_lane.client, cfg.agent_lane.base.model
     staged: list[dict] = []
     for member in targets:
         if client.is_aborted:
             break
-        # The sheet this exchange reasons *from*: the member's undecided proposal when
-        # it still applies, otherwise what the member actually reads today. Only a
-        # proposal whose base still matches is carried — a mismatch means the user
-        # edited the sheet by hand since, and their text wins.
+        # The sheet this exchange reasons *from*: the member's undecided proposal when it still applies, otherwise what the
+        # member actually reads today. Only a proposal whose base still matches is carried -- a mismatch means the user edited
+        # the sheet by hand since, and their text wins.
         prior = pending.get(member.member_id)
         carried = (
             str(prior["proposed_sheet"])
             if prior is not None and str(prior["base_sheet"]) == member.private_sheet
             else member.private_sheet
         )
-        # A member with no sheet at all has nothing to carry forward, and a
-        # proposal built from "" would be the model inventing a character rather
-        # than recording a change to one.
+        # A member with no sheet at all has nothing to carry forward, and a proposal built from "" would be the model inventing
+        # a character rather than recording a change to one.
         if not carried.strip():
             continue
         try:
             update = await propose_sheet_update(
-                client,
-                model,
-                member_name=member.name,
-                sheet=carried,
-                transcript=transcript,
-                settings=settings,
+                client, model, member_name=member.name, sheet=carried, transcript=transcript, settings=settings
             )
         except SheetUpdateUnavailable as exc:
             logger.info("Sheet update for %s produced nothing usable: %s", member.name, exc)
             continue
-        except Exception:
+        except Exception as exc:
             logger.exception("Sheet update call failed for member %s; the rest of the exchange is unaffected", member.member_id)
+            yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)
             continue
         # A stop cut this call short; the members already finished still stage.
         if client.is_aborted:
             break
-        # On state.calls for the same reason the world stage puts its call there:
-        # the pass bills one request per touched member, and a billed call the
-        # inspector and the turn log never show is a cost with no record.
+        # On state.calls for the same reason the world stage puts its call there: the pass bills one request per touched member,
+        # and a billed call the inspector and the turn log never show is a cost with no record.
         state.calls.append(
             {
                 "name": SHEET_TOOL_NAME,
@@ -132,12 +118,10 @@ async def sheet_update_stage(
                 "conversation_id": turn.conversation_id,
                 "member_id": member.member_id,
                 "exchange_id": turn.exchange_id,
-                # The member's *stored* sheet, not the text the call reasoned
-                # from: this is the value the apply re-checks against, and by
-                # review time the member may have been hand-edited, which is
-                # exactly the case this has to detect. When a pending proposal
-                # was carried forward the two differ, and it is this one — the
-                # one an apply can actually match — that has to be recorded.
+                # The member's *stored* sheet, not the text the call reasoned from: this is the value the apply re-checks
+                # against, and by review time the member may have been hand-edited, which is exactly the case this has to
+                # detect. When a pending proposal was carried forward the two differ, and it is this one -- the one an apply can
+                # actually match -- that has to be recorded.
                 "base_sheet": member.private_sheet,
                 "proposed_sheet": update["sheet"],
                 "summary": update["summary"],
@@ -145,13 +129,13 @@ async def sheet_update_stage(
         )
     if not staged:
         return
-    # Persisted here rather than at the ``_result`` boundary the world proposals
-    # ride: a sheet proposal names an *exchange*, which is already known, so it has
-    # nothing to wait for the assistant row's id for.
+    # Persisted here rather than at the ``_result`` boundary the world proposals ride: a sheet proposal names an *exchange*,
+    # which is already known, so it has nothing to wait for the assistant row's id for.
     try:
         rows = await db.create_sheet_proposals(staged)
         logger.info("Staged %d sheet proposal(s) for exchange %s", len(rows), turn.exchange_id)
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Failed to stage %d sheet proposal(s) for exchange %s; the reply is unaffected", len(staged), turn.exchange_id
         )
+        yield step_failure_warning(exc, "sheet_updates", stage=STAGE_AFTER_REPLY)

@@ -1,18 +1,5 @@
-"""The public-profile output contract, pinned on both draft functions.
-
-The system prompt asks the model for a scene-safe two-liner; this is the half
-that does not depend on the model agreeing. Both the card editor and Manage cast
-drain the same forced call through the same checks, so exercising both public
-entry points is what stops the card and scene routes drifting on a safety
-boundary that only one of them is loudly tested for.
-
-Three rejections, each for a failure a later reader cannot recover from:
-
-* a blank field silently publishes nothing about that member;
-* a brace survives into a string that is macro-resolved at *turn* time
-  (``prompting/group_context._render_public_cast``), so an approved profile
-  would mutate months later;
-* an overlong field is billed to every member of the cast on every call.
+"""Check both public-profile draft entry points reject blank, brace-bearing and
+overlong output, protecting stored profiles from later macro mutation.
 """
 
 from __future__ import annotations
@@ -59,7 +46,7 @@ async def _draft_both(message: dict):
     ]
 
 
-# ── Accepted ────────────────────────────────────────────────────────────────
+# -- Accepted ----------------------------------------------------------------
 
 
 async def test_a_well_formed_draft_round_trips_stripped():
@@ -86,7 +73,7 @@ async def test_json_string_arguments_parse_the_same_way():
         assert draft == {"appearance": "Tall.", "role": "Bard."}
 
 
-# ── Rejected ────────────────────────────────────────────────────────────────
+# -- Rejected ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -139,12 +126,11 @@ async def test_a_reply_cut_at_the_budget_names_the_setting(settings, limit):
             await drafter(_FakeClient(message), "m", CARD, settings=settings)  # type: ignore[arg-type]
 
 
-# ── The prompts ─────────────────────────────────────────────────────────────
+# -- The prompts -------------------------------------------------------------
 
 
 async def test_both_prompts_quote_the_same_no_secrets_floor():
-    """One definition of "public", so the card editor and Manage cast cannot
-    drift on what a profile is allowed to say."""
+    """One definition of "public", so the card editor and Manage cast cannot drift on what a profile is allowed to say."""
     systems = []
     for drafter in (draft_card_profile, draft_scene_profile):
         client = _FakeClient(_call(appearance="Tall.", role="Bard."))
@@ -192,7 +178,7 @@ def test_the_scene_message_labels_its_sections_and_omits_the_empty_ones():
 
 def test_the_scene_message_states_how_many_names_it_left_out():
     """The prompt is bounded, and says so rather than claiming the list is the
-    whole cast — the roster itself has no size ceiling."""
+    whole cast -- the roster itself has no size ceiling."""
     message = build_scene_message(CARD, cast_names=["Kael"], omitted_cast=3)
     assert "Other cast members omitted from this draft: 3" in message
     assert "omitted from this draft" not in build_scene_message(CARD, cast_names=["Kael"])

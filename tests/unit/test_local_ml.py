@@ -1,10 +1,9 @@
-"""Pure local-ML scaffold helpers: resolve_path / present / deps_ok. No model,
-no network — the route-level tri-state lives in tests/integration/test_local_ml.py.
+"""Pure local-ML scaffold helpers: resolve_path / present / deps_ok. No model, no network -- the route-level tri-state lives in
+tests/integration/test_local_ml.py.
 
-PATCHES GO ON THE MODULE THAT OWNS THE NAME. ``local_ml`` re-exports the asset
-and dependency surface for callers that address it by that name, but those are
-second bindings: production reads ``local_models``' own copies, so patching a
-re-export would leave the code under test running against the real disk.
+PATCHES GO ON THE MODULE THAT OWNS THE NAME. ``local_ml`` re-exports the asset and dependency surface for callers that address
+it by that name, but those are second bindings: production reads ``local_models``' own copies, so patching a re-export would
+leave the code under test running against the real disk.
 """
 
 from __future__ import annotations
@@ -30,10 +29,9 @@ def test_present_reflects_disk(monkeypatch):
 
 
 def test_deps_ok_reports_missing_extra(monkeypatch):
-    # The missing-extra branch is the one with a contract: the reason has to name
-    # the requirements file the user is meant to install. Forced rather than
-    # inferred from the environment -- when the extras happen to be present this
-    # asserted nothing at all, and paid a real llama_cpp import (~1s) to do it.
+    # The missing-extra branch is the one with a contract: the reason has to name the requirements file the user is meant to
+    # install. Forced rather than inferred from the environment -- when the extras happen to be present this asserted nothing at
+    # all, and paid a real llama_cpp import (~1s) to do it.
     def _boom():
         raise ModuleNotFoundError("No module named 'llama_cpp'")
 
@@ -99,17 +97,15 @@ async def test_aclassify_pov_tense_chunks_reads_each_window(monkeypatch):
 
 
 # --- the tense half of the povtense grid ----------------------------------------
-# The POV half is pinned by its first consumer, in
-# tests/unit/workflows/image_gen/test_pov.py; the tense half has no single owning
-# workflow, so its grid math is pinned here beside the model surface itself.
+# The POV half is pinned by its first consumer, in tests/unit/workflows/image_gen/test_pov.py; the tense half has no single
+# owning workflow, so its grid math is pinned here beside the model surface itself.
 
 
 @pytest.mark.parametrize("col,label", list(enumerate(local_ml.TENSE_COLS)))
 @pytest.mark.parametrize("row", range(4))
 def test_tense_from_logits_reads_the_grid_column_major(col, label, row):
-    # Layout is POV rows x tense columns; index = row * 3 + column. Reading it
-    # transposed would map "past" onto "first" and still return a plausible label,
-    # which is exactly the failure no downstream assertion would catch.
+    # Layout is POV rows x tense columns; index = row * 3 + column. Reading it transposed would map "past" onto "first" and
+    # still return a plausible label, which is exactly the failure no downstream assertion would catch.
     grid = [0.0] * 12
     grid[row * 3 + col] = 9.0
     assert local_ml.tense_from_logits(grid) == label
@@ -143,10 +139,9 @@ async def test_pov_reads_short_circuit_on_empty_shaping(monkeypatch):
 
 
 # --- markup classifier input shaping ------------------------------------------
-# Shared with ../RP-Markup-Classifier: its build manifests record
-# MARKUP_INPUT_VERSION and a digest of these outputs, so a shaping change that
-# does not bump the version fails that repo's audit instead of silently mixing
-# two input distributions in one training build.
+# Shared with ../RP-Markup-Classifier: its build manifests record MARKUP_INPUT_VERSION and a digest of these outputs, so a
+# shaping change that does not bump the version fails that repo's audit instead of silently mixing two input distributions in
+# one training build.
 
 
 @pytest.mark.parametrize(
@@ -182,9 +177,8 @@ def test_markup_input_hides_exactly_what_classify_axes_hides():
 
 
 # --- the markup head ------------------------------------------------------------
-# Narration rows x dialogue columns, row-major (../RP-Markup-Classifier/src/schema.py).
-# A transposed read maps "asterisk" onto "quoted" and still looks plausible, so
-# every cell is pinned.
+# Narration rows x dialogue columns, row-major (../RP-Markup-Classifier/src/schema.py). A transposed read maps "asterisk" onto
+# "quoted" and still looks plausible, so every cell is pinned.
 
 
 @pytest.mark.parametrize("col,dialogue", list(enumerate(local_ml.DIALOGUE_COLS)))

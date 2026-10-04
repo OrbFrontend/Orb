@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 
-from ..toolkit import ExportedFile, get_workflow_config
+from ..toolkit import ExportCtx, ExportedFile, get_workflow_config
 from .config import WORKFLOW_ID, normalize_config
 from .engine import comfy_adapter
 from .engine.display_encode import lossless_png
@@ -15,19 +15,17 @@ _UNFETCHED = "The original could not be fetched from ComfyUI, so this PNG was co
 _STORED_ONLY = "Orb keeps only a compressed copy of this image, so this PNG was converted from it."
 
 
-def _filename(ctx) -> str:
+def _filename(ctx: ExportCtx) -> str:
     stem = PurePosixPath(str(ctx.attachment.get("filename") or "")).stem or "generated-image"
     return f"{stem}-{ctx.attachment_id}.png"
 
 
-async def export(ctx) -> ExportedFile | None:
+async def export(ctx: ExportCtx) -> ExportedFile | None:
     """The render as a PNG, from the best copy that still exists.
 
-    Orb stores renders re-encoded for display and never keeps a second, larger copy.
-    The full-quality file lives where it was made: ComfyUI keeps what it saved, so
-    that is fetched on demand. A cloud render leaves no such file, and neither does
-    one ComfyUI has since dropped; those fall back to the stored copy, and the note
-    says so.
+    Orb stores renders re-encoded for display and never keeps a second, larger copy. The full-quality file lives where it was
+    made: ComfyUI keeps what it saved, so that is fetched on demand. A cloud render leaves no such file, and neither does one
+    ComfyUI has since dropped; those fall back to the stored copy, and the note says so.
     """
     output = (ctx.consumption_metadata or {}).get("comfy_output")
     note = _STORED_ONLY

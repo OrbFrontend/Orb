@@ -1,11 +1,9 @@
 """How the feature reads the shared manifest: selection, and where a file lands.
 
-The manifest's own invariants — unique basenames, the prune claim set — are
-``tests/unit/test_local_models_catalog.py``'s, because they belong to every
-feature that ships weights. What is left here is the rewriter's own half: a
-stored selection is user data that must survive a registry bump, and the path a
-variant resolves to is the flat basename under ``data/models/`` rather than
-upstream's ``GGUF/`` nesting.
+The manifest's own invariants -- unique basenames, the prune claim set -- are ``tests/unit/test_local_models_catalog.py``'s,
+because they belong to every feature that ships weights. What is left here is the rewriter's own half: a stored selection is
+user data that must survive a registry bump, and the path a variant resolves to is the flat basename under ``data/models/``
+rather than upstream's ``GGUF/`` nesting.
 """
 
 from __future__ import annotations
@@ -25,8 +23,7 @@ def test_an_unusable_selection_resolves_to_none_rather_than_raising():
 
 
 def test_variant_path_is_the_flat_name_under_the_models_dir(tmp_path, monkeypatch):
-    """``path`` is the layout inside the HF repo; what lands on disk is the
-    basename alone."""
+    """``path`` is the layout inside the HF repo; what lands on disk is the basename alone."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     variant = catalog.variants()[0]
     assert "/" in variant.path  # upstream nests it under GGUF/

@@ -40,8 +40,7 @@ export function normalizeSegment(seg) {
     if (seg.byte_start == null && seg.byte_end == null) {
       return { sourceKey: `row:${seg.row}`, source: { row: seg.row }, start, end };
     }
-    // A byte span of the row: a self-contained clip packed inside a larger
-    // attachment, decoded on its own.
+    // A byte span of the row: a self-contained clip packed inside a larger attachment, decoded on its own.
     const byteStart = seg.byte_start;
     const byteEnd = seg.byte_end;
     if (!Number.isInteger(byteStart) || !Number.isInteger(byteEnd) || byteStart < 0 || byteEnd <= byteStart) {

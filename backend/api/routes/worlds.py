@@ -27,15 +27,9 @@ from ...database import (
     update_world_changeset,
 )
 from ...features import lorebook
+from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...pipeline.world_proposal import reevaluate_changeset
-from ..deps import (
-    _normalise_lorebook_entry,
-    lorebook_to_book,
-    project_lorebook_view,
-    require_changeset,
-    require_lorebook_entry,
-    require_world,
-)
+from ..deps import require_changeset, require_lorebook_entry, require_world
 from ..schemas import (
     ChangesetApply,
     ChangesetEdit,
@@ -50,7 +44,7 @@ from ..schemas import (
 router = APIRouter()
 
 
-# Worlds ──
+# Worlds --
 
 
 @router.get("/api/worlds")
@@ -85,9 +79,8 @@ async def api_set_dynamic_enabled(
 ):
     """Turn Dynamic Worlds on or off for one World.
 
-    A dedicated route rather than a field on the general update so the intent is
-    explicit in the audit and in the client. Turning it off stops new proposals
-    but changes nothing already applied — accepted lore is ordinary lore.
+    A dedicated route rather than a field on the general update so the intent is explicit in the audit and in the client.
+    Turning it off stops new proposals but changes nothing already applied -- accepted lore is ordinary lore.
     """
     return await update_world(world["id"], {"dynamic_enabled": data.enabled})
 
@@ -99,7 +92,7 @@ async def api_delete_world(world_id: str):
     return {"ok": True}
 
 
-# Lorebook Entries ──
+# Lorebook Entries --
 
 
 @router.get("/api/worlds/{world_id}/entries")
@@ -165,7 +158,7 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
     else:
         raise HTTPException(status_code=422, detail="entries must be an object or array")
 
-    normalised = [_normalise_lorebook_entry(item) for item in items if isinstance(item, dict)]
+    normalised = [normalise_lorebook_entry(item) for item in items if isinstance(item, dict)]
     # One transaction, one revision bump: a half-imported World must never be
     # visible, and one user action must not invalidate pending proposals N times.
     created = await import_lorebook_entries(world_id, normalised)
@@ -175,13 +168,10 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
 
 @router.get("/api/worlds/{world_id}/export")
 async def api_export_lorebook(world_id: str, view: Literal["authored", "effective"] = "authored"):
-    """Export a lorebook as a standalone Tavern V2 ``character_book`` JSON file.
+    """Export a Tavern V2 character_book.
 
-    ``authored`` is the default and the backward-compatible behaviour: the file
-    holds the user's own lore, unchanged by whatever the Agent has proposed or
-    the user has accepted since. ``effective`` is opt-in and exports the
-    projection instead — the World as the prompt currently sees it, replacements
-    applied and suppressions removed.
+    Default ``authored`` exports original lore; opt-in ``effective`` exports
+    the projection with replacements applied and suppressions removed.
     """
     world = await get_world(world_id)
     if not world:
@@ -204,7 +194,7 @@ async def api_get_active_lorebook_entries(cid: str):
     return lorebook.select_effective_entries(await get_active_lorebook_entries(await get_effective_world_ids(cid)))
 
 
-# Dynamic Worlds — changesets ──
+# Dynamic Worlds -- changesets --
 
 
 @router.get("/api/worlds/{world_id}/changesets")
@@ -270,20 +260,17 @@ async def api_apply_changeset(
 ):
     """Apply a pending proposal atomically, optionally edited in the same request.
 
-    ``409`` on a revision conflict: the World changed since this was proposed, so
-    the proposal is marked stale and the client is told to Re-evaluate rather
-    than offered a force-apply. Nothing is applied on that path.
+    ``409`` on a revision conflict: the World changed since this was proposed, so the proposal is marked stale and the client is
+    told to Re-evaluate rather than offered a force-apply. Nothing is applied on that path.
     """
     _pending_guard(changeset)
     operations = [op.model_dump() for op in data.operations] if data.operations is not None else None
     try:
         return await lorebook.accept_changeset(changeset, operations=operations, summary=data.summary)
     except RevisionConflict as e:
-        # The revision check and this bookkeeping update are deliberately
-        # separate: the failed apply rolled back without changing the World.
-        # A concurrent reject may have decided the proposal in between; that is
-        # still a clean conflict response, not a reason to turn this request
-        # into a 500 while trying to overwrite the winning decision.
+        # The revision check and this bookkeeping update are deliberately separate: the failed apply rolled back without
+        # changing the World. A concurrent reject may have decided the proposal in between; that is still a clean conflict
+        # response, not a reason to turn this request into a 500 while trying to overwrite the winning decision.
         try:
             await lorebook.close_changeset(int(changeset["id"]), "stale")
         except OverlayStateConflict:
@@ -316,9 +303,8 @@ async def api_reevaluate_changeset(
 ):
     """Derive a fresh proposal from this one's source messages and the current World.
 
-    The stale original is retired either way. A ``null`` changeset in the
-    response means the model, looking at the World as it now stands, found
-    nothing left to propose — which is a legitimate answer, not a failure.
+    The stale original is retired either way. A ``null`` changeset in the response means the model, looking at the World as it
+    now stands, found nothing left to propose -- which is a legitimate answer, not a failure.
     """
     _open_guard(changeset)
     try:
@@ -339,22 +325,17 @@ async def api_undo_changeset(
         return await lorebook.undo_changeset(changeset)
     except RevisionConflict as e:
         raise HTTPException(
-            status_code=409,
-            detail=f"This world moved to revision {e.actual} while the undo was being prepared. Try again.",
+            status_code=409, detail=f"This world moved to revision {e.actual} while the undo was being prepared. Try again."
         ) from e
     except OverlayStateConflict as e:
-        raise HTTPException(
-            status_code=409,
-            detail=f"{e} Review the world's dynamic entries before undoing.",
-        ) from e
+        raise HTTPException(status_code=409, detail=f"{e} Review the world's dynamic entries before undoing.") from e
 
 
 @router.post("/api/worlds/{world_id}/reset")
 async def api_reset_world(world: dict = Depends(require_world)):  # noqa: B008
     """Archive every dynamic entry, restoring the authored World exactly.
 
-    Itself an undoable changeset — the overlay is retired, never deleted, so the
-    reset can be reversed like any other change.
+    Itself an undoable changeset -- the overlay is retired, never deleted, so the reset can be reversed like any other change.
     """
     try:
         changeset = await lorebook.reset_world_to_authored(world["id"])

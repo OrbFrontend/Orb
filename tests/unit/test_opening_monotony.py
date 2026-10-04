@@ -2,18 +2,18 @@
 Tests for opening_monotony detection.
 
 Organised into:
-  - TRUE POSITIVES  – repetitive consecutive sentence openings we *want* to catch
-  - FALSE POSITIVES – legitimate variation that should *not* trigger
-  - EDGE CASES      – boundary inputs
+  - TRUE POSITIVES  - repetitive consecutive sentence openings we *want* to catch
+  - FALSE POSITIVES - legitimate variation that should *not* trigger
+  - EDGE CASES      - boundary inputs
 """
 
 import pytest
 
 from backend.analysis.detectors.opening_monotony import detect_opening_monotony
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRUE POSITIVES – repetitive consecutive openings that should be flagged
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# TRUE POSITIVES - repetitive consecutive openings that should be flagged
+# ===============================================================================
 
 
 class TestTruePositives:
@@ -28,18 +28,14 @@ class TestTruePositives:
             # Normalization treats 'He', 'he', 'He!' as the same opener.
             ("He walked! he ran. He jumped? He skipped.", 1, "he"),
             (
-                "The quick brown fox jumps over the lazy dog. "
-                "The quick brown fox sleeps all day. "
-                "The quick brown fox eats a rabbit. "
-                "The quick brown fox chases the hen.",
+                "The quick brown fox jumps over the lazy dog. The quick brown fox sleeps all day. "
+                "The quick brown fox eats a rabbit. The quick brown fox chases the hen.",
                 3,
                 "the quick brown",
             ),
             (
-                "In the beginning God created the heavens. "
-                "In the beginning God created the earth. "
-                "In the beginning God created the light. "
-                "In the beginning God created the stars.",
+                "In the beginning God created the heavens. In the beginning God created the earth. "
+                "In the beginning God created the light. In the beginning God created the stars.",
                 4,
                 "in the beginning god",
             ),
@@ -86,9 +82,7 @@ class TestTruePositives:
     def test_default_n_words_detects_consecutive_first_word(self):
         """Default n_words=1 detects consecutive first-word repetition."""
         text = (
-            "She is a very talented artist. "
-            "She is a very skilled musician. "
-            "She is a very dedicated teacher. "
+            "She is a very talented artist. She is a very skilled musician. She is a very dedicated teacher. "
             "She is a very hard worker."
         )
         result = detect_opening_monotony(text)  # default n_words=1
@@ -106,9 +100,9 @@ class TestTruePositives:
         assert he_flag[0].max_run == 4
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FALSE POSITIVES – legitimate variation that should NOT trigger
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# FALSE POSITIVES - legitimate variation that should NOT trigger
+# ===============================================================================
 
 
 class TestFalsePositives:
@@ -117,13 +111,13 @@ class TestFalsePositives:
     @pytest.mark.parametrize(
         ("text", "n_words"),
         [
-            # Two identical openers in a row — below the threshold of 4.
+            # Two identical openers in a row -- below the threshold of 4.
             ("He walked. He ran. The cat slept.", 1),
             # Same opener 3+ times but never consecutively.
             ("He walked. The cat slept. He ran. The dog barked. He jumped.", 1),
             # No repetition at all.
             ("I went home. She ate pizza. They played games.", 1),
-            # Same first word, different second — distinct 2-word openers.
+            # Same first word, different second -- distinct 2-word openers.
             ("He walked slowly. He ran fast. He jumped high.", 2),
         ],
         ids=[
@@ -137,24 +131,21 @@ class TestFalsePositives:
         assert detect_opening_monotony(text, n_words=n_words).flagged_openers == []
 
     def test_realistic_narrative_dialogue_does_not_protect_run(self):
-        """Dialogue between 'He' sentences is ignored — the run is still detected."""
+        """Dialogue between 'He' sentences is ignored -- the run is still detected."""
         text = (
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
+            "off toward the parking lot, leaning back against the concrete planter with his clipboard tucked under one arm.\n\n"
             '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
             'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare. "
+            "back in '19. Kid from out of state. He presents his ID, right? The card says...\"\n\n"
+            "He shifts his weight, his tone remaining as boring as a weather report while he describes a sensory nightmare. "
             "He waits for a response."
         )
         result = detect_opening_monotony(text, n_words=1)
         # After stripping dialogue, narration is: Henderson..., He doesn't look...,
-        # He rubs (attribution), He shifts, He waits — 4 consecutive 'he' sentences.
+        # He rubs (attribution), He shifts, He waits -- 4 consecutive 'he' sentences.
         assert len(result.flagged_openers) >= 1
         assert result.flagged_openers[0].opener == "he"
         assert result.flagged_openers[0].max_run >= 4
@@ -167,9 +158,9 @@ class TestFalsePositives:
         assert result.all_openers == {}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestEdgeCases:
@@ -232,9 +223,9 @@ class TestEdgeCases:
         assert he_flag[0].count == 5
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # AUDIT INTEGRATION TESTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestAuditIntegration:
@@ -246,14 +237,11 @@ class TestAuditIntegration:
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
+            "off toward the parking lot, leaning back against the concrete planter with his clipboard tucked under one arm.\n\n"
             '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
             'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare. "
+            "back in '19. Kid from out of state. He presents his ID, right? The card says...\"\n\n"
+            "He shifts his weight, his tone remaining as boring as a weather report while he describes a sensory nightmare. "
             "He waits for a response."
         )
         report = run_audit(text, [])
@@ -265,11 +253,8 @@ class TestAuditIntegration:
         from backend.analysis import run_audit
 
         text = (
-            "Henderson sighs, a long rattling sound. "
-            "He walks to the window. "
-            "He stares at the parking lot. "
-            "He says nothing for a long time. "
-            "He waits."
+            "Henderson sighs, a long rattling sound. He walks to the window. He stares at the parking lot. "
+            "He says nothing for a long time. He waits."
         )
         report = run_audit(text, [])
         assert len(report.monotony_result.flagged_openers) >= 1

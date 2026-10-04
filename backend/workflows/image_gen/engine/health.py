@@ -28,11 +28,9 @@ def fingerprint(config: Mapping[str, Any], style: Mapping[str, Any]) -> str:
         entry = (providers if isinstance(providers, Mapping) else {}).get(provider)
         entry = entry if isinstance(entry, Mapping) else {}
         key = str(entry.get("api_key") or "")
-        # Stands in for the credential's identity, so rotating a key retires the
-        # verdict recorded against the old one. Never stored, transmitted, or
-        # checked against anything -- `usedforsecurity=False` says so, and keeps
-        # this off the password-hashing scanners that cannot tell a cache key
-        # from a credential at rest.
+        # Stands in for the credential's identity, so rotating a key retires the verdict recorded against the old one. Never
+        # stored, transmitted, or checked against anything -- `usedforsecurity=False` says so, and keeps this off the
+        # password-hashing scanners that cannot tell a cache key from a credential at rest.
         digest = hashlib.sha256(key.encode(), usedforsecurity=False).hexdigest()[:16] if key else ""
         parts += [entry.get("base_url"), digest]
     return "\x1f".join(str(part or "") for part in parts)
@@ -45,10 +43,7 @@ def record_failure(config: Mapping[str, Any], style: Mapping[str, Any], detail: 
         return
     if style_id not in _verdicts and len(_verdicts) >= _MAX_ENTRIES:
         _verdicts.clear()
-    _verdicts[style_id] = {
-        "detail": detail[:400],
-        "fingerprint": fingerprint(config, style),
-    }
+    _verdicts[style_id] = {"detail": detail[:400], "fingerprint": fingerprint(config, style)}
 
 
 def record_success(config: Mapping[str, Any], style: Mapping[str, Any]) -> None:
@@ -68,11 +63,7 @@ def verdict(config: Mapping[str, Any], style: Mapping[str, Any]) -> dict[str, An
     if record["fingerprint"] != fingerprint(config, style):
         del _verdicts[style_id]
         return None
-    return {
-        "style_id": style_id,
-        "style_label": str(style.get("label") or style_id),
-        "detail": record["detail"],
-    }
+    return {"style_id": style_id, "style_label": str(style.get("label") or style_id), "detail": record["detail"]}
 
 
 def forget(style_id: str | None = None) -> None:

@@ -29,13 +29,8 @@ from .changesets import (
     undo_changeset,
 )
 from .enablement import agentic_lorebook_active
-from .proposals import (
-    ValidatedProposal,
-    build_world_change_catalog,
-    parse_proposal_call,
-    split_by_world,
-    validate_proposal,
-)
+from .interchange import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
+from .proposals import ValidatedProposal, build_world_change_catalog, parse_proposal_call, split_by_world, validate_proposal
 
 __all__ = [
     # scan-depth constants
@@ -60,13 +55,13 @@ __all__ = [
     "compute_agentic_lorebook_block",
     "compute_constant_lorebook_block",
     "compute_depth_lorebook_block",
-    # Dynamic Worlds — proposal validation
+    # Dynamic Worlds -- proposal validation
     "ValidatedProposal",
     "build_world_change_catalog",
     "parse_proposal_call",
     "split_by_world",
     "validate_proposal",
-    # Dynamic Worlds — changeset lifecycle
+    # Dynamic Worlds -- changeset lifecycle
     "accept_changeset",
     "close_changeset",
     "delete_entry",
@@ -74,4 +69,8 @@ __all__ = [
     "reset_world_to_authored",
     "stage_proposal",
     "undo_changeset",
+    # Character Card / World Info interchange
+    "lorebook_to_book",
+    "normalise_lorebook_entry",
+    "project_lorebook_view",
 ]

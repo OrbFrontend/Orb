@@ -3,35 +3,29 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
     EV_DRAFT_REPLACED,
     AxisStyle,
+    PostCtx,
+    PostEvent,
     forced_tool_call,
     get_workflow_config,
     local_feature_ready,
     markup_axes,
 )
-from . import (
+from . import capture
+from .config import (
     VOICE_REWRITE_LENGTH_RULE,
     VOICE_REWRITE_TOOL_NAME,
     WORKFLOW_ID,
-    capture,
     normalize_config,
 )
 from .guard import rejection, unwrap
 from .normalization import normalize_to_baseline, vote_axes
-from .voice import (
-    FEATURE,
-    UNKNOWN_LABELS,
-    VoiceLabels,
-    drift,
-    labels_for,
-    read,
-    target,
-)
+from .voice import FEATURE, UNKNOWN_LABELS, VoiceLabels, drift, labels_for, read, target
 
 logger = logging.getLogger(__name__)
 
@@ -53,18 +47,14 @@ _SYSTEM = (
     "a character, a name, or a detail the passage does not contain."
 )
 
-# One line per drifting axis. Folding two axes into a single "in X and Y" sentence
-# buries the second inside the first one's trailing clause, which is how a POV
-# phrase that has to name both parties reads once a tense is appended to it.
-# Name the argument, not the function: a schema-less lane (text mode, structured
-# output) never shows the tool, and "call `voice_rewrite`" there invites the model
-# to write the call syntax into the passage itself.
+# One line per drifting axis. Folding two axes into a single "in X and Y" sentence buries the second inside the first one's
+# trailing clause, which is how a POV phrase that has to name both parties reads once a tense is appended to it. Name the
+# argument, not the function: a schema-less lane (text mode, structured output) never shows the tool, and "call `voice_rewrite`"
+# there invites the model to write the call syntax into the passage itself.
 _INSTRUCTION = "Restate the passage below and return the result as `rewritten_text`.\n\nREQUIRED VOICE:\n{voice}\n\n"
-# The draft alone cannot say who "you" is: a reply that narrates the user's
-# character as "he" reads as already satisfying "the person addressed stays you",
-# and a bare "becomes you" swaps in the wrong party. Card and persona names cannot
-# say it either ("Pokemon Simulator", "Narrator"), so the rewrite is shown the
-# newest reply already in the target voice.
+# The draft alone cannot say who "you" is: a reply that narrates the user's character as "he" reads as already satisfying "the
+# person addressed stays you", and a bare "becomes you" swaps in the wrong party. Card and persona names cannot say it either
+# ("Pokemon Simulator", "Narrator"), so the rewrite is shown the newest reply already in the target voice.
 _REFERENCE = (
     "REFERENCE (an earlier passage of the same story, already in the required voice; "
     'the same people are "you" and "he", "she" or "they" as here):\n{reference}\n\n'
@@ -72,7 +62,7 @@ _REFERENCE = (
 _PASSAGE = "PASSAGE:\n{draft}"
 
 
-def _baseline_window(history) -> list[Mapping[str, Any]]:
+def _baseline_window(history: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Return up to three recent plain-text assistant rows, newest first."""
     window: list[Mapping[str, Any]] = []
     for msg in reversed(history):
@@ -85,14 +75,14 @@ def _baseline_window(history) -> list[Mapping[str, Any]]:
     return window
 
 
-async def _voice_enabled(ctx) -> bool:
+async def _voice_enabled(ctx: PostCtx) -> bool:
     """Whether the local classifier and opt-in voice check are enabled."""
     if not local_feature_ready(FEATURE, ctx.settings):
         return False
     return normalize_config(await get_workflow_config(WORKFLOW_ID))["voice_consistency"]
 
 
-async def _voice_rewrite(ctx, text: str, phrases: list[str], reference: str = "") -> str:
+async def _voice_rewrite(ctx: PostCtx, text: str, phrases: list[str], reference: str = "") -> str:
     """Restate *text* on a self-contained voice-rewrite lane."""
     instruction = _INSTRUCTION.format(voice="\n".join(f"- {p}" for p in phrases))
     if reference:
@@ -119,7 +109,7 @@ async def _voice_rewrite(ctx, text: str, phrases: list[str], reference: str = ""
     return rewritten if isinstance(rewritten, str) else ""
 
 
-async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: list[AxisStyle]) -> str:
+async def _hold_voice(ctx: PostCtx, text: str, window: list[Mapping[str, Any]], styles: list[AxisStyle]) -> str:
     """Return *text* in the window's voice, or unchanged when it is ambiguous.
 
     *styles* are the window rows' markup readings, in window order.
@@ -134,8 +124,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     if baseline == UNKNOWN_LABELS:
         return text
     reference = next(
-        (msg.get("content", "") for msg, labels in zip(window, window_labels, strict=True) if labels == baseline),
-        "",
+        (msg.get("content", "") for msg, labels in zip(window, window_labels, strict=True) if labels == baseline), ""
     )
     style = await markup_axes(text, ctx.settings)
     source = await read(text, style)
@@ -144,12 +133,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     phrases = drift(source, baseline)
     if not phrases:
         return text
-    logger.info(
-        "format-consistency: voice drift %s -> %s; requesting a rewrite in %s",
-        source,
-        baseline,
-        ", ".join(phrases),
-    )
+    logger.info("format-consistency: voice drift %s -> %s; requesting a rewrite in %s", source, baseline, ", ".join(phrases))
     rewritten = await _voice_rewrite(ctx, text, phrases, reference)
     if not rewritten:
         return text
@@ -164,7 +148,7 @@ async def _hold_voice(ctx, text: str, window: list[Mapping[str, Any]], styles: l
     return rewritten
 
 
-async def post_pipeline(ctx):
+async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
     """Normalize the finished draft's markup and, optionally, its narrative voice."""
     window = _baseline_window(ctx.history)
     baseline_msgs = [msg.get("content", "") for msg in window]
@@ -198,7 +182,4 @@ async def post_pipeline(ctx):
     if text != ctx.draft:
         yield {"type": EV_DRAFT_REPLACED, "draft": text}
     if voice_status:
-        yield {
-            "event": "phase_status",
-            "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"},
-        }
+        yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}

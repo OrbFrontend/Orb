@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from ..core import mark_call_start, reasoning_delta_event
+from ..core.llm_types import CompletionEvent, CompletionMessage, ReasoningDelta
 
 if TYPE_CHECKING:
-    from .kv_tracker import _KVCacheTracker
+    from .client import LLMClient
+    from .kv_tracker import KVCacheTracker
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +20,8 @@ logger = logging.getLogger(__name__)
 def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
     """Flatten the per-call tail messages for the console log.
 
-    Only the tail is logged: the prefix is byte-identical across every pass of
-    the turn, so printing it once per call is noise. Multimodal parts render as
-    their text, non-text parts as a ``[type]`` marker — never the base64 blob.
+    Only the tail is logged: the prefix is byte-identical across every pass of the turn, so printing it once per call is noise.
+    Multimodal parts render as their text, non-text parts as a ``[type]`` marker -- never the base64 blob.
     """
     out = []
     for m in tail:
@@ -32,43 +33,36 @@ def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
 
 
 async def cached_complete(
-    client: Any,
+    client: LLMClient,
     *,
     label: str,
     messages: Sequence[Mapping[str, Any]],
     model: str,
     tools: list[dict] | None = None,
     tool_choice: dict | str | None = None,
-    kv_tracker: _KVCacheTracker | None = None,
+    kv_tracker: KVCacheTracker | None = None,
     record: bool = True,
     **params: Any,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[CompletionEvent]:
     """Run ``client.complete`` and snapshot the KV tracker from the same args.
 
-    Every pass funnels through here so the tracker sees exactly what was sent.
-    ``record=True`` snapshots before the call, and provider usage from ``done``
-    is attached to the latest entry. The first reasoning delta is marked with
-    the call boundary used by downstream buffers.
+    Every pass funnels through here so the tracker sees exactly what was sent. ``record=True`` snapshots before the call, and
+    provider usage from ``done`` is attached to the latest entry. The first reasoning delta is marked with the call boundary
+    used by downstream buffers.
     """
     if kv_tracker is not None and record:
         # The client's server is half the lane key: two endpoints have independent
         # KV caches even when they answer to the same model name.
         kv_tracker.record(label, messages, tools, model=model, endpoint=getattr(client, "base_url", ""))
     async for event in mark_call_start(
-        client.complete(
-            messages=messages,
-            model=model,
-            tools=tools,
-            tool_choice=tool_choice,
-            **params,
-        )
+        client.complete(messages=messages, model=model, tools=tools, tool_choice=tool_choice, **params)
     ):
         if event["type"] == "done" and kv_tracker is not None:
             kv_tracker.record_usage(label, event.get("usage"))
         yield event
 
 
-async def _relay_reasoning(stream: AsyncIterator[dict], reply: dict) -> AsyncIterator[dict]:
+async def _relay_reasoning(stream: AsyncIterator[CompletionEvent], reply: CompletionMessage) -> AsyncIterator[ReasoningDelta]:
     """Forward *stream*'s reasoning deltas; collect its ``done`` message in *reply*."""
     async for event in stream:
         if event["type"] == "reasoning":
@@ -88,22 +82,20 @@ class CachedBase:
 
     def complete(
         self,
-        client: Any,
+        client: LLMClient,
         *,
         label: str,
         trailing: Sequence[Mapping[str, Any]],
         tool_choice: dict | str | None = None,
-        kv_tracker: _KVCacheTracker | None = None,
+        kv_tracker: KVCacheTracker | None = None,
         record: bool = True,
         **params: Any,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """Issue one completion extending this base with *trailing*.
 
-        The cached bottom (prefix + tools + model) comes from ``self``; only
-        *trailing* and *tool_choice* vary per call. The stack is resolved via
-        ``self.resolve`` if set, then handed to :func:`cached_complete`. The
-        prefix length rides along so the client can mark the base's end for
-        providers that cache only at marked positions.
+        The cached bottom (prefix + tools + model) comes from ``self``; only *trailing* and *tool_choice* vary per call. The
+        stack is resolved via ``self.resolve`` if set, then handed to :func:`cached_complete`. The prefix length rides along so
+        the client can mark the base's end for providers that cache only at marked positions.
         """
         messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
         if self.resolve is not None:
@@ -122,14 +114,34 @@ class CachedBase:
             **params,
         )
 
-    def complete_into(self, client: Any, reply: dict, **kw: Any) -> AsyncIterator[dict]:
+    def complete_into(
+        self,
+        client: LLMClient,
+        reply: CompletionMessage,
+        *,
+        label: str,
+        trailing: Sequence[Mapping[str, Any]],
+        tool_choice: dict | str | None = None,
+        kv_tracker: KVCacheTracker | None = None,
+        record: bool = True,
+        **params: Any,
+    ) -> AsyncIterator[ReasoningDelta]:
         """:meth:`complete`, demuxed the way every agentic pass consumes it.
 
-        Yields only the reasoning deltas — for the pass to forward onto its own
-        event stream — and collects the terminal assembled message into *reply*.
-        *reply* is filled in place rather than returned because an async
-        generator cannot return a value; it stays ``{}`` when the call produced
-        no message, which is the "model skipped" shape the passes already
+        Yields only the reasoning deltas -- for the pass to forward onto its own event stream -- and collects the terminal
+        assembled message into *reply*. *reply* is filled in place rather than returned because an async generator cannot return
+        a value; it stays ``{}`` when the call produced no message, which is the "model skipped" shape the passes already
         handle.
         """
-        return _relay_reasoning(self.complete(client, **kw), reply)
+        return _relay_reasoning(
+            self.complete(
+                client,
+                label=label,
+                trailing=trailing,
+                tool_choice=tool_choice,
+                kv_tracker=kv_tracker,
+                record=record,
+                **params,
+            ),
+            reply,
+        )

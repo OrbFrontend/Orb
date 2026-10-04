@@ -116,18 +116,16 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
     assert [s["label"] for s in listed["suggestions"]] == ["A beat.", "A pause."]
     beat, pause = listed["suggestions"]
 
-    too_long = await client.post(f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": "a" * 301})
-    assert too_long.status_code == 400
+    await client.post_checked(
+        f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": "a" * 301}, expected_status=400
+    )
     assert (await client.post(f"/api/phrase-bank/suggestions/{pause['id']}/dismiss", json={})).status_code == 200
     assert await bank_size() == before
 
     edited = r"^[\W_]*a[\W_]+(?:beat|moment)[\W_]*$"
-    accepted = await client.post(f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": edited})
-    assert accepted.status_code == 200
+    accepted = await client.post_json(f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": edited})
     assert await bank_size() == before + 1
-    row = await (
-        await db.execute("SELECT kind, pattern, variants FROM phrase_bank WHERE id = ?", (accepted.json()["id"],))
-    ).fetchone()
+    row = await (await db.execute("SELECT kind, pattern, variants FROM phrase_bank WHERE id = ?", (accepted["id"],))).fetchone()
     assert (row["kind"], row["pattern"], json.loads(row["variants"])) == ("regex", edited, [])
     assert (await client.post(f"/api/phrase-bank/suggestions/{beat['id']}/accept", json={"pattern": edited})).status_code == 404
 

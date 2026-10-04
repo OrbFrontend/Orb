@@ -25,15 +25,11 @@ DEFAULT_STATE_INJECT = "both"
 MAX_STATE_TEXT_CHARS = 800
 MAX_ACTIVE_ENTRIES = 12
 
-# Fixed tool parameters that interactive fragment ids would overwrite:
-# ``direct_scene``'s ``moods`` and group speaking plan, and ``update_state``'s
-# ``retire``.
+# Fixed tool parameters that interactive fragment ids would overwrite: ``direct_scene``'s ``moods`` and group speaking plan, and
+# ``update_state``'s ``retire``.
 RESERVED_FRAGMENT_IDS = frozenset({"moods", "speaking_plan", "retire"})
 
-AGENT_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
-    "value": frozenset({"set"}),
-    "entries": frozenset({"add", "retire"}),
-}
+AGENT_OPS_BY_MODE: Mapping[str, frozenset[str]] = {"value": frozenset({"set"}), "entries": frozenset({"add", "retire"})}
 USER_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
     "value": frozenset({"set", "clear", "revise", "retire"}),
     "entries": frozenset({"add", "revise", "retire"}),
@@ -134,7 +130,7 @@ def state_fragments_of(rows: Iterable[Mapping[str, Any]]) -> tuple[StateFragment
     return tuple(fragment for row in rows if (fragment := state_fragment_of(row)) is not None)
 
 
-# ── The fold ─────────────────────────────────────────────────────────────────
+# -- The fold -----------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,7 +200,7 @@ def value_text(entries: Sequence[StateEntry]) -> str:
     return "\n" + "\n".join(f"- {entry.text}" for entry in entries)
 
 
-# ── The operation contract ───────────────────────────────────────────────────
+# -- The operation contract ---------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)

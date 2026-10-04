@@ -1,6 +1,5 @@
-// Browser-side half of message rendering. `formatProse` emits model markup;
-// `renderMessageHtml` is the only path that sanitises, scopes CSS and lays it out.
-// Pipeline: escape unknown tags -> formatProse -> sanitise -> rebuild chrome ->
+// Browser-side half of message rendering. `formatProse` emits model markup; `renderMessageHtml` is the only path that
+// sanitises, scopes CSS and lays it out. Pipeline: escape unknown tags -> formatProse -> sanitise -> rebuild chrome ->
 // contain styles -> block layout -> serialise.
 
 import { CODE_COPY_ICON, CODE_WRAP_ICON } from "./icons.js";
@@ -16,9 +15,9 @@ import {
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
 
-// ── Class vocabulary ────────────────────────────────────────────────────────
-// Classes emitted by formatProse. Other model classes are prefixed with
-// `custom-`; classes added after sanitising are intentionally not listed here.
+// -- Class vocabulary --------------------------------------------------------
+// Classes emitted by formatProse. Other model classes are prefixed with `custom-`; classes added after sanitising are
+// intentionally not listed here.
 export const ORB_CLASSES = new Set([
   "quoted",
   "code-block",
@@ -43,7 +42,7 @@ export const ORB_CLASSES = new Set([
 /** Class-name prefixes `formatProse` builds at runtime (```lang fences). */
 export const ORB_CLASS_PREFIXES = ["language-"];
 
-// ── Block layout ────────────────────────────────────────────────────────────
+// -- Block layout ------------------------------------------------------------
 // Tags that already start a line, so adjacent newlines are redundant.
 export const BLOCK_TAGS = new Set([
   "ADDRESS",
@@ -95,9 +94,8 @@ export const BLOCK_TAGS = new Set([
 // Elements whose text is data, not prose: a `<br>` in here corrupts it.
 export const NON_PROSE_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
 
-// ── Unknown-tag escaping ────────────────────────────────────────────────────
-// Leave fenced code and style/SVG bodies alone; their contents are handled as
-// data by formatProse or the browser.
+// -- Unknown-tag escaping ----------------------------------------------------
+// Leave fenced code and style/SVG bodies alone; their contents are handled as data by formatProse or the browser.
 const PASSTHROUGH_RE = /```[\s\S]*?```|```[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi;
 const TAG_START_RE = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
 const COMMENT_OPEN = "<!--";
@@ -128,9 +126,8 @@ function _escapeSpan(span, isKnownTag) {
     out += span.slice(cursor, at);
     cursor = at + 1;
     const rest = span.slice(at);
-    // A comment is markup, not prose: hand the whole thing to the sanitiser,
-    // which drops it. Escaping the `<` instead spills the body -- typically a
-    // card's own hidden instructions -- into the message as visible text.
+    // A comment is markup, not prose: hand the whole thing to the sanitiser, which drops it. Escaping the `<` instead
+    // spills the body -- typically a card's own hidden instructions -- into the message as visible text.
     if (rest.startsWith(COMMENT_OPEN)) {
       const close = rest.indexOf(COMMENT_CLOSE, COMMENT_OPEN.length);
       if (close === -1) {
@@ -170,7 +167,7 @@ function isKnownTag(name) {
   return known;
 }
 
-// ── Streaming ───────────────────────────────────────────────────────────────
+// -- Streaming ---------------------------------------------------------------
 
 /**
  * Drop an unfinished tag or style block during streaming. Open fences stay in
@@ -194,19 +191,15 @@ export function trimIncompleteMarkup(text) {
   return out;
 }
 
-// ── Sanitiser ───────────────────────────────────────────────────────────────
+// -- Sanitiser ---------------------------------------------------------------
 // Keep DOMPurify's default tag set; narrow it with the forbids below.
 const SANITIZE_CONFIG = {
   ADD_TAGS: ["custom-style"],
-  // Embedding, navigation and deferred parsing are not message content. A form
-  // submits (navigating the app, or posting what was typed off-site); without
-  // one the controls submit nowhere, so `input`, `button`, `select` and
-  // `textarea` stay -- a checkbox is how a card writes a disclosure widget
-  // without script. `appearance: base-select` is held back in message_css.js.
+  // Block embedding, navigation and deferred parsing. Keep form controls without
+  // forms; message_css.js blocks top-layer appearance: base-select.
   FORBID_TAGS: ["form", "style", "template", "slot", "iframe", "object", "embed", "script", "base", "link", "meta"],
-  // Remove unsolicited fetch/noise and alternate URL surfaces. The popover and
-  // command triggers go with them: both paint in the top layer, which is the one
-  // place outside the containment that holds a card to its own bubble.
+  // Remove unsolicited fetch/noise and alternate URL surfaces. The popover and command triggers go with them: both
+  // paint in the top layer, which is the one place outside the containment that holds a card to its own bubble.
   FORBID_ATTR: [
     "autoplay",
     "srcset",
@@ -230,9 +223,8 @@ const SANITIZE_CONFIG = {
   RETURN_DOM_FRAGMENT: true,
 };
 
-// Sanitising is synchronous, so the hooks read this render's CSS context here:
-// the message's scope, the sheet's rename table, and whether any inline style
-// survived -- which decides whether the containment wrapper is needed.
+// Sanitising is synchronous, so the hooks read this render's CSS context here: the message's scope, the sheet's rename
+// table, and whether any inline style survived -- which decides whether the containment wrapper is needed.
 let _css = { scope: "", names: emptyNames(), used: false };
 
 let _hooksInstalled = false;
@@ -242,10 +234,8 @@ function installHooks() {
   _hooksInstalled = true;
 
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    // `data-chat-action` becomes `data-custom-chat-action`: the card's CSS still
-    // finds it (message_css.js renames `[data-*]` and `attr()` to match), and no
-    // app dispatcher selects on it. Rewritten here because DOMPurify writes an
-    // attribute back under its original name after `uponSanitizeAttribute`.
+    // Rename data-* after sanitising so app dispatchers cannot select card attributes.
+    // CSS uses the same rename; uponSanitizeAttribute would restore the original name.
     for (const attr of Array.from(node.attributes || [])) {
       if (!/^data-/i.test(attr.name) || /^data-custom-/i.test(attr.name)) continue;
       node.removeAttribute(attr.name);
@@ -295,10 +285,7 @@ function installHooks() {
   });
 }
 
-// Attributes that name another element by its id. The sanitiser rewrote every
-// id it wrote, so a reference still spelling the original points at nothing --
-// which is what leaves `<label for>` pointing past its checkbox. The value is
-// true where the attribute takes a space-separated list of ids.
+// Rewrite id references to match sanitised ids. True marks space-separated id lists.
 const ID_REF_ATTRS = new Map([
   ["for", false],
   ["list", false],
@@ -322,9 +309,9 @@ function scopeClassAttr(token) {
   return scopeClassName(token);
 }
 
-// ── Card CSS ──────────────────────────────────────────────────────────────────
-// message_css.js owns the policy; this half only has to give it the message's
-// scope and hand the same rename table to the sheet and to the style attributes.
+// -- Card CSS ------------------------------------------------------------------
+// message_css.js owns the policy; this half only has to give it the message's scope and hand the same rename table to
+// the sheet and to the style attributes.
 
 const CUSTOM_STYLE_RE = /<custom-style>([^<]*)<\/custom-style>/gi;
 
@@ -358,9 +345,8 @@ function applyCustomStyles(root, css) {
   }
 }
 
-// ── Orb's own chrome ────────────────────────────────────────────────────────
-// Build the code-block toolbar after sanitising so its delegated actions are
-// never model-controlled.
+// -- Orb's own chrome --------------------------------------------------------
+// Build the code-block toolbar after sanitising so its delegated actions are never model-controlled.
 
 function codeBlockButton(action, label, icon, pressed) {
   const btn = document.createElement("button");
@@ -385,7 +371,7 @@ function restoreCodeBlockChrome(root) {
   }
 }
 
-// ── Block layout ────────────────────────────────────────────────────────────
+// -- Block layout ------------------------------------------------------------
 
 function isBlockBoundary(sibling, parent) {
   if (sibling) return sibling.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(sibling.tagName.toUpperCase());
@@ -444,7 +430,7 @@ function applyBlockLayout(root) {
   }
 }
 
-// ── Render ──────────────────────────────────────────────────────────────────
+// -- Render ------------------------------------------------------------------
 
 // LRU cache bounded by total characters and per-entry size.
 const _renderCache = new Map();
@@ -515,9 +501,8 @@ function finish(html, scope) {
   wrapTables(fragment);
   applyBlockLayout(fragment);
   if (sheet.css || inlineStyled) {
-    // Card CSS is scoped below this wrapper, and contained by it: chat.css gives
-    // `.msg-css-scope` paint containment, which is what keeps a card's
-    // `position: fixed` and its `z-index` inside this one message.
+    // Card CSS is scoped below this wrapper, and contained by it: chat.css gives `.msg-css-scope` paint containment,
+    // which is what keeps a card's `position: fixed` and its `z-index` inside this one message.
     const box = document.createElement("div");
     box.className = `msg-css-scope ${scope}`;
     while (fragment.firstChild) box.appendChild(fragment.firstChild);
@@ -531,9 +516,8 @@ export function renderMessageHtml(text, { streaming = false, scope = null } = {}
   if (!text) return "";
   const source = streaming ? trimIncompleteMarkup(text) : text;
   if (!source) return "";
-  // A streaming bubble owns a stable scope: hashing its growing source would
-  // rename every keyframe on every token, restarting even retained DOM nodes.
-  // Custom scopes must not read or populate the source-only render cache.
+  // A streaming bubble owns a stable scope: hashing its growing source would rename every keyframe on every token,
+  // restarting even retained DOM nodes. Custom scopes must not read or populate the source-only render cache.
   const cached = scope === null ? cacheGet(source) : undefined;
   if (cached !== undefined) return cached;
   const html = finish(formatProse(escapeUnknownTags(source, isKnownTag)), scope ?? cssScope(source));
@@ -548,9 +532,9 @@ export function renderMessageDiffHtml(ops) {
   return finish(formatProseWithDiff(escaped), cssScope(ops.map((op) => op.text).join("\0")));
 }
 
-// ── Delegated actions ───────────────────────────────────────────────────────
-// Delegate actions because sanitising removes handlers and data attributes from
-// model markup; Orb adds its own code-block actions afterward.
+// -- Delegated actions -------------------------------------------------------
+// Delegate actions because sanitising removes handlers and data attributes from model markup; Orb adds its own
+// code-block actions afterward.
 
 const CODE_BLOCK_ACTIONS = new Set(["wrap", "copy"]);
 

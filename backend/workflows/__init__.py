@@ -1,40 +1,40 @@
-"""Workflow contracts, registry, storage, and built-in workflow bindings."""
+"""Workflow contracts, registry, storage, and plug-in discovery."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from . import prose_rewriter_host
 from .contracts import (
     EV_ATTACH_ARTIFACT,
     EV_DRAFT_REPLACED,
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
     EV_SYSTEM_PROMPT,
+    AttachArtifactEvent,
+    DraftReplacedEvent,
+    EnableToolsEvent,
     ExportCtx,
     ExportedFile,
     HookType,
     OnDemandCtx,
     OnDemandResult,
     PostCtx,
+    PostEvent,
     PreCtx,
+    PreEvent,
+    PublicEvent,
     QueryCtx,
     RegenCtx,
     RerollGenCtx,
+    SetMessageStateEvent,
+    SystemPromptEvent,
     ToolSpec,
+    UploadCtx,
     WorkflowEventStream,
-    _readonly,
     public_event_error,
+    readonly_view,
 )
-from .format_consistency import format_consistency_workflow
-from .format_consistency.hooks import (
-    post_pipeline as _fc_post_pipeline,
-)
-from .image_gen import image_gen_workflow
-from .image_gen.export import export as _image_gen_export
-from .image_gen.hooks import on_demand as _image_gen_on_demand
-from .image_gen.hooks import regenerate as _image_gen_regenerate
-from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
-from .image_gen.queries import query as _image_gen_query
-from .prose_rewriter import prose_rewriter_workflow
-from .prose_rewriter_host import post_pipeline as _prose_rewriter_post_pipeline
 from .registry import (
     Subscription,
     ToolNameCollision,
@@ -51,6 +51,7 @@ from .registry import (
     iter_subscriptions,
     list_workflows,
     overlay_enable_tools,
+    register_plugins,
     register_workflow,
     set_workflow_character_state,
     set_workflow_config,
@@ -59,23 +60,6 @@ from .registry import (
     subscribe,
     workflow_has_hook,
 )
-from .tts import tts_workflow
-from .tts.hooks import (
-    on_demand as _tts_on_demand,
-)
-from .tts.hooks import (
-    post_pipeline as _tts_post_pipeline,
-)
-from .tts.hooks import pre_pipeline as _tts_pre_pipeline
-from .tts.hooks import (
-    query as _tts_query,
-)
-from .tts.hooks import (
-    regenerate as _tts_regenerate,
-)
-from .tts.hooks import (
-    reroll_gen as _tts_reroll_gen,
-)
 
 __all__ = [
     "EV_ATTACH_ARTIFACT",
@@ -83,6 +67,14 @@ __all__ = [
     "EV_ENABLE_TOOLS",
     "EV_SET_MESSAGE_STATE",
     "EV_SYSTEM_PROMPT",
+    "AttachArtifactEvent",
+    "DraftReplacedEvent",
+    "EnableToolsEvent",
+    "PostEvent",
+    "PreEvent",
+    "PublicEvent",
+    "SetMessageStateEvent",
+    "SystemPromptEvent",
     "ExportCtx",
     "ExportedFile",
     "HookType",
@@ -96,11 +88,12 @@ __all__ = [
     "Subscription",
     "ToolNameCollision",
     "ToolSpec",
+    "UploadCtx",
     "Workflow",
     "WorkflowDeclarationError",
     "WorkflowEventStream",
     "WorkflowMandateError",
-    "_readonly",
+    "readonly_view",
     "public_event_error",
     "finalize_registry",
     "get_subscription",
@@ -122,31 +115,14 @@ __all__ = [
 ]
 
 
-register_workflow(tts_workflow)
-subscribe(tts_workflow.id, HookType.PRE_PIPELINE, _tts_pre_pipeline)
-subscribe(tts_workflow.id, HookType.POST_PIPELINE, _tts_post_pipeline)
-subscribe(tts_workflow.id, HookType.ON_DEMAND, _tts_on_demand)
-subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
-subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
-subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
+# Every package under this directory is a plug-in that declares its Workflow and
+# hook subscriptions as WORKFLOW; they register in package-name order.
+register_plugins(__name__, Path(__file__).parent)
 
-register_workflow(image_gen_workflow)
-subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
-subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
-subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
-subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
-subscribe(image_gen_workflow.id, HookType.EXPORT, _image_gen_export)
-
-# The rewriter is the first secondary text transform. Its workflow toggle turns
-# it on for manual and automatic rewrites; its ``automatic`` config gates turns.
-register_workflow(prose_rewriter_workflow)
-subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_post_pipeline, priority=-20)
-
-# Negative priority makes the deterministic markup normalizer run before TTS's
-# post hook (priority 0), so TTS — and any future artifact hook — synthesizes
-# from the normalized text rather than the raw draft.
-register_workflow(format_consistency_workflow)
-subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipeline, priority=-10)
-
+# The rewriter's post hook runs the local model, below the toolkit, so its host
+# adapter binds it here. Priority -20 runs it before Format Consistency (-10) and
+# TTS (0), so both act on the rewritten draft. Its workflow toggle turns it on for
+# manual and automatic rewrites; its ``automatic`` config gates turns.
+subscribe(prose_rewriter_host.FEATURE, HookType.POST_PIPELINE, prose_rewriter_host.post_pipeline, priority=-20)
 
 finalize_registry()

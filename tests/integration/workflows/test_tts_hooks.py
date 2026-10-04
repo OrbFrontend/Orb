@@ -1,8 +1,7 @@
 """Integration tests for the TTS workflow's pipeline and trigger hooks.
 
-The `tts` workflow registers at import, so these tests do not clear the
-registry -- they exercise the live hooks against a temp DB. A stub adapter
-stands in for a real TTS backend.
+The `tts` workflow registers at import, so these tests do not clear the registry -- they exercise the live hooks against a temp
+DB. A stub adapter stands in for a real TTS backend.
 """
 
 from __future__ import annotations
@@ -21,8 +20,8 @@ from backend.database import (
     get_messages,
     get_workflow_attachment_by_id,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.orchestrator import run_pipeline
 from backend.workflows import (
     HookType,
     PostCtx,
@@ -130,7 +129,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
     with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
         events = [
             ev
-            async for ev in _run_pipeline(
+            async for ev in run_pipeline(
                 LLMClient("http://localhost:9999"),
                 {"model_name": "test", "enable_agent": 1, "enabled_tools": {}, "reasoning_enabled_passes": {}},
                 {"active_moods": []},
@@ -142,7 +141,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
                 prefix=[{"role": "system", "content": "You are an assistant."}],
                 enabled_tools={},
                 turn_scratch={},
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
@@ -156,17 +155,15 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
 
 
 async def test_full_send_turn_persists_audio_attachment(client, llm_mock, fake_adapter):
-    # The real /send path: HTTP -> handle_turn -> _run_pipeline -> POST_PIPELINE
-    # -> _persist_result -> add_message. Asserts the audio attachment lands on
-    # the persisted assistant message.
+    # The real /send path: HTTP -> handle_turn -> run_pipeline -> POST_PIPELINE -> _persist_result -> add_message. Asserts the
+    # audio attachment lands on the persisted assistant message.
     cid, char_id = await _seed()
     await set_workflow_config("tts", {"auto_play": False, "volume": 0.75})
     await set_workflow_character_state(char_id, "tts", {"enabled": True, "backend": "edge", "voice_id": "v1"})
     llm_mock.enqueue_writer('"A spoken reply."')
     llm_mock.enqueue_editor(None)
 
-    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "hi", "attachments": []})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "hi", "attachments": []})
     _ = resp.text  # drain the buffered SSE stream so the turn completes
 
     msgs = await get_messages(cid)
@@ -180,13 +177,11 @@ async def test_create_trigger_inserts_attachment(client, fake_adapter):
     cid, char_id = await _seed()
     mid, _ = await add_message(cid, "assistant", '"Spoken line."', 0)
 
-    resp = await client.post(
-        f"/api/conversations/{cid}/workflows/tts/trigger",
-        json={"action": "create", "message_id": mid},
+    resp = await client.post_json(
+        f"/api/conversations/{cid}/workflows/tts/trigger", json={"action": "create", "message_id": mid}
     )
 
-    assert resp.status_code == 200
-    new_id = resp.json().get("attachment_id")
+    new_id = resp.get("attachment_id")
     assert isinstance(new_id, int)
     row = await get_workflow_attachment_by_id(new_id)
     assert row is not None
@@ -198,13 +193,11 @@ async def test_create_trigger_rejects_non_assistant_message(client, fake_adapter
     cid, char_id = await _seed()
     mid, _ = await add_message(cid, "user", "a question", 0)
 
-    resp = await client.post(
-        f"/api/conversations/{cid}/workflows/tts/trigger",
-        json={"action": "create", "message_id": mid},
+    resp = await client.post_json(
+        f"/api/conversations/{cid}/workflows/tts/trigger", json={"action": "create", "message_id": mid}
     )
 
-    assert resp.status_code == 200
-    assert "error" in resp.json()
+    assert "error" in resp
 
 
 async def test_regenerate_uses_current_profile_not_stored_metadata(client, fake_adapter):
@@ -246,11 +239,10 @@ async def test_regenerate_uses_current_profile_not_stored_metadata(client, fake_
 
 
 async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
-    """Rehydrate re-synthesizes the audio, and TTS output is not guaranteed
-    byte-identical across runs, so the restored row's byte ranges and word
-    timings must be rebuilt to match the new bytes -- not left describing the
-    evicted ones. Pins that the rehydrate route persists the metadata the
-    reroll_gen hook returns, overwriting the stale stored value."""
+    """Rehydrate re-synthesizes the audio, and TTS output is not guaranteed byte-identical across runs, so the restored row's
+    byte ranges and word timings must be rebuilt to match the new bytes -- not left describing the evicted ones. Pins that
+    the rehydrate route persists the metadata the reroll_gen hook returns, overwriting the stale stored value.
+    """
     from backend.database import insert_workflow_attachment_row, set_active_leaf
     from backend.database.connection import get_db
     from backend.workflows.attachment_cache import evict
@@ -278,11 +270,7 @@ async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
         await conn.commit()
     await evict(aid)
 
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-        json={},
-    )
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
 
     row = await get_workflow_attachment_by_id(aid)
     assert row is not None
@@ -293,15 +281,13 @@ async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
     # Rebuilt against the restored bytes (len("FAKEAUDIO") == 9), not the stale 999.
     assert blk["byte_start"] == 0
     assert blk["byte_end"] == len(b"FAKEAUDIO")
-    # Word timings regenerated: the estimator yields one span per alignable token
-    # of the dialogue ("Hello", "there.").
+    # Word timings regenerated: the estimator yields one span per alignable token of the dialogue ("Hello", "there.").
     assert len(blk["words"]) == 2
 
 
 async def test_config_round_trip(client):
     payload = {"config": {"auto_play": True, "volume": 0.4}}
-    put = await client.put("/api/workflows/tts/config", json=payload)
-    assert put.status_code == 200
+    put = await client.put_json("/api/workflows/tts/config", json=payload)
     expected = {
         "config": {
             "auto_play": True,
@@ -311,7 +297,7 @@ async def test_config_round_trip(client):
             "show_karaoke": True,
         }
     }
-    assert put.json() == expected
+    assert put == expected
     got = await client.get("/api/workflows/tts/config")
     assert got.json() == expected
 
@@ -333,16 +319,13 @@ async def test_profile_get_set_round_trip(client):
     cid, char_id = await _seed()
     base = f"/api/conversations/{cid}/workflows/tts/trigger"
 
-    got = await client.post(base, json={"action": "get_profile"})
-    assert got.status_code == 200
-    assert got.json()["profile"]["enabled"] is False
+    got = await client.post_json(base, json={"action": "get_profile"})
+    assert got["profile"]["enabled"] is False
 
-    saved = await client.post(
-        base,
-        json={"action": "set_profile", "profile": {"enabled": True, "backend": "edge", "voice_id": "v9", "rate": 1.2}},
+    saved = await client.post_json(
+        base, json={"action": "set_profile", "profile": {"enabled": True, "backend": "edge", "voice_id": "v9", "rate": 1.2}}
     )
-    assert saved.status_code == 200
-    assert saved.json()["ok"] is True
+    assert saved["ok"] is True
 
     again = await client.post(base, json={"action": "get_profile"})
     profile = again.json()["profile"]
@@ -361,12 +344,10 @@ def test_tts_binds_both_dispatch_hooks():
 
 
 async def test_query_route_lists_backends_without_a_conversation(client):
-    # list_backends reads the static backend registry: no conversation, no
-    # character, no backend probe -- exactly what QUERY exists to answer, and
-    # why it moved off the per-conversation trigger.
-    resp = await client.post("/api/workflows/tts/query", json={"action": "list_backends"})
-    assert resp.status_code == 200
-    backends = resp.json()["backends"]
+    # list_backends reads the static backend registry: no conversation, no character, no backend probe -- exactly what QUERY
+    # exists to answer, and why it moved off the per-conversation trigger.
+    resp = await client.post_json("/api/workflows/tts/query", json={"action": "list_backends"})
+    backends = resp["backends"]
     assert isinstance(backends, list) and backends
     assert all("id" in b for b in backends)
 
@@ -374,12 +355,10 @@ async def test_query_route_lists_backends_without_a_conversation(client):
 async def test_query_route_previews_from_the_request_profile(client, fake_adapter):
     # Preview synthesizes the unsaved profile carried in the body -- no message,
     # no character -- and returns the audio inline for the config panel to play.
-    resp = await client.post(
-        "/api/workflows/tts/query",
-        json={"action": "preview", "backend": "edge", "voice_id": "v1", "text": "Hi."},
+    resp = await client.post_json(
+        "/api/workflows/tts/query", json={"action": "preview", "backend": "edge", "voice_id": "v1", "text": "Hi."}
     )
-    assert resp.status_code == 200
-    body = resp.json()
+    body = resp
     assert base64.b64decode(body["audio_b64"]) == b"FAKEAUDIO"
     assert body["mime"] == "audio/mpeg"
 
@@ -409,18 +388,15 @@ async def test_query_route_says_when_there_is_no_excerpt(client):
 
 
 async def test_query_route_rejects_unknown_action_in_band(client):
-    resp = await client.post("/api/workflows/tts/query", json={"action": "does_not_exist"})
-    assert resp.status_code == 200
-    assert "unknown action" in resp.json()["error"]
+    resp = await client.post_json("/api/workflows/tts/query", json={"action": "does_not_exist"})
+    assert "unknown action" in resp["error"]
 
 
 async def test_discovery_actions_left_the_conversation_trigger(client):
-    # The migrated actions are no longer served by on_demand: the trigger router
-    # reports them as unknown, which is the proof they moved to QUERY rather than
-    # being answered by both surfaces.
+    # The migrated actions are no longer served by on_demand: the trigger router reports them as unknown, which is the proof
+    # they moved to QUERY rather than being answered by both surfaces.
     cid, _ = await _seed()
     base = f"/api/conversations/{cid}/workflows/tts/trigger"
     for action in ("list_backends", "list_voices", "list_models", "preview"):
-        resp = await client.post(base, json={"action": action})
-        assert resp.status_code == 200
+        resp = await client.post_checked(base, json={"action": action})
         assert "unknown action" in resp.json()["error"], action

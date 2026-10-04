@@ -1,5 +1,3 @@
-"""Unit tests for the voice rewrite's acceptance guard."""
-
 from __future__ import annotations
 
 import pytest

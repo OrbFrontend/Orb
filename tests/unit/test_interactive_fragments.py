@@ -5,24 +5,14 @@ from __future__ import annotations
 from backend.core import StateFragment, StateView
 from backend.database import SEED_INTERACTIVE_FRAGMENTS
 from backend.pipeline.passes.director import apply_tool_calls
-from backend.pipeline.passes.director.prompts import (
-    build_director_scene_step_prompt,
-    build_director_tool_prompt,
-)
+from backend.pipeline.passes.director.prompts import build_director_scene_step_prompt, build_director_tool_prompt
 from backend.pipeline.passes.editor import extract_feedback_values
-from backend.pipeline.passes.editor.prompts import (
-    build_editor_prompt,
-    build_feedback_prompt,
-)
+from backend.pipeline.passes.editor.prompts import build_editor_prompt, build_feedback_prompt
 from backend.pipeline.passes.state import build_state_request, entry_aliases
 from backend.prompting import build_style_injection, compute_style_injection_block
-from backend.prompting.tool_schemas import (
-    build_direct_scene_tool,
-    build_feedback_tool,
-    build_state_tool,
-)
+from backend.prompting.tool_schemas import build_direct_scene_tool, build_feedback_tool, build_state_tool
 
-# ── build_direct_scene_tool ──────────────────────────────────────────────────
+# -- build_direct_scene_tool --------------------------------------------------
 
 
 class TestBuildDirectSceneTool:
@@ -108,7 +98,7 @@ class TestBuildDirectSceneTool:
                 assert frag["id"] in props
 
 
-# ── build_feedback_tool ──────────────────────────────────────────────────────
+# -- build_feedback_tool ------------------------------------------------------
 
 
 class TestBuildFeedbackTool:
@@ -153,7 +143,7 @@ class TestBuildFeedbackTool:
         assert tool["function"]["parameters"]["required"] == []
 
 
-# ── field_type split: writer vs feedback fragments ────────────────────────────
+# -- field_type split: writer vs feedback fragments ----------------------------
 
 
 class TestFieldTypeSplit:
@@ -177,11 +167,7 @@ class TestFieldTypeSplit:
         writer = [f for f in self._mixed() if f.get("field_type") != "feedback"]
         # Even if a feedback value sneaks into extra_fields, it has no writer
         # fragment to render against, so it never reaches the Scene Direction block.
-        result = build_style_injection(
-            [],
-            interactive_fragments=writer,
-            extra_fields={"plot": "They fought.", "tip": "run"},
-        )
+        result = build_style_injection([], interactive_fragments=writer, extra_fields={"plot": "They fought.", "tip": "run"})
         assert "They fought." in result
         assert "run" not in result
 
@@ -193,7 +179,7 @@ class TestFieldTypeSplit:
         assert "plot" not in props
 
 
-# ── extract_feedback_values ──────────────────────────────────────────────────
+# -- extract_feedback_values --------------------------------------------------
 
 
 class TestExtractFeedbackValues:
@@ -213,19 +199,14 @@ class TestExtractFeedbackValues:
         assert extract_feedback_values(calls) == {}
 
 
-# ── apply_tool_calls ─────────────────────────────────────────────────────────
+# -- apply_tool_calls ---------------------------------------------------------
 
 MOOD_IDS = {"tense", "talkative"}
 
 
 class TestApplyToolCalls:
     def test_extracts_moods(self):
-        calls = [
-            {
-                "name": "direct_scene",
-                "arguments": {"moods": ["tense", "talkative"], "keywords": []},
-            }
-        ]
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["tense", "talkative"], "keywords": []}}]
         moods, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert moods == ["tense", "talkative"]
 
@@ -235,12 +216,7 @@ class TestApplyToolCalls:
         assert moods == ["talkative"]
 
     def test_keywords_captured_in_extra_fields(self):
-        calls = [
-            {
-                "name": "direct_scene",
-                "arguments": {"moods": [], "keywords": ["sword", "tavern"]},
-            }
-        ]
+        calls = [{"name": "direct_scene", "arguments": {"moods": [], "keywords": ["sword", "tavern"]}}]
         _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert extra["keywords"] == ["sword", "tavern"]
 
@@ -248,12 +224,7 @@ class TestApplyToolCalls:
         calls = [
             {
                 "name": "direct_scene",
-                "arguments": {
-                    "moods": [],
-                    "keywords": ["sword"],
-                    "plot_summary": "They fought.",
-                    "next_event": "She runs.",
-                },
+                "arguments": {"moods": [], "keywords": ["sword"], "plot_summary": "They fought.", "next_event": "She runs."},
             }
         ]
         _, extra = apply_tool_calls(calls, [], MOOD_IDS)
@@ -262,31 +233,14 @@ class TestApplyToolCalls:
         assert extra["keywords"] == ["sword"]
 
     def test_only_moods_excluded_from_extra_fields(self):
-        calls = [
-            {
-                "name": "direct_scene",
-                "arguments": {
-                    "moods": ["tense"],
-                    "keywords": ["castle"],
-                    "plot_summary": "x",
-                },
-            }
-        ]
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["tense"], "keywords": ["castle"], "plot_summary": "x"}}]
         _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert "moods" not in extra
         assert "keywords" in extra
 
     def test_none_and_empty_values_excluded_from_extra_fields(self):
         calls = [
-            {
-                "name": "direct_scene",
-                "arguments": {
-                    "moods": [],
-                    "keywords": [],
-                    "user_intent": None,
-                    "writing_direction": "",
-                },
-            }
+            {"name": "direct_scene", "arguments": {"moods": [], "keywords": [], "user_intent": None, "writing_direction": ""}}
         ]
         _, extra = apply_tool_calls(calls, [], MOOD_IDS)
         assert "user_intent" not in extra
@@ -298,30 +252,15 @@ class TestApplyToolCalls:
         assert moods == ["existing-mood"]
 
 
-# ── build_style_injection ────────────────────────────────────────────────────
+# -- build_style_injection ----------------------------------------------------
 
 
 class TestBuildStyleInjection:
     def _make_frags(self):
         return [
-            {
-                "id": "plot_summary",
-                "field_type": "string",
-                "injection_label": "Plot summary",
-                "sort_order": 0,
-            },
-            {
-                "id": "next_event",
-                "field_type": "string",
-                "injection_label": "Next event",
-                "sort_order": 2,
-            },
-            {
-                "id": "detected_repetitions",
-                "field_type": "array",
-                "injection_label": "Avoid repeating",
-                "sort_order": 4,
-            },
+            {"id": "plot_summary", "field_type": "string", "injection_label": "Plot summary", "sort_order": 0},
+            {"id": "next_event", "field_type": "string", "injection_label": "Next event", "sort_order": 2},
+            {"id": "detected_repetitions", "field_type": "array", "injection_label": "Avoid repeating", "sort_order": 4},
         ]
 
     def test_string_field_rendered_with_label(self):
@@ -360,14 +299,7 @@ class TestBuildStyleInjection:
         assert "Avoid repeating:" not in result
 
     def test_keywords_rendered_as_array_fragment(self):
-        frags = [
-            {
-                "id": "keywords",
-                "field_type": "array",
-                "injection_label": "Keywords",
-                "sort_order": 2,
-            }
-        ]
+        frags = [{"id": "keywords", "field_type": "array", "injection_label": "Keywords", "sort_order": 2}]
         extra = {"keywords": ["sword", "castle"]}
         result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Keywords:" in result
@@ -380,13 +312,7 @@ class TestBuildStyleInjection:
         assert "Write with tension." in result
 
     def test_deactivated_mood_with_negative_prompt_rendered(self):
-        deactivated = [
-            {
-                "id": "terse",
-                "prompt_text": "Short sentences.",
-                "negative_prompt": "Return to normal length.",
-            }
-        ]
+        deactivated = [{"id": "terse", "prompt_text": "Short sentences.", "negative_prompt": "Return to normal length."}]
         result = build_style_injection([], deactivated=deactivated, interactive_fragments=[], extra_fields={})
         assert "Return to normal length." in result
 
@@ -397,62 +323,33 @@ class TestBuildStyleInjection:
 
     def test_sort_order_respected(self):
         frags = [
-            {
-                "id": "b_field",
-                "field_type": "string",
-                "injection_label": "B Label",
-                "sort_order": 1,
-            },
-            {
-                "id": "a_field",
-                "field_type": "string",
-                "injection_label": "A Label",
-                "sort_order": 0,
-            },
+            {"id": "b_field", "field_type": "string", "injection_label": "B Label", "sort_order": 1},
+            {"id": "a_field", "field_type": "string", "injection_label": "A Label", "sort_order": 0},
         ]
         extra = {"a_field": "val_a", "b_field": "val_b"}
         result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert result.index("A Label") < result.index("B Label")
 
     def test_moods_rendered_before_interactive(self):
-        # Moods first, interactive last (recency → writer attention).
+        # Moods first, interactive last (recency -> writer attention).
         active = [{"id": "tense", "prompt_text": "Write with tension.", "negative_prompt": ""}]
         frags = [{"id": "next_event", "field_type": "string", "injection_label": "Next event", "sort_order": 0}]
         result = build_style_injection(active, interactive_fragments=frags, extra_fields={"next_event": "She escapes."})
         assert result.index("Write with tension.") < result.index("Next event: She escapes.")
 
 
-# ── compute_style_injection_block ────────────────────────────────────────────
+# -- compute_style_injection_block --------------------------------------------
 
 
 class TestComputeStyleInjectionBlock:
     def _make_director_frags(self):
         return [
-            {
-                "id": "plot_summary",
-                "field_type": "string",
-                "injection_label": "Plot summary",
-                "sort_order": 0,
-                "enabled": True,
-            },
-            {
-                "id": "next_event",
-                "field_type": "string",
-                "injection_label": "Next event",
-                "sort_order": 2,
-                "enabled": True,
-            },
+            {"id": "plot_summary", "field_type": "string", "injection_label": "Plot summary", "sort_order": 0, "enabled": True},
+            {"id": "next_event", "field_type": "string", "injection_label": "Next event", "sort_order": 2, "enabled": True},
         ]
 
     def _make_mood_frags(self):
-        return [
-            {
-                "id": "tense",
-                "prompt_text": "Write with tension.",
-                "negative_prompt": "Relax.",
-                "enabled": True,
-            }
-        ]
+        return [{"id": "tense", "prompt_text": "Write with tension.", "negative_prompt": "Relax.", "enabled": True}]
 
     def test_returns_empty_when_nothing_to_inject(self):
         result = compute_style_injection_block([], [], [], [], True, {})
@@ -486,21 +383,13 @@ class TestComputeStyleInjectionBlock:
         assert "Next event: She escapes." in result
 
     def test_keywords_in_extra_fields_rendered_as_array(self):
-        dir_frags = [
-            {
-                "id": "keywords",
-                "field_type": "array",
-                "injection_label": "Keywords",
-                "sort_order": 2,
-                "enabled": True,
-            }
-        ]
+        dir_frags = [{"id": "keywords", "field_type": "array", "injection_label": "Keywords", "sort_order": 2, "enabled": True}]
         result = compute_style_injection_block([], [], [], dir_frags, True, {"keywords": ["castle", "sword"]})
         assert "Keywords:" in result
         assert "- castle" in result
 
 
-# ── SEED_INTERACTIVE_FRAGMENTS sanity ───────────────────────────────────────────
+# -- SEED_INTERACTIVE_FRAGMENTS sanity -------------------------------------------
 
 
 class TestSeedInteractiveFragments:
@@ -508,14 +397,7 @@ class TestSeedInteractiveFragments:
 
     def test_field_type_is_valid(self):
         for frag in SEED_INTERACTIVE_FRAGMENTS:
-            assert frag["field_type"] in (
-                "string",
-                "array",
-                "state",
-                "feedback",
-                "post_processing",
-                "decision",
-            ), frag["id"]
+            assert frag["field_type"] in ("string", "array", "state", "feedback", "post_processing", "decision"), frag["id"]
 
 
 # build_director/editor/feedback preambles open [OOC: -- their builders must close it.

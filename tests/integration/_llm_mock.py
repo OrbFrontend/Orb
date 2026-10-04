@@ -1,17 +1,6 @@
-"""LLM client substitute for integration tests of the streaming pipeline.
+"""Deterministic streaming LLM substitute with per-pass asyncio.Event gates.
 
-The real ``backend.inference.client.LLMClient`` reaches the OpenAI-compatible
-endpoint over httpx. Concurrency tests do not need that round-trip; they
-need a deterministic, in-process stand-in whose timing the test
-controls. ``FakeLLMClient`` provides that: its ``complete()`` is an
-async generator that yields canned reasoning / done events, optionally
-waiting on a per-pass ``asyncio.Event`` so a test can hold a stream
-mid-pipeline while another concurrent action arrives.
-
-Pass dispatch is by ``tool_choice`` rather than a call counter, because
-director may be skipped entirely (gated behind ``has_director_loop_tools``
-in the orchestrator) and editor iterates multiple times per turn -- a
-positional scheme would mis-bind queued responses.
+Dispatch by tool_choice, not call order: Director can be skipped and Editor can iterate multiple times.
 """
 
 from __future__ import annotations
@@ -30,21 +19,17 @@ _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _STATE_FUNCTION_NAMES = {"update_state"}
 _WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
-# The library auto-tagger. Named here rather than left to the "workflow"
-# catch-all below because that branch is also the one *exempted* from the
-# tools-blob check — falling into it would mislabel the pass and under-check
-# it at the same time.
+# The library auto-tagger. Named here rather than left to the "workflow" catch-all below because that branch is also the one
+# *exempted* from the tools-blob check -- falling into it would mislabel the pass and under-check it at the same time.
 _AUTO_TAG_FUNCTION_NAMES = {"assign_character_tags"}
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
     """Assert *tool_calls* is the OpenAI ``message.tool_calls`` shape.
 
-    ``parse_tool_calls`` (backend.inference.client) reads ``tc["function"]["name"]``
-    and falls back to ``""`` when the function or name is missing, so a
-    malformed enqueue would parse to a named-but-empty (or empty-list) tool
-    call and the director turn would no-op silently. Raising here turns that
-    into a loud failure at the call site that built the bad shape.
+    ``parse_tool_calls`` (backend.inference.client) reads ``tc["function"]["name"]`` and falls back to ``""`` when the function
+    or name is missing, so a malformed enqueue would parse to a named-but-empty (or empty-list) tool call and the director turn
+    would no-op silently. Raising here turns that into a loud failure at the call site that built the bad shape.
     """
     if not isinstance(tool_calls, list):
         raise TypeError(f"tool_calls must be a list, got {type(tool_calls).__name__}")
@@ -64,10 +49,8 @@ def _validate_tool_calls(tool_calls: Any) -> None:
 class PassGate:
     """Pair of events the test uses to pause a single ``complete()`` call.
 
-    ``reached`` is set by the mock right before awaiting ``release``, so
-    a test can ``await gate.reached`` to know the call has actually
-    arrived at the gate. ``release`` is set by the test to let the call
-    proceed.
+    ``reached`` is set by the mock right before awaiting ``release``, so a test can ``await gate.reached`` to know the call has
+    actually arrived at the gate. ``release`` is set by the test to let the call proceed.
     """
 
     __slots__ = ("reached", "release")
@@ -78,9 +61,8 @@ class PassGate:
 
 
 def _pass_from_tool_choice(tool_choice: Any) -> str:
-    # Writer omits tool_choice when no tools are enabled (passes None at the
-    # kwarg default) and passes the literal "none" when tools are enabled
-    # but the writer must not invoke any of them.
+    # Writer omits tool_choice when no tools are enabled (passes None at the kwarg default) and passes the literal "none" when
+    # tools are enabled but the writer must not invoke any of them.
     if tool_choice is None or tool_choice == "none":
         return "writer"
     # Editor passes "auto" when audit is disabled and no length guard fired,
@@ -103,19 +85,15 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
             return "world_change"
         if name in _AUTO_TAG_FUNCTION_NAMES:
             return "auto_tag"
-        # Any other forced function name belongs to a workflow tool: the
-        # toolkit's forced_tool_call helper passes the same dict shape via
-        # TOOLS[<wid_registered_name>]["choice"], but the name is not one of
-        # the four core pass tools.
+        # Any other forced function name belongs to a workflow tool: the toolkit's forced_tool_call helper passes the same dict
+        # shape via TOOLS[<wid_registered_name>]["choice"], but the name is not one of the four core pass tools.
         if name:
             return "workflow"
-    # No production pass emits any other shape (writer -> None/"none", editor ->
-    # "auto"/forced dict, director/workflow -> forced dict with a name). An
-    # earlier version returned "director" here as a catch-all, which silently
-    # mis-routed an unrecognized tool_choice to the director queue -- a wrong
-    # tool_choice convention would then bind responses to the wrong pass and the
-    # test would pass for the wrong reason. Fail loudly instead so such a change
-    # surfaces as a dispatch error, not a confusing assertion downstream.
+    # No production pass emits any other shape (writer -> None/"none", editor -> "auto"/forced dict, director/workflow -> forced
+    # dict with a name). An earlier version returned "director" here as a catch-all, which silently mis-routed an unrecognized
+    # tool_choice to the director queue -- a wrong tool_choice convention would then bind responses to the wrong pass and the
+    # test would pass for the wrong reason. Fail loudly instead so such a change surfaces as a dispatch error, not a confusing
+    # assertion downstream.
     raise ValueError(
         f"Unroutable tool_choice {tool_choice!r}: no pass owns this shape. "
         "If production added a new tool_choice convention, extend "
@@ -124,13 +102,10 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
 
 
 class FakeLLMClient:
-    """A deterministic stand-in for ``LLMClient`` shared by every
-    constructor call within one test.
+    """A deterministic stand-in for ``LLMClient`` shared by every constructor call within one test.
 
-    Tests interact via the public mutator methods (``enqueue_*``,
-    ``gate``) before kicking off the action under test, then drive the
-    rest of the test through the HTTP client; the mock yields the
-    enqueued event for each matching pass invocation.
+    Tests interact via the public mutator methods (``enqueue_*``, ``gate``) before kicking off the action under test, then drive
+    the rest of the test through the HTTP client; the mock yields the enqueued event for each matching pass invocation.
     """
 
     def __init__(self) -> None:
@@ -145,10 +120,9 @@ class FakeLLMClient:
             "auto_tag": [],
             "workflow": [],
         }
-        # Raw text-completion queue (complete_raw, document text mode) — separate
-        # from the tool_choice-dispatched chat queues above; keyed by the call,
-        # not by a pass. capture prompt+params for assertions. Each entry is
-        # {"content": str, "probs": list} so a test can attach per-token probs.
+        # Raw text-completion queue (complete_raw, document text mode) -- separate from the tool_choice-dispatched chat queues
+        # above; keyed by the call, not by a pass. capture prompt+params for assertions. Each entry is {"content": str, "probs":
+        # list} so a test can attach per-token probs.
         self._raw_queue: list[dict] = []
         self.raw_calls: list[dict] = []
         # Queued reasoning, FIFO by pass.
@@ -169,51 +143,42 @@ class FakeLLMClient:
         }
         # One-shot failures, FIFO per pass: [calls still to let through, exception, mid_stream].
         self._failures: dict[str, list[list]] = {}
-        # Mirror LLMClient: the turn's clients share one abort token, so an
-        # abort signalled on any of them is visible to all.
+        # Mirror LLMClient: the turn's clients share one abort token, so an abort signalled on any of them is visible to all.
         self.abort_token = AbortToken()
-        # Public assertion surface: tests inspect ``calls`` directly for
-        # dispatch order and invocation counts, so its shape is part of
-        # the mock's contract -- do not rename or restructure.
+        # Public assertion surface: tests inspect ``calls`` directly for dispatch order and invocation counts, so its shape is
+        # part of the mock's contract -- do not rename or restructure.
         self.calls: list[tuple[str, Any]] = []
-        # Full wire payload of every ``complete()`` call, for KV-cache tests
-        # that need to compare the exact messages/tools each pass sent. Deep
-        # copies are taken at call time because the editor mutates its ``msgs``
-        # list in place across ReAct iterations -- a shallow reference would
-        # show the final state for every iteration, not what each one sent.
+        # Full wire payload of every ``complete()`` call, for KV-cache tests that need to compare the exact messages/tools each
+        # pass sent. Deep copies are taken at call time because the editor mutates its ``msgs`` list in place across ReAct
+        # iterations -- a shallow reference would show the final state for every iteration, not what each one sent.
         self.captured: list[dict] = []
 
     def enqueue_director(self, tool_calls: list[dict]) -> None:
         """Queue a director response.
 
-        The director pass calls ``parse_tool_calls`` on the result, so
-        *tool_calls* must follow the OpenAI ``message.tool_calls`` shape
-        (``{"id", "type": "function", "function": {"name", "arguments"}}``).
-        A malformed shape would otherwise parse to an empty tool-call list
-        downstream and the test would silently exercise a no-op director turn
-        rather than the scene it meant to stage -- so validate the shape here
-        and raise at enqueue time, where the offending call site is obvious.
+        The director pass calls ``parse_tool_calls`` on the result, so *tool_calls* must follow the OpenAI
+        ``message.tool_calls`` shape (``{"id", "type": "function", "function": {"name", "arguments"}}``). A malformed shape
+        would otherwise parse to an empty tool-call list downstream and the test would silently exercise a no-op director turn
+        rather than the scene it meant to stage -- so validate the shape here and raise at enqueue time, where the offending
+        call site is obvious.
         """
         _validate_tool_calls(tool_calls)
         self._queues["director"].append({"tool_calls": tool_calls})
 
     def enqueue_writer(self, text: str, probs: list[dict] | None = None) -> None:
-        # Optional *probs* is a list of normalized token-prob records
-        # ({"token","prob","top":[{"t","p"}]}); the mock interleaves them as
-        # token_probs chunks after the content delta (chat doc path with logprobs).
+        # Optional *probs* is a list of normalized token-prob records ({"token","prob","top":[{"t","p"}]}); the mock interleaves
+        # them as token_probs chunks after the content delta (chat doc path with logprobs).
         self._queues["writer"].append({"content": text, "probs": probs or []})
 
     def enqueue_editor(self, decision: dict | None = None) -> None:
-        """Queue an editor response. ``decision`` is the ``message`` dict
-        the editor pass receives. ``None`` (the default) yields an empty
-        message with no tool calls, which causes the editor loop to stop.
+        """Queue an editor response. ``decision`` is the ``message`` dict the editor pass receives. ``None`` (the default)
+        yields an empty message with no tool calls, which causes the editor loop to stop.
         """
         self._queues["editor"].append({"message": decision or {"tool_calls": []}})
 
     def enqueue_feedback(self, tool_calls: list[dict]) -> None:
-        """Queue a feedback response. Like the director, the feedback pass calls
-        ``parse_tool_calls`` on the result, so *tool_calls* must follow the
-        OpenAI ``message.tool_calls`` shape.
+        """Queue a feedback response. Like the director, the feedback pass calls ``parse_tool_calls`` on the result, so
+        *tool_calls* must follow the OpenAI ``message.tool_calls`` shape.
         """
         _validate_tool_calls(tool_calls)
         self._queues["feedback"].append({"tool_calls": tool_calls})
@@ -248,37 +213,32 @@ class FakeLLMClient:
     def enqueue_raw(self, text: str, probs: list[dict] | None = None) -> None:
         """Queue a raw text-completion response (``complete_raw``, doc text mode).
 
-        Optional *probs* is a list of normalized token-prob records
-        (``{"token","prob","top":[{"t","p"}]}``); when given the mock interleaves
-        them as token_probs chunks after the content delta (mirrors the real
-        client when n_probs is requested)."""
+        Optional *probs* is a list of normalized token-prob records (``{"token","prob","top":[{"t","p"}]}``); when given the
+        mock interleaves them as token_probs chunks after the content delta (mirrors the real client when n_probs is requested).
+        """
         self._raw_queue.append({"content": text, "probs": probs or []})
 
     def gate(self, pass_name: str) -> PassGate:
         """Return a ``PassGate`` controlling the next *pass_name* call.
 
-        Gates are FIFO and one-shot: each ``gate(pass_name)`` applies
-        to exactly one ``complete()`` call for that pass, in registration
-        order, and once consumed subsequent calls run ungated.
+        Gates are FIFO and one-shot: each ``gate(pass_name)`` applies to exactly one ``complete()`` call for that pass, in
+        registration order, and once consumed subsequent calls run ungated.
         """
         gate = PassGate()
         self._gates[pass_name].append(gate)
         return gate
 
     def fail(self, pass_name: str, exc: BaseException, *, after: int = 0, mid_stream: bool = False) -> None:
-        """Make a *pass_name* call raise *exc*, as a provider timeout or dropped
-        connection would: the next call, or the one after *after* more succeed.
+        """Make a *pass_name* call raise *exc*, as a provider timeout or dropped connection would: the next call, or the one
+        after *after* more succeed.
 
-        The call raises after its queued reasoning. With *mid_stream* the writer
-        first streams its queued text, so the failure lands after tokens reached
-        the browser. One-shot and FIFO, like ``gate``.
+        The call raises after its queued reasoning. With *mid_stream* the writer first streams its queued text, so the failure
+        lands after tokens reached the browser. One-shot and FIFO, like ``gate``.
         """
         self._failures.setdefault(pass_name, []).append([after, exc, mid_stream])
 
     def abort(self) -> None:
-        """Mirror ``LLMClient.abort()``: makes in-flight ``complete()``
-        calls exit at their next gate or yield boundary.
-        """
+        """Mirror ``LLMClient.abort()``: makes in-flight ``complete()`` calls exit at their next gate or yield boundary."""
         self.abort_token.abort()
 
     @property
@@ -367,37 +327,16 @@ class FakeLLMClient:
 
         if pass_name in ("feedback", "post_processing"):
             payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
-            yield {
-                "type": "done",
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": payload.get("tool_calls", []),
-                },
-            }
+            yield {"type": "done", "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])}}
             return
 
         if pass_name in ("state", "world_change", "auto_tag"):
             payload = self._queues[pass_name].pop(0) if self._queues[pass_name] else {"tool_calls": []}
-            yield {
-                "type": "done",
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": payload.get("tool_calls", []),
-                },
-            }
+            yield {"type": "done", "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])}}
             return
 
         payload = self._queues["director"].pop(0) if self._queues["director"] else {"tool_calls": []}
-        yield {
-            "type": "done",
-            "message": {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": payload.get("tool_calls", []),
-            },
-        }
+        yield {"type": "done", "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])}}
 
     async def render_prompt(self, messages, *, prefill=None, reasoning=False, fmt=None) -> str:
         """Deterministic /apply-template stand-in (doc-mode text+assisted patch).
@@ -426,71 +365,37 @@ class FakeLLMClient:
 
 
 def _wire(obj: Any) -> str:
-    """Wire-faithful bytes: insertion order preserved, no sort_keys — mirrors
+    """Wire-faithful bytes: insertion order preserved, no sort_keys -- mirrors
     the real client's httpx ``json=body`` serialization. ``kv_tracker``'s
     sorted serializers are for overlap *estimation*; equality here must match
     what the server's prefix matcher sees, and key order matters on the wire."""
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
 
 
-# Passes that issue one call per item over a shared prefix, rather than one
-# call per conversation turn. See the grouping note in
-# ``verify_kv_prefix_invariants``. Add a pass here only when its system message
-# and tools blob are meant to be constant for the whole batch.
+# Passes that issue one call per item over a shared prefix, rather than one call per conversation turn. See the grouping note in
+# ``verify_kv_prefix_invariants``. Add a pass here only when its system message and tools blob are meant to be constant for the
+# whole batch.
 _BATCH_PASSES = {"auto_tag"}
 
 
 def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
-    """Cross-call KV-cache invariants over every chat ``complete()`` call a
-    test made. Returns human-readable violations; empty list means clean.
+    """Return cross-call KV-prefix violations; empty means valid.
 
-    Runs at ``llm_mock`` teardown for EVERY integration test (see conftest), so
-    any feature test that drives a new LLM call site alongside a chat turn is
-    automatically a KV-cache test — coverage is default-on, not opt-in per
-    entry point. This is the guarantee the magic_rewrite ``tools=None`` bust
-    and the image-gen off-turn missing-constant-lorebook-block leak both
-    slipped past: each was a new call site nobody registered in a
-    hand-maintained test list.
+    Integration teardown compares system messages and core tools on each endpoint/ model/conversation lane. Off-turn tools are
+    exempt. Identify conversations by messages[1], never the system message being checked; skip shorter calls.
+    kv_divergence_expected opts out for intentional prompt changes.
 
-    Invariant: any two calls on the same cache lane (server endpoint + model)
-    that belong to the same conversation must (a) ship a byte-identical system
-    message and (b) among the core chat passes whose schemas render into the
-    prompt (``tools_in_prompt`` is not False), ship one tools blob. Off-turn
-    workflow calls are exempt from (b): they force a standalone tool via
-    tool_choice and ride their own lane by design. One diverging byte in either
-    checked region evicts the llama.cpp prefix KV and re-bills from token zero.
-
-    Conversation identity is the wire bytes of ``messages[1]`` (greeting or
-    first user message): stable across passes, entry points, and off-turn
-    calls, and NOT a byte region under test — a diverged system message
-    cannot dodge the check by re-keying its own group. Calls with fewer than
-    two messages carry no conversation identity and are skipped. A test that
-    diverges deliberately (persona/settings switch mid-conversation — a
-    user-driven cache invalidation) opts out with
-    ``@pytest.mark.kv_divergence_expected``.
-
-    **Batch lanes** (``_BATCH_PASSES``) are grouped differently, because that
-    identity rule is blind to them. A batch pass sends one call per item with
-    the item in ``messages[1]``, so N calls land in N groups of one and every
-    check above is skipped — precisely the "new call site nobody registered"
-    failure this function exists to catch. Those passes group by
-    ``(endpoint, model, pass)`` instead: the whole point of such a lane is that
-    the system message and the tools blob are constant across the batch while
-    only the user message moves, which is exactly what the two checks assert.
-    An allowlist rather than a blanket rule, because a genuinely per-item call
-    site may legitimately vary its system message (``sheet_update`` builds one
-    per cast member).
+    Batch passes group by endpoint/model/pass because messages[1] varies per item. Only _BATCH_PASSES use that grouping; other
+    calls may vary their system text.
     """
     groups: dict[tuple[str, str, str], list[dict]] = {}
     for call in captured:
         msgs = call.get("messages") or []
         if len(msgs) < 2:
             continue
-        # Lane = (server, model): dual-model runs writer and agent on different
-        # servers with independent KV caches, and both auto-provisioned model
-        # configs may share a name — the endpoint is what separates the lanes.
-        # The third element is the group's identity within that lane: a
-        # conversation for a chat pass, the pass itself for a batch lane.
+        # Lane = (server, model): dual-model runs writer and agent on different servers with independent KV caches, and both
+        # auto-provisioned model configs may share a name -- the endpoint is what separates the lanes. The third element is the
+        # group's identity within that lane: a conversation for a chat pass, the pass itself for a batch lane.
         pass_name = call.get("pass", "")
         identity = f"batch:{pass_name}" if pass_name in _BATCH_PASSES else _wire(msgs[1])
         key = (call.get("endpoint", ""), call.get("model", ""), identity)
@@ -520,13 +425,11 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
                 # server-rendered prompt, so this blob is cache-irrelevant.
                 continue
             if c["pass"] == "workflow":
-                # Off-turn workflow forced calls (image_gen's analyze/compose)
-                # ship their own standalone tools blob and force via tool_choice --
-                # the pipeline's pattern, but a self-contained lane, not the chat
-                # turns' union. A chat model needs the real tool to call it; forcing
-                # via tools=None is unreliable. In text mode the schemas never
-                # render (KV parity holds); in chat mode this is an accepted
-                # separate lane. The system-message parity check above still binds.
+                # Off-turn workflow forced calls (image_gen's analyze/compose) ship their own standalone tools blob and force
+                # via tool_choice -- the pipeline's pattern, but a self-contained lane, not the chat turns' union. A chat model
+                # needs the real tool to call it; forcing via tools=None is unreliable. In text mode the schemas never render
+                # (KV parity holds); in chat mode this is an accepted separate lane. The system-message parity check above still
+                # binds.
                 continue
             blobs.setdefault(_wire(c.get("tools") or []), []).append(c["pass"])
         if len(blobs) > 1:
@@ -556,9 +459,8 @@ class _EndpointBound:
     def sends_tool_schemas(self, messages, model: str, *, tools_in_prompt: bool = True) -> bool:
         """Use the real transport predicate with this wrapper's endpoint.
 
-        One shared fake may stand in for multiple endpoints, so the endpoint
-        cannot live on ``FakeLLMClient`` itself. Delegating the policy to a real
-        client avoids copying production profile rules into the test double.
+        One shared fake may stand in for multiple endpoints, so the endpoint cannot live on ``FakeLLMClient`` itself. Delegating
+        the policy to a real client avoids copying production profile rules into the test double.
         """
         client = LLMClient(self._base_url, completion_mode=self._fake.completion_mode)
         return client.sends_tool_schemas(messages, model, tools_in_prompt=tools_in_prompt)
@@ -568,13 +470,11 @@ class _EndpointBound:
 
 
 def llm_factory(fake: FakeLLMClient):
-    """Wrap *fake* so calling ``LLMClient(url, api_key=..., profile=...)``
-    inside production code yields the same shared instance the test holds,
-    bound to the URL it was constructed for (see ``_EndpointBound``).
+    """Wrap *fake* so calling ``LLMClient(url, api_key=..., profile=...)`` inside production code yields the same shared
+    instance the test holds, bound to the URL it was constructed for (see ``_EndpointBound``).
 
-    Propagates the ``completion_mode`` ctor kwarg onto the shared fake so a
-    route that constructs its client with the endpoint's mode (e.g. the document
-    generate route) makes ``DocumentContinuer`` branch on the real value.
+    Propagates the ``completion_mode`` ctor kwarg onto the shared fake so a route that constructs its client with the endpoint's
+    mode (e.g. the document generate route) makes ``DocumentContinuer`` branch on the real value.
     """
 
     def make(*args, **kwargs):

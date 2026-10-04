@@ -1,7 +1,4 @@
-// The failure half of frontend/api.js. `_req` throws with the *body* as the
-// message, so every `toast(e.message, true)` in the app showed a raw
-// `{"detail":"..."}` — a backend that took care to word a provider's rejection
-// well, read through a JSON wrapper. Unwrapped once, in the client.
+// API requests use the same failure parser as streamed features.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -63,5 +60,5 @@ test("a non-JSON body falls through to the raw text", async () => {
 
 test("a body with no detail key falls through rather than becoming empty", async () => {
   const e = await failureOf(500, JSON.stringify({ error: "something" }));
-  assert.equal(e.message, JSON.stringify({ error: "something" }));
+  assert.equal(e.message, "something");
 });

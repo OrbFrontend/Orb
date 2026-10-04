@@ -5,21 +5,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import (
-    _build_set_clause,
-    _get_workflow_slot,
-    _set_workflow_slot,
-    get_db,
-    immediate_tx,
-)
+from ..connection import build_set_clause, get_db, get_workflow_slot, immediate_tx, select_rows, set_workflow_slot
 from ..models import ConversationListRow, ConversationRow
+from .group_members import create_group_conversation, get_group_members
 
 
 async def list_conversations() -> list[ConversationListRow]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                """
+    rows = await select_rows(
+        """
             WITH RECURSIVE active_path(conv_id, id, parent_id) AS (
                 SELECT c.id, m.id, m.parent_id
                 FROM conversations c
@@ -56,31 +49,28 @@ async def list_conversations() -> list[ConversationListRow]:
             LEFT JOIN active_counts ac ON ac.conv_id = c.id
             ORDER BY max(COALESCE(c.last_accessed_at, ''), COALESCE(c.updated_at, ''), c.created_at) DESC
         """
-            )
-        )
-        out: list[ConversationListRow] = []
-        for row in rows:
-            item = dict(row)
-            item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
-            item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
-            out.append(cast(ConversationListRow, item))
-        return out
+    )
+    out: list[ConversationListRow] = []
+    for row in rows:
+        item = dict(row)
+        item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
+        item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
+        out.append(cast(ConversationListRow, item))
+    return out
 
 
 def group_root_of(conv: ConversationRow) -> str:
     """The id of the group family *conv* belongs to.
 
-    A root stores NULL and is its own family key, so every read of the column
-    goes through here rather than repeating the fallback. Meaningless for solo
-    conversations, which have no family; callers gate on ``kind`` first.
+    A root stores NULL and is its own family key, so every read of the column goes through here rather than repeating the
+    fallback. Meaningless for solo conversations, which have no family; callers gate on ``kind`` first.
     """
     return str(conv.get("group_root_id") or conv["id"])
 
 
 async def get_conversation(cid: str) -> ConversationRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM conversations WHERE id = ?", (cid,)))
-        return cast(ConversationRow, dict(rows[0])) if rows else None
+    rows = await select_rows("SELECT * FROM conversations WHERE id = ?", (cid,))
+    return cast(ConversationRow, dict(rows[0])) if rows else None
 
 
 async def create_conversation(
@@ -113,10 +103,7 @@ async def create_conversation(
                 now,
             ),
         )
-        await db.execute(
-            "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-            (cid,),
-        )
+        await db.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (cid,))
         await db.commit()
         result = await get_conversation(cid)
         assert result is not None
@@ -127,8 +114,6 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     """Create a conversation seeded from the source framing."""
     new_cid = str(uuid.uuid4())
     if source.get("kind", "solo") == "group":
-        from .group_members import create_group_conversation, get_group_members
-
         members = await get_group_members(source["id"], include_inactive=True)
         await create_group_conversation(
             new_cid,
@@ -177,21 +162,11 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
 
 
 async def delete_conversation(cid: str) -> bool:
-    """Delete one conversation, keeping the rest of its group family together.
-
-    Deleting the root of a family would otherwise strand its forks: the FK
-    clears their ``group_root_id`` and each one surfaces as a separate group --
-    exactly the duplication the lineage exists to prevent. So the oldest
-    survivor is promoted to root and the others re-pointed at it first, in one
-    transaction with the delete.
+    """Delete a conversation atomically, promoting the oldest surviving family
+    member and repointing forks if the root is removed.
     """
     async with immediate_tx() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, kind, group_root_id FROM conversations WHERE id = ?",
-                (cid,),
-            )
-        )
+        rows = list(await db.execute_fetchall("SELECT id, kind, group_root_id FROM conversations WHERE id = ?", (cid,)))
         if not rows:
             return False
         conv = dict(rows[0])
@@ -199,16 +174,14 @@ async def delete_conversation(cid: str) -> bool:
         if conv["kind"] == "group" and not conv["group_root_id"]:
             children = list(
                 await db.execute_fetchall(
-                    "SELECT id FROM conversations WHERE group_root_id = ? ORDER BY created_at, id",
-                    (cid,),
+                    "SELECT id FROM conversations WHERE group_root_id = ? ORDER BY created_at, id", (cid,)
                 )
             )
             if children:
                 heir = children[0]["id"]
                 await db.execute("UPDATE conversations SET group_root_id = NULL WHERE id = ?", (heir,))
                 await db.execute(
-                    "UPDATE conversations SET group_root_id = ? WHERE group_root_id = ? AND id != ?",
-                    (heir, cid, heir),
+                    "UPDATE conversations SET group_root_id = ? WHERE group_root_id = ? AND id != ?", (heir, cid, heir)
                 )
         cur = await db.execute("DELETE FROM conversations WHERE id = ?", (cid,))
         return cur.rowcount > 0
@@ -216,28 +189,23 @@ async def delete_conversation(cid: str) -> bool:
 
 async def group_family_ids(root_cid: str) -> list[str]:
     """Ids :func:`delete_group_family` would delete."""
-    async with get_db() as db:
-        rows = await db.execute_fetchall("SELECT id FROM conversations WHERE id = ? OR group_root_id = ?", (root_cid, root_cid))
-        return [str(row[0]) for row in rows]
+    rows = await select_rows("SELECT id FROM conversations WHERE id = ? OR group_root_id = ?", (root_cid, root_cid))
+    return [str(row[0]) for row in rows]
 
 
 async def delete_group_family(root_cid: str) -> int:
     """Delete a whole group family -- the root and every fork taken from it.
 
-    What the sidebar's × means once one row stands for the whole group. Unlike a
-    character card, a group has no existence apart from its conversations, so
-    there is nothing to keep behind after they go.
+    What the sidebar's delete button means once one row stands for the whole group. Unlike a character card, a group has no existence apart
+    from its conversations, so there is nothing to keep behind after they go.
     """
     async with immediate_tx() as db:
-        cur = await db.execute(
-            "DELETE FROM conversations WHERE id = ? OR group_root_id = ?",
-            (root_cid, root_cid),
-        )
+        cur = await db.execute("DELETE FROM conversations WHERE id = ? OR group_root_id = ?", (root_cid, root_cid))
         return cur.rowcount
 
 
 async def touch_conversation(cid: str) -> bool:
-    """Mark a conversation accessed (opened/selected) — bumps last_accessed_at,
+    """Mark a conversation accessed (opened/selected) -- bumps last_accessed_at,
     not updated_at. updated_at means content changed; opening isn't an edit."""
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
@@ -258,17 +226,16 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
             "character_scenario",
             "post_history_instructions",
         ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
-            # updated_at is the conversation's "last activity" date (shown in the
-            # history modal). Pinning/changing a persona is metadata, not chat
-            # activity, so a persona_lock_id-only update must not bump it.
+            # updated_at is the conversation's "last activity" date (shown in the history modal). Pinning/changing a persona is
+            # metadata, not chat activity, so a persona_lock_id-only update must not bump it.
             if any(k in data for k in allowed if k != "persona_lock_id"):
                 sets.append("updated_at = ?")
                 vals.append(datetime.now(UTC).isoformat())
             vals.append(cid)
             await db.execute(
-                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()
@@ -277,19 +244,13 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
 
 async def get_workflow_state(conv_id: str, workflow_id: str) -> dict | None:
     """Return the workflow's slot, or None if conversation missing or slot empty."""
-    return await _get_workflow_slot("conversations", "id", conv_id, workflow_id)
+    return await get_workflow_slot("conversations", "id", conv_id, workflow_id)
 
 
 async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | None) -> None:
-    """Atomic per-slot write via SQLite JSON1.
+    """Atomically write one workflow-state slot; None removes it, {} stores it.
 
-    payload=None removes the slot. Empty dict stores {}. No-op if conversation
-    missing (UPDATE matches zero rows).
-
-    Caller must hold ``backend.core.locks.workflow_state_lock(conv_id, workflow_id)``
-    across the read-then-write the payload was computed from. Acquisition
-    sites: ``backend.api.routes.workflows.api_trigger_workflow`` and the pre/post pipeline
-    hook loops in ``backend.pipeline.workflow_bridge``. Direct use outside those paths
-    re-introduces the read-modify-write clobber.
+    Missing conversations are a no-op. Hold workflow_state_lock(conv_id, workflow_id)
+    across any read-modify-write sequence to avoid lost updates.
     """
-    await _set_workflow_slot("conversations", "id", conv_id, workflow_id, payload)
+    await set_workflow_slot("conversations", "id", conv_id, workflow_id, payload)

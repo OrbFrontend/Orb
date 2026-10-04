@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from .api import build_app
 
@@ -14,4 +15,4 @@ app = build_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8899)  # nosec B104 -- localhost single-user app
+    uvicorn.run(app, host=os.environ.get("ORB_HOST", "0.0.0.0"), port=8899)  # nosec B104 -- ORB_HOST narrows the LAN bind

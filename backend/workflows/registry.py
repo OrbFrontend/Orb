@@ -1,47 +1,48 @@
-"""Register workflows and expose their scoped storage helpers."""
+"""Discover and register workflows and expose their scoped storage helpers."""
 
 from __future__ import annotations
 
+import importlib
 import re
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Callable, Collection, Mapping, Sequence
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any, Generic, Literal, TypeVar, overload
 
-from ..database import (
-    get_workflow_character_state as _db_get_workflow_character_state,
+from ..database import get_workflow_character_state as _db_get_workflow_character_state
+from ..database import get_workflow_config as _db_get_workflow_config
+from ..database import get_workflow_message_state as _db_get_workflow_message_state
+from ..database import get_workflow_state as _db_get_workflow_state
+from ..database import set_workflow_character_state as _db_set_workflow_character_state
+from ..database import set_workflow_config as _db_set_workflow_config
+from ..database import set_workflow_message_state as _db_set_workflow_message_state
+from ..database import set_workflow_state as _db_set_workflow_state
+from ..prompting.tool_catalog import BUILTIN_TOOL_NAMES, register_tool, remove_tool
+from .contracts import (
+    ExportHook,
+    HookType,
+    OnDemandHook,
+    PostHook,
+    PreHook,
+    QueryHook,
+    RegenHook,
+    RerollGenHook,
+    ToolSpec,
+    UploadHook,
+    WorkflowHook,
 )
-from ..database import (
-    get_workflow_config as _db_get_workflow_config,
-)
-from ..database import (
-    get_workflow_message_state as _db_get_workflow_message_state,
-)
-from ..database import (
-    get_workflow_state as _db_get_workflow_state,
-)
-from ..database import (
-    set_workflow_character_state as _db_set_workflow_character_state,
-)
-from ..database import (
-    set_workflow_config as _db_set_workflow_config,
-)
-from ..database import (
-    set_workflow_message_state as _db_set_workflow_message_state,
-)
-from ..database import (
-    set_workflow_state as _db_set_workflow_state,
-)
-from ..prompting.tool_catalog import (
-    BUILTIN_TOOL_NAMES,
-    register_tool,
-    remove_tool,
-)
-from .contracts import HookType, ToolSpec
+
+_HookT = TypeVar("_HookT", bound=WorkflowHook, covariant=True)
 
 
 @dataclass
 class Workflow:
-    """Per-workflow metadata and subscriptions."""
+    """Per-workflow metadata and subscriptions.
+
+    A plug-in declares its hooks in ``subscriptions``; ``register_workflow``
+    validates them and stamps each with the workflow's id.
+    """
 
     id: str
     display_name: str
@@ -49,21 +50,20 @@ class Workflow:
     config_defaults: dict = field(default_factory=dict)
     config_schema: dict | None = None
     produces_artifacts: bool = False
-    subscriptions: list[Subscription] = field(default_factory=list)
+    subscriptions: list[Subscription[WorkflowHook]] = field(default_factory=list)
     config_normalizer: Callable[[Any], dict] | None = None
 
 
 @dataclass(frozen=True)
-class Subscription:
+class Subscription(Generic[_HookT]):
     """A workflow's binding into one pipeline hook slot.
 
-    ``priority`` only matters for fan-out slots (``PRE_PIPELINE``,
-    ``POST_PIPELINE``); single-dispatch slots are resolved by workflow id
-    and ignore it.
+    ``priority`` only matters for fan-out slots (``PRE_PIPELINE``, ``POST_PIPELINE``); single-dispatch slots are resolved by
+    workflow id and ignore it.
     """
 
     hook_type: HookType
-    callable: Callable
+    callable: _HookT
     priority: int = 0
     workflow_id: str = ""
 
@@ -74,10 +74,9 @@ class ToolNameCollision(Exception):
 
 
 class WorkflowMandateError(ValueError):
-    """Raised by ``finalize_registry`` when a ``produces_artifacts=True``
-    workflow lacks ``REGENERATE`` and/or ``REROLL_GEN``. Failing at import
-    rather than on the first regen click avoids shipping a half-bound
-    artifact workflow into production."""
+    """Raised by ``finalize_registry`` when a ``produces_artifacts=True`` workflow lacks ``REGENERATE`` and/or ``REROLL_GEN``.
+    Failing at import rather than on the first regen click avoids shipping a half-bound artifact workflow into production.
+    """
 
 
 class WorkflowDeclarationError(ValueError):
@@ -86,6 +85,10 @@ class WorkflowDeclarationError(ValueError):
 
 _WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_ARTIFACT_HOOKS = frozenset({HookType.REGENERATE, HookType.REROLL_GEN, HookType.EXPORT})
+
+# The name a plug-in package exports its ``Workflow`` under.
+PLUGIN_EXPORT = "WORKFLOW"
 
 
 _WORKFLOWS_BY_ID: dict[str, Workflow] = {}
@@ -98,12 +101,38 @@ def _declared_function_name(payload: object) -> object:
     return function.get("name") if isinstance(function, dict) else None
 
 
+def _check_hook(w: Workflow, hook_type: HookType, bound: Collection[HookType]) -> None:
+    """Reject a second binding of one slot, or an artifact slot on a workflow without artifacts."""
+    if hook_type in bound:
+        raise WorkflowDeclarationError(f"workflow {w.id!r} already has a {hook_type.value} subscription")
+    if hook_type in _ARTIFACT_HOOKS and not w.produces_artifacts:
+        raise WorkflowDeclarationError(
+            f"workflow {w.id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True"
+        )
+
+
+def _declared_subscriptions(w: Workflow) -> list[Subscription[WorkflowHook]]:
+    """Validate the subscriptions *w* declares and stamp each with its id."""
+    stamped: list[Subscription[WorkflowHook]] = []
+    for sub in w.subscriptions:
+        if not isinstance(sub, Subscription) or not isinstance(sub.hook_type, HookType) or not callable(sub.callable):
+            raise WorkflowDeclarationError(
+                f"workflow {w.id!r} subscriptions must be Subscription(HookType, callable, priority) records"
+            )
+        if sub.workflow_id not in ("", w.id):
+            raise WorkflowDeclarationError(f"workflow {w.id!r} declares a subscription for workflow {sub.workflow_id!r}")
+        _check_hook(w, sub.hook_type, [s.hook_type for s in stamped])
+        stamped.append(replace(sub, workflow_id=w.id))
+    return stamped
+
+
 def register_workflow(w: Workflow) -> None:
-    """Register or replace a workflow."""
+    """Register or replace a workflow, with the subscriptions it declares."""
     if not isinstance(w.id, str) or _WORKFLOW_ID_RE.fullmatch(w.id) is None:
         raise WorkflowDeclarationError(
             f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"
         )
+    subscriptions = _declared_subscriptions(w)
 
     seen_tool_names: set[str] = set()
     for spec in w.tools:
@@ -147,28 +176,116 @@ def register_workflow(w: Workflow) -> None:
     for orphan in old_tool_names - new_tool_names:
         remove_tool(orphan)
 
+    w.subscriptions[:] = subscriptions
     _WORKFLOWS_BY_ID[w.id] = w
 
 
-def subscribe(
-    workflow_id: str,
-    hook_type: HookType,
-    fn: Callable,
-    *,
-    priority: int = 0,
-) -> None:
+def register_plugins(package: str, directory: Path) -> None:
+    """Import and register every workflow plug-in package in *directory*, in package-name order.
+
+    A plug-in is a subdirectory with an ``__init__.py`` that exports
+    ``WORKFLOW``: a ``Workflow`` whose id is the package name, carrying its
+    hook subscriptions. Modules directly in *directory* are host modules, not
+    plug-ins. An import error propagates, and a directory of Python modules
+    without an ``__init__.py`` or a package without a valid ``WORKFLOW`` raises
+    ``WorkflowDeclarationError``, so a broken plug-in stops startup instead of
+    going missing.
+    """
+    for path in sorted(directory.iterdir(), key=lambda entry: entry.name):
+        if not path.is_dir() or path.name == "__pycache__":
+            continue
+        if not (path / "__init__.py").is_file():
+            if any(path.rglob("*.py")):
+                raise WorkflowDeclarationError(
+                    f"{path} holds Python modules but no __init__.py; a workflow plug-in must be a package"
+                )
+            continue
+        module = importlib.import_module(f"{package}.{path.name}")
+        workflow = getattr(module, PLUGIN_EXPORT, None)
+        if not isinstance(workflow, Workflow):
+            raise WorkflowDeclarationError(f"workflow plug-in {module.__name__} must export {PLUGIN_EXPORT} as a Workflow")
+        if workflow.id != path.name:
+            raise WorkflowDeclarationError(
+                f"workflow plug-in {module.__name__} declares id {workflow.id!r}; its id must be its package name"
+            )
+        register_workflow(workflow)
+
+
+# One overload per slot, so the type checker holds each hook to the shape its route or the bridge calls it with.
+@overload
+def subscription(hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> Subscription[PreHook]: ...
+@overload
+def subscription(hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> Subscription[PostHook]: ...
+@overload
+def subscription(
+    hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0
+) -> Subscription[OnDemandHook]: ...
+@overload
+def subscription(hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> Subscription[RegenHook]: ...
+@overload
+def subscription(
+    hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0
+) -> Subscription[RerollGenHook]: ...
+@overload
+def subscription(hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> Subscription[QueryHook]: ...
+@overload
+def subscription(hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> Subscription[UploadHook]: ...
+@overload
+def subscription(hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> Subscription[ExportHook]: ...
+def subscription(hook_type: HookType, fn: WorkflowHook, *, priority: int = 0) -> Subscription[WorkflowHook]:
+    """A hook binding for a plug-in's ``Workflow.subscriptions``, typed per slot."""
+    return Subscription(hook_type, fn, priority)
+
+
+# The same per-slot overloads, for a hook a host adapter binds to a registered plug-in.
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.PRE_PIPELINE], fn: PreHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.POST_PIPELINE], fn: PostHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.ON_DEMAND], fn: OnDemandHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.REGENERATE], fn: RegenHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.REROLL_GEN], fn: RerollGenHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.QUERY], fn: QueryHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.UPLOAD], fn: UploadHook, *, priority: int = 0) -> None: ...
+@overload
+def subscribe(workflow_id: str, hook_type: Literal[HookType.EXPORT], fn: ExportHook, *, priority: int = 0) -> None: ...
+def subscribe(workflow_id: str, hook_type: HookType, fn: WorkflowHook, *, priority: int = 0) -> None:
+    """Bind *fn* to a registered workflow's hook slot.
+
+    Plug-ins declare their hooks in ``Workflow.subscriptions``; this binds a hook a host adapter supplies for a plug-in.
+    """
     record = _WORKFLOWS_BY_ID.get(workflow_id)
     if record is None:
         raise LookupError(f"subscribe: workflow {workflow_id!r} not registered")
-    if any(s.hook_type is hook_type for s in record.subscriptions):
-        raise ValueError(f"workflow {workflow_id!r} already has a {hook_type.value} subscription")
-    if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN, HookType.EXPORT) and not record.produces_artifacts:
-        raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
+    _check_hook(record, hook_type, [s.hook_type for s in record.subscriptions])
     record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
 
 
-def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
-    """Return subscriptions of ``hook_type`` sorted by priority ascending.
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.PRE_PIPELINE]) -> Sequence[Subscription[PreHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.POST_PIPELINE]) -> Sequence[Subscription[PostHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.ON_DEMAND]) -> Sequence[Subscription[OnDemandHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.REGENERATE]) -> Sequence[Subscription[RegenHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.REROLL_GEN]) -> Sequence[Subscription[RerollGenHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.QUERY]) -> Sequence[Subscription[QueryHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.UPLOAD]) -> Sequence[Subscription[UploadHook]]: ...
+@overload
+def iter_subscriptions(hook_type: Literal[HookType.EXPORT]) -> Sequence[Subscription[ExportHook]]: ...
+@overload
+def iter_subscriptions(hook_type: HookType) -> Sequence[Subscription[WorkflowHook]]: ...
+def iter_subscriptions(hook_type: HookType) -> Sequence[Subscription[WorkflowHook]]:
+    """Return subscriptions of ``hook_type`` with that slot's callable type, sorted by priority ascending.
 
     Tie-break is registration order: ``dict`` insertion order plus
     Python's stable sort preserves it without an explicit secondary key.
@@ -178,8 +295,26 @@ def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
     return subs
 
 
-def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription | None:
-    """Return the workflow's subscription for ``hook_type``, or None.
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.PRE_PIPELINE]) -> Subscription[PreHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.POST_PIPELINE]) -> Subscription[PostHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.ON_DEMAND]) -> Subscription[OnDemandHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.REGENERATE]) -> Subscription[RegenHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.REROLL_GEN]) -> Subscription[RerollGenHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.QUERY]) -> Subscription[QueryHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.UPLOAD]) -> Subscription[UploadHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: Literal[HookType.EXPORT]) -> Subscription[ExportHook] | None: ...
+@overload
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription[WorkflowHook] | None: ...
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription[WorkflowHook] | None:
+    """Return the workflow's subscription with that slot's callable type, or None.
 
     Collapses "unregistered" and "no binding" into one None -- the routes
     that use this (regenerate, reroll_gen) treat both as 404 anyway.
@@ -195,13 +330,10 @@ def workflow_has_hook(w: Workflow, hook_type: HookType) -> bool:
 
 
 def finalize_registry() -> None:
-    """Validate that every ``produces_artifacts=True`` workflow has both
-    ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
+    """Validate that every ``produces_artifacts=True`` workflow has both ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
 
-    Invoke at the bottom of any module that completes a workflow's wiring
-    -- this is the only hook that fails import on a partially-bound
-    artifact workflow rather than deferring the crash to the first regen
-    click.
+    Invoke once every plug-in is registered and every host-adapter hook is bound -- this is the only hook that fails import on
+    a partially-bound artifact workflow rather than deferring the crash to the first regen click.
     """
     for w in _WORKFLOWS_BY_ID.values():
         if not w.produces_artifacts:
@@ -256,54 +388,33 @@ async def set_workflow_character_state(character_id: str, workflow_id: str, payl
 
 
 async def get_workflow_config(workflow_id: str) -> dict:
-    """Return the workflow's global config slot.
+    """Read global config, falling back to a fresh defaults copy or {} if unregistered.
 
-    Falls back to the workflow's ``config_defaults`` (fresh copy) when the
-    persisted slot is empty so callers can read into a populated dict
-    without an existence check. An unregistered ``workflow_id`` with an
-    empty slot returns an empty dict.
-
-    Callers doing read-then-write must hold ``workflow_config_lock()``
-    across the full RMW window so the value observed here -- whether from
-    the persisted slot or the ``config_defaults`` fallback -- still
-    matches the slot when ``set_workflow_config`` writes it back.
+    Hold workflow_config_lock across any read-modify-write using this result.
     """
     raw = await _db_get_workflow_config(workflow_id)
     if raw:
         return raw
     w = _WORKFLOWS_BY_ID.get(workflow_id)
     if w is not None:
-        return dict(w.config_defaults)
+        return deepcopy(w.config_defaults)
     return {}
 
 
 async def set_workflow_config(workflow_id: str, payload: dict) -> None:
     """Write the workflow's global config slot. Empty dict clears it.
 
-    Caller must hold ``workflow_config_lock()`` across the read-then-write
-    the payload was computed from. Direct use without the lock is safe for
-    blind-replace writes; RMW sequences (``get_workflow_config`` -> mutate
-    -> ``set_workflow_config``) silently lose writes under contention
-    because the read happens in a separate transaction outside the lock.
+    Caller must hold ``workflow_config_lock()`` across the read-then-write the payload was computed from. Direct use without the
+    lock is safe for blind-replace writes; RMW sequences (``get_workflow_config`` -> mutate -> ``set_workflow_config``) silently
+    lose writes under contention because the read happens in a separate transaction outside the lock.
     """
     await _db_set_workflow_config(workflow_id, payload)
 
 
-def overlay_enable_tools(
-    base: Mapping[str, bool],
-    contribution: set[str] | Mapping[str, bool] | None,
-) -> dict[str, bool]:
-    """Return a fresh mutable dict copy of *base* with *contribution*'s
-    True entries merged in. Mirrors the orchestrator merge semantics:
-    True wins, False is ignored. None or an empty contribution returns a
-    fresh copy of *base* unchanged.
+def overlay_enable_tools(base: Mapping[str, bool], contribution: set[str] | Mapping[str, bool] | None) -> dict[str, bool]:
+    """Return a mutable base copy with enabled contributions merged; false is ignored.
 
-    Accepts any ``Mapping`` for *base* including a ``MappingProxyType``;
-    the return is always a plain ``dict`` the caller may mutate freely
-    (e.g. to pass to ``forced_tool_call``'s ``enabled_tools=`` argument).
-    Contribution may be a ``set`` (presence = enable) or a ``Mapping``
-    (True entries kept, False entries dropped). The orchestrator does the
-    logged-warning at its own merge site; this helper trusts the caller.
+    Accept a set or Mapping contribution and any Mapping base. Validation/warnings belong to the caller.
     """
     result = dict(base)
     if contribution is None:

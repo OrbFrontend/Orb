@@ -1,218 +1,42 @@
+import { registerActions } from "./actions.js";
 import { onRefreshRequired } from "./api.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
-  applyCompression,
-  cancelCompression,
-  cancelEdit,
-  cancelEditPending,
-  cancelForkEdit,
-  cancelTitleEdit,
-  clearRefineDiff,
-  continueFromUser,
-  createCheckpoint,
-  deleteConversationFromModal,
-  deleteMessage,
-  discardQueuedEdit,
-  generateCompressionSummary,
-  handleMagicKey,
-  handleTitleEditKey,
-  hideAvatarPopup,
   initAutoscroll,
   initChatKeyNav,
   initChatSwipeNav,
   initWorkflowMutationListener,
   loadConversations,
   loadWorkflowManifest,
-  newConversationHere,
-  newConvForChar,
   refreshConversationMessages,
-  regenerate,
-  regenerateFromUser,
   renderMessages,
-  retryQueuedEdits,
-  rewriteMessageProse,
-  saveEdit,
-  saveEditPending,
-  saveForkEdit,
-  saveTitleEdit,
-  selectChar,
-  selectConversation,
-  selectReasoningPass,
-  selectWorkflowPipelinePass,
-  sendMessage,
-  setToolsTab,
-  showAvatarPopup,
-  showCompressModal,
-  showConvHistoryModal,
-  startEdit,
-  startEditPending,
-  startEditTitle,
-  startForkEdit,
-  stopGeneration,
-  submitMagicRewrite,
-  superRegenerate,
-  switchBranch,
   toggleInspector,
-  toggleMagicInput,
-  toggleReasoningPass,
 } from "./chat.js";
-import { initComposer, triggerAttachImage } from "./chat_composer.js";
-import {
-  collapseDocs,
-  createDocument,
-  deleteDocument,
-  docGenerate,
-  docRedo,
-  docStop,
-  docUndo,
-  expandDocs,
-  initDocumentMode,
-  loadDocuments,
-  onDocSearch,
-  openDocument,
-  renameActiveDocument,
-  renameDocument,
-  setDocAssisted,
-  setDocProbs,
-  toggleDocumentMode,
-} from "./document.js";
-import { advanceExpressionPlayback, handleExpressionPlaybackKey } from "./expression_playback.js";
+import { initComposer } from "./chat_composer.js";
+import { initDocumentMode, loadDocuments } from "./document.js";
+import { handleExpressionPlaybackKey } from "./expression_playback.js";
 import { initGroupSetup } from "./group_setup.js";
-import {
-  addAltGreeting,
-  clearExpressions,
-  createCharacter,
-  deleteCharacter,
-  deleteInteractiveFragment,
-  deleteMoodFragment,
-  exportCharacter,
-  handleExpressionsZip,
-  handleImportFile,
-  loadInteractiveFragments,
-  loadMoodFragments,
-  saveCharEdit,
-  saveImportedChar,
-  saveInteractiveFragment,
-  saveMoodFragment,
-  showCharCreateModal,
-  showCharEditModal,
-  showInteractiveFragmentModal,
-  showMoodFragmentModal,
-  toggleInteractiveFragmentEnabled,
-  toggleMoodFragmentEnabled,
-  triggerAvatarCrop,
-  triggerImport,
-  updateInteractiveFragmentExample,
-} from "./library.js";
-import {
-  importInternetChar,
-  loadMoreInternet,
-  onCharBrowserSearch,
-  randomizeInternet,
-  searchInternet,
-  setCharBrowserSort,
-  setInternetSource,
-  showCharacterBrowserModal,
-} from "./library_browser.js";
-import { loadCharacters, refreshCharacters } from "./library_sidebar.js";
-import {
-  closeLorebook,
-  collapseWorlds,
-  createWorld,
-  deleteWorld,
-  expandWorlds,
-  initWorldProposalActions,
-  lbAddEntry,
-  lbBackToList,
-  lbDeleteEntry,
-  lbDiscardChanges,
-  lbDraftChange,
-  lbEntrySearch,
-  lbImportJson,
-  lbSaveEntry,
-  lbSelectEntry,
-  lbToggleConstant,
-  lbToggleEntry,
-  loadWorlds,
-  onWorldSearch,
-  openLorebook,
-  renameWorld,
-  setWorldProposalRefresh,
-  showCreateWorldModal,
-  showRenameWorldModal,
-  toggleWorldEnabled,
-} from "./lorebooks.js";
+import { loadInteractiveFragments, loadMoodFragments } from "./library.js";
+// Imported for the actions it registers.
+import "./library_browser.js";
+import { loadCharacters } from "./library_sidebar.js";
+import { initWorldProposalActions, loadWorlds, setWorldProposalRefresh } from "./lorebooks.js";
 import { initMessageHtmlActions } from "./message_html.js";
-import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
-import { closeModal, closeSubModal, showConfirmModal, switchTab } from "./modal.js";
-import {
-  applyPreset,
-  deletePreset,
-  doCreateSnapshot,
-  downloadPreset,
-  handlePresetImportFile,
-  onPresetDomainChange,
-  refreshPresetLibrary,
-  restorePreset,
-  showPresetsModal,
-  showSnapshotModal,
-  triggerPresetImport,
-} from "./presets.js";
-import {
-  activatePersona,
-  addPhraseSuggestion,
-  applyTheme,
-  deletePersona,
-  dismissPhraseSuggestion,
-  editPersona,
-  initTheme,
-  initThemeList,
-  loadSettings,
-  onHybridInput,
-  saveLengthGuardConfig,
-  savePersona,
-  saveSetting,
-  saveUserProfile,
-  setAgentEnabled,
-  setPersonaCharacterLock,
-  setPersonaConversationLock,
-  showAddPhraseGroupModal,
-  showPersonaEditModal,
-  showPhraseBankModal,
-  showUserModal,
-  toggleAgenticLorebook,
-  toggleAuditType,
-  toggleDirectorIndividualFragments,
-  toggleHideUntilBaked,
-  toggleLengthGuard,
-  toggleLengthGuardEnforce,
-  togglePreventPromptOverrides,
-  toggleShowChatAvatars,
-  toggleShowEditorDiff,
-  toggleToolEnabled,
-  toggleToolsPanel,
-  toggleWorkflowEnabled,
-  toggleWorkflowsGlobal,
-} from "./settings.js";
-import { scoreSlop } from "./slop_score.js";
+import { initMobileUi } from "./mobile.js";
+// Imported for the actions it registers.
+import "./presets.js";
+import { initTheme, initThemeList, loadSettings, renderToolsPanel } from "./settings.js";
+// Imported for the actions it registers.
+import "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
-import { $, fromMessageBody } from "./utils.js";
-import { registerAction } from "./workflow_api.js";
+import { $, fromMessageBody, initImageFallbacks } from "./utils.js";
 import { loadWorkflowModules, preloadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
-function toggleSection(header) {
-  header.querySelector(".arrow").classList.toggle("collapsed");
-  header.nextElementSibling.classList.toggle("collapsed");
-}
-window.toggleSection = toggleSection;
-
-// Section headers stick to the top of the sidebar while their body scrolls under them;
-// `.stuck` marks the pinned one so themes can style it. Collapsing from a pinned header
-// would leave the scroll offset deep inside what came after the section, so pull the
-// collapsed header back to the top.
-function initStickySectionHeaders() {
+// Sidebar sections collapse from their header. A collapsed header that was
+// pinned at the top scrolls back into view so its old offset does not hide it.
+function initSidebarSections() {
   const scroller = document.querySelector("#sidebar .sidebar-scroll");
   if (!scroller) return;
   const markStuck = () => {
@@ -223,14 +47,17 @@ function initStickySectionHeaders() {
     }
   };
   scroller.addEventListener("scroll", markStuck, { passive: true });
-  scroller.addEventListener("click", (event) => {
-    const header = event.target.closest(".sidebar-section-header");
-    if (!header) return;
-    if (header.nextElementSibling?.classList.contains("collapsed")) {
-      const overshoot = scroller.getBoundingClientRect().top - header.getBoundingClientRect().top;
-      if (overshoot > 0) scroller.scrollTop -= overshoot;
-    }
-    markStuck();
+  registerActions("sidebar", {
+    toggleSection: (header) => {
+      header.querySelector(".arrow").classList.toggle("collapsed");
+      const body = header.nextElementSibling;
+      body.classList.toggle("collapsed");
+      if (body.classList.contains("collapsed")) {
+        const overshoot = scroller.getBoundingClientRect().top - header.getBoundingClientRect().top;
+        if (overshoot > 0) scroller.scrollTop -= overshoot;
+      }
+      markStuck();
+    },
   });
 }
 
@@ -241,15 +68,17 @@ function closeBurger() {
   $("burger-dropdown").classList.remove("open");
 }
 
+registerActions("menu", { toggleBurger: () => toggleBurger() });
+
+// Clicking outside the menu closes it, and so does picking one of its items.
 document.addEventListener("click", (e) => {
-  if (!e.target.closest("#burger-btn") && !e.target.closest("#burger-dropdown")) closeBurger();
+  if (e.target.closest("#burger-btn")) return;
+  if (!e.target.closest("#burger-dropdown") || e.target.closest(".burger-menu-item")) closeBurger();
 });
 
 document.addEventListener("click", (e) => {
   const item = e.target.closest("[data-chat-action]");
   if (!item || fromMessageBody(item)) return;
-  closeBurger();
-  closeMobileHeaderActions();
   if (item.dataset.chatAction === "inspector") toggleInspector();
   else document.dispatchEvent(new CustomEvent(`${item.dataset.chatAction}-request`));
 });
@@ -275,187 +104,12 @@ document.addEventListener("click", (e) => {
   document.body.appendChild(box);
 });
 
-Object.assign(window, {
-  closeModal,
-  closeSubModal,
-  switchTab,
-  showConfirmModal,
-  applyTheme,
-  saveSetting,
-  onHybridInput,
-  showUserModal,
-  saveUserProfile,
-  showPersonaEditModal,
-  savePersona,
-  deletePersona,
-  editPersona,
-  activatePersona,
-  setPersonaConversationLock,
-  setPersonaCharacterLock,
-  toggleToolsPanel,
-  setAgentEnabled,
-  toggleToolEnabled,
-  toggleLengthGuard,
-  saveLengthGuardConfig,
-  toggleLengthGuardEnforce,
-  toggleAgenticLorebook,
-  toggleDirectorIndividualFragments,
-  toggleShowEditorDiff,
-  toggleAuditType,
-  toggleHideUntilBaked,
-  togglePreventPromptOverrides,
-  toggleShowChatAvatars,
-  toggleWorkflowsGlobal,
-  toggleWorkflowEnabled,
-  scoreSlop,
-  showPhraseBankModal,
-  showAddPhraseGroupModal,
-  showPresetsModal,
-  showSnapshotModal,
-  onPresetDomainChange,
-  doCreateSnapshot,
-  triggerPresetImport,
-  handlePresetImportFile,
-  downloadPreset,
-  applyPreset,
-  restorePreset,
-  deletePreset,
-  refreshPresetLibrary,
-  showMoodFragmentModal,
-  saveMoodFragment,
-  deleteMoodFragment,
-  toggleMoodFragmentEnabled,
-  showInteractiveFragmentModal,
-  saveInteractiveFragment,
-  deleteInteractiveFragment,
-  toggleInteractiveFragmentEnabled,
-  updateInteractiveFragmentExample,
-  selectChar,
-  triggerImport,
-  handleImportFile,
-  deleteCharacter,
-  showCharCreateModal,
-  createCharacter,
-  showCharEditModal,
-  saveCharEdit,
-  saveImportedChar,
-  addAltGreeting,
-  triggerAvatarCrop,
-  exportCharacter,
-  handleExpressionsZip,
-  clearExpressions,
-  showCharacterBrowserModal,
-  onCharBrowserSearch,
-  setCharBrowserSort,
-  searchInternet,
-  loadMoreInternet,
-  setInternetSource,
-  importInternetChar,
-  randomizeInternet,
-  refreshCharacters,
-  newConvForChar,
-  newConversationHere,
-  selectConversation,
-  deleteConversationFromModal,
-  showConvHistoryModal,
-  showCompressModal,
-  createCheckpoint,
-  generateCompressionSummary,
-  cancelCompression,
-  applyCompression,
-  startEditTitle,
-  saveTitleEdit,
-  cancelTitleEdit,
-  handleTitleEditKey,
-  startEdit,
-  cancelEdit,
-  saveEdit,
-  startForkEdit,
-  cancelForkEdit,
-  saveForkEdit,
-  startEditPending,
-  cancelEditPending,
-  saveEditPending,
-  deleteMessage,
-  switchBranch,
-  regenerate,
-  regenerateFromUser,
-  rewriteMessageProse,
-  superRegenerate,
-  toggleMagicInput,
-  handleMagicKey,
-  submitMagicRewrite,
-  continueFromUser,
-  sendMessage,
-  stopGeneration,
-  toggleInspector,
-  selectReasoningPass,
-  toggleReasoningPass,
-  clearRefineDiff,
-  setToolsTab,
-  selectWorkflowPipelinePass,
-  toggleSection,
-  toggleMobileSidebar,
-  toggleMobileHeaderActions,
-  closeMobileHeaderActions,
-  toggleBurger,
-  closeBurger,
-  triggerAttachImage,
-  showAvatarPopup,
-  hideAvatarPopup,
-  toggleDocumentMode,
-  setDocAssisted,
-  setDocProbs,
-  createDocument,
-  openDocument,
-  deleteDocument,
-  renameDocument,
-  renameActiveDocument,
-  onDocSearch,
-  expandDocs,
-  collapseDocs,
-  docGenerate,
-  docStop,
-  docUndo,
-  docRedo,
-  showCreateWorldModal,
-  createWorld,
-  showRenameWorldModal,
-  renameWorld,
-  toggleWorldEnabled,
-  deleteWorld,
-  openLorebook,
-  closeLorebook,
-  onWorldSearch,
-  expandWorlds,
-  collapseWorlds,
-  lbEntrySearch,
-  lbSelectEntry,
-  lbToggleEntry,
-  lbAddEntry,
-  lbBackToList,
-  lbDeleteEntry,
-  lbSaveEntry,
-  lbDiscardChanges,
-  lbDraftChange,
-  lbToggleConstant,
-  lbImportJson,
-  S,
-});
-
+initImageFallbacks();
 initTheme();
 initThemeList();
 initMessageHtmlActions();
 initComposer();
 initChatKeyNav();
-registerAction("expression-playback", "advance", advanceExpressionPlayback);
-registerAction("chat-compression", "generate", generateCompressionSummary);
-registerAction("chat-compression", "cancel", cancelCompression);
-registerAction("chat-compression", "apply", applyCompression);
-registerAction("queued-edit", "retry", retryQueuedEdits);
-registerAction("queued-edit", "discard", discardQueuedEdit);
-registerAction("phrase-suggestion", "add", addPhraseSuggestion);
-registerAction("phrase-suggestion", "dismiss", dismissPhraseSuggestion);
 document.addEventListener("keydown", handleExpressionPlaybackKey);
 initAutoscroll();
 initChatSwipeNav();
@@ -464,7 +118,7 @@ initAudioPlayer();
 initTabLock();
 initWorkflowMutationListener();
 initGroupSetup();
-initStickySectionHeaders();
+initSidebarSections();
 
 if (!S.activeConvId) {
   renderMessages();
@@ -485,9 +139,7 @@ async function initAll() {
   initWorldProposalActions();
   initDocumentMode();
 
-  // Independent lanes load concurrently, each keeping its own order. Run one
-  // after another they were a dozen round trips end to end, which a phone on a
-  // remote link paid for one at a time.
+  // Load independent lanes concurrently, preserving order within each lane.
   const manifest = startupStep("load workflow manifest", loadWorkflowManifest).then(preloadWorkflowModules);
   const settings = startupStep("load settings", loadSettings);
   await Promise.all([
@@ -510,10 +162,14 @@ async function initAll() {
           }
         }),
         startupStep("load documents", loadDocuments),
-        // Workflow modules register UI in the order they evaluate, so they still
-        // evaluate one at a time in manifest order; the preload above has their
-        // entry files in flight already.
-        manifest.then(() => startupStep("load workflow modules", loadWorkflowModules)),
+        // Workflow modules register UI in the order they evaluate, so they still evaluate one at a time in manifest
+        // order; the preload above has their entry files in flight already.
+        manifest.then(() =>
+          startupStep("load workflow modules", async () => {
+            // Plug-ins register Tools panel cards as they evaluate.
+            if (await loadWorkflowModules()) renderToolsPanel();
+          }),
+        ),
       ]),
     ),
   ]);

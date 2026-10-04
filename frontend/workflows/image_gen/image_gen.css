@@ -11,7 +11,6 @@
 .image-gen-settings label.ig-toggle:has(.ig-toggle-body){align-items:flex-start}
 .ig-toggle-body{display:grid;gap:3px}
 .image-gen-note{color:var(--text-muted);font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;margin:0;line-height:1.45}
-
 .image-gen-card-setup{display:flex;align-items:center;gap:8px;margin-top:8px}
 .image-gen-card-controls{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin-top:10px}
 .image-gen-card-controls>label{margin:0}
@@ -25,7 +24,6 @@
 .image-gen-card-alert-head{color:var(--danger,var(--accent));font-size:11px;font-weight:500;line-height:1.3}
 .image-gen-card-alert-detail{color:var(--text-muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
 .image-gen-card-setup+.image-gen-card-alert-detail{margin-top:4px}
-
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
 .ig-grid+.image-gen-note{margin-top:-4px}
@@ -35,7 +33,6 @@
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
 .ig-profile-member{display:grid;gap:4px}
-
 .ig-styles{display:grid;gap:6px}
 .ig-style,.ig-skill,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
 .image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow:hidden;cursor:pointer;font-size:12px;list-style:none}
@@ -59,7 +56,6 @@
 .ig-style-backend{padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
 .ig-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer}
 .ig-link:hover{text-decoration:underline}
-
 .ig-conn-list{display:grid;gap:6px}
 .ig-conn-name{flex:none;font-weight:500;color:var(--text-primary)}
 .ig-conn-kind{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-muted)}
@@ -69,11 +65,9 @@
 .ig-conn-test{min-width:0;overflow-wrap:anywhere}
 .ig-unready{color:var(--danger,var(--accent))}
 .ig-summary-note{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text-muted)}
-
 .ig-graph-list{display:grid;gap:6px}
 .ig-graph-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
 .ig-graph-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
-
 .ig-drawers{display:grid;gap:6px}
 .ig-advanced{border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary)}
 .ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
@@ -85,7 +79,6 @@
 .image-gen-graph-picker button{justify-self:start}
 .image-gen-settings .ig-reference-heading{margin-top:2px}
 .ig-slot-list{margin:0;padding-left:18px;display:grid;gap:2px;font-size:12px;color:var(--text-secondary)}
-
 .ig-profile-reference{display:grid;gap:5px}
 .ig-profile-reference-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
 .ig-reference-image{display:flex;align-items:flex-start;gap:10px;margin-top:4px}
@@ -93,7 +86,6 @@
 .ig-reference-thumb{display:block;max-width:96px;max-height:96px;border-radius:var(--radius);border:1px solid var(--border);object-fit:cover}
 .ig-reference-controls{flex:1;display:grid;gap:6px;min-width:0;justify-items:start}
 .ig-reference-empty{display:block}
-
 .ig-capability{margin-top:6px;padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
 
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
@@ -115,7 +107,7 @@
 .image-gen-focus>.image-gen-details{display:none}
 .image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh - 200px))}
 .image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
-.image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}
+.image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;-webkit-user-select:none;user-select:none;list-style:none}
 .image-gen-details>summary::-webkit-details-marker{display:none}
 .image-gen-details>summary::before{content:"▸";font-size:10px;color:var(--text-muted)}
 .image-gen-details[open]>summary::before{content:"▾"}

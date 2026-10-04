@@ -1,8 +1,7 @@
-"""Self-check for ``verify_kv_prefix_invariants`` — one case per failure class.
+"""Self-check for ``verify_kv_prefix_invariants`` -- one case per failure class.
 
-Synthetic ``captured`` entries in the FakeLLMClient shape; no app stack. If the
-checker logic breaks, these fail before the integration suite quietly loses its
-default-on KV-cache guarantee.
+Synthetic ``captured`` entries in the FakeLLMClient shape; no app stack. If the checker logic breaks, these fail before the
+integration suite quietly loses its default-on KV-cache guarantee.
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ def test_models_are_separate_cache_lanes():
 
 def test_servers_are_separate_cache_lanes():
     # Dual-model: writer and agent servers hold independent KV caches, and both
-    # auto-provisioned model configs may share a name — the endpoint splits them.
+    # auto-provisioned model configs may share a name -- the endpoint splits them.
     assert verify_kv_prefix_invariants([_call(), _call(endpoint="http://agent.local", tools=None, system=_SYS_DRIFTED)]) == []
 
 
@@ -74,10 +73,9 @@ def test_different_conversations_and_singletons_are_skipped():
     )
 
 
-# ── Batch lanes ──────────────────────────────────────────────────────────────
-# A batch pass sends one call per item, so ``messages[1]`` differs on every one.
-# Under the conversation-identity rule each lands in its own group of one and is
-# skipped — the hole the auto-tagger would otherwise have shipped through.
+# -- Batch lanes --------------------------------------------------------------
+# A batch pass sends one call per item, so ``messages[1]`` differs on every one. Under the conversation-identity rule each lands
+# in its own group of one and is skipped -- the hole the auto-tagger would otherwise have shipped through.
 
 
 def _batch_call(system=_SYS, tools=_TOOLS_SINGLE, user="card A"):

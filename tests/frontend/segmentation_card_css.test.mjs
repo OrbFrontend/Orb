@@ -1,43 +1,20 @@
+import { loadDom, MESSAGE_GLOBALS } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// Word segmentation rewrites a rendered bubble in place, wrapping every word in
-// a `<span class="seg">`. That is invisible to prose, and it is not invisible to
-// a message that shipped its own stylesheet: the sheet's selectors were written
-// against the elements the model wrote, and the spans are new elements sitting
-// between them. This suite pins the line between those two cases.
+// Word segmentation rewrites a rendered bubble in place, wrapping every word in a `<span class="seg">`. That is
+// invisible to prose, and it is not invisible to a message that shipped its own stylesheet: the sheet's selectors were
+// written against the elements the model wrote, and the spans are new elements sitting between them. This suite pins
+// the line between those two cases.
 //
 // jsdom is a devDependency; without `npm install` there is no DOM to rewrite,
 // and the file skips loudly instead of passing quietly.
 
-let dom = null;
-let failure = "";
-try {
-  const { JSDOM } = await import("jsdom");
-  dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://orb.invalid/" });
-} catch (e) {
-  failure = e?.message || String(e);
-}
+const { dom, failure } = await loadDom({ globals: MESSAGE_GLOBALS });
 
 let render = null;
 let segmentBody = null;
 if (dom) {
-  const w = dom.window;
-  globalThis.window = w;
-  for (const name of [
-    "document",
-    "Node",
-    "NodeFilter",
-    "Element",
-    "DocumentFragment",
-    "HTMLElement",
-    "HTMLUnknownElement",
-    "HTMLImageElement",
-    "DOMParser",
-    "MouseEvent",
-  ]) {
-    if (w[name] !== undefined) globalThis[name] = w[name];
-  }
   ({ renderMessageHtml: render } = await import("../../frontend/message_html.js"));
   ({ segmentBody } = await import("../../frontend/workflow_segmentation.js"));
 } else {
@@ -63,9 +40,8 @@ it("plain prose is segmented, because nothing in it can notice", () => {
 });
 
 it("a message that ships CSS keeps the DOM the model wrote", () => {
-  // The card this comes from: a `::before` on `header span` that renders the
-  // thread subject. One span in the markup, so it must fire once -- and it fired
-  // once per word instead, because each word had become a span of its own.
+  // The card this comes from: a `::before` on `header span` that renders the thread subject. One span in the markup, so
+  // it must fire once -- and it fired once per word instead, because each word had become a span of its own.
   const el = body(
     "<style>#post-1 header span::before{content:'subject'}</style>" +
       "<div id='post-1'><header><span>Anonymous</span> 12/19/26(Fri)07:06:13 No.117980402</header></div>",

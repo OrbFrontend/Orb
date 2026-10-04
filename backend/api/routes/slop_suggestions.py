@@ -9,13 +9,9 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
-from ...database import (
-    accept_slop_suggestion,
-    dismiss_slop_suggestion,
-    list_slop_suggestions,
-)
+from ...database import accept_slop_suggestion, dismiss_slop_suggestion, list_slop_suggestions
 from ...features.slop_suggestions import refresh_if_stale
-from ..deps import _validate_phrase_group
+from ..deps import validate_phrase_group
 from ..schemas import SlopSuggestionAccept
 
 router = APIRouter()
@@ -31,7 +27,7 @@ async def api_get_slop_suggestions():
 @router.post("/api/phrase-bank/suggestions/{suggestion_id}/accept")
 async def api_accept_slop_suggestion(suggestion_id: int, data: SlopSuggestionAccept):
     """Save a suggestion's pattern, as edited in the regex editor, as a regex phrase group."""
-    _variants, pattern = _validate_phrase_group("regex", [], data.pattern)
+    _variants, pattern = validate_phrase_group("regex", [], data.pattern)
     group_id = await accept_slop_suggestion(suggestion_id, pattern)
     if group_id is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")

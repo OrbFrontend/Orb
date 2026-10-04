@@ -1,9 +1,8 @@
 """Reroll and rehydrate must reproduce the image the row records, not the style.
 
-The failure this guards is silent: resolving replay through the style renders an
-old attachment on whatever checkpoint that style points at *today*, and for
-rehydrate -- which promises to restore evicted bytes -- that overwrites the row
-with a different image and reports success.
+The failure this guards is silent: resolving replay through the style renders an old attachment on whatever checkpoint that
+style points at *today*, and for rehydrate -- which promises to restore evicted bytes -- that overwrites the row with a
+different image and reports success.
 """
 
 from __future__ import annotations
@@ -26,9 +25,7 @@ SLOTS = {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "imag
 
 
 def _config(default_style: str = "anime", **external) -> dict:
-    base = {
-        "styles": [{"id": "anime", "label": "Anime", "checkpoint": "current.safetensors"}],
-    }
+    base = {"styles": [{"id": "anime", "label": "Anime", "checkpoint": "current.safetensors"}]}
     base.update(external)
     return normalize_config({"default_style": default_style, "external_comfy": base})
 
@@ -85,8 +82,7 @@ def test_a_replay_pins_the_resolution_it_was_generated_at():
         "slots": {**SLOTS, "width": ["l", "width"], "height": ["l", "height"]},
     }
     config = _config(
-        user_graphs=[sized],
-        styles=[{"id": "anime", "label": "Anime", "workflow": "user_sized", "width": 1536, "height": 1024}],
+        user_graphs=[sized], styles=[{"id": "anime", "label": "Anime", "workflow": "user_sized", "width": 1536, "height": 1024}]
     )
     target = _target(config, "anime", {"workflow_id": "user_sized", "width": 1024, "height": 1024})
     assert (target.width, target.height) == (1024, 1024)
@@ -118,7 +114,7 @@ def test_replay_of_a_deleted_graph_degrades_with_disclosure():
     assert "user_gone" in target.notes[0]
 
 
-# ── reference images on reroll ───────────────────────────────────────────────
+# -- reference images on reroll -----------------------------------------------
 
 EDIT_GRAPH = {**GRAPH, "r": {"class_type": "LoadImage", "inputs": {"image": "exported.png"}}}
 EDIT_SLOTS = {**SLOTS, "references": [{"slot": ["r", "image"], "source": "character", "label": "Load Image (#r)"}]}
@@ -128,9 +124,8 @@ class _RerollCtx:
     def __init__(self, prior_style: str, *, stored_seed: str = "1234", replay: bool = False):
         self.prior_consumption_metadata = {"style_id": prior_style}
         self.original_attachment = {"seed": stored_seed}
-        # What the route declares, and the only thing this hook branches on:
-        # False is /reroll-gen (render on today's style), True is /rehydrate
-        # (reproduce what the row recorded).
+        # What the route declares, and the only thing this hook branches on: False is /reroll-gen (render on today's style),
+        # True is /rehydrate (reproduce what the row recorded).
         self.replay = replay
 
 
@@ -163,10 +158,9 @@ async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
         "references": [{"slot": ["r", "image"], "source": "character", "origin": "character:card-1"}],
     }
 
-    # The plain style pins no workflow, so the render dies on the normal "assign a
-    # workflow" path. The recorded graph is still sitting in `params` and is simply
-    # not consulted -- what the sibling records is rewritten from the render that
-    # succeeds, so there is nothing to pop on the path that does not.
+    # The plain style pins no workflow, so the render dies on the normal "assign a workflow" path. The recorded graph is still
+    # sitting in `params` and is simply not consulted -- what the sibling records is rewritten from the render that succeeds, so
+    # there is nothing to pop on the path that does not.
     with pytest.raises(ImageGenerationError, match="Import a ComfyUI workflow"):
         await hooks.reroll_gen(_RerollCtx("edit"), params, "1")
 
@@ -175,11 +169,10 @@ async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
 async def test_a_two_reference_render_replays_both_origins_byte_identically(monkeypatch):
     """A stored render carrying two *different* origins still rerolls to both of them.
 
-    An image made while a style could point each slot at a different person records two
-    `character:<card id>` origins, and reroll promises only the seed changes -- so it
-    re-fetches exactly what the record names, however a style would fill those slots
-    today. Replay never knew a cast existed and does not need to now: both origins are
-    the same shape, and `_pair_with_slots` re-keys them onto the graph.
+    An image made while a style could point each slot at a different person records two `character:<card id>` origins, and
+    reroll promises only the seed changes -- so it re-fetches exactly what the record names, however a style would fill those
+    slots today. Replay never knew a cast existed and does not need to now: both origins are the same shape, and
+    `_pair_with_slots` re-keys them onto the graph.
     """
     from backend.workflows.image_gen import references as refs
     from backend.workflows.image_gen.engine.contracts import ImageResult
@@ -195,14 +188,7 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
     }
     config = _config(
         user_graphs=[{"id": "user_cast", "label": "Cast", "graph": two_slot, "slots": slots}],
-        styles=[
-            {
-                "id": "anime",
-                "label": "Anime",
-                "workflow": "user_cast",
-                "reference_source": "character",
-            }
-        ],
+        styles=[{"id": "anime", "label": "Anime", "workflow": "user_cast", "reference_source": "character"}],
     )
 
     async def get_config(_workflow_id):
@@ -273,13 +259,11 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prompt", ["", " ", "\n\t "])
 async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_asked(prompt):
-    """The prompt on a reroll may be the one edited in the render details, so blank is
-    a state a person can reach -- and `" "` is truthy, which is how it used to sail past
-    an emptiness check and reach the provider.
+    """The prompt on a reroll may be the one edited in the render details, so blank is a state a person can reach -- and `" "`
+    is truthy, which is how it used to sail past an emptiness check and reach the provider.
 
-    What came back was a paid round trip and a 400 about a parameter: Together's is
-    *"Positive prompt must be a non-empty, non-whitespace string value between 1 and
-    10000 characters"*, which names the field and not the edit that emptied it. Both
+    What came back was a paid round trip and a 400 about a parameter: Together's is *"Positive prompt must be a non-empty,
+    non-whitespace string value between 1 and 10000 characters"*, which names the field and not the edit that emptied it. Both
     spellings of blank are refused here, in words that say what to do about it.
     """
     params = {"prompt": prompt, "negative_prompt": "", "style_id": "anime"}
@@ -288,13 +272,12 @@ async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_a
         await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
 
 
-# ── which configuration a reroll renders on ──────────────────────────────────
+# -- which configuration a reroll renders on ----------------------------------
 #
-# The one thing the two routes backed by this hook disagree about. /rehydrate owes
-# the row the image it lost, so it pins what the row recorded; /reroll-gen owes the
-# user another variant of the same subject, so it renders on the style as it stands.
-# Reading the stored record on both is what made a style's resolution picker inert
-# for every image already made -- change it, press the dice, get the old size back.
+# The one thing the two routes backed by this hook disagree about. /rehydrate owes the row the image it lost, so it pins what
+# the row recorded; /reroll-gen owes the user another variant of the same subject, so it renders on the style as it stands.
+# Reading the stored record on both is what made a style's resolution picker inert for every image already made -- change it,
+# press the dice, get the old size back.
 
 SIZED_GRAPH = {**GRAPH, "l": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}}
 SIZED_SLOTS = {**SLOTS, "width": ["l", "width"], "height": ["l", "height"]}
@@ -306,10 +289,9 @@ STORED_COMFY = {"workflow_id": "user_sized", "backend_model": "old.safetensors",
 def _sized_comfy(monkeypatch, request):
     """Two ComfyUI styles on one sized graph; yields the resolved target per render.
 
-    `request.param` grades the size the fake reports, as `describe_render_params`
-    grades a real one: True for a graph whose size slots are mapped, False for one
-    where the value could only be scanned off some node. Defaults to True, which is
-    what SIZED_SLOTS below actually describes.
+    `request.param` grades the size the fake reports, as `describe_render_params` grades a real one: True for a graph whose size
+    slots are mapped, False for one where the value could only be scanned off some node. Defaults to True, which is what
+    SIZED_SLOTS below actually describes.
     """
     from backend.workflows.image_gen.engine.contracts import ImageResult
 
@@ -383,8 +365,7 @@ async def test_a_reroll_renders_on_the_style_as_it_stands_now(_sized_comfy, styl
 
 @pytest.mark.asyncio
 async def test_a_rehydrate_still_pins_what_the_row_recorded(_sized_comfy):
-    """The other half: these bytes are meant to *be* the ones the row lost, so
-    today's picker must not reshape them."""
+    """The other half: these bytes are meant to *be* the ones the row lost, so today's picker must not reshape them."""
     params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "anime", **STORED_COMFY}
 
     await hooks.reroll_gen(_RerollCtx("anime", replay=True), params, "1234")
@@ -431,11 +412,10 @@ async def test_reroll_preserves_stored_composition_skill_attribution(_sized_comf
 async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
     """The display half is a claim about the image, so it takes only a graded answer.
 
-    ComfyUI degrades to scanning the graph for any node carrying a width/height pair
-    -- which `test_graph` pins as able to pick an upscale node over the latent one --
-    and the row a user would check their picker against is the last place to print a
-    guess. The replay half still records it: a best-effort record degrades rather
-    than failing, it just does not get to be shown as fact.
+    ComfyUI degrades to scanning the graph for any node carrying a width/height pair -- which `test_graph` pins as able to pick
+    an upscale node over the latent one -- and the row a user would check their picker against is the last place to print a
+    guess. The replay half still records it: a best-effort record degrades rather than failing, it just does not get to be shown
+    as fact.
     """
     params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "anime", **STORED_COMFY}
 
@@ -445,19 +425,18 @@ async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
     assert (params["width"], params["height"]) == (1024, 1536), "still recorded, just not shown"
 
 
-# ── routing, when the replayed style is not the default one ──────────────────
+# -- routing, when the replayed style is not the default one ------------------
 
 
 @pytest.mark.asyncio
 async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypatch):
-    """The regression this plan is fixing. `normalize_config` derives `source` from
-    the *default* style, and `/rehydrate` calls the hook with the attachment's stored
-    `style_id` -- whatever the image was originally made with. Routing on `source`
-    therefore handed a ComfyUI-linked style to the cloud adapter, which answered
-    "Choose a model for xAI" about a style holding a perfectly good checkpoint.
+    """The regression this plan is fixing. `normalize_config` derives `source` from the *default* style, and `/rehydrate` calls
+    the hook with the attachment's stored `style_id` -- whatever the image was originally made with. Routing on `source`
+    therefore handed a ComfyUI-linked style to the cloud adapter, which answered "Choose a model for xAI" about a style
+    holding a perfectly good checkpoint.
 
-    `/reroll-gen` never showed it because the widget overwrites `style_id` with the
-    default style on every reroll; rehydrate does not.
+    `/reroll-gen` never showed it because the widget overwrites `style_id` with the default style on every reroll; rehydrate
+    does not.
     """
     from backend.workflows.image_gen.engine.contracts import ImageResult
 
@@ -496,7 +475,7 @@ async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypa
     assert not any("re-rendered on" in note for note in consumption.get("notes", []))
 
 
-# ── reference images on a cloud reroll ───────────────────────────────────────
+# -- reference images on a cloud reroll ---------------------------------------
 #
 # The cloud slot is synthetic and constant, so every question the ComfyUI cases
 # above answer about node ids has a different answer here.
@@ -512,11 +491,7 @@ def _cloud_config(reference_source: str, styles=None) -> dict:
                 "provider": "xai",
                 "reference_source": reference_source,
                 "providers": {
-                    "xai": {
-                        "api_key": "sk-test",
-                        "model": "grok-imagine-image",
-                        "reference_source": reference_source,
-                    }
+                    "xai": {"api_key": "sk-test", "model": "grok-imagine-image", "reference_source": reference_source}
                 },
             },
         }
@@ -546,10 +521,9 @@ def _cloud_reroll(monkeypatch):
     async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["request"] = request
         captured["target"] = target
-        # Mirrors what the real cloud adapter reports about itself, which is the half
-        # of the round-trip below that a fake can silently stop doing: it writes these
-        # off the *target*, so the record names what rendered rather than what the
-        # style says now.
+        # Mirrors what the real cloud adapter reports about itself, which is the half of the round-trip below that a fake can
+        # silently stop doing: it writes these off the *target*, so the record names what rendered rather than what the style
+        # says now.
         return ImageResult(
             image_bytes=b"rendered",
             mime="image/webp",
@@ -586,14 +560,12 @@ def _styled(quality: str, reference_source: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_cloud_reroll):
-    """The names are written in `hooks._REPLAYED_FACTS` and read in the adapter's
-    `resolve_target`: two files matched by nothing but a string.
+    """The names are written in `hooks._REPLAYED_FACTS` and read in the adapter's `resolve_target`: two files matched by nothing
+    but a string.
 
-    A typo on either side degrades in silence to "use whatever the style says today"
-    -- the exact substitution this module exists to prevent -- and every adapter-level
-    test still passes, because those hand-build the replay dict instead of taking one
-    the hook produced. So this records through the hook, moves the settings, and
-    replays through the real resolver.
+    A typo on either side degrades in silence to "use whatever the style says today" -- the exact substitution this module
+    exists to prevent -- and every adapter-level test still passes, because those hand-build the replay dict instead of taking
+    one the hook produced. So this records through the hook, moves the settings, and replays through the real resolver.
     """
     captured = _cloud_reroll(_styled(quality="high", reference_source="character"))
     params = {"prompt": "p", "negative_prompt": "", "style_id": "anime"}
@@ -620,9 +592,8 @@ async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_clo
 async def test_only_a_replay_calls_its_substitutions_a_mismatch(_cloud_reroll, replay):
     """ "it will not match" reports a broken promise, and only a replay made one.
 
-    A reroll is *allowed* to land on another backend or drop a reference the new
-    style has no slot for -- rendering on today's configuration is what the button
-    does. Both routes still say what changed; only one calls it a failure.
+    A reroll is *allowed* to land on another backend or drop a reference the new style has no slot for -- rendering on today's
+    configuration is what the button does. Both routes still say what changed; only one calls it a failure.
     """
     captured = _cloud_reroll(_cloud_config(""))
     params = {
@@ -677,13 +648,12 @@ async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(
     assert reference.slot == ("cloud", "image_0")
 
 
-# ── what a partly-filled target discloses ────────────────────────────────────
+# -- what a partly-filled target discloses ------------------------------------
 
 
 def test_the_unfilled_slot_note_counts_rather_than_claiming_nothing_was_sent():
-    """Trap 4.2. "drawn from the prompt alone" is true only when *nothing* resolved.
-    Said with one of several slots filled it tells the user the opposite of what
-    happened. The two facts the sentence has to carry are pinned; its wording is not.
+    """Trap 4.2. "drawn from the prompt alone" is true only when *nothing* resolved. Said with one of several slots filled it
+    tells the user the opposite of what happened. The two facts the sentence has to carry are pinned; its wording is not.
     """
     assert "prompt alone" in hooks._unfilled_note(1, 0)
     assert "prompt alone" not in hooks._unfilled_note(1, 1)

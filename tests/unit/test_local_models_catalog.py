@@ -1,16 +1,5 @@
-"""The shared artifact manifest, and the invariants a stale one breaks silently.
-
-BASENAMES ARE THE WHOLE SAFETY PROPERTY. ``assets`` flattens every download
-into ``data/models/`` because upstream repos disagree about where a GGUF lives
-(root, ``gguf/``, ``GGUF/`` — two of which are ONE directory on macOS and
-Windows), and ``prune_stale`` then deletes anything in that directory the specs
-do not claim. So two failures are possible and neither announces itself: a
-basename two specs both claim is one file two features fight over, and a
-basename no spec claims is a multi-gigabyte weight ``prune_stale`` wipes the
-next time an unrelated Download button is pressed.
-
-Asserted from the manifest itself rather than a hardcoded list, so a fourth
-checkpoint is covered the moment it is added.
+"""Check artifact basenames directly from the manifest: downloads flatten paths, so shared basenames collide and unclaimed
+weights are pruned. New specs automatically participate.
 """
 
 from __future__ import annotations
@@ -35,8 +24,7 @@ def test_every_downloadable_basename_is_claimed_exactly_once():
 
 
 def test_a_variant_bearing_specs_default_file_is_one_of_its_variants():
-    """Otherwise a bare download would fetch a fourth file the selector cannot
-    offer and nothing would ever load it."""
+    """Otherwise a bare download would fetch a fourth file the selector cannot offer and nothing would ever load it."""
     for feature, spec in MODELS.items():
         if spec.variants:
             assert spec.local_name in {v.local_name for v in spec.variants}, feature
@@ -58,10 +46,8 @@ def test_prune_stale_keeps_a_claimed_variant_and_removes_an_unclaimed_file(tmp_p
 def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch):
     """All three at once, not just the one the test above happened to pick.
 
-    ``prune_stale`` reads the WHOLE manifest to build its claim set, so the
-    property that matters is that no variant is missing from it — a checkpoint
-    the claim set forgets is 4.7 GB deleted the next time an unrelated Download
-    button is pressed.
+    ``prune_stale`` reads the WHOLE manifest to build its claim set, so the property that matters is that no variant is missing
+    from it -- a checkpoint the claim set forgets is 4.7 GB deleted the next time an unrelated Download button is pressed.
     """
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     variants = MODELS["prose_rewriter"].variants
@@ -76,10 +62,29 @@ def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch)
     assert not os.path.exists(tmp_path / "unclaimed.gguf")
 
 
+def test_prune_stale_leaves_what_it_does_not_manage(tmp_path):
+    """The prune deletes user files, so its reach is the contract: a claimed
+    weight in a mirrored repo subdirectory, an unmanaged extension, and hf's
+    ``.cache`` bookkeeping all survive it."""
+    mirrored = tmp_path / MODELS["emotion_classifier"].filename
+    mirrored.parent.mkdir()
+    mirrored.write_text("weights")
+    notes = tmp_path / "readme.txt"
+    notes.write_text("mine")
+    cache = tmp_path / ".cache" / "huggingface" / "download"
+    cache.mkdir(parents=True)
+
+    assets.prune_stale(str(tmp_path))
+
+    assert mirrored.exists()
+    assert notes.exists()
+    assert cache.is_dir()
+
+
 def test_every_artifact_has_an_extension_prune_stale_can_claim():
     """``prune_stale`` only deletes the suffixes in ``MANAGED_SUFFIXES``. A spec
     that writes anything else puts a file on disk nothing will ever clean up on
-    a model bump — which is exactly what happened when ONNX artifacts were
+    a model bump -- which is exactly what happened when ONNX artifacts were
     added to a prune that knew only ``.gguf``."""
     for feature, spec in MODELS.items():
         for name in spec.all_names():
@@ -111,8 +116,7 @@ def test_a_companion_file_is_required_for_present_and_kept_by_prune(tmp_path, mo
 
 
 def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
-    """They are useless alone, and 23 MB nothing claims is the shape of bug
-    ``prune_stale`` exists to prevent."""
+    """They are useless alone, and 23 MB nothing claims is the shape of bug ``prune_stale`` exists to prevent."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     spec = MODELS["spark_tts_codec"]
     companion = spec.extra_files[0]
@@ -126,8 +130,7 @@ def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
 
 
 def test_deleting_one_variant_leaves_shared_companions_alone(tmp_path, monkeypatch):
-    """A variant's siblings still need them, so the companion sweep is scoped
-    to a delete of the spec's OWN file."""
+    """A variant's siblings still need them, so the companion sweep is scoped to a delete of the spec's OWN file."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     spec = MODELS["prose_rewriter"]
     variant = spec.variants[0]

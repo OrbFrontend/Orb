@@ -6,155 +6,63 @@
 /* ── Editor ───────────────────────────────────────────────────────────────── */
 
 .decision-section { margin-top: 4px; }
-
 .decision-section .frag-divider { padding: 0; margin: 14px 0 6px; }
-
-.decision-hint {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
+.decision-hint { font-size: 10px; color: var(--text-muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .decision-section .field-row > .decision-knob { flex: 0 0 104px; min-width: 0; }
 .decision-section .field-row > .decision-inject { flex: 0 0 120px; min-width: 0; }
-
-.decision-macros {
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  margin-top: 3px;
-}
-
+.decision-macros { font-size: 10px; line-height: 1.5; color: var(--text-muted); margin-top: 3px; }
 .decision-macros code { font-family: var(--font-mono); font-size: 10px; }
-
-.decision-status,
-.decision-problem {
-  font-size: 11px;
-  line-height: 1.45;
-  border-left: 2px solid;
-  padding: 2px 0 2px 8px;
-  margin: 6px 0;
+.decision-status, .decision-problem {
+  font-size: 11px; line-height: 1.45; border-left: 2px solid; padding: 2px 0 2px 8px; margin: 6px 0;
 }
-
 .decision-status { color: var(--dec-warn); }
 .decision-problem { color: var(--red); }
 
 /* One grid for every question type. The key column is wide enough for the
    add button under it, and for a name input with its remove button beside it. */
-.decision-options {
-  --dec-key-col: 136px;
-  margin-bottom: 10px;
+.decision-options { --dec-key-col: 136px; margin-bottom: 10px; }
+.decision-option-head, .decision-option-row, .decision-options-foot {
+  display: grid; grid-template-columns: var(--dec-key-col) 1fr 1fr; gap: 8px; align-items: start;
 }
-
-.decision-option-head,
-.decision-option-row,
-.decision-options-foot {
-  display: grid;
-  grid-template-columns: var(--dec-key-col) 1fr 1fr;
-  gap: 8px;
-  align-items: start;
+.decision-option-head, .decision-cell-label {
+  font-size: 10px; line-height: 1.4; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted);
 }
-
-.decision-option-head,
-.decision-cell-label {
-  font-size: 10px;
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  color: var(--text-muted);
-}
-
 .decision-option-head { margin-bottom: 4px; }
 .decision-option-head .decision-hint { margin-left: 2px; }
 .decision-option-row { margin-bottom: 6px; }
-
-.decision-section textarea {
-  min-height: 0;
-  max-height: 320px;
-  resize: none;
-  overflow-y: auto;
-}
-
+.decision-section textarea { min-height: 0; max-height: 320px; resize: none; overflow-y: auto; }
 .decision-option-row textarea { width: 100%; overflow: hidden; }
 
 /* A placeholder that wraps would size an empty box taller than its row. */
 .decision-option-row textarea::placeholder { white-space: nowrap; }
 
 /* As tall as a one-line box, so the key centers on the first line beside it. */
-.decision-key-cell {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  min-height: 32px;
-}
-
-.decision-key-fixed {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
+.decision-key-cell { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 32px; }
+.decision-key-fixed { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 .decision-key-input { flex: 1; min-width: 0; }
-
 .decision-drag-handle {
-  --ui-icon-size: 14px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  align-self: stretch;
-  margin-left: -4px;
-  padding: 0 2px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  border-radius: 3px;
-  cursor: grab;
-  user-select: none;
-  -webkit-touch-callout: none;
+  --ui-icon-size: 14px; flex: none; display: flex; align-items: center; align-self: stretch; margin-left: -4px;
+  padding: 0 2px; color: var(--text-muted); background: none; border: none; border-radius: 3px; cursor: grab;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   /* See .cast-drag: a held press drags, a swipe across it still scrolls. */
   touch-action: pan-y;
 }
-
 .decision-drag-handle:hover { color: var(--text-secondary); background: var(--bg-hover); }
 .decision-drag-handle:active { cursor: grabbing; }
 .decision-option-row.dragging { opacity: .6; }
-
-.decision-row-remove {
-  --btn-square-size: 22px;
-  flex: none;
-  color: var(--text-muted);
-}
-
+.decision-row-remove { --btn-square-size: 22px; flex: none; color: var(--text-muted); }
 .decision-row-remove:hover { color: var(--red); }
-
 .decision-options-foot { margin-top: 2px; }
-
-.decision-options-foot > .btn {
-  grid-column: 1;
-  justify-content: center;
-  width: 100%;
-  padding: 7px 4px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
+.decision-options-foot > .btn { grid-column: 1; justify-content: center; width: 100%; padding: 7px 4px; font-size: 11px;
+  white-space: nowrap; }
 .decision-options-foot > .decision-hint { grid-column: 2 / 4; align-self: center; }
-
 .decision-cell-label { display: none; }
 
 /* The gate's question box is taller than its History number: labels share a
    bottom line (a wrapping one grows upward) and the controls share a top line.
    A hidden History leaves its auto column empty, so the question spans the row. */
-.align-controls .field-row.ifrag-gate-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0;
-  margin-bottom: 10px;
-}
+.align-controls .field-row.ifrag-gate-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0;
+  margin-bottom: 10px; }
 .ifrag-gate-row > .field { display: contents; }
 .ifrag-gate-row > .field > label { grid-row: 1; align-self: end; }
 .ifrag-gate-row > .field > :not(label) { grid-row: 2; align-self: start; }
@@ -163,82 +71,36 @@
 
 /* ── Mobile editor ── */
 @media (max-width: 700px) {
-  .ifrag-form .field-row {
-    display: flex;
-    gap: 8px;
-  }
-
+  .ifrag-form .field-row { display: flex; gap: 8px; }
   .ifrag-form .field-row > .field > label > span { display: block; }
   .ifrag-form .field-row > .field-narrow { flex-basis: 76px; }
   .ifrag-gate-row > .field-narrow > * { width: 76px; }
-
   .decision-section .field-row > .field:first-child { flex: .7 1 0; min-width: 0; }
   .decision-section .field-row > .field:nth-child(2) { flex: 1.3 1 0; min-width: 0; }
   .decision-section .field-row > .decision-knob { flex-basis: 76px; }
   .decision-section .field-row > .decision-inject { flex-basis: 88px; }
-
-  .decision-macros {
-    white-space: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    mask-image: linear-gradient(to right, #000 85%, transparent);
-  }
-
+  .decision-macros { white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 85%, transparent); }
   .decision-macros::-webkit-scrollbar { display: none; }
-
   .decision-option-head { display: none; }
-
-  .decision-options .decision-option-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-    padding: 8px 0 10px;
-    margin: 0;
-    border-top: 1px solid var(--border);
-  }
-
+  .decision-options .decision-option-row { grid-template-columns: 1fr; gap: 4px; padding: 8px 0 10px; margin: 0;
+    border-top: 1px solid var(--border); }
   .decision-cell-label { display: block; margin-top: 4px; }
-
   .decision-key-cell { justify-content: space-between; min-height: 0; }
   .decision-drag-handle { padding: 6px 10px; margin: -6px 0 -6px -10px; }
   .decision-key-fixed { font-weight: 600; color: var(--text-primary); }
   .decision-key-input { flex: 0 1 200px; margin-right: auto; }
-  .decision-options .decision-options-foot {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-  }
-
+  .decision-options .decision-options-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px;
+    padding-top: 10px; border-top: 1px solid var(--border); }
   .decision-options-foot > .btn { width: auto; padding: 5px 10px; }
 }
 
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 
-.judge-note {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-
-.judge-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
+.judge-note { font-size: 11px; line-height: 1.5; color: var(--text-muted); margin-bottom: 10px; }
+.judge-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .judge-actions .btn { flex-shrink: 0; }
-
-.judge-test-result,
-.judge-status {
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-
+.judge-test-result, .judge-status { font-family: var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
 .judge-test-result { font-size: 11px; }
 .judge-status { font-size: 10px; }
 .judge-test-ok { color: var(--accent); }
@@ -249,123 +111,36 @@
 
 .decision-block .inspector-body > .decision-eval { margin-bottom: 6px; }
 .decision-block .inspector-body > .decision-eval[open] { margin-bottom: 12px; }
-
-.decision-block :is(.decision-eval, .decision-state) > summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  user-select: none;
-}
-
+.decision-block :is(.decision-eval, .decision-state) > summary { list-style: none; cursor: pointer; display: flex;
+  align-items: center; gap: 6px; flex-wrap: wrap; -webkit-user-select: none; user-select: none; }
 .decision-block :is(.decision-eval, .decision-state) > summary::-webkit-details-marker { display: none; }
-
 .decision-block :is(.decision-eval, .decision-state)[open] > summary .reasoning-summary-arrow {
-  transform: rotate(90deg);
-}
-
-.decision-eval > summary,
-.decision-skipped-row { padding-left: 16px; }
+  transform: rotate(90deg); }
+.decision-eval > summary, .decision-skipped-row { padding-left: 16px; }
 .decision-eval > summary > .reasoning-summary-arrow { margin-left: -16px; }
-
-.decision-eval-name {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--text-primary);
-}
-
-.decision-meta,
-.decision-skipped-sizes {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-}
-
+.decision-eval-name { font-size: 12px; font-weight: 400; color: var(--text-primary); }
+.decision-meta, .decision-skipped-sizes { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
 .decision-eval-body { padding: 4px 0 0 16px; }
-
-.decision-reason {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--dec-warn);
-  margin-bottom: 6px;
-}
-
-.decision-guidance {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  margin: 6px 0;
-  white-space: pre-wrap;
-}
-
-.decision-guidance-empty {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
+.decision-reason { font-size: 11px; line-height: 1.45; color: var(--dec-warn); margin-bottom: 6px; }
+.decision-guidance { font-size: 11px; line-height: 1.5; color: var(--text-secondary); margin: 6px 0;
+  white-space: pre-wrap; }
+.decision-guidance-empty { color: var(--text-muted); font-style: italic; }
 .decision-dist { margin: 6px 0; }
-
-.decision-dist-row {
-  display: grid;
-  grid-template-columns: 76px 1fr 34px;
-  gap: 6px;
-  align-items: center;
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  margin-bottom: 2px;
-}
-
+.decision-dist-row { display: grid; grid-template-columns: 76px 1fr 34px; gap: 6px; align-items: center;
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 2px; }
 .decision-dist-selected { color: var(--accent); }
 .decision-dist-key { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.decision-dist-bar {
-  display: block;
-  height: 5px;
-  background: var(--bg-elevated);
-  border-radius: 3px;
-  overflow: hidden;
+.decision-dist-bar { display: block; height: 5px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden;
 }
-
-.decision-dist-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--accent-dim);
-}
-
+.decision-dist-bar > span { display: block; height: 100%; background: var(--accent-dim); }
 .decision-dist-selected .decision-dist-bar > span { background: var(--accent); }
 .decision-dist-value { text-align: right; }
-
 .decision-state { margin-top: 8px; }
-
-.decision-state > summary {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  color: var(--text-muted);
+.decision-state > summary { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted);
 }
-
-.decision-skipped {
-  margin-top: 8px;
-}
-
-.decision-skipped-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-
-.decision-skipped-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
+.decision-skipped { margin-top: 8px; }
+.decision-skipped-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.decision-skipped-name { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
 .decision-skipped-failed .decision-skipped-name { color: var(--dec-warn); }
 .decision-skipped-sizes { color: var(--dec-warn); margin-top: 2px; }
-
 .decision-skipped-row > :is(.decision-meta, .decision-skipped-sizes) { flex-basis: 100%; }

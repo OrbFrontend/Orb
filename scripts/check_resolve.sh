@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# Fast Python-version compatibility check for runtime dependencies.
-#
-# Instead of building a Docker image and booting the server (see
-# compatibility_test.sh), this resolves the *entire* dependency tree as if it
-# were being installed on the target Python version and fails if anything in
-# that tree declares a Requires-Python that excludes it. This is exactly the
-# thing a Dependabot bump can break, and it runs in seconds with no Docker.
-#
-# It uses pip's cross-version resolution: --python-version selects the target
-# interpreter for metadata/wheel selection, and --only-binary=:all: is required
-# by pip whenever --python-version is combined with --target. A consequence is
-# that a dependency which only ships an sdist (no wheel) for the target version
-# will be reported as a failure even though it could compile from source; for
-# this project every runtime dep ships wheels, and sdist-only on 3.11 would be
-# fragile anyway.
+# Resolve runtime dependencies for each target Python version without Docker.
+# --python-version with --target requires --only-binary=:all:, so sdist-only
+# dependencies fail this check even if they could compile from source.
 #
 # Usage:
 #   scripts/check_resolve.sh                # checks the default version set

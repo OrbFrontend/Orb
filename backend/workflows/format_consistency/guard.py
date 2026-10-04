@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from ..toolkit import protected_runs, spoken_lines
-from . import VOICE_REWRITE_TOOL_NAME
+from .config import VOICE_REWRITE_TOOL_NAME
 
 # A restatement may be slightly shorter, and may grow only by the few words a
 # person or tense shift costs ("she'd" -> "I would"), which scales with length.
@@ -14,16 +14,13 @@ _MAX_WORD_RATIO = 1.05
 _MIN_EXTRA_WORDS = 2
 
 # Match a leading speaker label only when the rewrite introduces one.
-_SPEAKER_LABEL = re.compile(
-    r"\A[ \t]*(?:\#{1,6}[ \t]+)?(?:\*\*|__|\[)?[ \t]*[^\s:][^\n:]{0,39}(?:\*\*|__|\])?[ \t]*:",
-)
+_SPEAKER_LABEL = re.compile(r"\A[ \t]*(?:\#{1,6}[ \t]+)?(?:\*\*|__|\[)?[ \t]*[^\s:][^\n:]{0,39}(?:\*\*|__|\])?[ \t]*:")
 
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
 
-# Where the rewrite lane sends no schema (text mode's grammar, structured-output
-# endpoints), the model only reads "call `voice_rewrite`" and can write that call
-# into the argument itself: `voice_rewrite("...")`. The wrapper is a broken
-# format, not a choice of words, so only a whole-passage wrapper is peeled.
+# Where the rewrite lane sends no schema (text mode's grammar, structured-output endpoints), the model only reads "call
+# `voice_rewrite`" and can write that call into the argument itself: `voice_rewrite("...")`. The wrapper is a broken format, not
+# a choice of words, so only a whole-passage wrapper is peeled.
 _CALL_WRAPPER = re.compile(
     rf"\A\s*`?{VOICE_REWRITE_TOOL_NAME}\s*\(\s*(?:rewritten_text\s*[=:]\s*)?"
     r"(?P<q>\"{3}|'{3}|[\"'])?(?P<body>.*?)(?(q)(?P=q))\s*\)\s*`?\s*\Z",

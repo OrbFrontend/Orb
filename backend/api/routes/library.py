@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -32,19 +33,8 @@ from ...database import (
     replace_vocabulary,
     resolve_duplicate_cards,
 )
-from ...features.card_generator import (
-    CardGenerationUnavailable,
-    build_library_digest,
-    generate_card,
-    generate_deep_card,
-)
-from ...features.library_dedupe import (
-    DEDUPE_REVISION,
-    body_hash,
-    dhash_from_image_bytes,
-    find_duplicates,
-    signals_for_all,
-)
+from ...features.card_generator import CardGenerationUnavailable, build_library_digest, generate_card, generate_deep_card
+from ...features.library_dedupe import DEDUPE_REVISION, body_hash, dhash_from_image_bytes, find_duplicates, signals_for_all
 from ...features.library_tags import (
     AutoTagUnavailable,
     build_judge_questions,
@@ -61,18 +51,14 @@ from ...inference import (
     DecisionCancelled,
     DecisionClient,
     DecisionTransportError,
-    LLMCallError,
     agent_lane_from_settings,
     client_from_settings,
-    provider_sentence,
 )
 from ...pipeline import resolve_judge_config
-from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
-    idle_chats_guard,
-    stop_active_stream,
-)
+from ...pipeline.events import FailureEvent
+from ...workflows.contracts import PublicEvent
+from ..deps import CleanupStreamingResponse, idle_chats_guard, sse_stream, stop_active_stream
+from ..errors import failure_event
 from ..schemas import (
     AutoTagRunRequest,
     CardGeneratorRunRequest,
@@ -100,7 +86,7 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
     settings = await get_settings()
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         yield {"event": "start", "data": {}}
         try:
             digest = ""
@@ -126,25 +112,15 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
                 yield {"event": "done", "data": {"card": card}}
         except CardGenerationUnavailable as exc:
             yield {"event": "error", "data": str(exc)}
-        except LLMCallError as exc:
-            yield {"event": "error", "data": exc.sentence or "The Agent endpoint failed"}
-        except httpx.HTTPStatusError as exc:
-            yield {"event": "error", "data": provider_sentence(exc.response.text) or "The Agent endpoint failed"}
-        except httpx.HTTPError:
-            yield {"event": "error", "data": "The Agent endpoint could not be reached"}
 
-    return _CleanupStreamingResponse(_sse_stream(_gen(), request, abort_token=abort_token), media_type="text/event-stream")
+    return CleanupStreamingResponse(sse_stream(_gen(), request, abort_token=abort_token), media_type="text/event-stream")
 
 
 async def _tag_state() -> dict:
     """Return the vocabulary and counts used by the manager panel."""
     vocabulary = await get_vocabulary()
     counts = await get_auto_tag_counts(vocabulary_hash(vocabulary) if vocabulary else None)
-    return {
-        "vocabulary": vocabulary,
-        "revision": vocabulary_revision(vocabulary),
-        **counts,
-    }
+    return {"vocabulary": vocabulary, "revision": vocabulary_revision(vocabulary), **counts}
 
 
 @router.get("/api/library/tags")
@@ -177,12 +153,9 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
     settings = await get_settings()
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         if _run_lock.locked():
-            yield {
-                "event": "error",
-                "data": "The library is busy — a tagging run or a vocabulary save is already under way",
-            }
+            yield {"event": "error", "data": "The library is busy — a tagging run or a vocabulary save is already under way"}
             return
         async with _run_lock:
             vocabulary = await get_vocabulary()
@@ -245,39 +218,15 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
                         }
                         return
                     continue
-                except LLMCallError as e:
+                except httpx.HTTPError as exc:
                     failed += 1
-                    logger.warning("Auto-tag endpoint failed for card %s: %s", scrub_log(card_id), e.sentence or e)
+                    error = failure_event(exc)
+                    reason = error["data"]["sentence"] or error["data"]["headline"]
                     yield {
                         "event": "card_error",
-                        "data": {
-                            "done": done,
-                            "total": total,
-                            "name": str(card.get("name") or ""),
-                            "error": e.sentence or "The Agent endpoint failed",
-                        },
+                        "data": {"done": done, "total": total, "name": str(card.get("name") or ""), "error": reason},
                     }
-                    yield {
-                        "event": "error",
-                        "data": "The Agent endpoint failed after its retries; the remaining cards were not sent",
-                    }
-                    return
-                except httpx.HTTPError as e:
-                    failed += 1
-                    logger.warning("Auto-tag transport failed for card %s: %s", scrub_log(card_id), e)
-                    yield {
-                        "event": "card_error",
-                        "data": {
-                            "done": done,
-                            "total": total,
-                            "name": str(card.get("name") or ""),
-                            "error": "The Agent endpoint could not be reached",
-                        },
-                    }
-                    yield {
-                        "event": "error",
-                        "data": "The Agent endpoint could not be reached after its retries; the remaining cards were not sent",
-                    }
+                    yield error
                     return
 
                 consecutive = 0
@@ -302,13 +251,12 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
 
             yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"),
-        media_type="text/event-stream",
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"), media_type="text/event-stream"
     )
 
 
-async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token):
+async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token) -> AsyncIterator[PublicEvent | FailureEvent]:
     """Keep the Judge busy across cards while committing each completed card."""
     total = len(pending)
     client = DecisionClient(config.url, config.api_key, config.model, timeout=_JUDGE_TIMEOUT_SECONDS, proxy=config.proxy)
@@ -350,18 +298,14 @@ async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token
                     card, tags = result
                 except DecisionCancelled:
                     return
-                except (LLMCallError, DecisionTransportError, httpx.HTTPError) as exc:
-                    logger.warning("Judge auto-tag endpoint failed for card %s: %r", scrub_log(card_id), exc)
-                    yield {"event": "error", "data": "The Judge endpoint failed; tagging stopped"}
+                except (DecisionTransportError, httpx.HTTPError) as exc:
+                    yield failure_event(exc)
                     return
                 except AutoTagUnavailable as exc:
                     failed += 1
                     consecutive += 1
                     logger.warning("Judge auto-tag failed for card %s: %s", scrub_log(card_id), exc)
-                    yield {
-                        "event": "card_error",
-                        "data": {"done": completed, "total": total, "name": "", "error": str(exc)},
-                    }
+                    yield {"event": "card_error", "data": {"done": completed, "total": total, "name": "", "error": str(exc)}}
                     if consecutive >= _MAX_CONSECUTIVE_FAILURES:
                         yield {"event": "error", "data": "Stopped after five incomplete Judge answers in a row"}
                         return
@@ -402,7 +346,7 @@ async def api_scan_library_duplicates(request: Request):
     """Rebuild the server-side duplicate report and stream avatar-cache progress."""
     abort_token = AbortToken()
 
-    async def _gen():
+    async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         if _run_lock.locked():
             yield {
                 "event": "error",
@@ -440,11 +384,10 @@ async def api_scan_library_duplicates(request: Request):
                 if str(card["avatar_dhash_stamp"]) == f"{stamp_prefix}{card['updated_at']}"
             }
             report = find_duplicates(signals_for_all(cards, dhashes), dismissed=await get_dismissals())
-            # Card bodies never leave this endpoint; compare is the two-card body
-            # boundary. What does leave is the small identity strip the review UI
-            # needs to tell same-named copies apart -- avatar presence, use, and
-            # age -- for the cards that actually appear in a result. A name and an
-            # opaque id cannot distinguish three cards all called "Mallory".
+            # Card bodies never leave this endpoint; compare is the two-card body boundary. What does leave is the small
+            # identity strip the review UI needs to tell same-named copies apart -- avatar presence, use, and age -- for the
+            # cards that actually appear in a result. A name and an opaque id cannot distinguish three cards all called
+            # "Mallory".
             listed = {card_id for group in report["groups"] for card_id in group["cards"]}
             listed.update(card_id for pair in report["pairs"] for card_id in (pair["a"], pair["b"]))
             activity = await get_card_activity(sorted(listed))
@@ -463,9 +406,8 @@ async def api_scan_library_duplicates(request: Request):
             report["stats"]["avatar_rehashed"] = total
             yield {"event": "done", "data": report}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"),
-        media_type="text/event-stream",
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"), media_type="text/event-stream"
     )
 
 
@@ -558,10 +500,9 @@ async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
 async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest):
     """Keep one card from a cluster of three or more copies and delete the rest.
 
-    Reviewing a cluster pair by pair means N-1 confirmations for one decision the
-    reader already made, so the keeper choice is a single call. The whole cluster
-    is checked before anything is deleted: a refusal must leave the library
-    untouched rather than half-applied.
+    Reviewing a cluster pair by pair means N-1 confirmations for one decision the reader already made, so the keeper choice is a
+    single call. The whole cluster is checked before anything is deleted: a refusal must leave the library untouched rather than
+    half-applied.
     """
     if _run_lock.locked():
         raise HTTPException(status_code=409, detail="The library is busy; wait for the current run to finish")

@@ -59,28 +59,16 @@ class ExternalComfyAdapter(ImageAdapter):
         return self.config["external_comfy"]["user_graphs"]
 
     def readiness(self, model: str = "") -> dict:
-        """Whether the style this adapter is bound to can render, not whether every
-        style can.
+        """Check only the bound style's readiness.
 
-        `model` is ignored: a ComfyUI render is pinned by its graph, whose checkpoint
-        is a node inside it rather than a field a caller can substitute.
-
-        Auditing the whole list would read as a permanently stuck "Setup required":
-        a cloud-linked style will never have a workflow, and a just-added style is
-        not finished yet, and neither says anything about the next Visualize. The
-        bound style is what makes that a *choice* rather than a limitation -- ask the
-        question about another style and this answers about that one.
+        Ignore model: the graph pins its checkpoint. Other cloud-linked or unfinished styles must not block this one.
         """
         config = self.config
         graphs = {graph["id"]: graph for graph in self._graphs()}
         style = self.style
         label = style["label"] or style["id"]
         if not style["workflow"]:
-            return {
-                "ready": False,
-                "reason": "no_workflow",
-                "detail": f"Import a ComfyUI workflow and assign it to {label!r}",
-            }
+            return {"ready": False, "reason": "no_workflow", "detail": f"Import a ComfyUI workflow and assign it to {label!r}"}
         if style["workflow"] not in graphs:
             return {
                 "ready": False,
@@ -88,19 +76,14 @@ class ExternalComfyAdapter(ImageAdapter):
                 "detail": f"{label!r} names a workflow that is not imported: {style['workflow']}",
             }
         if not style["checkpoint"] and "checkpoint" in graphs[style["workflow"]]["slots"]:
-            return {
-                "ready": False,
-                "reason": "no_checkpoint",
-                "detail": f"Choose a checkpoint for {label!r} before generating",
-            }
+            return {"ready": False, "reason": "no_checkpoint", "detail": f"Choose a checkpoint for {label!r} before generating"}
         return {"ready": True, "reason": "", "detail": f"External ComfyUI at {config['external_comfy']['api_url']}"}
 
     def _graph_slots(self, graph_id: str) -> Mapping[str, Any]:
         """`graph_id`'s slot map, or an empty one when it no longer resolves.
 
-        Which optional roles a graph maps is what the RenderTarget's dynamic tier
-        answers about, so both questions -- negative prompt, output size -- read the
-        same map rather than each walking the list its own way.
+        Which optional roles a graph maps is what the RenderTarget's dynamic tier answers about, so both questions -- negative
+        prompt, output size -- read the same map rather than each walking the list its own way.
         """
         return next((item["slots"] for item in self._graphs() if item["id"] == graph_id), {})
 
@@ -136,9 +119,8 @@ class ExternalComfyAdapter(ImageAdapter):
             replay, model=style["checkpoint"], width=int(style["width"]), height=int(style["height"])
         )
         slots = self._graph_slots(graph_id)
-        # The style is the live answer; a replay is about a render that already happened,
-        # and the source has been the style's to edit since. So the style goes in as the
-        # fallback: a record that names nothing (the graph was replaced, or the image
+        # The style is the live answer; a replay is about a render that already happened, and the source has been the style's to
+        # edit since. So the style goes in as the fallback: a record that names nothing (the graph was replaced, or the image
         # predates the record) is no answer, and the style is the better guess.
         source = style_reference_source(style)
         if replay:
@@ -158,11 +140,9 @@ class ExternalComfyAdapter(ImageAdapter):
             reference_slots=self._reference_slots(slots, source),
             notes=tuple(notes),
             reference_source=source,
-            # The graph's own declaration, not the style's: how many inputs load an
-            # image is structural and found at import, while whether a style points
-            # them anywhere is editable. A style with its reference off still reports
-            # the graph's count, which is what tells a disclosure "there is no further
-            # room" apart from "the style turned it off".
+            # The graph's own declaration, not the style's: how many inputs load an image is structural and found at import,
+            # while whether a style points them anywhere is editable. A style with its reference off still reports the graph's
+            # count, which is what tells a disclosure "there is no further room" apart from "the style turned it off".
             reference_capacity=len(reference_slots(slots)),
         )
 
@@ -173,9 +153,8 @@ class ExternalComfyAdapter(ImageAdapter):
     async def fetch_output(self, record: Mapping[str, Any]) -> bytes | None:
         """The original file of a past render, or None where the server no longer has it.
 
-        Matched by digest, not by name: ComfyUI reuses output names once its folder
-        is cleared, and the connection may point at another server by now, so a
-        name alone can answer with a different picture.
+        Matched by digest, not by name: ComfyUI reuses output names once its folder is cleared, and the connection may point at
+        another server by now, so a name alone can answer with a different picture.
         """
         digest = record.get("sha256")
         if not isinstance(digest, str) or not all(isinstance(record.get(key), str) for key in VIEW_KEYS):
@@ -195,12 +174,7 @@ class ExternalComfyAdapter(ImageAdapter):
         graph, slots = resolve_graph(self.config, style["workflow"])
         if "checkpoint" in slots:
             graph, _ = patch_graph(
-                graph,
-                slots,
-                prompt="connection test",
-                negative_prompt="",
-                seed=0,
-                checkpoint=style["checkpoint"],
+                graph, slots, prompt="connection test", negative_prompt="", seed=0, checkpoint=style["checkpoint"]
             )
         validate_graph_structure(graph, slots, info, filled=enabled_references(slots, style_reference_source(style)))
 
@@ -212,21 +186,17 @@ class ExternalComfyAdapter(ImageAdapter):
     async def validate_connection(self, *, allow_cached: bool = False) -> dict:
         """Prove this configuration can render, without submitting anything.
 
-        `allow_cached` lets the readiness probe reuse a recent node catalogue; an
-        explicit Test connection leaves it False, because pressing it means "look
-        again".
+        `allow_cached` lets the readiness probe reuse a recent node catalogue; an explicit Test connection leaves it False,
+        because pressing it means "look again".
         """
         config = self.config
         client = self._client()
         stats = await client.system_stats()
         info = await client.object_info(allow_cached=allow_cached)
-        # The source rides along because it decides whether Orb overwrites this graph's
-        # image widgets, and so whether they still have to name a file this server
-        # already has. Two styles on one workflow that answer differently are two
-        # selections -- and
-        # the first style to reach one names it, because a config-wide check that says
-        # only "Node 11 needs image 'x.jpeg'" leaves the user no way to tell which style
-        # to go and fix.
+        # The source rides along because it decides whether Orb overwrites this graph's image widgets, and so whether they still
+        # have to name a file this server already has. Two styles on one workflow that answer differently are two selections --
+        # and the first style to reach one names it, because a config-wide check that says only "Node 11 needs image 'x.jpeg'"
+        # leaves the user no way to tell which style to go and fix.
         selections: dict[tuple[str, str, str], str] = {}
         for style in config["styles"]:
             if style["workflow"]:
@@ -249,12 +219,7 @@ class ExternalComfyAdapter(ImageAdapter):
             discovered = await available_checkpoints()
         except ImageGenerationError:
             discovered = []
-        return {
-            "ok": True,
-            "capabilities": dict(CAPABILITIES),
-            "system": _safe_system_summary(stats),
-            "models": discovered,
-        }
+        return {"ok": True, "capabilities": dict(CAPABILITIES), "system": _safe_system_summary(stats), "models": discovered}
 
     async def list_models(self) -> list[str]:
         return await self._client().models("checkpoints")
@@ -262,11 +227,10 @@ class ExternalComfyAdapter(ImageAdapter):
     async def node_roles(self, class_types: Sequence[str]) -> dict:
         """Which inputs of the named node classes can carry which slot role.
 
-        Deliberately **not** on the ABC: ComfyUI-only, and the importer that needs it
-        stays usable while another source is selected. The typing rule lives here,
-        next to the validation using the same catalogue, so only the verdict crosses
-        the wire -- `/object_info` is tens of megabytes. Unknown classes are absent
-        from the result and the picker degrades to its name-based fallback.
+        Deliberately **not** on the ABC: ComfyUI-only, and the importer that needs it stays usable while another source is
+        selected. The typing rule lives here, next to the validation using the same catalogue, so only the verdict crosses the
+        wire -- `/object_info` is tens of megabytes. Unknown classes are absent from the result and the picker degrades to its
+        name-based fallback.
         """
         info = await self._client().object_info(allow_cached=True)
         roles: dict[str, dict] = {}
@@ -286,11 +250,9 @@ class ExternalComfyAdapter(ImageAdapter):
     async def _accepted_seed(self, client: ComfyClient, graph: Mapping[str, Any], slots: Mapping[str, Any], seed: int) -> int:
         """`seed` narrowed to what this graph's seed node will take.
 
-        Asked per render rather than stored at import, because the bound belongs to
-        the node class installed on the server: a workflow imported months ago can be
-        rendering against a node that has since changed its mind. A server that will
-        not answer degrades to the seed as asked -- exactly the prompt this adapter
-        submitted before it started asking.
+        Asked per render rather than stored at import, because the bound belongs to the node class installed on the server: a
+        workflow imported months ago can be rendering against a node that has since changed its mind. A server that will not
+        answer degrades to the seed as asked -- exactly the prompt this adapter submitted before it started asking.
         """
         declaration = seed_input(graph, slots)
         if declaration is None:
@@ -303,11 +265,7 @@ class ExternalComfyAdapter(ImageAdapter):
         return fit_seed(seed, info, input_name)
 
     async def generate(
-        self,
-        request: ImageRequest,
-        *,
-        target: RenderTarget,
-        progress: ProgressCallback | None = None,
+        self, request: ImageRequest, *, target: RenderTarget, progress: ProgressCallback | None = None
     ) -> ImageResult:
         graph, slots = resolve_graph(self.config, target.target_id)
         notes = target.notes
@@ -336,12 +294,7 @@ class ExternalComfyAdapter(ImageAdapter):
             height=target.height,
             references=[(reference.slot, uploaded[reference.digest]) for reference in request.references],
         )
-        result = await client.generate(
-            patched,
-            output_node,
-            timeout_seconds=request.timeout_seconds,
-            progress=progress,
-        )
+        result = await client.generate(patched, output_node, timeout_seconds=request.timeout_seconds, progress=progress)
         return ImageResult(
             image_bytes=result.image_bytes,
             mime=result.mime,
@@ -362,9 +315,8 @@ class ExternalComfyAdapter(ImageAdapter):
 def _safe_system_summary(stats: Mapping[str, Any]) -> dict:
     """The two facts Orb shows off `/system_stats`, bounded and nothing else copied.
 
-    An allowlist rather than a filter: this payload reaches the settings panel, and
-    a ComfyUI build that starts reporting paths or usernames must not carry them
-    along on the strength of nobody having thought to exclude them.
+    An allowlist rather than a filter: this payload reaches the settings panel, and a ComfyUI build that starts reporting paths
+    or usernames must not carry them along on the strength of nobody having thought to exclude them.
     """
     system = stats.get("system")
     devices = stats.get("devices")
@@ -381,9 +333,8 @@ def _safe_system_summary(stats: Mapping[str, Any]) -> dict:
 def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
     """Input names whose declared type is the scalar kind `wanted`.
 
-    `/object_info` declares an input as `[type, options]`, `type` being a string for
-    scalars and a list for combos. Only scalars are role candidates: a combo is a
-    fixed menu, and a linked slot has no widget to patch.
+    `/object_info` declares an input as `[type, options]`, `type` being a string for scalars and a list for combos. Only scalars
+    are role candidates: a combo is a fixed menu, and a linked slot has no widget to patch.
     """
     return [
         name

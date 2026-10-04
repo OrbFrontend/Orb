@@ -68,10 +68,7 @@ def protected_bands(draft: str, previous_end: int, start: int, end: int, next_st
     after_text = draft[end:next_start]
     before = _tokenize(before_text)[-BAND_TOKENS:]
     after = _tokenize(after_text)[:BAND_TOKENS]
-    return (
-        Band("before", before_text, tuple(before)),
-        Band("after", after_text, tuple(after)),
-    )
+    return (Band("before", before_text, tuple(before)), Band("after", after_text, tuple(after)))
 
 
 @dataclass(frozen=True)

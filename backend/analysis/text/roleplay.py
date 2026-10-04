@@ -36,9 +36,8 @@ def emphasis_inner(raw: str) -> str:
     return core.strip("*_ ").strip()
 
 
-# A clause can close on stylistic punctuation as well as a full stop: roleplay
-# greetings routinely end a line on "~", "♪" or a cut-off dash before an
-# action beat. Anything not listed here reads as mid-sentence italics.
+# A clause can close on stylistic punctuation as well as a full stop: roleplay greetings routinely end a line on "~", "♪" or a
+# cut-off dash before an action beat. Anything not listed here reads as mid-sentence italics.
 _SENTENCE_END = ".!?…~♪♥♡—–-)]"
 
 

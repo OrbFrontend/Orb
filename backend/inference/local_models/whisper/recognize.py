@@ -60,7 +60,7 @@ class _Decoder:
         self._past: dict[str, np.ndarray] = {}
 
     def _empty_past(self, name: str) -> np.ndarray:
-        import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+        import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
         shape = self._inputs[name].shape
         heads = shape[1] if isinstance(shape[1], int) else self._heads
@@ -68,12 +68,9 @@ class _Decoder:
         return np.zeros((1, heads, 0, dim), dtype=np.float32)
 
     def _run(self, ids: list[int], *, cached: bool) -> np.ndarray:
-        import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+        import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
-        feed: dict[str, np.ndarray] = {
-            "input_ids": np.asarray([ids], dtype=np.int64),
-            "encoder_hidden_states": self._hidden,
-        }
+        feed: dict[str, np.ndarray] = {"input_ids": np.asarray([ids], dtype=np.int64), "encoder_hidden_states": self._hidden}
         if "use_cache_branch" in self._inputs:
             feed["use_cache_branch"] = np.asarray([cached])
         for name in self._inputs:
@@ -102,7 +99,7 @@ class _Decoder:
 @onnx_runtime.using
 def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     """Transcribe up to 30 s of 16 kHz mono audio."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
     if audio.size > MAX_SECONDS * SAMPLE_RATE:
@@ -120,12 +117,7 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     languages = {token.strip("<|>"): int(index) for token, index in generation["lang_to_id"].items()}
     heard = decoder.start([start])
     language_id = max(languages.values(), key=lambda index: heard[index])
-    prompt = [
-        start,
-        language_id,
-        int(generation["task_to_id"]["transcribe"]),
-        int(generation["no_timestamps_token_id"]),
-    ]
+    prompt = [start, language_id, int(generation["task_to_id"]["transcribe"]), int(generation["no_timestamps_token_id"])]
 
     # Only text tokens and end-of-text may be generated: a special token in
     # the middle of a transcript is a decoding failure, not content.

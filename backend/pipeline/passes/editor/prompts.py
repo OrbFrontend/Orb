@@ -81,9 +81,7 @@ STRUCTURAL_REWRITE_INSTRUCTIONS = (
 
 
 def build_feedback_prompt(
-    feedback_fragments: Sequence[Mapping[str, Any]],
-    reasoning_on: bool = False,
-    tool_schema: dict | None = None,
+    feedback_fragments: Sequence[Mapping[str, Any]], reasoning_on: bool = False, tool_schema: dict | None = None
 ) -> str:
     """Build the post-Writer feedback request."""
     preamble = FEEDBACK_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
@@ -116,10 +114,9 @@ def _category_rules(categories: Collection[str]) -> str:
 def patch_instructions(categories: Collection[str], *, shown: Collection[str] | None = None) -> str:
     """The patching instructions for a report flagging *categories*.
 
-    *shown* is what the conversation already carries: ``None`` when no patch
-    instructions have been sent yet, else the categories whose rules have been.
-    Only what is missing is returned, so a replayed tool result can add the rules
-    for kinds that surface after the first request.
+    *shown* is what the conversation already carries: ``None`` when no patch instructions have been sent yet, else the
+    categories whose rules have been. Only what is missing is returned, so a replayed tool result can add the rules for kinds
+    that surface after the first request.
     """
     rules = _category_rules(set(categories).difference(shown or ()))
     if shown is not None:
@@ -153,7 +150,7 @@ def build_editor_prompt(
     if editor_patches(has_audit_issues, length_guard_triggered, structural_rewrite, patchable):
         parts.append(patch_instructions(patch_categories))
         parts.append(report_text)
-    elif length_guard_triggered or structural_rewrite or has_audit_issues:
+    elif length_guard_triggered or structural_rewrite:
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
         if has_audit_issues:
             parts.append(report_text)

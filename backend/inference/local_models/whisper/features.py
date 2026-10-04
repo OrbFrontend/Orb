@@ -18,8 +18,8 @@ N_FRAMES = CHUNK_SAMPLES // HOP_LENGTH
 
 
 def mel_filters(n_mels: int) -> np.ndarray:
-    """``(n_freqs, n_mels)`` Slaney-normalized filterbank spanning 0–8 kHz."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    """``(n_freqs, n_mels)`` Slaney-normalized filterbank spanning 0-8 kHz."""
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     n_freqs = N_FFT // 2 + 1
     fft_freqs = np.linspace(0, SAMPLE_RATE // 2, n_freqs, dtype=np.float64)
@@ -34,7 +34,7 @@ def mel_filters(n_mels: int) -> np.ndarray:
 
 def log_mel(wav: np.ndarray, n_mels: int) -> np.ndarray:
     """Return Whisper log-mel features for a fixed 30 s window."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     audio = np.zeros(CHUNK_SAMPLES, dtype=np.float64)
     source = np.asarray(wav, dtype=np.float64).reshape(-1)[:CHUNK_SAMPLES]
@@ -42,9 +42,7 @@ def log_mel(wav: np.ndarray, n_mels: int) -> np.ndarray:
     padded = np.pad(audio, N_FFT // 2, mode="reflect")
     frames = 1 + (padded.size - N_FFT) // HOP_LENGTH
     blocks = np.lib.stride_tricks.as_strided(
-        padded,
-        shape=(frames, N_FFT),
-        strides=(padded.strides[0] * HOP_LENGTH, padded.strides[0]),
+        padded, shape=(frames, N_FFT), strides=(padded.strides[0] * HOP_LENGTH, padded.strides[0])
     )
     window = 0.5 - 0.5 * np.cos(2.0 * np.pi * np.arange(N_FFT) / N_FFT)  # periodic Hann
     power = np.abs(np.fft.rfft(blocks * window, n=N_FFT, axis=1)) ** 2

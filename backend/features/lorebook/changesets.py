@@ -22,9 +22,8 @@ _CREATING_OPS = ("create", "replace", "suppress")
 _RESTORED_FIELDS = ("name", "content", "keywords", "priority", "enabled")
 
 
-# Recorded, never proposed. The Agent has no operation that deletes a row -- it
-# archives -- so this op kind only ever reaches the table through the drawer's
-# Delete button, and no applier branch dispatches on it.
+# Recorded, never proposed. The Agent has no operation that deletes a row -- it archives -- so this op kind only ever reaches
+# the table through the drawer's Delete button, and no applier branch dispatches on it.
 DELETE_OP = "delete"
 
 
@@ -34,17 +33,10 @@ def dynamic_enabled(world: Mapping[str, Any] | None) -> bool:
 
 
 async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
-    """Delete one lorebook entry, recording it in a Dynamic World's history.
+    """Delete an entry and record an applied changeset if its World has history.
 
-    A hard delete is the one drawer mutation that leaves nothing behind: the row
-    is gone, and every applied changeset that touched it can no longer be
-    undone. On a World with a history, that is a hole in the account of how the
-    lorebook got to where it is -- so the deletion is filed as an
-    already-applied changeset of its own and lists under History beside the
-    Agent's retractions, whichever hand did it.
-
-    Not recorded on a World that never opted in: it has no history for the row
-    to join, and writing one would be the feature leaking into a plain lorebook.
+    Hard deletion invalidates undo for changesets that touched the entry.
+    Plain lorebooks that never opted in receive no history row.
     """
     entry_id = int(entry["id"])
     if not dynamic_enabled(world):
@@ -62,9 +54,8 @@ async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bo
                 {
                     "op": DELETE_OP,
                     "target_entry_id": entry_id,
-                    # The review surface reads a target's wording off the
-                    # operation, which is what keeps history legible once the
-                    # row it names is unreadable.
+                    # The review surface reads a target's wording off the operation, which is what keeps history legible once
+                    # the row it names is unreadable.
                     "target_name": name,
                     "target_content": str(entry.get("content") or ""),
                 }
@@ -74,18 +65,11 @@ async def delete_entry(world: Mapping[str, Any], entry: Mapping[str, Any]) -> bo
 
 
 async def stage_proposal(
-    proposal: Mapping[str, Any],
-    *,
-    source_user_message_id: int | None,
-    source_assistant_message_id: int | None,
+    proposal: Mapping[str, Any], *, source_user_message_id: int | None, source_assistant_message_id: int | None
 ) -> WorldChangesetRow:
-    """Persist a validated proposal as a pending changeset. Applies nothing.
+    """Stage a validated proposal without applying it.
 
-    *proposal* is the payload the turn stage parked on ``TurnState`` -- world id,
-    base revision, summary, operations, and the denormalised source labels. The
-    two message ids stay separate arguments because only the persistence
-    boundary knows them: a changeset names the assistant row it was derived
-    from, and that row has no id until the reply is committed.
+    Source message ids are supplied separately because the assistant id exists only after persistence.
     """
     return await db.create_world_changeset(
         {
@@ -99,22 +83,12 @@ async def stage_proposal(
 
 
 async def accept_changeset(
-    changeset: Mapping[str, Any],
-    *,
-    operations: Sequence[Mapping[str, Any]] | None = None,
-    summary: str | None = None,
+    changeset: Mapping[str, Any], *, operations: Sequence[Mapping[str, Any]] | None = None, summary: str | None = None
 ) -> WorldChangesetRow:
-    """Apply a pending changeset atomically, re-validating first.
+    """Apply a pending changeset atomically after live validation.
 
-    *operations* overrides the stored list, which is how "edit then apply" works:
-    the user may drop or reword individual operations, but whatever survives
-    commits as one batch. The override is re-validated against the live World
-    rather than trusted — the client is not the authority on which entry ids
-    exist or which layer they are in.
-
-    Raises :class:`db.RevisionConflict` when the World moved on (the caller marks
-    the changeset stale and offers Re-evaluate) or
-    :class:`db.OverlayStateConflict` when an operation no longer resolves.
+    Optional operations replaces the whole stored list. Raise RevisionConflict
+    for World drift or OverlayStateConflict for targets that no longer resolve.
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):
@@ -126,47 +100,34 @@ async def accept_changeset(
             raise db.RevisionConflict(expected_revision, revision)
         entries = await db.get_lorebook_entries(world_id)
         proposed = list(operations if operations is not None else changeset["operations"])
-        checked = validate_proposal(
-            {"summary": summary or changeset["summary"], "operations": proposed},
-            entries,
-        )
+        checked = validate_proposal({"summary": summary or changeset["summary"], "operations": proposed}, entries)
         if checked.rejected:
             logger.info(
-                "Changeset %s: dropped %d operation(s) on accept: %s",
-                changeset["id"],
-                len(checked.rejected),
-                checked.rejected,
+                "Changeset %s: dropped %d operation(s) on accept: %s", changeset["id"], len(checked.rejected), checked.rejected
             )
         if not checked.operations:
-            # *operations* may be a batch the user just edited, so "nothing
-            # applies" is as often a field they blanked as a World that moved on.
-            # The first rejection names which -- and the bare sentence would send
-            # them hunting through the World for a conflict they did not cause.
+            # *operations* may be a batch the user just edited, so "nothing applies" is as often a field they blanked as a World
+            # that moved on. The first rejection names which -- and the bare sentence would send them hunting through the World
+            # for a conflict they did not cause.
             raise db.OverlayStateConflict(
                 f"no operation in this changeset can be applied: {checked.rejected[0][1]}"
                 if checked.rejected
                 else "no operation in this changeset still applies to the world"
             )
         return await db.apply_changeset(
-            int(changeset["id"]),
-            checked.operations,
-            expected_revision=expected_revision,
-            summary=checked.summary or None,
+            int(changeset["id"]), checked.operations, expected_revision=expected_revision, summary=checked.summary or None
         )
 
 
 async def close_changeset(changeset_id: int, status: str) -> WorldChangesetRow | None:
     """Retire an open changeset with an atomic status compare-and-swap.
 
-    ``rejected`` is the user's decision; ``stale`` is the World having moved on
-    under a proposal that can no longer be applied, or its source evidence
-    having gone. Both leave the review queue, and both must lose to a concurrent
-    decision rather than overwrite it, so both are the same guarded transition.
+    ``rejected`` is the user's decision; ``stale`` is the World having moved on under a proposal that can no longer be applied,
+    or its source evidence having gone. Both leave the review queue, and both must lose to a concurrent decision rather than
+    overwrite it, so both are the same guarded transition.
     """
     return await db.update_world_changeset(
-        changeset_id,
-        {"status": status, "decided_at": datetime.now(UTC).isoformat()},
-        expected_statuses=("pending", "stale"),
+        changeset_id, {"status": status, "decided_at": datetime.now(UTC).isoformat()}, expected_statuses=("pending", "stale")
     )
 
 
@@ -175,15 +136,9 @@ def invert_operations(
     before_entries: Sequence[Mapping[str, Any] | None],
     after_entries: Sequence[Mapping[str, Any] | None],
 ) -> tuple[list[dict], list[dict | None]]:
-    """Build the compensating operations for an applied changeset.
+    """Return reverse-ordered inverse operations and paired required-state snapshots.
 
-    Returns ``(inverse_ops, required_state)`` — positionally paired, where
-    ``required_state`` is the after-snapshot each inverse op's target must still
-    match for the undo to be safe.
-
-    The inverses are read straight off the recorded snapshots, in reverse order
-    so a proposal that created an entry and then updated it unwinds cleanly.
-    Archiving an overlay row is what re-exposes any authored entry it hid.
+    Reverse order unwinds create-then-update safely; archiving overlays restores the authored entries they hid.
     """
     inverse: list[dict] = []
     required: list[dict | None] = []
@@ -202,13 +157,7 @@ def invert_operations(
             restored["activation"] = "constant" if before.get("constant") else "keywords"
             inverse.append(restored)
         elif kind == "archive" and before is not None:
-            inverse.append(
-                {
-                    "op": "archive",
-                    "target_entry_id": entry_id,
-                    "archived": bool(before.get("archived")),
-                }
-            )
+            inverse.append({"op": "archive", "target_entry_id": entry_id, "archived": bool(before.get("archived"))})
         else:
             continue
         required.append(dict(after))
@@ -219,15 +168,11 @@ async def undo_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow:
     """Reverse an applied changeset by applying its compensating changeset.
 
     Raises :class:`db.OverlayStateConflict` when a later change moved one of the
-    targets — the whole undo refuses rather than clobbering it.
+    targets -- the whole undo refuses rather than clobbering it.
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):
-        inverse, required = invert_operations(
-            changeset["operations"],
-            changeset["before_entries"],
-            changeset["after_entries"],
-        )
+        inverse, required = invert_operations(changeset["operations"], changeset["before_entries"], changeset["after_entries"])
         if not inverse:
             raise db.OverlayStateConflict("this changeset made no reversible entry changes")
         revision = await db.get_content_revision(world_id)

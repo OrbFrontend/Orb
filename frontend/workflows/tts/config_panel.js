@@ -601,7 +601,7 @@ async function enrollFile(file) {
   setPreviewTime("");
   renderCloneControl();
   try {
-    const url = `/characters/${encodeURIComponent(cardId)}/voice-reference?mode=${cloned.mode}`;
+    const url = `/characters/${encodeURIComponent(cardId)}/workflows/${WORKFLOW_ID}/upload?mode=${cloned.mode}`;
     const res = await api.upload(url, file);
     enrolling = "";
     referenceNote = res?.reference_note || "";
@@ -622,7 +622,8 @@ async function clearVoiceReference() {
   if (!cardId) return;
   if (!window.confirm("Remove this character's cloned voice?")) return;
   try {
-    const res = await api.del(`/characters/${encodeURIComponent(cardId)}/voice-reference`);
+    const res = await api.post(triggerUrl(), { action: "clear_voice", ...profileTarget() });
+    if (res?.error) throw new Error(res.error);
     referenceNote = "";
     applyProfile(res?.profile);
     setStatus("Cloned voice removed");

@@ -22,11 +22,10 @@ _MAX_ENTRIES = 200
 
 
 def extract_expressions_zip(zip_bytes: bytes) -> dict[str, tuple[str, str]]:
-    """Parse a zip of expression images → {label: (data_b64, mime)}.
+    """Parse a zip of expression images -> {label: (data_b64, mime)}.
 
-    Flattens paths (basename), keeps files whose lowercase stem is a go-emotions
-    label and whose extension is a known image type. Zip-bomb guards (trust
-    boundary): reject > 200 entries or any declared entry > 5 MB before reading.
+    Flattens paths (basename), keeps files whose lowercase stem is a go-emotions label and whose extension is a known image
+    type. Zip-bomb guards (trust boundary): reject > 200 entries or any declared entry > 5 MB before reading.
     """
     out: dict[str, tuple[str, str]] = {}
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -57,13 +56,9 @@ def _expression_pack(card_dict: Mapping[str, object]) -> dict | None:
 
 
 async def fetch_embedded_expressions(card_dict: Mapping[str, object]) -> dict[str, tuple[str, str]]:
-    """Best-effort auto-import of a card's embedded expression pack.
+    """Best-effort expression import: prefer the compressed zip, then per-label URLs.
 
-    Prefers the single ``compressed`` zip; falls back to per-label image URLs.
-    Returns {} when the card has no pack or the fetch fails — expressions are a
-    nice-to-have and must never block importing the card itself. URLs come
-    straight off the card, the same SSRF surface as the existing avatar fetch;
-    https-only and size-capped.
+    Return {} on absence/failure; card import must still succeed. Remote URLs are HTTPS-only and size-capped.
     """
     pack = _expression_pack(card_dict)
     if not pack:

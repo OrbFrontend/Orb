@@ -10,13 +10,7 @@ from typing import Any, NamedTuple
 from ..toolkit import forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
-from .prompts import (
-    OFFER_TOOLS,
-    compose_ooc,
-    refine_ooc,
-    render_result,
-    select_skills_ooc,
-)
+from .prompts import OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc
 from .scrub import (
     SubjectAppearance,
     bounded,
@@ -36,8 +30,7 @@ logger = logging.getLogger(__name__)
 class PrompterCallError(RuntimeError):
     """The provider refused a prompter call that was not allowed to degrade.
 
-    Kept apart from the composer's own `ValueError`, which says the model answered
-    but wrote nothing usable.
+    Kept apart from the composer's own `ValueError`, which says the model answered but wrote nothing usable.
     """
 
 
@@ -53,10 +46,9 @@ class SkillSelection(NamedTuple):
 class RefineThread:
     """The compose call and every review after it, kept so each review sees the rest.
 
-    `messages` extends the shared prefix: the compose tail, then per render the
-    replayed call, its tool result, and the image under review. `call_id` names the
-    call the next render answers. `prompter_reference` says the compose tail carried
-    the chat's earlier picture, so each review checks against it too.
+    `messages` extends the shared prefix: the compose tail, then per render the replayed call, its tool result, and the image
+    under review. `call_id` names the call the next render answers. `prompter_reference` says the compose tail carried the
+    chat's earlier picture, so each review checks against it too.
     """
 
     messages: list[dict] = field(default_factory=list)
@@ -110,8 +102,7 @@ async def _forced_result(
 ) -> dict:
     """The forced call's result event: `args`, plus `replay` when `call_id` asked for it.
 
-    `raise_errors` raises the provider's error as a `PrompterCallError` instead of
-    answering with empty arguments.
+    `raise_errors` raises the provider's error as a `PrompterCallError` instead of answering with empty arguments.
     """
     logger.info("[image_gen] %s tail:\n%s", tool_name, _logged_text(tail[-1]) if tail else "")
     result: dict = {"args": {}}
@@ -248,11 +239,9 @@ async def compose_scene(
 ) -> tuple[str, str, str]:
     """Compose scene text as ``(scene, avoid, mode)``.
 
-    A `thread` is filled with the call as the model made it, so a review can follow.
-    `prompter_reference_url` is the chat's earlier picture, sent ahead of the request
-    in the same shape a review sends its render; `prompter_reference_sent` says the
-    image model receives that picture as well. A provider that rejects the image raises
-    rather than composing blind.
+    A `thread` is filled with the call as the model made it, so a review can follow. `prompter_reference_url` is the chat's
+    earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
+    image model receives that picture as well. A provider that rejects the image raises rather than composing blind.
     """
     sheets = _sheets(subjects)
     request = compose_ooc(
@@ -271,10 +260,7 @@ async def compose_scene(
         prompter_reference_sent=prompter_reference_sent,
     )
     content: str | list[dict] = (
-        [
-            {"type": "image_url", "image_url": {"url": prompter_reference_url}},
-            {"type": "text", "text": request},
-        ]
+        [{"type": "image_url", "image_url": {"url": prompter_reference_url}}, {"type": "text", "text": request}]
         if prompter_reference_url
         else request
     )
@@ -327,10 +313,9 @@ async def refine_scene(
 
     A provider error raises: a model that cannot read the render has no review to give.
 
-    The render answers the thread's open call, and the review's own call is kept on
-    the thread, so the next review sees every earlier image and every earlier prompt.
-    `reseeded` says the render was drawn from a new seed, so the model can tell a
-    change the seed made from one its prompt made.
+    The render answers the thread's open call, and the review's own call is kept on the thread, so the next review sees every
+    earlier image and every earlier prompt. `reseeded` says the render was drawn from a new seed, so the model can tell a change
+    the seed made from one its prompt made.
     """
     if not thread.call_id:
         return None
@@ -345,10 +330,7 @@ async def refine_scene(
         {"role": "tool", "tool_call_id": thread.call_id, "content": render_result(render, reseeded=reseeded)},
         {
             "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": image_url}},
-                {"type": "text", "text": review_request},
-            ],
+            "content": [{"type": "image_url", "image_url": {"url": image_url}}, {"type": "text", "text": review_request}],
         },
     ]
     call_id = _call_id(render)
@@ -385,12 +367,7 @@ async def refine_scene(
     )
 
 
-def assemble_prompts(
-    style: Mapping[str, Any],
-    profile: Mapping[str, Any],
-    scene: str,
-    avoid: str,
-) -> tuple[str, str]:
+def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene: str, avoid: str) -> tuple[str, str]:
     """Join resolved style, character, and scene text into a prompt pair."""
     prompt_format = normalize_prompt_format(str(style.get("prompt_format") or ""))
     if prompt_format == "prose":

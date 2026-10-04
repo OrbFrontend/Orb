@@ -1,5 +1,3 @@
-"""Tests for separating reasoning across completion calls."""
-
 from __future__ import annotations
 
 import json
@@ -7,18 +5,9 @@ from unittest.mock import patch
 
 from backend.analysis import AuditReport, build_targets
 from backend.analysis.detectors.opening_monotony import MonotonyResult
-from backend.analysis.detectors.slop_detector import (
-    ClicheHit,
-    DetectionResult,
-    FlaggedSentence,
-)
+from backend.analysis.detectors.slop_detector import ClicheHit, DetectionResult, FlaggedSentence
 from backend.analysis.detectors.template_repetition import TemplateResult
-from backend.core import (
-    ReasoningChannel,
-    joined_delta,
-    mark_call_start,
-    reasoning_delta_event,
-)
+from backend.core import ReasoningChannel, joined_delta, mark_call_start, reasoning_delta_event
 from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
 from backend.pipeline.state import TurnState
@@ -148,13 +137,9 @@ async def test_editor_iterations_land_in_the_buffer_as_separate_paragraphs():
         }
 
     client.complete = fake_complete
-    # 3 issues → 2 issues → clean, producing two editor calls.
+    # 3 issues -> 2 issues -> clean, producing two editor calls.
     audits = iter(
-        [
-            _report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
-            _report(["Sentence 1.", "Sentence 2."]),
-            _report([]),
-        ]
+        [_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]), _report(["Sentence 1.", "Sentence 2."]), _report([])]
     )
 
     async def fake_audit(draft, phrase_bank, prev_msgs, audit_toggles=None, user_message=""):

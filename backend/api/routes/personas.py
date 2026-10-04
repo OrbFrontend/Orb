@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ...database import (
-    create_user_persona,
-    delete_user_persona,
-    get_persona_avatar,
-    get_user_personas,
-    update_user_persona,
-)
+from ...database import create_user_persona, delete_user_persona, get_persona_avatar, get_user_personas, update_user_persona
 from ..deps import cached_image_response
 from ..schemas import UserPersonaCreate, UserPersonaUpdate
 

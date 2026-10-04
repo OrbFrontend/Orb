@@ -2,20 +2,18 @@
 Tests for template_repetition detection.
 
 Organised into:
-  - TRUE POSITIVES  – repetitive templates across paragraphs we *want* to catch
-  - FALSE POSITIVES – legitimate variation that should *not* trigger
-  - EDGE CASES      – boundary inputs
+  - TRUE POSITIVES  - repetitive templates across paragraphs we *want* to catch
+  - FALSE POSITIVES - legitimate variation that should *not* trigger
+  - EDGE CASES      - boundary inputs
 """
 
 import pytest
 
-from backend.analysis.detectors.template_repetition import (
-    detect_template_repetition,
-)
+from backend.analysis.detectors.template_repetition import detect_template_repetition
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRUE POSITIVES – repetitive templates across paragraphs that should be flagged
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# TRUE POSITIVES - repetitive templates across paragraphs that should be flagged
+# ===============================================================================
 
 
 class TestTruePositives:
@@ -33,10 +31,7 @@ class TestTruePositives:
     def test_similar_templates_across_paragraphs(self):
         """Similar templates appearing across paragraph breaks."""
         text = (
-            "The question hangs in the air.\n\n"
-            "Another paragraph here.\n\n"
-            "Then another paragraph.\n\n"
-            "The question is heavy.\n\n"
+            "The question hangs in the air.\n\nAnother paragraph here.\n\nThen another paragraph.\n\nThe question is heavy.\n\n"
             "The question remains unanswered."
         )
         result = detect_template_repetition(text, max_words=3, flag_threshold=3)
@@ -49,12 +44,8 @@ class TestTruePositives:
     def test_multiple_similar_templates(self):
         """Different template groups should be detected."""
         text = (
-            "The wind blows through the trees. "
-            "The wind is cold today. "
-            "The wind has died down. "
-            "She looks out the window. "
-            "She looks at the clock. "
-            "She looks away."
+            "The wind blows through the trees. The wind is cold today. The wind has died down. She looks out the window. "
+            "She looks at the clock. She looks away."
         )
         result = detect_template_repetition(text, max_words=3, flag_threshold=3)
         # Should detect "the wind blows" and "she looks out" templates
@@ -72,10 +63,8 @@ class TestTruePositives:
     def test_long_range_template_repetition(self):
         """Templates appearing far apart should still be detected."""
         text = (
-            "In the beginning there was light.\n\n"
-            "Many paragraphs pass by here with various content.\n\n"
-            "The story continues in its usual way.\n\n"
-            "Characters develop and plot thickens.\n\n"
+            "In the beginning there was light.\n\nMany paragraphs pass by here with various content.\n\n"
+            "The story continues in its usual way.\n\nCharacters develop and plot thickens.\n\n"
             "In the beginning there was nothing."
         )
         result = detect_template_repetition(text, max_words=3, flag_threshold=2)
@@ -84,9 +73,9 @@ class TestTruePositives:
         assert any("in the beginning" in ft.template for ft in flagged)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FALSE POSITIVES – legitimate variation that should NOT trigger
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# FALSE POSITIVES - legitimate variation that should NOT trigger
+# ===============================================================================
 
 
 class TestFalsePositives:
@@ -113,9 +102,9 @@ class TestFalsePositives:
         assert len(result.flagged_templates) == 0
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestEdgeCases:
@@ -142,8 +131,7 @@ class TestEdgeCases:
     def test_mixed_dialogue_and_narration(self):
         """Should analyze only narration, ignoring dialogue."""
         text = (
-            '"Hello," he said. The question hung in the air. '
-            '"What?" she replied. The question was heavy. '
+            '"Hello," he said. The question hung in the air. "What?" she replied. The question was heavy. '
             '"I see," he nodded. The question remained.'
         )
         result = detect_template_repetition(text, max_words=3, flag_threshold=3)
@@ -174,7 +162,6 @@ class TestEdgeCases:
         assert result.flagged_templates[0].count >= 3
 
     def test_result_dataclass_fields(self):
-        """Verify FlaggedTemplate has expected fields."""
         text = "The test sentence one. The test sentence two. The test sentence three."
         result = detect_template_repetition(text, max_words=3, flag_threshold=3)
         assert len(result.flagged_templates) >= 1
@@ -191,9 +178,8 @@ class TestEdgeCases:
         """Repetition score should reflect template reuse."""
         text = "Template A here. Template A again. Something completely different."
         result = detect_template_repetition(text, max_words=2)
-        # Score should be > 0 since there's repetition
-        # Note: templates are "template a" and "something completely"
-        # So no exact template is repeated 2+ times
+        # Score should be > 0 since there's repetition.
+        # Note: templates are "template a" and "something completely", so no exact template is repeated 2+ times.
         assert result.total_sentences == 3
 
     def test_similarity_threshold_effect(self):

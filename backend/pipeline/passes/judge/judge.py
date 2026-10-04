@@ -28,6 +28,7 @@ from ....inference import (
     ScoreAnswer,
     cache_key,
 )
+from ...events import DecisionsData
 from . import cooldown
 from .guidance import decision_guidance_block
 from .records import (
@@ -39,15 +40,7 @@ from .records import (
     stored_evaluations,
     stored_skipped,
 )
-from .render import (
-    STATE_MACROS,
-    TEXT_MACROS,
-    DecisionSnapshot,
-    UnavailableMacro,
-    definition_macro_errors,
-    macros_used,
-    render,
-)
+from .render import STATE_MACROS, TEXT_MACROS, DecisionSnapshot, UnavailableMacro, definition_macro_errors, macros_used, render
 from .resolve import (
     DRAWN_RESOLUTIONS,
     ROUTINE_REASONS,
@@ -67,8 +60,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_REQUEST:
-# each decision asks exactly one question.
+# Also keeps every exchange within the gateway's MAX_QUESTIONS_PER_REQUEST: each decision asks exactly one question.
 MAX_DECISIONS_PER_EXCHANGE = 32
 MAX_DECISIONS_PER_CARD = 8
 # Batches go out concurrently under one timeout, so this cap and the timeout are
@@ -175,9 +167,9 @@ class JudgeResult:
     def writer_guidance(self) -> str:
         return decision_guidance_block(self.evaluations, "writer")
 
-    def as_event_data(self) -> dict[str, Any]:
+    def as_event_data(self) -> DecisionsData:
         evaluations = [{key: row[key] for key in _EVENT_FIELDS if key in row} for row in self.evaluations]
-        data: dict[str, Any] = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
+        data: DecisionsData = {"evaluations": evaluations, "skipped": self.skipped, "cooldowns": self.cooldowns}
         if self.inherited:
             data["inherited"] = 1
         return data

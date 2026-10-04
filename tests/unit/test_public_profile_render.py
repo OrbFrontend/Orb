@@ -1,10 +1,8 @@
 """The public-profile join: one renderer, one key set, one meaning for ``""``.
 
-``render_public_profile`` lives beside ``set_public_profile`` (its only writer)
-in ``database/queries/character_cards.py``, and the group cast projection
-delegates to it. These pins exist because the two halves failing to agree on the
-key set is silent: a field would be stored and never rendered, or rendered from
-a key nothing writes.
+``render_public_profile`` lives beside ``set_public_profile`` (its only writer) in ``database/queries/character_cards.py``, and
+the group cast projection delegates to it. These pins exist because the two halves failing to agree on the key set is silent: a
+field would be stored and never rendered, or rendered from a key nothing writes.
 """
 
 from __future__ import annotations
@@ -40,7 +38,7 @@ def test_render_public_profile_shapes(profile, expected):
 
 
 def test_the_cast_projection_and_the_renderer_are_the_same_definition():
-    """A card-derived member profile is exactly what the renderer produces —
+    """A card-derived member profile is exactly what the renderer produces --
     so an LLM-drafted scene override written in that shape reads identically in
     the assembled prompt to a member who has no override at all."""
     assert _public_profile(CARD, None) == render_public_profile(CARD["extensions"]["orb"]["public_profile"])

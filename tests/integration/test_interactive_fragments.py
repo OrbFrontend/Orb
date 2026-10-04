@@ -1,5 +1,3 @@
-"""Integration tests for interactive fragments CRUD API and DB persistence."""
-
 from __future__ import annotations
 
 import pytest
@@ -18,9 +16,8 @@ _BASE_PAYLOAD = {
 
 
 async def test_list_interactive_fragments_returns_seeded_data(client, db):
-    resp = await client.get("/api/interactive-fragments")
-    assert resp.status_code == 200
-    fragments = resp.json()
+    resp = await client.get_json("/api/interactive-fragments")
+    fragments = resp
     ids = {f["id"] for f in fragments}
     assert "keywords" in ids
     assert "next_event" in ids
@@ -29,17 +26,15 @@ async def test_list_interactive_fragments_returns_seeded_data(client, db):
 
 
 async def test_create_interactive_fragment_persists_to_db(client, db):
-    resp = await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    assert resp.status_code == 200
-    body = resp.json()
+    resp = await client.post_json("/api/interactive-fragments", json=_BASE_PAYLOAD)
+    body = resp
     assert body["id"] == "pacing"
     assert body["label"] == "Pacing"
     assert body["injection_label"] == "Pacing"
     assert body["field_type"] == "string"
     assert body["cooldown_turns"] == 3
 
-    async with db.execute("SELECT * FROM interactive_fragments WHERE id = 'pacing'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT * FROM interactive_fragments WHERE id = 'pacing'")
     assert row is not None
     assert row["label"] == "Pacing"
     assert row["injection_label"] == "Pacing"
@@ -49,41 +44,35 @@ async def test_create_interactive_fragment_persists_to_db(client, db):
 
 async def test_create_duplicate_interactive_fragment_returns_400(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    resp = await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    assert resp.status_code == 400
+    await client.post_checked("/api/interactive-fragments", json=_BASE_PAYLOAD, expected_status=400)
 
 
 async def test_create_interactive_fragment_with_array_type(client, db):
     payload = {**_BASE_PAYLOAD, "id": "custom-list", "field_type": "array"}
-    resp = await client.post("/api/interactive-fragments", json=payload)
-    assert resp.status_code == 200
-    assert resp.json()["field_type"] == "array"
+    resp = await client.post_json("/api/interactive-fragments", json=payload)
+    assert resp["field_type"] == "array"
 
 
 async def test_interactive_fragment_cooldown_is_bounded(client, db):
     for value in (-1, 51):
-        response = await client.post(
+        await client.post_checked(
             "/api/interactive-fragments",
             json={**_BASE_PAYLOAD, "id": f"invalid-{value}", "cooldown_turns": value},
+            expected_status=422,
         )
-        assert response.status_code == 422
 
 
 async def test_update_interactive_fragment_persists_to_db(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    resp = await client.put(
+    resp = await client.put_json(
         "/api/interactive-fragments/pacing",
         json={"label": "Scene Pacing", "injection_label": "Scene pacing", "cooldown_turns": 5},
     )
-    assert resp.status_code == 200
-    assert resp.json()["label"] == "Scene Pacing"
-    assert resp.json()["injection_label"] == "Scene pacing"
-    assert resp.json()["cooldown_turns"] == 5
+    assert resp["label"] == "Scene Pacing"
+    assert resp["injection_label"] == "Scene pacing"
+    assert resp["cooldown_turns"] == 5
 
-    async with db.execute(
-        "SELECT label, injection_label, cooldown_turns FROM interactive_fragments WHERE id = 'pacing'"
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT label, injection_label, cooldown_turns FROM interactive_fragments WHERE id = 'pacing'")
     assert row["label"] == "Scene Pacing"
     assert row["injection_label"] == "Scene pacing"
     assert row["cooldown_turns"] == 5
@@ -91,80 +80,68 @@ async def test_update_interactive_fragment_persists_to_db(client, db):
 
 async def test_update_enabled_flag(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    resp = await client.put("/api/interactive-fragments/pacing", json={"enabled": False})
-    assert resp.status_code == 200
-    assert resp.json()["enabled"] in (False, 0)
+    resp = await client.put_json("/api/interactive-fragments/pacing", json={"enabled": False})
+    assert resp["enabled"] in (False, 0)
 
 
 async def test_update_nonexistent_interactive_fragment_returns_404(client, db):
-    resp = await client.put("/api/interactive-fragments/ghost", json={"label": "Ghost"})
-    assert resp.status_code == 404
+    await client.put_checked("/api/interactive-fragments/ghost", json={"label": "Ghost"}, expected_status=404)
 
 
 async def test_reorder_interactive_fragments_updates_a_lane_atomically(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
     await client.post("/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "focus", "label": "Focus", "sort_order": 11})
 
-    response = await client.put(
+    await client.put_checked(
         "/api/interactive-fragments/reorder",
         json={"items": [{"id": "pacing", "sort_order": 11}, {"id": "focus", "sort_order": 10}]},
     )
 
-    assert response.status_code == 200
-    async with db.execute(
-        "SELECT id, sort_order FROM interactive_fragments WHERE id IN ('pacing', 'focus') ORDER BY id"
-    ) as cur:
-        rows = await cur.fetchall()
+    rows = await db.all("SELECT id, sort_order FROM interactive_fragments WHERE id IN ('pacing', 'focus') ORDER BY id")
     assert [(row["id"], row["sort_order"]) for row in rows] == [("focus", 10), ("pacing", 11)]
 
 
 async def test_reorder_interactive_fragments_rejects_a_missing_item_without_partial_update(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
 
-    response = await client.put(
+    await client.put_checked(
         "/api/interactive-fragments/reorder",
         json={"items": [{"id": "pacing", "sort_order": 99}, {"id": "gone", "sort_order": 10}]},
+        expected_status=404,
     )
 
-    assert response.status_code == 404
-    async with db.execute("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'")
     assert row["sort_order"] == 10
 
 
 async def test_reorder_interactive_fragments_rejects_mixed_lanes(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
 
-    response = await client.put(
+    await client.put_checked(
         "/api/interactive-fragments/reorder",
         json={"items": [{"id": "pacing", "sort_order": 5}, {"id": "suggested_actions", "sort_order": 10}]},
+        expected_status=422,
     )
 
-    assert response.status_code == 422
-    async with db.execute("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'")
     assert row["sort_order"] == 10
 
 
 async def test_delete_interactive_fragment_removes_from_db(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    resp = await client.delete("/api/interactive-fragments/pacing")
-    assert resp.status_code == 200
+    await client.delete_checked("/api/interactive-fragments/pacing")
 
-    async with db.execute("SELECT id FROM interactive_fragments WHERE id = 'pacing'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT id FROM interactive_fragments WHERE id = 'pacing'")
     assert row is None
 
 
 async def test_delete_nonexistent_interactive_fragment_returns_404(client, db):
-    resp = await client.delete("/api/interactive-fragments/does-not-exist")
-    assert resp.status_code == 404
+    await client.delete_checked("/api/interactive-fragments/does-not-exist", expected_status=404)
 
 
 async def test_seeded_interactive_fragments_have_correct_field_types(client, db):
-    resp = await client.get("/api/interactive-fragments")
-    assert resp.status_code == 200
-    frags = {f["id"]: f for f in resp.json()}
+    resp = await client.get_json("/api/interactive-fragments")
+    frags = {f["id"]: f for f in resp}
 
     assert frags["user_intent"]["field_type"] == "string"
     assert frags["keywords"]["field_type"] == "array"
@@ -274,7 +251,7 @@ async def test_direct_database_create_normalizes_a_missing_or_null_gate(client, 
 
 async def test_card_gate_survives_export_and_import(client, db, tmp_path):
     from backend.features.cards import parsing
-    from backend.pipeline.context import _load_pipeline_context
+    from backend.pipeline.context import load_pipeline_context
 
     extensions = {
         "orb": {
@@ -300,7 +277,7 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
 
     copy = (await client.post("/api/characters", json={**reimported, "name": "Gated copy"})).json()
     conv = (await client.post("/api/conversations", json={"character_card_id": copy["id"]})).json()
-    ctx = await _load_pipeline_context(conv["id"])
+    ctx = await load_pipeline_context(conv["id"])
     assert ctx is not None
     fragment = next(row for row in ctx.interactive_fragments if row["id"] == "card_trim")
     assert fragment["post_processing_gate"] == "Do more than two actions happen?"

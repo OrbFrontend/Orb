@@ -5,7 +5,6 @@ import {
   effectivePersonaId,
   esc,
   escAttr,
-  escHandlerArg,
   personaAvatarSrc,
   readableInk,
   safePersonaColour,
@@ -173,8 +172,7 @@ export function speakerAvatar(msg) {
     const persona = messagePersona();
     const src = personaAvatarSrc(persona);
     const initial = persona?.name?.charAt(0).toUpperCase() || "";
-    if (src)
-      return avatarCell(escAttr(src), { icon: escHandlerArg(initial) || GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
+    if (src) return avatarCell(escAttr(src), { icon: initial || GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
     return initial ? esc(initial) : GENERIC_AVATAR;
   }
   const cardId = S.groupCast

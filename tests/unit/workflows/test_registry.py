@@ -8,12 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.prompting.tool_catalog import (
-    STANDALONE_TOOLS,
-    TOOLS,
-    restore_catalog,
-    snapshot_catalog,
-)
+from backend.prompting.tool_catalog import STANDALONE_TOOLS, TOOLS, restore_catalog, snapshot_catalog
 from backend.workflows import (
     HookType,
     Subscription,
@@ -52,11 +47,7 @@ async def _noop_on_demand(ctx, body):  # type: ignore[no-untyped-def]
 def _tool_spec(name: str, *, standalone: bool = True) -> ToolSpec:
     schema = {
         "type": "function",
-        "function": {
-            "name": name,
-            "description": "test",
-            "parameters": {"type": "object", "properties": {}},
-        },
+        "function": {"name": name, "description": "test", "parameters": {"type": "object", "properties": {}}},
     }
     choice = {"type": "function", "function": {"name": name}}
     return ToolSpec(name=name, schema=schema, choice=choice, standalone=standalone)
@@ -66,9 +57,8 @@ def _tool_spec(name: str, *, standalone: bool = True) -> ToolSpec:
 def _restore_globals():
     by_id_snapshot = {k: deepcopy(v) for k, v in registry_module._WORKFLOWS_BY_ID.items()}
     catalog_snapshot = snapshot_catalog()
-    # Tests below assert exact registry contents, so start from an empty
-    # workflow registry rather than the first-party workflows registered at
-    # import time. Built-in tools in TOOLS are left intact.
+    # Tests below assert exact registry contents, so start from an empty workflow registry rather than the first-party workflows
+    # registered at import time. Built-in tools in TOOLS are left intact.
     registry_module._WORKFLOWS_BY_ID.clear()
     yield
     registry_module._WORKFLOWS_BY_ID.clear()
@@ -156,9 +146,8 @@ class TestBuiltinCollision:
     def test_built_in_check_fires_before_cross_workflow_check(self):
         # Set up a workflow that legitimately owns a non-built-in tool.
         register_workflow(Workflow(id="wf_owner", display_name="O", tools=[_tool_spec("editor_rewrite_alt")]))
-        # New workflow tries to claim a built-in name AND that name happens to
-        # *also* live on another workflow's tools. The built-in check still
-        # wins because it runs first.
+        # New workflow tries to claim a built-in name AND that name happens to *also* live on another workflow's tools. The
+        # built-in check still wins because it runs first.
         with pytest.raises(ToolNameCollision, match="built-in tool name"):
             register_workflow(Workflow(id="wf_other", display_name="X", tools=[_tool_spec("editor_rewrite")]))
 
@@ -184,11 +173,7 @@ class TestAtomicity:
         tools_before = dict(TOOLS)
         standalone_before = set(STANDALONE_TOOLS)
 
-        clash = Workflow(
-            id="wf_b",
-            display_name="B",
-            tools=[_tool_spec("kept"), _tool_spec("new_one")],
-        )
+        clash = Workflow(id="wf_b", display_name="B", tools=[_tool_spec("kept"), _tool_spec("new_one")])
         with pytest.raises(ToolNameCollision):
             register_workflow(clash)
 
@@ -297,10 +282,9 @@ class TestOverlayEnableTools:
 class TestProducesArtifactsMandate:
     """Negative check in subscribe() + positive check in finalize_registry().
 
-    Any ``produces_artifacts=True`` workflow must hold both ``REGENERATE`` and
-    ``REROLL_GEN`` subscriptions. The negative check refuses binding either
-    hook to a workflow that did not declare the flag; the positive check
-    refuses a fully-wired registry that has the flag without both hooks.
+    Any ``produces_artifacts=True`` workflow must hold both ``REGENERATE`` and ``REROLL_GEN`` subscriptions. The negative check
+    refuses binding either hook to a workflow that did not declare the flag; the positive check refuses a fully-wired registry
+    that has the flag without both hooks.
     """
 
     async def _noop_regen(self, ctx, body):  # type: ignore[no-untyped-def]

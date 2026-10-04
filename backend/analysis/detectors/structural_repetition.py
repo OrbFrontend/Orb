@@ -5,15 +5,9 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass, field
 
-from ...core.text_segmentation import (
-    PARA_SPLIT as _PARA_SPLIT,
-)
-from ...core.text_segmentation import (
-    count_sentences as _count_sentences,
-)
-from ..text.roleplay_segmentation import (
-    extract_blocks as _extract_blocks,
-)
+from ...core.text_segmentation import PARA_SPLIT as _PARA_SPLIT
+from ...core.text_segmentation import count_sentences as _count_sentences
+from ..text.roleplay_segmentation import extract_blocks as _extract_blocks
 
 __all__ = ["detect_structural_repetition", "StructuralResult", "MessageStructure"]
 
@@ -62,9 +56,7 @@ def _sequence_similarity(a: list[str], b: list[str]) -> float:
 
 
 def detect_structural_repetition(
-    messages: list[str],
-    similarity_threshold: float = 0.75,
-    min_complexity: int = 2,
+    messages: list[str], similarity_threshold: float = 0.75, min_complexity: int = 2
 ) -> StructuralResult:
     parsed: list[MessageStructure] = []
 

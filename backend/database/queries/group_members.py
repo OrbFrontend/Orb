@@ -8,7 +8,7 @@ from typing import Any, cast
 from typing import cast as typed_cast
 
 from ...core import CardScripts, CastMember, GroupContextMode, TurnCast
-from ..connection import get_db, immediate_tx
+from ..connection import immediate_tx, select_rows
 from ..models import ConversationRow, GroupMemberRow
 from .character_cards import get_character_card, render_public_profile
 
@@ -27,33 +27,23 @@ def allocate_speaker_key(name: str, used: set[str]) -> str:
 
 async def get_group_members(conversation_id: str, *, include_inactive: bool = False) -> list[GroupMemberRow]:
     where = "conversation_id = ?" if include_inactive else "conversation_id = ? AND active = 1"
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"SELECT * FROM group_members WHERE {where} ORDER BY sort_order, id",  # nosec B608 -- fixed clauses
-            (conversation_id,),
-        )
+    rows = await select_rows(
+        f"SELECT * FROM group_members WHERE {where} ORDER BY sort_order, id",  # nosec B608 -- fixed clauses
+        (conversation_id,),
+    )
     return [cast(GroupMemberRow, dict(row)) for row in rows]
 
 
 async def get_speaker_names(conversation_id: str) -> dict[str, str]:
-    """Member id → display name for every row the scene has ever had.
+    """Map all historical member ids to names, including inactive members.
 
-    **Inactive members included, always.** A reply written by a member the user
-    has since removed still has to be attributed — in the prompt's history
-    labels, in the summarizer, in the context-size estimate, in the typeahead
-    and in the off-turn workflow prefix — or the line silently merges into the
-    one above it. One reader, so none of those can quietly answer with the
-    active roster instead. (``pipeline.context._load_pipeline_context`` builds
-    the same map inline, from rows it has already fetched for the roster it
-    also needs; it is the one caller for which this would be a second query.)
+    History attribution must survive roster removal. Turn-context loading builds the same map from its already fetched rows.
     """
     return {member["id"]: member["display_name"] for member in await get_group_members(conversation_id, include_inactive=True)}
 
 
 async def get_group_member_scripts(
-    conversation_id: str,
-    *,
-    members: Sequence[Mapping[str, Any]] | None = None,
+    conversation_id: str, *, members: Sequence[Mapping[str, Any]] | None = None
 ) -> dict[str, CardScripts]:
     """Compile scripts for card-backed members, including inactive speakers."""
     rows = members if members is not None else await get_group_members(conversation_id, include_inactive=True)
@@ -74,21 +64,14 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
     if conversation_id is not None:
         sql += " AND conversation_id = ?"
         args += (conversation_id,)
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall(sql, args))
+    rows = await select_rows(sql, args)
     return cast(GroupMemberRow, dict(rows[0])) if rows else None
 
 
 def _public_profile(card: Mapping | None, override: str | None) -> str:
-    """The member's effective public projection: the scene override, else the card's.
+    """Resolve the scene public-profile override, otherwise the card profile.
 
-    ``override is not None`` and not ``if override``, so a stored ``""`` blanks the
-    profile for this scene instead of falling back to the card. Manage cast cannot
-    currently produce one — it coerces an empty box to ``null`` — so today this only
-    round-trips an ``""`` supplied through ``PUT …/members``.
-
-    The card walk is local; the ``Appearance``/``Role`` join belongs to
-    ``character_cards.render_public_profile``, beside the writer that stores it.
+    Only None falls back; an explicit empty string blanks the profile.
     """
     if override is not None:
         return override
@@ -97,17 +80,10 @@ def _public_profile(card: Mapping | None, override: str | None) -> str:
     return render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None)
 
 
-def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
-    """What the member reads about itself: the scene override, else the card's join.
+def resolve_private_sheet(card: Mapping | None, override: str | None = None) -> str:
+    """Resolve the scene private-sheet override, otherwise the card's joined sheet.
 
-    ``override is not None``, mirroring :func:`_public_profile` — same rule, same
-    caveat about which callers can reach the blanking case.
-
-    The counterpart to ``public_profile_override``: that one is what the *rest*
-    of the cast sees, this one is what the member reads about *itself*. It
-    exists because a card asserts turn one forever while a scene moves; the
-    sheet rides the uncached tail under Private perspective, so keeping it
-    current costs no prefix rebuild. The card is never written.
+    Only None falls back. Scene changes live in the uncached tail without writing the card.
     """
     if override is not None:
         return override
@@ -124,9 +100,8 @@ def _private_sheet(card: Mapping | None, override: str | None = None) -> str:
 def _context_mode(conv: Mapping) -> GroupContextMode:
     """The conversation's character-context mode, defaulting on an unknown value.
 
-    The column carries a CHECK constraint, so an out-of-domain value can only
-    arrive from a hand-edited database; falling back to the behaviour-preserving
-    default exchanges raising inside prompt assembly.
+    The column carries a CHECK constraint, so an out-of-domain value can only arrive from a hand-edited database; falling back
+    to the behaviour-preserving default exchanges raising inside prompt assembly.
     """
     mode = str(conv.get("group_context_mode") or "private")
     return typed_cast(GroupContextMode, mode) if mode in ("private", "shared", "swap") else "private"
@@ -145,7 +120,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
             name=name,
             kind="character",
             public_profile="",
-            private_sheet=_private_sheet(card),
+            private_sheet=resolve_private_sheet(card),
             mes_example=str((card or {}).get("mes_example") or ""),
             post_history=str((card or {}).get("post_history_instructions") or ""),
         )
@@ -164,7 +139,7 @@ async def resolve_cast(conv: Mapping, *, speaker_member_id: str | None = None) -
                 name=member["display_name"],
                 kind=member["member_kind"],
                 public_profile=_public_profile(card, member.get("public_profile_override")),
-                private_sheet=_private_sheet(card, member.get("card_sheet_override")),
+                private_sheet=resolve_private_sheet(card, member.get("card_sheet_override")),
                 mes_example=str((card or {}).get("mes_example") or ""),
                 post_history=str((card or {}).get("post_history_instructions") or ""),
                 muted=bool(member.get("muted")),
@@ -229,10 +204,7 @@ async def create_group_conversation(
                 group_root_id,
             ),
         )
-        await db.execute(
-            "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-            (cid,),
-        )
+        await db.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (cid,))
         for order, spec in enumerate(members):
             name = str(spec.get("display_name") or spec.get("name") or "Narrator").strip() or "Narrator"
             requested = str(spec.get("speaker_key") or "").strip().casefold()
@@ -270,8 +242,7 @@ async def create_group_conversation(
                 (cid, greeting.strip(), now, speaker_id, str(uuid.uuid4())),
             )
             await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (cur.lastrowid, cid))
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM conversations WHERE id = ?", (cid,)))
+    rows = await select_rows("SELECT * FROM conversations WHERE id = ?", (cid,))
     return cast(ConversationRow, dict(rows[0]))
 
 
@@ -377,13 +348,10 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
                         int(bool(spec.get("muted", False))),
                     ),
                 )
-        # A member the user just removed is out of the scene, so anything staged
-        # about its sheet is no longer a decision anyone can make: the apply has
-        # nothing active to write onto, and Manage cast renders rows only for the
-        # active roster, so an undecided proposal would sit in the review count
-        # forever with no row to dismiss it from. Retired here rather than in
-        # ``member_sheets`` because it has to be atomic with the tombstone, and
-        # because that module imports this one.
+        # A member the user just removed is out of the scene, so anything staged about its sheet is no longer a decision anyone
+        # can make: the apply has nothing active to write onto, and Manage cast renders rows only for the active roster, so an
+        # undecided proposal would sit in the review count forever with no row to dismiss it from. Retired here rather than in
+        # ``member_sheets`` because it has to be atomic with the tombstone, and because that module imports this one.
         leaving = [row["id"] for row in existing_rows if row["active"] and row["id"] not in kept]
         if leaving:
             await db.execute(

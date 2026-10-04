@@ -1,25 +1,12 @@
-// Keyed child reconciliation for containers rendered from HTML strings.
+// Keyed reconciliation preserves unchanged nodes, animations and scroll anchors.
+// Row HTML must depend only on that row. In-place decorations may survive reuse,
+// but must not replace rendered markup: the cached HTML signature decides reuse.
 //
-// Assigning `innerHTML` throws away every child, even the ones whose markup did
-// not change: CSS entrance animations replay across the whole list, images and
-// scroll anchors are rebuilt, and every node has to be laid out again. This
-// keeps the nodes whose markup is byte-identical to the previous pass and
-// touches only the rows that actually differ.
-
-// Two rules follow from reuse, and a caller that breaks either gets a node that
-// outlives what it says. A row's html must be a pure function of that row: read
-// a neighbour to build it and the neighbour can change without the html
-// changing, so the stale node is kept. And a kept node may be *decorated* in
-// place (spans, chips, widget state -- surviving a repaint is the point) but
-// never rewritten to markup this module would not produce for the same html,
-// because the signature below, not the DOM, decides what counts as unchanged.
-
-// container -> Map(key -> html string produced for it last pass).
+// container -> Map(key -> last rendered HTML).
 const _signatures = new WeakMap();
 
-// Attribute snapshots describe rendered markup, not interactive state (e.g.
-// a disclosure opened while the reply streams). Only source changes overwrite
-// attributes; unchanged src/style attributes must not restart media/animations.
+// Attribute snapshots describe rendered markup, not interactive state (e.g. a disclosure opened while the reply
+// streams). Only source changes overwrite attributes; unchanged src/style attributes must not restart media/animations.
 const _renderedAttributes = new WeakMap();
 
 function rememberAttributes(node) {
@@ -66,10 +53,8 @@ function patchChildren(parent, desired) {
 }
 
 /**
- * Patch an evolving HTML body in place, retaining compatible nodes at each
- * position. Call only with sanitised renderer output; this is not a sanitiser.
- * Structural changes replace the affected nodes, while append-only streams
- * keep existing images, controls and CSS animations connected.
+ * Patch sanitised HTML in place, retaining compatible nodes and append-only media.
+ * Structural changes replace nodes. This function does not sanitise input.
  */
 export function patchHtml(container, html) {
   const scratch = document.createElement("div");
@@ -87,19 +72,10 @@ function signaturesFor(container) {
 }
 
 /**
- * Sync `container`'s children to `entries` — `[{ key, html }]`, in document
- * order. Each `html` must have exactly one root element. Children that this
- * function did not create are removed, matching the `innerHTML` assignment
- * callers replace with it, so anything the caller re-attaches afterwards (a
- * badge, a streaming bubble) still lands last.
- *
- * A row whose html is unchanged keeps its existing DOM node, untouched. A row
- * that changed is rebuilt and, since it replaces a node that was already on
- * screen, gets `swapClass` so the caller's CSS can skip the entrance animation
- * for an in-place update while genuinely new rows still animate.
- *
- * Returns the elements built this pass, so the caller can restrict per-node
- * work (measuring, observers) to just those.
+ * Sync children to ordered `[{ key, html }]` entries, each with one root element.
+ * Remove unowned children and preserve nodes with unchanged HTML. Replacements
+ * get `swapClass`; new rows retain their entrance animation.
+ * Returns newly built elements for measurement and observer setup.
  */
 export function reconcileChildren(container, entries, swapClass = null) {
   const sigs = signaturesFor(container);

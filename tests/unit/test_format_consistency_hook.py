@@ -1,5 +1,3 @@
-"""Unit tests for the format_consistency post-pipeline hook."""
-
 from __future__ import annotations
 
 import hashlib
@@ -80,10 +78,7 @@ async def _labels(msg) -> tuple[str, str] | None:
 
 
 async def test_yields_draft_replaced_on_drift():
-    history = [
-        {"role": "assistant", "content": QUOTED_BASELINE},
-        {"role": "user", "content": "and then?"},
-    ]
+    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "user", "content": "and then?"}]
     events = await _collect(_ctx(DRIFTING_DRAFT, history))
 
     assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
@@ -104,19 +99,13 @@ async def test_reports_format_check_progress_to_the_turn_status(monkeypatch):
     events = await _collect(_ctx(CONSISTENT_DRAFT, history), include_status=True)
 
     assert events == [
-        {
-            "event": "phase_status",
-            "data": {"channel": "workflow:format_consistency", "label": "Matching voice and format…"},
-        },
+        {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "label": "Matching voice and format…"}},
         {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "state": "done"}},
     ]
 
 
 async def test_no_yield_when_baseline_unstable():
-    history = [
-        {"role": "assistant", "content": QUOTED_BASELINE},
-        {"role": "assistant", "content": ASTERISK_MSG},
-    ]
+    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "assistant", "content": ASTERISK_MSG}]
     events = await _collect(_ctx('She frowns. "What now?"', history))
 
     assert events == []
@@ -189,9 +178,7 @@ def _voice_on(monkeypatch, *, enabled: bool = True):
 
 
 def _classifier(
-    monkeypatch,
-    answers: dict[str, tuple[str, str]],
-    chunks: dict[str, list[tuple[str, str]]] | None = None,
+    monkeypatch, answers: dict[str, tuple[str, str]], chunks: dict[str, list[tuple[str, str]]] | None = None
 ) -> list[str]:
     """Read each narration as the windows in *chunks*, else as one window answered
     from *answers*; record every text the classifier was shown."""
@@ -286,10 +273,7 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
 
 async def test_only_the_drifting_axis_is_named(monkeypatch):
     _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: ("second", "past")},
-    )
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: ("second", "past")})
     calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
 
     await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -302,16 +286,12 @@ async def test_only_the_drifting_axis_is_named(monkeypatch):
 async def test_the_second_person_target_asks_for_the_character_in_third(monkeypatch):
     """`second` is the "He tells you" register, not "You tell".
 
-    The label is a precedence rule over the pronouns present, so a bare "second
-    person" instruction gets the other reading: a copy editor makes the narration's
-    subject "you" and rewrites the speaking character's own actions into the
-    reader's, which is strictly worse than the drift it was sent to fix.
+    The label is a precedence rule over the pronouns present, so a bare "second person" instruction gets the other reading: a
+    copy editor makes the narration's subject "you" and rewrites the speaking character's own actions into the reader's, which
+    is strictly worse than the drift it was sent to fix.
     """
     _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("first", "present")},
-    )
+    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("first", "present")})
     calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
 
     await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
@@ -344,10 +324,7 @@ async def test_an_unstable_baseline_voice_makes_no_llm_call(monkeypatch):
     seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, ASTERISK_MSG: SECOND_PRESENT})
     calls = _forced_call(monkeypatch, "should not be used")
 
-    history = [
-        {"role": "assistant", "content": QUOTED_BASELINE},
-        {"role": "assistant", "content": ASTERISK_MSG},
-    ]
+    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "assistant", "content": ASTERISK_MSG}]
     await _collect(_ctx(CONSISTENT_DRAFT, history))
 
     assert calls == []
@@ -624,11 +601,7 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
     )
     draft = "Welcome to the club. *Heidi waits by the desk.* Please, take a seat."
     seen = _classifier(
-        monkeypatch,
-        {
-            "Heidi smiles kindly at you.": ("third", "present"),
-            "Heidi waits by the desk.": ("third", "present"),
-        },
+        monkeypatch, {"Heidi smiles kindly at you.": ("third", "present"), "Heidi waits by the desk.": ("third", "present")}
     )
     calls = _forced_call(monkeypatch, "should not be used")
 
@@ -642,11 +615,7 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
 @pytest.mark.parametrize("cached_dialogue", [None, "quoted"])
 async def test_labels_are_reclassified_when_the_cached_convention_differs(monkeypatch, cached_dialogue):
     """Reclassify cached labels when the message's convention changes."""
-    msg = {
-        "id": 7,
-        "role": "assistant",
-        "content": "Stay with me. *Heidi waits by the desk.* We can talk here.",
-    }
+    msg = {"id": 7, "role": "assistant", "content": "Stay with me. *Heidi waits by the desk.* We can talk here."}
     cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
     cached_payload["content_sha256"] = voice._content_digest(msg["content"])
     cached_payload["classifier"] = voice.local_model_identity(voice.FEATURE)
@@ -789,8 +758,7 @@ async def test_a_quoted_draft_is_parsed_as_quoted_in_a_bare_dialogue_chat(monkey
     assert narration_only(draft, Dialogue.BARE) == ""  # what the old code passed on
 
     seen = _classifier(
-        monkeypatch,
-        {"She smiles, stepping back toward the window.": THIRD_PAST, draft_narration: SECOND_PRESENT},
+        monkeypatch, {"She smiles, stepping back toward the window.": THIRD_PAST, draft_narration: SECOND_PRESENT}
     )
     calls = _forced_call(monkeypatch, "*She steps closer, watching him.* Are you sure about this?")
 
@@ -834,17 +802,10 @@ async def test_each_history_row_is_classified_under_its_own_convention(monkeypat
     )
     _forced_call(monkeypatch, CONSISTENT_DRAFT)
 
-    history = [
-        {"role": "assistant", "content": quoted_row},
-        {"role": "assistant", "content": bare_row},
-    ]
+    history = [{"role": "assistant", "content": quoted_row}, {"role": "assistant", "content": bare_row}]
     await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
 
-    assert seen == [
-        "She smiles, stepping back toward the window.",
-        CONSISTENT_NARRATION,
-        VOICE_DRIFTING_NARRATION,
-    ]
+    assert seen == ["She smiles, stepping back toward the window.", CONSISTENT_NARRATION, VOICE_DRIFTING_NARRATION]
 
 
 async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkeypatch):
@@ -945,10 +906,7 @@ async def test_markup_capture_is_off_unless_configured(monkeypatch):
 async def test_markup_capture_records_the_draft_the_normalizer_received(monkeypatch, tmp_path):
     path = tmp_path / "capture.jsonl"
     monkeypatch.setenv(capture.ENV, str(path))
-    history = [
-        {"id": 3, "role": "assistant", "content": QUOTED_BASELINE},
-        {"id": 4, "role": "user", "content": "and then?"},
-    ]
+    history = [{"id": 3, "role": "assistant", "content": QUOTED_BASELINE}, {"id": 4, "role": "user", "content": "and then?"}]
 
     await _collect(_ctx(DRIFTING_DRAFT, history))
 
@@ -974,8 +932,7 @@ async def test_a_failing_capture_never_blocks_normalization(monkeypatch, tmp_pat
 
 
 def _markup_model(monkeypatch, answers: dict[str, tuple[str, str]]) -> list[str]:
-    """Install the markup classifier, answering (narration, dialogue) from *answers*;
-    record every text it read."""
+    """Install the markup classifier, answering (narration, dialogue) from *answers*; record every text it read."""
     seen: list[str] = []
 
     async def fake(text: str) -> tuple[str, str]:

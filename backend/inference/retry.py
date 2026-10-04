@@ -6,18 +6,15 @@ from dataclasses import dataclass
 
 import httpx
 
-# Temporary server-side HTTP statuses. 429/503/529 are explicit "busy/overloaded"
-# signals; 408/500/502/504 are transient often enough on LLM backends (request
-# timeouts, OOM/CUDA hiccups, gateway blips) to be worth a bounded retry.
-# Client-side 4xx (400/401/404/422 ...) are deterministic and never retried.
+# Temporary server-side HTTP statuses. 429/503/529 are explicit "busy/overloaded" signals; 408/500/502/504 are transient often
+# enough on LLM backends (request timeouts, OOM/CUDA hiccups, gateway blips) to be worth a bounded retry. Client-side 4xx
+# (400/401/404/422 ...) are deterministic and never retried.
 RETRYABLE_STATUS: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
 
-# Connection-level failures that mean the server was briefly unreachable rather
-# than that the request was bad: a refused or timed-out connect, a read/protocol
-# error or dropped connection before any response, or no free pool slot. Write-side
-# and local/proxy protocol errors are excluded -- those are our fault, not a
-# transient server blip. These only ever surface pre-stream, so retrying them is
-# subject to the same "no event yet" guard as a status-code failure.
+# Connection-level failures that mean the server was briefly unreachable rather than that the request was bad: a refused or
+# timed-out connect, a read/protocol error or dropped connection before any response, or no free pool slot. Write-side and
+# local/proxy protocol errors are excluded -- those are our fault, not a transient server blip. These only ever surface
+# pre-stream, so retrying them is subject to the same "no event yet" guard as a status-code failure.
 RETRYABLE_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
@@ -32,9 +29,8 @@ RETRYABLE_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
 class RetryPolicy:
     """When and how to retry a completion that failed with a transient error.
 
-    ``count`` is the number of *retries* after the initial attempt, so at most
-    ``1 + count`` requests and ``count`` waits of ``delay`` seconds. ``count=0``
-    disables retrying.
+    ``count`` is the number of *retries* after the initial attempt, so at most ``1 + count`` requests and ``count`` waits of
+    ``delay`` seconds. ``count=0`` disables retrying.
     """
 
     count: int = 4

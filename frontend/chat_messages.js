@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
@@ -16,6 +17,7 @@ import {
   turnPayload,
 } from "./chat_stream.js";
 import { replayAttachmentInvalidations } from "./chat_workflow.js";
+import { responseError, sseError } from "./errors.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
 import { confirmDelete } from "./modal.js";
@@ -36,7 +38,7 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-export function startEdit(msgId) {
+function startEdit(msgId) {
   S.editingMsgId = msgId;
   S.forkEditMsgId = null;
   S.editingPendingUserMsg = false;
@@ -46,7 +48,7 @@ export function startEdit(msgId) {
   scrollToMessage(msgId);
 }
 
-export function cancelEdit() {
+function cancelEdit() {
   const msgId = S.editingMsgId;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -55,7 +57,7 @@ export function cancelEdit() {
   if (msgId != null) scrollToMessage(msgId);
 }
 
-export function startForkEdit(msgId) {
+function startForkEdit(msgId) {
   S.forkEditMsgId = msgId;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -68,7 +70,7 @@ export function startForkEdit(msgId) {
   if (childAssistant) inspectMessage(childAssistant.id);
 }
 
-export function cancelForkEdit() {
+function cancelForkEdit() {
   const msgId = S.forkEditMsgId;
   S.forkEditMsgId = null;
   renderMessages();
@@ -100,7 +102,7 @@ function focusEditTextarea(ta, onEscape) {
   if (messageEl) messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
 }
 
-export async function deleteMessage(msgId) {
+async function deleteMessage(msgId) {
   if (S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const cid = S.activeConvId;
@@ -140,7 +142,7 @@ export async function deleteMessage(msgId) {
 
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
-export async function rewriteMessageProse(msgId) {
+async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
@@ -163,12 +165,7 @@ export async function rewriteMessageProse(msgId) {
       {},
       op.signal,
     );
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      const error = new Error(body || `Orb returned HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
+    if (!response.ok) throw await responseError(response);
     for await (const { event, data } of sseEvents(response.body, { signal: op.signal })) {
       if (event === "prose_rewrite_update") {
         // Previews hold still once Stop is pressed; the saved row replaces them.
@@ -182,7 +179,7 @@ export async function rewriteMessageProse(msgId) {
         else if (result.warning) toast(`Prose rewriter didn't run: ${result.warning}`, true);
         else toast(result.changed ? "Message rewritten" : "No prose changes needed");
       } else if (event === "error") {
-        throw new Error(data || "Prose rewrite failed");
+        throw sseError(data, "Prose rewrite failed");
       }
     }
     if (!result) throw new Error("Prose rewrite stream ended before completion");
@@ -191,7 +188,7 @@ export async function rewriteMessageProse(msgId) {
     else if (e.status === 503) toast("Turn on the Prose Rewriter and download a model in Workflow → Secondary");
     else {
       console.error("prose rewrite failed", e);
-      toast("Prose rewrite failed", true);
+      toast(e.message || "Prose rewrite failed", true);
     }
     // A broken stream may leave the server still writing, so drop it and let
     // settle() ask /stop. A refused request (an HTTP status) never opened one.
@@ -236,7 +233,7 @@ function applyProseRewriteSnapshot(msgId, content) {
 // of order. Only the newest switch is allowed to touch the DOM.
 let _branchSwitchSeq = 0;
 
-export async function switchBranch(msgId) {
+async function switchBranch(msgId) {
   if (!msgId || S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const seq = ++_branchSwitchSeq;
@@ -254,9 +251,7 @@ export async function switchBranch(msgId) {
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
 
-    // Paint the new branch and settle the scroll in one task. Awaiting anything
-    // in between lets the browser paint the rebuilt list at the pre-restore
-    // offset first, which is what reads as a jump.
+    // Paint and restore scroll in one task to avoid a frame at the old offset.
     setMessages(switched);
     renderMessages();
     if (anchorMsgId && anchorOffset !== null) {
@@ -311,7 +306,7 @@ function navigateLastBranch(dir) {
   return false;
 }
 
-export function handleChatKeyNav(e) {
+function handleChatKeyNav(e) {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const key = e.key;
   if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "ArrowUp" && key !== "ArrowDown") return;
@@ -415,7 +410,7 @@ function readEditDraft(textareaId) {
   return ta.value;
 }
 
-export async function saveEdit(msgId, _role) {
+async function saveEdit(msgId, _role) {
   if (!requestSendPermission()) return;
   const content = readEditDraft(`edit-textarea-${msgId}`);
   if (content === null) return;
@@ -442,7 +437,7 @@ export async function saveEdit(msgId, _role) {
   }
 }
 
-export async function saveForkEdit(msgId) {
+async function saveForkEdit(msgId) {
   const content = readEditDraft(`edit-textarea-${msgId}`);
   if (content === null) return;
   if (!S.activeConvId || !canStartGeneration()) return;
@@ -484,7 +479,7 @@ export async function saveForkEdit(msgId) {
   );
 }
 
-export function startEditPending() {
+function startEditPending() {
   S.editingPendingUserMsg = true;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -493,7 +488,7 @@ export function startEditPending() {
   focusEditTextarea($("edit-textarea-pending"), cancelEditPending);
 }
 
-export async function saveEditPending() {
+async function saveEditPending() {
   const content = readEditDraft("edit-textarea-pending");
   if (content === null) return;
   const trimmed = content.trim();
@@ -514,9 +509,24 @@ export async function saveEditPending() {
   renderMessages();
 }
 
-export function cancelEditPending() {
+function cancelEditPending() {
   S.editingPendingUserMsg = false;
   renderMessages();
 }
 
 export { inspectMessage } from "./chat_inspector.js";
+
+registerActions("messages", {
+  edit: (el) => startEdit(Number(el.dataset.msgId)),
+  editPending: () => startEditPending(),
+  forkEdit: (el) => startForkEdit(Number(el.dataset.msgId)),
+  cancelEdit: () => cancelEdit(),
+  saveEdit: (el) => saveEdit(Number(el.dataset.msgId)),
+  cancelForkEdit: () => cancelForkEdit(),
+  saveForkEdit: (el) => saveForkEdit(Number(el.dataset.msgId)),
+  cancelEditPending: () => cancelEditPending(),
+  saveEditPending: () => saveEditPending(),
+  delete: (el) => deleteMessage(Number(el.dataset.msgId)),
+  switchBranch: (el) => switchBranch(Number(el.dataset.branchId)),
+  proseRewrite: (el) => rewriteMessageProse(Number(el.dataset.msgId)),
+});

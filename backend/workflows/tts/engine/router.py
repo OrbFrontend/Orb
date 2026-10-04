@@ -48,13 +48,10 @@ try:
 except ImportError:
     logger.info("httpx not installed — Kokoro TTS backend disabled")
 
-# Two Spark-TTS backends, and which name is which matters for existing saves.
-# `spark` is the BUILT-IN cloner: no sidecar, no api_url, a voice enrolled from
-# an uploaded clip. `spark_remote` is the HTTP client for the standalone
-# OrbTTS sidecar that came first; profiles written before the built-in existed
-# are migrated onto it (migration 0062) so they keep working against a server
-# the user already runs, rather than being silently repointed at a model that
-# may not be downloaded.
+# Two Spark-TTS backends, and which name is which matters for existing saves. `spark` is the BUILT-IN cloner: no sidecar, no
+# api_url, a voice enrolled from an uploaded clip. `spark_remote` is the HTTP client for the standalone OrbTTS sidecar that came
+# first; profiles written before the built-in existed are migrated onto it (migration 0062) so they keep working against a
+# server the user already runs, rather than being silently repointed at a model that may not be downloaded.
 try:
     from .builtin_spark_adapter import BuiltinSparkAdapter
 

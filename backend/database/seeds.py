@@ -102,7 +102,7 @@ STARTER_STATE_FRAGMENTS = [
         "state_mode": "entries",
         "state_update": "after_reply",
         "state_inject": "both",
-    },
+    }
 ]
 
 # Free-form notes the user keeps by hand. Migration 0067 moves user-authored
@@ -274,13 +274,11 @@ SEED_INTERACTIVE_FRAGMENTS = [
     NOTES_STATE_FRAGMENT,
 ]
 
-DEFAULT_ENABLED_TOOLS = {
-    "direct_scene": True,
-    "editor_apply_patch": False,
-    "editor_rewrite": False,
-}
+DEFAULT_ENABLED_TOOLS = {"direct_scene": True, "editor_apply_patch": False, "editor_rewrite": False}
 
-DEFAULT_SETTINGS = {
+# The endpoint and model a fresh install or a reset starts on. They seed the endpoints row and its Writer and Agent
+# model_configs; the settings table has no columns for them.
+DEFAULT_CONNECTION = {
     "endpoint_url": "http://localhost:5000/v1",
     "api_key": "",
     "model_name": "default",
@@ -290,6 +288,12 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
+}
+
+DEFAULT_SETTINGS = {
+    # get_settings() overlays these keys from the active endpoint and model config; with no settings row at all they read as
+    # the default connection.
+    **DEFAULT_CONNECTION,
     "shared_system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.",
     "system_prompt": "",
     "user_name": "User",
@@ -315,9 +319,8 @@ DEFAULT_SETTINGS = {
         "anti_echo": True,
         "negated_narration": False,
     },
-    # Document-mode Output Auditor: doc-owned columns, deliberately separate from
-    # the chat editor's so a doc-mode save can never perturb chat scanner state.
-    # The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
+    # Document-mode Output Auditor: doc-owned columns, deliberately separate from the chat editor's so a doc-mode save can never
+    # perturb chat scanner state. The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
     "document_audit_enabled": 1,
     "document_audit_autopatch": 0,
     "document_audit_toggles": {
@@ -336,15 +339,8 @@ DEFAULT_SETTINGS = {
 }
 
 
-# Each seed entry is one of two shapes:
-#   * a raw regex pattern string — matched case-insensitively against a single
-#     sentence at a time (see slop_detector). Bridge loosely-related words with
-#     a *bounded* gap like `\W+(\w+\W+){0,2}` (at most a couple of words) rather
-#     than a bare `.*`, which greedily spans the whole sentence and over-matches.
-#     Use alternation `(a|b)` for synonyms, inflection suffixes like `(s|ing|ed)`,
-#     and `\b` to keep short words from matching inside larger ones.
-#   * a list of literal variant strings — kept as worked examples of the literal
-#     mode the editor still supports for users who prefer plain phrases.
+# Seeds are regex strings or literal-variant lists. Regexes match one sentence case-insensitively; use bounded gaps, inflection
+# suffixes and word boundaries to avoid greedy or substring overmatches.
 SEED_PHRASE_BANK = [
     r"a mix(ture)? of",
     r"drip(ped|ping|s) with",

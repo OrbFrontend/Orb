@@ -1,26 +1,13 @@
+import { installEscapingDocument } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatProse } from "../../frontend/utils.js";
 import { escapeUnknownTags, trimIncompleteMarkup } from "../../frontend/message_html.js";
 
-// formatProse hands its output to DOMPurify, so nothing here is the last line of
-// defence — but "the sanitiser will catch it" is only true for markup the
-// sanitiser refuses, and it happily keeps an `<img src=…>`. What these pin is
-// the parser's own promise: text the model marked as code stays text, and a
-// fence that never closes never becomes live markup.
-
-function installEscapingDocument() {
-  globalThis.document = {
-    createElement() {
-      return {
-        innerHTML: "",
-        set textContent(value) {
-          this.innerHTML = String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        },
-      };
-    },
-  };
-}
+// formatProse hands its output to DOMPurify, so nothing here is the last line of defence -- but "the sanitiser will
+// catch it" is only true for markup the sanitiser refuses, and it happily keeps an `<img src=...>`. What these pin is the
+// parser's own promise: text the model marked as code stays text, and a fence that never closes never becomes live
+// markup.
 
 test("a tag inside a code span is printed, not parsed", () => {
   installEscapingDocument();
@@ -50,9 +37,8 @@ test("emphasis still works around a code span", () => {
 
 test("a fence that never closes renders as code, not as markup", () => {
   installEscapingDocument();
-  // The generation was cut off mid-block. Previously nothing matched the
-  // unterminated fence, so everything after it was rendered as prose — live,
-  // and permanently so once the turn ended.
+  // The generation was cut off mid-block. Previously nothing matched the unterminated fence, so everything after it was
+  // rendered as prose -- live, and permanently so once the turn ended.
   const html = formatProse("intro\n```html\n<img src=https://evil.test/p.png>");
   assert.match(html, /<div class="code-block">/);
   assert.match(html, /&lt;img src=https:\/\/evil\.test\/p\.png&gt;/);

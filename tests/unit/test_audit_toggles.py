@@ -1,6 +1,5 @@
-"""
-test_audit_toggles.py — verify run_audit honours the per-scanner toggle map,
-skipping disabled scanners while leaving enabled ones intact.
+"""test_audit_toggles.py -- verify run_audit honours the per-scanner toggle map, skipping disabled scanners while leaving enabled
+ones intact.
 """
 
 from __future__ import annotations
@@ -46,13 +45,7 @@ def test_cross_message_toggles_off_skips_scanners():
     toggles = {t: True for t in AUDIT_TYPES}
     toggles["phrase_repetition"] = False
     toggles["structural_repetition"] = False
-    off = run_audit(
-        full,
-        [],
-        assistant_messages=_PREV_MSGS,
-        structural_text=_REPEAT_DRAFT,
-        audit_toggles=toggles,
-    )
+    off = run_audit(full, [], assistant_messages=_PREV_MSGS, structural_text=_REPEAT_DRAFT, audit_toggles=toggles)
     assert off.phrase_result is None
     assert off.structural_repetition_result is None
 
@@ -71,5 +64,5 @@ def test_anti_echo_toggle_off_skips_scanner():
 
 
 def test_anti_echo_skipped_without_user_message():
-    # No user message → nothing to compare against, scanner is a no-op.
+    # No user message -> nothing to compare against, scanner is a no-op.
     assert run_audit(_ECHO_DRAFT, []).echo_result is None

@@ -1,22 +1,5 @@
-// Pointer-driven list reordering, shared by the scene cast list and the
-// interactive fragment list.
-//
-// Both lists used to reorder through HTML5 drag-and-drop, which no mobile
-// browser synthesises from touch input: on a phone the lists could not be
-// reordered at all. Pointer events cover mouse, touch and pen from one code
-// path, and the arrow-key path gives the same reordering to the keyboard.
-//
-// The drag starts from a handle rather than the row body, so a finger landing
-// anywhere else still scrolls the list, and a tap still activates the row.
-//
-// A fingertip is far wider than the handle it lands on, so on touch and pen a
-// press only picks a row up once it has been held still for HOLD_MS. A finger
-// that crosses the handle mid-swipe scrolls the list the way it would anywhere
-// else, instead of silently reordering it; a mouse still picks up on press,
-// where the button is deliberate and the pointer never scrolls. That is why
-// the handle carries `touch-action: pan-y` rather than `none`: the browser has
-// to stay free to scroll a press that turns out to be a swipe, so an armed
-// drag takes the gesture back by cancelling the touchmove itself.
+// Handle-based reordering with pointer and arrow-key support. Touch and pen require a stationary HOLD_MS press; mouse
+// starts immediately. `touch-action: pan-y` permits scrolling until an armed drag cancels touchmove.
 
 const AUTOSCROLL_EDGE_PX = 44; // proximity to the scrollport edge that starts a scroll
 const AUTOSCROLL_STEP_PX = 10; // per-frame scroll while the pointer is held at the edge
@@ -29,7 +12,7 @@ const HOLD_SLOP_PX = 8; // travel during that hold that means scrolling, not dra
  * Index in `rects` that a pointer at `y` should insert before, or `rects.length`
  * to place last. `rects` are the other items' bounding boxes, in document order.
  */
-export function dropTargetIndex(rects, y) {
+function dropTargetIndex(rects, y) {
   for (let i = 0; i < rects.length; i++) {
     if (y < rects[i].top + rects[i].height / 2) return i;
   }
@@ -37,13 +20,9 @@ export function dropTargetIndex(rects, y) {
 }
 
 /**
- * Make `container`'s items reorderable by dragging their handle, or by pressing
- * ArrowUp/ArrowDown while the handle has focus. Touch and pen have to hold the
- * handle still for a moment before the row is picked up. `onReorder(container)`
- * fires once per committed reorder. ``itemContainer`` can narrow an item's
- * reorder scope to a nested list; it receives the row and the root container.
- * This lets one surface present independent sortable lanes without allowing a
- * row to cross from one lane into another. Returns a teardown function.
+ * Reorder by handle drag or focused ArrowUp/ArrowDown; touch and pen require a hold.
+ * `onReorder(container)` fires once per commit. `itemContainer(row, root)` may
+ * restrict movement to a nested list. Returns a teardown function.
  */
 export function initDragReorder(
   container,
@@ -122,10 +101,7 @@ export function initDragReorder(
     setTimeout(() => container.removeEventListener("click", swallow, true), 0);
   }
 
-  // The handle's `touch-action: pan-y` leaves the browser free to scroll a
-  // press that turns out to be a swipe. Once the press is armed the drag owns
-  // the gesture instead: it has been still for HOLD_MS, so no pan has started
-  // yet, and cancelling this move keeps one from starting.
+  // Cancel moves once armed; `touch-action: pan-y` allows scrolling before the hold completes.
   function blockScroll(e) {
     if (armed && e.cancelable) e.preventDefault();
   }
@@ -164,8 +140,7 @@ export function initDragReorder(
     try {
       handleEl.releasePointerCapture(pointerId);
     } catch {
-      // Never captured (the hold never elapsed), or the capture is already
-      // gone (pointercancel, or a detached handle).
+      // Never captured (the hold never elapsed), or the capture is already gone (pointercancel, or a detached handle).
     }
     document.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerup", onPointerUp);

@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from ...database import (
-    add_phrase_group,
-    delete_phrase_group,
-    get_phrase_bank_rows,
-    update_phrase_group,
-)
-from ..deps import _validate_phrase_group
+from ...database import add_phrase_group, delete_phrase_group, get_phrase_bank_rows, update_phrase_group
+from ..deps import validate_phrase_group
 from ..schemas import PhraseGroupCreate, PhraseGroupUpdate
 
 router = APIRouter()
@@ -25,7 +20,7 @@ async def api_get_phrase_bank():
 @router.post("/api/phrase-bank")
 async def api_create_phrase_group(data: PhraseGroupCreate):
     """Create a new phrase group (literal variants or a single regex)."""
-    variants, pattern = _validate_phrase_group(data.kind, data.variants, data.pattern)
+    variants, pattern = validate_phrase_group(data.kind, data.variants, data.pattern)
     group_id = await add_phrase_group(variants, data.kind, pattern)
     return {"id": group_id, "kind": data.kind, "variants": variants, "pattern": pattern}
 
@@ -33,7 +28,7 @@ async def api_create_phrase_group(data: PhraseGroupCreate):
 @router.put("/api/phrase-bank/{group_id}")
 async def api_update_phrase_group(group_id: int, data: PhraseGroupUpdate):
     """Update an existing phrase group (literal variants or a single regex)."""
-    variants, pattern = _validate_phrase_group(data.kind, data.variants, data.pattern)
+    variants, pattern = validate_phrase_group(data.kind, data.variants, data.pattern)
     success = await update_phrase_group(group_id, variants, data.kind, pattern)
     if not success:
         raise HTTPException(status_code=404, detail="Phrase group not found")

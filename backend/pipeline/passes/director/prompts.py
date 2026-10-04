@@ -16,9 +16,7 @@ DIRECTOR_PREAMBLE = (
 
 
 def _moods_options_block(
-    active_moods: Sequence[str],
-    mood_fragments: Sequence[Mapping[str, Any]],
-    resting: frozenset[str] = frozenset(),
+    active_moods: Sequence[str], mood_fragments: Sequence[Mapping[str, Any]], resting: frozenset[str] = frozenset()
 ) -> str:
     # A resting mood is neither offered nor carried into this turn, so listing it
     # as previously active only invites the model to pick it again.
@@ -44,11 +42,9 @@ def build_director_tool_prompt(
 ) -> str:
     """Build the combined Director request for one tool.
 
-    *tool_schema* is the live view whose parameters the model may fill;
-    *unavailable_fields* are the ones the shared schema still offers -- disabled
-    or resting fragments -- which the request names so the model leaves them empty.
-    ``direct_scene`` lists each live field with its description here, because
-    the shared schema carries fragment fields by name only.
+    *tool_schema* is the live view whose parameters the model may fill; *unavailable_fields* are the ones the shared schema
+    still offers -- disabled or resting fragments -- which the request names so the model leaves them empty. ``direct_scene``
+    lists each live field with its description here, because the shared schema carries fragment fields by name only.
     """
     tool = get_tool(tool_name)
     if not tool:

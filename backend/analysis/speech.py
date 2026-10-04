@@ -25,10 +25,7 @@ from .text.roleplay import (
     span_role,
     strip_quotes,
 )
-from .text.roleplay_segmentation import (
-    extract_block_spans,
-    strip_ooc,
-)
+from .text.roleplay_segmentation import extract_block_spans, strip_ooc
 
 __all__ = ["speech_input", "speech_segments"]
 
@@ -75,9 +72,8 @@ def speech_input(text: str) -> str:
 def _unmarked_speech(text: str, style: AxisStyle) -> bool:
     """Read plain chat when the model cannot identify either markup convention.
 
-    Unknown is not a semantic narration label: the markup model also returns
-    unknown/unknown for ordinary greetings. Keep marked or malformed RP out of
-    this fallback; an apostrophe within a word is not a quotation delimiter.
+    Unknown is not a semantic narration label: the markup model also returns unknown/unknown for ordinary greetings. Keep marked
+    or malformed RP out of this fallback; an apostrophe within a word is not a quotation delimiter.
     """
     if style.dialogue != Dialogue.UNKNOWN or style.narration != Narration.UNKNOWN:
         return False
@@ -138,22 +134,13 @@ def _speech_spans(para: str) -> list[tuple[str, int, int]]:
 
 
 def speech_segments(
-    text: str,
-    style: AxisStyle | None = None,
-    *,
-    input_prepared: bool = False,
-    include_narration: bool = False,
+    text: str, style: AxisStyle | None = None, *, input_prepared: bool = False, include_narration: bool = False
 ) -> list[tuple[str, str]]:
-    """Ordered speech/action text under the message's markup convention.
+    """Return ordered speech/action segments under the message-wide markup convention.
 
-    Shares format consistency's quotation, emphasis and inline-role decisions.
-    A convention labels the whole message, not individual sentences. Unmarked
-    chat with both conventions unknown falls back to plain speech; a positive
-    narration reading still excludes the unquoted prose.
-    Parenthetical asides, OOC and protected formatting are never spoken.
-    Set input_prepared only for the result of speech_input used to classify it.
-    Set include_narration to also receive the dropped prose as ``narration``
-    segments, for a caller that renders silence in its place.
+    Unknown conventions allow plain-chat fallback; positive narration excludes unquoted prose. Asides, OOC and protected
+    formatting are never spoken. Set ``input_prepared`` only for the classified ``speech_input`` result. ``include_narration``
+    returns otherwise dropped prose as narration segments.
     """
     if not input_prepared:
         text = speech_input(text)
@@ -189,8 +176,7 @@ def speech_segments(
             role = span_role(spans, i, dialogue, para)
             if (typ == "SPEECH" or (typ == "EMPHASIS" and role == "NARRATION")) and THOUGHT_ATTRIBUTION.match(para[end:]):
                 flush()
-                # The attribution is narration even in a bare-dialogue message.
-                # Keep the following sentence eligible for speech.
+                # The attribution is narration even in a bare-dialogue message. Keep the following sentence eligible for speech.
                 tail = para[end:]
                 next_speech = next((s for kind, s, _ in spans[i + 1 :] if kind == "SPEECH"), len(para))
                 silent_until = min(next_speech, end + next(sentence_boundary_ends(tail), len(tail)))

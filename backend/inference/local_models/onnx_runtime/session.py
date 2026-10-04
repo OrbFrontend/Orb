@@ -18,10 +18,10 @@ _LOCK = threading.Condition()  # sessions load off the event loop, from worker t
 
 
 def runtime_ok() -> bool:
-    """Is ``onnxruntime`` importable? The ``onnx`` package is NOT needed —
+    """Is ``onnxruntime`` importable? The ``onnx`` package is NOT needed --
     that one only *builds* graphs and belongs in requirements-dev.txt."""
     try:
-        import onnxruntime  # noqa: F401, PLC0415 — deferred; base Orb has no ML extras
+        import onnxruntime  # noqa: F401, PLC0415 -- deferred; base Orb has no ML extras
     except Exception:
         return False
     return True
@@ -33,7 +33,7 @@ def load(path: str) -> ort.InferenceSession:
     *path* is a trusted absolute path resolved by the caller's closed catalog,
     the same contract ``LaunchProfile.model_path`` carries.
     """
-    import onnxruntime as ort  # noqa: PLC0415 — deferred; see runtime_ok
+    import onnxruntime as ort  # noqa: PLC0415 -- deferred; see runtime_ok
 
     key = os.path.normpath(path)
     if not os.path.exists(key):

@@ -9,6 +9,7 @@ from .connection import get_db
 from .migrations import run_pending, stamp_all
 from .schema import CREATE_TABLES_SQL
 from .seeds import (
+    DEFAULT_CONNECTION,
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_SETTINGS,
     SEED_INTERACTIVE_FRAGMENTS,
@@ -18,23 +19,16 @@ from .seeds import (
 
 
 async def init_db() -> int:
-    """Initialize a fresh database or upgrade an existing one, then seed it.
+    """Initialize or upgrade the database, then seed it.
 
-    A database without application schema gets the current schema, seeds and
-    migration baseline in one transaction, without running any migrations.
-    File size, missing settings rows and a missing migration ledger cannot
-    reliably distinguish a fresh database from one needing upgrades.
-
-    Existing databases run pending migrations *before* the latest schema script,
-    whose indexes may name newly added columns. Returns the migration count so
-    startup can reclaim pages left behind by rebuilds.
+    Without application schema, install schema, seeds and migration baseline atomically. Existing databases migrate before
+    schema indexes can reference new columns. Return the migration count for startup page reclamation.
     """
     async with get_db() as db:
         existing = await db.execute_fetchall("SELECT 1 FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' LIMIT 1")
         migrated = run_pending(connection.DB_PATH) if existing else 0
-        # executescript otherwise commits DDL independently of seeds. Keeping
-        # the BEGIN inside the script lets connection close roll everything
-        # back on any failure, including a cancelled first startup.
+        # executescript otherwise commits DDL independently of seeds. Keeping the BEGIN inside the script lets connection close
+        # roll everything back on any failure, including a cancelled first startup.
         await db.executescript("BEGIN IMMEDIATE;\n" + CREATE_TABLES_SQL)
 
         row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM settings"))
@@ -44,9 +38,7 @@ async def init_db() -> int:
 
         ep_row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM endpoints"))
         if ep_row[0]["c"] == 0:
-            s_rows = list(await db.execute_fetchall("SELECT * FROM settings WHERE id = 1"))
-            if s_rows:
-                await _seed_endpoint_from(db, dict(s_rows[0]))
+            await _seed_default_endpoint(db)
 
         row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM mood_fragments"))
         if row[0]["c"] == 0:
@@ -90,7 +82,7 @@ async def reset_to_defaults() -> None:
         await db.execute("DELETE FROM endpoints")
 
         await _seed_settings(db)
-        await _seed_endpoint_from(db, DEFAULT_SETTINGS)
+        await _seed_default_endpoint(db)
         await _seed_mood_fragments(db)
         await _seed_interactive_fragments(db)
         await _seed_phrase_bank(db)
@@ -98,10 +90,7 @@ async def reset_to_defaults() -> None:
         if cache_bookkeeping is not None:
             await db.execute(
                 "UPDATE settings SET attachment_cache_budget_bytes = ?, attachment_access_counter = ? WHERE id = 1",
-                (
-                    cache_bookkeeping["attachment_cache_budget_bytes"],
-                    cache_bookkeeping["attachment_access_counter"],
-                ),
+                (cache_bookkeeping["attachment_cache_budget_bytes"], cache_bookkeeping["attachment_access_counter"]),
             )
 
         await db.commit()
@@ -110,20 +99,8 @@ async def reset_to_defaults() -> None:
 async def _seed_settings(db) -> None:
     s = DEFAULT_SETTINGS
     await db.execute(
-        "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, shared_system_prompt, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            s["endpoint_url"],
-            s["model_name"],
-            s["temperature"],
-            s["min_p"],
-            s["top_k"],
-            s["top_p"],
-            s["repetition_penalty"],
-            s["max_tokens"],
-            s["shared_system_prompt"],
-            s["system_prompt"],
-            json.dumps(DEFAULT_ENABLED_TOOLS),
-        ),
+        "INSERT INTO settings (id, shared_system_prompt, system_prompt, enabled_tools) VALUES (1, ?, ?, ?)",
+        (s["shared_system_prompt"], s["system_prompt"], json.dumps(DEFAULT_ENABLED_TOOLS)),
     )
 
 
@@ -137,65 +114,40 @@ async def _seed_default_persona(db) -> None:
     await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (cur.lastrowid,))
 
 
-async def _seed_endpoint_from(db, s: dict) -> None:
-    """Create an endpoint + writer/agent model_configs from a settings-shaped dict,
-    then link both back-references on settings.id=1."""
-    cur = await db.execute(
-        "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
-        (
-            s.get("endpoint_url", "http://localhost:5000/v1"),
-            s.get("api_key", ""),
-        ),
-    )
+async def _seed_default_endpoint(db) -> None:
+    """Create the default endpoint with Writer and Agent model configs, and make it the active endpoint."""
+    c = DEFAULT_CONNECTION
+    cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (c["endpoint_url"], c["api_key"]))
     endpoint_id = cur.lastrowid
-    writer = await db.execute(
-        "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'writer')",
-        (
-            endpoint_id,
-            s.get("model_name", "default"),
-            "",  # Model-specific system_prompt starts empty
-            s.get("temperature", 0.8),
-            s.get("min_p", 0.0),
-            s.get("top_k", 40),
-            s.get("top_p", 0.95),
-            s.get("repetition_penalty", 1.0),
-            s.get("max_tokens", 4096),
-        ),
-    )
-    agent = await db.execute(
-        "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, 'agent')",
-        (
-            endpoint_id,
-            s.get("model_name", "default"),
-            s.get("temperature", 0.8),
-            s.get("min_p", 0.0),
-            s.get("top_k", 40),
-            s.get("top_p", 0.95),
-            s.get("repetition_penalty", 1.0),
-            s.get("max_tokens", 4096),
-        ),
-    )
+    config_ids = []
+    for role in ("writer", "agent"):
+        config = await db.execute(
+            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?)",
+            (
+                endpoint_id,
+                c["model_name"],
+                c["temperature"],
+                c["min_p"],
+                c["top_k"],
+                c["top_p"],
+                c["repetition_penalty"],
+                c["max_tokens"],
+                role,
+            ),
+        )
+        config_ids.append(config.lastrowid)
     await db.execute(
         "UPDATE endpoints SET active_model_config_id = ?, agent_active_model_config_id = ? WHERE id = ?",
-        (writer.lastrowid, agent.lastrowid, endpoint_id),
+        (*config_ids, endpoint_id),
     )
-    await db.execute(
-        "UPDATE settings SET active_endpoint_id = ? WHERE id = 1",
-        (endpoint_id,),
-    )
+    await db.execute("UPDATE settings SET active_endpoint_id = ? WHERE id = 1", (endpoint_id,))
 
 
 async def _seed_mood_fragments(db) -> None:
     for f in SEED_MOOD_FRAGMENTS:
         await db.execute(
             "INSERT INTO mood_fragments (id, label, description, prompt_text, negative_prompt) VALUES (?, ?, ?, ?, ?)",
-            (
-                f["id"],
-                f["label"],
-                f["description"],
-                f["prompt_text"],
-                f["negative_prompt"],
-            ),
+            (f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"]),
         )
 
 
@@ -212,16 +164,13 @@ async def _seed_interactive_fragments(db) -> None:
 
 
 async def _seed_phrase_bank(db) -> None:
-    # A seed entry is either a raw regex pattern (str) or a list of literal
-    # variant phrases.
+    # A seed entry is either a raw regex pattern (str) or a list of literal variant phrases.
     for entry in SEED_PHRASE_BANK:
         if isinstance(entry, str):
             await db.execute(
-                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'regex', ?)",
-                (json.dumps([]), entry),
+                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'regex', ?)", (json.dumps([]), entry)
             )
         else:
             await db.execute(
-                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'literal', NULL)",
-                (json.dumps(entry),),
+                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'literal', NULL)", (json.dumps(entry),)
             )

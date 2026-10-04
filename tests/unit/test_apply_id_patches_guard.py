@@ -1,7 +1,6 @@
-"""Guards on apply_id_patches — the id-anchored replacement for search/replace.
+"""Guards on apply_id_patches -- the id-anchored replacement for search/replace.
 
-The error strings are fed back to the model verbatim as the tool result, so
-they are part of the contract and asserted as such.
+The error strings are fed back to the model verbatim as the tool result, so they are part of the contract and asserted as such.
 """
 
 from __future__ import annotations
@@ -30,12 +29,7 @@ def test_applies_by_id(targets):
 
 def test_multiple_patches_splice_back_to_front(targets):
     out, errors = apply_id_patches(
-        DRAFT,
-        targets,
-        [
-            {"id": 1, "replace": "A much longer opening sentence."},
-            {"id": 3, "replace": "C."},
-        ],
+        DRAFT, targets, [{"id": 1, "replace": "A much longer opening sentence."}, {"id": 3, "replace": "C."}]
     )
     assert out == "A much longer opening sentence. Beta two. C."
     assert errors == []
@@ -49,18 +43,17 @@ def test_patch_order_does_not_matter(targets):
 
 def test_empty_replace_deletes_the_span(targets):
     # The span never included its separator, so a bare splice would strand one.
-    # Healing closes the seam — see tests/unit/test_patch_healing.py.
+    # Healing closes the seam -- see tests/unit/test_patch_healing.py.
     out, errors = apply_id_patches(DRAFT, targets, [{"id": 1, "replace": ""}])
     assert out == "Beta two. Gamma three."
     assert errors == []
 
 
-# ── Error vocabulary ──────────────────────────────────────────────────────────
+# -- Error vocabulary ----------------------------------------------------------
 
 
 def test_non_dict_patch_element_reported(targets):
-    # The guard exists for runtime input the type system forbids, so the bad
-    # element is deliberately the wrong type here.
+    # The guard exists for runtime input the type system forbids, so the bad element is deliberately the wrong type here.
     out, errors = apply_id_patches(DRAFT, targets, [{"id": 1, "replace": "X."}, "junk"])
     assert out == "X. Beta two. Gamma three."
     assert errors == ["Error: patch 1 is not an object with `id` and `replace`."]
@@ -134,17 +127,15 @@ def test_empty_target_list_names_no_range():
     assert errors == ["Error: no finding with id 1 in the report. Valid ids: (none — the report has no numbered issues)."]
 
 
-# ── Error metadata ────────────────────────────────────────────────────────────
+# -- Error metadata ------------------------------------------------------------
 #
-# The message is written for the model; the kind and id are written for the loop
-# around it. The editor tells a rejected real target apart from a junk id on
-# these, so they are as much a contract as the strings above.
+# The message is written for the model; the kind and id are written for the loop around it. The editor tells a rejected real
+# target apart from a junk id on these, so they are as much a contract as the strings above.
 
 
 def test_errors_are_plain_strings_to_every_existing_caller(targets):
-    # A str subclass, so joining, comparing and counting are unchanged — the
-    # tool-result text and the `len(patches) - len(errors)` count both rely on
-    # that staying true.
+    # A str subclass, so joining, comparing and counting are unchanged -- the tool-result text and the `len(patches) -
+    # len(errors)` count both rely on that staying true.
     _, errors = apply_id_patches(DRAFT, targets, [{"id": 9, "replace": "X."}])
     assert isinstance(errors[0], str)
     assert errors == ["Error: no finding with id 9 in the report. Valid ids: 1-3."]

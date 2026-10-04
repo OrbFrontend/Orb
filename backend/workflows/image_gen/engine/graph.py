@@ -14,9 +14,8 @@ OPTIONAL_SLOTS = ("negative", "width", "height")
 def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]:
     """The imported graph and its slot map for `graph_id`.
 
-    External mode ships no default graph, so an empty or dangling id is a
-    configuration gap rather than a fallback; the messages say which, so the caller
-    can surface them verbatim.
+    External mode ships no default graph, so an empty or dangling id is a configuration gap rather than a fallback; the messages
+    say which, so the caller can surface them verbatim.
     """
     for item in config["external_comfy"]["user_graphs"]:
         if item["id"] == graph_id:
@@ -34,12 +33,11 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
 
 
 def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """The image slots this graph declares, as normalization stored them. A graph that
-    loads no image has no `references` key at all, so callers treat "not an edit
-    workflow" and "no image inputs" as one case.
+    """The image slots this graph declares, as normalization stored them. A graph that loads no image has no `references` key at
+    all, so callers treat "not an edit workflow" and "no image inputs" as one case.
 
-    Declared, not enabled: whether a slot is actually filled is the rendering style's
-    answer, and `enabled_references` is where the two meet.
+    Declared, not enabled: whether a slot is actually filled is the rendering style's answer, and `enabled_references` is where
+    the two meet.
     """
     entries = slots.get("references")
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
@@ -48,13 +46,11 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def enabled_references(slots: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
     """The slots this render will fill: all of them, or none.
 
-    One source policy for the whole graph. The render planner assigns separate
-    characters to separate `LoadImage` slots in a group round, while reusing the
-    primary character for surplus required slots in a smaller scene.
+    One source policy for the whole graph. The render planner assigns separate characters to separate `LoadImage` slots in a
+    group round, while reusing the primary character for surplus required slots in a smaller scene.
 
-    A style with no source is the same render as the old "Not used": each `LoadImage`
-    keeps whatever filename the workflow was exported with, and nothing about the
-    conversation is uploaded for it.
+    A style with no source is the same render as the old "Not used": each `LoadImage` keeps whatever filename the workflow was
+    exported with, and nothing about the conversation is uploaded for it.
     """
     return reference_slots(slots) if source else []
 
@@ -72,8 +68,7 @@ def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> An
 def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | None:
     """The `inputs` mapping a slot points at, or None when it does not resolve.
 
-    The read-only counterpart of `_input_slot`: describing a graph must degrade to
-    "unknown" where patching it would raise.
+    The read-only counterpart of `_input_slot`: describing a graph must degrade to "unknown" where patching it would raise.
     """
     if not isinstance(slot, (list, tuple)) or len(slot) != 2:
         return None
@@ -83,16 +78,9 @@ def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | Non
 
 
 def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> dict:
-    """Best-effort render identity read back off the graph that will execute.
+    """Read best-effort render identity from standard graph inputs.
 
-    Recorded on the attachment so a later replay can say what changed. Read from the
-    graph because external mode has no catalog: a user-imported graph is described
-    wherever it uses the standard node inputs, and `None` wherever it does not.
-
-    `size_measured` grades the size this returns, because the two ways it is reached
-    are not equally true: the mapped slots name the node Orb wrote to, the fallback
-    scan names whichever node sorted first carrying a width/height pair and can pick
-    an upscale node over the latent one.
+    Missing fields are None. size_measured distinguishes mapped slots from a fallback scan that may select an upscale node.
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
     params["size_measured"] = False
@@ -156,17 +144,9 @@ def _declared_bound(value: Any) -> int | None:
 
 
 def fit_seed(seed: int, info: Mapping[str, Any], input_name: str) -> int:
-    """`seed` folded into the range the seed node declares, or unchanged where it
-    declares none.
+    """Fold seed into the node's /object_info bounds, leaving unbounded seeds unchanged.
 
-    Seed nodes disagree about how large a seed may be -- KSampler takes the whole
-    2**64, rgthree's Seed node stops at 2**50 -- and ComfyUI rejects the entire
-    prompt over one out-of-range widget, naming a number the user never chose. Each
-    node class declares its own bound in `/object_info`, so read it from there rather
-    than keeping a list of which nodes are small.
-
-    A cloud provider has no `/object_info` equivalent. Its bound is entered explicitly
-    on the style after the provider reports it; both paths end in `fold_seed_into`.
+    Cloud styles use explicit provider ceilings; both paths share fold_seed_into.
     """
     spec = declared_inputs(info).get(input_name)
     options = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 else None
@@ -248,11 +228,9 @@ def validate_graph_structure(
 ) -> None:
     """Prove this graph can run here, given the slots a render will actually fill.
 
-    `filled` is the style's *enabled* reference slots, not the graph's declared ones.
-    An image widget Orb is about to overwrite may name a file this server has never
-    seen; one it will leave alone may not, because that filename is what will render.
-    Defaulting to none is the strict reading, so a caller that forgets cannot get the
-    exemption by accident.
+    `filled` is the style's *enabled* reference slots, not the graph's declared ones. An image widget Orb is about to overwrite
+    may name a file this server has never seen; one it will leave alone may not, because that filename is what will render.
+    Defaulting to none is the strict reading, so a caller that forgets cannot get the exemption by accident.
     """
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")

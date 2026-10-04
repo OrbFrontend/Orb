@@ -15,7 +15,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
-from ...core import scrub_log, workflow_character_state_lock
+from ...core import scrub_log
 from ...database import (
     create_character_card,
     delete_character_card,
@@ -28,13 +28,11 @@ from ...database import (
     get_lorebook_entries,
     get_settings,
     get_user_persona,
-    get_workflow_character_state,
     get_world,
     list_character_cards,
     list_expression_labels,
     set_character_expressions,
     set_public_profile,
-    set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
     upgrade_card_fragment_types,
@@ -43,37 +41,15 @@ from ...features.cards import THUMB_EDGE, avatar_thumbnail, draft_card_profile
 from ...features.cards import downloader as card_downloader
 from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
+from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...inference import agent_lane_from_settings, client_from_settings
-from ...inference.local_models import spark_tts
-from ...workflows import spark_tts_host
-from ...workflows.tts import synth as tts_synth
-from ...workflows.tts.engine import builtin_spark_adapter
-from ..deps import (
-    _normalise_lorebook_entry,
-    cached_image_response,
-    idle_chats_guard,
-    image_not_modified,
-    lorebook_to_book,
-    profile_draft_failures,
-    project_lorebook_view,
-    rows_response,
-)
-from ..schemas import (
-    CharacterCardCreate,
-    CharacterCardUpdate,
-    ImportUrlRequest,
-    PublicProfilePayload,
-)
+from ..deps import cached_image_response, idle_chats_guard, image_not_modified, profile_draft_failures, rows_response
+from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest, PublicProfilePayload
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: Cap on a voice-reference upload. Enrollment reads up to two minutes, and this
-#: is a bound on what one multipart request can make the server decode —
-#: generous enough for an uncompressed WAV of that length and far short of
-#: "someone dropped in a film".
-_MAX_VOICE_UPLOAD = 25 * 1024 * 1024
 _MAX_EXPRESSION_UPLOAD = 50 * 1024 * 1024
 
 
@@ -96,16 +72,14 @@ async def api_create_character(data: CharacterCardCreate):
             entries = list(entries.values())
         book_ext = character_book.get("extensions")
         orb_ext = book_ext.get("orb") if isinstance(book_ext, dict) else None
-        # An `orb` block marks a book Orb exported, so materialize it even with
-        # no entries: an empty Dynamic World is a real link whose lore the Agent
-        # writes during play. A foreign card's vestigial `entries: []` still
-        # imports nothing.
+        # An `orb` block marks a book Orb exported, so materialize it even with no entries: an empty Dynamic World is a real
+        # link whose lore the Agent writes during play. A foreign card's vestigial `entries: []` still imports nothing.
         if entries or isinstance(orb_ext, dict):
             book_name = character_book.get("name") or card_data["name"]
             embedded_world = {
                 "name": book_name,
                 "dynamic_enabled": bool(orb_ext.get("dynamic_enabled")) if isinstance(orb_ext, dict) else False,
-                "entries": [_normalise_lorebook_entry(item) for item in entries if isinstance(item, dict)],
+                "entries": [normalise_lorebook_entry(item) for item in entries if isinstance(item, dict)],
             }
 
     try:
@@ -113,9 +87,8 @@ async def api_create_character(data: CharacterCardCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # Auto-import an embedded expression pack (chub extension) so cards imported
-    # from the internet — or from a PNG that carries one — arrive with their
-    # sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
+    # Auto-import an embedded expression pack (chub extension) so cards imported from the internet -- or from a PNG that carries
+    # one -- arrive with their sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
     imgs = await card_expressions.fetch_embedded_expressions(card_data)
     if imgs:
         await set_character_expressions(card_data["id"], imgs)
@@ -198,9 +171,8 @@ async def api_get_character(card_id: str):
 async def api_generate_public_profile(card_id: str):
     """Return an editable draft; generation never overwrites the card.
 
-    Raises rather than degrading: a plausible-looking profile built from the
-    card's description under a "Draft ready" toast is worse than an error,
-    because it is indistinguishable from a real answer.
+    Raises rather than degrading: a plausible-looking profile built from the card's description under a "Draft ready" toast is
+    worse than an error, because it is indistinguishable from a real answer.
     """
     card = await get_character_card(card_id)
     if not card:
@@ -294,18 +266,16 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
 async def api_export_character(card_id: str, world_view: Literal["authored", "effective"] = "authored"):
     """Export a character card as a V2-compatible card PNG.
 
-    The embedded ``character_book`` is the *authored* lorebook by default, so a
-    card shared with someone else carries the lore its author wrote rather than
-    whatever a particular playthrough's Agent proposed and its owner accepted.
+    The embedded ``character_book`` is the *authored* lorebook by default, so a card shared with someone else carries the lore
+    its author wrote rather than whatever a particular playthrough's Agent proposed and its owner accepted.
     ``world_view=effective`` opts into exporting the projection instead.
     """
     card = await get_character_card(card_id, include_avatar=True)
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    # Materialize a mutable working copy: the export augments the row with fields
-    # that are not card columns (a forced ``id`` and an embedded ``character_book``),
-    # so it is a free-form dict here rather than a CharacterCardRow.
+    # Materialize a mutable working copy: the export augments the row with fields that are not card columns (a forced ``id`` and
+    # an embedded ``character_book``), so it is a free-form dict here rather than a CharacterCardRow.
     export_card: dict[str, Any] = dict(card)
 
     avatar_bytes: bytes | None = None
@@ -327,18 +297,14 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
         world = await get_world(world_id)
         entries = project_lorebook_view(await get_lorebook_entries(world_id), world_view)
         export_card["character_book"] = lorebook_to_book(
-            world["name"] if world else "",
-            entries,
-            dynamic_enabled=bool(world and world["dynamic_enabled"]),
+            world["name"] if world else "", entries, dynamic_enabled=bool(world and world["dynamic_enabled"])
         )
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
     safe_name = "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
     return Response(
-        content=png_bytes,
-        media_type="image/png",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
+        content=png_bytes, media_type="image/png", headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'}
     )
 
 
@@ -378,90 +344,3 @@ async def api_get_expression(card_id: str, label: str, request: Request):
 async def api_delete_expressions(card_id: str):
     await delete_character_expressions(card_id)
     return {"ok": True}
-
-
-# --- Cloned voices ----------------------------------------------------------
-
-
-def _voice_profile_error(exc: Exception) -> HTTPException:
-    """Map an enrollment failure to the status code that describes it.
-
-    A file we cannot read is the request's problem (400); a model that is not
-    downloaded is the server's state, and 503 is what the panel renders as
-    "finish setting this up" rather than "your file is bad".
-    """
-    if isinstance(exc, spark_tts.UnsupportedAudio):
-        return HTTPException(status_code=400, detail=str(exc))
-    if isinstance(exc, spark_tts.EnrollmentUnavailable):
-        return HTTPException(status_code=503, detail=str(exc))
-    logger.exception("Voice enrollment failed")
-    return HTTPException(status_code=500, detail="Voice enrollment failed; see server logs")
-
-
-async def _store_voice(
-    card_id: str,
-    enrollment: spark_tts_host.Enrollment | None,
-    source_name: str,
-    mode: str | None = None,
-) -> dict:
-    """Store or clear an enrolled voice in the character's TTS profile."""
-    async with workflow_character_state_lock(card_id, tts_synth.WORKFLOW_ID):
-        stored = await get_workflow_character_state(card_id, tts_synth.WORKFLOW_ID)
-        profile = tts_synth.normalize_profile(stored)
-        profile["speaker_tokens"] = enrollment.speaker_tokens if enrollment else []
-        profile["speaker_ref_name"] = source_name
-        profile["reference_tokens"] = enrollment.reference_tokens if enrollment else []
-        profile["reference_text"] = enrollment.reference_text if enrollment else ""
-        if mode in tts_synth.CLONE_MODES:
-            profile["clone_mode"] = mode
-        if enrollment:
-            # Uploading a voice selects the built-in backend and voice.
-            profile["backend"] = "spark"
-            profile["voice_id"] = builtin_spark_adapter.VOICE_ID
-            profile["enabled"] = True
-        else:
-            # Keep the backend selected for the next upload, but disable speech.
-            profile["enabled"] = False
-        await set_workflow_character_state(card_id, tts_synth.WORKFLOW_ID, profile)
-    return profile
-
-
-@router.post("/api/characters/{card_id}/voice-reference")
-async def api_upload_voice_reference(
-    card_id: str,
-    file: Annotated[UploadFile, File(...)],
-    mode: str | None = None,
-):
-    """Enroll a character's voice from one uploaded audio file."""
-    if not await get_character_card(card_id):
-        raise HTTPException(status_code=404, detail="Character card not found")
-    content = await file.read()
-    if len(content) > _MAX_VOICE_UPLOAD:
-        raise HTTPException(status_code=400, detail="Reference audio must be under 25 MB")
-    settings = await get_settings()
-    ok, reason = spark_tts_host.enrollment_ready(settings)
-    if not ok:
-        raise HTTPException(status_code=503, detail=reason)
-    source_name = os.path.basename(file.filename or "")[:120]
-    with_reference, reference_reason = spark_tts_host.reference_ready(settings)
-    try:
-        enrollment = await spark_tts_host.enroll_upload(content, filename=source_name, with_reference=with_reference)
-    except Exception as exc:
-        raise _voice_profile_error(exc) from exc
-    profile = await _store_voice(card_id, enrollment, source_name, mode)
-    return {
-        "speaker_tokens": enrollment.speaker_tokens,
-        "source_name": source_name,
-        "reference_note": enrollment.reference_note if with_reference else reference_reason,
-        "profile": profile,
-    }
-
-
-@router.delete("/api/characters/{card_id}/voice-reference")
-async def api_delete_voice_reference(card_id: str):
-    """Forget a character's cloned voice, and stop speaking for this character.
-
-    The backend selection survives so the next clip can go straight in.
-    """
-    profile = await _store_voice(card_id, None, "")
-    return {"ok": True, "profile": profile}

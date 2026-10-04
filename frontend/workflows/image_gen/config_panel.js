@@ -714,9 +714,8 @@ function addSceneSkill() {
     toast(`You can save up to ${MAX_SCENE_SKILLS} composition skills.`, "error");
     return;
   }
-  // The config normalizer assigns a stable, label-derived ID on save. Keeping
-  // the draft row identifier-free lets custom skills use the same readable IDs
-  // as skills supplied through presets or the API.
+  // The config normalizer assigns a stable, label-derived ID on save. Keeping the draft row identifier-free lets custom
+  // skills use the same readable IDs as skills supplied through presets or the API.
   draft.scene_skills.push({ label: "New skill", description: "", instructions: "", enabled: true });
   renderSceneSkills();
   const row = document.querySelector(`[data-skill-index="${draft.scene_skills.length - 1}"]`);

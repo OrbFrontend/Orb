@@ -1,8 +1,9 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { messageDisplaySource } from "./card_scripts.js";
 import {
-  _applyWorkflowTextSegments,
+  applyWorkflowTextSegments,
   buildMsgToolbar,
   canStartGeneration,
   getCharName,
@@ -17,17 +18,18 @@ import {
 } from "./chat_core.js";
 import { renderTurnError } from "./chat_error.js";
 import {
-  _advanceReasoningPass,
-  _relightWorkflowPipelinePass,
-  _syncGenerationStatus,
+  advanceReasoningPass,
   appendReasoningDelta,
   clearInspectedMessage,
   inspectMessage,
+  relightWorkflowPipelinePass,
   renderInspector,
+  syncGenerationStatus,
 } from "./chat_inspector.js";
-import { _mergeWorkflowRejections } from "./chat_workflow.js";
+import { mergeWorkflowRejections } from "./chat_workflow.js";
 import { skipNoticeText } from "./decisions.js";
 import { patchHtml } from "./dom_reconcile.js";
+import { responseError, sseError } from "./errors.js";
 import {
   beginExpressionPrewarm,
   bufferExpressionReply,
@@ -102,7 +104,7 @@ function phaseStage() {
 // Empty means waiting; null means no active turn.
 function setGenerationStep(label) {
   S.generationStep = label;
-  _syncGenerationStatus();
+  syncGenerationStatus();
 }
 
 // Coalesce expensive full-body renders to one paint per animation frame.
@@ -227,7 +229,7 @@ function finalizeStreamingDiv(lastMsg) {
         );
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
   if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
-    _applyWorkflowTextSegments(body, lastMsg);
+    applyWorkflowTextSegments(body, lastMsg);
   }
 
   const tb = div.querySelector(".msg-toolbar");
@@ -263,7 +265,7 @@ export function setStreaming(active) {
   renderGroupCast();
 }
 
-export function stopGeneration() {
+function stopGeneration() {
   S.streamOp?.stop();
 }
 
@@ -291,7 +293,7 @@ export function createStreamingDiv(name = null, memberId = null) {
 
 /** Rebuild the selected view from the retained turn, including a background speaker. */
 export function restoreStreamingView() {
-  _syncGenerationStatus();
+  syncGenerationStatus();
   if (!S.isStreaming || !S.streamOp) return;
   if (S.groupCast && !S.currentSpeaker) return;
   const div =
@@ -309,9 +311,7 @@ export function restoreStreamingView() {
   }
 }
 
-// The user's bubble is on screen before the server has an id for it. The SSE ack
-// and the post-stream sync both promote that same node, so the promotion — id,
-// toolbar, and any content the server rewrote — is written once.
+// SSE ack and post-stream sync promote the same optimistic user node through this helper.
 function adoptPendingUserMessage(msg, content = null) {
   const div = document.querySelector('.message.user[data-msg-id="null"]');
   if (!div) return;
@@ -365,8 +365,7 @@ export async function afterStream(op, { settled = true } = {}) {
   const wasGroupExchange = state.currentExchangeId != null;
   const groupExchangeId = state.currentExchangeId;
   const inFlightSpeaker = state.currentSpeaker;
-  // The text the turn last made authoritative (Writer tokens or an announced
-  // rewrite), never a cosmetic preview.
+  // The text the turn last made authoritative (Writer tokens or an announced rewrite), never a cosmetic preview.
   const preservedContent = state.streamingContent;
   const pendingUserMsg = state.pendingUserMsg || null;
   const lastCompletedId = state.completedExchangeMessageIds.at(-1) ?? null;
@@ -645,30 +644,6 @@ function swapStreamingDraft(text, onRewrite, options, state = S) {
   onRewrite(text, options);
 }
 
-function foreignSentence(o) {
-  const first = (v) => {
-    if (typeof v === "string") return v;
-    if (Array.isArray(v)) return v.map(first).filter(Boolean).join("; ");
-    if (v && typeof v === "object") return first(v.msg ?? v.message ?? v.detail);
-    return "";
-  };
-  return first(o.detail) || first(o.error?.message) || first(o.error) || first(o.message) || "";
-}
-
-function parseFailure(data) {
-  const raw = String(data ?? "");
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      if (typeof parsed.headline === "string" && parsed.headline) {
-        return { sentence: "", kind: "internal", ...parsed };
-      }
-      return { headline: "", sentence: foreignSentence(parsed), kind: "internal", body: raw };
-    }
-  } catch (_) {}
-  return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
-}
-
 function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
   if ((event === "token" || event === "reasoning") && state.pendingGenerationStep) {
     state.generationStep = state.pendingGenerationStep;
@@ -690,7 +665,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
       if (isViewing(state)) {
-        _advanceReasoningPass(1); // director done → move to Writer dot
+        advanceReasoningPass(1); // director done -> move to Writer dot
         renderInspector();
       }
       break;
@@ -717,7 +692,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       } catch (_) {}
       break;
     case "writer_rewrite":
-      if (isViewing(state)) _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (isViewing(state)) advanceReasoningPass(2); // writer done, editor starting -> move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}
@@ -732,7 +707,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
           const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
           state[stateKey] = (state[stateKey] || "") + delta;
           state.reasoningPassActive = Math.max(state.reasoningPassActive, builtinIdx);
-          const rebuilt = isViewing(state) && state.inspectedMsgId == null && _advanceReasoningPass(builtinIdx);
+          const rebuilt = isViewing(state) && state.inspectedMsgId == null && advanceReasoningPass(builtinIdx);
           const viewingThisPass = state.reasoningPassSelected === builtinIdx;
           const box = document.getElementById("reasoning-box");
           if (isViewing(state) && state.inspectedMsgId == null && box && viewingThisPass) {
@@ -744,7 +719,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         if (pipeline) {
           const firstDelta = !state.reasoningByPass[passKey];
           state.reasoningByPass[passKey] = (state.reasoningByPass[passKey] || "") + delta;
-          if (isViewing(state) && firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
+          if (isViewing(state) && firstDelta) relightWorkflowPipelinePass(pipeline, passKey);
           const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
           if (isViewing(state) && wbox && wbox.dataset.passId === passKey) {
             appendReasoningDelta(wbox, delta);
@@ -842,7 +817,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
     }
     case "error":
       {
-        const f = parseFailure(data);
+        const f = sseError(data).failure;
         state.turnError = {
           ...f,
           headline: f.headline || "Generation failed.",
@@ -854,7 +829,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       break;
     case "warning":
       {
-        const w = parseFailure(data);
+        const w = sseError(data).failure;
         notifyError(w.headline || "A workflow step failed.", { sentence: w.sentence });
       }
       break;
@@ -868,7 +843,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         const msgIdNum = Number(parsed.message_id);
         const rejected = Array.isArray(parsed.rejected) ? parsed.rejected : [];
         if (Number.isFinite(msgIdNum) && rejected.length) {
-          if (isViewing(state)) _mergeWorkflowRejections(msgIdNum, null, rejected);
+          if (isViewing(state)) mergeWorkflowRejections(msgIdNum, null, rejected);
         }
       } catch (e) {
         console.warn("workflow_attachments_rejected parse failed", e);
@@ -898,7 +873,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
   }
 }
 
-export function agentPayload() {
+function agentPayload() {
   return { enable_agent: S.agentEnabled };
 }
 
@@ -955,8 +930,7 @@ export async function runStreamRequest(
       op.signal,
     );
     if (!resp.ok) {
-      const raw = await resp.text().catch(() => "");
-      const f = parseFailure(raw);
+      const { failure: f } = await responseError(resp);
       state.turnError = {
         ...f,
         status: resp.status,
@@ -989,7 +963,7 @@ export async function runStreamRequest(
   if (afterDone && isViewing(state)) await afterDone();
 }
 
-export async function continueFromUser() {
+async function continueFromUser() {
   if (!S.activeConvId || !canStartGeneration()) return;
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role !== "user") {
@@ -999,7 +973,7 @@ export async function continueFromUser() {
   await runStreamRequest(convUrl(S.activeConvId, "continue"), turnPayload());
 }
 
-export async function speakAsMember(memberId) {
+async function speakAsMember(memberId) {
   if (!S.activeConvId || !memberId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
 }
@@ -1060,11 +1034,9 @@ export async function sendMessage() {
   );
 }
 
-// The regenerate button on a user row lands here, and picks its target now
-// rather than at paint time: the reply may have been deleted or swiped to
-// another branch since the row was drawn (buildMsgToolbar). With no reply left
-// under the message, regenerating it means continuing from it.
-export async function regenerateFromUser(userMsgId) {
+// Resolve the reply target now because it may have been deleted or swiped since paint.
+// With no reply left, continue from the user message.
+async function regenerateFromUser(userMsgId) {
   const reply = S.messages.find((m) => m.role === "assistant" && m.id && m.parent_id === userMsgId);
   if (reply) {
     await regenerate(reply.id);
@@ -1073,21 +1045,21 @@ export async function regenerateFromUser(userMsgId) {
   await continueFromUser();
 }
 
-export async function regenerate(msgId) {
+async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
 }
 
-export async function superRegenerate(msgId) {
+async function superRegenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
 }
 
-export function toggleMagicInput(msgId) {
+function toggleMagicInput(msgId) {
   S.magicInputMsgId = S.magicInputMsgId === msgId ? null : msgId;
   renderMessages();
   if (S.magicInputMsgId !== msgId) return;
@@ -1113,7 +1085,7 @@ export function toggleMagicInput(msgId) {
   document.addEventListener("mousedown", onMouseDown);
 }
 
-export function handleMagicKey(event, msgId) {
+function handleMagicKey(event, msgId) {
   if (event.key === "Enter") {
     event.preventDefault();
     submitMagicRewrite(msgId);
@@ -1123,7 +1095,7 @@ export function handleMagicKey(event, msgId) {
   }
 }
 
-export async function submitMagicRewrite(msgId) {
+async function submitMagicRewrite(msgId) {
   const input = document.getElementById(`magic-input-${msgId}`);
   if (!input) return;
   const direction = input.value.trim();
@@ -1139,7 +1111,7 @@ export async function submitMagicRewrite(msgId) {
   );
 }
 
-export async function saveQueuedEdits(convId = S.activeConvId) {
+async function saveQueuedEdits(convId = S.activeConvId) {
   const state = conversationState(convId);
   for (const [id, content] of Object.entries(state.queuedEdits)) {
     const target = state.messages.find((m) => m.id === Number(id));
@@ -1155,8 +1127,7 @@ export async function saveQueuedEdits(convId = S.activeConvId) {
   if (S.activeConvId === convId) syncSendButton(state);
 }
 
-// "Edit not saved" controls: Retry saves every pending edit in order; Discard
-// drops one and shows the saved text again.
+// "Edit not saved" controls: Retry saves every pending edit in order; Discard drops one and shows the saved text again.
 async function resolveQueuedEdit(change) {
   const cid = S.activeConvId;
   const token = S.conversationViewToken;
@@ -1175,10 +1146,27 @@ export function retryQueuedEdits() {
   return resolveQueuedEdit((cid) => saveQueuedEdits(cid));
 }
 
-export function discardQueuedEdit(button) {
+function discardQueuedEdit(button) {
   return resolveQueuedEdit(async (cid, state) => {
     const msgs = await api.get(convUrl(cid, "messages"));
     delete state.queuedEdits[button.dataset.msgId];
     setMessages(msgs, state);
   });
 }
+
+registerActions("chat", {
+  send: () => sendMessage(),
+  stop: () => stopGeneration(),
+  continue: () => continueFromUser(),
+  regenerate: (el) => regenerate(Number(el.dataset.msgId)),
+  regenerateFromUser: (el) => regenerateFromUser(Number(el.dataset.msgId)),
+  superRegenerate: (el) => superRegenerate(Number(el.dataset.msgId)),
+  toggleMagic: (el) => toggleMagicInput(Number(el.dataset.msgId)),
+  magicKey: (el, e) => handleMagicKey(e, Number(el.dataset.msgId)),
+  submitMagic: (el) => submitMagicRewrite(Number(el.dataset.msgId)),
+});
+
+registerActions("queued-edit", {
+  retry: () => retryQueuedEdits(),
+  discard: (el) => discardQueuedEdit(el),
+});

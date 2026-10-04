@@ -1,8 +1,5 @@
-// A reply's Inspector sections, built from one "turn view" so the Inspector panel
-// and the in-chat blocks above each reply render them alike. Saved replies read a
-// per-conversation cache of director logs; the streaming reply reads the live
-// turn state. Open states are shared by every reply and the panel, except the
-// chat's Reasoning block, which opens apart from the panel's next-turn controls.
+// Build shared panel and in-chat Inspector sections from live turn state or cached
+// director logs. Open states are shared except the chat's Reasoning block.
 import { api } from "./api.js";
 import { decisionOutcomes, decisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
@@ -19,9 +16,9 @@ export const REASONING_PASSES = [
 
 export const REASONING_BOTTOM_THRESHOLD = 20;
 
-// ── Open states ──
+// -- Open states --
 
-// `data-inspect-section` key (also the saved `inspector_open_states` key) → its `S` flag.
+// `data-inspect-section` key (also the saved `inspector_open_states` key) -> its `S` flag.
 const OPEN_STATE_FIELDS = {
   inline: "inlineInspectorOpen",
   inline_reasoning: "inlineReasoningOpen",
@@ -55,9 +52,8 @@ export function setInlineInspectorRepaint(fn) {
   repaintMessages = fn;
 }
 
-// `toggle` does not bubble, so it is caught in the capture phase. Firefox also
-// fires it for a `<details open>` set through innerHTML; sections render from
-// these flags, so comparing first makes a repaint's event a no-op.
+// `toggle` does not bubble, so it is caught in the capture phase. Firefox also fires it for a `<details open>` set
+// through innerHTML; sections render from these flags, so comparing first makes a repaint's event a no-op.
 document.addEventListener(
   "toggle",
   (e) => {
@@ -85,7 +81,7 @@ function syncChatSections(toggled, key) {
   if (now) chat.scrollTop += now.getBoundingClientRect().top - before;
 }
 
-// ── Turn views ──
+// -- Turn views --
 
 /** Moods of a `director-log` payload or the streaming turn's director data. */
 export function moodsOf(data, resting) {
@@ -128,7 +124,7 @@ function liveTurnView() {
   });
 }
 
-// ── Sections ──
+// -- Sections --
 
 function moodTags({ known, activeIds, resting }) {
   if (!known) return [];
@@ -259,7 +255,7 @@ export function latencyHtml(latency) {
   });
 }
 
-// ── The in-chat blocks ──
+// -- The in-chat blocks --
 
 // The pass a saved reply's Reasoning block shows, by message id. Unset means its last pass.
 const selectedPassByMsg = new Map();
@@ -332,12 +328,8 @@ export function inspectorBlockHtml(view) {
 
 const blocksHtml = (view) => reasoningBlockHtml(view) + inspectorBlockHtml(view);
 
-// ── Raw box scroll positions ──
-
-// Where the reader left each reply's raw boxes, by reply, section and reasoning
-// pass. A block is rebuilt from markup (the streamed reply swapped for its stored
-// copy, a repaint after a toggle), so its boxes are put back here rather than
-// opening at their top. The streaming reply goes by its row until it has an id.
+// Raw-box scroll positions by reply, section and reasoning pass, restored after
+// markup rebuilds. A streaming reply uses its row until it has a message id.
 const boxScrolls = new Map();
 const liveOwners = new WeakMap();
 let liveOwnerCount = 0;
@@ -388,7 +380,7 @@ export function restoreBoxScrolls(root) {
   }
 }
 
-// ── Cache of saved replies' director logs ──
+// -- Cache of saved replies' director logs --
 
 // By message id, for one conversation. `null` marks a reply the server had no data for.
 const inspections = new Map();

@@ -28,18 +28,10 @@ def tool_call_instruction(
     labels: Mapping[str, str] | None = None,
     fragments: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
-    """Render the ordered single-tool instruction used by pipeline passes.
+    """Render the ordered single-tool instruction from its live schema.
 
-    *schema* is the call's live view. Fragment-built tools carry no ``required``
-    on the shared blob (an enable toggle would rewrite it), so the live view's
-    requiredness is stated here instead.
-
-    *fragments*, keyed by id, switches to one line per parameter with its type
-    hint and, for a fragment, its description. Fragment-built properties ride the
-    blob as names only, so a pass that fills them states what each field asks for
-    here. The descriptions come from the rows rather than the live view, which
-    also describes ``moods`` and the speaking plan: their own request sections
-    already say what those fields take.
+    State live requiredness here because cached fragment schemas omit it. Optional fragments adds per-parameter type hints and
+    row descriptions; mood/speaking-plan instructions come from their own sections.
     """
     description = schema["function"]["description"]
     parameters = schema["function"]["parameters"].get("properties", {})

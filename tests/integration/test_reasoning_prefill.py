@@ -1,11 +1,9 @@
 """Turn-level integration tests for the per-pass reasoning prefill.
 
-The prefill is a text-mode prompt tail (see tests/unit/test_text_completion.py for
-the transport bytes); what matters here is that the setting round-trips and that
-each pass receives *its own* resolved string on the wire — including the editor's
-sub-steps (feedback and the after-reply state update, which ride the editor
-toggle and channel). The default-on ``verify_kv_prefix_invariants`` teardown
-proves the tail injection did not disturb the shared prefix.
+The prefill is a text-mode prompt tail (see tests/unit/test_text_completion.py for the transport bytes); what matters here is
+that the setting round-trips and that each pass receives *its own* resolved string on the wire -- including the editor's
+sub-steps (feedback and the after-reply state update, which ride the editor toggle and channel). The default-on
+``verify_kv_prefix_invariants`` teardown proves the tail injection did not disturb the shared prefix.
 """
 
 from __future__ import annotations
@@ -60,8 +58,7 @@ def _call(name: str, **args: object) -> list[dict]:
 
 
 async def test_reasoning_prefill_setting_round_trips(client, db):
-    resp = await client.put("/api/settings", json={"reasoning_prefill_passes": _PREFILLS})
-    assert resp.status_code == 200
+    await client.put_checked("/api/settings", json={"reasoning_prefill_passes": _PREFILLS})
     got = (await client.get("/api/settings")).json()
     # Stored and returned as a decoded dict, macros unresolved (resolution is per-turn).
     assert got["reasoning_prefill_passes"] == _PREFILLS
@@ -74,7 +71,7 @@ async def test_each_pass_gets_its_own_resolved_prefill(client, db, llm_mock):
 
     llm_mock.enqueue_director(_call("direct_scene", moods=["vivid"]))
     llm_mock.enqueue_writer(_LONG_DRAFT)
-    llm_mock.enqueue_editor(None)  # no tool call → the edit loop stops after iteration 0
+    llm_mock.enqueue_editor(None)  # no tool call -> the edit loop stops after iteration 0
     llm_mock.enqueue_feedback(_call("give_feedback", suggested_actions="Ask her name."))
     llm_mock.enqueue_state(_call("update_state", trajectory=["She warms to him."]))
 
@@ -97,12 +94,8 @@ async def test_prefill_absent_when_pass_reasoning_off(client, db, llm_mock):
     cid = "conv-reasoning-prefill-off"
     await dbmod.create_conversation(cid, "rp", "Aria", "a scenario")
     await _setup(client)
-    # Writer reasoning off: reasoning_cfg drops the prefill structurally, so a
-    # reasoning-off call can never carry one.
-    await client.put(
-        "/api/settings",
-        json={"reasoning_enabled_passes": {"director": True, "writer": False, "editor": True}},
-    )
+    # Writer reasoning off: reasoning_cfg drops the prefill structurally, so a reasoning-off call can never carry one.
+    await client.put("/api/settings", json={"reasoning_enabled_passes": {"director": True, "writer": False, "editor": True}})
 
     llm_mock.enqueue_director(_call("direct_scene", moods=["vivid"]))
     llm_mock.enqueue_writer(_LONG_DRAFT)

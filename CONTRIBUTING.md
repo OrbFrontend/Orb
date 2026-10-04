@@ -10,25 +10,68 @@ Start the backend with `./run_unix.sh` (or `run_windows.bat` on Windows). Python
 
 ### Optional: Auto-formatting on commit
 
-Run `pip3 install -r requirements-dev.txt` to set up Python formatters.
+Run `npm ci` (requires Node.js) to install frontend tools from the committed lockfile and set up git hooks via Lefthook. The hooks format staged files before each commit:
 
-Run `npm install` to set up git hooks via Lefthook. This auto-formats staged files before each commit:
-
-- **Python** — Black (formatting) + Flake8 (linting)
+- **Python** — Ruff (import sorting, formatting, and linting). The hook calls `python3 -m ruff`, so commit with the `.venv` the scripts create activated.
 - **JavaScript** — Biome (formatting)
 
-No more CI failures from formatting issues. Requires Node.js.
+Keep `package.json` and `package-lock.json` together when changing dependencies.
+Use `npm install --save-dev --save-exact <package>@<version>` for an intentional
+update, review the lockfile, and verify it with `npm ci`. CI and the formatting
+and lint scripts install from the same lockfile.
+
+Ruff and Biome read their settings from `ruff.toml` and `biome.json`, so an editor's format-on-save produces the same output as the hooks and CI.
+
+### Where to extend
+
+Start with [AGENTS.md](AGENTS.md) for the dependency rules. The architecture notes
+describe the contracts that a fork needs to preserve:
+
+| Change | Start here | Contract to read |
+|---|---|---|
+| Optional processing, media, or message actions | `backend/workflows/<id>/` and `frontend/workflows/<id>/` | [Secondary workflows](docs/architecture/secondary-workflow.md) |
+| Core turn behavior or a new pass | `backend/pipeline/` | [Prompting boundary](docs/architecture/prompting.md), [KV cache reuse](docs/architecture/kv-cache.md), and [SSE stream](docs/architecture/sse-stream.md) |
+| Provider transport or request adaptation | `backend/inference/` | [Endpoint routing](docs/architecture/endpoints.md) |
+| Persisted fields or defaults | `backend/database/` | [Schema change checklist](docs/architecture/database.md#changing-the-schema) |
+| HTTP endpoints | `backend/api/routes/` and `backend/api/schemas.py` | Register the router in `backend/api/routes/__init__.py` |
+| Failure responses and warnings | `backend/api/errors.py`, `backend/pipeline/failures.py`, and `frontend/errors.js` | [Shared failure handling](docs/architecture/sse-stream.md#shared-failure-handling) |
+| Core UI | `frontend/`, with shared state in `state.js` | Module layers in `scripts/check_frontend_layers.py` and action registration in `actions.js` |
+
+An optional feature that fits the workflow hooks belongs in a workflow. Backend
+plug-ins use named exports from `backend.workflows.toolkit`; frontend plug-ins
+use `/static/workflow_api.js`. If a capability is missing, add it to the facade
+and its contract checks. Keep frontend exports additive, update `FROZEN_ABI`, and
+bump `WORKFLOW_API_VERSION` together.
+
+Asynchronous UI work should capture its resource id before awaiting. Core chat
+work keeps its data in `conversationState(cid)` and registers long operations
+through `operations.js`; workflow renders use the job helpers in the facade.
+The [SSE note](docs/architecture/sse-stream.md#concurrent-ownership-and-deletion)
+explains ownership, Stop, and reconciliation. Orb runs in one uvicorn process;
+its in-memory locks are not shared across workers.
 
 ## 2. Run the checks
 
-Everything lives in `scripts/`. Run them before you push:
+Everything lives in `scripts/`. The scripts create and sync `.venv` themselves. Run them before you push:
 
 - **Tests** - `./scripts/tests.sh all`
 - **Format** - `./scripts/format_backend.sh` and `./scripts/format_frontend.sh`
-- **Lint** - `./scripts/lint.sh`
+- **Lint** - `./scripts/lint.sh` (Ruff, Pyright, the backend and frontend layer checks, Biome, and the frontend unit tests)
 - **Compatibility** - `./scripts/compatibility_test.sh`
+- **Security** - `./scripts/security_check.sh` (pip-audit and Bandit)
 
-If any of these fail, fix it before submitting.
+If any of these fail, fix it before submitting. CI runs the tests, format, and lint checks.
+
+For a focused backend run, use `./scripts/tests.sh tests/unit/test_example.py`;
+`PYTEST_WORKERS=0` disables parallel workers when debugging. Backend integration
+tests use temporary databases and a shared fake LLM in
+`tests/integration/conftest.py`. Frontend tests live in `tests/frontend/` and run
+with `node --test tests/frontend/*.test.mjs`. Add regression coverage for changed
+contracts and behavior; reuse the existing fixtures rather than calling live
+providers or downloaded models.
+
+For documentation changes, install `requirements-docs.txt` into the development
+venv and run `python -m mkdocs build --strict`.
 
 ## 3. Open a PR
 
@@ -38,7 +81,7 @@ If any of these fail, fix it before submitting.
 
 ## 4. AI-assisted contributions
 
-AI-generated code is welcome, but it needs extra scrutiny. If you're using an AI coding tool (Claude Code, Codex, Cursor, etc.), read `AGENTS.md` at the repo root first. It contains the architecture, database schema, API reference, and gotchas specific to this project — the stuff these tools need to produce correct code.
+AI-generated code is welcome, but it needs extra scrutiny. If you're using an AI coding tool (Claude Code, Codex, Cursor, etc.), point it at `AGENTS.md` at the repo root first. It holds the layer rules and project conventions these tools need to produce correct code, and points to the architecture notes in `docs/architecture/` for prompt assembly, streaming, and the database.
 
 ## 5. Quick rules
 

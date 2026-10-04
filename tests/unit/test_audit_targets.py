@@ -1,27 +1,17 @@
-"""Unit tests for analysis/targets.py — the id-addressable target table.
+"""Unit tests for analysis/targets.py -- the id-addressable target table.
 
-Covers the three things the design gate said had to be right before the ID
-method could replace string search: occurrence resolution against the narration
-mask, region merging across detectors that segment differently, and duplicate
-labelling that never promises an id it did not emit.
+Covers the three things the design gate said had to be right before the ID method could replace string search: occurrence
+resolution against the narration mask, region merging across detectors that segment differently, and duplicate labelling that
+never promises an id it did not emit.
 """
 
 from __future__ import annotations
 
-from backend.analysis import (
-    AuditReport,
-    build_targets,
-    format_numbered_report,
-    target_ids_for,
-)
+from backend.analysis import AuditReport, build_targets, format_numbered_report, target_ids_for
 from backend.analysis.detectors.anti_echo import EchoResult, FlaggedEcho
 from backend.analysis.detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from backend.analysis.detectors.phrase_repetition import FlaggedPhrase, PhraseResult
-from backend.analysis.detectors.slop_detector import (
-    ClicheHit,
-    DetectionResult,
-    FlaggedSentence,
-)
+from backend.analysis.detectors.slop_detector import ClicheHit, DetectionResult, FlaggedSentence
 from backend.analysis.detectors.structural_repetition import StructuralResult
 
 
@@ -34,7 +24,7 @@ def _cliches(*sentences: str) -> DetectionResult:
     return DetectionResult(flagged_sentences=flagged, unique_cliches=[], total_sentences=8, flagged_count=len(flagged))
 
 
-# ── Ordering, merging of reasons on one span ──────────────────────────────────
+# -- Ordering, merging of reasons on one span ----------------------------------
 
 
 def test_targets_are_document_ordered_and_numbered_from_one():
@@ -58,13 +48,12 @@ def test_two_detectors_on_one_sentence_make_one_target_with_both_reasons():
     assert set(targets[0].categories) == {"banned_phrases", "contrastive_negation"}
 
 
-# ── The overlap defect the gate flagged ───────────────────────────────────────
+# -- The overlap defect the gate flagged ---------------------------------------
 
 
 def test_overlapping_regions_merge_into_one_target():
-    # contrastive_negation keeps dialogue inline; openers strip it. One sentence,
-    # two spans, one containing the other — two ids here would make splicing
-    # back-to-front overwrite the inner patch with a stale `end`.
+    # contrastive_negation keeps dialogue inline; openers strip it. One sentence, two spans, one containing the other -- two ids
+    # here would make splicing back-to-front overwrite the inner patch with a stale `end`.
     draft = 'He turned. "Stay," he said, and it was not a plea but a demand. She stayed.'
     outer = '"Stay," he said, and it was not a plea but a demand.'
     inner = "he said, and it was not a plea but a demand."
@@ -100,10 +89,9 @@ def test_merged_target_splices_without_losing_the_inner_edit():
     targets = build_targets(r, draft)
     out, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": "REWRITTEN"}])
     assert errors == []
-    # One splice covering both findings. The draft's opening `"` survives — it sat
-    # outside the marker-stripped span, same as under the old marker-core path.
-    # Two ids here would have replaced the inner span and then overwritten it
-    # using the outer span's now-stale `end`, losing the edit silently.
+    # One splice covering both findings. The draft's opening `"` survives -- it sat outside the marker-stripped span, same as
+    # under the old marker-core path. Two ids here would have replaced the inner span and then overwritten it using the outer
+    # span's now-stale `end`, losing the edit silently.
     assert out == 'He turned. "REWRITTEN She stayed.'
     assert "not a plea but a demand" not in out
 
@@ -117,7 +105,7 @@ def test_adjacent_non_overlapping_targets_stay_separate():
     assert targets[0].end <= targets[1].start
 
 
-# ── Duplicates ────────────────────────────────────────────────────────────────
+# -- Duplicates ----------------------------------------------------------------
 
 
 def test_duplicate_span_flagged_twice_gets_one_id_per_copy():
@@ -135,11 +123,9 @@ def test_duplicate_span_flagged_twice_gets_one_id_per_copy():
 
 
 def test_phrase_repetition_targets_the_draft_copy_not_an_earlier_message():
-    # example_sentences runs oldest-first with the draft last, and both report
-    # renderings show the last one. An earlier message's sentence that is also a
-    # substring of the draft must not win the anchor, or report_to_dict asks for
-    # ids on a sentence no target covers and the panel shows a finding it cannot
-    # number.
+    # example_sentences runs oldest-first with the draft last, and both report renderings show the last one. An earlier
+    # message's sentence that is also a substring of the draft must not win the anchor, or report_to_dict asks for ids on a
+    # sentence no target covers and the panel shows a finding it cannot number.
     draft = "The air was thick. Nothing moved at all."
     r = _report()
     r.phrase_result = PhraseResult(
@@ -152,14 +138,12 @@ def test_phrase_repetition_targets_the_draft_copy_not_an_earlier_message():
 
 
 def test_duplicate_reported_once_is_not_labelled_as_two_copies():
-    # phrase_repetition emits one example sentence per phrase, so a span that
-    # occurs twice still yields exactly one id. The report must not advertise a
-    # second occurrence the model cannot address.
+    # phrase_repetition emits one example sentence per phrase, so a span that occurs twice still yields exactly one id. The
+    # report must not advertise a second occurrence the model cannot address.
     draft = "The air was thick. Nothing moved. The air was thick."
     r = _report()
     r.phrase_result = PhraseResult(
-        flagged_phrases=[FlaggedPhrase("air was thick", 3, [0, 1], ["The air was thick."])],
-        total_messages=4,
+        flagged_phrases=[FlaggedPhrase("air was thick", 3, [0, 1], ["The air was thick."])], total_messages=4
     )
     targets = build_targets(r, draft)
     assert len(targets) == 1
@@ -187,17 +171,13 @@ def test_anti_echo_falls_back_to_dialogue_when_narration_has_no_copy():
     assert targets[0].span == "You really think so?"
 
 
-# ── Findings with no addressable span ─────────────────────────────────────────
+# -- Findings with no addressable span -----------------------------------------
 
 
 def test_structural_repetition_yields_no_targets():
     r = _report()
     r.structural_repetition_result = StructuralResult(
-        is_repetitive=True,
-        min_similarity=0.9,
-        mean_similarity=0.9,
-        shared_skeleton=["NARRATION", "SPEECH"],
-        messages=[],
+        is_repetitive=True, min_similarity=0.9, mean_similarity=0.9, shared_skeleton=["NARRATION", "SPEECH"], messages=[]
     )
     assert build_targets(r, "Some draft text.") == []
     assert not r.is_clean
@@ -213,7 +193,7 @@ def test_empty_targets_render_as_the_clean_report():
     assert "All checks passed" in format_numbered_report([])
 
 
-# ── Report rendering + the panel bridge ───────────────────────────────────────
+# -- Report rendering + the panel bridge ---------------------------------------
 
 
 def test_numbered_report_carries_ids_reasons_and_marker_free_snippets():

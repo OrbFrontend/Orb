@@ -97,11 +97,7 @@ function _wrapTextNode(node, words) {
 export function segmentBody(bodyEl) {
   // Re-rendered bodies keep the flag but lose their spans, so check both.
   if (!bodyEl || (bodyEl.dataset.segApplied === "1" && bodyEl.querySelector(".seg"))) return;
-  // A message that ships its own CSS owns its DOM shape: the sheet is written
-  // against the elements the model wrote, and a span per word is not one of
-  // them. `header span::before` firing once per word instead of once is the
-  // visible failure; `> *`, `:first-child` and `:nth-child` are the quiet ones.
-  // Word-level features lose these bubbles, which is the smaller loss.
+  // Skip word segmentation for card-styled messages: added spans would break their selectors.
   if (bodyEl.querySelector(".msg-css-scope")) return;
   const walker = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
     acceptNode(node) {

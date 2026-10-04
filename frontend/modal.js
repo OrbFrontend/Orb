@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import {
   CROP_RATIOS,
   cropCornerCursor,
@@ -26,6 +27,13 @@ let _modalCloseGuard = null;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeTopModal();
+});
+
+registerActions("modal", {
+  close: () => closeModal(),
+  closeSub: () => closeSubModal(),
+  // A tab shows the .tab-content its data-tab-content names.
+  tab: (tab) => switchTab(tab, tab.dataset.tabContent),
 });
 
 export function isModalOpen() {
@@ -70,7 +78,7 @@ export function closeModal() {
 }
 
 /** What the base modal's backdrop, Escape and mobile Back do: its dismissal, or close. */
-export function dismissModal() {
+function dismissModal() {
   if (_modalDismiss) _modalDismiss();
   else closeModal();
 }
@@ -102,7 +110,7 @@ export function switchTab(tab, contentId) {
 }
 
 /**
- * A title, a message, Cancel and one action — or several, as
+ * A title, a message, Cancel and one action -- or several, as
  * `actions: [{ label, className, run }]`, when the choice has more than one way
  * to go through (delete a variant or the whole attachment).
  */
@@ -149,9 +157,8 @@ export function showSubConfirmModal(opts, onConfirm) {
   mountConfirm("modal-sub-root", showSubModal, closeSubModal, opts, onConfirm);
 }
 
-// The ratio last picked for each kind of avatar, so someone who always wants
-// square chooses it once. Storage can be unavailable (private window, blocked
-// site data); the caller's default applies then.
+// The ratio last picked for each kind of avatar, so someone who always wants square chooses it once. Storage can be
+// unavailable (private window, blocked site data); the caller's default applies then.
 const cropRatioKey = (kind) => `orb-crop-ratio-${kind}`;
 
 function _rememberedRatio(kind, fallback) {
@@ -285,9 +292,7 @@ function _drawCrop(canvas) {
   for (const [hx, hy] of cropCorners(_cs.box)) ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
 }
 
-// Pointer events with capture: once a drag starts on the canvas, every move and
-// the release reach it wherever the pointer goes, so dragging past the edge keeps
-// tracking (clamped) and letting go outside the canvas still ends the drag.
+// Capture pointer moves and release outside the canvas; clamp positions to its bounds.
 function _attachCropEvents(canvas) {
   const HIT_RADIUS = 14; // screen pixels around a corner handle
   // The canvas can render narrower than W (max-width: 100% on a small screen),
@@ -355,7 +360,7 @@ function _confirmCrop() {
   onConfirm({ b64, mime: "image/png" });
 }
 
-export function closeCropModal() {
+function closeCropModal() {
   const root = $("modal-crop-root");
   if (root) root.innerHTML = "";
   _cs = null;

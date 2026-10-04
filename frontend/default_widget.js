@@ -3,9 +3,8 @@ import { attachmentMime, escAttr, workflowAttachmentUrl } from "./utils.js";
 export function renderDefaultWidget(att) {
   const mime = attachmentMime(att.mime || att.mime_type) || "application/octet-stream";
   const filename = escAttr(att.filename || att.workflow_id || "artifact");
-  // Every field below is model- or client-supplied and lands in an attribute,
-  // so it is quoted with escAttr, not esc. A MIME type the metadata cannot
-  // justify renders as a plain download link rather than a media element.
+  // Every field below is model- or client-supplied and lands in an attribute, so it is quoted with escAttr, not esc. A
+  // MIME type the metadata cannot justify renders as a plain download link rather than a media element.
   const src = escAttr(workflowAttachmentUrl(att));
   if (mime.startsWith("image/")) {
     return `<img class="workflow-artifact-image" loading="lazy" decoding="async" src="${src}" alt="${filename}">`;

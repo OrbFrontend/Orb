@@ -12,9 +12,8 @@ from backend.workflows.image_gen.engine.graph import (
     validate_graph_structure,
 )
 
-# A generic SDXL-shaped graph standing in for a typical imported workflow, with
-# the standard slot map Orb patches through. External mode ships no default
-# graph, so these fixtures live in the test rather than being loaded from one.
+# A generic SDXL-shaped graph standing in for a typical imported workflow, with the standard slot map Orb patches through.
+# External mode ships no default graph, so these fixtures live in the test rather than being loaded from one.
 CORE_SLOTS = {
     "positive": ["6", "text"],
     "negative": ["7", "text"],
@@ -55,13 +54,7 @@ def _base_graph() -> dict:
 OBJECT_INFO = {
     "CLIPTextEncode": {"input": {"required": {"text": ["STRING", {"multiline": True}], "clip": ["CLIP"]}}},
     "KSampler": {
-        "input": {
-            "required": {
-                "seed": ["INT", {}],
-                "steps": ["INT", {}],
-                "sampler_name": [["euler", "dpmpp_2m"], {}],
-            }
-        }
+        "input": {"required": {"seed": ["INT", {}], "steps": ["INT", {}], "sampler_name": [["euler", "dpmpp_2m"], {}]}}
     },
     "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["model.safetensors"], {}]}}},
     "EmptyLatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}]}}},
@@ -83,12 +76,7 @@ def _core():
 def test_graph_patches_only_declared_slots():
     original = _base_graph()
     patched, output = patch_graph(
-        original,
-        CORE_SLOTS,
-        prompt="1girl, night",
-        negative_prompt="day",
-        seed=42,
-        checkpoint="model.safetensors",
+        original, CORE_SLOTS, prompt="1girl, night", negative_prompt="day", seed=42, checkpoint="model.safetensors"
     )
     assert output == "9"
     assert patched["6"]["inputs"]["text"] == "1girl, night"
@@ -100,14 +88,7 @@ def test_graph_patches_only_declared_slots():
 
 def test_graph_requires_checkpoint():
     with pytest.raises(ImageGenerationError, match="checkpoint"):
-        patch_graph(
-            _base_graph(),
-            CORE_SLOTS,
-            prompt="x",
-            negative_prompt="",
-            seed=1,
-            checkpoint="",
-        )
+        patch_graph(_base_graph(), CORE_SLOTS, prompt="x", negative_prompt="", seed=1, checkpoint="")
 
 
 def test_patch_neutralizes_prompt_wired_filenames():
@@ -127,23 +108,17 @@ def test_a_graph_without_a_negative_slot_still_patches():
     del graph["7"]
     slots.pop("negative")
     patched, output = patch_graph(
-        graph,
-        slots,
-        prompt="a quiet room",
-        negative_prompt="ignored",
-        seed=7,
-        checkpoint="model.safetensors",
+        graph, slots, prompt="a quiet room", negative_prompt="ignored", seed=7, checkpoint="model.safetensors"
     )
     assert output == "9"
     assert patched["6"]["inputs"]["text"] == "a quiet room"
     assert "7" not in patched
 
 
-# ── the optional size slots ──────────────────────────────────────────────────
+# -- the optional size slots --------------------------------------------------
 #
-# Optional for the same reason `negative` is: an img2img graph takes its size from
-# the reference or an aspect-ratio node, and there is no width/height pair to write.
-# A graph that maps neither must behave precisely as it did before the slot existed.
+# Optional for the same reason `negative` is: an img2img graph takes its size from the reference or an aspect-ratio node, and
+# there is no width/height pair to write. A graph that maps neither must behave precisely as it did before the slot existed.
 
 SIZED_SLOTS = {**CORE_SLOTS, "width": ["5", "width"], "height": ["5", "height"]}
 
@@ -194,9 +169,9 @@ def test_size_slots_are_validated_when_present_and_ignored_when_not():
     validate_graph_structure(*_core(), OBJECT_INFO)
 
 
-# ── structural validation against a server's /object_info ────────────────────
-# All render-free: `/prompt` has no dry-run, so a submission that validates
-# executes, and preflighting by submitting would spend a full render per save.
+# -- structural validation against a server's /object_info --------------------
+# All render-free: `/prompt` has no dry-run, so a submission that validates executes, and preflighting by submitting would spend
+# a full render per save.
 
 
 def test_a_valid_graph_passes_structural_validation():
@@ -211,13 +186,7 @@ def test_a_valid_graph_passes_structural_validation():
             lambda g, s: g["4"]["inputs"].__setitem__("ckpt_name", "deleted.safetensors"),
             "checkpoint 'deleted.safetensors' is no longer on the ComfyUI server",
         ),
-        (
-            lambda g, s: (
-                g["3"]["inputs"].__setitem__("sampler_name", "gone"),
-                s.pop("checkpoint", None),
-            ),
-            "no longer available",
-        ),
+        (lambda g, s: (g["3"]["inputs"].__setitem__("sampler_name", "gone"), s.pop("checkpoint", None)), "no longer available"),
         (lambda g, s: s.__setitem__("positive", ["6", "prompt_text"]), "positive slot"),
         # VAEDecode: a real node, but it saves nothing.
         (lambda g, s: s.__setitem__("output", ["8", "images"]), "does not save or preview"),
@@ -239,7 +208,7 @@ def test_validation_names_what_this_server_cannot_run(break_it, match):
         validate_graph_structure(graph, slots, OBJECT_INFO)
 
 
-# ── reference images ─────────────────────────────────────────────────────────
+# -- reference images ---------------------------------------------------------
 
 
 def _with_reference():
@@ -282,9 +251,8 @@ def test_a_filled_reference_is_exempt_from_the_combo_membership_check():
 def test_a_declared_but_switched_off_slot_still_has_to_name_a_file_that_is_there():
     """The exemption tracks what Orb will *overwrite*, not what the graph declares.
 
-    A style that leaves a slot off renders the filename the workflow was exported
-    with, so a stale one is as fatal as it was before the slot was declared at all --
-    and saying so at Test connection is the only place it is cheap to find out.
+    A style that leaves a slot off renders the filename the workflow was exported with, so a stale one is as fatal as it was
+    before the slot was declared at all -- and saying so at Test connection is the only place it is cheap to find out.
     """
     graph, slots = _with_reference()
     with pytest.raises(ImageGenerationError, match="point this style's reference image at it"):
@@ -303,9 +271,8 @@ def test_an_undeclared_image_input_says_how_to_fix_it():
 def test_a_dangling_reference_slot_is_caught_at_test_connection():
     """Otherwise it only surfaces mid-render, after the upload and a queue wait.
 
-    Checked against the *declared* list rather than the filled one: a slot naming a
-    node that is gone is a broken graph whichever style is looking at it, and one that
-    only failed once someone switched it on would be found by the wrong person.
+    Checked against the *declared* list rather than the filled one: a slot naming a node that is gone is a broken graph
+    whichever style is looking at it, and one that only failed once someone switched it on would be found by the wrong person.
     """
     graph, slots = _with_reference()
     slots["references"].append({"slot": ["999", "image"], "label": "Gone"})
@@ -332,9 +299,8 @@ def test_render_params_are_read_back_off_the_graph_that_executes():
     assert params == {
         "width": 1024,
         "height": 1024,
-        # False because `_core()` maps no size slots, so the pair above came from the
-        # scan. The value is still recorded -- it is a best-effort record -- but it is
-        # graded, so a consumer that shows a size as fact can decline this one.
+        # False because `_core()` maps no size slots, so the pair above came from the scan. The value is still recorded -- it is
+        # a best-effort record -- but it is graded, so a consumer that shows a size as fact can decline this one.
         "size_measured": False,
         "steps": 24,
         "cfg": 6.0,
@@ -355,9 +321,8 @@ def test_render_params_report_none_for_linked_or_absent_inputs():
 
 
 def test_the_mapped_size_slots_win_over_the_positional_scan():
-    """The scan takes the first node in sorted order carrying a width/height pair,
-    which need not be the node Orb patched -- an upscale node can sort first. Already
-    imprecise; wrong in a new way once Orb writes to one of them, because the record
+    """The scan takes the first node in sorted order carrying a width/height pair, which need not be the node Orb patched -- an
+    upscale node can sort first. Already imprecise; wrong in a new way once Orb writes to one of them, because the record
     would then name a size the render did not use.
     """
     graph, slots = _core()
@@ -365,26 +330,22 @@ def test_the_mapped_size_slots_win_over_the_positional_scan():
     graph["2"] = {"class_type": "ImageScale", "inputs": {"width": 512, "height": 512}}
     scanned = describe_render_params(graph, slots)
     assert scanned["width"] == 512, "precondition: the scan picks the wrong node"
-    # And says so, which is the whole reason the flag exists: this number reaches a
-    # user-facing "Size" row, and one guessed off an upscale node must not be shown
-    # as what the image was rendered at.
+    # And says so, which is the whole reason the flag exists: this number reaches a user-facing "Size" row, and one guessed off
+    # an upscale node must not be shown as what the image was rendered at.
     assert scanned["size_measured"] is False
 
     sized = describe_render_params(graph, {**slots, "width": ["5", "width"], "height": ["5", "height"]})
     assert (sized["width"], sized["height"]) == (1024, 1024)
     assert sized["size_measured"] is True, "the mapped slots name the node Orb wrote to"
-    # A slot pointing at a node that is gone falls back to the scan rather than
-    # reporting nothing: a best-effort record degrades, it does not fail. It degrades
-    # to an *ungraded* answer too, or the fallback would inherit the mapping's credit.
+    # A slot pointing at a node that is gone falls back to the scan rather than reporting nothing: a best-effort record
+    # degrades, it does not fail. It degrades to an *ungraded* answer too, or the fallback would inherit the mapping's credit.
     dangling = describe_render_params(graph, {**slots, "width": ["999", "width"], "height": ["999", "height"]})
     assert dangling["width"] == 512
     assert dangling["size_measured"] is False
 
 
-# A custom seed node that stops far short of the sampler's 2**64. rgthree's is the
-# one users hit, because ComfyUI rejects the whole prompt over it -- "Value
-# 18257206749444865874 bigger than max of 1125899906842624" -- naming a number
-# nobody typed.
+# A custom seed node that stops far short of the sampler's 2**64. rgthree's is the one users hit, because ComfyUI rejects the
+# whole prompt over it -- "Value 18257206749444865874 bigger than max of 1125899906842624" -- naming a number nobody typed.
 RGTHREE_SEED = {"input": {"required": {"seed": ["INT", {"default": 0, "min": -(2**50), "max": 2**50}]}}}
 
 
@@ -401,8 +362,7 @@ def test_the_seed_slot_names_the_class_that_declares_its_bound():
     ("seed", "expected"),
     [
         (18257206749444865874, 739759991701499),
-        # Inside the range already: untouched, so the common case records the seed
-        # the user sees on the image.
+        # Inside the range already: untouched, so the common case records the seed the user sees on the image.
         (12345, 12345),
         (2**50, 2**50),
         (2**50 + 1, 0),
@@ -411,8 +371,7 @@ def test_the_seed_slot_names_the_class_that_declares_its_bound():
 )
 def test_an_oversized_seed_is_folded_into_what_the_node_accepts(seed, expected):
     assert fit_seed(seed, RGTHREE_SEED, "seed") == expected
-    # Idempotent, which is what lets Orb record the folded seed and still reproduce
-    # this render when it is replayed.
+    # Idempotent, which is what lets Orb record the folded seed and still reproduce this render when it is replayed.
     assert fit_seed(expected, RGTHREE_SEED, "seed") == expected
 
 

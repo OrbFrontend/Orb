@@ -26,14 +26,14 @@ if errorlevel 1 goto stale_venv
 
 call .venv\Scripts\activate.bat
 echo Installing dependencies...
-REM A failed install is only fatal when it leaves nothing to run -- see the note
-REM in run_unix.sh. An offline launch keeps whatever .venv already has.
+REM An offline launch requires usable mandatory dependencies, without loading
+REM the application, database or optional models.
 pip install -q -r requirements.txt
 if errorlevel 1 goto pip_degraded
 goto deps_ready
 
 :pip_degraded
-python -c "import fastapi, uvicorn"
+python scripts\check_runtime.py
 if errorlevel 1 goto pip_failed
 echo Warning: could not install dependencies (offline?).
 echo Starting with the versions already in .venv.
@@ -42,17 +42,25 @@ echo Starting with the versions already in .venv.
 
 if not exist "backend\data" mkdir backend\data
 
+REM ORB_HOST narrows the listen address -- see the note in run_unix.sh.
+if not defined ORB_HOST set "ORB_HOST=0.0.0.0"
+set "URL_HOST=%ORB_HOST%"
+if not "%URL_HOST%"=="%URL_HOST::=%" set "URL_HOST=[%URL_HOST%]"
+if "%ORB_HOST%"=="0.0.0.0" set "URL_HOST=localhost"
+if "%ORB_HOST%"=="::" set "URL_HOST=localhost"
+set "URL=http://%URL_HOST%:8899"
+
 echo.
-echo Starting server on http://localhost:8899
+echo Starting server on %URL%
 echo Press Ctrl+C to stop
 echo.
 
 REM Wait for the server to come up in the background, then open the browser once.
-start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul http://localhost:8899 && (start "" http://localhost:8899 & exit) || timeout /t 1 /nobreak >nul)"
+start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul %URL% && (start "" %URL% & exit) || timeout /t 1 /nobreak >nul)"
 
 REM Reload watches backend/ only; the default is the whole repo, .venv and
 REM node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host 0.0.0.0 --port 8899 --reload --reload-dir backend
+uvicorn backend.main:app --host %ORB_HOST% --port 8899 --reload --reload-dir backend
 if errorlevel 1 goto uvicorn_failed
 exit /b 0
 

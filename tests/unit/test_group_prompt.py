@@ -2,16 +2,8 @@ from __future__ import annotations
 
 from backend.core import CastMember, Macros, TurnCast, fold_events
 from backend.database.queries.group_members import allocate_speaker_key
-from backend.pipeline.cast import (
-    choose_speakers,
-    parse_speaking_plan,
-    plan_cue,
-    round_robin_member,
-)
-from backend.pipeline.passes.director import (
-    build_direct_scene_override,
-    speaking_plan_instruction,
-)
+from backend.pipeline.cast import choose_speakers, parse_speaking_plan, plan_cue, round_robin_member
+from backend.pipeline.passes.director import build_direct_scene_override, speaking_plan_instruction
 from backend.pipeline.passes.writer import build_writer_content, strip_speaker_label
 from backend.pipeline.state import _DIRECTOR_SEED_FIELDS, TurnState
 from backend.prompting import build_prefix
@@ -75,9 +67,8 @@ def test_speaker_label_stripper_uses_the_complete_escaped_name():
 def test_speaker_label_stripper_leaves_the_name_in_prose_alone():
     """A colon makes a label; bold alone does not.
 
-    ``**Aria** crosses the room.`` is a sentence that opens on the character's
-    name, which is how a great many cards write. Treating the bold as a label
-    deleted the subject of the sentence.
+    ``**Aria** crosses the room.`` is a sentence that opens on the character's name, which is how a great many cards write.
+    Treating the bold as a label deleted the subject of the sentence.
     """
     assert strip_speaker_label("**Aria** crosses the room.", "Aria") == "**Aria** crosses the room."
     assert strip_speaker_label("__Aria__ crosses the room.", "Aria") == "__Aria__ crosses the room."
@@ -95,9 +86,8 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
     ]
     schema = build_direct_scene_override([], grouped=True)
     prop = schema["function"]["parameters"]["properties"]["speaking_plan"]
-    # The blob is the cached prefix (kv-cache.md, Invariant 3), so it names the
-    # field and never the cast: a mute toggle changes nothing here, and the live
-    # roster is stated on the Director's trailing request instead.
+    # The blob is the cached prefix (kv-cache.md, Invariant 3), so it names the field and never the cast: a mute toggle changes
+    # nothing here, and the live roster is stated on the Director's trailing request instead.
     assert "speaker_key" in prop["description"]
     assert not any(key in prop["description"] for key in ("aria", "kael", "mira"))
     eligible = [member for member in members if not member["muted"]]
@@ -113,20 +103,13 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
 def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     """A kebab-cased key is the shape `build_direct_scene_override` asks for.
 
-    Splitting a plan line on the first `-` used to consume the key itself, so
-    every member whose display name had two words — which is what produces a
-    hyphen in `allocate_speaker_key` — was dropped, and a plan of nothing but
-    those read as malformed and fell back to round-robin.
+    Splitting a plan line on the first `-` used to consume the key itself, so every member whose display name had two words --
+    which is what produces a hyphen in `allocate_speaker_key` -- was dropped, and a plan of nothing but those read as malformed
+    and fell back to round-robin.
     """
     used: set[str] = set()
     members = [
-        {
-            "id": mid,
-            "speaker_key": allocate_speaker_key(name, used),
-            "display_name": name,
-            "active": 1,
-            "muted": 0,
-        }
+        {"id": mid, "speaker_key": allocate_speaker_key(name, used), "display_name": name, "active": 1, "muted": 0}
         for mid, name in (("h", "Alice Hart"), ("p", "Jean-Luc Picard"), ("a", "Arianna"))
     ]
     assert [m["speaker_key"] for m in members] == ["alice-hart", "jean-luc-picard", "arianna"]
@@ -147,11 +130,9 @@ def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
 def test_plan_cue_reads_the_cue_for_a_speaker_cast_without_the_plan():
     """A pin decides *who*; the Director still decides *what* for that speaker.
 
-    Regenerate, magic rewrite, `/speak`, a manual pick and round-robin all settle
-    the speaker before the plan is read. They used to hand the writer an empty
-    cue even when the Director had just written one for that exact member, so a
-    regenerated reply was composed blind while the injected scene direction was
-    aimed at whoever the plan opened with.
+    Regenerate, magic rewrite, `/speak`, a manual pick and round-robin all settle the speaker before the plan is read. They used
+    to hand the writer an empty cue even when the Director had just written one for that exact member, so a regenerated reply
+    was composed blind while the injected scene direction was aimed at whoever the plan opened with.
     """
     members = [
         {"id": "a", "speaker_key": "aria", "display_name": "Aria", "active": 1, "muted": 0},
@@ -209,11 +190,9 @@ def test_choose_speakers_settles_who_speaks_for_every_reply_mode():
 def test_every_director_seed_field_is_a_turn_state_field_and_is_copied_not_shared():
     """The seed is what speakers 2..n of one exchange start from.
 
-    Two assertions, both about drift: the field list has to name real
-    ``TurnState`` fields (it stands in for the orchestrator's old hand-kept
-    copy), and each speaker has to get its *own* containers, since the
-    once-per-exchange steps that run on the last speaker mutate them in place
-    and would otherwise reach back into a reply already on the wire.
+    Two assertions, both about drift: the field list has to name real ``TurnState`` fields (it stands in for the orchestrator's
+    old hand-kept copy), and each speaker has to get its *own* containers, since the once-per-exchange steps that run on the
+    last speaker mutate them in place and would otherwise reach back into a reply already on the wire.
     """
     shared = TurnState(active_moods=["tense"], calls=[{"name": "direct_scene"}], macro_choices={"f": "a"})
     shared.state_events = [{"fragment_id": "threads", "entry_id": "a", "op": "add", "text": "note"}]

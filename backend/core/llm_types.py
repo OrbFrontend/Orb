@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 class TextPart(TypedDict):
@@ -25,24 +25,26 @@ class ImagePart(TypedDict):
     image_url: ImageURLSpec
 
 
-# A message body is either a plain string or, for vision-capable turns, a list
-# of typed parts. ``build_multimodal_content`` and
+# A message body is either a plain string or, for vision-capable turns, a list of typed parts. ``build_multimodal_content`` and
 # ``format_message_with_attachments`` emit the list form.
 ContentPart = TextPart | ImagePart
 
 
 class ChatMessage(TypedDict):
-    """One OpenAI-format chat message in a pipeline *prefix* (the system prompt
-    plus chat history that every pass shares byte-for-byte for KV-cache reuse).
+    """A text or multimodal message in the shared, byte-stable pipeline prefix.
 
-    A closed shape: a prefix only ever holds these three roles with text or
-    multimodal content. The broader wire messages a pass *appends* before a
-    call -- assistant turns carrying ``tool_calls`` / ``reasoning_content`` and
-    ``tool``-role results -- are the other members of :data:`WireMessage`.
+    Pass-appended tool calls, reasoning and tool results use WireMessage instead.
     """
 
     role: Literal["system", "user", "assistant"]
     content: str | list[ContentPart]
+
+
+class ToolFunction(TypedDict):
+    """A wire tool call's name and still-encoded JSON arguments."""
+
+    name: str
+    arguments: str
 
 
 class ToolCall(TypedDict):
@@ -50,7 +52,7 @@ class ToolCall(TypedDict):
 
     id: str
     type: Literal["function"]
-    function: dict[str, Any]
+    function: ToolFunction
 
 
 class ReasoningReplay(TypedDict, total=False):
@@ -60,6 +62,58 @@ class ReasoningReplay(TypedDict, total=False):
     reasoning_content: str
     reasoning: str
     reasoning_details: list[dict[str, Any]]
+
+
+class CompletionMessage(ReasoningReplay, total=False):
+    """An assembled model reply; absent fields stay absent on the wire."""
+
+    content: str
+    tool_calls: list[ToolCall]
+    finish_reason: str
+
+
+class ContentDelta(TypedDict):
+    type: Literal["content"]
+    delta: str
+
+
+class ReasoningDelta(TypedDict):
+    type: Literal["reasoning"]
+    delta: str
+    call_start: NotRequired[bool]
+
+
+class TokenAlternative(TypedDict):
+    t: str
+    p: float
+
+
+class TokenProbability(TypedDict):
+    token: str
+    prob: float
+    top: list[TokenAlternative]
+
+
+class TokenProbsEvent(TokenProbability):
+    type: Literal["token_probs"]
+
+
+class CompletionDone(TypedDict):
+    type: Literal["done"]
+    message: CompletionMessage
+    # Providers carry different usage extensions; preserve their JSON verbatim.
+    usage: dict[str, Any] | None
+
+
+CompletionDelta = ContentDelta | ReasoningDelta | TokenProbsEvent
+CompletionEvent = CompletionDelta | CompletionDone
+
+
+class ParsedToolCall(TypedDict):
+    """A normalized call after parsing; tool-owned arguments stay open."""
+
+    name: str
+    arguments: dict[str, Any]
 
 
 class AssistantToolMessage(ReasoningReplay):
@@ -79,11 +133,8 @@ class ToolResultMessage(TypedDict):
     content: str
 
 
-# The full mutable wire buffer a pass ships to the model: a ``ChatMessage``
-# prefix plus the turns the ReAct loops append. Modelled as a union (not a
-# single open TypedDict) because adding optional keys would make a superset
-# TypedDict a *subtype* of ``ChatMessage`` -- the wrong direction -- so a
-# ``ChatMessage`` could not flow into it. As a union member it flows in
-# directly, letting a buffer be built ``[*prefix, ...]`` and typed
-# ``list[WireMessage]`` with no cast.
+# The full mutable wire buffer a pass ships to the model: a ``ChatMessage`` prefix plus the turns the ReAct loops append.
+# Modelled as a union (not a single open TypedDict) because adding optional keys would make a superset TypedDict a *subtype* of
+# ``ChatMessage`` -- the wrong direction -- so a ``ChatMessage`` could not flow into it. As a union member it flows in directly,
+# letting a buffer be built ``[*prefix, ...]`` and typed ``list[WireMessage]`` with no cast.
 WireMessage = ChatMessage | AssistantToolMessage | ToolResultMessage

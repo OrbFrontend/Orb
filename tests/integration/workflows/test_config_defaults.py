@@ -1,20 +1,13 @@
 """Integration tests for the get_workflow_config defaults fallback.
 
-The DB layer returns ``{}`` for an empty slot. The registry wrapper layers
-the registered workflow's ``config_defaults`` on top so callers always
-see a populated dict whenever the workflow ships defaults. A non-empty
-persisted slot shadows defaults entirely; clearing the slot restores
-defaults; an unregistered id falls through to ``{}``.
+The DB layer returns ``{}`` for an empty slot. The registry wrapper layers the registered workflow's ``config_defaults`` on top
+so callers always see a populated dict whenever the workflow ships defaults. A non-empty persisted slot shadows defaults
+entirely; clearing the slot restores defaults; an unregistered id falls through to ``{}``.
 """
 
 from __future__ import annotations
 
-from backend.workflows import (
-    Workflow,
-    get_workflow_config,
-    register_workflow,
-    set_workflow_config,
-)
+from backend.workflows import Workflow, get_workflow_config, register_workflow, set_workflow_config
 
 
 async def test_empty_slot_returns_defaults(client):
@@ -44,11 +37,16 @@ async def test_unregistered_workflow_returns_empty(client):
 
 
 async def test_defaults_returned_as_fresh_copy(client):
-    register_workflow(Workflow(id="cd_a", display_name="A", config_defaults={"x": 1}))
+    defaults = {"x": 1, "styles": [{"name": "noir"}], "backend": {"url": "http://localhost"}}
+    register_workflow(Workflow(id="cd_a", display_name="A", config_defaults=defaults))
     cfg1 = await get_workflow_config("cd_a")
     cfg1["x"] = 999
+    cfg1["styles"][0]["name"] = "bright"
+    cfg1["backend"]["url"] = "http://other-host"
     cfg2 = await get_workflow_config("cd_a")
-    assert cfg2 == {"x": 1}
+    expected = {"x": 1, "styles": [{"name": "noir"}], "backend": {"url": "http://localhost"}}
+    assert cfg2 == expected
+    assert defaults == expected
 
 
 async def test_format_consistency_voice_is_off_by_default(client):

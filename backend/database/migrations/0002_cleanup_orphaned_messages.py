@@ -1,6 +1,5 @@
-"""
-0002_cleanup_orphaned_messages — delete messages and related rows that reference
-non‑existent conversations (foreign‑key violations) and ensure foreign keys are enabled.
+"""0002_cleanup_orphaned_messages -- delete messages and related rows that reference non-existent conversations (foreign-key
+violations) and ensure foreign keys are enabled.
 """
 
 from __future__ import annotations
@@ -9,8 +8,7 @@ import sqlite3
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # Ensure foreign keys are enabled for this connection (they already are via PRAGMA,
-    # but we enforce it here as well).
+    # Ensure foreign keys are enabled for this connection (they already are via PRAGMA, but we enforce it here as well).
     conn.execute("PRAGMA foreign_keys=ON")
 
     # 1. Delete orphaned messages (conversation_id not in conversations)

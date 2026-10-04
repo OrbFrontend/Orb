@@ -1,9 +1,8 @@
 """The terminal ``error`` event names the pass an internal failure escaped.
 
-Provider failures inside the Judge and Director are skipped by those passes, so
-what reaches ``stage`` here is Orb's own code failing. A group exchange runs its
-Judge and Director outside ``_run_pipeline``, and must label them the same way
-a solo turn does.
+Provider failures inside the Judge and Director are skipped by those passes, so what reaches ``stage`` here is Orb's own code
+failing. A group exchange runs its Judge and Director outside ``run_pipeline``, and must label them the same way a solo turn
+does.
 """
 
 from __future__ import annotations
@@ -29,9 +28,7 @@ def _error(body: str) -> dict:
 
 
 async def _card(client, name: str) -> str:
-    response = await client.post("/api/characters", json={"name": name})
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/characters", json={"name": name})
 
 
 async def _conversation(client, kind: str) -> str:
@@ -40,9 +37,7 @@ async def _conversation(client, kind: str) -> str:
         body: dict = {"character_card_id": aria}
     else:
         body = {"kind": "group", "group_turn_mode": "round_robin", "members": [{"character_card_id": aria}]}
-    response = await client.post("/api/conversations", json=body)
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/conversations", json=body)
 
 
 def _raise(*_args, **_kwargs):
@@ -93,3 +88,14 @@ async def test_a_director_prelude_failure_is_labelled_the_director_pass(monkeypa
         ):
             pass
     assert stage_of(caught.value) == "director pass"
+
+
+async def test_a_half_configured_agent_lane_fails_the_turn_by_naming_the_setting(client, llm_mock):
+    # "Same as Writer" off with no Agent endpoint picked must not run the Agent passes on the Writer without a word.
+    await client.put("/api/settings", json={"agent_same_as_writer": False})
+    conv_id = await _conversation(client, "solo")
+
+    response = await client.post(f"/api/conversations/{conv_id}/send", json={"content": "Hello"})
+
+    assert _error(response.text)["kind"] == "config"
+    assert not llm_mock.captured

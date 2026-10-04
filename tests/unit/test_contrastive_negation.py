@@ -1,9 +1,9 @@
 """Regression tests for detect_contrastive_negation.
 
-2026-07-18: curly-apostrophe contractions ("doesn’t") and do-support clauses
+2026-07-18: curly-apostrophe contractions (U+2019) and do-support clauses
 whose verb the suffix tagger can't see ("we time it") were missed.
 
-2026-09-06: the "not to X, but to Y" frame was missed wholesale — "not to"
+2026-09-06: the "not to X, but to Y" frame was missed wholesale -- "not to"
 bailed out early, and "not to push you away" read its object as a subject.
 """
 
@@ -58,7 +58,7 @@ def test_ignores(text):
 
 
 def test_curly_apostrophe_sentence_reported_verbatim():
-    """patching.py filters hits by substring into the original text — the
+    """patching.py filters hits by substring into the original text -- the
     reported sentence must keep the original curly apostrophe."""
     text = "It doesn’t fade; it is strangled."
     hits = detect_contrastive_negation(text)

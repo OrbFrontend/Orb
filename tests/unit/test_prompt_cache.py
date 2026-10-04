@@ -10,14 +10,8 @@ LONG = {"type": "ephemeral", "ttl": "1h"}
 SHORT = {"type": "ephemeral"}
 
 SYSTEM = {"role": "system", "content": "You narrate."}
-HISTORY = [
-    {"role": "user", "content": "I open the door."},
-    {"role": "assistant", "content": "It creaks."},
-]
-TAIL = [
-    {"role": "user", "content": "(OOC: lore) The door is old."},
-    {"role": "user", "content": "I step inside."},
-]
+HISTORY = [{"role": "user", "content": "I open the door."}, {"role": "assistant", "content": "It creaks."}]
+TAIL = [{"role": "user", "content": "(OOC: lore) The door is old."}, {"role": "user", "content": "I step inside."}]
 
 
 def _controls(messages):
@@ -73,8 +67,7 @@ def test_anchors_walk_back_past_messages_without_text():
 def test_an_anchor_never_crosses_the_previous_one():
     blank = {"role": "user", "content": "   "}
     marked = mark_cache_breakpoints([SYSTEM, HISTORY[0], blank], prefix_len=2)
-    # The tail has no text of its own, so it is left unmarked rather than
-    # stacking a second marker onto the base anchor.
+    # The tail has no text of its own, so it is left unmarked rather than stacking a second marker onto the base anchor.
     assert _controls(marked) == [(0, LONG), (1, LONG)]
 
 

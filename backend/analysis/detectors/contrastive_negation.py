@@ -6,14 +6,13 @@ import re
 
 from ...core.text_segmentation import split_sentences
 
-# Dialogue is intentionally kept: clause-grammar analysis must see quoted text.
-# Paragraph-first splitting (in text_segmentation) prevents a paragraph that
-# lacks a detectable terminator from merging into the next.
+# Dialogue is intentionally kept: clause-grammar analysis must see quoted text. Paragraph-first splitting (in text_segmentation)
+# prevents a paragraph that lacks a detectable terminator from merging into the next.
 _split_sentences = split_sentences
 
 
 def _tokenize(sent: str) -> list[str]:
-    # Curly apostrophe → straight so contractions ("doesn’t") tokenize as one word.
+    # Curly apostrophes (U+2019) become straight ones so contractions tokenize as one word.
     return re.findall(r"\w+(?:'\w+)?|[^\s\w]", sent.replace("’", "'"))
 
 
@@ -57,10 +56,9 @@ _CLAUSE_SIGNALS = (
 )
 
 
-# Ordered ``(members, suffixes, blocked_suffixes, tag)`` rules; the first match
-# wins, so closed-class membership stays ahead of the suffix heuristics that
-# would otherwise shadow it ("does" is a VERB before "s" makes it one, "only" is
-# an ADV before "ly" does). A word matching no rule is a NOUN.
+# Ordered ``(members, suffixes, blocked_suffixes, tag)`` rules; the first match wins, so closed-class membership stays ahead of
+# the suffix heuristics that would otherwise shadow it ("does" is a VERB before "s" makes it one, "only" is an ADV before "ly"
+# does). A word matching no rule is a NOUN.
 _TAG_RULES: tuple[tuple[frozenset[str], tuple[str, ...], tuple[str, ...], str], ...] = (
     (_BE_VERBS | _DO_VERBS, (), (), "VERB"),
     (frozenset({"a", "an", "the"}), (), (), "DET"),
@@ -105,13 +103,11 @@ _NEGATED_DO_CONTRACTIONS = frozenset({"doesn't", "don't", "didn't"})
 _NEGATED_HAVE_CONTRACTIONS = frozenset({"hasn't", "haven't", "hadn't"})
 _SAME_SUBJECT_PRONOUNS = frozenset("it this that".split())
 _PERSONAL_PRONOUNS = frozenset("i me he him she her we us they them you".split())
-# Object-form pronouns can't open a clause; in do-support X they're objects
-# ("doesn't just hit it"), not clause signals.
+# Object-form pronouns can't open a clause; in do-support X they're objects ("doesn't just hit it"), not clause signals.
 _OBJECT_PRONOUNS = frozenset("me him her it us them".split())
 
 
-# "to" opens an infinitive only when a bare verb follows: "to my surprise" and
-# "to her" are prepositional.
+# "to" opens an infinitive only when a bare verb follows: "to my surprise" and "to her" are prepositional.
 _NON_VERB_AFTER_TO = frozenset({"a", "an", "the"}) | _PRONOUNS
 # Hedges tolerated before "to"; "only" stays out, it belongs to _is_not_only.
 _FRAME_ADVERBS = frozenset("just simply merely rather instead purely solely".split())
@@ -147,8 +143,7 @@ def _arm_carries_clause(tokens: list[str]) -> bool:
 
 
 def _x_looks_like_clause(x_tokens: list[str], ignore: frozenset[str] = frozenset()) -> bool:
-    """True if the span between 'not' and 'but' reads like a full clause
-    rather than a short noun or adjective complement."""
+    """True if the span between 'not' and 'but' reads like a full clause rather than a short noun or adjective complement."""
     x_lower = {t.lower() for t in x_tokens}
     if (x_lower - ignore) & _CLAUSE_SIGNALS:
         return True
@@ -223,11 +218,7 @@ def _find_negated_be_pattern(tokens: list[str], tags: list[str]) -> dict | None:
     _strip_trailing_punct(y_tokens, y_tags)
 
     if x_tags:
-        return {
-            "x_template": " ".join(x_tags),
-            "y_template": " ".join(y_tags),
-            "is_parallel": x_tags == y_tags,
-        }
+        return {"x_template": " ".join(x_tags), "y_template": " ".join(y_tags), "is_parallel": x_tags == y_tags}
     return None
 
 
@@ -283,7 +274,7 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
         return None
 
     # A conjunction between the boundary and the verb signals an independent clause
-    # ("do not like rain, but I brought …"), not a bare complement.
+    # ("do not like rain, but I brought ..."), not a bare complement.
     if any(tokens[j].lower() in _CONJUNCTIONS for j in range(boundary + 1, aff_verb_idx)):
         return None
 
@@ -327,11 +318,7 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
     if _y_looks_like_clause(y_tokens, exclude_it=True):
         return None
 
-    return {
-        "x_template": " ".join(x_tags),
-        "y_template": " ".join(y_tags),
-        "is_parallel": x_tags == y_tags,
-    }
+    return {"x_template": " ".join(x_tags), "y_template": " ".join(y_tags), "is_parallel": x_tags == y_tags}
 
 
 def _find_not_but_pattern(lowers: list[str], words: list[str], tags: list[str]) -> dict | None:
@@ -376,37 +363,16 @@ def _find_not_but_pattern(lowers: list[str], words: list[str], tags: list[str]) 
         if _y_looks_like_clause(y_tokens):
             return None
 
-    return {
-        "x_template": " ".join(x_tags),
-        "y_template": " ".join(y_tags),
-        "is_parallel": x_tags == y_tags,
-    }
+    return {"x_template": " ".join(x_tags), "y_template": " ".join(y_tags), "is_parallel": x_tags == y_tags}
 
 
 _BE_CONTRACTION_STARTERS = frozenset(
-    {
-        "i",
-        "you",
-        "he",
-        "she",
-        "it",
-        "we",
-        "they",
-        "that",
-        "this",
-        "there",
-        "here",
-        "who",
-        "what",
-        "where",
-        "when",
-        "how",
-    }
+    {"i", "you", "he", "she", "it", "we", "they", "that", "this", "there", "here", "who", "what", "where", "when", "how"}
 )
 
 
 def _split_contractions(tokens: list[str]) -> list[str]:
-    """Split pronoun+be contractions:  she's → she 's,  they're → they 're."""
+    """Split pronoun+be contractions:  she's -> she 's,  they're -> they 're."""
     result = []
     for token in tokens:
         low = token.lower()

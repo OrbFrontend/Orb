@@ -19,6 +19,7 @@ from ....core import (
     extract_hyperparams,
     plan_state_ops,
 )
+from ....core.llm_types import CompletionMessage
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import UPDATE_STATE_CHOICE, build_state_tool
 from .prompts import AliasedEntry, build_state_request, entry_aliases
@@ -140,8 +141,8 @@ async def state_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
-    """Yield reasoning chunks, then the validated result of the update call(s)."""
+) -> AsyncIterator[Mapping[str, Any]]:
+    """Yield reasoning chunks and a ``failure`` per failed call, then the validated result of the update call(s)."""
     result = StateStepResult()
     if not fragments:
         yield {"type": "done", "result": result}
@@ -149,14 +150,13 @@ async def state_step(
 
     per_fragment_on = bool(settings.get("director_individual_fragments", 0))
     groups = [[fragment] for fragment in fragments] if per_fragment_on else [list(fragments)]
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.4})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
     for group in groups:
         if client.is_aborted:
             break
         aliases = entry_aliases(group, view)
-        # The group's live view of the shared schema: listed in the request and
-        # narrowing the call where the transport can.
+        # The group's live view of the shared schema: listed in the request and narrowing the call where the transport can.
         live_schema = build_state_tool(group)
         request = build_state_request(
             group,
@@ -179,7 +179,7 @@ async def state_step(
         else:
             trailing = [{"role": "user", "content": request}]
 
-        resp: dict = {}
+        resp: CompletionMessage = {}
         try:
             async for event in base.complete_into(
                 client,
@@ -193,12 +193,12 @@ async def state_step(
                 **reasoning_cfg(reasoning_on, reasoning_prefill),
             ):
                 yield event
-        except Exception:
+        except Exception as exc:
             # Keep the reply saveable if an after-reply update fails.
             logger.exception("State update call failed; keeping this group's state")
+            yield {"type": "failure", "error": exc}
             continue
-        # A stop cut the call short: its operations may be half-written, so only
-        # the groups that finished apply.
+        # A stop cut the call short: its operations may be half-written, so only the groups that finished apply.
         if client.is_aborted:
             break
 

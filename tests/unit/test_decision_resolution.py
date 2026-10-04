@@ -23,10 +23,7 @@ from backend.pipeline.passes.judge import (
     resting_decisions,
     stored_evaluations,
 )
-from backend.pipeline.passes.judge.records import (
-    invalidated_anchor,
-    matching_replay,
-)
+from backend.pipeline.passes.judge.records import invalidated_anchor, matching_replay
 from backend.pipeline.passes.judge.resolve import draw_uniform
 
 
@@ -52,7 +49,7 @@ def _definition(**overrides):
     return definition
 
 
-# ── threshold ────────────────────────────────────────────────────────────────
+# -- threshold ----------------------------------------------------------------
 
 
 def test_threshold_resolves_true_at_exact_equality():
@@ -67,7 +64,7 @@ def test_threshold_ends_behave():
     assert resolve_threshold(0.0, 1.0) == "false"
 
 
-# ── roll ─────────────────────────────────────────────────────────────────────
+# -- roll ---------------------------------------------------------------------
 
 
 def test_probability_zero_always_fails_and_one_always_succeeds():
@@ -120,7 +117,7 @@ def test_a_gated_draw_never_lands_on_the_gate_and_rescales_the_rest():
     assert resolve_gated(probabilities, keys, 0.999) == "win"
 
 
-# ── decision cooldowns ───────────────────────────────────────────────────────
+# -- decision cooldowns -------------------------------------------------------
 
 
 def test_baseline_reads_the_latest_assistant_snapshot():
@@ -170,7 +167,7 @@ def test_a_decision_whose_definition_is_gone_ages_out():
     assert advance_decision_cooldowns({"vanished": 1}, [], []) == {}
 
 
-# ── fingerprints ─────────────────────────────────────────────────────────────
+# -- fingerprints -------------------------------------------------------------
 
 
 def _raw(**overrides) -> str:
@@ -211,7 +208,7 @@ def test_the_policy_fingerprint_covers_resolution_and_scope_only():
     assert resolution_policy_fingerprint(_definition(decision_outputs={"true": "new", "false": ""}), scope="solo") == base
 
 
-# ── the stored envelope ──────────────────────────────────────────────────────
+# -- the stored envelope ------------------------------------------------------
 
 
 def test_an_exchange_with_nothing_to_record_stores_no_envelope():
@@ -263,7 +260,7 @@ def test_anchors_remap_through_a_copy_and_a_lost_one_is_invalidated():
     assert not invalidated_anchor(remapped["evaluations"], "kept")
 
 
-# ── the injected block ───────────────────────────────────────────────────────
+# -- the injected block -------------------------------------------------------
 
 
 def test_guidance_is_labelled_authored_text_and_nothing_about_dice():

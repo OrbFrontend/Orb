@@ -45,31 +45,22 @@ class EdgeTTSAdapter(TTSAdapter):
     ) -> SynthesisResult:
         """Synthesize chunks into a complete MP3 file.
 
-        Merges chunks into plain text with punctuation-based pauses,
-        then sends to Edge TTS and buffers the complete MP3 output.
+        Merges chunks into plain text with punctuation-based pauses, then sends to Edge TTS and buffers the complete MP3 output.
         """
         text = self._chunks_to_text(chunks)
 
         if not text.strip():
             return SynthesisResult(audio_bytes=b"", content_type="audio/mpeg")
 
-        # boundary defaults to SentenceBoundary; request word-level events so the
-        # workflow can align per-word timings. Guarded for an older edge-tts that
-        # lacks the kwarg -- without word events the caller estimates timing.
+        # boundary defaults to SentenceBoundary; request word-level events so the workflow can align per-word timings. Guarded
+        # for an older edge-tts that lacks the kwarg -- without word events the caller estimates timing.
         try:
             communicate = edge_tts.Communicate(
-                text,
-                voice_id or DEFAULT_VOICE,
-                rate=_format_rate(rate),
-                pitch=_format_pitch(pitch),
-                boundary="WordBoundary",
+                text, voice_id or DEFAULT_VOICE, rate=_format_rate(rate), pitch=_format_pitch(pitch), boundary="WordBoundary"
             )
         except TypeError:
             communicate = edge_tts.Communicate(
-                text,
-                voice_id or DEFAULT_VOICE,
-                rate=_format_rate(rate),
-                pitch=_format_pitch(pitch),
+                text, voice_id or DEFAULT_VOICE, rate=_format_rate(rate), pitch=_format_pitch(pitch)
             )
 
         audio_parts = []
@@ -92,12 +83,7 @@ class EdgeTTSAdapter(TTSAdapter):
                 )
 
         audio_bytes = b"".join(audio_parts)
-        logger.info(
-            "Edge TTS: synthesized %d chars → %d bytes MP3 (voice=%s)",
-            len(text),
-            len(audio_bytes),
-            voice_id,
-        )
+        logger.info("Edge TTS: synthesized %d chars → %d bytes MP3 (voice=%s)", len(text), len(audio_bytes), voice_id)
 
         return SynthesisResult(
             audio_bytes=audio_bytes,
@@ -110,16 +96,10 @@ class EdgeTTSAdapter(TTSAdapter):
         """Return available Edge TTS voices, optionally filtered by language."""
         voices = await edge_tts.list_voices()
         if language:
-            lang_prefix = language.split("-")[0]  # "en-US" → "en"
+            lang_prefix = language.split("-")[0]  # "en-US" -> "en"
             voices = [v for v in voices if v["Locale"].startswith(lang_prefix)]
         return [
-            {
-                "id": v["ShortName"],
-                "name": v["FriendlyName"],
-                "language": v["Locale"],
-                "gender": v["Gender"],
-            }
-            for v in voices
+            {"id": v["ShortName"], "name": v["FriendlyName"], "language": v["Locale"], "gender": v["Gender"]} for v in voices
         ]
 
     @property

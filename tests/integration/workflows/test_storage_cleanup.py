@@ -1,16 +1,5 @@
-"""Age-based data cleanup: /api/storage and /api/storage/cleanup.
-
-The cleanup is deliberately asymmetric and these tests pin that asymmetry:
-
-  - Artifacts are *evicted*, not deleted. The row and its recovery metadata
-    survive so the image comes back through the normal rehydrate path, which is
-    only true if the cleanup reuses the same sentinel the budget eviction uses.
-  - Rows without recovery metadata (TTS audio stores no seed) are skipped, not
-    destroyed -- for those the bytes are the only copy.
-  - Agent logs have no recovery path and are a real DELETE.
-
-The preview route must agree with the cleanup it previews, otherwise the age
-choice in the UI is made against numbers that do not match the outcome.
+"""Check cleanup/preview parity: evict recoverable artifacts, retain bytes without
+recovery metadata, and remove diagnostic log data.
 """
 
 from __future__ import annotations
@@ -58,9 +47,8 @@ async def test_cleanup_evicts_only_old_rehydratable_artifacts(client, db):
     fresh = await _attachment(db, mid, created_at=RECENT)
     seedless = await _attachment(db, mid, created_at=OLD, rehydratable=False)
 
-    resp = await client.post("/api/storage/cleanup", json={"artifacts": True, "days": 7})
-    assert resp.status_code == 200
-    assert resp.json()["artifacts_evicted"] == 2
+    resp = await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 7})
+    assert resp["artifacts_evicted"] == 2
 
     assert await _data_b64(db, old_a) == EVICTED_MARKER
     assert await _data_b64(db, old_b) == EVICTED_MARKER
@@ -77,9 +65,8 @@ async def test_cleanup_days_zero_means_everything(client, db):
     _cid, mid = await _conversation(client)
     fresh = await _attachment(db, mid, created_at=RECENT)
 
-    resp = await client.post("/api/storage/cleanup", json={"artifacts": True, "days": 0})
-    assert resp.status_code == 200
-    assert resp.json()["artifacts_evicted"] == 1
+    resp = await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 0})
+    assert resp["artifacts_evicted"] == 1
     assert await _data_b64(db, fresh) == EVICTED_MARKER
 
 
@@ -93,10 +80,9 @@ async def test_unchecked_category_is_untouched(client, db):
     )
     await db.commit()
 
-    resp = await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})
-    assert resp.status_code == 200
-    assert resp.json()["logs_wiped"] == 1
-    assert resp.json()["artifacts_evicted"] == 0
+    resp = await client.post_json("/api/storage/cleanup", json={"logs": True, "days": 7})
+    assert resp["logs_wiped"] == 1
+    assert resp["artifacts_evicted"] == 0
     assert await _data_b64(db, art) != EVICTED_MARKER
 
 
@@ -115,9 +101,8 @@ async def test_log_wipe_respects_cutoff_and_keeps_the_row(client, db):
         )
     await db.commit()
 
-    resp = await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})
-    assert resp.status_code == 200
-    assert resp.json()["logs_wiped"] == 1
+    resp = await client.post_json("/api/storage/cleanup", json={"logs": True, "days": 7})
+    assert resp["logs_wiped"] == 1
 
     rows = list(await db.execute_fetchall("SELECT * FROM conversation_logs ORDER BY created_at"))
     assert len(rows) == 2  # nothing deleted
@@ -129,9 +114,8 @@ async def test_log_wipe_respects_cutoff_and_keeps_the_row(client, db):
     assert recent["injection_block"] == "i" * 100  # out of scope, untouched
 
     # A wiped turn must degrade to the empty log shape, not a 500.
-    resp = await client.get(f"/api/conversations/{cid}/messages/{mid}/director-log")
-    assert resp.status_code == 200
-    assert resp.json()["tool_calls"] == []
+    resp = await client.get_json(f"/api/conversations/{cid}/messages/{mid}/director-log")
+    assert resp["tool_calls"] == []
 
     # Nothing reclaimable left: the preview agrees and a repeat run is a no-op.
     assert (await client.get("/api/storage?days=7")).json()["logs"]["count"] == 0
@@ -146,8 +130,7 @@ async def test_wipe_covers_every_column_not_whitelisted(client, db):
 
     cols = {r["name"] for r in await db.execute_fetchall("PRAGMA table_info(conversation_logs)")}
     assert LOG_KEEP_COLUMNS <= cols, "whitelist names a column that no longer exists"
-    # Everything else is payload. Named here only so the diff shows what a new
-    # column joins -- the wipe itself needs no update.
+    # Everything else is payload. Named here only so the diff shows what a new column joins -- the wipe itself needs no update.
     assert cols - LOG_KEEP_COLUMNS == {
         "tool_calls",
         "injection_block",
@@ -179,13 +162,11 @@ async def test_preview_matches_what_cleanup_reports(client, db):
 
 
 async def test_budget_setting_round_trips_and_has_a_floor(client):
-    resp = await client.put("/api/settings", json={"attachment_cache_budget_bytes": 100 * 1024 * 1024})
-    assert resp.status_code == 200
-    assert resp.json()["attachment_cache_budget_bytes"] == 100 * 1024 * 1024
+    resp = await client.put_json("/api/settings", json={"attachment_cache_budget_bytes": 100 * 1024 * 1024})
+    assert resp["attachment_cache_budget_bytes"] == 100 * 1024 * 1024
 
     # A fumbled 0 would blank the whole artifact cache on the next write.
-    resp = await client.put("/api/settings", json={"attachment_cache_budget_bytes": 0})
-    assert resp.status_code == 422
+    resp = await client.put_checked("/api/settings", json={"attachment_cache_budget_bytes": 0}, expected_status=422)
 
 
 async def test_free_bytes_tracks_dead_pages_and_vacuum_returns_them(db, db_path):

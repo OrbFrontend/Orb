@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { ARROW_LEFT_ICON } from "./icons.js";
 import { closeTopModal, isModalOpen } from "./modal.js";
 import { $ } from "./utils.js";
@@ -13,6 +14,7 @@ const IDS = Object.freeze({
   mobileActionsMenu: "mobile-chat-actions-menu",
   docWorkflowMobileToggle: "doc-workflow-mobile-btn",
   mobileSidebarToggle: "mobile-sidebar-toggle",
+  docMobileSidebarToggle: "doc-mobile-sidebar-toggle",
   sidebar: "sidebar",
   toolsPanel: "tools-panel",
   toolsPanelToggle: "tools-panel-btn",
@@ -94,11 +96,11 @@ function closeMobileSidebar() {
   setAppState(APP_STATE.sidebarOpen, false);
 }
 
-export function closeMobileHeaderActions() {
+function closeMobileHeaderActions() {
   setElementOpen(IDS.mobileActionsMenu, false);
 }
 
-export function toggleMobileHeaderActions() {
+function toggleMobileHeaderActions() {
   if (!isMobileSidebarViewport()) return;
   setElementOpen(IDS.mobileActionsMenu, !isElementOpen(IDS.mobileActionsMenu));
   _closeBurger();
@@ -174,7 +176,7 @@ function closeTopMobileOverlay() {
   return false;
 }
 
-export function toggleMobileSidebar() {
+function toggleMobileSidebar() {
   if (!isMobileSidebarViewport()) return;
   closeMobileUtilityPanels();
   closeMobileHeaderActions();
@@ -188,13 +190,15 @@ function handleDocumentClick(event) {
   const clickedMobileActionsMenu = matcher.hasId(IDS.mobileActionsMenu);
   const sidebarOpen = hasAppState(APP_STATE.sidebarOpen);
 
-  if (!matcher.hasId(IDS.mobileActionsToggle) && !clickedMobileActionsMenu) {
+  // Clicking outside the menu closes it, and so does picking one of its items.
+  if (!matcher.hasId(IDS.mobileActionsToggle) && (!clickedMobileActionsMenu || matcher.matches(".burger-menu-item"))) {
     closeMobileHeaderActions();
   }
 
   if (!isMobileSidebarViewport()) return;
 
-  if (sidebarOpen && matcher.matches(".char-item, .world-item-main, .doc-item")) {
+  // Picking an item closes the sidebar; its own buttons (edit, delete) do not.
+  if (sidebarOpen && matcher.matches(".char-item, .world-item-main, .doc-item") && !matcher.matches("button")) {
     setTimeout(closeMobileSidebar, 0);
   }
 
@@ -202,6 +206,7 @@ function handleDocumentClick(event) {
     sidebarOpen &&
     !matcher.hasId(IDS.sidebar) &&
     !matcher.hasId(IDS.mobileSidebarToggle) &&
+    !matcher.hasId(IDS.docMobileSidebarToggle) &&
     !matcher.hasId(IDS.modalRoot) &&
     !matcher.hasId(IDS.subModalRoot) &&
     !matcher.hasId(IDS.cropModalRoot)
@@ -286,11 +291,20 @@ function trackVisualViewport() {
   vv.addEventListener("scroll", apply); // offsetTop changes fire scroll, not resize
 }
 
+// iOS zooms into a focused field set below 16px and stays zoomed. Its focus zoom
+// honours maximum-scale while pinch-zoom ignores it there; Android would lose pinch-zoom.
+function preventIosFocusZoom() {
+  if (!CSS.supports("-webkit-touch-callout", "none")) return;
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && !meta.content.includes("maximum-scale")) meta.content += ", maximum-scale=1";
+}
+
 export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
   trackVisualViewport();
+  preventIosFocusZoom();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);
@@ -316,9 +330,7 @@ export function initMobileUi(deps) {
     btn.title = "Back to entries";
     btn.setAttribute("aria-label", "Back to entries");
     btn.innerHTML = ARROW_LEFT_ICON;
-    btn.onclick = () => {
-      if (typeof lbBackToList === "function") lbBackToList();
-    };
+    btn.dataset.wfAction = "lorebook:backToList";
     header.insertBefore(btn, header.firstChild);
   });
 
@@ -337,3 +349,8 @@ export function initMobileUi(deps) {
     }
   });
 }
+
+registerActions("mobile", {
+  toggleSidebar: () => toggleMobileSidebar(),
+  toggleHeaderActions: () => toggleMobileHeaderActions(),
+});

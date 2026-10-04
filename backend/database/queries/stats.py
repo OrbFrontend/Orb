@@ -5,11 +5,9 @@ from datetime import UTC, datetime, timedelta
 
 from ..connection import get_db
 
-# Seeds settings.generated_chars from the rows that already exist the first
-# time the counter is touched (NULL = never seeded). Assistant rows across ALL
-# branches (swipes/regens are sibling rows) approximate what the LLM has
-# generated historically; after this one-time backfill the counter only moves
-# via add_generated_chars, so deleting conversations no longer shrinks it.
+# Seeds settings.generated_chars from the rows that already exist the first time the counter is touched (NULL = never seeded).
+# Assistant rows across ALL branches (swipes/regens are sibling rows) approximate what the LLM has generated historically; after
+# this one-time backfill the counter only moves via add_generated_chars, so deleting conversations no longer shrinks it.
 _SEED_GENERATED_CHARS_SQL = """
     UPDATE settings
     SET generated_chars = (
@@ -28,9 +26,8 @@ async def get_generated_chars() -> int:
         rows = list(await db.execute_fetchall("SELECT generated_chars FROM settings WHERE id = 1"))
         if rows and rows[0][0] is not None:
             return int(rows[0][0])
-        # Only the unseeded read writes; every later homepage load is a plain
-        # read rather than a write transaction. The seed's own IS NULL guard
-        # keeps a racing add_generated_chars from being seeded twice.
+        # Only the unseeded read writes; every later homepage load is a plain read rather than a write transaction. The seed's
+        # own IS NULL guard keeps a racing add_generated_chars from being seeded twice.
         await db.execute(_SEED_GENERATED_CHARS_SQL)
         await db.commit()
         rows = list(await db.execute_fetchall("SELECT generated_chars FROM settings WHERE id = 1"))
@@ -40,27 +37,22 @@ async def get_generated_chars() -> int:
 async def add_generated_chars(chars: int) -> None:
     """Credit *chars* of freshly generated text to the lifetime counter.
 
-    Call AFTER the assistant message is persisted: if the counter was never
-    seeded, the seed scan already counts that new row, so the increment is
-    skipped for exactly that case (cur.rowcount == 1) to avoid double counting.
+    Call AFTER the assistant message is persisted: if the counter was never seeded, the seed scan already counts that new row,
+    so the increment is skipped for exactly that case (cur.rowcount == 1) to avoid double counting.
     """
     if chars <= 0:
         return
     async with get_db() as db:
         cur = await db.execute(_SEED_GENERATED_CHARS_SQL)
         if cur.rowcount == 0:
-            await db.execute(
-                "UPDATE settings SET generated_chars = generated_chars + ? WHERE id = 1",
-                (chars,),
-            )
+            await db.execute("UPDATE settings SET generated_chars = generated_chars + ? WHERE id = 1", (chars,))
         await db.commit()
 
 
-# Recursive CTE yielding one row per message on a conversation's *active* branch
-# (root→active_leaf). Swiped/regenerated siblings are alternate branches the user
-# isn't currently viewing, so they're excluded everywhere a message COUNT is shown
-# -- they're drafts/trash, not part of the visible story. Exposes conv_id, id and
-# created_at so callers can group by conversation and apply recency filters.
+# Recursive CTE yielding one row per message on a conversation's *active* branch (root->active_leaf). Swiped/regenerated siblings
+# are alternate branches the user isn't currently viewing, so they're excluded everywhere a message COUNT is shown -- they're
+# drafts/trash, not part of the visible story. Exposes conv_id, id and created_at so callers can group by conversation and apply
+# recency filters.
 _ACTIVE_PATH_CTE = """
     WITH RECURSIVE active_path(conv_id, id, parent_id, created_at, role, speaker_member_id) AS (
         SELECT c.id, m.id, m.parent_id, m.created_at, m.role, m.speaker_member_id
@@ -73,13 +65,10 @@ _ACTIVE_PATH_CTE = """
     )
 """
 
-# One row per message a character *wrote*, keyed by the name it wrote under:
-# the conversation's for a solo chat, the speaking member's for a group. Both
-# arms count assistant rows only. A group's user messages carry no
-# ``speaker_member_id`` and so cannot be attributed to a member at all, and
-# counting solo user rows against the character would leave a cast member at
-# half a solo character's total for the same output -- never the favourite, and
-# reaching the "missed you" threshold at twice the play.
+# One row per message a character *wrote*, keyed by the name it wrote under: the conversation's for a solo chat, the speaking
+# member's for a group. Both arms count assistant rows only. A group's user messages carry no ``speaker_member_id`` and so
+# cannot be attributed to a member at all, and counting solo user rows against the character would leave a cast member at half a
+# solo character's total for the same output -- never the favourite, and reaching the "missed you" threshold at twice the play.
 _CHARACTER_USAGE_CTE = """
     , character_usage AS (
         SELECT c.character_name AS character_name, c.character_card_id AS card_id,
@@ -107,19 +96,16 @@ async def get_global_stats() -> dict:
         conv_row = list(await db.execute_fetchall("SELECT COUNT(*) FROM conversations"))
         total_conversations = conv_row[0][0] if conv_row else 0
 
-        # "words written" sums role='user' content across ALL branches: every user
-        # message was genuinely typed, even on swiped-away forks, so it reflects
-        # total effort rather than what's currently visible.
+        # "words written" sums role='user' content across ALL branches: every user message was genuinely typed, even on
+        # swiped-away forks, so it reflects total effort rather than what's currently visible.
         chars_row = list(
             await db.execute_fetchall("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM messages WHERE role = 'user'")
         )
         user_chars = chars_row[0][0] if chars_row else 0
 
-        # One walk of every conversation's active branch answers both the message
-        # count and the per-character tallies the spotlight chooses from: the
-        # nameless row carries the count (character_usage never yields a NULL
-        # name), the rest one character each. Swiped or regenerated siblings are
-        # trash and are not on the branch. A walk per question cost three.
+        # One walk of every conversation's active branch answers both the message count and the per-character tallies the
+        # spotlight chooses from: the nameless row carries the count (character_usage never yields a NULL name), the rest one
+        # character each. Swiped or regenerated siblings are trash and are not on the branch. A walk per question cost three.
         usage_rows = list(
             await db.execute_fetchall(
                 f"""{_ACTIVE_PATH_CTE}{_CHARACTER_USAGE_CTE}
@@ -145,12 +131,10 @@ async def get_global_stats() -> dict:
         favorite = max(characters, key=lambda row: row[1], default=None)
         favorite_character = _spotlight(favorite) if favorite else None
 
-        # A random well-worn character (>100 messages) for the "misses you"
-        # spotlight theme. Excludes the favorite itself so the two themes stay
-        # distinct, and anyone talked to in the last 24h — they can't "miss you"
-        # if you just spoke. created_at is an ISO-8601 UTC string, so a string
-        # compare against the cutoff sorts correctly. The endpoint flips the coin
-        # on which theme actually shows.
+        # A random well-worn character (>100 messages) for the "misses you" spotlight theme. Excludes the favorite itself so the
+        # two themes stay distinct, and anyone talked to in the last 24h -- they can't "miss you" if you just spoke. created_at
+        # is an ISO-8601 UTC string, so a string compare against the cutoff sorts correctly. The endpoint flips the coin on
+        # which theme actually shows.
         recent_cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         missed = [
             row for row in characters if row is not favorite and row[1] > 100 and row[4] is not None and row[4] < recent_cutoff

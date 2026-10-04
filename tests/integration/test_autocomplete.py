@@ -1,5 +1,5 @@
 """Autocomplete route: 503 when the model is unavailable, 200 with a completion
-otherwise. The model itself is monkeypatched — no GGUF needed here."""
+otherwise. The model itself is monkeypatched -- no GGUF needed here."""
 
 from __future__ import annotations
 
@@ -7,14 +7,10 @@ import backend.database as dbmod
 
 
 async def test_autocomplete_503_when_unavailable(client, monkeypatch):
-    monkeypatch.setattr(
-        "backend.inference.local_ml.available",
-        lambda: (False, "extra not installed"),
-    )
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (False, "extra not installed"))
     await dbmod.create_conversation("conv-ac", "Chat", "Nova", "")
-    resp = await client.post("/api/conversations/conv-ac/autocomplete", json={"draft": "hello"})
-    assert resp.status_code == 503
-    assert "unavailable" in resp.json()["detail"].lower()
+    resp = await client.post_json("/api/conversations/conv-ac/autocomplete", json={"draft": "hello"}, expected_status=503)
+    assert "unavailable" in resp["detail"].lower()
 
 
 async def test_autocomplete_returns_completion(client, monkeypatch):
@@ -30,9 +26,8 @@ async def test_autocomplete_returns_completion(client, monkeypatch):
     mid, _ = await dbmod.add_message("conv-ac2", "assistant", "You arrive at the gate.", 0, parent_id=None)
     await dbmod.set_active_leaf("conv-ac2", mid)
 
-    resp = await client.post("/api/conversations/conv-ac2/autocomplete", json={"draft": "I walk into the"})
-    assert resp.status_code == 200
-    assert resp.json()["completion"] == " tavern and look around."
+    resp = await client.post_json("/api/conversations/conv-ac2/autocomplete", json={"draft": "I walk into the"})
+    assert resp["completion"] == " tavern and look around."
 
 
 async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
@@ -44,9 +39,8 @@ async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
     monkeypatch.setattr("backend.features.autocomplete.complete", boom)
     await dbmod.create_conversation("conv-ac3", "Chat", "Nova", "")
 
-    resp = await client.post("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "})
-    assert resp.status_code == 200
-    assert resp.json()["completion"] == ""
+    resp = await client.post_json("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "})
+    assert resp["completion"] == ""
 
 
 async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, monkeypatch):
@@ -60,24 +54,19 @@ async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, mo
         return " toward the fire."
 
     monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
-    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
-    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    aria = await client.create("/api/characters", json={"name": "Aria"})
+    kael = await client.create("/api/characters", json={"name": "Kael"})
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
     mid, _ = await dbmod.add_message(conv["id"], "assistant", "The fire gutters.", 0, speaker_member_id=members[1]["id"])
     await dbmod.set_active_leaf(conv["id"], mid)
 
-    resp = await client.post(f"/api/conversations/{conv['id']}/autocomplete", json={"draft": "I step"})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/conversations/{conv['id']}/autocomplete", json={"draft": "I step"})
     prompt = captured["prompt"]
     assert "Scene cast: Aria, Kael" in prompt
     assert "Kael: The fire gutters." in prompt
@@ -98,11 +87,9 @@ async def test_autocomplete_leaves_the_cast_macro_alone_in_a_solo_chat(client, m
     monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
     await dbmod.create_conversation("conv-ac-solo-cast", "Chat", "Nova", "")
 
-    resp = await client.post("/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"})
-    assert resp.status_code == 200
+    await client.post_checked("/api/conversations/conv-ac-solo-cast/autocomplete", json={"draft": "I ask {{cast}} about"})
     assert captured["prompt"].endswith("I ask {{cast}} about")
 
 
 async def test_autocomplete_unknown_conversation_404(client):
-    resp = await client.post("/api/conversations/nope/autocomplete", json={"draft": "hi"})
-    assert resp.status_code == 404
+    await client.post_checked("/api/conversations/nope/autocomplete", json={"draft": "hi"}, expected_status=404)

@@ -10,24 +10,17 @@ import pytest
 from backend.inference import anthropic
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep
-from backend.inference.client import (
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-    replay_reasoning,
-)
+from backend.inference.client import LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 from backend.inference.errors import LLMCallError
+from tests.http_stream import ScriptedClient as _HTTP
+from tests.http_stream import StreamResponse as _Response
 
 TOOL = {
     "type": "function",
     "function": {
         "name": "direct_scene",
         "description": "Direct it",
-        "parameters": {
-            "type": "object",
-            "properties": {"mood": {"type": "string"}},
-            "required": ["mood"],
-        },
+        "parameters": {"type": "object", "properties": {"mood": {"type": "string"}}, "required": ["mood"]},
     },
 }
 FORCED = {"type": "function", "function": {"name": "direct_scene"}}
@@ -41,6 +34,7 @@ def _clear_learned_state():
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
     ep._CACHE_MARKERS_REFUSED.clear()
+    ep._BODY_FIELDS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
     yield
@@ -50,6 +44,7 @@ def _clear_learned_state():
     ep._REASONING_EFFORT_UNSUPPORTED.clear()
     ep._REASONING_REPLAY_UNSUPPORTED.clear()
     ep._CACHE_MARKERS_REFUSED.clear()
+    ep._BODY_FIELDS_REFUSED.clear()
     anthropic._SAMPLING_UNSUPPORTED.clear()
     anthropic._THINKING_UNSUPPORTED.clear()
 
@@ -75,12 +70,7 @@ def _clear_learned_state():
             "https://proxy.test/prefix/v1beta/openai/chat/completions",
             "https://proxy.test/prefix/v1beta/openai/models",
         ),
-        (
-            "https://native.test/v1/messages",
-            "anthropic",
-            "https://native.test/v1/messages",
-            "https://native.test/v1/models",
-        ),
+        ("https://native.test/v1/messages", "anthropic", "https://native.test/v1/messages", "https://native.test/v1/models"),
     ],
 )
 def test_deterministic_resolution(configured, protocol, url, models):
@@ -98,12 +88,7 @@ def test_explicit_resource_is_authoritative_regardless_of_host_name():
 
 
 @pytest.mark.parametrize(
-    "configured",
-    [
-        "https://api.anthropic.com",
-        "https://proxy.test/providers/anthropic/v1",
-        "https://claude.example/v1",
-    ],
+    "configured", ["https://api.anthropic.com", "https://proxy.test/providers/anthropic/v1", "https://claude.example/v1"]
 )
 def test_provider_and_model_names_do_not_select_a_protocol(configured):
     route = ep.resolve_endpoint(configured, "claude-opus-999")
@@ -162,8 +147,7 @@ def test_gemini_surface_predicate_covers_proxies_without_over_matching(url, gemi
 
 
 def test_ambiguous_candidates_reach_the_gemini_compatibility_resource():
-    # A Gemini-compat proxy configured at its bare root exposes /v1beta/openai
-    # and nothing the two /v1 guesses can reach.
+    # A Gemini-compat proxy configured at its bare root exposes /v1beta/openai and nothing the two /v1 guesses can reach.
     routes = ep.endpoint_candidates("https://gemini-proxy.test", "gemini-3-pro")
     assert ("openai", "https://gemini-proxy.test/v1beta/openai/chat/completions") in [
         (route.protocol, route.url) for route in routes
@@ -236,11 +220,7 @@ def test_translate_messages_system_images_tools_and_coalescing():
             "role": "assistant",
             "content": "calling",
             "tool_calls": [
-                {
-                    "id": "call-1",
-                    "type": "function",
-                    "function": {"name": "direct_scene", "arguments": '{"mood":"eerie"}'},
-                }
+                {"id": "call-1", "type": "function", "function": {"name": "direct_scene", "arguments": '{"mood":"eerie"}'}}
             ],
         },
         {"role": "tool", "tool_call_id": "call-1", "content": "done"},
@@ -248,16 +228,8 @@ def test_translate_messages_system_images_tools_and_coalescing():
     ]
     system, out = anthropic.translate_messages(messages)
     assert system == "one\n\ntwo"
-    assert out[0]["content"][1] == {
-        "type": "image",
-        "source": {"type": "base64", "media_type": "image/png", "data": "eA=="},
-    }
-    assert out[1]["content"][1] == {
-        "type": "tool_use",
-        "id": "call-1",
-        "name": "direct_scene",
-        "input": {"mood": "eerie"},
-    }
+    assert out[0]["content"][1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "eA=="}}
+    assert out[1]["content"][1] == {"type": "tool_use", "id": "call-1", "name": "direct_scene", "input": {"mood": "eerie"}}
     # tool result and following user content become one legal adjacent user turn.
     assert out[2]["role"] == "user"
     assert [block["type"] for block in out[2]["content"]] == ["tool_result", "text"]
@@ -316,13 +288,7 @@ def test_anthropic_body_allowlist_tools_choices_reasoning_and_sampling():
 
 def test_sampling_support_is_not_inferred_from_model_name():
     body = anthropic.build_request_body(
-        {
-            "messages": [],
-            "temperature": 0.8,
-            "top_p": 0.95,
-            "top_k": 40,
-            "thinking": {"type": "disabled"},
-        },
+        {"messages": [], "temperature": 0.8, "top_p": 0.95, "top_k": 40, "thinking": {"type": "disabled"}},
         "https://api.anthropic.com",
         "claude-opus-5-20260801",
     )
@@ -335,42 +301,6 @@ def test_tool_choice_mapping():
     assert anthropic.translate_tool_choice("auto") == {"type": "auto"}
     assert anthropic.translate_tool_choice("required") == {"type": "any"}
     assert anthropic.translate_tool_choice(FORCED) == {"type": "tool", "name": "direct_scene"}
-
-
-class _Response:
-    def __init__(self, status=200, *, error="", lines=()):
-        self.status_code = status
-        self.error = error
-        self.lines = list(lines)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_args):
-        return False
-
-    async def aread(self):
-        return self.error.encode()
-
-    async def aiter_lines(self):
-        for line in self.lines:
-            yield line
-
-
-class _HTTP:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.requests = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_args):
-        return False
-
-    def stream(self, method, url, json=None, headers=None):
-        self.requests.append({"method": method, "url": url, "body": dict(json or {}), "headers": dict(headers or {})})
-        return self.responses.pop(0)
 
 
 def _line(payload: dict) -> str:
@@ -414,15 +344,7 @@ async def test_anthropic_wire_headers_body_and_stream_translation():
         extra_headers="X-Custom: yes\nanthropic-version: 2026-01-01",
         extra_body='{"seed": 9}',
     )
-    events = await _run(
-        client,
-        fake,
-        tools=[TOOL],
-        tool_choice=FORCED,
-        max_tokens=123,
-        temperature=0.4,
-        **reasoning_cfg(True),
-    )
+    events = await _run(client, fake, tools=[TOOL], tool_choice=FORCED, max_tokens=123, temperature=0.4, **reasoning_cfg(True))
     request = fake.requests[0]
     assert request["url"] == "https://api.anthropic.com/v1/messages"
     assert request["headers"].pop("x-session-id")
@@ -452,20 +374,10 @@ async def test_anthropic_message_stop_terminates_without_done_sentinel():
 
 
 async def test_gemini_uses_normalized_openai_route_structured_output_and_effort():
-    lines = [
-        'data: {"choices":[{"delta":{"content":"{\\"mood\\":\\"bright\\"}"},"finish_reason":"stop"}]}',
-        "data: [DONE]",
-    ]
+    lines = ['data: {"choices":[{"delta":{"content":"{\\"mood\\":\\"bright\\"}"},"finish_reason":"stop"}]}', "data: [DONE]"]
     fake = _HTTP([_Response(lines=lines)])
     client = LLMClient("https://generativelanguage.googleapis.com/v1beta/openai", "key", reasoning_effort="high")
-    events = await _run(
-        client,
-        fake,
-        model="gemini-3-pro",
-        tools=[TOOL],
-        tool_choice=FORCED,
-        **reasoning_cfg(True),
-    )
+    events = await _run(client, fake, model="gemini-3-pro", tools=[TOOL], tool_choice=FORCED, **reasoning_cfg(True))
     request = fake.requests[0]
     assert request["url"] == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     assert request["headers"].pop("x-session-id")
@@ -479,10 +391,9 @@ async def test_gemini_uses_normalized_openai_route_structured_output_and_effort(
 async def test_indexless_tool_call_deltas_stay_separate_calls():
     """Google's compatibility surface omits ``index`` from tool-call deltas.
 
-    Reached on any Gemini-compat route that still sends ``tools`` -- a proxy the
-    profile does not claim, or a pair demoted by ``note_structured_output_ignored``.
-    Keying on a 0 default merged both calls into one entry whose name was the two
-    names concatenated and whose arguments were unparseable.
+    Reached on any Gemini-compat route that still sends ``tools`` -- a proxy the profile does not claim, or a pair demoted by
+    ``note_structured_output_ignored``. Keying on a 0 default merged both calls into one entry whose name was the two names
+    concatenated and whose arguments were unparseable.
     """
     lines = [
         _line(
@@ -698,11 +609,7 @@ async def test_ambiguous_endpoint_detects_messages_dialect_without_name_hints():
     not_found = '{"type":"error","error":{"type":"not_found_error","message":"Not Found"}}'
     success = [_line({"type": "message_stop"})]
     fake = _HTTP(
-        [
-            _Response(401, error='{"error":"authentication required"}'),
-            _Response(404, error=not_found),
-            _Response(lines=success),
-        ]
+        [_Response(401, error='{"error":"authentication required"}'), _Response(404, error=not_found), _Response(lines=success)]
     )
     client = LLMClient("https://opaque.test", "key")
 
@@ -739,12 +646,7 @@ async def test_sampling_rejection_is_learned_and_retried_once():
 
 async def test_anthropic_forced_choice_rejection_falls_back_to_auto():
     rejection = '{"error":{"message":"tool_choice type any is not supported for this model"}}'
-    fake = _HTTP(
-        [
-            _Response(400, error=rejection),
-            _Response(lines=[_line({"type": "message_stop"})]),
-        ]
-    )
+    fake = _HTTP([_Response(400, error=rejection), _Response(lines=[_line({"type": "message_stop"})])])
     client = LLMClient("https://proxy.test/v1/messages")
     await _run(client, fake, model="claude-fable-5-1", tools=[TOOL], tool_choice="required")
     assert fake.requests[0]["body"]["tool_choice"] == {"type": "any"}
@@ -770,10 +672,9 @@ async def test_auto_only_tool_choice_recovery_and_process_memory(choice):
 async def test_reasoning_effort_rejection_retries_and_is_remembered():
     """A level Orb offers but the endpoint refuses must self-heal, not fail the turn.
 
-    Orb's picker spans none/minimal/low/medium/high/xhigh; Gemini's set is
-    high/low/medium/none. Learning the refusal from the body beats a hard-coded
-    per-provider list, which would have wrongly clamped ``minimal`` for the
-    months Google rejected a value its own table documented.
+    Orb's picker spans none/minimal/low/medium/high/xhigh; Gemini's set is high/low/medium/none. Learning the refusal from the
+    body beats a hard-coded per-provider list, which would have wrongly clamped ``minimal`` for the months Google rejected a
+    value its own table documented.
     """
     rejection = (
         '{"error":{"code":400,"message":"Invalid reasoning_effort: xhigh. '
@@ -865,8 +766,7 @@ def test_a_rejection_naming_a_top_level_reasoning_param_keeps_the_replay():
 async def test_gemini_model_that_cannot_disable_thinking_settles_after_one_rejection():
     """``reasoning_effort='none'`` is right for 2.5 Flash and refused by the 3 series.
 
-    The profile asks anyway and lets the rejection teach it, the same posture as
-    the Anthropic sampling and thinking fields.
+    The profile asks anyway and lets the rejection teach it, the same posture as the Anthropic sampling and thinking fields.
     """
     rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: none. Valid values are: high, low, medium","status":"INVALID_ARGUMENT"}}'
     openai_done = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
@@ -887,9 +787,8 @@ async def test_unrelated_failure_does_not_probe():
 
 
 def test_v1_base_url_collapses_the_duplicate_openai_candidate():
-    # The common local-server shape: the configured URL already ends in /v1, so
-    # the historical request and the host-root OpenAI guess are the same URL.
-    # Without the dedupe the probe loop would re-POST an identical request.
+    # The common local-server shape: the configured URL already ends in /v1, so the historical request and the host-root OpenAI
+    # guess are the same URL. Without the dedupe the probe loop would re-POST an identical request.
     routes = ep.endpoint_candidates("http://localhost:1234/v1", "m")
     assert [(route.protocol, route.url) for route in routes] == [
         ("openai", "http://localhost:1234/v1/chat/completions"),
@@ -920,9 +819,7 @@ def test_partial_required_tool_schema_is_closed_before_strict_goes_out():
 def test_reasoning_fields_are_dropped_and_learned_on_rejection():
     url = "https://proxy.test/v1/messages"
     body = anthropic.build_request_body(
-        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"},
-        url,
-        "haiku-4-5-via-proxy",
+        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"}, url, "haiku-4-5-via-proxy"
     )
     assert body["thinking"] == {"type": "adaptive", "display": "summarized"}
     assert body["output_config"] == {"effort": "high"}
@@ -934,9 +831,7 @@ def test_reasoning_fields_are_dropped_and_learned_on_rejection():
 
     # Learned for the rest of the session, so the rebuilt body omits them too.
     again = anthropic.build_request_body(
-        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"},
-        url,
-        "haiku-4-5-via-proxy",
+        {"messages": [], "reasoning": {"enabled": True}, "reasoning_effort": "high"}, url, "haiku-4-5-via-proxy"
     )
     assert "thinking" not in again and "output_config" not in again
 
@@ -950,9 +845,8 @@ def test_unrelated_400_does_not_strip_reasoning_fields():
 
 
 async def test_doc_mode_on_anthropic_buffers_text_instead_of_streaming_it():
-    # tools_in_prompt=False makes _plan force a name, but the Anthropic allowlist
-    # drops response_format, so the endpoint answers with plain text. That text is
-    # the forced payload -- it must not reach the caller as content deltas.
+    # tools_in_prompt=False makes _plan force a name, but the Anthropic allowlist drops response_format, so the endpoint answers
+    # with plain text. That text is the forced payload -- it must not reach the caller as content deltas.
     lines = [
         _line({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": '{"mood"'}}),
         _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": ':"eerie"}'}}),
@@ -1029,6 +923,69 @@ async def test_configured_cache_control_replaces_the_breakpoints(endpoint):
     assert body["cache_control"] == automatic
     assert _marked_indexes(body["messages"]) == []
     assert "cache_control" not in json.dumps(body["messages"]) + json.dumps(body.get("system"))
+
+
+_STRICT_BODY = {
+    "model": "m",
+    "messages": [],
+    "temperature": 0.8,
+    "max_tokens": 4096,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "top_k": 40,
+    "repetition_penalty": 1.0,
+    "reasoning": {"enabled": False},
+}
+
+
+@pytest.mark.parametrize(
+    ("text", "refused"),
+    [
+        # serde lists the accepted fields after the refused one; the refused key is the one beside the marker.
+        (
+            "Failed to deserialize the JSON body into the target type: unknown field `min_p`, expected one of `model`, "
+            "`messages`, `temperature`, `max_tokens`, `top_p` at line 1 column 300",
+            "min_p",
+        ),
+        ("Unrecognized request argument supplied: top_k", "top_k"),
+        (
+            "[{'type': 'extra_forbidden', 'loc': ('body', 'repetition_penalty'), 'msg': 'Extra inputs are not permitted'}]",
+            "repetition_penalty",
+        ),
+        # The budget is the visible Max Tokens setting: its refusal surfaces rather than costing the field.
+        ("max_tokens 100000 is not supported; the maximum for this model is 8192", None),
+        # An error-type token is not refusal wording.
+        ('{"error":{"message":"Invalid temperature value 3.0","type":"unknown_error"}}', None),
+        # A path segment names a message's field, not the body's.
+        ("messages.1.reasoning: unexpected property", None),
+    ],
+)
+def test_a_refusal_names_the_one_body_field_it_refuses(text, refused):
+    assert ep._refused_body_field(_STRICT_BODY, 400, text) == refused
+
+
+async def test_a_strict_server_is_walked_field_by_field_and_remembered():
+    """A server that names one unknown field per rejection, past the counted quirk budget, still reaches a body it takes."""
+
+    def unknown(field):
+        return _Response(400, error=f'{{"error":{{"message":"unknown field `{field}`, expected one of `model`, `messages`"}}}}')
+
+    refused = ["min_p", "top_k", "repetition_penalty", "reasoning"]
+    fake = _HTTP([*(unknown(field) for field in refused), _Response(lines=OPENAI_DONE)])
+    client = LLMClient("https://strict.test/v1", "key")
+    params = {"temperature": 0.8, "max_tokens": 64, "min_p": 0.05, "top_k": 40, "repetition_penalty": 1.0}
+
+    events = await _run_transcript(client, fake, "m", **params, **reasoning_cfg(False))
+
+    assert events[-1]["message"]["content"] == "ok"
+    sent = fake.requests[-1]["body"]
+    assert not set(refused) & set(sent)
+    assert sent["temperature"] == 0.8 and sent["max_tokens"] == 64
+
+    again = _HTTP([_Response(lines=OPENAI_DONE)])
+    await _run_transcript(client, again, "m", **params, **reasoning_cfg(False))
+    assert len(again.requests) == 1
+    assert not set(refused) & set(again.requests[0]["body"])
 
 
 async def test_refused_cache_markers_retry_unmarked_and_are_remembered():

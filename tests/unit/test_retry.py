@@ -1,10 +1,8 @@
 """Unit tests for transient-error retry (RetryPolicy + the LLMClient retry loop).
 
-RetryPolicy decides whether an error is retryable and how long to wait; the loop
-in LLMClient.complete / complete_raw re-issues a failed request only while no
-event has been streamed yet. Tests patch the documented transport seams
-(``_complete_chat`` / ``_stream_completion``) so no sockets are touched, and use
-``delay=0`` so retries are instant.
+RetryPolicy decides whether an error is retryable and how long to wait; the loop in LLMClient.complete / complete_raw re-issues
+a failed request only while no event has been streamed yet. Tests patch the documented transport seams (``_complete_chat`` /
+``_stream_completion``) so no sockets are touched, and use ``delay=0`` so retries are instant.
 """
 
 from __future__ import annotations

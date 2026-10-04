@@ -1,10 +1,9 @@
 """Turn-level integration tests for the Editor Feedback step.
 
-Covers the post-writer, user-facing note (now run inside the editor pass): that a
-``feedback`` SSE event fires with values when an enabled ``field_type='feedback'``
-fragment is present, that the values persist in ``conversation_logs.feedback``,
-that the step is skipped when no feedback fragment is enabled, that it obeys the global ``enable_agent`` toggle (feedback is an
-agent feature), and that no ``give_feedback`` content leaks into the writer's prompt.
+Covers the post-writer, user-facing note (now run inside the editor pass): that a ``feedback`` SSE event fires with values when
+an enabled ``field_type='feedback'`` fragment is present, that the values persist in ``conversation_logs.feedback``, that the
+step is skipped when no feedback fragment is enabled, that it obeys the global ``enable_agent`` toggle (feedback is an agent
+feature), and that no ``give_feedback`` content leaks into the writer's prompt.
 """
 
 from __future__ import annotations
@@ -22,21 +21,14 @@ async def _drain(agen) -> list[dict]:
 # The feedback field_type is a single string, so give_feedback returns one.
 _FEEDBACK_NOTE = "Ask her name, or quietly leave the room."
 _GIVE_FEEDBACK_CALL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "give_feedback",
-            "arguments": {"suggested_actions": _FEEDBACK_NOTE},
-        },
-    }
+    {"type": "function", "function": {"name": "give_feedback", "arguments": {"suggested_actions": _FEEDBACK_NOTE}}}
 ]
 
 
 async def _enable_feedback(client) -> None:
-    # Feedback is an agent feature: it runs only when enable_agent is on AND an
-    # enabled feedback-type fragment exists. The
-    # director/editor passes the agent enables here simply no-op (their mock
-    # queues are empty), leaving the writer + feedback steps under test.
+    # Feedback is an agent feature: it runs only when enable_agent is on AND an enabled feedback-type fragment exists. The
+    # director/editor passes the agent enables here simply no-op (their mock queues are empty), leaving the writer + feedback
+    # steps under test.
     await client.put("/api/settings", json={"enable_agent": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
@@ -87,8 +79,7 @@ async def test_feedback_obeys_global_agent_toggle(client, db, llm_mock):
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
     llm_mock.enqueue_writer("She looks up at you, startled.")
-    # Enqueued but must stay unconsumed: with the agent off the feedback step
-    # never runs, so this response is never requested.
+    # Enqueued but must stay unconsumed: with the agent off the feedback step never runs, so this response is never requested.
     llm_mock.enqueue_feedback(_GIVE_FEEDBACK_CALL)
 
     events = await _drain(handle_turn(cid, "hello"))
@@ -113,9 +104,8 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
     assert len(writer_calls) == 1
     wc = writer_calls[0]
 
-    # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in
-    # single-model mode the writer ships it too — byte-identical with the feedback
-    # call's blob. It is the *schema* that rides the blob, not the prompt.
+    # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in single-model mode the writer ships it too --
+    # byte-identical with the feedback call's blob. It is the *schema* that rides the blob, not the prompt.
     tool_names = [t["function"]["name"] for t in (wc["tools"] or [])]
     assert "give_feedback" in tool_names
 

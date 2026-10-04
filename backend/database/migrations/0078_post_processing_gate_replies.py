@@ -1,7 +1,6 @@
 """Add how many previous replies a post-processing gate shows the Judge.
 
-Existing rows get 0, so every gate keeps judging the draft alone as before. A
-rerun finds the column and changes nothing.
+Existing rows get 0, so every gate keeps judging the draft alone as before. A rerun finds the column and changes nothing.
 """
 
 from __future__ import annotations

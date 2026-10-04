@@ -1,14 +1,7 @@
-"""Turn a mined key into the regex the Phrase Bank would store, and score that regex.
+"""Build and rescore suggestions as the regexes the Phrase Bank will actually match.
 
-A suggestion is the bank regex itself, re-scored as that regex: a key's signal
-can come from the abstraction alone (``^ P X it`` fell from 1.59 to 0.92 once
-matched as a regex), so the key's statistic is recomputed on what the bank
-would actually match.
-
-Patterns must compile under both Python ``re`` and JavaScript ``new RegExp``,
-because the editor validates them in the browser. They use no named groups, no
-lookbehind, and no inline flags. The bank already matches case-insensitively,
-one sentence at a time, and sentences keep their markup (``*A beat.*``).
+Use the Python/JavaScript regex subset: no named groups, lookbehind or inline
+flags. Matching is case-insensitive per sentence, retaining markup.
 """
 
 from __future__ import annotations
@@ -26,12 +19,8 @@ STRICT = "strict"
 LOOSE = "loose"
 
 _PRONOUN = r"\b(?:s?he|i|you|we|they|h(?:im|er|is)|me|us|them|my|your|our|their)"
-_SLOT = {
-    STRICT: r"[\w'’-]+(?:\s+[\w'’-]+){0,2}",
-    LOOSE: r"[^,.;:!?—–…\"“”*]{1,40}?",
-}
-# A pattern-final slot is one word in both widths: a lazy slot with nothing
-# after it would match a single character.
+_SLOT = {STRICT: r"[\w'’-]+(?:\s+[\w'’-]+){0,2}", LOOSE: r"[^,.;:!?—–…\"“”*]{1,40}?"}
+# A pattern-final slot is one word in both widths: a lazy slot with nothing after it would match a single character.
 _TRAILING_SLOT = r"[\w'’-]+"
 _MARK_PIECES = {
     "^": r"^[\W_]*",
@@ -142,7 +131,7 @@ def prefilter_terms(shape: Shape) -> tuple[str, ...]:
 
 
 def shape_label(shape: Shape) -> str:
-    """Readable shape: slots as ``…`` and pronouns as "she", without ``^`` or ``.``."""
+    """Readable shape: slots as ellipses (U+2026) and pronouns as "she", without ``^`` or ``.``."""
     if shape.literal:
         return " ".join(shape.tokens).capitalize() + "."
     parts: list[str] = []
@@ -167,7 +156,7 @@ def _filler(text: str | None) -> str:
     return _FILLER_SPACE.sub(" ", fold(text or "")).strip()
 
 
-# ── scoring a regex against the sentence corpus ─────────────────────────────
+# -- scoring a regex against the sentence corpus -----------------------------
 
 
 @dataclass(slots=True)
@@ -186,11 +175,9 @@ class CharacterSentences:
 
 @dataclass(slots=True)
 class SentenceCorpus:
-    """Reply sentences per character (characters without any are left out),
-    plus every card sentence, untagged.
+    """Reply sentences per character (characters without any are left out), plus every card sentence, untagged.
 
-    The bank cannot tell narration from speech, so a regex is scored on all of
-    them, still averaged per character.
+    The bank cannot tell narration from speech, so a regex is scored on all of them, still averaged per character.
     """
 
     characters: list[CharacterSentences]
@@ -233,8 +220,7 @@ def _candidates(folded: list[str], terms: tuple[str, ...]) -> list[int]:
 def score_shape(shape: Shape, width: str, corpus: SentenceCorpus) -> PatternScore | None:
     """Score the regex for *shape* exactly as it would be stored. ``None`` if it is too long to store.
 
-    The generated patterns hold only words, marks, and fixed constructs, so
-    length is the one bank limit they can break.
+    The generated patterns hold only words, marks, and fixed constructs, so length is the one bank limit they can break.
     """
     pattern = build_regex(shape, width)
     if len(pattern) > MAX_PHRASE_REGEX:
@@ -281,9 +267,8 @@ def score_shape(shape: Shape, width: str, corpus: SentenceCorpus) -> PatternScor
 def best_pattern(shape: Shape, corpus: SentenceCorpus) -> PatternScore | None:
     """Score both slot widths, keep the higher ``lb``, then try specializing slots.
 
-    A slot whose commonest filler covers 40% of its matches is also tried as
-    that literal; the specialized pattern wins when its ``lb`` is at least as
-    high (``X enough that`` becomes ``close enough that``).
+    A slot whose commonest filler covers 40% of its matches is also tried as that literal; the specialized pattern wins when its
+    ``lb`` is at least as high (``X enough that`` becomes ``close enough that``).
     """
     widths = (STRICT, LOOSE) if shape.has_width else (STRICT,)
     scored = [s for s in (score_shape(shape, width, corpus) for width in widths) if s is not None]

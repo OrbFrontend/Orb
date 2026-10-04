@@ -115,11 +115,7 @@ def _match_regex_group(rx: re.Pattern, sentence: str) -> ClicheHit | None:
 
 
 def _match_sentence(
-    sent_tokens: list[str],
-    sent_lower: str,
-    sentence: str,
-    compiled_groups: list[tuple],
-    threshold: float,
+    sent_tokens: list[str], sent_lower: str, sentence: str, compiled_groups: list[tuple], threshold: float
 ) -> list[ClicheHit]:
     hits: list[ClicheHit] = []
     # Precompute normalised sentence for comma-insensitive short matches
@@ -147,7 +143,7 @@ def _match_sentence(
                         best_score = 1.0
                         best = ClicheHit(phrase=variant, score=1.0)
                 else:
-                    # 2–3 tokens: compare normalised forms (strips commas)
+                    # 2-3 tokens: compare normalised forms (strips commas)
                     normalised_variant = " ".join(var_tokens)
                     if normalised_variant in sent_normalised and 1.0 > best_score:
                         best_score = 1.0
@@ -192,11 +188,7 @@ def _deduplicate_hits(hits: list[ClicheHit]) -> list[ClicheHit]:
     return kept
 
 
-def detect_cliches(
-    text: str,
-    phrase_bank: list[PhraseGroup],
-    threshold: float = _DEFAULT_THRESHOLD,
-) -> DetectionResult:
+def detect_cliches(text: str, phrase_bank: list[PhraseGroup], threshold: float = _DEFAULT_THRESHOLD) -> DetectionResult:
     sentences = _split_sentences(text)
     compiled_groups = _compile_phrase_bank(phrase_bank)
     flagged: list[FlaggedSentence] = []

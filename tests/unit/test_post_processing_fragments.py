@@ -2,20 +2,11 @@
 
 from __future__ import annotations
 
-from backend.pipeline.config import (
-    _build_writer_tools_blob,
-    _split_interactive_fragments,
-)
-from backend.pipeline.passes.editor import (
-    apply_search_replace_patches,
-    post_processing_active,
-)
+from backend.pipeline.config import build_writer_tools_blob, split_interactive_fragments
+from backend.pipeline.passes.editor import apply_search_replace_patches, post_processing_active
 from backend.pipeline.passes.editor.prompts import build_post_processing_prompt
 from backend.prompting import build_style_injection
-from backend.prompting.tool_schemas import (
-    EDITOR_SEARCH_REPLACE_TOOL,
-    build_direct_scene_tool,
-)
+from backend.prompting.tool_schemas import EDITOR_SEARCH_REPLACE_TOOL, build_direct_scene_tool
 
 
 def _fragment(fid: str, field_type: str, sort_order: int = 0) -> dict:
@@ -38,7 +29,7 @@ def test_fragment_split_has_four_disjoint_groups_and_leaves_decisions_out():
         _fragment("humanize", "post_processing"),
         _fragment("outcome", "decision"),
     ]
-    scene, feedback, state, post_processing = _split_interactive_fragments(fragments)
+    scene, feedback, state, post_processing = split_interactive_fragments(fragments)
     assert [[f["id"] for f in group] for group in (scene, feedback, state, post_processing)] == [
         ["plot"],
         ["feedback"],
@@ -56,21 +47,15 @@ def test_post_processing_activation_requires_agent_and_fragment():
 
 def test_tool_blob_activation_is_independent_of_output_auditor():
     requested = {"direct_scene": True, "editor_apply_patch": False}
-    _, enabled_tools = _build_writer_tools_blob(
-        {"enable_agent": True},
-        [_fragment("humanize", "post_processing")],
-        requested,
-    )
+    _, enabled_tools = build_writer_tools_blob({"enable_agent": True}, [_fragment("humanize", "post_processing")], requested)
     assert enabled_tools["editor_search_replace"] is True
     assert enabled_tools["editor_apply_patch"] is False
     assert "editor_search_replace" not in requested
 
 
 def test_tool_blob_does_not_activate_when_agent_is_off():
-    _, enabled_tools = _build_writer_tools_blob(
-        {"enable_agent": False},
-        [_fragment("humanize", "post_processing")],
-        {"direct_scene": True},
+    _, enabled_tools = build_writer_tools_blob(
+        {"enable_agent": False}, [_fragment("humanize", "post_processing")], {"direct_scene": True}
     )
     assert "editor_search_replace" not in enabled_tools
 
@@ -80,9 +65,7 @@ def test_post_processing_never_enters_director_schema_or_scene_direction():
     properties = build_direct_scene_tool([fragment])["function"]["parameters"]["properties"]
     assert "humanize" not in properties
     assert "Rewrite me" not in build_style_injection(
-        [],
-        interactive_fragments=[fragment],
-        extra_fields={"humanize": "Rewrite me"},
+        [], interactive_fragments=[fragment], extra_fields={"humanize": "Rewrite me"}
     )
 
 
@@ -122,11 +105,7 @@ def test_search_replace_tool_schema_contract():
 def test_exact_patches_apply_sequentially_against_evolving_draft():
     assert (
         apply_search_replace_patches(
-            "Hello there.",
-            [
-                {"search": "Hello", "replace": "Hey"},
-                {"search": "Hey there.", "replace": "Hey."},
-            ],
+            "Hello there.", [{"search": "Hello", "replace": "Hey"}, {"search": "Hey there.", "replace": "Hey."}]
         )
         == "Hey."
     )

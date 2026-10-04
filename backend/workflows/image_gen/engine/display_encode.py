@@ -54,9 +54,8 @@ def _encode(image: Image.Image, fmt: str, quality: int) -> bytes:
 def _bounded(image: Image.Image, fmt: str, max_bytes: int) -> bytes:
     """The first encoding that fits `max_bytes`, else the smallest one tried.
 
-    Returning the smallest attempt rather than raising leaves the decision about an
-    unmeetable budget with the caller, the only place that knows whether the
-    destination declared it as a contract or as a preference.
+    Returning the smallest attempt rather than raising leaves the decision about an unmeetable budget with the caller, the only
+    place that knows whether the destination declared it as a contract or as a preference.
     """
     qualities = _REFERENCE_QUALITIES if fmt in ("WEBP", "JPEG") else (_WEBP_QUALITY,)
     longest = max(image.size)
@@ -83,9 +82,8 @@ def _bounded(image: Image.Image, fmt: str, max_bytes: int) -> bytes:
 def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
     """Re-encode a render to WebP at full resolution, for storage and inlining.
 
-    Never raises, and never grows a payload: this is purely an optimization, so
-    an already-small source that encodes larger as WebP keeps its own bytes and
-    an unreadable one is handed back untouched.
+    Never raises, and never grows a payload: this is purely an optimization, so an already-small source that encodes larger as
+    WebP keeps its own bytes and an unreadable one is handed back untouched.
     """
     try:
         image = _load(data, "WEBP")
@@ -130,11 +128,7 @@ def lossless_png(data: bytes) -> bytes:
 
 
 def normalize_reference(
-    data: bytes,
-    mime: str,
-    *,
-    allowed: tuple[str, ...] = (),
-    max_bytes: int = _REFERENCE_MAX_BYTES,
+    data: bytes, mime: str, *, allowed: tuple[str, ...] = (), max_bytes: int = _REFERENCE_MAX_BYTES
 ) -> tuple[bytes, str]:
     """Normalize a reference for the target backend."""
     target = _target_mime(allowed)

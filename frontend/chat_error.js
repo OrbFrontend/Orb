@@ -23,7 +23,7 @@ function activeError() {
   return err;
 }
 
-export function clearTurnError() {
+function clearTurnError() {
   S.turnError = null;
   _announced = null;
   document.getElementById(CARD_ID)?.remove();

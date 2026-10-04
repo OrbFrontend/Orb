@@ -1,29 +1,9 @@
 #!/usr/bin/env python3
-"""Backend layering guardrail — the import graph AGENTS.md describes.
+"""Enforce the backend import graph from AGENTS.md using parsed imports.
 
-This parses every backend module's imports, resolves relative imports, and
-fails on an edge that is absent from the explicit allowed-edge matrix.
-
-Four rules:
-
-  1. **Explicit edges.** Each top-level Python package has a complete set of
-     backend packages it may import. Same-package imports are always allowed.
-  2. **Every layer is classified.** A new Python-bearing top-level package or
-     module must be classified rather than silently becoming a composition
-     root.
-  3. **Slices never import peers.** ``features/<a>`` may not import
-     ``features/<b>``. A slice is self-contained by definition — a peer edge is
-     how two features quietly become one.
-  4. **Workflow plug-ins use their API.** ``workflows/<id>`` may import only its
-     own package and the public workflow framework modules, never application
-     layers or peer workflow plug-ins.
-
-DO NOT SPELL THIS AS A GREP. ``inference/local_models/llama_server/binary.py``
-contains the literal ``https://api.github.com/repos/...``, so a grep for
-``api\\.`` under ``inference/`` reports a violation that is not one and trains
-the next person to ignore the check. This parses imports.
-
-Exit non-zero on any violation. Wired into scripts/lint.sh.
+Check explicit layer edges, complete module classification, feature isolation,
+workflow toolkit boundaries and cross-module private names.
+Exit non-zero on violations; scripts/lint.sh runs this check.
 """
 
 from __future__ import annotations
@@ -33,7 +13,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BACKEND = ROOT / "backend"
 
 # The source of truth for cross-package imports. Same-package imports are
 # allowed implicitly. Features and workflows deliberately remain siblings.
@@ -69,7 +48,7 @@ def _exists(parts: list[str], *, root: Path = ROOT) -> bool:
 
 
 def _package_parts(path: Path, *, root: Path = ROOT) -> list[str]:
-    """The package a file lives in — the base a relative import counts up from.
+    """The package a file lives in -- the base a relative import counts up from.
 
     The same for ``cards/parsing.py`` and ``cards/__init__.py``: an
     ``__init__`` IS its package, so deriving this from the module path would
@@ -90,7 +69,7 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
     """Every backend module *node* imports, as absolute part lists.
 
     A ``from .. import database`` resolves to the package ``backend``, and the
-    thing actually imported is the name beside it — resolved here rather than
+    thing actually imported is the name beside it -- resolved here rather than
     left as a root edge, which would otherwise read as "imports all of
     backend" and report phantom violations.
     """
@@ -106,7 +85,7 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
     if not base:
         return out
     out.append(base)
-    for alias in node.names:  # `from .. import database` — the name is the module
+    for alias in node.names:  # `from .. import database` -- the name is the module
         candidate = [*base, alias.name]
         if _exists(candidate, root=root) and candidate not in out:
             out.append(candidate)
@@ -141,10 +120,7 @@ def _workflow_plugin_slice(path: Path, backend: Path) -> str:
     return parts[1] if len(parts) >= 3 and parts[0] == "workflows" else ""
 
 
-def _forbidden_workflow_plugin_targets(
-    targets: list[list[str]],
-    plugin: str,
-) -> set[str]:
+def _forbidden_workflow_plugin_targets(targets: list[list[str]], plugin: str) -> set[str]:
     """Backend imports outside a workflow plug-in's supported host surface."""
     forbidden: set[str] = set()
     for target in targets:
@@ -183,11 +159,7 @@ def _literal_all(path: Path) -> frozenset[str] | None:
     return None
 
 
-def _nonpublic_toolkit_imports(
-    node: ast.AST,
-    package: list[str],
-    public_names: frozenset[str],
-) -> set[str]:
+def _nonpublic_toolkit_imports(node: ast.AST, package: list[str], public_names: frozenset[str]) -> set[str]:
     if not isinstance(node, ast.ImportFrom):
         return set()
     if _import_from_base(node, package) != ["backend", "workflows", "toolkit"]:
@@ -203,6 +175,13 @@ def _imports_toolkit_module(node: ast.AST, package: list[str]) -> bool:
     if not isinstance(node, ast.ImportFrom):
         return False
     return _import_from_base(node, package) == toolkit[:2] and any(alias.name == "toolkit" for alias in node.names)
+
+
+def _private_names(node: ast.AST) -> set[str]:
+    """Underscore names an import statement takes from another module."""
+    if not isinstance(node, ast.ImportFrom):
+        return set()
+    return {alias.name for alias in node.names if alias.name.startswith("_") and not alias.name.startswith("__")}
 
 
 def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
@@ -233,10 +212,11 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
             where = f"{path.relative_to(root)}:{node.lineno}"
+            for name in sorted(_private_names(node)):
+                problems.append(f"{where}: imports private name {name!r} from another module (give it a public name)")
             targets = _targets(node, package, root=root)
-            # One import statement resolves to both the package and the name
-            # beside it (`from ..features import cards`), which is the same
-            # edge said twice; report each layer and each peer slice once.
+            # One import statement resolves to both the package and the name beside it (`from ..features import cards`), which
+            # is the same edge said twice; report each layer and each peer slice once.
             edges = {edge for target in targets if (edge := _slice_of(target)) and edge[0] in {*ALLOWED_EDGES, ROOT_LAYER}}
             for layer in sorted({layer for layer, _ in edges if layer != own_layer and layer not in allowed}):
                 problems.append(f"{where}: {own_layer or 'backend'} may not import {layer}")

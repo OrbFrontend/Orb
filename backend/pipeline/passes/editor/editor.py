@@ -9,74 +9,40 @@ import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from ....analysis import (
-    AuditReport,
-    Target,
-    build_targets,
-    format_numbered_report,
-    format_report,
-    run_audit,
-)
-from ...failures import STAGE_EDITOR, describe_failure
+from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
+from ...events import CoreTurnEvent
+from ...failures import STAGE_EDITOR, step_failure_warning
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
-from .post_processing import (
-    PostProcessingResult,
-    post_processing_active,
-    post_processing_step,
-)
+from .post_processing import PostProcessingResult, post_processing_active, post_processing_step
 
 if TYPE_CHECKING:
     from ....database.models import PhraseGroup
-    from ...state import TurnState, _PipelineConfig
-# Pure filter/patch helpers live in the analysis layer (analysis/patching.py)
-# so non-pipeline consumers (Document mode) can share them; re-imported here
-# under their original names so this module's surface is unchanged.
-from ....analysis.patching import (
-    PatchErrorKind,
-    apply_id_patches,
-    filter_audit_report_to_text,
-)
-from ....core import (
-    AssistantToolMessage,
-    ContentPart,
-    WireMessage,
-    extract_hyperparams,
-    reasoning_delta_event,
-)
-from ....inference import (
-    CachedBase,
-    LLMClient,
-    _KVCacheTracker,
-    parse_tool_calls,
-    reasoning_cfg,
-    replay_reasoning,
-)
+    from ...state import PipelineConfig, TurnState
+# Pure filter/patch helpers live in the analysis layer (analysis/patching.py) so non-pipeline consumers (Document mode) can
+# share them; re-imported here under their original names so this module's surface is unchanged.
+from ....analysis.patching import PatchErrorKind, apply_id_patches, filter_audit_report_to_text
+from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams, reasoning_delta_event
+from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_feedback_tool
 from .length_guard import LengthGuard, evaluate_length_guard
-from .prompts import (
-    EDITOR_RENUMBER_NOTICE,
-    build_editor_prompt,
-    editor_patches,
-    patch_instructions,
-)
+from .prompts import EDITOR_RENUMBER_NOTICE, build_editor_prompt, editor_patches, patch_instructions
 
 logger = logging.getLogger(__name__)
 
 MAX_EDITOR_ITERATIONS = 3
 
-# How many recent assistant messages the cross-message repetition scanners
-# (phrase + structural) compare the draft against.
+# How many recent assistant messages the cross-message repetition scanners (phrase + structural) compare the draft against.
 AUDIT_BASELINE_WINDOW = 20
 
 
-def _feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
+def feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return True when the feedback step should run this turn.
 
-    Requires the agent on and at least one enabled feedback fragment, like
-    ``post_processing_active``. *agent_on* is passed in (rather than recomputed)
-    so ``agent_enabled`` stays the single source of truth.
+    Requires the agent on and at least one enabled feedback fragment, like ``post_processing_active``. *agent_on* is passed in
+    (rather than recomputed) so ``agent_enabled`` stays the single source of truth.
     """
     return agent_on and bool(feedback_fragments)
 
@@ -84,15 +50,14 @@ def _feedback_active(feedback_fragments: Sequence[Mapping[str, Any]], *, agent_o
 def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the ``give_feedback`` tool schema from *feedback_fragments*.
 
-    Thin wrapper over ``build_feedback_tool`` so ``_build_writer_tools_blob``
-    reaches the schema through the editor module rather than importing the
-    schema builder directly — symmetric to ``build_direct_scene_override``.
+    Thin wrapper over ``build_feedback_tool`` so ``build_writer_tools_blob`` reaches the schema through the editor module rather
+    than importing the schema builder directly -- symmetric to ``build_direct_scene_override``.
     """
     return build_feedback_tool(feedback_fragments)
 
 
 def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
-    """Concatenate previous assistant messages (oldest→newest) with *draft*
+    """Concatenate previous assistant messages (oldest->newest) with *draft*
     so repetition detectors can see cross-message patterns."""
     if not previous_assistant_msgs:
         return draft
@@ -101,22 +66,19 @@ def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
 
 
 def _baseline_window(base: CachedBase, audit_context_msgs: list[str] | None) -> list[str]:
-    """The recent assistant-message window (newest first, up to
-    AUDIT_BASELINE_WINDOW) the repetition scanners compare the draft against
-    and post-processing gates draw their previous replies from.
+    """The recent assistant-message window (newest first, up to AUDIT_BASELINE_WINDOW) the repetition scanners compare the draft
+    against and post-processing gates draw their previous replies from.
 
-    Callers may pass an explicit list via *audit_context_msgs* (e.g.
-    super-regenerate, which excludes the message being replaced); when None the
-    window is derived from the cached prefix.
+    Callers may pass an explicit list via *audit_context_msgs* (e.g. super-regenerate, which excludes the message being
+    replaced); when None the window is derived from the cached prefix.
     """
     if audit_context_msgs is not None:
         return audit_context_msgs[:AUDIT_BASELINE_WINDOW]
     window: list[str] = []
     for msg in reversed(base.prefix):
         if msg.get("role") == "assistant":
-            # Assistant history is always plain text; the multimodal list form
-            # only ever rides user messages, so a non-str body has nothing to
-            # contribute to the repetition window.
+            # Assistant history is always plain text; the multimodal list form only ever rides user messages, so a non-str body
+            # has nothing to contribute to the repetition window.
             content = msg.get("content", "")
             if isinstance(content, str):
                 window.append(content)
@@ -134,13 +96,11 @@ async def _run_contextual_audit(
 ) -> tuple[AuditReport, list[Target]]:
     """Run the audit on *draft* with cross-message context, filtered to the draft.
 
-    ``user_message`` is the user's immediately-preceding message; the anti-echo
-    scanner uses it to flag the draft parroting it back as a question.
+    ``user_message`` is the user's immediately-preceding message; the anti-echo scanner uses it to flag the draft parroting it
+    back as a question.
 
-    Returns ``(report, targets)``. The targets are the ids the model will be
-    given, resolved against *this* draft — they go stale the moment the draft
-    changes, so every re-audit rebuilds them and they travel with the report
-    they were numbered for.
+    Returns ``(report, targets)``. The targets are the ids the model will be given, resolved against *this* draft -- they go
+    stale the moment the draft changes, so every re-audit rebuilds them and they travel with the report they were numbered for.
     """
     full_text = _build_audit_text(draft, previous_assistant_msgs)
     # run_audit is CPU-bound; offload it so the single event loop stays free for
@@ -159,10 +119,7 @@ async def _run_contextual_audit(
 
 
 def _editor_done_event(
-    draft: str | None,
-    debug_parts: list[str],
-    t0: float,
-    tool_calls: list[dict] | None = None,
+    draft: str | None, debug_parts: list[str], t0: float, tool_calls: list[ParsedToolCall] | None = None
 ) -> dict:
     """Build a done event dict for the editor pass."""
     event = {
@@ -193,12 +150,11 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Run the audit/edit loop, post-processing fragments, and feedback.
 
-    A failing call does not end the pass. Its sub-step reports it as a
-    ``failure`` event and keeps what its finished calls produced; the later
-    sub-steps still run on the best draft reached.
+    A failing call does not end the pass. Its sub-step reports it as a ``failure`` event and keeps what its finished calls
+    produced; the later sub-steps still run on the best draft reached.
     """
     t0 = time.monotonic()
 
@@ -206,7 +162,7 @@ async def editor_pass(
         yield {"type": "step", "step": "output_auditor"}
     elif length_guard is not None:
         yield {"type": "step", "step": "length_guard"}
-    edit_done: dict | None = None
+    edit_done: Mapping[str, Any] | None = None
     async for ev in _run_edit_loop(
         client,
         base,
@@ -234,7 +190,7 @@ async def editor_pass(
     edited_draft = edit_done.get("draft") if edit_done else None
     final_text = draft if edited_draft is None else edited_draft
 
-    post_processing_calls: list[dict] = []
+    post_processing_calls: list[ParsedToolCall] = []
     if post_processing_fragments and not client.is_aborted:
         yield {"type": "step", "step": "post_processing"}
         async for ev in post_processing_step(
@@ -277,8 +233,7 @@ async def editor_pass(
                 # KV-cached prefix instead of forking off the bare base.prefix.
                 writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
                 kv_tracker=kv_tracker,
-                # Feedback shares the editor's reasoning toggle — it is a sub-step, not
-                # a separately-configurable pass.
+                # Feedback shares the editor's reasoning toggle -- it is a sub-step, not a separately-configurable pass.
                 reasoning_on=reasoning_on,
                 reasoning_prefill=reasoning_prefill,
             ):
@@ -296,24 +251,12 @@ async def editor_pass(
     if post_processing_calls:
         done["tool_calls"] = [*(done.get("tool_calls") or []), *post_processing_calls]
     done["feedback"] = feedback_values
-    # elapsed covers the whole editor pass, feedback sub-step included (the edit
-    # loop's own elapsed only timed the loop).
+    # elapsed covers the whole editor pass, feedback sub-step included (the edit loop's own elapsed only timed the loop).
     done["elapsed"] = int((time.monotonic() - t0) * 1000)
     yield done
 
 
-# The ``warning`` headline for each sub-step's failure, named as the status line
-# names the step (frontend/generation_status.js).
-_FAILURE_HEADLINES = {
-    "output_auditor": "The draft audit didn't finish.",
-    "length_guard": "The length check didn't finish.",
-    "post_processing": "Post-processing “{label}” didn't finish.",
-    "feedback": "Feedback didn't finish.",
-    "editor": "The Editor didn't finish.",
-}
-
-
-async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict]:
+async def _reporting_failures(events: AsyncIterator[Mapping[str, Any]]) -> AsyncIterator[Mapping[str, Any]]:
     """Pass *events* through, turning a failure that escapes them into a
     ``failure`` event -- a defect outside the sub-steps' own reporting, such as
     the initial audit. The draft stays what the last ``done`` made it."""
@@ -325,22 +268,8 @@ async def _reporting_failures(events: AsyncIterator[dict]) -> AsyncIterator[dict
         yield {"type": "failure", "during": "editor", "label": "", "error": exc}
 
 
-def _failure_warning(event: Mapping[str, Any]) -> dict:
-    """The non-terminal ``warning`` for one failed Editor call.
-
-    The headline names the sub-step; the provider's own account of the failure
-    becomes the sentence, so a timeout still reads as a timeout.
-    """
-    payload = describe_failure(event["error"])
-    reason = " ".join(part for part in (payload["headline"], payload["sentence"]) if part)
-    payload["headline"] = _FAILURE_HEADLINES[event["during"]].format(label=event.get("label") or "fragment")
-    payload["sentence"] = reason
-    payload["stage"] = STAGE_EDITOR
-    return {"event": "warning", "data": payload}
-
-
 async def editor_stage(
-    cfg: _PipelineConfig,
+    cfg: PipelineConfig,
     state: TurnState,
     *,
     settings: Mapping[str, Any],
@@ -348,28 +277,24 @@ async def editor_stage(
     feedback_fragments: Sequence[Mapping[str, Any]],
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
     editor_audit_msgs: list[str] | None,
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
-) -> AsyncIterator[dict]:
-    """Gating + writer→editor boundary event + editor pass + event translation.
+) -> AsyncIterator[CoreTurnEvent]:
+    """Gating + writer->editor boundary event + editor pass + event translation.
 
-    Decides whether the editor runs (``cfg.do_edit`` or feedback wanted, given a
-    non-empty draft), emits the ``writer_done`` boundary, then runs
-    :func:`editor_pass` and folds the results back into *state* (``resp_text``,
-    ``reasoning_editor``, ``feedback_values``, ``latency``).
+    Decides whether the editor runs (``cfg.do_edit`` or feedback wanted, given a non-empty draft), emits the ``writer_done``
+    boundary, then runs :func:`editor_pass` and folds the results back into *state* (``resp_text``, ``reasoning_editor``,
+    ``feedback_values``, ``latency``).
     """
-    # The feedback step is an editor sub-step (post-processing on the final text),
-    # not a top-level pass: it shares the editor's reasoning channel and timing and
-    # surfaces only its user-facing note. It is gated on the Agent AND at least
-    # one enabled feedback-type fragment, so the extra LLM call is fully opt-in.
-    # Because feedback is folded in here, we still enter the editor pass (with
-    # audit/guard editing disabled) when only fragment work is wanted.
-    feedback_needed = _feedback_active(feedback_fragments, agent_on=cfg.agent_on)
+    # The feedback step is an editor sub-step (post-processing on the final text), not a top-level pass: it shares the editor's
+    # reasoning channel and timing and surfaces only its user-facing note. It is gated on the Agent AND at least one enabled
+    # feedback-type fragment, so the extra LLM call is fully opt-in. Because feedback is folded in here, we still enter the
+    # editor pass (with audit/guard editing disabled) when only fragment work is wanted.
+    feedback_needed = feedback_active(feedback_fragments, agent_on=cfg.agent_on)
     post_processing_needed = post_processing_active(post_processing_fragments, agent_on=cfg.agent_on)
     editor_will_run = bool(state.resp_text and (cfg.do_edit or post_processing_needed or feedback_needed))
 
-    # writer_done says whether an Editor sub-step follows; each sub-step emits
-    # its own step_start.
+    # writer_done says whether an Editor sub-step follows; each sub-step emits its own step_start.
     yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
 
     if editor_will_run:
@@ -383,10 +308,8 @@ async def editor_stage(
         )
         # The draft the browser was last told is authoritative.
         announced = state.resp_text
-        # A failed Editor call does not abort the turn: editor_pass keeps the
-        # best draft reached and reports the failure, which surfaces as a
-        # non-terminal ``warning`` -- unless the user already stopped the turn,
-        # which is its own explanation.
+        # A failed Editor call does not abort the turn: editor_pass keeps the best draft reached and reports the failure as a
+        # non-terminal ``warning``.
         async for event in _reporting_failures(
             editor_pass(
                 cfg.agent_lane.client,
@@ -395,9 +318,8 @@ async def editor_stage(
                 state.resp_text,
                 settings,
                 phrase_bank or [],
-                # do_edit == (audit_enabled or length_guard is not None), so in the
-                # feedback-only path (do_edit False) both are already inert — pass them
-                # straight through and let the edit loop no-op.
+                # do_edit == (audit_enabled or length_guard is not None), so in the feedback-only path (do_edit False) both are
+                # already inert -- pass them straight through and let the edit loop no-op.
                 cfg.audit_enabled,
                 cfg.length_guard,
                 kv_tracker=kv_tracker,
@@ -413,20 +335,15 @@ async def editor_stage(
             if event["type"] == "step":
                 yield {"event": "step_start", "data": {"step": event["step"]}}
             elif event["type"] == "failure":
-                if not cfg.agent_lane.client.is_aborted:
-                    yield _failure_warning(event)
+                yield step_failure_warning(event["error"], event["during"], stage=STAGE_EDITOR, label=event.get("label", ""))
             elif event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
                 # editor sub-step, so it shares the Editor reasoning toggle and box).
-                yield {
-                    "event": "reasoning",
-                    "data": {"pass": "editor", "delta": state.add_reasoning("editor", event)},
-                }
+                yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", event)}}
             elif event["type"] == "draft_update":
-                # Each one is a finished patch batch, rewrite, or fragment edit, so
-                # the turn keeps it if it is stopped before ``done``. To the browser
-                # it stays a cosmetic paint: ``writer_rewrite`` below is still the
-                # one announcement of the Editor's result.
+                # Each one is a finished patch batch, rewrite, or fragment edit, so the turn keeps it if it is stopped before
+                # ``done``. To the browser it stays a cosmetic paint: ``writer_rewrite`` below is still the one announcement of
+                # the Editor's result.
                 state.resp_text = event["draft"]
                 yield {"event": "draft_update", "data": {"draft": event["draft"]}}
             elif event["type"] == "done":
@@ -435,24 +352,14 @@ async def editor_stage(
                 state.resp_text = announced if refined_draft is None else refined_draft
                 if state.resp_text != announced:
                     announced = state.resp_text
-                    yield {
-                        "event": "writer_rewrite",
-                        "data": {"refined_text": state.resp_text},
-                    }
+                    yield {"event": "writer_rewrite", "data": {"refined_text": state.resp_text}}
                 if event.get("tool_calls"):
-                    # On state.calls too, so the saved log lists them as the live
-                    # Inspector does after merging ``editor_done``.
+                    # On state.calls too, so the saved log lists them as the live Inspector does after merging ``editor_done``.
                     state.calls = [*state.calls, *event["tool_calls"]]
-                    yield {
-                        "event": "editor_done",
-                        "data": {"tool_calls": event["tool_calls"]},
-                    }
+                    yield {"event": "editor_done", "data": {"tool_calls": event["tool_calls"]}}
                 state.feedback_values = event.get("feedback", {}) or {}
                 if state.feedback_values:
-                    yield {
-                        "event": "feedback",
-                        "data": {"values": state.feedback_values},
-                    }
+                    yield {"event": "feedback", "data": {"values": state.feedback_values}}
         # A pass that failed outside its sub-steps ends without ``done``; the
         # draft it had reached is still the reply, so announce it.
         if state.resp_text != announced:
@@ -485,17 +392,11 @@ async def _run_edit_loop(
     writer_user_msg: str
     | list[ContentPart]
     | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
-) -> AsyncIterator[dict]:
-    """ReAct-style edit loop with optional audit and/or length guard.
+) -> AsyncIterator[Mapping[str, Any]]:
+    """Run the edit loop with optional audit and length guard.
 
-    Yields:
-        ``{"type": "reasoning", "delta": str}``
-        ``{"type": "draft_update", "draft": str}`` — after every mutation of the
-        working draft (per applied patch batch/rewrite); each is finished work
-        a stopped turn keeps, and ``done`` carries the final draft
-        ``{"type": "failure", "during": str, "label": str, "error": Exception}`` —
-        an iteration failed; the loop stops and ``done`` keeps the draft so far
-        ``{"type": "done", "draft": str|None, "debug": str, "elapsed": int}``
+    Yield reasoning, whole draft_update snapshots after mutations, failure on a failed iteration, then done with the final
+    draft/debug/elapsed. Stopped turns retain completed draft updates.
     """
     t0 = time.monotonic()
     debug_parts: list[str] = []
@@ -503,12 +404,11 @@ async def _run_edit_loop(
     # Per-scanner on/off map persisted in settings; None falls back to all-on.
     audit_toggles = settings.get("editor_audit_toggles") or None
 
-    # Collect previous assistant messages for cross-message context.
-    # audit_context_msgs lets callers override which messages are used, so that
-    # super-regenerate doesn't compare the new draft against the message it replaced.
+    # Collect previous assistant messages for cross-message context. audit_context_msgs lets callers override which messages are
+    # used, so that super-regenerate doesn't compare the new draft against the message it replaced.
     assistant_messages: list[str] = _baseline_window(base, audit_context_msgs) if audit_enabled else []
 
-    # ── Initial audit
+    # -- Initial audit
     if audit_enabled:
         logger.info(
             "Editor: audit on draft (%d chars), %d previous messages, %d phrase groups",
@@ -540,33 +440,29 @@ async def _run_edit_loop(
         targets = []
         logger.info("Editor: audit disabled, skipping scanners")
 
-    # ── Length guard
+    # -- Length guard
     #
-    # The tools blob lives on the shared ``base`` (built once by the orchestrator
-    # from the same enabled-tool set as the director and writer). The editor never
-    # rebuilds or narrows it: the schemas sit inside the cached prefix, so changing
-    # the list mid-loop would bust the KV cache every iteration. Which single tool
-    # the model must call is steered entirely by tool_choice (see _pick_tool_choice,
-    # recomputed each iteration) while base.tools stays byte-identical throughout.
+    # The tools blob lives on the shared ``base`` (built once by the orchestrator from the same enabled-tool set as the director
+    # and writer). The editor never rebuilds or narrows it: the schemas sit inside the cached prefix, so changing the list
+    # mid-loop would bust the KV cache every iteration. Which single tool the model must call is steered entirely by tool_choice
+    # (see _pick_tool_choice, recomputed each iteration) while base.tools stays byte-identical throughout. A forced call can
+    # only name a tool that blob already carries, so a rewrite is possible only when it holds ``editor_rewrite``.
+    can_rewrite = any(schema["function"]["name"] == "editor_rewrite" for schema in base.tools)
     length_guard_triggered, length_guard_instruction, lg_word_count = evaluate_length_guard(draft, length_guard)
+    if length_guard_triggered and not can_rewrite:
+        logger.warning("Editor: length guard triggered, but the tools blob has no editor_rewrite to force; skipping it")
+        length_guard_triggered = False
+    rewrite = _rewrite_due(report, length_guard_triggered=length_guard_triggered, can_rewrite=can_rewrite)
     if audit_enabled:
         debug_parts.append(
-            f"Initial audit ({report.total_issues} issues):\n"
-            + _render_report(report, targets, length_guard_triggered=length_guard_triggered)
+            f"Initial audit ({report.total_issues} issues):\n" + _render_report(report, targets, rewrite=rewrite)
         )
     if length_guard_triggered and length_guard is not None:  # 2nd clause narrows None for the type checker
-        logger.info(
-            "Editor: length guard triggered (word_count=%d > max_words=%d)",
-            lg_word_count,
-            length_guard["max_words"],
-        )
+        logger.info("Editor: length guard triggered (word_count=%d > max_words=%d)", lg_word_count, length_guard["max_words"])
         debug_parts.append(f"Length guard triggered: {lg_word_count} words (max {length_guard['max_words']})")
 
-    if report.total_issues <= 1 and not length_guard_triggered:
-        logger.info(
-            "Editor: %d issue(s) within threshold and no length guard, skipping LLM loop",
-            report.total_issues,
-        )
+    if report.is_clean and not length_guard_triggered:
+        logger.info("Editor: audit clean and no length guard, skipping LLM loop")
         yield _editor_done_event(None, debug_parts, t0)
         return
 
@@ -575,55 +471,50 @@ async def _run_edit_loop(
         yield _editor_done_event(None, debug_parts, t0)
         return
 
-    # ── Build message context
+    if not targets and not rewrite:
+        logger.info("Editor: %d issue(s), none addressable, skipping LLM loop", report.total_issues)
+        yield _editor_done_event(None, debug_parts, t0)
+        return
+
+    # -- Build message context
     final_prompt, report_text, ruled = _build_editor_request(
         report,
         targets,
         audit_enabled=audit_enabled,
+        rewrite=rewrite,
         length_guard_triggered=length_guard_triggered,
         length_guard_instruction=length_guard_instruction,
         reasoning_on=reasoning_on,
     )
 
-    # base.prefix is the shared, frozen cached bottom; *trailing* is the broader
-    # WireMessage buffer the ReAct loop mutates in place (assistant tool_calls,
-    # tool-role results) and hands to base.complete() each iteration. Keeping the
-    # bottom on the base means the loop can only ever change the top of the stack.
+    # base.prefix is the shared, frozen cached bottom; *trailing* is the broader WireMessage buffer the ReAct loop mutates in
+    # place (assistant tool_calls, tool-role results) and hands to base.complete() each iteration. Keeping the bottom on the
+    # base means the loop can only ever change the top of the stack.
     trailing: list[WireMessage] = [
-        {
-            "role": "user",
-            "content": (writer_user_msg if writer_user_msg is not None else effective_msg),
-        },
+        {"role": "user", "content": (writer_user_msg if writer_user_msg is not None else effective_msg)},
         {"role": "assistant", "content": draft},
         {"role": "user", "content": final_prompt},
     ]
 
     replay_structured = reasoning_on
-    # The patching rules the conversation carries, for the structured replay,
-    # whose tool results must add any a later report needs; None until a patch
-    # request has been sent.
+    # The patching rules the conversation carries, for the structured replay, whose tool results must add any a later report
+    # needs; None until a patch request has been sent.
     rules_shown: set[str] | None = set(ruled) if ruled is not None else None
 
     current_draft = draft
     prev_issues = report.total_issues
-    all_calls: list[dict] = []
-    # At most one extra iteration per pass is spent explaining a guard
-    # rejection; see where it is set.
+    all_calls: list[ParsedToolCall] = []
+    # At most one extra iteration per pass is spent explaining a guard rejection; see where it is set.
     guard_retry_spent = False
 
-    # ── ReAct loop
+    # -- ReAct loop
     for iteration in range(MAX_EDITOR_ITERATIONS):
         if client.is_aborted:
             logger.info("Editor: abort signal detected at iteration %d, stopping", iteration + 1)
             break
-        logger.debug(
-            "Editor iteration %d/%d, %d issues remaining",
-            iteration + 1,
-            MAX_EDITOR_ITERATIONS,
-            report.total_issues,
-        )
+        logger.debug("Editor iteration %d/%d, %d issues remaining", iteration + 1, MAX_EDITOR_ITERATIONS, report.total_issues)
         try:
-            hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+            hyperparams = extract_hyperparams(settings, lane="agent")
             reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
@@ -635,14 +526,14 @@ async def _run_edit_loop(
                 json.dumps([*base.prefix, *trailing], default=str, indent=2),
             )
 
-            resp: dict = {}
+            resp: CompletionMessage = {}
             try:
                 async for event in base.complete_into(
                     client,
                     resp,
                     label="editor",
                     trailing=trailing,
-                    tool_choice=_pick_tool_choice(length_guard_triggered, report, audit_enabled, targets),
+                    tool_choice=_pick_tool_choice(rewrite, audit_enabled),
                     kv_tracker=kv_tracker,
                     **hyperparams,
                     **reasoning_params,
@@ -669,11 +560,7 @@ async def _run_edit_loop(
 
             finish_reason = resp.get("finish_reason") or resp.get("stop_reason")
             if finish_reason:
-                logger.info(
-                    "Editor iteration %d: finish_reason=%s",
-                    iteration + 1,
-                    finish_reason,
-                )
+                logger.info("Editor iteration %d: finish_reason=%s", iteration + 1, finish_reason)
 
             parsed = parse_tool_calls(resp)
             if not parsed:
@@ -685,13 +572,12 @@ async def _run_edit_loop(
                 break
             all_calls.extend(parsed)
 
-            # ── Handle editor_rewrite
+            # -- Handle editor_rewrite
             rewrite_call = next((tc for tc in parsed if tc["name"] == "editor_rewrite"), None)
             if rewrite_call:
-                # An explicit ``"rewritten_text": null`` is the model declining the
-                # forced call, and reads the same as the empty string the break
-                # below already handles -- the default only covers an absent key,
-                # so coerce before .strip() rather than after.
+                # An explicit ``"rewritten_text": null`` is the model declining the forced call, and reads the same as the empty
+                # string the break below already handles -- the default only covers an absent key, so coerce before .strip()
+                # rather than after.
                 raw_rewrite = rewrite_call.get("arguments", {}).get("rewritten_text")
                 rewritten = raw_rewrite.strip() if isinstance(raw_rewrite, str) else ""
                 if not rewritten:
@@ -702,10 +588,7 @@ async def _run_edit_loop(
                 yield {"type": "draft_update", "draft": current_draft}
                 length_guard_triggered = False
                 logger.info(
-                    "Editor iteration %d: rewrite applied, draft %d→%d chars",
-                    iteration + 1,
-                    pre_len,
-                    len(current_draft),
+                    "Editor iteration %d: rewrite applied, draft %d→%d chars", iteration + 1, pre_len, len(current_draft)
                 )
                 debug_parts.append(f"Iteration {iteration + 1}: rewrite applied ({pre_len}→{len(current_draft)} chars)")
 
@@ -716,10 +599,12 @@ async def _run_edit_loop(
                 else:
                     report = AuditReport.clean()
                     targets = []
+                rewrite = _rewrite_due(report, length_guard_triggered=length_guard_triggered, can_rewrite=can_rewrite)
                 next_prompt, report_text, ruled = _build_editor_request(
                     report,
                     targets,
                     audit_enabled=audit_enabled,
+                    rewrite=rewrite,
                     length_guard_triggered=length_guard_triggered,
                     length_guard_instruction=length_guard_instruction,
                     reasoning_on=reasoning_on,
@@ -727,7 +612,10 @@ async def _run_edit_loop(
                 if audit_enabled:
                     debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
 
-                if report.total_issues <= 1:
+                if report.is_clean:
+                    break
+                if not targets and not rewrite:
+                    logger.info("Editor: %d issue(s) left, none addressable, stopping", report.total_issues)
                     break
                 # Next iteration's tool_choice (via _pick_tool_choice) forces the
                 # right tool; base.tools stays the full, byte-identical blob.
@@ -755,13 +643,10 @@ async def _run_edit_loop(
                     trailing[-1] = {"role": "user", "content": next_prompt}
                 continue
 
-            # ── Handle editor_apply_patch
+            # -- Handle editor_apply_patch
             patch_call = next((tc for tc in parsed if tc["name"] == "editor_apply_patch"), None)
             if not patch_call:
-                logger.info(
-                    "Editor iteration %d: unrecognised tool call, stopping",
-                    iteration + 1,
-                )
+                logger.info("Editor iteration %d: unrecognised tool call, stopping", iteration + 1)
                 break
 
             patches = patch_call.get("arguments", {}).get("patches", [])
@@ -788,37 +673,22 @@ async def _run_edit_loop(
             report, targets = await _run_contextual_audit(
                 current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
             )
+            rewrite = _rewrite_due(report, length_guard_triggered=length_guard_triggered, can_rewrite=can_rewrite)
             next_prompt, report_text, ruled = _build_editor_request(
                 report,
                 targets,
                 audit_enabled=audit_enabled,
+                rewrite=rewrite,
                 length_guard_triggered=length_guard_triggered,
                 length_guard_instruction=length_guard_instruction,
                 reasoning_on=reasoning_on,
             )
-            logger.info(
-                "Editor iteration %d: post-audit — %d issues",
-                iteration + 1,
-                report.total_issues,
-            )
+            logger.info("Editor iteration %d: post-audit — %d issues", iteration + 1, report.total_issues)
             debug_parts.append(f"Post-iteration {iteration + 1} audit ({report.total_issues} issues):\n{report_text}")
 
-            # ── Explaining a protected-sequence rejection
-            #
-            # A guard rejection is the one failure the model could act on and
-            # never hears about. The rejected target keeps the writer's original
-            # text, so its issues cannot clear, so `total_issues` cannot improve
-            # — which means one of the two stops below *always* fires first, and
-            # the replay that would have carried the reason is never reached.
-            # The model is left believing its patch landed.
-            #
-            # On the structured path the reason has somewhere to go: the
-            # tool-result turn already carries `errors` verbatim. So keep the
-            # loop alive for exactly one more iteration to deliver it, once per
-            # pass, and only while there is still a target to redo. The flat
-            # recap non-thinking models get has no tool-result slot, so those
-            # keep the quieter behaviour of stopping and leaving the span as the
-            # writer wrote it.
+            # Allow one extra structured iteration to deliver a protected-sequence rejection via tool-result errors, while a
+            # target remains. Otherwise the unchanged issue count would stop before feedback reaches the model. Flat recaps have
+            # no tool-result slot and keep the original span.
             explain_rejection = bool(rejected) and replay_structured and not guard_retry_spent and bool(targets)
             if explain_rejection:
                 guard_retry_spent = True
@@ -830,28 +700,25 @@ async def _run_edit_loop(
                 )
                 debug_parts.append("Protected-sequence rejection replayed to the model:\n" + "\n".join(rejected))
 
-            if report.total_issues <= 1 and not explain_rejection:
+            if report.is_clean and not explain_rejection:
                 if not length_guard_triggered:
                     break
-                # Audit clean but length guard still pending: next iteration's
-                # tool_choice forces editor_rewrite (length_guard_triggered is
-                # still True). The schema blob is left untouched so the KV cache
-                # survives the hand-off.
-                logger.info("Editor: audit within threshold, length guard still pending — queuing rewrite")
+                # Audit clean but length guard still pending: next iteration's tool_choice forces editor_rewrite
+                # (length_guard_triggered is still True). The schema blob is left untouched so the KV cache survives the
+                # hand-off.
+                logger.info("Editor: audit clean, length guard still pending — queuing rewrite")
+
+            if not targets and not rewrite:
+                logger.info("Editor: %d issue(s) left, none addressable, stopping", report.total_issues)
+                break
 
             if report.total_issues >= prev_issues and not explain_rejection:
-                logger.info(
-                    "Editor: no progress (%d → %d issues), stopping",
-                    prev_issues,
-                    report.total_issues,
-                )
+                logger.info("Editor: no progress (%d → %d issues), stopping", prev_issues, report.total_issues)
                 break
             prev_issues = report.total_issues
 
-            # Feed results back for next iteration.
-            # replay_structured: append structured tool-use/tool-result turns.
-            # Otherwise (non-thinking models): replace the draft + prompt in-place
-            # so the message list stays flat.
+            # Feed results back for next iteration. replay_structured: append structured tool-use/tool-result turns. Otherwise
+            # (non-thinking models): replace the draft + prompt in-place so the message list stays flat.
             if replay_structured:
                 rules, rules_shown = _owed_patch_rules(ruled, rules_shown)
                 _append_iteration_context(trailing, resp, errors, report_text, renumbered=bool(targets), rules=rules)
@@ -862,77 +729,48 @@ async def _run_edit_loop(
         except Exception as e:
             logger.error("Editor iteration %d failed: %s", iteration + 1, e, exc_info=True)
             debug_parts.append(f"Iteration {iteration + 1} error: {e}")
-            # Stop editing, but keep what the finished iterations produced: the
-            # done event below carries their draft and calls.
-            yield {
-                "type": "failure",
-                "during": "output_auditor" if audit_enabled else "length_guard",
-                "label": "",
-                "error": e,
-            }
+            # Stop editing, but keep what the finished iterations produced: the done event below carries their draft and calls.
+            yield {"type": "failure", "during": "output_auditor" if audit_enabled else "length_guard", "label": "", "error": e}
             break
     else:
-        logger.warning(
-            "Editor: hit max iterations (%d) with %d issues remaining",
-            MAX_EDITOR_ITERATIONS,
-            report.total_issues,
-        )
+        logger.warning("Editor: hit max iterations (%d) with %d issues remaining", MAX_EDITOR_ITERATIONS, report.total_issues)
 
     elapsed = int((time.monotonic() - t0) * 1000)
     changed = current_draft != draft
-    logger.info(
-        "Editor: done in %dms, changed=%s, final_draft=%d chars",
-        elapsed,
-        changed,
-        len(current_draft),
-    )
-    yield _editor_done_event(
-        current_draft if changed else None,
-        debug_parts,
-        t0,
-        all_calls,
-    )
+    logger.info("Editor: done in %dms, changed=%s, final_draft=%d chars", elapsed, changed, len(current_draft))
+    yield _editor_done_event(current_draft if changed else None, debug_parts, t0, all_calls)
 
 
 def _structural_rewrite_needed(report: AuditReport) -> bool:
     return report.structural_repetition_result is not None and report.structural_repetition_result.is_repetitive
 
 
-def _pick_tool_choice(length_guard_triggered: bool, report: AuditReport, audit_enabled: bool, targets: Sequence[Target]):
-    """Return the ``tool_choice`` value for the editor LLM call.
+def _rewrite_due(report: AuditReport, *, length_guard_triggered: bool, can_rewrite: bool) -> bool:
+    """Whether this iteration forces ``editor_rewrite`` instead of patching.
 
-    Patching needs ids to address, so a non-clean report that resolved to no
-    targets forces the rewrite instead — the same condition
-    :func:`_build_editor_request` renders the sectioned report for.
+    Only findings with no span to patch call for a whole-draft rewrite: an over-long draft, or structural repetition. Either
+    needs *can_rewrite*, the shared tools blob carrying ``editor_rewrite``: forcing a tool the request does not carry gets prose
+    back, never a call. A finding that resolved to no target is not one of them; with nothing else addressable the loop stops.
     """
-    if length_guard_triggered or _rewrite_only(report, targets):
-        return {"type": "function", "function": {"name": "editor_rewrite"}}
+    return can_rewrite and (length_guard_triggered or _structural_rewrite_needed(report))
+
+
+def _pick_tool_choice(rewrite: bool, audit_enabled: bool):
+    """Return the ``tool_choice`` value for the editor LLM call."""
+    if rewrite:
+        return require_tool("editor_rewrite")["choice"]
     if audit_enabled:
         return require_tool("editor_apply_patch")["choice"]
     return "auto"
 
 
-def _rewrite_only(report: AuditReport, targets: Sequence[Target]) -> bool:
-    """Whether the findings can only be fixed by a whole-draft rewrite.
-
-    Either structural repetition (which has no span at all), or an audit that
-    flagged something none of whose spans could be located in the draft — the
-    detectors do not all segment identically, so a finding can survive filtering
-    and still not resolve to an offset. Left to the patch path that case renders
-    as "all checks passed" while ``tool_choice`` forces a patch call against an
-    empty id set.
-    """
-    return _structural_rewrite_needed(report) or (not report.is_clean and not targets)
-
-
-def _render_report(report: AuditReport, targets: Sequence[Target], *, length_guard_triggered: bool) -> str:
+def _render_report(report: AuditReport, targets: Sequence[Target], *, rewrite: bool) -> str:
     """The report text the model sees this iteration.
 
-    Numbered when the call will patch, sectioned when it will rewrite: the
-    rewrite tool takes whole text and has no ids to address, and a flat numbered
-    list cannot carry the structural-repetition finding at all.
+    Numbered when the call will patch, sectioned when it will rewrite: the rewrite tool takes whole text and has no ids to
+    address, and a flat numbered list cannot carry the structural-repetition finding at all.
     """
-    if length_guard_triggered or _rewrite_only(report, targets):
+    if rewrite:
         return format_report(report)
     return format_numbered_report(targets)
 
@@ -942,21 +780,21 @@ def _build_editor_request(
     targets: Sequence[Target],
     *,
     audit_enabled: bool,
+    rewrite: bool,
     length_guard_triggered: bool,
     length_guard_instruction: str,
     reasoning_on: bool,
 ) -> tuple[str, str, frozenset[str] | None]:
     """``(prompt, report_text, ruled)`` for one editor iteration, rendered in lockstep.
 
-    Kept as one call because the prompt's patch/rewrite branch and the report's
-    numbered/sectioned rendering must agree: a numbered report beside rewrite
-    instructions offers ids no tool can take, and a sectioned report beside
-    patch instructions offers no ids at all. *ruled* is the audit categories
-    whose patching rules the prompt carries, or None for a rewrite request.
+    Kept as one call because the prompt's patch/rewrite branch and the report's numbered/sectioned rendering must agree: a
+    numbered report beside rewrite instructions offers ids no tool can take, and a sectioned report beside patch instructions
+    offers no ids at all. *rewrite* is :func:`_rewrite_due` for this report. *ruled* is the audit categories whose patching
+    rules the prompt carries, or None for a rewrite request.
     """
-    report_text = _render_report(report, targets, length_guard_triggered=length_guard_triggered)
+    report_text = _render_report(report, targets, rewrite=rewrite)
     has_issues = audit_enabled and not report.is_clean
-    structural = _structural_rewrite_needed(report)
+    structural = rewrite and _structural_rewrite_needed(report)
     categories = frozenset(category for target in targets for category in target.categories)
     prompt = build_editor_prompt(
         has_issues,
@@ -975,9 +813,8 @@ def _build_editor_request(
 def _owed_patch_rules(ruled: frozenset[str] | None, shown: set[str] | None) -> tuple[str, set[str] | None]:
     """``(rules, shown)``: what a replayed tool result must add before a patch request.
 
-    The structured replay sends later reports as tool results, not fresh
-    prompts, so the patching rules a new report needs -- all of them after a
-    rewrite request, else those of newly flagged kinds -- ride the result.
+    The structured replay sends later reports as tool results, not fresh prompts, so the patching rules a new report needs --
+    all of them after a rewrite request, else those of newly flagged kinds -- ride the result.
     """
     if ruled is None:
         return "", shown
@@ -987,9 +824,8 @@ def _owed_patch_rules(ruled: frozenset[str] | None, shown: set[str] | None) -> t
 def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bool, rules: str = "") -> str:
     """The tool-result content fed back on the structured-replay path.
 
-    Apply errors first (they name the ids the model just used), then the
-    renumbering notice when the report below carries fresh ids, then any
-    patching rules the report needs that the conversation lacks, then the report.
+    Apply errors first (they name the ids the model just used), then the renumbering notice when the report below carries fresh
+    ids, then any patching rules the report needs that the conversation lacks, then the report.
     """
     parts = []
     if errors:
@@ -1004,22 +840,19 @@ def _tool_result_text(errors: Sequence[str], report_text: str, *, renumbered: bo
 
 def _append_iteration_context(
     msgs: list[WireMessage],
-    resp: dict,
+    resp: Mapping[str, Any],
     errors: Sequence[str],
     report_text: str,
     *,
     renumbered: bool,
     rules: str = "",
 ):
-    """Append the assistant tool-call recap + tool-result turn for the next
-    iteration, in structured tool-use format (role=tool) so the model sees its
-    exact call and the remaining issues in the form it was trained on. Only the
-    reasoning/structured-replay path reaches this; non-reasoning modes re-send
-    the updated draft in place instead.
+    """Append the assistant tool-call recap + tool-result turn for the next iteration, in structured tool-use format (role=tool)
+    so the model sees its exact call and the remaining issues in the form it was trained on. Only the
+    reasoning/structured-replay path reaches this; non-reasoning modes re-send the updated draft in place instead.
 
-    This is the one replay that shows the model its old ids next to a fresh
-    report, so *renumbered* makes the id lifecycle explicit rather than leaving
-    it to be inferred — see EDITOR_RENUMBER_NOTICE.
+    This is the one replay that shows the model its old ids next to a fresh report, so *renumbered* makes the id lifecycle
+    explicit rather than leaving it to be inferred -- see EDITOR_RENUMBER_NOTICE.
     """
     tool_response = _tool_result_text(errors, report_text, renumbered=renumbered, rules=rules)
     tool_calls = resp.get("tool_calls", [])
@@ -1031,10 +864,4 @@ def _append_iteration_context(
     }
     msgs.append(asst_msg)
     for tc in tool_calls:
-        msgs.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.get("id", ""),
-                "content": tool_response,
-            }
-        )
+        msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": tool_response})

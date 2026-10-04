@@ -1,9 +1,8 @@
 """magic_rewrite composes with the per-fragment director mode.
 
-With ``director_individual_fragments`` on, the director issues one forced
-``direct_scene`` call per interactive fragment instead of a single combined call.
-magic_rewrite routes through that same director pass, so the user's direction
-reaches every per-fragment call and the rewrite still lands as a new sibling.
+With ``director_individual_fragments`` on, the director issues one forced ``direct_scene`` call per interactive fragment instead
+of a single combined call. magic_rewrite routes through that same director pass, so the user's direction reaches every
+per-fragment call and the rewrite still lands as a new sibling.
 """
 
 from __future__ import annotations
@@ -18,18 +17,14 @@ _DIRECTION = "make the ranger vanish into mist"
 async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     """Open a conversation with per-fragment director on and one interactive
     fragment, then produce one assistant reply; return (cid, reply id)."""
-    card = await client.post(
-        "/api/characters",
-        json={"name": "Aria", "description": "An elf ranger.", "first_mes": "The woods are quiet."},
+    card = await client.post_json(
+        "/api/characters", json={"name": "Aria", "description": "An elf ranger.", "first_mes": "The woods are quiet."}
     )
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
-    cid = conv.json()["id"]
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
     # An explicit interactive fragment guarantees the per-fragment branch engages
     # regardless of which fragments ship in the default seed.
-    frag = await client.post(
+    await client.post_checked(
         "/api/interactive-fragments",
         json={
             "id": "test_pacing",
@@ -42,9 +37,8 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
             "sort_order": 50,
         },
     )
-    assert frag.status_code == 200
 
-    resp = await client.put(
+    await client.put_checked(
         "/api/settings",
         json={
             "model_name": "writer-model",
@@ -53,13 +47,11 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
             "director_individual_fragments": True,
         },
     )
-    assert resp.status_code == 200
     # Keep the seeded and rewritten contents exact; the normalizer is irrelevant here.
     await set_workflow_enabled("format_consistency", False)
 
     llm_mock.enqueue_writer("The original reply.")
-    send = await client.post(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
-    assert send.status_code == 200
+    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
     _ = send.text
 
     original = [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]
@@ -73,11 +65,9 @@ async def test_magic_rewrite_drives_the_per_fragment_director(client, llm_mock):
 
     llm_mock.enqueue_writer("A storm-soaked rewrite.")
     start = len(llm_mock.captured)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{original_id}/magic_rewrite",
-        json={"direction": _DIRECTION},
+    resp = await client.post_checked(
+        f"/api/conversations/{cid}/messages/{original_id}/magic_rewrite", json={"direction": _DIRECTION}
     )
-    assert resp.status_code == 200
     _ = resp.text
     captured = llm_mock.captured[start:]
 

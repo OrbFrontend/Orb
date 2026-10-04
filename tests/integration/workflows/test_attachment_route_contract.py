@@ -15,18 +15,14 @@ _ACTIONS = (
 
 @pytest.mark.parametrize(("action", "payload"), _ACTIONS)
 async def test_attachment_action_unknown_conversation_returns_404(client, action, payload):
-    resp = await client.post(
-        f"/api/conversations/no-such/messages/1/workflow-attachments/1/{action}",
-        json=payload,
+    await client.post_checked(
+        f"/api/conversations/no-such/messages/1/workflow-attachments/1/{action}", json=payload, expected_status=404
     )
-    assert resp.status_code == 404
 
 
 @pytest.mark.parametrize(("action", "payload"), _ACTIONS)
 async def test_attachment_action_unknown_attachment_returns_404(client, action, payload):
     cid = await new_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/{action}",
-        json=payload,
+    await client.post_checked(
+        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/{action}", json=payload, expected_status=404
     )
-    assert resp.status_code == 404

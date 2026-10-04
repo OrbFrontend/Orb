@@ -53,8 +53,7 @@ class ConversationSummarizer:
         return prefix + [{"role": "user", "content": instructions}]
 
     async def stream(self, llm_messages: Sequence[Mapping[str, Any]], model: str) -> AsyncGenerator[str, None]:
-        # Writer lane: the summary is prose in the user's own preset, and it is
-        # written with the model that writes the story.
+        # Writer lane: the summary is prose in the user's own preset, and it is written with the model that writes the story.
         params = extract_hyperparams(self.settings)
         async for chunk in self.client.complete(llm_messages, model, **params):
             if chunk["type"] == "content":

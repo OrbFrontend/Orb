@@ -1,24 +1,5 @@
-"""Deleting a message must stay linear in the size of the subtree.
-
-Deleting a message deletes its siblings and every descendant, so on a long chat
-with swipes the subtree *is* most of the conversation. Two properties keep that
-affordable, and both are invisible in a small-fixture correctness test -- they
-only show up as seconds of wall clock on a real chat:
-
-1. Every foreign key that a message delete cascades through is indexed. SQLite
-   enforces ``ON DELETE`` by searching the *child* table for referencing rows;
-   without an index on the child key that search is a full table scan, repeated
-   per deleted row.
-2. The subtree walk seeks on ``parent_id`` rather than re-scanning the whole
-   conversation at every level, and the delete runs deepest-first so SQLite
-   never has to cascade down a chain itself.
-
-Measured on a 3,000-message chat (500 turns x 5 swipes), deleting ~2,700 of
-them with ``delete_message_with_descendants``:
-
-* neither property ....... 6,315 ms   (and 7,058 ms with attachments attached)
-* deepest-first only .......  431 ms   (1,641 ms)
-* both (shipped) ...........   63 ms   (  257 ms)
+"""Guard linear subtree deletion through indexed FK child keys, parent_id seeks
+and deepest-first deletes; small correctness fixtures cannot expose scan costs.
 """
 
 from __future__ import annotations
@@ -30,9 +11,8 @@ import pytest
 
 from backend.database.queries.messages import _levels_deepest_first
 
-# Delete-propagating edges only: ``ON DELETE CASCADE`` turns one delete into
-# another, which is what grows the set of tables a message delete has to search.
-# ``SET NULL`` writes a row but never deletes it, so it ends the walk.
+# Delete-propagating edges only: ``ON DELETE CASCADE`` turns one delete into another, which is what grows the set of tables a
+# message delete has to search. ``SET NULL`` writes a row but never deletes it, so it ends the walk.
 _CASCADE = "CASCADE"
 
 
@@ -84,15 +64,14 @@ def _unindexed_child_keys(conn: sqlite3.Connection, closure: set[str]) -> list[s
 async def test_every_foreign_key_a_message_delete_touches_is_indexed(db_path: Path):
     """The whole cascade closure under ``messages``, not just a fixed list.
 
-    Derived from the live schema so a new table that cascades off messages --
-    another attachment kind, say -- is covered the day it lands instead of
-    quietly making deletion quadratic again.
+    Derived from the live schema so a new table that cascades off messages -- another attachment kind, say -- is covered the day
+    it lands instead of quietly making deletion quadratic again.
     """
     conn = sqlite3.connect(db_path)
     try:
         closure = _delete_closure(conn, "messages")
         # Sanity: the closure really is the delete fan-out, not just {messages}.
-        assert {"messages", "user_attachments", "workflow_attachments", "direction_notes"} <= closure
+        assert {"messages", "user_attachments", "workflow_attachments", "fragment_state_events"} <= closure
         offenders = _unindexed_child_keys(conn, closure)
     finally:
         conn.close()
@@ -103,22 +82,14 @@ async def test_every_foreign_key_a_message_delete_touches_is_indexed(db_path: Pa
     )
 
 
-@pytest.mark.parametrize(
-    "sql_name, expected_index",
-    [
-        ("subtree walk", "idx_messages_parent"),
-    ],
-)
+@pytest.mark.parametrize("sql_name, expected_index", [("subtree walk", "idx_messages_parent")])
 async def test_subtree_walk_seeks_on_parent_id(db_path: Path, sql_name: str, expected_index: str):
     """The recursive step must seek by ``parent_id``, not re-scan the conversation.
 
-    ``delete_message_with_descendants`` and ``get_message_delete_preview`` both
-    constrain the recursive step by ``parent_id`` *and* ``conversation_id``.
-    Given the choice the planner takes the ``conversation_id`` index, which
-    makes every level of the walk scan every message in the chat; the queries
-    defeat that with SQLite's ``+`` no-index operator on the conversation guard
-    (see ``_SAME_CONVERSATION``). Losing the ``+`` is a silent, large
-    regression, so assert the plan rather than the wording.
+    ``delete_message_with_descendants`` and ``get_message_delete_preview`` both constrain the recursive step by ``parent_id``
+    *and* ``conversation_id``. Given the choice the planner takes the ``conversation_id`` index, which makes every level of the
+    walk scan every message in the chat; the queries defeat that with SQLite's ``+`` no-index operator on the conversation guard
+    (see ``_SAME_CONVERSATION``). Losing the ``+`` is a silent, large regression, so assert the plan rather than the wording.
     """
     conn = sqlite3.connect(db_path)
     try:
@@ -154,12 +125,11 @@ async def test_subtree_walk_seeks_on_parent_id(db_path: Path, sql_name: str, exp
 def test_levels_deepest_first_groups_by_descending_depth():
     """Leaves go out first, and one level is one batch.
 
-    Order is the reason the delete is cheap: ``messages.parent_id`` cascades, so
-    deleting a parent while its children are still there makes SQLite walk the
-    subtree itself, once per level of the chat. Rows at equal depth are never
-    ancestors of each other, so each level can go out in a single statement.
+    Order is the reason the delete is cheap: ``messages.parent_id`` cascades, so deleting a parent while its children are still
+    there makes SQLite walk the subtree itself, once per level of the chat. Rows at equal depth are never ancestors of each
+    other, so each level can go out in a single statement.
     """
-    # (depth, id) — deliberately unsorted, with several rows sharing a depth.
+    # (depth, id) -- deliberately unsorted, with several rows sharing a depth.
     pairs = [(0, 10), (2, 30), (1, 20), (2, 31), (0, 11), (1, 21)]
 
     levels = _levels_deepest_first(pairs)

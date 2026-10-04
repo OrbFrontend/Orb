@@ -47,12 +47,7 @@ from .fragment_state import (
     upgrade_legacy_fragment,
     value_text,
 )
-from .llm_types import (
-    AssistantToolMessage,
-    ChatMessage,
-    ContentPart,
-    WireMessage,
-)
+from .llm_types import AssistantToolMessage, ChatMessage, ContentPart, WireMessage
 from .locks import (
     maintenance_lock,
     wal_anchor_lock,
@@ -61,27 +56,9 @@ from .locks import (
     workflow_state_lock,
     world_apply_lock,
 )
-from .macros import (
-    Macros,
-    card_description,
-    has_inline_macros,
-    outside_literals,
-    resolve_inline,
-    resolve_stored_random,
-)
-from .reasoning import (
-    CALL_BREAK,
-    ReasoningChannel,
-    joined_delta,
-    mark_call_start,
-    reasoning_delta_event,
-)
-from .text_segmentation import (
-    ends_with_sentence_terminator,
-    find_quote_spans,
-    remove_quoted_spans,
-    split_sentences,
-)
+from .macros import Macros, card_description, has_inline_macros, outside_literals, resolve_inline, resolve_stored_random
+from .reasoning import CALL_BREAK, ReasoningChannel, joined_delta, mark_call_start, reasoning_delta_event
+from .text_segmentation import ends_with_sentence_terminator, find_quote_spans, remove_quoted_spans, split_sentences
 from .utils import (
     agent_lane_cut_off,
     agent_lane_max_tokens,
@@ -92,7 +69,7 @@ from .utils import (
 )
 
 __all__ = [
-    # llm_types — wire contracts
+    # llm_types -- wire contracts
     "AssistantToolMessage",
     "ChatMessage",
     "ContentPart",
@@ -100,7 +77,7 @@ __all__ = [
     "CastMember",
     "GroupContextMode",
     "TurnCast",
-    # decisions — the decision-fragment authoring contract
+    # decisions -- the decision-fragment authoring contract
     "DECISION_COLUMNS",
     "DECISION_FIELD_TYPE",
     "DECISION_INJECTS",
@@ -116,7 +93,7 @@ __all__ = [
     "decision_definition_errors",
     "is_decision_row",
     "parse_decision_definition",
-    # fragment_state — state-fragment configuration, fold, and operation contract
+    # fragment_state -- state-fragment configuration, fold, and operation contract
     "DEFAULT_STATE_INJECT",
     "DEFAULT_STATE_MODE",
     "DEFAULT_STATE_UPDATE",
@@ -141,14 +118,14 @@ __all__ = [
     "state_fragments_of",
     "upgrade_legacy_fragment",
     "value_text",
-    # locks — process-level asyncio locks
+    # locks -- process-level asyncio locks
     "maintenance_lock",
     "wal_anchor_lock",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",
     "world_apply_lock",
-    # macros — string/message transforms
+    # macros -- string/message transforms
     "Macros",
     "CardScripts",
     "card_description",
@@ -156,18 +133,18 @@ __all__ = [
     "outside_literals",
     "resolve_inline",
     "resolve_stored_random",
-    # reasoning — per-pass thinking buffers (one blank line between calls)
+    # reasoning -- per-pass thinking buffers (one blank line between calls)
     "CALL_BREAK",
     "ReasoningChannel",
     "joined_delta",
     "mark_call_start",
     "reasoning_delta_event",
-    # text_segmentation — canonical non-workflow prose policy
+    # text_segmentation -- canonical non-workflow prose policy
     "ends_with_sentence_terminator",
     "find_quote_spans",
     "remove_quoted_spans",
     "split_sentences",
-    # utils — token/log/multimodal helpers
+    # utils -- token/log/multimodal helpers
     "agent_lane_cut_off",
     "agent_lane_max_tokens",
     "build_multimodal_content",

@@ -106,12 +106,7 @@ def _strip_block_emphasis(raw: str) -> str:
     return f"{lead}{inner}{trail}"
 
 
-def _rewrite_paragraph(
-    para: str,
-    src: AxisStyle,
-    target_dialogue: Dialogue | None,
-    target_narration: Narration | None,
-) -> str:
+def _rewrite_paragraph(para: str, src: AxisStyle, target_dialogue: Dialogue | None, target_narration: Narration | None) -> str:
     """Rewrite one paragraph for the selected markup axes."""
     spans = extract_block_spans(para)
     out: list[str] = []
@@ -150,13 +145,7 @@ def _rewrite_paragraph(
 
 
 def _group_run(
-    spans: list[tuple[str, int, int]],
-    i: int,
-    src: AxisStyle,
-    role: str,
-    para: str,
-    *,
-    only_type: str | None = None,
+    spans: list[tuple[str, int, int]], i: int, src: AxisStyle, role: str, para: str, *, only_type: str | None = None
 ) -> int:
     """Return the last span in the same-role run starting at *i*."""
     j = i
@@ -183,9 +172,8 @@ def _governing_dialogue(src: AxisStyle, target: AxisStyle) -> Dialogue:
         return Dialogue.QUOTED
     if target.dialogue == Dialogue.QUOTED and target.narration == Narration.ASTERISK and src.narration == Narration.ASTERISK:
         return Dialogue.QUOTED
-    # A draft with no speech but a positive bare-narration reading is all narration
-    # in a chat that quotes its dialogue. Unknown narration may be plain unmarked
-    # speech, which TTS reads the same way, so it stays unwrapped.
+    # A draft with no speech but a positive bare-narration reading is all narration in a chat that quotes its dialogue. Unknown
+    # narration may be plain unmarked speech, which TTS reads the same way, so it stays unwrapped.
     if (
         target.dialogue == Dialogue.QUOTED
         and target.narration == Narration.ASTERISK
@@ -226,7 +214,7 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     return map_prose(draft, lambda seg: _rewrite_segment(seg, eff_src, td, tn))
 
 
-# A stray curly apostrophe ("the dogs’ bowls", "runnin’") is a closing single quote
+# A stray curly apostrophe ("the dogs\u2019 bowls", "runnin\u2019") is a closing single quote
 # to the parser, and it closes nothing, so it cannot swap a parse.
 _QUOTE_MARKS = (OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES) - {"’"}
 

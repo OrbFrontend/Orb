@@ -1,14 +1,12 @@
 """Healing for patches that restate the draft around their target span.
 
-Models mis-aim ``editor_apply_patch`` in three recurring ways — rewriting the
-sentence *before* the flagged one, handing back the flagged sentence plus the
-one *after* it, or restating the lead-in of the flagged sentence's own line
-(spans stop at block boundaries, so a flagged dialogue tag leaves the dialogue
-in the draft). All three splice into visible duplication, so the replacement is
-trimmed of any run of words that already exists against that end of the span.
+Models mis-aim ``editor_apply_patch`` in three recurring ways -- rewriting the sentence *before* the flagged one, handing back
+the flagged sentence plus the one *after* it, or restating the lead-in of the flagged sentence's own line (spans stop at block
+boundaries, so a flagged dialogue tag leaves the dialogue in the draft). All three splice into visible duplication, so the
+replacement is trimmed of any run of words that already exists against that end of the span.
 
-The trims are exact-after-normalisation on purpose; the "leaves alone" tests
-below are the half of the contract that stops healing from eating real prose.
+The trims are exact-after-normalisation on purpose; the "leaves alone" tests below are the half of the contract that stops
+healing from eating real prose.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ import pytest
 
 from backend.analysis import Target, apply_id_patches
 from backend.analysis.healing import heal_replacement
+from backend.analysis.patching import PatchErrorKind
 
 
 def _patch(draft: str, span: str, replace: str, *, start: int | None = None) -> tuple[str, list[str]]:
@@ -26,7 +25,7 @@ def _patch(draft: str, span: str, replace: str, *, start: int | None = None) -> 
     return apply_id_patches(draft, [target], [{"id": 1, "replace": replace}])
 
 
-# ── The three reported mis-aims ───────────────────────────────────────────────
+# -- The three reported mis-aims -----------------------------------------------
 
 
 def test_replacement_restating_the_previous_sentence_is_rejected():
@@ -49,13 +48,11 @@ def test_replacement_swallowing_the_next_sentence_is_trimmed():
 
 
 def test_replacement_restating_the_dialogue_it_was_not_given_is_trimmed():
-    # The reported case. Only the tag was flagged, so only the tag was cut out —
+    # The reported case. Only the tag was flagged, so only the tag was cut out --
     # the dialogue the model echoed back in front of it is still in the draft.
     draft = '"I am not... flaky," I choke out, my voice small and thin.'
     out, errors = _patch(
-        draft,
-        "I choke out, my voice small and thin.",
-        '"I am not... flaky," I gasp, the words strained and thin.',
+        draft, "I choke out, my voice small and thin.", '"I am not... flaky," I gasp, the words strained and thin.'
     )
     assert out == '"I am not... flaky," I gasp, the words strained and thin.'
     assert errors == []
@@ -72,7 +69,7 @@ def test_partial_overlap_is_trimmed_on_the_tail_side_too():
 
 def test_a_whole_line_restatement_leaves_the_flagged_text_unchanged():
     # Echoing the line back verbatim heals down to the flagged tag itself, which
-    # edits nothing — one error, not a silently applied patch.
+    # edits nothing -- one error, not a silently applied patch.
     draft = '"I am not... flaky," I choke out, my voice small and thin.'
     span = "I choke out, my voice small and thin."
     out, errors = _patch(draft, span, draft)
@@ -80,7 +77,7 @@ def test_a_whole_line_restatement_leaves_the_flagged_text_unchanged():
     assert errors == ["Error: the patch for id 1 is a no-op — `replace` repeats the flagged text unchanged."]
 
 
-# ── Shape of the trim ─────────────────────────────────────────────────────────
+# -- Shape of the trim ---------------------------------------------------------
 
 
 def test_both_ends_are_trimmed_in_one_patch():
@@ -91,8 +88,7 @@ def test_both_ends_are_trimmed_in_one_patch():
 
 
 def test_longest_overlap_wins_over_the_nearest_one():
-    # Testing the shortest overlap first would compare "B." against "Keep",
-    # miss, and leave both copies in the draft.
+    # Testing the shortest overlap first would compare "B." against "Keep", miss, and leave both copies in the draft.
     draft = "Bad line. Keep A. Keep B."
     out, _ = _patch(draft, "Bad line.", "Good line. Keep A. Keep B.")
     assert out == "Good line. Keep A. Keep B."
@@ -125,15 +121,14 @@ def test_dangling_emphasis_marker_does_not_hide_the_repeat():
     assert len(errors) == 1
 
 
-# ── Quote and emphasis markers around the span ────────────────────────────────
+# -- Quote and emphasis markers around the span --------------------------------
 #
-# Spans are marker-stripped, so the report shows flagged dialogue without its
-# quotes while the quotes stay in the draft. A model rewriting dialogue writes
-# it the way dialogue is written, and splicing that verbatim doubled them.
+# Spans are marker-stripped, so the report shows flagged dialogue without its quotes while the quotes stay in the draft. A model
+# rewriting dialogue writes it the way dialogue is written, and splicing that verbatim doubled them.
 
 
 def test_quotes_resent_around_a_whole_quoted_span_are_dropped():
-    # The reported anti-echo case, which spliced as `""Since when …?""`.
+    # The reported anti-echo case, which spliced as `""Since when ...?""`.
     draft = 'She let out a short, sharp puff of a laugh. "Battle scenes?" She shook her head.'
     out, errors = _patch(draft, "Battle scenes?", '"Since when did ye become a critic o\' military strategy?"')
     assert out == (
@@ -163,11 +158,7 @@ def test_straight_quotes_match_a_curly_quoted_draft():
     ("draft", "replace", "expected"),
     [
         ("He waited. *She murmured.* Silence.", "*She whispered.*", "He waited. *She whispered.* Silence."),
-        (
-            "He waited. *She murmured. He left.* Silence.",
-            "*She whispered.*",
-            "He waited. *She whispered. He left.* Silence.",
-        ),
+        ("He waited. *She murmured. He left.* Silence.", "*She whispered.*", "He waited. *She whispered. He left.* Silence."),
         ("He waited. **She murmured.** Silence.", "**She whispered.**", "He waited. **She whispered.** Silence."),
     ],
 )
@@ -219,7 +210,7 @@ def test_an_apostrophe_is_not_read_as_a_closing_quote():
     assert errors == []
 
 
-# ── What healing must leave alone ─────────────────────────────────────────────
+# -- What healing must leave alone ---------------------------------------------
 
 
 def test_a_merely_similar_neighbour_is_not_trimmed():
@@ -238,9 +229,8 @@ def test_only_the_adjacent_sentence_counts():
 
 
 def test_differing_terminator_is_a_different_sentence():
-    # Healing trims only an *unchanged* copy, because only an unchanged copy is
-    # guaranteed to rejoin: `howled!` beside `howled.` is text the model may
-    # have meant, so healing leaves it alone and hands the whole replacement on.
+    # Healing trims only an *unchanged* copy, because only an unchanged copy is guaranteed to rejoin: `howled!` beside `howled.`
+    # is text the model may have meant, so healing leaves it alone and hands the whole replacement on.
     draft = "Bad line. The wind howled."
     healed = heal_replacement(draft, 0, len("Bad line."), "Good line. The wind howled!")
     assert healed.replace == "Good line. The wind howled!"
@@ -248,11 +238,9 @@ def test_differing_terminator_is_a_different_sentence():
 
 
 def test_a_repunctuated_copy_of_the_next_sentence_is_rejected_by_the_guard():
-    # The other half of the split above: what healing declines to trim, the
-    # protected-sequence guard refuses to splice. It compares lexically, where
-    # `howled!` and `howled.` are the same three words — so the duplication the
-    # trim could not safely remove never reaches the draft. See
-    # tests/unit/test_protected_sequences.py.
+    # The other half of the split above: what healing declines to trim, the protected-sequence guard refuses to splice. It
+    # compares lexically, where `howled!` and `howled.` are the same three words -- so the duplication the trim could not safely
+    # remove never reaches the draft. See tests/unit/test_protected_sequences.py.
     draft = "Bad line. The wind howled."
     out, errors = _patch(draft, "Bad line.", "Good line. The wind howled!")
     assert out == draft
@@ -287,7 +275,7 @@ def test_a_clean_replacement_is_untouched():
     assert errors == []
 
 
-# ── Deliberate deletion closes its own seam ───────────────────────────────────
+# -- Deliberate deletion closes its own seam -----------------------------------
 
 
 @pytest.mark.parametrize(
@@ -307,30 +295,39 @@ def test_empty_replace_deletes_the_span_without_stranding_whitespace(draft, span
     assert errors == []
 
 
-@pytest.mark.parametrize(
-    ("draft", "expected"),
-    [
-        ("A.\nB.\nC.", "A.\nC."),
-        ("A. B.\nC.", "A.\nC."),
-        ("A.\nB. C.", "A.\nC."),
-    ],
-)
+@pytest.mark.parametrize(("draft", "expected"), [("A.\nB.\nC.", "A.\nC."), ("A. B.\nC.", "A.\nC."), ("A.\nB. C.", "A.\nC.")])
 def test_deleting_a_line_does_not_promote_the_seam_to_a_paragraph_break(draft, expected):
-    # The two single newlines around a deleted line of dialogue spell "\n\n" when
-    # concatenated. Measuring each side separately is what keeps the strongest
-    # break the draft *already had* rather than inventing a paragraph split.
+    # The two single newlines around a deleted line of dialogue spell "\n\n" when concatenated. Measuring each side separately
+    # is what keeps the strongest break the draft *already had* rather than inventing a paragraph split.
     out, errors = _patch(draft, "B.", "")
     assert out == expected
     assert errors == []
 
 
-# ── Interaction with the rest of apply_id_patches ─────────────────────────────
+@pytest.mark.parametrize("replace", ["She let go.", "Kai cleared the zone."])
+def test_restating_a_neighbour_of_negated_narration_deletes_it(replace):
+    # Removal is the fix negated narration asks for, so a restated neighbour
+    # reads as "drop this". The same patch on any other finding is a mis-aim.
+    draft = "Kai cleared the zone.\n\nPellenna didn't hesitate. She let go."
+    span = "Pellenna didn't hesitate."
+    start = draft.index(span)
+    negation = Target(tid=1, span=span, start=start, end=start + len(span), categories=["negated_narration"])
+    out, errors = apply_id_patches(draft, [negation], [{"id": 1, "replace": replace}])
+    assert out == "Kai cleared the zone.\n\nShe let go."
+    assert errors == []
+
+    plain = Target(tid=1, span=span, start=start, end=start + len(span), categories=["banned_phrases"])
+    out, errors = apply_id_patches(draft, [plain], [{"id": 1, "replace": replace}])
+    assert out == draft
+    assert errors[0].kind == PatchErrorKind.RESTATED_CONTEXT
+
+
+# -- Interaction with the rest of apply_id_patches -----------------------------
 
 
 def test_a_replacement_that_heals_down_to_the_flagged_text_is_a_no_op():
-    # "Bad. C." over "Bad." is the model restating its target and appending the
-    # sentence after it. Trimming the copy leaves the flagged text itself, which
-    # edits nothing — it must cost an error, not count as an applied patch.
+    # "Bad. C." over "Bad." is the model restating its target and appending the sentence after it. Trimming the copy leaves the
+    # flagged text itself, which edits nothing -- it must cost an error, not count as an applied patch.
     draft = "Alpha one. Bad. Gamma three."
     out, errors = _patch(draft, "Bad.", "Bad. Gamma three.")
     assert out == draft
@@ -340,10 +337,7 @@ def test_a_replacement_that_heals_down_to_the_flagged_text_is_a_no_op():
 def test_a_healed_away_patch_still_costs_exactly_one_error():
     # Document mode counts applications as len(patches) - len(errors).
     draft = '"I\'m bored." She murmured. Gamma three.'
-    targets = [
-        Target(tid=1, span="She murmured.", start=13, end=26),
-        Target(tid=2, span="Gamma three.", start=27, end=39),
-    ]
+    targets = [Target(tid=1, span="She murmured.", start=13, end=26), Target(tid=2, span="Gamma three.", start=27, end=39)]
     patches = [{"id": 1, "replace": '"I\'m bored."'}, {"id": 2, "replace": "Delta four."}]
     out, errors = apply_id_patches(draft, targets, patches)
     assert out == '"I\'m bored." She murmured. Delta four.'
@@ -352,16 +346,11 @@ def test_a_healed_away_patch_still_costs_exactly_one_error():
 
 def test_healing_sees_the_already_patched_tail():
     # Splicing runs back-to-front, so the later patch is final by the time the
-    # earlier one is healed — it must be compared against the new text, not the old.
+    # earlier one is healed -- it must be compared against the new text, not the old.
     draft = "Alpha one. Beta two. Gamma three."
-    targets = [
-        Target(tid=1, span="Beta two.", start=11, end=20),
-        Target(tid=2, span="Gamma three.", start=21, end=33),
-    ]
+    targets = [Target(tid=1, span="Beta two.", start=11, end=20), Target(tid=2, span="Gamma three.", start=21, end=33)]
     out, errors = apply_id_patches(
-        draft,
-        targets,
-        [{"id": 1, "replace": "Delta four. Omega five."}, {"id": 2, "replace": "Omega five."}],
+        draft, targets, [{"id": 1, "replace": "Delta four. Omega five."}, {"id": 2, "replace": "Omega five."}]
     )
     assert out == "Alpha one. Delta four. Omega five."
     assert errors == []
@@ -369,24 +358,13 @@ def test_healing_sees_the_already_patched_tail():
 
 def test_heal_rejections_are_reported_in_document_order():
     draft = "Alpha one. Alpha one. Beta two. Beta two."
-    targets = [
-        Target(tid=1, span="Alpha one.", start=11, end=21),
-        Target(tid=2, span="Beta two.", start=32, end=41),
-    ]
-    _, errors = apply_id_patches(
-        draft,
-        targets,
-        [{"id": 2, "replace": "Beta two."}, {"id": 1, "replace": "Alpha one."}],
-    )
+    targets = [Target(tid=1, span="Alpha one.", start=11, end=21), Target(tid=2, span="Beta two.", start=32, end=41)]
+    _, errors = apply_id_patches(draft, targets, [{"id": 2, "replace": "Beta two."}, {"id": 1, "replace": "Alpha one."}])
     # Both are no-ops against their own span, caught before healing; the ordering
     # guarantee is asserted with two genuine heals instead.
     assert len(errors) == 2
 
-    _, healed_errors = apply_id_patches(
-        draft,
-        targets,
-        [{"id": 2, "replace": "beta two."}, {"id": 1, "replace": "alpha one."}],
-    )
+    _, healed_errors = apply_id_patches(draft, targets, [{"id": 2, "replace": "beta two."}, {"id": 1, "replace": "alpha one."}])
     assert healed_errors == [
         "Error: the patch for id 1 only repeats text that already surrounds the flagged span "
         "— send new prose for the flagged text itself.",
@@ -395,7 +373,7 @@ def test_heal_rejections_are_reported_in_document_order():
     ]
 
 
-# ── Unit-level contract ───────────────────────────────────────────────────────
+# -- Unit-level contract -------------------------------------------------------
 
 
 def test_heal_replacement_reports_what_it_did():

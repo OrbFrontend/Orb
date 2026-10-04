@@ -10,31 +10,20 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
-from ...database import checkpoint_wal, logs_size_before, wipe_logs_older_than
+from ...database import checkpoint_wal, current_db_path, logs_size_before, wipe_logs_older_than
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
 router = APIRouter()
 
-# Reclaiming dead pages means rewriting the whole database file, so it is only
-# worth doing once enough of them have piled up. An absolute floor rather than a
-# ratio: dead space only matters in absolute terms, and a ratio both spares a
-# 10 GB db carrying 30 MB of free pages (right) and spares a 194 MB db carrying
-# 46 MB at 23.4% (wrong -- that is the case this feature exists for).
+# Reclaiming dead pages means rewriting the whole database file, so it is only worth doing once enough of them have piled up. An
+# absolute floor rather than a ratio: dead space only matters in absolute terms, and a ratio both spares a 10 GB db carrying 30
+# MB of free pages (right) and spares a 194 MB db carrying 46 MB at 23.4% (wrong -- that is the case this feature exists for).
 VACUUM_FREE_BYTES = 32 * 1024 * 1024
 
 
-def _db_path() -> str:
-    # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
-    # A frozen ``DB_PATH`` default here vacuumed the real database from the
-    # test suite, which patches the connection module rather than this one.
-    from ...database import connection
-
-    return connection.DB_PATH
-
-
 def _db_bytes() -> int:
-    path = _db_path()
+    path = current_db_path()
     return os.path.getsize(path) if os.path.exists(path) else 0
 
 
@@ -47,7 +36,7 @@ def _cutoff(days: int) -> str | None:
 
 def free_bytes(db_path: str | None = None) -> int:
     """Return free bytes for the storage volume."""
-    db_path = _db_path() if db_path is None else db_path
+    db_path = current_db_path() if db_path is None else db_path
     if not os.path.exists(db_path):
         return 0
     conn = sqlite3.connect(db_path)
@@ -61,7 +50,7 @@ def free_bytes(db_path: str | None = None) -> int:
 
 def vacuum_sync(db_path: str | None = None) -> bool:
     """Vacuum a SQLite database synchronously."""
-    db_path = _db_path() if db_path is None else db_path
+    db_path = current_db_path() if db_path is None else db_path
     vac = sqlite3.connect(db_path, isolation_level=None)
     try:
         vac.execute("PRAGMA busy_timeout = 5000")
@@ -70,10 +59,8 @@ def vacuum_sync(db_path: str | None = None) -> bool:
         return False
     finally:
         vac.close()
-    # VACUUM rewrites every page through the WAL, and the lifespan anchor means
-    # no last-close checkpoint follows this connection out. Reclaim it here, or
-    # the compaction the user just asked for hands the space straight back to a
-    # database-sized WAL.
+    # VACUUM rewrites every page through the WAL, and the lifespan anchor means no last-close checkpoint follows this connection
+    # out. Reclaim it here, or the compaction the user just asked for hands the space straight back to a database-sized WAL.
     checkpoint_wal(db_path)
     return True
 
@@ -110,9 +97,8 @@ async def api_storage_cleanup(data: CleanupRequest):
     return {
         "artifacts_evicted": artifacts_evicted,
         "logs_wiped": logs_wiped,
-        # What the user actually got back on disk. Falls back to the eviction's
-        # own byte count when the VACUUM lost its race, since the pages are
-        # freed either way -- just not returned to the OS until the next boot.
+        # What the user actually got back on disk. Falls back to the eviction's own byte count when the VACUUM lost its race,
+        # since the pages are freed either way -- just not returned to the OS until the next boot.
         "bytes_reclaimed": max(before - after, 0) if compacted else bytes_freed,
         "compacted": compacted,
     }

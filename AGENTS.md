@@ -30,23 +30,19 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - Type SQLite flags as `int` (`0` or `1`), not `bool`.
 - Decode JSON columns at the boundary where they are read; keep free-form JSON untyped unless a contract is needed.
 - Keep Pyright at zero errors. Prefer widening a consumer to `Mapping` or `Sequence` over adding an ignore.
+- A leading underscore means module-private. Give a name a public spelling before another module imports it; both layer checkers reject cross-module `_name` imports.
 - When changing the schema, update the schema definition, models, API schemas where applicable, seeds, and migrations together.
 - Add routes under `api/routes/` and register their router in `api/routes/__init__.py`.
+- Backend workflow plug-ins under `backend/workflows/<id>/` import only their own package and `backend.workflows.toolkit`, naming toolkit exports explicitly; wildcard, module-object, and non-`__all__` toolkit imports are not part of the plug-in API. A plug-in declares itself as `WORKFLOW` in its package `__init__.py`, with its hook subscriptions, and is discovered at startup; host files do not wire plug-ins. Root modules directly under `backend/workflows/` are host adapters and may bridge to lower application layers.
 
 ## Frontend conventions
 
 - Use vanilla ES modules and keep shared state in `state.js`.
+- Give each new top-level module a layer in `scripts/check_frontend_layers.py`. A module imports only its own layer or lower; invert the dependency rather than import upward.
+- Export only what another module or a frontend test imports; the layer check rejects every other export except the `workflow_api.js` facade.
 - Keep streaming behavior in the stream modules and route chat generation through the shared stream helper.
-- Workflow modules may import their workflow API and local modules, but should not reach into application internals.
-- Use registered actions and `data-*` attributes for UI events. Do not add globals or inline event handlers.
-- Keep frontend layer checks passing.
-
-Backend workflow plug-ins under `backend/workflows/<id>/` follow the same rule:
-import only their own package and `backend.workflows.toolkit`. Root modules
-directly under `backend/workflows/` are host adapters and may bridge to lower
-application layers. Import named toolkit exports explicitly; wildcard,
-module-object, and non-`__all__` toolkit imports are not part of the plug-in API.
-The backend layer checker enforces this distinction.
+- Markup reaches code through actions: an element names `data-wf-action="scope:name"` (plus `data-wf-on` for events other than click), and the module that owns the behavior registers it with `registerActions` from `actions.js`. Do not add inline `on*=` handlers or `window` globals; the layer check rejects both, and rejects action names nothing registers.
+- Workflow plug-ins under `frontend/workflows/<id>/` import only their own files and `/static/workflow_api.js`. A capability a plug-in needs from the app becomes a new facade export.
 
 ## Validation
 

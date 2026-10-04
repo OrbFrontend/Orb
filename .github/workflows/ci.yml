@@ -17,6 +17,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       requirements: ${{ steps.filter.outputs.requirements }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
@@ -29,14 +30,48 @@ jobs:
               - 'requirements*.txt'
               - 'pytest.ini'
               - 'ruff.toml'
+              - 'pyrightconfig.json'
               - 'scripts/**'
+              - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - 'tests/frontend/**'
               - 'biome.json'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'scripts/lint.sh'
+              - 'scripts/format_frontend.sh'
+              - 'scripts/check_frontend_layers.py'
+              - '.github/workflows/ci.yml'
             requirements:
               - 'requirements.txt'
               - 'scripts/check_resolve.sh'
               - '.github/workflows/ci.yml'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - 'requirements-docs.txt'
+              - '.github/workflows/ci.yml'
+
+  docs-checks:
+    name: Documentation Build
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install docs dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Build MkDocs site
+        run: python -m mkdocs build --strict
 
   compat:
     name: Compat Resolve (Python ${{ matrix.python-version }})
@@ -48,7 +83,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # A recent host pip is all we need: --python-version makes pip resolve
       # the tree for the *target* interpreter without installing or running it.
@@ -83,50 +118,61 @@ jobs:
       - name: Audit runtime dependencies
         run: python -m pip_audit -r requirements.txt
 
-  lint-and-format:
-    name: Lint & Format Check
+  backend-checks:
+    name: Backend Lint & Types
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true'
+    if: needs.detect-changes.outputs.backend == 'true'
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Python
-        if: needs.detect-changes.outputs.backend == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Install dev dependencies
-        if: needs.detect-changes.outputs.backend == 'true'
         run: pip install -r requirements-dev.txt
 
       - name: Ruff format check
-        if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m ruff format --line-length 128 --check backend/ tests/
+        run: python -m ruff format --check backend/ tests/ scripts/
 
       - name: Ruff lint
-        if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m ruff check backend/ tests/
+        run: python -m ruff check backend/ tests/ scripts/
 
       - name: Pyright type check
-        if: needs.detect-changes.outputs.backend == 'true'
         run: python -m pyright backend/
 
+      - name: Backend layer check
+        run: python scripts/check_backend_layers.py
+
+  frontend-checks:
+    name: Frontend Lint & Tests
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
       - name: Set up Node
-        if: needs.detect-changes.outputs.frontend == 'true'
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
-      - name: Install Biome
-        if: needs.detect-changes.outputs.frontend == 'true'
-        run: npm install -g @biomejs/biome
+      # The pinned devDependencies, so CI formats with the same Biome as a
+      # contributor's checkout. Skips `prepare`, which only installs git hooks.
+      - name: Install frontend dev dependencies
+        run: npm ci --ignore-scripts
 
-      - name: Biome format check
-        if: needs.detect-changes.outputs.frontend == 'true'
-        run: biome format frontend/
+      - name: Biome check
+        run: node_modules/.bin/biome check frontend/
+
+      - name: Frontend layer check
+        run: python3 scripts/check_frontend_layers.py
+
+      - name: Frontend unit tests
+        run: node --test tests/frontend/*.test.mjs
 
   tests:
     name: Tests (Python ${{ matrix.python-version }})

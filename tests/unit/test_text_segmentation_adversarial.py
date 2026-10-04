@@ -13,12 +13,7 @@ from backend.analysis.text.roleplay_segmentation import (
     split_segment_sentences,
     strip_ooc,
 )
-from backend.core.text_segmentation import (
-    ends_with_question,
-    extract_unquoted_text,
-    find_quote_spans,
-    split_sentences,
-)
+from backend.core.text_segmentation import ends_with_question, extract_unquoted_text, find_quote_spans, split_sentences
 from backend.workflows.format_consistency.normalization import normalize_to_baseline
 
 
@@ -28,10 +23,7 @@ def test_nested_directional_quotes_stay_one_outer_dialogue_span():
         (0, 32, "“She called it ‘odd’ yesterday.”")
     ]
     assert extract_unquoted_text(text) == "Then she left."
-    assert extract_blocks(text) == [
-        ("SPEECH", "“She called it ‘odd’ yesterday.”"),
-        ("NARRATION", "Then she left."),
-    ]
+    assert extract_blocks(text) == [("SPEECH", "“She called it ‘odd’ yesterday.”"), ("NARRATION", "Then she left.")]
 
 
 def test_curly_apostrophe_does_not_close_curly_single_dialogue():
@@ -96,14 +88,8 @@ def test_sentence_split_preserves_balanced_closing_markup():
 
 
 def test_sentence_split_does_not_break_titles_initials_or_acronyms():
-    assert split_sentences("Dr. Rivera met J. R. Hart. They spoke.") == [
-        "Dr. Rivera met J. R. Hart.",
-        "They spoke.",
-    ]
-    assert split_sentences("U.S. Army officers waited. Then left.") == [
-        "U.S. Army officers waited.",
-        "Then left.",
-    ]
+    assert split_sentences("Dr. Rivera met J. R. Hart. They spoke.") == ["Dr. Rivera met J. R. Hart.", "They spoke."]
+    assert split_sentences("U.S. Army officers waited. Then left.") == ["U.S. Army officers waited.", "Then left."]
 
 
 def test_sentence_split_handles_ambiguous_time_abbreviation_by_next_case():

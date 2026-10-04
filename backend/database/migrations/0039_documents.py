@@ -1,9 +1,7 @@
 """0039_documents -- add the documents table.
 
-Free-form Document mode: one row per document (plain ``content`` plus opaque
-JS-domain ``generated_spans`` offsets). Fresh installs get this from schema.py;
-this backfills existing DBs. DDL sourced from schema.py so the two shapes cannot
-diverge.
+Free-form Document mode: one row per document (plain ``content`` plus opaque JS-domain ``generated_spans`` offsets). Fresh
+installs get this from schema.py; this backfills existing DBs. DDL sourced from schema.py so the two shapes cannot diverge.
 """
 
 from __future__ import annotations

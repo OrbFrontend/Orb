@@ -50,7 +50,7 @@ def _frames(ms: float) -> int:
 
 def _phrases(mask: np.ndarray) -> list[tuple[int, int]]:
     """Return speech runs, splitting on phrase-length pauses."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     spoken = np.flatnonzero(mask)
     if spoken.size == 0:
@@ -69,7 +69,7 @@ def _phrases(mask: np.ndarray) -> list[tuple[int, int]]:
 
 def _split_long(phrase: tuple[int, int], rms: np.ndarray, limit: int) -> list[tuple[int, int]]:
     """Split long speech runs at their quietest interior frames."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     start, end = phrase
     if end - start <= limit:
@@ -97,7 +97,7 @@ def _window(phrases: list[tuple[int, int]], first: int, last: int, total: int) -
 
 def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
     """Return the best ``[start, end)`` sample ranges for *wav*."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
     mask = silence.speech_mask(audio)
@@ -137,7 +137,7 @@ def excerpt_ranges(wav: np.ndarray) -> list[tuple[int, int]]:
 
 def select_excerpt(wav: np.ndarray) -> np.ndarray:
     """Return the best reference excerpt with long pauses shortened."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)
     return np.ascontiguousarray(np.concatenate([audio[start:end] for start, end in excerpt_ranges(audio)]))
@@ -146,7 +146,7 @@ def select_excerpt(wav: np.ndarray) -> np.ndarray:
 @onnx_runtime.using
 def semantic_tokens(signal: np.ndarray) -> list[int]:
     """Encode an excerpt as BiCodec semantic tokens."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     audio = np.ascontiguousarray(np.asarray(signal, dtype=np.float32).reshape(1, -1))
     session = onnx_runtime.load(catalog.semantic_tokenizer_path())

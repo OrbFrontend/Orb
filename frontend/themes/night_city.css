@@ -1,24 +1,13 @@
-:root {
-  --bg-deep:#04050c;--bg-primary:#080a16;--bg-surface:#0c0f1e;--bg-elevated:#11142a;
-  --bg-hover:#181c36;--border:#1a1e40;--border-light:#242856;
-  --text-primary:#dce4f0;--text-secondary:#7888b8;--text-muted:#6b7aa7;
-  --accent:#00d4ee;--accent-dim:#006878;--accent-glow:color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
-  --red:#ff1a5e;
-  --font-prose:'Exo 2',system-ui,sans-serif;--font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
-  --font-mono:'Fira Code','Cascadia Code',Consolas,monospace;--radius:3px;
-  --font-prose-size:16px;
-  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
-}
-
+:root { --bg-deep:#04050c; --bg-primary:#080a16; --bg-surface:#0c0f1e; --bg-elevated:#11142a; --bg-hover:#181c36;
+  --border:#1a1e40; --border-light:#242856; --text-primary:#dce4f0; --text-secondary:#7888b8; --text-muted:#6b7aa7;
+  --accent:#00d4ee; --accent-dim:#006878; --accent-glow:color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
+  --red:#ff1a5e; --font-prose:'Exo 2',system-ui,sans-serif; --font-ui:'Fira Code','Cascadia Code',Consolas,monospace;
+  --font-mono:'Fira Code','Cascadia Code',Consolas,monospace; --radius:3px; --font-prose-size:16px;
+  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
-:root {
-  --scrollbar-width: thin;
-  --scrollbar-thumb: var(--border-light);
-  --scrollbar-track: transparent;
-}
-
+:root { --scrollbar-width: thin; --scrollbar-thumb: var(--border-light); --scrollbar-track: transparent; }
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }

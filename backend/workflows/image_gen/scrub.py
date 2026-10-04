@@ -49,23 +49,20 @@ _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", 
 _POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
 
 
-# A text encoder has no idea "camera" is meta: it draws one, in frame, in someone's
-# hands. The word is unavoidable in the instructions, so drop the whole chunk that
-# echoes it back. Word-bounded search so "camerawork" goes too while the real booru
+# A text encoder has no idea "camera" is meta: it draws one, in frame, in someone's hands. The word is unavoidable in the
+# instructions, so drop the whole chunk that echoes it back. Word-bounded search so "camerawork" goes too while the real booru
 # tag "looking at viewer" survives.
 _CAMERA_CHUNK_RE = re.compile(r"\bcamera\w*", re.IGNORECASE)
 
 
-# The composer writes the literal contact ("arm gripping viewer's shirt collar")
-# because that is what happened. The encoder has never seen it -- booru tagged the
-# reach *toward* the lens, never the viewer's body -- so the literal phrase draws
-# an improvised limb. The model states the fact; this table owns the vocabulary.
+# The composer writes the literal contact ("arm gripping viewer's shirt collar") because that is what happened. The encoder has
+# never seen it -- booru tagged the reach *toward* the lens, never the viewer's body -- so the literal phrase draws an
+# improvised limb. The model states the fact; this table owns the vocabulary.
 _VIEWER_RE = re.compile(r"\b(?:viewer|user|your)'?s?\b", re.IGNORECASE)
 
 
-# Mentioning the viewer is not touching them: giving "standing close to the viewer"
-# the reach tags invents an arm nobody wrote, which is worse than losing the chunk.
-# "pin" and "cup" are real words on their own, unlike the other stems here, so their
+# Mentioning the viewer is not touching them: giving "standing close to the viewer" the reach tags invents an arm nobody wrote,
+# which is worse than losing the chunk. "pin" and "cup" are real words on their own, unlike the other stems here, so their
 # non-contact tails are excluded rather than the stems dropped.
 _VIEWER_CONTACT_VERB_RE = re.compile(
     r"\b(?:grab|grip|grasp|clutch|clasp|pull|tug|yank|hold|shov|push|press|pin(?!-?up)|touch|caress|"
@@ -81,14 +78,11 @@ _VIEWER_GAZE_RE = re.compile(r"\b(?:look|gaz|star|glanc|watch|eyes?)\w*\b[^,]*\b
 _LOOKING_AT_VIEWER = "looking at viewer"
 
 
-# Only the noun after the possessive says which side of the contact the viewer is
-# on. A viewer's *limb* is the user acting (the shot rules ask for "pov hand");
-# anything else the possessive owns -- throat, collar, chest -- is the viewer being
-# acted upon, and their body must not be drawn. Keep and retag the first, collapse
-# the second.
+# Only the noun after the possessive says which side of the contact the viewer is on. A viewer's *limb* is the user acting (the
+# shot rules ask for "pov hand"); anything else the possessive owns -- throat, collar, chest -- is the viewer being acted upon,
+# and their body must not be drawn. Keep and retag the first, collapse the second.
 _VIEWER_LIMB_RE = re.compile(
-    r"\b(?:viewer|user|your)'?s?\s+(?:hands?|arms?|fingers?|palms?|fists?|wrists?|thumbs?)\b",
-    re.IGNORECASE,
+    r"\b(?:viewer|user|your)'?s?\s+(?:hands?|arms?|fingers?|palms?|fists?|wrists?|thumbs?)\b", re.IGNORECASE
 )
 
 
@@ -144,10 +138,9 @@ def strip_chunks(text: str, pattern: re.Pattern, *, whole: bool = True) -> str:
 def rewrite_viewer_contact(text: str) -> str:
     """Swap chunks that name contact with the viewer for tags the encoder knows.
 
-    Contact collapses to a tag, the viewer's own limb keeps its action, gaze
-    normalizes, and a chunk that merely mentions the viewer is dropped. Nothing
-    naming the viewer survives verbatim: kept, it draws the viewer's own body into
-    frame, the one thing a first-person shot must not contain.
+    Contact collapses to a tag, the viewer's own limb keeps its action, gaze normalizes, and a chunk that merely mentions the
+    viewer is dropped. Nothing naming the viewer survives verbatim: kept, it draws the viewer's own body into frame, the one
+    thing a first-person shot must not contain.
     """
     out: list[str] = []
     for chunk in (c.strip() for c in text.split(",")):
@@ -167,8 +160,7 @@ def rewrite_viewer_contact(text: str) -> str:
         if tag is None and _VIEWER_CONTACT_VERB_RE.search(chunk):
             tag = _VIEWER_FALLBACK
         if tag is None:
-            # No contact. Gaze is the only other thing worth keeping; naming the
-            # viewer any other way draws them.
+            # No contact. Gaze is the only other thing worth keeping; naming the viewer any other way draws them.
             tag = _LOOKING_AT_VIEWER if _VIEWER_GAZE_RE.search(chunk) else ""
         # Two chunks describing one grab land on the same tag; emit it once.
         if tag and tag not in out:
@@ -179,8 +171,7 @@ def rewrite_viewer_contact(text: str) -> str:
 def split_lead_count(scene: str) -> tuple[str, str]:
     """Peel the leading count/pov chunks off, as ``(count_lead, remainder)``.
 
-    Booru training puts counts first, and a long appearance in front of them pushes
-    them out of CLIP's first 77-token window.
+    Booru training puts counts first, and a long appearance in front of them pushes them out of CLIP's first 77-token window.
     """
     parts = [c.strip() for c in scene.split(",") if c.strip()]
     lead = 0
@@ -199,10 +190,9 @@ def strip_prose_count_prefix(scene: str) -> str:
 class SubjectAppearance(NamedTuple):
     """One subject's saved appearance sheet, as the injector needs it.
 
-    The pure projection of a `subjects.Subject`: a name, the fixed tags, and whether
-    the analyzer could see this person's face. Declared here rather than imported
-    because this module reads no config and calls no model, and the composer is what
-    turns a resolved subject and an analysis into one of these.
+    The pure projection of a `subjects.Subject`: a name, the fixed tags, and whether the analyzer could see this person's face.
+    Declared here rather than imported because this module reads no config and calls no model, and the composer is what turns a
+    resolved subject and an analysis into one of these.
     """
 
     name: str
@@ -230,8 +220,7 @@ def inject_profile_appearance(scene: str, subjects: Sequence[SubjectAppearance],
         return f"{name} has these traits: {fixed}." if normalized_format == "prose" else f"{name}: {fixed}"
 
     rendered = [render(name, fixed) for name, fixed in blocks]
-    # Seated right after the count anchor, so identity stays near the high-attention
-    # head rather than landing after the setting.
+    # Seated right after the count anchor, so identity stays near the high-attention head rather than landing after the setting.
     count_lead, body = split_lead_count(scene)
     if normalized_format == "prose":
         prose_body = " ".join(part for part in (*rendered, body) if part)
@@ -251,28 +240,23 @@ def strip_count_tags(text: str) -> str:
 def clean_scene(scene: str, *, prompt_format: str, pov: str) -> str:
     """Every scrub the raw composer output goes through, in one pass.
 
-    Gathered here rather than spelled out at the call site so `compose_scene` states
-    *that* the scene is cleaned without owning a list of regexes -- and so the whole
-    pass can be asserted against a literal string with no model in the loop.
+    Gathered here rather than spelled out at the call site so `compose_scene` states *that* the scene is cleaned without owning
+    a list of regexes -- and so the whole pass can be asserted against a literal string with no model in the loop.
     """
     if normalize_prompt_format(prompt_format) == "prose":
-        # Prose goes to a natural-language encoder, and every rewrite below answers a
-        # booru/CLIP failure that encoder does not have: it reads negation, it takes
-        # "camera" as the framing word every photo caption uses, and it parses
-        # grammar. Scrubbing it there only costs the model its wording -- and because
-        # a comma bounds nothing in prose, the comma-chunk cut took whole sentences
-        # back to the previous comma, or the entire scene when it had no commas.
-        # So prose keeps what the composer wrote, the call `rewrite_viewer_contact`
-        # already makes. Leaked booru count tags still go: those are the tail's own
-        # format rule broken, not a choice of words.
+        # Prose goes to a natural-language encoder, and every rewrite below answers a booru/CLIP failure that encoder does not
+        # have: it reads negation, it takes "camera" as the framing word every photo caption uses, and it parses grammar.
+        # Scrubbing it there only costs the model its wording -- and because a comma bounds nothing in prose, the comma-chunk
+        # cut took whole sentences back to the previous comma, or the entire scene when it had no commas. So prose keeps what
+        # the composer wrote, the call `rewrite_viewer_contact` already makes. Leaked booru count tags still go: those are the
+        # tail's own format rule broken, not a choice of words.
         return strip_prose_count_prefix(scene)
     # A count block ended with a period ("1boy, 1girl. Gon eats...") would hide
     # the tags from the comma-based peeling and pinning below.
     scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
-    # Tags and hybrid are comma-delimited by contract, so a chunk is one tag or one
-    # bound clause and dropping it stays surgical. Their encoders draw "no longer
-    # wearing X" as X, a booru-trained composer writes "pov" unprompted, and
-    # "camera" puts a literal one in the frame.
+    # Tags and hybrid are comma-delimited by contract, so a chunk is one tag or one bound clause and dropping it stays surgical.
+    # Their encoders draw "no longer wearing X" as X, a booru-trained composer writes "pov" unprompted, and "camera" puts a
+    # literal one in the frame.
     scene = strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
     scene = strip_chunks(scene, _POV_CHUNK_RE)
     scene = strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)

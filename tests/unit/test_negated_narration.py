@@ -1,20 +1,15 @@
 """Unit tests for the negated-narration detector (analysis/detectors/negated_narration.py).
 
-Shape fixtures run ungated (``min_hits=0``) so each asserts one rule; the gate,
-run construction, and exact offsets have their own sections. Rejected
-split-contrast inputs come from the measured corpus review: they assert the
-rejected *shape*, since a valid null reaction may remain.
+Shape fixtures run ungated (``min_hits=0``) so each asserts one rule; the gate, run construction, and exact offsets have their
+own sections. Rejected split-contrast inputs come from the measured corpus review: they assert the rejected *shape*, since a
+valid null reaction may remain.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from backend.analysis.detectors.negated_narration import (
-    NegationResult,
-    detect_negated_narration,
-    evaluate_negated_narration,
-)
+from backend.analysis.detectors.negated_narration import NegationResult, detect_negated_narration, evaluate_negated_narration
 
 
 def _ungated(text: str) -> NegationResult:
@@ -40,7 +35,7 @@ def _assert_exact(result: NegationResult) -> None:
             cursor = at + len(sentence)
 
 
-# ── 1. Shape positives and ordinary negatives ─────────────────────────────────
+# -- 1. Shape positives and ordinary negatives ---------------------------------
 
 
 @pytest.mark.parametrize(
@@ -212,7 +207,7 @@ def test_word_limits_count_words_not_punctuation():
     assert _first_kind("He didn't answer. Just waits there by the old door with folded hands tonight.") != "split_contrast"
 
 
-# ── 2. Split contrast: conservative forms and measured misses ─────────────────
+# -- 2. Split contrast: conservative forms and measured misses -----------------
 
 
 def test_split_contrast_forms():
@@ -263,7 +258,7 @@ def test_split_contrast_needs_an_affirmative_second_sentence():
     assert _kinds("She doesn't turn. She just keeps painting, and she doesn't turn around.") == [["null_reaction"]]
 
 
-# ── 3. Cascades, chaining, pivots, and the gate ───────────────────────────────
+# -- 3. Cascades, chaining, pivots, and the gate -------------------------------
 
 
 def test_cascade_is_maximal_and_counts_once():
@@ -310,11 +305,7 @@ def test_mixed_chain_keeps_constituent_counts():
     )
     (finding,) = result.findings
     assert finding.kinds == ["stacked", "cascade", "pivot"]
-    assert [(c.kind, c.sentence_count) for c in finding.constituents] == [
-        ("stacked", 1),
-        ("cascade", 2),
-        ("pivot", 1),
-    ]
+    assert [(c.kind, c.sentence_count) for c in finding.constituents] == [("stacked", 1), ("cascade", 2), ("pivot", 1)]
     assert finding.denial_count == 3
     assert result.raw_hits == 2
 
@@ -356,7 +347,7 @@ def test_min_hits_validation_and_counters_below_gate():
     assert detect_negated_narration("").density == 0.0
 
 
-# ── 4. Styles, thoughts, quotes, protected regions, boundaries ────────────────
+# -- 4. Styles, thoughts, quotes, protected regions, boundaries ----------------
 
 
 def test_prose_style_excludes_standalone_thoughts_and_dialogue():
@@ -424,8 +415,7 @@ def test_fenced_content_is_excluded_even_when_unclosed():
 
 def test_html_comment_and_ooc_blocks_are_excluded():
     text = (
-        "<div class='status'>He didn't answer. Nobody moved.</div>\n\n"
-        "<!-- It doesn't work. It can't. -->\n\n"
+        "<div class='status'>He didn't answer. Nobody moved.</div>\n\n<!-- It doesn't work. It can't. -->\n\n"
         "[OOC: I don't know. I can't say.] She sat."
     )
     result = _ungated(text)
@@ -455,7 +445,7 @@ def test_divider_is_a_barrier():
     assert _kinds("She doesn't move.\n***\nDoesn't breathe.") == [["null_reaction"]]
 
 
-# ── 5. Complete sentence targets ──────────────────────────────────────────────
+# -- 5. Complete sentence targets ----------------------------------------------
 
 
 def test_regression_12196_target_includes_inline_emphasis_payoff():
@@ -491,7 +481,7 @@ def test_double_spaces_unicode_and_outer_markers_are_preserved():
     assert finding.span == "Zoë doesn’t  move.  Doesn’t  breathe. Ñandú just waits."
 
 
-# ── 6. Exact offsets for repeated text ────────────────────────────────────────
+# -- 6. Exact offsets for repeated text ----------------------------------------
 
 
 def test_offsets_for_text_repeated_in_an_earlier_thought():
@@ -511,7 +501,7 @@ def test_offsets_for_repeated_beats():
     assert starts == [0, text.rindex(beat)]
 
 
-# ── 8. Draft-only input and evaluation style ──────────────────────────────────
+# -- 8. Draft-only input and evaluation style ----------------------------------
 
 
 def test_evaluation_reuses_an_explicit_style():

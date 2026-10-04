@@ -1,14 +1,11 @@
 """The Dynamic Worlds upgrade path (migration 0053).
 
-Fresh installs are stamped past the migration chain, so
-``test_fresh_install_stamping`` already proves ``schema.py`` and the migrations
-agree. What it cannot prove is what happens to a database that *already has
-rows*: this drives 0053 against a pre-feature schema carrying real worlds and
-lorebook entries and asserts what an upgrade must get right -- every existing
-entry backfills as ``authored`` with its id intact (so the projection sees
-exactly what it saw before), the overlay pointer survives a delete of what it
-targets, and the shape the preset engine derives its mechanics from matches a
-fresh install's, columns and FK edges alike.
+Fresh installs are stamped past the migration chain, so ``test_fresh_install_stamping`` already proves ``schema.py`` and the
+migrations agree. What it cannot prove is what happens to a database that *already has rows*: this drives 0053 against a
+pre-feature schema carrying real worlds and lorebook entries and asserts what an upgrade must get right -- every existing entry
+backfills as ``authored`` with its id intact (so the projection sees exactly what it saw before), the overlay pointer survives a
+delete of what it targets, and the shape the preset engine derives its mechanics from matches a fresh install's, columns and FK
+edges alike.
 """
 
 from __future__ import annotations
@@ -27,15 +24,13 @@ from backend.features.presets import engine as presets
 
 _MIGRATION = importlib.import_module("backend.database.migrations.0053_dynamic_worlds")
 
-# The worlds/lorebook_entries shape immediately before 0053, plus the two tables
-# world_changesets points at. Written out rather than derived, so the test still
-# describes the "before" state once schema.py has moved on.
+# The worlds/lorebook_entries shape immediately before 0053, plus the two tables world_changesets points at. Written out rather
+# than derived, so the test still describes the "before" state once schema.py has moved on.
 #
-# conversations/messages are abbreviated to what this test needs, but they must
-# still carry the branching columns (``active_leaf_id``, ``parent_id``). Those
-# predate the whole migration chain, so every real database has them and
-# schema.py indexes them directly -- a fixture without them is not a state any
-# upgrade actually starts from, and init_db's CREATE INDEX would fail on it.
+# conversations/messages are abbreviated to what this test needs, but they must still carry the branching columns
+# (``active_leaf_id``, ``parent_id``). Those predate the whole migration chain, so every real database has them and schema.py
+# indexes them directly -- a fixture without them is not a state any upgrade actually starts from, and init_db's CREATE INDEX
+# would fail on it.
 _PRE_0053_SQL = """
 CREATE TABLE worlds (
     id TEXT PRIMARY KEY,
@@ -110,10 +105,7 @@ def test_existing_entries_backfill_as_authored(tmp_path):
             "SELECT id, name, content, entry_layer, overlay_action, supersedes_entry_id, archived"
             " FROM lorebook_entries ORDER BY id"
         ).fetchall()
-        assert rows == [
-            (1, "Alpha", "body", "authored", "", None, 0),
-            (2, "Beta", "body", "authored", "", None, 0),
-        ]
+        assert rows == [(1, "Alpha", "body", "authored", "", None, 0), (2, "Beta", "body", "authored", "", None, 0)]
     finally:
         conn.close()
 
@@ -153,15 +145,13 @@ async def test_existing_database_migrates_before_latest_schema_indexes_run(tmp_p
     try:
         conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))")
         conn.executemany(
-            "INSERT INTO schema_migrations (id) VALUES (?)",
-            [(name,) for name in MIGRATIONS if name < "0053_dynamic_worlds"],
+            "INSERT INTO schema_migrations (id) VALUES (?)", [(name,) for name in MIGRATIONS if name < "0053_dynamic_worlds"]
         )
         conn.commit()
     finally:
         conn.close()
 
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
 
     async with api_module.lifespan(FastAPI()):
         pass

@@ -6,14 +6,11 @@ import json
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from ....core import extract_hyperparams
-from ....inference import (
-    CachedBase,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.lorebook import director_pick_diagnostics
 from ....prompting.tool_schemas import SELECT_LOREBOOK_CHOICE
 from .prompts import build_lorebook_select_prompt
@@ -21,10 +18,7 @@ from .prompts import build_lorebook_select_prompt
 logger = logging.getLogger(__name__)
 
 
-def _log_director_pick_diagnostics(
-    entries: Sequence[Mapping[str, object]],
-    picks: Sequence[str],
-) -> None:
+def _log_director_pick_diagnostics(entries: Sequence[Mapping[str, object]], picks: Sequence[str]) -> None:
     recovered, unmatched = director_pick_diagnostics(entries, picks)
     if recovered:
         logger.warning(
@@ -34,9 +28,7 @@ def _log_director_pick_diagnostics(
         )
     if unmatched:
         logger.info(
-            "Lorebook: %d director pick(s) named no entry: %s",
-            len(unmatched),
-            ", ".join(repr(pick) for pick in unmatched),
+            "Lorebook: %d director pick(s) named no entry: %s", len(unmatched), ", ".join(repr(pick) for pick in unmatched)
         )
 
 
@@ -44,13 +36,12 @@ def _log_director_pick_diagnostics(
 class LorebookSelectResult:
     """Typed result of the lorebook-select step, yielded as the ``done`` payload.
 
-    ``selected`` is the list of chosen entry names (fed into the writer's lorebook
-    block); ``calls`` is the parsed ``select_lorebook`` call, appended to the turn's
-    tool calls so the picks stay visible in the conversation log / inspector.
+    ``selected`` is the list of chosen entry names (fed into the writer's lorebook block); ``calls`` is the parsed
+    ``select_lorebook`` call, appended to the turn's tool calls so the picks stay visible in the conversation log / inspector.
     """
 
     selected: list[str] = field(default_factory=list)
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
 
 
 async def lorebook_select_step(
@@ -64,13 +55,14 @@ async def lorebook_select_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning chunks during the call, then a single done dict.
 
     One forced ``select_lorebook`` call; the catalog rides the OOC trailing.
 
     Yields:
         ``{"type": "reasoning", "delta": str}``
+        ``{"type": "failure", "error": Exception}`` when the call fails
         ``{"type": "done", "result": LorebookSelectResult}``
     """
     if not catalog:
@@ -79,9 +71,9 @@ async def lorebook_select_step(
 
     request = build_lorebook_select_prompt(catalog, user_message, reasoning_on=reasoning_on)
     trailing = [{"role": "user", "content": request}]
-    hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
+    hyperparams = extract_hyperparams(settings, lane="agent")
 
-    resp: dict = {}
+    resp: CompletionMessage = {}
     try:
         async for event in base.complete_into(
             client,
@@ -94,10 +86,11 @@ async def lorebook_select_step(
             **reasoning_cfg(reasoning_on, reasoning_prefill),
         ):
             yield event
-    except Exception:
+    except Exception as exc:
         # A failed call selects nothing but must not propagate: the writer still runs
         # with the deterministic constant/keyword lorebook entries.
         logger.exception("Lorebook-select call failed; selecting nothing")
+        yield {"type": "failure", "error": exc}
         yield {"type": "done", "result": LorebookSelectResult()}
         return
 

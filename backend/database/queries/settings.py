@@ -4,9 +4,19 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db, select_rows
 from ..models import SettingsRow
-from ..seeds import DEFAULT_SETTINGS
+from ..seeds import DEFAULT_CONNECTION, DEFAULT_SETTINGS
+
+# What get_settings() reports when no active endpoint, or no active Writer model config on it, supplies these keys: no
+# connection and no model, so a turn fails at the client instead of reaching a server nobody selected, and the default
+# connection's samplers.
+_UNSELECTED_CONNECTION: dict[str, Any] = {
+    "endpoint_url": "",
+    "api_key": "",
+    "model_name": "",
+    **{key: DEFAULT_CONNECTION[key] for key in ("temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens")},
+}
 
 
 async def get_settings() -> SettingsRow:
@@ -41,9 +51,8 @@ async def get_settings() -> SettingsRow:
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
-        # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
-        # active endpoint's active model config so callers always get live values
-        # rather than the stale flat columns.
+        # The active endpoint supplies the connection, and its active model config the model and hyperparameters.
+        s.update(_UNSELECTED_CONNECTION)
         active_ep_id = s.get("active_endpoint_id")
         if active_ep_id:
             ep_rows = list(
@@ -54,6 +63,8 @@ async def get_settings() -> SettingsRow:
             )
             if ep_rows:
                 ep = dict(ep_rows[0])
+                s["endpoint_url"] = ep["url"]
+                s["api_key"] = ep["api_key"]
                 s["completion_mode"] = ep.get("completion_mode", "chat")
                 s["proxy"] = ep.get("proxy", "")
                 mc_id = ep.get("active_model_config_id")
@@ -85,9 +96,8 @@ async def get_settings() -> SettingsRow:
                             "extra_headers",
                             "extra_body",
                         ):
-                            # A NULL sampler is an explicit instruction to omit
-                            # that request key.  Do not retain the legacy flat
-                            # setting beneath it, or it would be sent anyway.
+                            # A NULL sampler is an explicit instruction to omit that request key, so it replaces the
+                            # fallback rather than falling through to it.
                             s[field] = mc.get(field)
                         if mc.get("system_prompt") is not None:
                             s["system_prompt"] = mc["system_prompt"]
@@ -137,8 +147,7 @@ async def get_settings() -> SettingsRow:
                             "extra_headers",
                             "extra_body",
                         ):
-                            # Keep NULL as a present agent-lane override; the
-                            # extractor distinguishes it from no agent config.
+                            # Keep NULL as a present agent-lane override; the extractor distinguishes it from no agent config.
                             s[f"agent_{field}"] = amc.get(field)
                         if amc.get("system_prompt") is not None:
                             s["agent_system_prompt"] = amc["system_prompt"]
@@ -148,52 +157,34 @@ async def get_settings() -> SettingsRow:
         s.setdefault("agent_completion_mode", s["completion_mode"])
         s.setdefault("proxy", "")
         s.setdefault("agent_proxy", s["proxy"])
-        for field in (
-            "reasoning_effort",
-            "reasoning_effort_param",
-            "reasoning_effort_value",
-            "extra_headers",
-            "extra_body",
-        ):
+        for field in ("reasoning_effort", "reasoning_effort_param", "reasoning_effort_value", "extra_headers", "extra_body"):
             s.setdefault(field, "")
             s.setdefault(f"agent_{field}", s[field])
         return cast(SettingsRow, s)
 
 
-# Empty slot returns {} here; per-workflow default fallback lives in the
-# registry wrapper that owns the Workflow objects, so this layer stays free
-# of upward imports into the workflow package.
+# Empty slot returns {} here; per-workflow default fallback lives in the registry wrapper that owns the Workflow objects, so
+# this layer stays free of upward imports into the workflow package.
 
 
 async def get_workflow_config(workflow_id: str) -> dict:
     """Return the workflow's slot, or {} if the slot is empty."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT json_extract(workflow_config, '$.' || ?) AS slot FROM settings WHERE id = 1",
-                (workflow_id,),
-            )
-        )
-        if not rows:
-            return {}
-        slot = rows[0]["slot"]
-        if slot is None:
-            return {}
-        return json.loads(slot)
+    rows = await select_rows(
+        "SELECT json_extract(workflow_config, '$.' || ?) AS slot FROM settings WHERE id = 1", (workflow_id,)
+    )
+    if not rows:
+        return {}
+    slot = rows[0]["slot"]
+    if slot is None:
+        return {}
+    return json.loads(slot)
 
 
 async def set_workflow_config(workflow_id: str, payload: dict) -> None:
-    """Atomic per-slot write via SQLite JSON1.
+    """Atomically replace one config slot; an empty dict removes it.
 
-    Empty dict clears the slot (json_remove); non-empty stores it (json_set).
-
-    Caller must hold ``backend.core.locks.workflow_config_lock()`` across the
-    read-then-write the payload was computed from. Direct use without the
-    lock is safe for blind-replace writes -- a single ``json_set`` is
-    atomic at the SQL layer -- but RMW sequences (``get_workflow_config``
-    -> mutate -> ``set_workflow_config``) silently lose writes under
-    contention because the read happens in a separate transaction outside
-    the lock window.
+    Hold workflow_config_lock across read-modify-write sequences. Blind replaces
+    need no lock, but a prior read outside the lock can lose concurrent updates.
     """
     async with get_db() as db:
         if not payload:
@@ -212,15 +203,9 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
 
 
 async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
-    """Set one workflow's on/off flag via a per-key JSON1 write.
+    """Atomically set one workflow flag without replacing other map entries.
 
-    Writes only the named key in the ``workflow_enabled`` map, never the whole
-    column, so two tabs flipping different workflows cannot clobber each other.
-    The ``json_set`` is a single atomic statement at the SQL layer with no
-    Python-side read-modify-write window, so it needs no application lock --
-    unlike ``set_workflow_config``, whose callers compute the payload from a
-    prior read. A missing key reads back as enabled, so this is the only writer
-    the per-workflow toggle ever needs.
+    No read-modify-write lock is needed; absent flags read as enabled.
     """
     async with get_db() as db:
         await db.execute(
@@ -235,9 +220,8 @@ async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
 async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
     """Set one local-ML feature's on/off flag via a per-key JSON1 write.
 
-    Near-identical to ``set_workflow_enabled``: a single atomic ``json_set`` on
-    the named key only, so concurrent tabs flipping different features can't
-    clobber each other and no application lock is needed. Missing key => enabled.
+    Near-identical to ``set_workflow_enabled``: a single atomic ``json_set`` on the named key only, so concurrent tabs flipping
+    different features can't clobber each other and no application lock is needed. Missing key => enabled.
     """
     async with get_db() as db:
         await db.execute(
@@ -250,15 +234,8 @@ async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
 
 
 async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
-    """Replace one local-ML feature's config blob via a per-key JSON1 write.
-
-    Same atomic ``json_set`` idiom as ``set_local_ml_enabled``: one named key,
-    so two features written concurrently can't clobber each other. The value is
-    the feature's whole config object (variant + gpu + batch size for the prose
-    rewriter), replaced rather than merged — the route sends the full shape.
-
-    Deliberately NOT in ``update_settings``'s allow-list, the same documented
-    exception ``local_ml_enabled`` has: this route is the only writer.
+    """Atomically replace one feature's complete Local ML config without touching
+    other features. The dedicated route is its only writer.
     """
     async with get_db() as db:
         await db.execute(
@@ -271,13 +248,8 @@ async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
 async def update_settings(data: dict) -> SettingsRow:
     async with get_db() as db:
         allowed = [
-            "endpoint_url",
-            "api_key",
-            "model_name",
-            # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
-            # max_tokens) are deliberately excluded: get_settings() always overlays
-            # them from the active model_config, so writing them here is a dead path.
-            # They are edited via /models/{id}. See SettingsUpdate for the contract.
+            # The connection, model name and hyperparameters are not settings columns: they are edited on the endpoint
+            # (/endpoints/{id}) and its model config (/models/{id}). See SettingsUpdate for the contract.
             "shared_system_prompt",
             "system_prompt",
             "user_name",
@@ -311,13 +283,12 @@ async def update_settings(data: dict) -> SettingsRow:
             "director_individual_fragments",
             "inspector_open_states",
             "workflows_globally_enabled",
-            # The artifact cache's size cap. Editable so artifacts self-trim at a
-            # size the user picked; the LRU-3 eviction that enforces it already
-            # runs on every attachment write. Stays in PRESERVED_COLUMNS, so an
-            # imported preset never overwrites this machine's storage limit.
+            # The artifact cache's size cap. Editable so artifacts self-trim at a size the user picked; the LRU-3 eviction that
+            # enforces it already runs on every attachment write. Stays in PRESERVED_COLUMNS, so an imported preset never
+            # overwrites this machine's storage limit.
             "attachment_cache_budget_bytes",
         ]
-        sets, vals = _build_set_clause(
+        sets, vals = build_set_clause(
             allowed,
             data,
             json_fields={
@@ -331,19 +302,19 @@ async def update_settings(data: dict) -> SettingsRow:
         )
         if sets:
             await db.execute(
-                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()
         return await get_settings()
 
 
-# ── Decision classifier configuration ──
+# -- Decision classifier configuration --
 # Keep endpoint-kind validation out of the generic settings writer.
 async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
-    sets, vals = _build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
+    sets, vals = build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
     if sets:
         async with get_db() as db:
-            await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)  # nosec B608 — hardcoded allowlist
+            await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)  # nosec B608 -- hardcoded allowlist
             await db.commit()
     return await get_settings()

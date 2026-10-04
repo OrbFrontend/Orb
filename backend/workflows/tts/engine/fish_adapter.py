@@ -39,17 +39,13 @@ class FishSpeechAdapter(TTSAdapter):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        body = {
-            "text": text,
-            "format": "mp3",
-            "normalize": True,
-        }
+        body = {"text": text, "format": "mp3", "normalize": True}
 
         # voice_id = Fish Speech reference_id
         if voice_id and voice_id != "default":
             body["reference_id"] = voice_id
 
-        # Map rate to temperature (loose mapping — faster = lower temp)
+        # Map rate to temperature (loose mapping -- faster = lower temp)
         temp = max(0.1, min(1.0, 0.8 / max(rate, 0.1)))
         body["temperature"] = round(temp, 2)
 
@@ -57,25 +53,11 @@ class FishSpeechAdapter(TTSAdapter):
             resp = await client.post(url, json=body, headers=headers)
             resp.raise_for_status()
 
-        logger.info(
-            "Fish TTS: %d chars -> %d bytes (ref=%s)",
-            len(text),
-            len(resp.content),
-            voice_id or "default",
-        )
+        logger.info("Fish TTS: %d chars -> %d bytes (ref=%s)", len(text), len(resp.content), voice_id or "default")
 
-        return SynthesisResult(
-            audio_bytes=resp.content,
-            content_type="audio/mpeg",
-        )
+        return SynthesisResult(audio_bytes=resp.content, content_type="audio/mpeg")
 
-    async def list_voices(
-        self,
-        language: str = "",
-        api_url: str = "",
-        api_key: str | None = None,
-        **kwargs,
-    ) -> list[dict]:
+    async def list_voices(self, language: str = "", api_url: str = "", api_key: str | None = None, **kwargs) -> list[dict]:
         """Fetch voice references from /v1/references/list."""
         base_url = (api_url or "http://localhost:8080").rstrip("/")
         headers = {}

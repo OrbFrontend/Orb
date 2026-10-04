@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import pytest
 
-import backend.inference.client as llm_mod
+from backend.inference import EndpointConfigError
 from backend.inference.client import (
     LLMClient,
     agent_client_from_settings,
@@ -13,15 +13,11 @@ from backend.inference.client import (
     client_from_settings,
     reasoning_cfg,
 )
+from tests.http_stream import capture_wire_body as _wire_body
 
 
 def _enabled_body() -> dict:
-    return {
-        "model": "m",
-        "messages": [],
-        "reasoning": {"enabled": True},
-        "thinking": {"type": "enabled"},
-    }
+    return {"model": "m", "messages": [], "reasoning": {"enabled": True}, "thinking": {"type": "enabled"}}
 
 
 def test_reasoning_cfg_on_carries_no_effort():
@@ -112,38 +108,28 @@ def test_agent_factory_falls_back_to_writer_effort():
 
 
 def test_agent_factory_prefers_agent_effort():
-    settings = {
-        "endpoint_url": "http://localhost:5000/v1",
-        "reasoning_effort": "low",
-        "agent_reasoning_effort": "high",
-    }
+    settings = {"endpoint_url": "http://localhost:5000/v1", "reasoning_effort": "low", "agent_reasoning_effort": "high"}
     client = agent_client_from_settings(settings)
     assert client.reasoning_effort == "high"
 
 
 def test_agent_lane_reuses_writer_client_in_single_model():
-    settings = {
-        "endpoint_url": "http://writer:5000/v1",
-        "model_name": "writer-model",
-        "agent_same_as_writer": True,
-    }
+    settings = {"endpoint_url": "http://writer:5000/v1", "model_name": "writer-model", "agent_same_as_writer": True}
     writer = client_from_settings(settings)
     client, model = agent_lane_from_settings(settings, writer_client=writer)
     assert client is writer
     assert model == "writer-model"
 
 
-def test_agent_lane_reuses_writer_client_when_dual_config_is_incomplete():
-    settings = {
-        "endpoint_url": "http://writer:5000/v1",
-        "model_name": "writer-model",
-        "agent_same_as_writer": False,
-        "agent_endpoint_id": 2,
-    }
+@pytest.mark.parametrize(
+    ("agent", "missing"), [({}, "no Agent endpoint is selected"), ({"agent_endpoint_id": 2}, "has no model selected")]
+)
+def test_a_half_configured_agent_lane_names_what_to_pick(agent, missing):
+    # Turning "Same as Writer" off is the choice of a separate lane; running the Agent on the Writer instead would make it a lie.
+    settings = {"endpoint_url": "http://writer:5000/v1", "model_name": "writer-model", "agent_same_as_writer": False, **agent}
     writer = client_from_settings(settings)
-    client, model = agent_lane_from_settings(settings, writer_client=writer)
-    assert client is writer
-    assert model == "writer-model"
+    with pytest.raises(EndpointConfigError, match=missing):
+        agent_lane_from_settings(settings, writer_client=writer)
 
 
 def test_agent_lane_uses_configured_dual_model_client():
@@ -164,45 +150,7 @@ def test_agent_lane_uses_configured_dual_model_client():
     assert model == "agent-model"
 
 
-# ── Wire-level: the client attribute must land in the outbound body ──────────
-
-
-class _FakeStream:
-    status_code = 200
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def aiter_lines(self):
-        yield 'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}'
-        yield "data: [DONE]"
-
-
-class _FakeAsyncClient:
-    def __init__(self, *a, **k):
-        self.bodies = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    def stream(self, method, url, json=None, headers=None):
-        self.bodies.append(dict(json or {}))
-        return _FakeStream()
-
-
-async def _wire_body(client: LLMClient, **params) -> dict:
-    fake = _FakeAsyncClient()
-    with patch.object(llm_mod.httpx, "AsyncClient", lambda *a, **k: fake):
-        async for _ in client.complete([], "m", **params):
-            pass
-    assert len(fake.bodies) == 1
-    return fake.bodies[0]
+# -- Wire-level: the client attribute must land in the outbound body ----------
 
 
 async def test_wire_level_reaches_body():
@@ -229,13 +177,3 @@ async def test_wire_reasoning_off_sends_no_effort():
     body = await _wire_body(client, **reasoning_cfg(False))
     assert "reasoning_effort" not in body
     assert body["reasoning"] == {"effort": "none", "enabled": False}
-
-
-async def test_wire_deepseek_profile_strips_effort():
-    # DeepSeek's allowlist passes 'thinking' but drops the OpenAI/OpenRouter
-    # effort dialects; the injection must not survive the profile.
-    client = LLMClient("https://api.deepseek.com/v1", reasoning_effort="high")
-    body = await _wire_body(client, **reasoning_cfg(True))
-    assert "reasoning_effort" not in body
-    assert "reasoning" not in body
-    assert body["thinking"] == {"type": "enabled"}

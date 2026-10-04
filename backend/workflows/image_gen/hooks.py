@@ -6,10 +6,14 @@ import asyncio
 import base64
 import logging
 import secrets
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
 from ..toolkit import (
+    OnDemandCtx,
+    PublicEvent,
+    RegenCtx,
+    RerollGenCtx,
     WorkflowEventStream,
     build_offturn_prefix,
     conversation_macros,
@@ -52,20 +56,12 @@ from .engine import (
 )
 from .engine.contracts import ImageResult, ResolvedReference
 from .engine.display_encode import shrink_for_review
-from .references import (
-    last_reply_image,
-    plan_slots,
-    previous_image,
-    refetch_references,
-    replay_slots,
-    resolve_references,
-)
+from .references import last_reply_image, plan_slots, previous_image, refetch_references, replay_slots, resolve_references
 from .subjects import Subject
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
-# Saves one render as soon as it lands and answers its row id, or None when it is
-# held for the hook's return instead.
+# Saves one render as soon as it lands and answers its row id, or None when it is held for the hook's return instead.
 Keep = Callable[[dict], Awaitable[int | None]]
 
 
@@ -85,12 +81,11 @@ def _fresh_seed() -> int:
     return fold_seed(secrets.token_hex(16))
 
 
-async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
+async def _render_inputs(ctx: OnDemandCtx | RegenCtx, body: Mapping[str, Any]) -> tuple[dict, str, dict]:
     """What every fresh render reads before composing: `(config, style_id, profile)`.
 
-    One place, because the on-demand and regenerate paths must answer "which style,
-    which character appearance" identically -- a regenerate that resolved the style
-    differently would silently re-render on another backend.
+    One place, because the on-demand and regenerate paths must answer "which style, which character appearance" identically -- a
+    regenerate that resolved the style differently would silently re-render on another backend.
     """
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     requested = body.get("style_id") if isinstance(body, Mapping) else None
@@ -98,18 +93,17 @@ async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
     return config, requested or config["default_style"], profile
 
 
-def _phase(label: str) -> dict:
+def _phase(label: str) -> PublicEvent:
     return {"event": "phase_status", "data": {"label": label}}
 
 
-def _terminal(attachment_id: int | None, error: str | None) -> list[dict]:
+def _terminal(attachment_id: int | None, error: str | None) -> list[PublicEvent]:
     """The events every generate stream ends on, success or failure.
 
-    Clients finish on `image_gen_done`, not on stream close, so this sequence is
-    the contract: at most one error, the phase reset, then the terminal event.
-    Transport-neutral; the API layer serializes them to SSE frames.
+    Clients finish on `image_gen_done`, not on stream close, so this sequence is the contract: at most one error, the phase
+    reset, then the terminal event. Transport-neutral; the API layer serializes them to SSE frames.
     """
-    events: list[dict] = [{"event": "image_gen_error", "data": {"message": error}}] if error else []
+    events: list[PublicEvent] = [{"event": "image_gen_error", "data": {"message": error}}] if error else []
     events.append({"event": "phase_status", "data": {"state": "done"}})
     events.append({"event": "image_gen_done", "data": {"attachment_id": attachment_id}})
     return events
@@ -122,7 +116,7 @@ def _failed_stream(message: str) -> WorkflowEventStream:
     no terminal event, and a button that silently re-enables with nothing shown.
     """
 
-    async def events():
+    async def events() -> AsyncIterator[PublicEvent]:
         for event in _terminal(None, message):
             yield event
 
@@ -156,9 +150,8 @@ def _reporting(emit: Callable[[str], None], *, reason: str = "") -> ProgressCall
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
     """History up to and including the anchor message.
 
-    Raises when the anchor is not on it. `get_message_by_id` proves conversation
-    membership but not branch membership, so a message on an inactive branch would
-    otherwise compose from replies that came *after* the one being visualized.
+    Raises when the anchor is not on it. `get_message_by_id` proves conversation membership but not branch membership, so a
+    message on an inactive branch would otherwise compose from replies that came *after* the one being visualized.
     """
     result: list[dict] = []
     for msg in history:
@@ -168,24 +161,15 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
     raise ValueError("that message is not on this conversation's active branch")
 
 
-_REPLAYED_FACTS = (
-    "workflow_id",
-    "backend_model",
-    "width",
-    "height",
-    "quality",
-    "reference_source",
-    "negative_prompt_sent",
-)
+_REPLAYED_FACTS = ("workflow_id", "backend_model", "width", "height", "quality", "reference_source", "negative_prompt_sent")
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
 def _render_record(result, *, source: str) -> dict:
     """What a render reported about itself, in the shape a replay reads back.
 
-    Shared by the fresh path and the reroll path, because the sibling a reroll
-    persists is itself rehydratable: a record naming the parent's target would pin
-    the wrong one for every later replay of a row that never rendered on it.
+    Shared by the fresh path and the reroll path, because the sibling a reroll persists is itself rehydratable: a record naming
+    the parent's target would pin the wrong one for every later replay of a row that never rendered on it.
     """
     info: Mapping[str, Any] = result.backend_info
     return {
@@ -228,13 +212,7 @@ def _metadata(
 
 
 def _consumption(
-    style: Mapping[str, Any],
-    prompt: str,
-    negative_prompt: str,
-    result,
-    record: Mapping[str, Any],
-    *,
-    source_label: str,
+    style: Mapping[str, Any], prompt: str, negative_prompt: str, result, record: Mapping[str, Any], *, source_label: str
 ) -> dict:
     info: Mapping[str, Any] = result.backend_info
     notes = list(info.get("notes") or [])
@@ -305,8 +283,7 @@ def _referenced_cards(sent: Sequence[Mapping[str, Any]]) -> set[str]:
 
 
 def _names_phrase(names: Sequence[str]) -> str:
-    """A readable list of names, bounded -- a twelve-hander must not print twelve
-    names into one disclosure line."""
+    """A readable list of names, bounded -- a twelve-hander must not print twelve names into one disclosure line."""
     if len(names) > 3:
         return f"{', '.join(names[:3])} and {len(names) - 3} others"
     if len(names) > 1:
@@ -314,12 +291,7 @@ def _names_phrase(names: Sequence[str]) -> str:
     return names[0] if names else ""
 
 
-def _uncovered_note(
-    addressable: Sequence[Subject],
-    sent: Sequence[Mapping[str, Any]],
-    declared: int,
-    capacity: int,
-) -> str:
+def _uncovered_note(addressable: Sequence[Subject], sent: Sequence[Mapping[str, Any]], declared: int, capacity: int) -> str:
     """Describe subjects that exceed the available reference slots."""
     covered = _referenced_cards(sent)
     in_frame = [subject for subject in addressable if subject.card_id and subject.name]
@@ -335,9 +307,8 @@ def _uncovered_note(
 def _unfilled_note(unfilled: int, filled: int) -> str:
     """What an optional slot that resolved to nothing is disclosed as.
 
-    Count-aware because a target may declare several: "drawn from the prompt alone" is
-    only true when *nothing* resolved, and saying it with one of two slots filled tells
-    the user the opposite of what happened.
+    Count-aware because a target may declare several: "drawn from the prompt alone" is only true when *nothing* resolved, and
+    saying it with one of two slots filled tells the user the opposite of what happened.
     """
     if not filled:
         return "no reference image was available, so this was drawn from the prompt alone"
@@ -397,9 +368,8 @@ async def _generate_fresh(
 ) -> None:
     """Compose and render an image for `message`, handing each render to `keep`.
 
-    With refinement on, every revision is kept too, as it lands: the prompter's
-    pick is only the last one, and the user may prefer an earlier render or stop
-    the run once one is good enough. Review reasons appear only in live progress.
+    With refinement on, every revision is kept too, as it lands: the prompter's pick is only the last one, and the user may
+    prefer an earlier render or stop the run once one is good enough. Review reasons appear only in live progress.
     """
     history = _history_through(history if history is not None else ctx.history, int(message["id"]))
     if prefix is None:
@@ -408,18 +378,8 @@ async def _generate_fresh(
     selected_style = macros_mod.expand_style(resolve_style(config, style_id), macros)
     adapter = get_adapter(config, selected_style)
     target = adapter.resolve_target(None)
-    # The order is load-bearing, and each step depends on the one above it:
-    #
-    #   camera   -> which subjects can be visible from the chosen viewpoint
-    #   subjects -> who this render is a picture of, primary first
-    #   selector -> which of them is actually in frame and which guidance to load
-    #   slots    -> whose likeness leaves the machine, one image per person
-    #   composer -> what the prompt says about the pictures that went with it
-    #
-    # The selector sits *above* the slots rather than inside the compose call so that a
-    # member who spoke in the round but walked out of the shot never has their face
-    # uploaded: an edit model handed a likeness the prompt never mentions draws that
-    # person back in. `addressable_subjects` is the join, and it costs no extra call.
+    # Resolve camera -> subjects -> selector -> slots -> composer in dependency order. Select in-frame subjects before
+    # references so absent cast members' likenesses are not uploaded and accidentally drawn back into the image.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     subjects = macros_mod.expand_subjects(
@@ -448,11 +408,10 @@ async def _generate_fresh(
         if config.get("scene_skills_enabled")
         else SkillSelection()
     )
-    # Hoisted rather than inlined: this is the list the render is actually *of*, so both
-    # the slots and the disclosure below read the same answer rather than the wider
-    # candidate list. The chat image is found once, because the plan depends on whether
-    # there is one -- `previous_or_character` asks for one slot when the chat has an
-    # image and one per character when it does not.
+    # Hoisted rather than inlined: this is the list the render is actually *of*, so both the slots and the disclosure below read
+    # the same answer rather than the wider candidate list. The chat image is found once, because the plan depends on whether
+    # there is one -- `previous_or_character` asks for one slot when the chat has an image and one per character when it does
+    # not.
     selected_visible = selection.visible_subjects if selection.valid else None
     addressable = addressable_subjects(subjects, selected_visible)
     previous = previous_image(history, int(message["id"]))
@@ -503,9 +462,8 @@ async def _generate_fresh(
     seed = _fresh_seed()
 
     async def render(prompt: str, negative: str, reason: str = "") -> ImageResult:
-        # A revision keeps the seed of the render it corrects, so the two differ by
-        # their prompts alone, unless its review asked for a new seed: a mangled
-        # image, or a fix the prompt already tried, is often the seed's doing.
+        # A revision keeps the seed of the render it corrects, so the two differ by their prompts alone, unless its review asked
+        # for a new seed: a mangled image, or a fix the prompt already tried, is often the seed's doing.
         return await resolve_and_generate(
             adapter,
             ImageRequest(
@@ -539,8 +497,7 @@ async def _generate_fresh(
         consumption = _consumption(selected_style, prompt, negative, result, md, source_label=adapter.label)
         if unfilled > 0:
             consumption.setdefault("notes", []).append(_unfilled_note(unfilled, len(references)))
-        # Read the adapter's record rather than the plan: it is the authoritative list of
-        # what the image model was given.
+        # Read the adapter's record rather than the plan: it is the authoritative list of what the image model was given.
         uncovered = _uncovered_note(addressable, md["references"], len(slots), target.reference_capacity)
         if uncovered:
             consumption.setdefault("notes", []).append(uncovered)
@@ -572,9 +529,8 @@ async def _generate_fresh(
                 reseeded=reseeded,
             )
         except PrompterCallError as exc:
-            # The provider refused the review, most often a prompter that cannot read
-            # images. The renders already kept stay; the run ends on the provider's error
-            # rather than a quiet stop that leaves the setting looking inert.
+            # The provider refused the review, most often a prompter that cannot read images. The renders already kept stay; the
+            # run ends on the provider's error rather than a quiet stop that leaves the setting looking inert.
             logger.warning("[image_gen] review of render %d failed; keeping it: %s", current, exc)
             raise ImageGenerationError(
                 f"Review of render {current} failed: {exc}. Review turns need a prompter model that accepts images."
@@ -605,15 +561,14 @@ async def _generate_fresh(
         try:
             revised = await render(revised_prompt, revised_negative, reason)
         except ImageGenerationError as exc:
-            # The renders already kept are still good answers; a failed revision
-            # only ends the refinement.
+            # The renders already kept are still good answers; a failed revision only ends the refinement.
             logger.warning("[image_gen] revision render failed; keeping render %d: %s", current, exc)
             phase(f"Revision render failed; keeping render {current}.")
             break
         attachment = await save(revised, revised_prompt, revised_negative)
 
 
-async def _generate_response(ctx, body) -> WorkflowEventStream:
+async def _generate_response(ctx: OnDemandCtx, body: Mapping[str, Any]) -> WorkflowEventStream:
     mid = body.get("message_id")
     if not isinstance(mid, int) or isinstance(mid, bool):
         return _failed_stream("message_id (int) required")
@@ -630,10 +585,10 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         return _failed_stream(str(exc))
     prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
 
-    async def stream():
+    async def stream() -> AsyncIterator[PublicEvent]:
         kept: list[int] = []
         error: str | None = None
-        updates: asyncio.Queue[dict] = asyncio.Queue()
+        updates: asyncio.Queue[PublicEvent] = asyncio.Queue()
 
         def phase(label: str) -> None:
             updates.put_nowait(_phase(label))
@@ -723,13 +678,13 @@ async def _set_profile(ctx, body) -> dict:
 _ON_DEMAND_ACTIONS = {"generate": _generate_response, "get_profile": _get_profile, "set_profile": _set_profile}
 
 
-async def on_demand(ctx, body):
+async def on_demand(ctx: OnDemandCtx, body: dict):
     action = body.get("action") if isinstance(body, dict) else None
     handler = _ON_DEMAND_ACTIONS.get(action) if isinstance(action, str) else None
     return await handler(ctx, body) if handler else {"error": f"unknown action: {action!r}"}
 
 
-async def regenerate(ctx, body):
+async def regenerate(ctx: RegenCtx, body: dict) -> list[dict]:
     message = await get_message_by_id(ctx.message_id)
     if message is None or message.get("role") != "assistant":
         return []
@@ -753,7 +708,7 @@ async def regenerate(ctx, body):
     return returned
 
 
-async def reroll_gen(ctx, params, seed):
+async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
     if not isinstance(params, dict):
         raise ValueError("stored image parameters are missing")
     prompt, negative, style_id = params.get("prompt"), params.get("negative_prompt"), params.get("style_id")

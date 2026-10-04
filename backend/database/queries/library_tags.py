@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ..connection import get_db, immediate_tx
+from ..connection import get_db, immediate_tx, select_rows
 
 
 class VocabularyConflict(RuntimeError):
@@ -13,17 +13,15 @@ class VocabularyConflict(RuntimeError):
 
 async def get_vocabulary() -> list[str]:
     """The curated tag names, in the order the user arranged them."""
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT name FROM library_tags ORDER BY position, name"))
-        return [str(r["name"]) for r in rows]
+    rows = await select_rows("SELECT name FROM library_tags ORDER BY position, name")
+    return [str(r["name"]) for r in rows]
 
 
 async def replace_vocabulary(names: list[str], *, expected: list[str], new_hash: str) -> int:
     """Atomically replace the vocabulary and reconcile owned card tags.
 
-    Returns the number of cards whose visible tag list changed.  ``expected`` is
-    checked under SQLite's write lock so a second process or stale browser cannot
-    overwrite a vocabulary it did not read.
+    Returns the number of cards whose visible tag list changed. ``expected`` is checked under SQLite's write lock so a second
+    process or stale browser cannot overwrite a vocabulary it did not read.
     """
     async with immediate_tx() as db:
         rows = list(await db.execute_fetchall("SELECT name FROM library_tags ORDER BY position, name"))
@@ -40,8 +38,7 @@ async def replace_vocabulary(names: list[str], *, expected: list[str], new_hash:
         if current != names:
             await db.execute("DELETE FROM library_tags")
             await db.executemany(
-                "INSERT INTO library_tags (name, position) VALUES (?, ?)",
-                [(name, i) for i, name in enumerate(names)],
+                "INSERT INTO library_tags (name, position) VALUES (?, ?)", [(name, i) for i, name in enumerate(names)]
             )
 
         updates: list[tuple[str, str]] = []
@@ -94,34 +91,28 @@ _PENDING_WHERE = "WHERE auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != 
 
 async def get_auto_tag_counts(vocab_hash: str | None) -> dict[str, int]:
     """Return the manager counts in one card-table scan and one snapshot."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT COUNT(*) AS total, "
-                "COALESCE(SUM(CASE WHEN auto_tag_vocab_hash != '' THEN 1 ELSE 0 END), 0) AS tagged, "
-                "COALESCE(SUM(CASE WHEN ? IS NOT NULL AND "
-                "(auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != updated_at) THEN 1 ELSE 0 END), 0) AS pending "
-                "FROM character_cards",
-                (vocab_hash, vocab_hash),
-            )
-        )
-        if not rows:
-            return {"total": 0, "tagged": 0, "pending": 0}
-        return {key: int(rows[0][key]) for key in ("total", "tagged", "pending")}
+    rows = await select_rows(
+        "SELECT COUNT(*) AS total, "
+        "COALESCE(SUM(CASE WHEN auto_tag_vocab_hash != '' THEN 1 ELSE 0 END), 0) AS tagged, "
+        "COALESCE(SUM(CASE WHEN ? IS NOT NULL AND "
+        "(auto_tag_vocab_hash != ? OR auto_tag_card_updated_at != updated_at) THEN 1 ELSE 0 END), 0) AS pending "
+        "FROM character_cards",
+        (vocab_hash, vocab_hash),
+    )
+    if not rows:
+        return {"total": 0, "tagged": 0, "pending": 0}
+    return {key: int(rows[0][key]) for key in ("total", "tagged", "pending")}
 
 
 async def list_pending_auto_tag_ids(vocab_hash: str, *, force: bool = False) -> list[str]:
     """Return pending (or, when forced, all) card IDs, newest first."""
-    async with get_db() as db:
-        where = "" if force else _PENDING_WHERE
-        params = () if force else (vocab_hash,)
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT id FROM character_cards {where} ORDER BY created_at DESC",  # nosec B608
-                params,
-            )
-        )
-        return [str(r["id"]) for r in rows]
+    where = "" if force else _PENDING_WHERE
+    params = () if force else (vocab_hash,)
+    rows = await select_rows(
+        f"SELECT id FROM character_cards {where} ORDER BY created_at DESC",  # nosec B608
+        params,
+    )
+    return [str(r["id"]) for r in rows]
 
 
 async def apply_auto_tags(card_id: str, tags: list[str], vocab_hash: str, card_updated_at: str) -> bool:

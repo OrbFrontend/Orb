@@ -1,12 +1,11 @@
 """The registry of live hosts, and the two operations that touch all of them.
 
-A host belongs to its feature; this registry exists only for what is true of
-the *binary* — stopping every child when Orb exits, and letting go of every
-child before the executable underneath them is replaced. Neither can be done
-from a module that knows about one host.
+A host belongs to its feature; this registry exists only for what is true of the *binary* -- stopping every child when Orb exits,
+and letting go of every child before the executable underneath them is replaced. Neither can be done from a module that knows
+about one host.
 
-The registry is process-global, so every test here builds its own hosts and
-unregisters them rather than reaching into the module's list.
+The registry is process-global, so every test here builds its own hosts and unregisters them rather than reaching into the
+module's list.
 """
 
 from __future__ import annotations
@@ -69,8 +68,7 @@ async def test_shutdown_all_stops_every_registered_host(registered):
 
 
 async def test_one_failing_host_does_not_leave_another_child_running(registered):
-    """An orphaned llama-server holds the GPU after Orb exits, so a raise from
-    the first host may not skip the second."""
+    """An orphaned llama-server holds the GPU after Orb exits, so a raise from the first host may not skip the second."""
     broken, healthy = registered(_FakeHost("broken", explodes=True), _FakeHost("healthy"))
 
     await manager.shutdown_all()  # must not raise

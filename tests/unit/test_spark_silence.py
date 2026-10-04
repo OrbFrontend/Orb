@@ -1,5 +1,3 @@
-"""Tests for Spark-TTS silence normalization."""
-
 from __future__ import annotations
 
 import pytest
@@ -11,11 +9,7 @@ from backend.inference.local_models.spark_tts import enroll, silence  # noqa: E4
 
 def test_frame_rms_and_speech_mask_use_mel_hop_frames():
     signal = np.concatenate(
-        [
-            np.zeros(320, dtype=np.float32),
-            np.full(320, 0.02, dtype=np.float32),
-            np.full(160, 0.005, dtype=np.float32),
-        ]
+        [np.zeros(320, dtype=np.float32), np.full(320, 0.02, dtype=np.float32), np.full(160, 0.005, dtype=np.float32)]
     )
     assert np.allclose(silence.frame_rms(signal, 320, 320), [0.0, 0.02, 0.005])
     assert silence.speech_mask(signal).tolist() == [False, True, False]
@@ -25,13 +19,7 @@ def test_trim_silence_removes_edges_and_clamps_long_interior_runs():
     speech_a = np.full(6400, 0.2, dtype=np.float32)
     speech_b = np.full(6400, -0.2, dtype=np.float32)
     signal = np.concatenate(
-        [
-            np.zeros(640, dtype=np.float32),
-            speech_a,
-            np.zeros(6400, dtype=np.float32),
-            speech_b,
-            np.zeros(960, dtype=np.float32),
-        ]
+        [np.zeros(640, dtype=np.float32), speech_a, np.zeros(6400, dtype=np.float32), speech_b, np.zeros(960, dtype=np.float32)]
     )
     got = silence.trim_silence(signal)
     expected = np.concatenate([speech_a, np.zeros(3200, dtype=np.float32), speech_b])
@@ -47,11 +35,7 @@ def test_trim_silence_leaves_a_300ms_pause_unchanged():
 
 def test_trim_silence_cuts_only_at_hop_boundaries():
     signal = np.concatenate(
-        [
-            np.zeros(641, dtype=np.float32),
-            np.full(17000, 0.2, dtype=np.float32),
-            np.zeros(5001, dtype=np.float32),
-        ]
+        [np.zeros(641, dtype=np.float32), np.full(17000, 0.2, dtype=np.float32), np.zeros(5001, dtype=np.float32)]
     )
     got = silence.trim_silence(signal)
     assert np.array_equal(got, signal[640:17920])
@@ -61,11 +45,7 @@ def test_trim_silence_cuts_only_at_hop_boundaries():
 
 def test_trim_silence_keeps_the_input_when_too_little_would_remain():
     signal = np.concatenate(
-        [
-            np.zeros(3200, dtype=np.float32),
-            np.full(8000, 0.2, dtype=np.float32),
-            np.zeros(3200, dtype=np.float32),
-        ]
+        [np.zeros(3200, dtype=np.float32), np.full(8000, 0.2, dtype=np.float32), np.zeros(3200, dtype=np.float32)]
     )
     assert np.array_equal(silence.trim_silence(signal), signal)
 

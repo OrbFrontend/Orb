@@ -6,12 +6,7 @@ from backend.api.routes import endpoints as endpoint_routes
 
 
 async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch):
-    endpoint = (
-        await client.post(
-            "/api/endpoints",
-            json={"url": "https://catalog.test/v1", "api_key": "catalog-key"},
-        )
-    ).json()
+    endpoint = (await client.post("/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "catalog-key"})).json()
     await client.put(f"/api/endpoints/{endpoint['id']}", json={"proxy": "http://localhost:8080"})
     seen = {}
 
@@ -24,23 +19,15 @@ async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch
 
     monkeypatch.setattr(endpoint_routes, "LLMClient", FakeLLMClient)
 
-    resp = await client.get(f"/api/endpoints/{endpoint['id']}/available-models")
+    resp = await client.get_json(f"/api/endpoints/{endpoint['id']}/available-models")
 
-    assert resp.status_code == 200
-    assert resp.json() == {"models": ["model/a", "model/b"]}
-    assert seen == {
-        "base_url": "https://catalog.test/v1",
-        "api_key": "catalog-key",
-        "proxy": "http://localhost:8080",
-    }
+    assert resp == {"models": ["model/a", "model/b"]}
+    assert seen == {"base_url": "https://catalog.test/v1", "api_key": "catalog-key", "proxy": "http://localhost:8080"}
 
 
 async def test_discover_available_models_surfaces_provider_error_without_key(client, monkeypatch):
     endpoint = (
-        await client.post(
-            "/api/endpoints",
-            json={"url": "https://catalog.test/v1", "api_key": "secret-catalog-key"},
-        )
+        await client.post("/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "secret-catalog-key"})
     ).json()
 
     class FakeLLMClient:
@@ -49,82 +36,49 @@ async def test_discover_available_models_surfaces_provider_error_without_key(cli
 
         async def list_models(self):
             request = httpx.Request("GET", "https://catalog.test/v1/models")
-            response = httpx.Response(
-                401,
-                json={"error": {"message": "Bad key: secret-catalog-key"}},
-                request=request,
-            )
+            response = httpx.Response(401, json={"error": {"message": "Bad key: secret-catalog-key"}}, request=request)
             raise httpx.HTTPStatusError("unauthorized", request=request, response=response)
 
     monkeypatch.setattr(endpoint_routes, "LLMClient", FakeLLMClient)
 
-    resp = await client.get(f"/api/endpoints/{endpoint['id']}/available-models")
+    resp = await client.get_json(f"/api/endpoints/{endpoint['id']}/available-models", expected_status=502)
 
-    assert resp.status_code == 502
-    assert resp.json()["detail"] == "Model discovery failed (provider HTTP 401): Bad key: [redacted]"
+    assert resp["detail"] == "Model discovery failed (provider HTTP 401): Bad key: [redacted]"
 
 
 async def test_delete_endpoint_removes_from_db(client, db):
-    """Test DELETE /api/endpoints/{id} removes endpoint"""
     # Create an endpoint
-    create_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.delete.com", "api_key": "key"},
-    )
-    assert create_resp.status_code == 200
-    endpoint_id = create_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.delete.com", "api_key": "key"})
 
     # Verify it exists
-    async with db.execute(
-        "SELECT COUNT(*) as count FROM endpoints WHERE id = ?",
-        (endpoint_id,),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT COUNT(*) as count FROM endpoints WHERE id = ?", (endpoint_id,))
     assert row["count"] == 1
 
     # Delete the endpoint
-    delete_resp = await client.delete(f"/api/endpoints/{endpoint_id}")
-    assert delete_resp.status_code == 200
-    assert delete_resp.json() == {"ok": True}
+    delete_resp = await client.delete_json(f"/api/endpoints/{endpoint_id}")
+    assert delete_resp == {"ok": True}
 
     # Verify it's gone from DB
-    async with db.execute(
-        "SELECT COUNT(*) as count FROM endpoints WHERE id = ?",
-        (endpoint_id,),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT COUNT(*) as count FROM endpoints WHERE id = ?", (endpoint_id,))
     assert row["count"] == 0
 
 
 async def test_delete_nonexistent_endpoint_returns_error(client, db):
-    """Test deleting a non-existent endpoint returns appropriate error"""
     resp = await client.delete("/api/endpoints/99999")
     # Should return 404 or 400 depending on implementation
     assert resp.status_code in (404, 400)
 
 
 async def test_create_model_config_persists_to_db(client, db):
-    """Test creating a model config via POST /api/endpoints/{id}/models"""
     # First create an endpoint
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.models.com", "api_key": "key"},
-    )
-    assert endpoint_resp.status_code == 200
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.models.com", "api_key": "key"})
 
     # Create a model config for this endpoint
-    resp = await client.post(
+    resp = await client.post_json(
         f"/api/endpoints/{endpoint_id}/models",
-        json={
-            "model_name": "test-model-1",
-            "system_prompt": "You are a test model.",
-            "temperature": 0.7,
-            "max_tokens": 2048,
-        },
+        json={"model_name": "test-model-1", "system_prompt": "You are a test model.", "temperature": 0.7, "max_tokens": 2048},
     )
-    assert resp.status_code == 200
-    data = resp.json()
+    data = resp
     assert "id" in data
     assert data["model_name"] == "test-model-1"
     assert data["endpoint_id"] == endpoint_id
@@ -132,11 +86,9 @@ async def test_create_model_config_persists_to_db(client, db):
     assert data["max_tokens"] == 2048
 
     # Verify directly in the DB
-    async with db.execute(
-        "SELECT model_name, system_prompt, temperature, max_tokens FROM model_configs WHERE id = ?",
-        (data["id"],),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one(
+        "SELECT model_name, system_prompt, temperature, max_tokens FROM model_configs WHERE id = ?", (data["id"],)
+    )
     assert row["model_name"] == "test-model-1"
     assert row["system_prompt"] == "You are a test model."
     assert row["temperature"] == 0.7
@@ -145,64 +97,39 @@ async def test_create_model_config_persists_to_db(client, db):
 
 async def test_model_config_hyperparameters_can_be_explicitly_null(client, db):
     endpoint = (await client.post("/api/endpoints", json={"url": "https://api.nullable.test"})).json()
-    config = await client.post(
+    config = await client.post_checked(
         f"/api/endpoints/{endpoint['id']}/models",
         json={"model_name": "provider-defaults", "temperature": None, "max_tokens": None},
     )
-    assert config.status_code == 200
     assert config.json()["temperature"] is None
     assert config.json()["max_tokens"] is None
 
-    updated = await client.put(f"/api/models/{config.json()['id']}", json={"top_p": None})
-    assert updated.status_code == 200
-    assert updated.json()["top_p"] is None
+    updated = await client.put_json(f"/api/models/{config.json()['id']}", json={"top_p": None})
+    assert updated["top_p"] is None
 
-    async with db.execute(
-        "SELECT temperature, top_p, max_tokens FROM model_configs WHERE id = ?", (config.json()["id"],)
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT temperature, top_p, max_tokens FROM model_configs WHERE id = ?", (config.json()["id"],))
     assert dict(row) == {"temperature": None, "top_p": None, "max_tokens": None}
 
 
 async def test_create_model_config_rejects_unknown_role(client):
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.invalid-role.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.invalid-role.com", "api_key": "key"})
 
-    resp = await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "invalid-role", "role": "critic"},
+    await client.post_checked(
+        f"/api/endpoints/{endpoint_id}/models", json={"model_name": "invalid-role", "role": "critic"}, expected_status=422
     )
-
-    assert resp.status_code == 422
 
 
 async def test_list_model_configs_for_endpoint(client, db):
-    """Test GET /api/endpoints/{id}/models returns model configs"""
     # Create an endpoint
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.list.com", "api_key": "key"},
-    )
-    assert endpoint_resp.status_code == 200
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.list.com", "api_key": "key"})
 
     # Create two model configs
-    await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "model-a", "temperature": 0.5},
-    )
-    await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "model-b", "temperature": 0.9},
-    )
+    await client.post(f"/api/endpoints/{endpoint_id}/models", json={"model_name": "model-a", "temperature": 0.5})
+    await client.post(f"/api/endpoints/{endpoint_id}/models", json={"model_name": "model-b", "temperature": 0.9})
 
     # List model configs for this endpoint
-    resp = await client.get(f"/api/endpoints/{endpoint_id}/models")
-    assert resp.status_code == 200
-    configs = resp.json()
+    resp = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
+    configs = resp
 
     assert len(configs) >= 2  # Could have default configs
 
@@ -213,63 +140,37 @@ async def test_list_model_configs_for_endpoint(client, db):
 
 
 async def test_delete_model_config_removes_from_db(client, db):
-    """Test DELETE /api/models/{config_id} removes model config"""
     # Create endpoint and model config
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.delete-model.com", "api_key": "key"},
-    )
-    assert endpoint_resp.status_code == 200
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.delete-model.com", "api_key": "key"})
 
-    model_resp = await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "to-delete", "temperature": 0.5},
+    config_id = await client.create(
+        f"/api/endpoints/{endpoint_id}/models", json={"model_name": "to-delete", "temperature": 0.5}
     )
-    assert model_resp.status_code == 200
-    config_id = model_resp.json()["id"]
 
     # Verify it exists
-    async with db.execute(
-        "SELECT COUNT(*) as count FROM model_configs WHERE id = ?",
-        (config_id,),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT COUNT(*) as count FROM model_configs WHERE id = ?", (config_id,))
     assert row["count"] == 1
 
     # Delete the model config
-    delete_resp = await client.delete(f"/api/models/{config_id}")
-    assert delete_resp.status_code == 200
-    assert delete_resp.json() == {"ok": True}
+    delete_resp = await client.delete_json(f"/api/models/{config_id}")
+    assert delete_resp == {"ok": True}
 
     # Verify it's gone from DB
-    async with db.execute(
-        "SELECT COUNT(*) as count FROM model_configs WHERE id = ?",
-        (config_id,),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT COUNT(*) as count FROM model_configs WHERE id = ?", (config_id,))
     assert row["count"] == 0
 
 
 async def test_cannot_create_model_config_for_nonexistent_endpoint(client, db):
-    """Test creating model config for non-existent endpoint returns error"""
-    resp = await client.post(
-        "/api/endpoints/99999/models",
-        json={"model_name": "test", "temperature": 0.5},
-    )
+    resp = await client.post("/api/endpoints/99999/models", json={"model_name": "test", "temperature": 0.5})
     # Should return 404 or 400
     assert resp.status_code in (404, 400)
 
 
 async def test_model_config_reasoning_effort_round_trip(client, db):
     """reasoning_effort trio persists through create and update."""
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.reasoning.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.reasoning.com", "api_key": "key"})
 
-    resp = await client.post(
+    resp = await client.post_json(
         f"/api/endpoints/{endpoint_id}/models",
         json={
             "model_name": "thinking-model",
@@ -278,21 +179,15 @@ async def test_model_config_reasoning_effort_round_trip(client, db):
             "reasoning_effort_value": "4096",
         },
     )
-    assert resp.status_code == 200
-    data = resp.json()
+    data = resp
     assert data["reasoning_effort"] == "custom"
     assert data["reasoning_effort_param"] == "thinking_budget"
     assert data["reasoning_effort_value"] == "4096"
 
-    update_resp = await client.put(f"/api/models/{data['id']}", json={"reasoning_effort": "xhigh"})
-    assert update_resp.status_code == 200
-    assert update_resp.json()["reasoning_effort"] == "xhigh"
+    update_resp = await client.put_json(f"/api/models/{data['id']}", json={"reasoning_effort": "xhigh"})
+    assert update_resp["reasoning_effort"] == "xhigh"
 
-    async with db.execute(
-        "SELECT reasoning_effort, reasoning_effort_param FROM model_configs WHERE id = ?",
-        (data["id"],),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT reasoning_effort, reasoning_effort_param FROM model_configs WHERE id = ?", (data["id"],))
     assert row["reasoning_effort"] == "xhigh"
     assert row["reasoning_effort_param"] == "thinking_budget"
 
@@ -301,12 +196,8 @@ async def test_settings_overlay_reasoning_effort(client, db):
     """The active model config's reasoning settings -- including a custom param
     name and its value -- reach get_settings, and the agent lane inherits them
     when it shares the writer's endpoint."""
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.overlay.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
-    model_resp = await client.post(
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.overlay.com", "api_key": "key"})
+    config_id = await client.create(
         f"/api/endpoints/{endpoint_id}/models",
         json={
             "model_name": "overlay-model",
@@ -315,14 +206,12 @@ async def test_settings_overlay_reasoning_effort(client, db):
             "reasoning_effort_value": "max",
         },
     )
-    config_id = model_resp.json()["id"]
 
     await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
     await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
 
-    resp = await client.get("/api/settings")
-    assert resp.status_code == 200
-    settings = resp.json()
+    resp = await client.get_json("/api/settings")
+    settings = resp
     assert settings["reasoning_effort"] == "custom"
     assert settings["agent_reasoning_effort"] == "custom"
     assert settings["reasoning_effort_param"] == "reasoning_effort"
@@ -332,13 +221,9 @@ async def test_settings_overlay_reasoning_effort(client, db):
 
 async def test_model_config_extra_request_round_trip(client, db):
     """extra_headers/extra_body persist through create and update."""
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.extra.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.extra.com", "api_key": "key"})
 
-    resp = await client.post(
+    resp = await client.post_json(
         f"/api/endpoints/{endpoint_id}/models",
         json={
             "model_name": "routed-model",
@@ -346,20 +231,14 @@ async def test_model_config_extra_request_round_trip(client, db):
             "extra_body": '{"provider": {"only": ["deepinfra"]}}',
         },
     )
-    assert resp.status_code == 200
-    data = resp.json()
+    data = resp
     assert data["extra_headers"] == "X-Provider: deepinfra"
     assert data["extra_body"] == '{"provider": {"only": ["deepinfra"]}}'
 
-    update_resp = await client.put(f"/api/models/{data['id']}", json={"extra_headers": "X-Provider: together"})
-    assert update_resp.status_code == 200
-    assert update_resp.json()["extra_headers"] == "X-Provider: together"
+    update_resp = await client.put_json(f"/api/models/{data['id']}", json={"extra_headers": "X-Provider: together"})
+    assert update_resp["extra_headers"] == "X-Provider: together"
 
-    async with db.execute(
-        "SELECT extra_headers, extra_body FROM model_configs WHERE id = ?",
-        (data["id"],),
-    ) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT extra_headers, extra_body FROM model_configs WHERE id = ?", (data["id"],))
     assert row["extra_headers"] == "X-Provider: together"
     assert row["extra_body"] == '{"provider": {"only": ["deepinfra"]}}'
 
@@ -367,27 +246,17 @@ async def test_model_config_extra_request_round_trip(client, db):
 async def test_settings_overlay_extra_request(client, db):
     """The active model config's extra fields reach get_settings, and the agent
     inherits them when sharing the writer endpoint."""
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.extraoverlay.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
-    model_resp = await client.post(
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.extraoverlay.com", "api_key": "key"})
+    config_id = await client.create(
         f"/api/endpoints/{endpoint_id}/models",
-        json={
-            "model_name": "overlay-routed",
-            "extra_headers": "X-Provider: deepinfra",
-            "extra_body": '{"seed": 7}',
-        },
+        json={"model_name": "overlay-routed", "extra_headers": "X-Provider: deepinfra", "extra_body": '{"seed": 7}'},
     )
-    config_id = model_resp.json()["id"]
 
     await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
     await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
 
-    resp = await client.get("/api/settings")
-    assert resp.status_code == 200
-    settings = resp.json()
+    resp = await client.get_json("/api/settings")
+    settings = resp
     assert settings["extra_headers"] == "X-Provider: deepinfra"
     assert settings["extra_body"] == '{"seed": 7}'
     assert settings["agent_extra_headers"] == "X-Provider: deepinfra"
@@ -395,67 +264,45 @@ async def test_settings_overlay_extra_request(client, db):
 
 
 async def test_model_config_rejects_malformed_extra_body(client, db):
-    """A create payload is complete apart from the bad field, so the 422 can
-    only come from the extra_body validator."""
-    endpoint_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.extrareject.com", "api_key": "key"},
-    )
-    endpoint_id = endpoint_resp.json()["id"]
+    """A create payload is complete apart from the bad field, so the 422 can only come from the extra_body validator."""
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://api.extrareject.com", "api_key": "key"})
 
-    resp = await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "bad-model", "extra_body": "{nope"},
+    await client.post_checked(
+        f"/api/endpoints/{endpoint_id}/models", json={"model_name": "bad-model", "extra_body": "{nope"}, expected_status=422
     )
-    assert resp.status_code == 422
 
 
 async def test_endpoint_crud_workflow(client, db):
-    """Test complete CRUD workflow for endpoints"""
     # 1. Create endpoint
-    create_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://workflow.example.com", "api_key": "workflow-key"},
-    )
-    assert create_resp.status_code == 200
-    endpoint_id = create_resp.json()["id"]
+    endpoint_id = await client.create("/api/endpoints", json={"url": "https://workflow.example.com", "api_key": "workflow-key"})
 
     # 2. Verify in list
-    list_resp = await client.get("/api/endpoints")
-    assert list_resp.status_code == 200
-    endpoints = list_resp.json()
+    list_resp = await client.get_json("/api/endpoints")
+    endpoints = list_resp
     assert any(e["id"] == endpoint_id for e in endpoints)
 
     # 3. Create model config for endpoint
-    model_resp = await client.post(
-        f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "workflow-model", "temperature": 0.6},
+    config_id = await client.create(
+        f"/api/endpoints/{endpoint_id}/models", json={"model_name": "workflow-model", "temperature": 0.6}
     )
-    assert model_resp.status_code == 200
-    config_id = model_resp.json()["id"]
 
     # 4. Verify model config in list
-    models_resp = await client.get(f"/api/endpoints/{endpoint_id}/models")
-    assert models_resp.status_code == 200
-    models = models_resp.json()
+    models_resp = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
+    models = models_resp
     assert any(m["id"] == config_id for m in models)
 
     # 5. Delete model config
-    delete_model_resp = await client.delete(f"/api/models/{config_id}")
-    assert delete_model_resp.status_code == 200
+    await client.delete_checked(f"/api/models/{config_id}")
 
     # 6. Verify model config deleted
-    models_resp2 = await client.get(f"/api/endpoints/{endpoint_id}/models")
-    assert models_resp2.status_code == 200
-    models2 = models_resp2.json()
+    models_resp2 = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
+    models2 = models_resp2
     assert not any(m["id"] == config_id for m in models2)
 
     # 7. Delete endpoint
-    delete_endpoint_resp = await client.delete(f"/api/endpoints/{endpoint_id}")
-    assert delete_endpoint_resp.status_code == 200
+    await client.delete_checked(f"/api/endpoints/{endpoint_id}")
 
     # 8. Verify endpoint deleted
-    list_resp2 = await client.get("/api/endpoints")
-    assert list_resp2.status_code == 200
-    endpoints2 = list_resp2.json()
+    list_resp2 = await client.get_json("/api/endpoints")
+    endpoints2 = list_resp2
     assert not any(e["id"] == endpoint_id for e in endpoints2)

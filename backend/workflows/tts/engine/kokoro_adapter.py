@@ -11,8 +11,7 @@ from .wav import pcm_duration_ms, pcm_to_wav, silence_pcm, strip_header
 
 logger = logging.getLogger(__name__)
 
-# Kokoro voice prefix -> language code mapping
-# af/am = American English, bf/bm = British English, etc.
+# Kokoro voice prefix -> language code mapping af/am = American English, bf/bm = British English, etc.
 _VOICE_LANG_MAP = {
     "a": "en-US",  # American English
     "b": "en-GB",  # British English
@@ -25,10 +24,7 @@ _VOICE_LANG_MAP = {
     "z": "zh-CN",  # Chinese
 }
 
-_GENDER_MAP = {
-    "f": "Female",
-    "m": "Male",
-}
+_GENDER_MAP = {"f": "Female", "m": "Male"}
 
 
 class KokoroTTSAdapter(TTSAdapter):
@@ -47,9 +43,8 @@ class KokoroTTSAdapter(TTSAdapter):
     ) -> SynthesisResult:
         """Synthesize chunks into WAV audio via Kokoro API server.
 
-        Synthesizes each text chunk individually and concatenates the audio
-        with real silence padding between them (based on pause_before/after_ms).
-        This gives precise pause timing instead of relying on punctuation tricks.
+        Synthesizes each text chunk individually and concatenates the audio with real silence padding between them (based on
+        pause_before/after_ms). This gives precise pause timing instead of relying on punctuation tricks.
         """
         text_chunks = [c for c in chunks if c.text.strip()]
         if not text_chunks:
@@ -75,12 +70,7 @@ class KokoroTTSAdapter(TTSAdapter):
                 if chunk.pause_before_ms > 0 and i > 0:
                     audio_parts.append(silence_pcm(chunk.pause_before_ms, sample_rate))
 
-                body = {
-                    "text": chunk.text,
-                    "voice": voice_id or "af_heart",
-                    "speed": rate,
-                    "lang": kokoro_lang,
-                }
+                body = {"text": chunk.text, "voice": voice_id or "af_heart", "speed": rate, "lang": kokoro_lang}
                 resp = await client.post(url, json=body, headers=headers)
                 resp.raise_for_status()
 
@@ -98,17 +88,10 @@ class KokoroTTSAdapter(TTSAdapter):
         raw_pcm = b"".join(audio_parts)
         wav_bytes = pcm_to_wav(raw_pcm, sample_rate)
 
-        logger.info(
-            "Kokoro synthesis: %d chunks, %d bytes, voice=%s",
-            len(text_chunks),
-            len(wav_bytes),
-            voice_id or "af_heart",
-        )
+        logger.info("Kokoro synthesis: %d chunks, %d bytes, voice=%s", len(text_chunks), len(wav_bytes), voice_id or "af_heart")
 
         return SynthesisResult(
-            audio_bytes=wav_bytes,
-            content_type="audio/wav",
-            duration_ms=pcm_duration_ms(raw_pcm, sample_rate),
+            audio_bytes=wav_bytes, content_type="audio/wav", duration_ms=pcm_duration_ms(raw_pcm, sample_rate)
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:

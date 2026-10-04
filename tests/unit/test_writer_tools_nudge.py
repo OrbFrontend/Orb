@@ -1,17 +1,20 @@
 """The writer's no-tools nudge and the gate deciding whether it is emitted.
 
-The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three
-plain-text configurations send nothing — dual-model (Invariant 5), text mode,
-and structured endpoints. Multimodal text mode intentionally takes the chat
-transport, so it is symmetric with chat mode instead. These tests pin both the
-frozen-base and transport halves of that decision.
+The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three plain-text configurations send nothing --
+dual-model (Invariant 5), text mode, and structured endpoints. Multimodal text mode intentionally takes the chat transport, so
+it is symmetric with chat mode instead. These tests pin both the frozen-base and transport halves of that decision.
 """
 
 from __future__ import annotations
 
+import pytest
+
+from backend.core import CastMember
+from backend.inference import KVCacheTracker
 from backend.inference.client import LLMClient
-from backend.pipeline.config import _resolve_pipeline_config
-from backend.pipeline.passes.writer import build_writer_content
+from backend.pipeline.config import resolve_pipeline_config
+from backend.pipeline.passes.writer import build_writer_content, writer_stage
+from backend.pipeline.state import TurnState
 
 NUDGE = "**Do not use tool or function calls this turn.**"
 
@@ -42,7 +45,7 @@ def _resolve(
     enabled_tools: dict[str, bool] | None = None,
     prefix: list[dict] | None = None,
 ):
-    return _resolve_pipeline_config(
+    return resolve_pipeline_config(
         _SETTINGS,
         dict(_ENABLED_TOOLS if enabled_tools is None else enabled_tools),
         macros=_StubMacros(),
@@ -59,13 +62,10 @@ def _sends(cfg, content="hi") -> bool:
     return cfg.writer_lane.sends_tool_schemas([{"role": "user", "content": content}])
 
 
-_IMAGE_CONTENT = [
-    {"type": "text", "text": "hi"},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
-]
+_IMAGE_CONTENT = [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}]
 
 
-# ── the gate feeds the content builder ───────────────────────────────────────
+# -- the gate feeds the content builder ---------------------------------------
 
 
 def test_nudge_emitted_only_when_tools_are_sent():
@@ -73,7 +73,7 @@ def test_nudge_emitted_only_when_tools_are_sent():
     assert NUDGE not in build_writer_content("", "", False, "hi", None, None)
 
 
-# ── the derivation ───────────────────────────────────────────────────────────
+# -- the derivation -----------------------------------------------------------
 
 
 def test_ordinary_chat_endpoint_sends_tools():
@@ -84,7 +84,7 @@ def test_ordinary_chat_endpoint_sends_tools():
 
 def test_structured_endpoint_does_not_send_tools():
     # The blob is still built (it sources the response_format schema) but never
-    # reaches the body — so don't warn off tools the model cannot see.
+    # reaches the body -- so don't warn off tools the model cannot see.
     cfg = _resolve(LLMClient("https://nano-gpt.com/api/v1"))
     assert cfg.writer_lane.base.tools, "blob is still built on a structured endpoint"
     assert not _sends(cfg)
@@ -118,9 +118,39 @@ def test_dual_model_does_not_send_tools():
 
 
 def test_false_only_enablement_map_does_not_masquerade_as_schemas():
-    cfg = _resolve(
-        LLMClient("http://localhost:5000/v1"),
-        enabled_tools={"direct_scene": False, "editor_apply_patch": False},
-    )
+    cfg = _resolve(LLMClient("http://localhost:5000/v1"), enabled_tools={"direct_scene": False, "editor_apply_patch": False})
     assert cfg.writer_lane.base.tools == ()
     assert not _sends(cfg)
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+async def test_writer_ignores_probability_events_while_streaming_prose_and_reasoning(monkeypatch, grouped):
+    client = LLMClient("http://localhost:5000/v1")
+    cfg = _resolve(client)
+    state = TurnState(effective_msg="hi")
+    speaker = CastMember("member", "alice", "card", "Alice", "character", "", "", "", "") if grouped else None
+
+    async def complete(**kwargs):
+        yield {"type": "reasoning", "delta": "Planning."}
+        yield {"type": "token_probs", "token": "Hello", "prob": 0.9, "top": []}
+        if grouped:
+            yield {"type": "content", "delta": "Al"}
+            yield {"type": "token_probs", "token": "ice", "prob": 0.8, "top": []}
+            yield {"type": "content", "delta": "ice: Hello"}
+        else:
+            yield {"type": "content", "delta": "Hello"}
+        yield {"type": "reasoning", "delta": " Ready."}
+        yield {"type": "content", "delta": " world"}
+        yield {"type": "done", "message": {"content": "Hello world"}, "usage": None}
+
+    monkeypatch.setattr(client, "complete", complete)
+    events = [
+        event
+        async for event in writer_stage(
+            cfg, state, settings=_SETTINGS, attachments=[], kv_tracker=KVCacheTracker(), speaker=speaker
+        )
+    ]
+
+    assert state.resp_text == "Hello world"
+    assert state.reasoning_writer == "Planning. Ready."
+    assert "".join(event["data"] for event in events if event["event"] == "token") == "Hello world"

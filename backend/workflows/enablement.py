@@ -10,11 +10,10 @@ from .registry import list_workflows
 def effective_workflow_enabled(workflow_id: str, settings: Mapping) -> bool:
     """True when *workflow_id* is enabled both globally and per-workflow.
 
-    The ``isinstance(dict)`` coercion (rather than ``or {}``) is deliberate: if
-    the ``workflow_enabled`` decode in ``get_settings`` ever regresses, the
-    column reads back as the raw string ``'{}'`` and ``'{}'.get(...)`` would
-    raise on every turn (this runs per subscription per turn). Coercing a stray
-    non-dict to ``{}`` degrades to enabled instead of crashing the turn.
+    The ``isinstance(dict)`` coercion (rather than ``or {}``) is deliberate: if the ``workflow_enabled`` decode in
+    ``get_settings`` ever regresses, the column reads back as the raw string ``'{}'`` and ``'{}'.get(...)`` would raise on every
+    turn (this runs per subscription per turn). Coercing a stray non-dict to ``{}`` degrades to enabled instead of crashing the
+    turn.
     """
     global_on = bool(settings.get("workflows_globally_enabled", 1))
     raw = settings.get("workflow_enabled")

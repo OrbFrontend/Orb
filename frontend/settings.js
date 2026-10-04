@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { expressionPlaybackEnabled } from "./expression_playback.js";
@@ -12,35 +13,11 @@ import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
-export {
-  loadAgentModelConfigs,
-  loadEndpoints,
-  loadModelConfigs,
-  onHybridInput,
-  renderEndpoints,
-  saveAgentSetting,
-  saveSetting,
-  toggleAgentSameAsWriter,
-} from "./settings_models.js";
-export {
-  activatePersona,
-  deletePersona,
-  editPersona,
-  loadPersonas,
-  savePersona,
-  saveUserProfile,
-  setPersonaCharacterLock,
-  setPersonaConversationLock,
-  showPersonaEditModal,
-  showUserModal,
-  updateUserBtn,
-} from "./settings_personas.js";
-
 let _themes = null;
 
 const DEFAULT_THEME = "camono";
 
-export function applyTheme(name) {
+function applyTheme(name) {
   if (_themes && !_themes.includes(name)) name = DEFAULT_THEME;
   $("theme-link").href = `/static/themes/${name}.css`;
   localStorage.setItem("ar-theme", name);
@@ -141,48 +118,25 @@ export async function loadSettings() {
 const divider = (label) =>
   `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
 
+function toggleCard(on, name, inputAttrs, body, cardAttrs = "", labelAttrs = "") {
+  return `<div class="tool-card ${on ? "tool-on" : ""}"${cardAttrs}>
+    <div class="tool-card-header">
+      <span class="tool-card-name">${name}</span>
+      <label class="tog"${labelAttrs}>
+        <input type="checkbox" ${on ? "checked" : ""} ${inputAttrs}>
+        <span class="tog-slider"></span>
+      </label>
+    </div>
+    ${body}
+  </div>`;
+}
+
 export function renderSettings() {
   $("settings-form").innerHTML = `
-    <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Hide until baked</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} data-setting-toggle="hideUntilBaked">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>
-    </div>
-    <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Prevent prompt overrides</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
-    </div>
-    <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Show avatars in chat</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} data-setting-toggle="showChatAvatars">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
-    </div>
-    <div class="tool-card ${S.inspectorInline ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Show Inspector in chat</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.inspectorInline ? "checked" : ""} data-setting-toggle="inspectorInline">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
-    </div>
+    ${toggleCard(S.hideUntilBaked, "Hide until baked", 'data-setting-toggle="hideUntilBaked"', '<div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.preventPromptOverrides, "Prevent prompt overrides", 'data-setting-toggle="preventPromptOverrides"', '<div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.showChatAvatars, "Show avatars in chat", 'data-setting-toggle="showChatAvatars"', '<div class="tool-card-desc">Show the speaker\'s portrait beside each message.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.inspectorInline, "Show Inspector in chat", 'data-setting-toggle="inspectorInline"', '<div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>', "", " data-setting-stop")}
     ${divider("Expression Playback")}
     <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
@@ -190,7 +144,7 @@ export function renderSettings() {
     ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
-      <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
+      <button class="btn btn-block btn-sm" data-wf-action="presets:open">💾 Backup &amp; Presets</button>
     </div>
   `;
   $("cleanup-btn").addEventListener("click", showCleanupModal);
@@ -249,9 +203,8 @@ const LOCAL_ML_DESCS = {
   markup_classifier: "For more accurate format consistency.",
 };
 
-// Models with a single consumer are managed by it: Spark-TTS and the speech
-// recognizer in the TTS cloned-voice control, the Prose Rewriter in its
-// workflow card.
+// Models with a single consumer are managed by it: Spark-TTS and the speech recognizer in the TTS cloned-voice control,
+// the Prose Rewriter in its workflow card.
 const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
   "spark_tts_llm",
   "spark_tts_codec",
@@ -307,7 +260,7 @@ async function loadLocalMLSection() {
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
       <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
-      <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
     </div>`;
     return;
   }
@@ -463,7 +416,7 @@ export async function persistSettings(payload) {
   }
 }
 
-export function toggleToolsPanel() {
+function toggleToolsPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
     closeUtilityPanel("tools-panel", "tools-panel-btn");
   } else {
@@ -471,7 +424,7 @@ export function toggleToolsPanel() {
   }
 }
 
-export async function setAgentEnabled(on) {
+async function setAgentEnabled(on) {
   S.agentEnabled = on;
   $("tools-panel-btn").style.opacity = on ? "1" : "0.5";
   renderToolsPanel();
@@ -479,7 +432,7 @@ export async function setAgentEnabled(on) {
   await persistSettings({ enable_agent: on });
 }
 
-export async function toggleToolEnabled(id, on) {
+async function toggleToolEnabled(id, on) {
   S.enabledTools[id] = on;
   renderToolsPanel();
   // Direction gates before-Writer state updates, which the fragment list notes.
@@ -487,58 +440,58 @@ export async function toggleToolEnabled(id, on) {
   await persistSettings({ enabled_tools: S.enabledTools });
 }
 
-export async function toggleLengthGuard(on) {
+async function toggleLengthGuard(on) {
   S.lengthGuardEnabled = on;
   renderToolsPanel();
   await persistSettings({ length_guard_enabled: on });
 }
 
-export async function toggleLengthGuardEnforce(on) {
+async function toggleLengthGuardEnforce(on) {
   S.lengthGuardEnforce = on;
   renderToolsPanel();
   await persistSettings({ length_guard_enforce: on });
 }
 
-export async function toggleAgenticLorebook(on) {
+async function toggleAgenticLorebook(on) {
   S.agenticLorebookEnabled = on;
   renderToolsPanel();
   await persistSettings({ agentic_lorebook_enabled: on });
 }
 
-export async function toggleDirectorIndividualFragments(on) {
+async function toggleDirectorIndividualFragments(on) {
   S.directorIndividualFragments = on;
   renderToolsPanel();
   await persistSettings({ director_individual_fragments: on });
 }
 
-export async function toggleShowEditorDiff(on) {
+async function toggleShowEditorDiff(on) {
   S.showEditorDiff = on;
   renderMessages();
   renderToolsPanel();
   await persistSettings({ show_editor_diff: on });
 }
 
-export async function toggleAuditType(type, on) {
+async function toggleAuditType(type, on) {
   S.editorAuditToggles = { ...S.editorAuditToggles, [type]: on };
   renderToolsPanel();
   await persistSettings({ editor_audit_toggles: S.editorAuditToggles });
 }
 
-export async function toggleHideUntilBaked(on) {
+async function toggleHideUntilBaked(on) {
   S.hideUntilBaked = on;
   renderMessages();
   renderSettings();
   await persistSettings({ hide_streaming_until_baked: on });
 }
 
-export async function toggleShowChatAvatars(on) {
+async function toggleShowChatAvatars(on) {
   S.showChatAvatars = on;
   renderMessages();
   renderSettings();
   await persistSettings({ show_chat_avatars: on });
 }
 
-export async function toggleInspectorInline(on) {
+async function toggleInspectorInline(on) {
   S.inspectorInline = on;
   renderMessages();
   renderInspector();
@@ -546,13 +499,13 @@ export async function toggleInspectorInline(on) {
   await persistSettings({ inspector_inline: on });
 }
 
-export async function togglePreventPromptOverrides(on) {
+async function togglePreventPromptOverrides(on) {
   S.preventPromptOverrides = on;
   renderSettings();
   await persistSettings({ prevent_prompt_overrides: on });
 }
 
-export async function saveLengthGuardConfig() {
+async function saveLengthGuardConfig() {
   const words = parseInt($("lg-max-words").value, 10);
   const paras = parseInt($("lg-max-paragraphs").value, 10);
   const wordsValidation = validate.validateSetting("length_guard_max_words", words);
@@ -575,14 +528,14 @@ export async function saveLengthGuardConfig() {
   }
 }
 
-export async function toggleWorkflowsGlobal(on) {
+async function toggleWorkflowsGlobal(on) {
   await persistSettings({ workflows_globally_enabled: on });
   renderToolsPanel();
   renderMessages();
   renderInspectorWorkflows();
 }
 
-export async function toggleWorkflowEnabled(wid, on) {
+async function toggleWorkflowEnabled(wid, on) {
   try {
     const res = await api.post(`/workflows/${wid}/enabled`, { enabled: on });
     if (res && typeof res.workflow_enabled === "object") S.settings.workflow_enabled = res.workflow_enabled;
@@ -599,16 +552,12 @@ function buildWorkflowToggleRows() {
   const g = S.settings?.workflows_globally_enabled;
   const globalOn = g === undefined ? true : Boolean(g);
 
-  const masterRow = `<div class="tool-card ${globalOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Secondary Workflows</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${globalOn ? "checked" : ""} onchange="toggleWorkflowsGlobal(this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Toggle everything below.</div>
-  </div>`;
+  const masterRow = toggleCard(
+    globalOn,
+    "Secondary Workflows",
+    'data-wf-action="settings:workflowsGlobal" data-wf-on="change"',
+    '<div class="tool-card-desc">Toggle everything below.</div>',
+  );
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
 
@@ -626,16 +575,13 @@ function buildWorkflowToggleRows() {
           console.error("workflow tools-panel renderer threw:", e);
         }
       }
-      return `<div class="tool-card ${effOn ? "tool-on" : ""}"${globalOn ? "" : ' style="opacity:0.5"'}>
-    <div class="tool-card-header">
-      <span class="tool-card-name">${esc(w.display_name || w.id)}</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${effOn ? "checked" : ""} ${globalOn ? "" : "disabled"} onchange="toggleWorkflowEnabled('${w.id}', this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    ${body}
-  </div>`;
+      return toggleCard(
+        effOn,
+        esc(w.display_name || w.id),
+        `${globalOn ? "" : "disabled"} data-wf-action="settings:workflowEnabled" data-wf-on="change" data-workflow-id="${w.id}"`,
+        body,
+        globalOn ? "" : ' style="opacity:0.5"',
+      );
     })
     .join("");
 
@@ -648,23 +594,19 @@ export function renderToolsPanel() {
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
 
   const alOn = S.agenticLorebookEnabled;
-  const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Agentic Lorebook</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${alOn ? "checked" : ""} onchange="toggleAgenticLorebook(this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>
-  </div>`;
+  const agenticLorebookCard = toggleCard(
+    alOn,
+    "Agentic Lorebook",
+    'data-wf-action="settings:agenticLorebook" data-wf-on="change"',
+    '<div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>',
+  );
 
   const cardById = {};
   for (const t of TOOL_DEFS) {
     const on = !!S.enabledTools[t.id];
     const auditChecks = AUDIT_TYPE_DEFS.map(
       (a) => `<label class="lg-enforce-label" title="${a.title}">
-               <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} onchange="toggleAuditType('${a.key}',this.checked)">
+               <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} data-wf-action="settings:auditType" data-wf-on="change" data-audit-key="${a.key}">
                ${a.label}
              </label>`,
     ).join("");
@@ -673,28 +615,23 @@ export function renderToolsPanel() {
       extras = `<div class="lg-config">
              <div class="audit-types">${auditChecks}</div>
              <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
-               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
+               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} data-wf-action="settings:editorDiff" data-wf-on="change">
                Show diff highlights
              </label>
            </div>`;
     else if (t.id === "direct_scene" && on)
       extras = `<div class="lg-config">
              <label class="lg-enforce-label" title="Director fills each interactive fragment in its own LLM call. More focused output; higher latency.">
-               <input type="checkbox" ${S.directorIndividualFragments ? "checked" : ""} onchange="toggleDirectorIndividualFragments(this.checked)">
+               <input type="checkbox" ${S.directorIndividualFragments ? "checked" : ""} data-wf-action="settings:individualFragments" data-wf-on="change">
                Individual fragment processing
              </label>
            </div>`;
-    cardById[t.id] = `<div class="tool-card ${on ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">${t.name}</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${on ? "checked" : ""} onchange="toggleToolEnabled('${t.id}',this.checked)">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">${t.desc}</div>
-      ${extras}
-    </div>`;
+    cardById[t.id] = toggleCard(
+      on,
+      t.name,
+      `data-wf-action="settings:toolEnabled" data-wf-on="change" data-tool-id="${t.id}"`,
+      `<div class="tool-card-desc">${t.desc}</div>${extras}`,
+    );
   }
 
   const lgOn = S.lengthGuardEnabled;
@@ -705,31 +642,26 @@ export function renderToolsPanel() {
       <div class="lg-config-row">
         <div class="lg-field">
           <label>Max words</label>
-          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
+          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
         <div class="lg-field">
           <label>Max paragraphs</label>
-          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
+          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" data-wf-action="settings:lengthGuardConfig" data-wf-on="change">
         </div>
       </div>
       <label class="lg-enforce-label" title="Always suggest max length and paragraphs to the writer.">
-        <input type="checkbox" ${lgEnforce ? "checked" : ""} onchange="toggleLengthGuardEnforce(this.checked)">
+        <input type="checkbox" ${lgEnforce ? "checked" : ""} data-wf-action="settings:lengthGuardEnforce" data-wf-on="change">
         Enforce
       </label>
     </div>`
     : "";
 
-  const lengthGuardCard = `<div class="tool-card ${lgOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Length Guard</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${lgOn ? "checked" : ""} onchange="toggleLengthGuard(this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>
-    ${lgConfig}
-  </div>`;
+  const lengthGuardCard = toggleCard(
+    lgOn,
+    "Length Guard",
+    'data-wf-action="settings:lengthGuard" data-wf-on="change"',
+    `<div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>${lgConfig}`,
+  );
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
@@ -760,7 +692,7 @@ export async function showPhraseBankModal() {
         : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
       const count = isRegex ? "regex" : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
       return `
-    <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
+    <div class="phrase-group-item" data-wf-action="settings:editPhraseGroup" data-id="${g.id}">
       <div class="phrase-group-variants">${body}</div>
       <div class="phrase-group-count">${count}</div>
     </div>
@@ -775,7 +707,7 @@ export async function showPhraseBankModal() {
         <p class="modal-subtitle">Manage banned/overused phrase groups. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
-        <button class="btn btn-sm" onclick="showAddPhraseGroupModal()">+ New group</button>
+        <button class="btn btn-sm" data-wf-action="settings:newPhraseGroup">+ New group</button>
       </div>
     </div>
 
@@ -788,7 +720,7 @@ export async function showPhraseBankModal() {
   _loadSuggestions();
 }
 
-// ── Suggested: phrases and shapes mined from model replies across every chat ──
+// -- Suggested: phrases and shapes mined from model replies across every chat --
 
 const SUGGESTION_POLL_MS = 4000;
 let _suggestions = new Map();
@@ -850,12 +782,12 @@ async function _loadSuggestions() {
   if (data.refreshing) setTimeout(() => load === _suggestionLoad && _loadSuggestions(), SUGGESTION_POLL_MS);
 }
 
-export function addPhraseSuggestion(el) {
+function addPhraseSuggestion(el) {
   const suggestion = _suggestions.get(Number(el.dataset.suggestionId));
   if (suggestion) showAddPhraseGroupModal(null, { kind: "regex", pattern: suggestion.pattern }, suggestion);
 }
 
-export async function dismissPhraseSuggestion(el) {
+async function dismissPhraseSuggestion(el) {
   const id = Number(el.dataset.suggestionId);
   el.disabled = true;
   try {
@@ -872,7 +804,7 @@ export async function dismissPhraseSuggestion(el) {
   toast("Suggestion dismissed");
 }
 
-export function showAddPhraseGroupModal(editId = null, group = null, suggestion = null) {
+function showAddPhraseGroupModal(editId = null, group = null, suggestion = null) {
   const isEdit = editId !== null;
   const kind = group?.kind === "regex" ? "regex" : "literal";
   const variants = group?.variants || [];
@@ -881,13 +813,13 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
   const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${escAttr(v)}" placeholder="e.g., a mix of">
-      <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
+      <button class="btn btn-xs btn-danger btn-square" data-wf-action="settings:removeVariant" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
     </div>`;
 
   const variantsHtml = variants.map((v) => variantRow(v)).join("");
 
   const deleteButton = isEdit
-    ? `<button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>`
+    ? `<button class="btn btn-danger" data-wf-action="settings:deletePhraseGroup" data-id="${editId}">Delete</button>`
     : "";
 
   const subtitle = suggestion
@@ -899,21 +831,21 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
     <p class="modal-subtitle">${subtitle}</p>
 
     <div class="phrase-mode-toggle" id="phrase-mode-toggle"${suggestion ? " hidden" : ""}>
-      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" onclick="setPhraseGroupMode('literal')">Literal variants</button>
-      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" onclick="setPhraseGroupMode('regex')">Regular expression</button>
+      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" data-wf-action="settings:phraseMode">Literal variants</button>
+      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" data-wf-action="settings:phraseMode">Regular expression</button>
     </div>
 
     <div id="phrase-literal-panel" style="display:${kind === "regex" ? "none" : "block"}">
       <div id="variant-list" style="margin-bottom: 15px;">
         ${variantsHtml || variantRow("")}
       </div>
-      <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
+      <button class="btn btn-sm" data-wf-action="settings:addVariant" style="margin-bottom: 20px;">+ Add Another Variant</button>
     </div>
 
     <div id="phrase-regex-panel" style="display:${kind === "regex" ? "block" : "none"}">
       <input type="text" id="phrase-regex-input" class="variant-input phrase-regex-input" spellcheck="false"
         value="${escAttr(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
-        oninput="onPhraseRegexInput()">
+        data-wf-action="settings:phraseRegexInput" data-wf-on="input">
       <div id="phrase-regex-error" class="phrase-regex-error"></div>
       <div class="phrase-regex-hint">
         <p style="margin:0 0 6px;">Standard JS regex, matched case-insensitively, one sentence at a time. Common patterns:</p>
@@ -932,8 +864,8 @@ export function showAddPhraseGroupModal(editId = null, group = null, suggestion 
 
     <div class="modal-actions">
       ${deleteButton}
-      <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})"${suggestion ? ` data-suggestion-id="${suggestion.id}"` : ""}>${isEdit ? "Save" : suggestion ? "Add" : "Create"}</button>
+      <button class="btn" data-wf-action="settings:phraseBank">Cancel</button>
+      <button class="btn btn-accent" id="phrase-save-btn" data-wf-action="settings:savePhraseGroup" data-id="${editId ?? ""}"${suggestion ? ` data-suggestion-id="${suggestion.id}"` : ""}>${isEdit ? "Save" : suggestion ? "Add" : "Create"}</button>
     </div>
   `);
   setModalDismiss(showPhraseBankModal);
@@ -966,30 +898,30 @@ function _refreshPhraseSaveState() {
   if (saveBtn) saveBtn.disabled = !result.valid;
 }
 
-window.addVariantRow = () => {
+function _addVariantRow() {
   const container = document.getElementById("variant-list");
   const row = document.createElement("div");
   row.className = "variant-row";
   row.innerHTML = `
     <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger btn-square" onclick="removeVariantRow(this)" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
+    <button class="btn btn-xs btn-danger btn-square" data-wf-action="settings:removeVariant" title="Remove" aria-label="Remove variant">${CLOSE_ICON}</button>
   `;
   container.appendChild(row);
   const input = row.querySelector(".variant-input");
   input.focus();
   row.scrollIntoView({ behavior: "smooth", block: "nearest" });
-};
+}
 
-window.removeVariantRow = (btn) => {
+function _removeVariantRow(btn) {
   const rows = document.querySelectorAll(".variant-row");
   if (rows.length > 1) {
     btn.closest(".variant-row").remove();
   } else {
     btn.closest(".variant-row").querySelector(".variant-input").value = "";
   }
-};
+}
 
-window.setPhraseGroupMode = (mode) => {
+function _setPhraseGroupMode(mode) {
   document.querySelectorAll(".phrase-mode-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === mode);
   });
@@ -1002,19 +934,17 @@ window.setPhraseGroupMode = (mode) => {
     const input = document.getElementById("phrase-regex-input");
     if (input) input.focus();
   }
-};
+}
 
-window.onPhraseRegexInput = () => _refreshPhraseSaveState();
-
-window.editPhraseGroup = async (groupId) => {
+async function _editPhraseGroup(groupId) {
   const groups = await api.get("/phrase-bank");
   const group = groups.find((g) => g.id === groupId);
   if (group) {
     showAddPhraseGroupModal(groupId, group);
   }
-};
+}
 
-window.deletePhraseGroup = async (groupId) => {
+function _deletePhraseGroup(groupId) {
   confirmDelete("phrase group", "Delete this phrase group? This cannot be undone.", async () => {
     try {
       await api.del(`/phrase-bank/${groupId}`);
@@ -1024,9 +954,9 @@ window.deletePhraseGroup = async (groupId) => {
       toast(`Failed to delete: ${e.message}`, true);
     }
   });
-};
+}
 
-window.savePhraseGroup = async (editId) => {
+async function _savePhraseGroup(editId) {
   const mode = _phraseMode();
   // Set when the editor was opened from a suggestion: saving accepts it.
   const suggestionId = document.getElementById("phrase-save-btn")?.dataset.suggestionId;
@@ -1062,7 +992,7 @@ window.savePhraseGroup = async (editId) => {
     if (suggestionId) {
       await api.post(`/phrase-bank/suggestions/${suggestionId}/accept`, { pattern: payload.pattern });
       toast("Phrase group added");
-    } else if (editId && editId !== "null") {
+    } else if (editId) {
       await api.put(`/phrase-bank/${editId}`, payload);
       toast("Phrase group updated");
     } else {
@@ -1073,7 +1003,7 @@ window.savePhraseGroup = async (editId) => {
   } catch (e) {
     toast(`Failed to save: ${e.message}`, true);
   }
-};
+}
 
 const CLEANUP_AGES = [
   [0, "Now (everything)"],
@@ -1088,7 +1018,7 @@ async function saveAttachmentBudget(el) {
   await persistSettings({ attachment_cache_budget_bytes: mb * 1048576 });
 }
 
-export async function showCleanupModal() {
+async function showCleanupModal() {
   showModal(`
     <h2>Data Hygiene</h2>
     <div class="field">
@@ -1171,7 +1101,7 @@ export async function showCleanupModal() {
   await refresh();
 }
 
-export async function showResetConfirmModal() {
+async function showResetConfirmModal() {
   showSubConfirmModal(
     {
       title: "Reset to Defaults",
@@ -1190,3 +1120,33 @@ export async function showResetConfirmModal() {
     },
   );
 }
+
+registerActions("settings", {
+  theme: (el) => applyTheme(el.value),
+  toggleToolsPanel: () => toggleToolsPanel(),
+  agentEnabled: (el) => setAgentEnabled(el.checked),
+  toolEnabled: (el) => toggleToolEnabled(el.dataset.toolId, el.checked),
+  auditType: (el) => toggleAuditType(el.dataset.auditKey, el.checked),
+  editorDiff: (el) => toggleShowEditorDiff(el.checked),
+  individualFragments: (el) => toggleDirectorIndividualFragments(el.checked),
+  agenticLorebook: (el) => toggleAgenticLorebook(el.checked),
+  lengthGuard: (el) => toggleLengthGuard(el.checked),
+  lengthGuardEnforce: (el) => toggleLengthGuardEnforce(el.checked),
+  lengthGuardConfig: () => saveLengthGuardConfig(),
+  workflowsGlobal: (el) => toggleWorkflowsGlobal(el.checked),
+  workflowEnabled: (el) => toggleWorkflowEnabled(el.dataset.workflowId, el.checked),
+  phraseBank: () => showPhraseBankModal(),
+  newPhraseGroup: () => showAddPhraseGroupModal(),
+  editPhraseGroup: (el) => _editPhraseGroup(Number(el.dataset.id)),
+  deletePhraseGroup: (el) => _deletePhraseGroup(el.dataset.id),
+  savePhraseGroup: (el) => _savePhraseGroup(el.dataset.id || null),
+  phraseMode: (el) => _setPhraseGroupMode(el.dataset.mode),
+  phraseRegexInput: () => _refreshPhraseSaveState(),
+  addVariant: () => _addVariantRow(),
+  removeVariant: (el) => _removeVariantRow(el),
+});
+
+registerActions("phrase-suggestion", {
+  add: (el) => addPhraseSuggestion(el),
+  dismiss: (el) => dismissPhraseSuggestion(el),
+});

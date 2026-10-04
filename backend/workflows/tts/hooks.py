@@ -4,14 +4,28 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+from collections.abc import AsyncIterator
 
 from ..toolkit import (
+    EV_ATTACH_ARTIFACT,
+    OnDemandCtx,
+    PostCtx,
+    PostEvent,
+    PreCtx,
+    PreEvent,
+    QueryCtx,
+    RegenCtx,
+    RerollGenCtx,
+    UploadCtx,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
     insert_workflow_attachment,
     set_workflow_character_state,
+    spark_voice_enroll,
     spark_voice_reference_audio,
+    workflow_character_state_lock,
 )
 from .config import normalize_config
 from .engine.router import get_adapter, list_backends
@@ -27,6 +41,7 @@ from .synth import (
     synthesize_blocks,
     synthesize_blocks_from_metadata,
 )
+from .voice_clone import apply_voice
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +69,7 @@ def _attachment(text: str, profile: dict, audio: bytes, mime: str, backend: str,
     }
 
 
-async def pre_pipeline(ctx):
+async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
     """Freeze this turn's voice before any model call; playback remains live."""
     if ctx.character_id:
         ctx.turn_scratch.setdefault("tts_profiles", {})[ctx.character_id] = normalize_profile(
@@ -65,14 +80,12 @@ async def pre_pipeline(ctx):
         yield {}
 
 
-async def post_pipeline(ctx):
-    """Synthesize the finished reply for a character whose voice profile is
-    enabled. Yields one ``attach_artifact`` and, when auto-play is on, a
-    pass-through event the frontend uses to start playback.
+async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
+    """Synthesize the finished reply for a character whose voice profile is enabled. Yields one ``attach_artifact`` and, when
+    auto-play is on, a pass-through event the frontend uses to start playback.
 
-    Generation is gated solely by the per-character profile's ``enabled`` flag;
-    there is no global generate switch. A synthesis failure is logged and
-    swallowed -- a bad TTS backend must not fail the user's turn.
+    Generation is gated solely by the per-character profile's ``enabled`` flag; there is no global generate switch. A synthesis
+    failure is logged and swallowed -- a bad TTS backend must not fail the user's turn.
     """
     if not ctx.character_id:
         return
@@ -94,20 +107,19 @@ async def post_pipeline(ctx):
 
     att = _attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)
     att["source"] = f"workflow:{WORKFLOW_ID}"
-    yield {"type": "attach_artifact", "attachment": att}
+    yield {"type": EV_ATTACH_ARTIFACT, "attachment": att}
     yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}
 
     if normalize_config(await get_workflow_config(WORKFLOW_ID))["auto_play"]:
         yield {"event": "tts_autoplay", "data": {}}
 
 
-async def regenerate(ctx, body):
+async def regenerate(ctx: RegenCtx, body: dict) -> list[dict]:
     """Re-synthesize the message under the character's CURRENT voice profile.
 
-    Unlike reroll, this ignores the original's stored parameters and re-reads
-    both the message text and the live profile, so an edit to the voice (pitch,
-    rate, backend, voice id, ...) takes effect here. The route stamps
-    ``workflow_id`` and ``parent_attachment_id`` and validates each entry.
+    Unlike reroll, this ignores the original's stored parameters and re-reads both the message text and the live profile, so an
+    edit to the voice (pitch, rate, backend, voice id, ...) takes effect here. The route stamps ``workflow_id`` and
+    ``parent_attachment_id`` and validates each entry.
     """
     message = await get_message_by_id(ctx.message_id)
     text = (message or {}).get("content") or ""
@@ -122,16 +134,13 @@ async def regenerate(ctx, body):
     return [_attachment(text, profile, audio, mime, profile.get("backend", "spark"), blocks)]
 
 
-async def reroll_gen(ctx, params, seed):
+async def reroll_gen(ctx: RerollGenCtx, params: dict, seed: str):
     """Re-synthesize from the stored parameters. Returns ``(bytes, consumption_metadata)``.
 
-    The framework-supplied ``seed`` is ignored because TTS synthesis takes no
-    seed input -- there is nothing for it to influence -- so reroll and
-    rehydrate both reproduce from the stored parameters alone. The
-    consumption_metadata is returned alongside so the byte ranges track the
-    freshly synthesized clips on both the reroll (new sibling) and rehydrate
-    (in-place) routes. Raises on missing parameters, surfaced by the route as
-    a 500.
+    The framework-supplied ``seed`` is ignored because TTS synthesis takes no seed input -- there is nothing for it to influence
+    -- so reroll and rehydrate both reproduce from the stored parameters alone. The consumption_metadata is returned alongside
+    so the byte ranges track the freshly synthesized clips on both the reroll (new sibling) and rehydrate (in-place) routes.
+    Raises on missing parameters, surfaced by the route as a 500.
     """
     audio, _, blocks = await synthesize_blocks_from_metadata(params if isinstance(params, dict) else {})
     duration_ms = sum(
@@ -140,7 +149,7 @@ async def reroll_gen(ctx, params, seed):
     return audio, {"duration_ms": duration_ms, "blocks": consumption_blocks(blocks)}
 
 
-async def on_demand(ctx, body):
+async def on_demand(ctx: OnDemandCtx, body: dict):
     action = body.get("action") if isinstance(body, dict) else None
     if action == "create":
         return await _create(ctx, body)
@@ -148,6 +157,8 @@ async def on_demand(ctx, body):
         return await _get_profile(ctx)
     if action == "set_profile":
         return await _set_profile(ctx, body)
+    if action == "clear_voice":
+        return await _clear_voice(ctx)
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -195,14 +206,43 @@ async def _set_profile(ctx, body) -> dict:
     return {"ok": True, "profile": profile}
 
 
-# These back the config panel's Backend / Voice / Model selectors and the
-# Preview button. They answer from the static backend registry or by probing the
-# TTS backend named in the form's unsaved profile, with no conversation in scope,
-# and report their own failures in-band -- the caller degrades (empty list,
-# status text) rather than treating a probe failure as an HTTP error.
+async def _clear_voice(ctx) -> dict:
+    """Forget the character's cloned voice and stop speaking for it; the backend stays selected."""
+    if not ctx.character_id:
+        return {"error": "no active character"}
+    # The trigger route already holds this character's state lock.
+    stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+    profile = apply_voice(normalize_profile(stored), None, "")
+    await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
+    return {"ok": True, "profile": profile}
 
 
-async def query(ctx, body):
+async def upload(ctx: UploadCtx, params: dict[str, str]) -> dict:
+    """Enroll the uploaded clip as the character's cloned voice.
+
+    Enrollment runs before the state lock is taken, so a long clip holds nothing.
+    ``params["mode"]`` picks the clone mode the panel shows; an unknown one is ignored.
+    """
+    source_name = os.path.basename(ctx.filename)[:120]
+    voice = await spark_voice_enroll(ctx.data, ctx.settings, filename=source_name)
+    async with workflow_character_state_lock(ctx.character_id, WORKFLOW_ID):
+        stored = await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)
+        profile = apply_voice(normalize_profile(stored), voice, source_name, params.get("mode"))
+        await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
+    return {
+        "speaker_tokens": voice["speaker_tokens"],
+        "source_name": source_name,
+        "reference_note": voice["reference_note"],
+        "profile": profile,
+    }
+
+
+# These back the config panel's Backend / Voice / Model selectors and the Preview button. They answer from the static backend
+# registry or by probing the TTS backend named in the form's unsaved profile, with no conversation in scope, and report their
+# own failures in-band -- the caller degrades (empty list, status text) rather than treating a probe failure as an HTTP error.
+
+
+async def query(ctx: QueryCtx, body: dict) -> dict:
     action = body.get("action") if isinstance(body, dict) else None
     if action == "list_backends":
         return {"backends": list_backends()}
@@ -237,10 +277,7 @@ async def _list_models(body) -> dict:
     backend = body.get("backend") or "spark"
     try:
         adapter = get_adapter(backend)
-        models = await adapter.list_models(
-            api_url=body.get("api_url") or "",
-            api_key=(body.get("api_key") or None),
-        )
+        models = await adapter.list_models(api_url=body.get("api_url") or "", api_key=(body.get("api_key") or None))
     except Exception:
         logger.exception("tts list_models failed for backend %r", backend)
         return {"models": [], "error": "could not load models"}
@@ -253,11 +290,9 @@ async def _preview(body) -> dict:
     try:
         audio, mime = await synthesize(text, profile)
     except ValueError as exc:
-        # An adapter raises ValueError for the refusals a user can act on: no
-        # voice enrolled yet, a model that is not downloaded, a missing API
-        # key. That message IS the fix, so it reaches the panel's status line;
-        # "preview synthesis failed" would send the user looking for a bug that
-        # is not there. Anything else IS a bug and stays generic below.
+        # An adapter raises ValueError for the refusals a user can act on: no voice enrolled yet, a model that is not
+        # downloaded, a missing API key. That message IS the fix, so it reaches the panel's status line; "preview synthesis
+        # failed" would send the user looking for a bug that is not there. Anything else IS a bug and stays generic below.
         logger.info("tts preview refused: %s", exc)
         return {"error": str(exc) or "preview synthesis failed"}
     except Exception:

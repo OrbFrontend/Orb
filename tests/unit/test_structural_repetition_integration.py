@@ -1,12 +1,9 @@
-"""
-test_structural_repetition_integration.py — Regression test for structural
-repetition detection through the _run_contextual_audit integration path.
+"""test_structural_repetition_integration.py -- Regression test for structural repetition detection through the
+_run_contextual_audit integration path.
 
-The bug: _run_contextual_audit passed full_text (previous msgs + draft
-concatenated) as the `text` arg to run_audit, which forwarded it as the
-"current message" to detect_structural_repetition.  The detector then compared
-individual previous messages against a doubled-up blob, collapsing similarity
-to ~0.67 and suppressing the flag.
+The bug: _run_contextual_audit passed full_text (previous msgs + draft concatenated) as the `text` arg to run_audit, which
+forwarded it as the "current message" to detect_structural_repetition. The detector then compared individual previous messages
+against a doubled-up blob, collapsing similarity to ~0.67 and suppressing the flag.
 """
 
 from __future__ import annotations
@@ -29,15 +26,10 @@ Mira checked her bag. "One moment." She smiled. "All good."
 async def test_structural_repetition_detected_through_contextual_audit():
     """_run_contextual_audit must flag identical-structure messages.
 
-    Previously this returned is_repetitive=False because the draft was passed
-    to detect_structural_repetition as part of a concatenated full_text blob
-    rather than as a standalone message.
+    Previously this returned is_repetitive=False because the draft was passed to detect_structural_repetition as part of a
+    concatenated full_text blob rather than as a standalone message.
     """
-    report, _ = await _run_contextual_audit(
-        draft=_MSG2,
-        phrase_bank=[],
-        previous_assistant_msgs=[_MSG1],
-    )
+    report, _ = await _run_contextual_audit(draft=_MSG2, phrase_bank=[], previous_assistant_msgs=[_MSG1])
     sr = report.structural_repetition_result
     assert sr is not None, "structural_repetition_result should be set when previous messages are provided"
     assert sr.is_repetitive, (
@@ -50,18 +42,13 @@ async def test_structural_repetition_detected_through_contextual_audit():
 async def test_structural_repetition_no_false_positive_different_sentence_counts():
     """Messages with different sentence counts per block must NOT be flagged.
 
-    Splitting by sentences (not paragraphs) means that two messages sharing
-    the same block-type order but differing in sentence counts per block
-    produce different signatures and should not match.
+    Splitting by sentences (not paragraphs) means that two messages sharing the same block-type order but differing in sentence
+    counts per block produce different signatures and should not match.
     """
     msg1 = '"Let me see." Kael looked. Then he said. "This is bad."'
     msg2 = '"I told you so." Lira replied. "I\'m never wrong."'
 
-    report, _ = await _run_contextual_audit(
-        draft=msg2,
-        phrase_bank=[],
-        previous_assistant_msgs=[msg1],
-    )
+    report, _ = await _run_contextual_audit(draft=msg2, phrase_bank=[], previous_assistant_msgs=[msg1])
     sr = report.structural_repetition_result
     assert sr is not None
     assert not sr.is_repetitive, (

@@ -118,11 +118,11 @@ main() {
     for version in "${versions[@]}"; do
         log_info "=== Testing Python $version ==="
         if ! build_image "$version"; then
-            ((failures++))
+            failures=$((failures + 1))
             continue
         fi
         if ! test_image "$version"; then
-            ((failures++))
+            failures=$((failures + 1))
         fi
     done
 

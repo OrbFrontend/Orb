@@ -2,9 +2,8 @@ from __future__ import annotations
 
 
 async def test_list_mood_fragments_returns_seeded_data(client, db):
-    resp = await client.get("/api/fragments")
-    assert resp.status_code == 200
-    mood_fragments = resp.json()
+    resp = await client.get_json("/api/fragments")
+    mood_fragments = resp
     ids = {f["id"] for f in mood_fragments}
     # These are seeded by init_db
     assert "talkative" in ids
@@ -19,13 +18,11 @@ async def test_create_mood_fragment_persists_to_db(client, db):
         "negative_prompt": "Do not write dramatically.",
         "cooldown_turns": 4,
     }
-    resp = await client.post("/api/fragments", json=payload)
-    assert resp.status_code == 200
-    assert resp.json()["id"] == "test-frag"
-    assert resp.json()["cooldown_turns"] == 4
+    resp = await client.post_json("/api/fragments", json=payload)
+    assert resp["id"] == "test-frag"
+    assert resp["cooldown_turns"] == 4
 
-    async with db.execute("SELECT * FROM mood_fragments WHERE id = 'test-frag'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT * FROM mood_fragments WHERE id = 'test-frag'")
     assert row is not None
     assert row["label"] == "Test"
     assert row["prompt_text"] == "Write dramatically."
@@ -33,70 +30,46 @@ async def test_create_mood_fragment_persists_to_db(client, db):
 
 
 async def test_create_duplicate_mood_fragment_returns_400(client, db):
-    payload = {
-        "id": "dupe",
-        "label": "Dupe",
-        "description": "x",
-        "prompt_text": "x",
-    }
+    payload = {"id": "dupe", "label": "Dupe", "description": "x", "prompt_text": "x"}
     await client.post("/api/fragments", json=payload)
-    resp = await client.post("/api/fragments", json=payload)
-    assert resp.status_code == 400
+    await client.post_checked("/api/fragments", json=payload, expected_status=400)
 
 
 async def test_mood_fragment_cooldown_is_bounded(client, db):
     payload = {"id": "bounded", "label": "Bounded", "description": "x", "prompt_text": "x"}
     for value in (-1, 51):
-        response = await client.post("/api/fragments", json={**payload, "cooldown_turns": value})
-        assert response.status_code == 422
+        await client.post_checked("/api/fragments", json={**payload, "cooldown_turns": value}, expected_status=422)
 
 
 async def test_update_mood_fragment_persists_to_db(client, db):
-    payload = {
-        "id": "upd-frag",
-        "label": "Original",
-        "description": "desc",
-        "prompt_text": "original text",
-    }
+    payload = {"id": "upd-frag", "label": "Original", "description": "desc", "prompt_text": "original text"}
     await client.post("/api/fragments", json=payload)
 
-    resp = await client.put(
-        "/api/fragments/upd-frag",
-        json={"label": "Updated", "prompt_text": "new text", "cooldown_turns": 6},
+    resp = await client.put_json(
+        "/api/fragments/upd-frag", json={"label": "Updated", "prompt_text": "new text", "cooldown_turns": 6}
     )
-    assert resp.status_code == 200
-    assert resp.json()["label"] == "Updated"
-    assert resp.json()["cooldown_turns"] == 6
+    assert resp["label"] == "Updated"
+    assert resp["cooldown_turns"] == 6
 
-    async with db.execute("SELECT label, prompt_text, cooldown_turns FROM mood_fragments WHERE id = 'upd-frag'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT label, prompt_text, cooldown_turns FROM mood_fragments WHERE id = 'upd-frag'")
     assert row["label"] == "Updated"
     assert row["prompt_text"] == "new text"
     assert row["cooldown_turns"] == 6
 
 
 async def test_delete_mood_fragment_removes_from_db(client, db):
-    payload = {
-        "id": "del-frag",
-        "label": "ToDelete",
-        "description": "desc",
-        "prompt_text": "text",
-    }
+    payload = {"id": "del-frag", "label": "ToDelete", "description": "desc", "prompt_text": "text"}
     await client.post("/api/fragments", json=payload)
 
-    resp = await client.delete("/api/fragments/del-frag")
-    assert resp.status_code == 200
+    await client.delete_checked("/api/fragments/del-frag")
 
-    async with db.execute("SELECT id FROM mood_fragments WHERE id = 'del-frag'") as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT id FROM mood_fragments WHERE id = 'del-frag'")
     assert row is None
 
 
 async def test_delete_nonexistent_mood_fragment_returns_404(client, db):
-    resp = await client.delete("/api/fragments/does-not-exist")
-    assert resp.status_code == 404
+    await client.delete_checked("/api/fragments/does-not-exist", expected_status=404)
 
 
 async def test_update_nonexistent_mood_fragment_returns_404(client, db):
-    resp = await client.put("/api/fragments/ghost", json={"label": "Ghost"})
-    assert resp.status_code == 404
+    await client.put_checked("/api/fragments/ghost", json={"label": "Ghost"}, expected_status=404)

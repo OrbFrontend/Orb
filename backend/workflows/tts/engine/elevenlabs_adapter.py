@@ -38,47 +38,27 @@ class ElevenLabsAdapter(TTSAdapter):
             return SynthesisResult(audio_bytes=b"", content_type="audio/mpeg")
 
         url = f"{_API_BASE}/v1/text-to-speech/{voice_id}"
-        headers = {
-            "xi-api-key": api_key,
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
-        }
+        headers = {"xi-api-key": api_key, "Content-Type": "application/json", "Accept": "audio/mpeg"}
         body = {
             "text": text,
             "model_id": model_id,
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "style": 0.0,
-                "use_speaker_boost": True,
-            },
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75, "style": 0.0, "use_speaker_boost": True},
         }
 
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(url, json=body, headers=headers)
             resp.raise_for_status()
 
-        logger.info(
-            "ElevenLabs: synthesized %d chars → %d bytes (voice=%s)",
-            len(text),
-            len(resp.content),
-            voice_id,
-        )
+        logger.info("ElevenLabs: synthesized %d chars → %d bytes (voice=%s)", len(text), len(resp.content), voice_id)
 
-        return SynthesisResult(
-            audio_bytes=resp.content,
-            content_type="audio/mpeg",
-        )
+        return SynthesisResult(audio_bytes=resp.content, content_type="audio/mpeg")
 
     async def list_voices(self, language: str = "", api_key: str | None = None, **kwargs) -> list[dict]:
         if not api_key:
             return []
 
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"{_API_BASE}/v1/voices",
-                headers={"xi-api-key": api_key},
-            )
+            resp = await client.get(f"{_API_BASE}/v1/voices", headers={"xi-api-key": api_key})
             resp.raise_for_status()
 
         data = resp.json()
@@ -89,12 +69,7 @@ class ElevenLabsAdapter(TTSAdapter):
             if language and not voice_lang.startswith(language.split("-")[0]):
                 continue
             voices.append(
-                {
-                    "id": v["voice_id"],
-                    "name": v["name"],
-                    "language": voice_lang,
-                    "gender": labels.get("gender", "unknown"),
-                }
+                {"id": v["voice_id"], "name": v["name"], "language": voice_lang, "gender": labels.get("gender", "unknown")}
             )
         return voices
 

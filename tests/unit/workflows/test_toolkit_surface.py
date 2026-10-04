@@ -1,10 +1,9 @@
 """Pins the workflow locks onto the toolkit's public re-export surface.
 
-Workflow authors import everything from ``backend.workflows.toolkit``,
-so the three workflow locks must be reachable there to guard a read-modify-write
-on any state tier without importing ``backend.core.locks`` directly. These assertions
-fail if a lock is dropped from the re-export, omitted from ``__all__``, or rebound
-to something other than the canonical ``backend.core.locks`` object.
+Workflow authors import everything from ``backend.workflows.toolkit``, so the three workflow locks must be reachable there to
+guard a read-modify-write on any state tier without importing ``backend.core.locks`` directly. These assertions fail if a lock
+is dropped from the re-export, omitted from ``__all__``, or rebound to something other than the canonical ``backend.core.locks``
+object.
 """
 
 from __future__ import annotations
@@ -12,11 +11,7 @@ from __future__ import annotations
 from backend.core import locks
 from backend.workflows import toolkit
 
-_LOCK_NAMES = (
-    "workflow_state_lock",
-    "workflow_character_state_lock",
-    "workflow_config_lock",
-)
+_LOCK_NAMES = ("workflow_state_lock", "workflow_character_state_lock", "workflow_config_lock")
 
 _LOWER_LAYER_INTERNALS = (
     "LLMClient",
@@ -30,12 +25,36 @@ _LOWER_LAYER_INTERNALS = (
     "reasoning_cfg",
 )
 
+# A plug-in may import nothing but the toolkit, so every hook context and event name it is handed must be spelled there.
 _PLUGIN_CONTRACTS = (
+    "EV_ATTACH_ARTIFACT",
     "EV_DRAFT_REPLACED",
+    "EV_ENABLE_TOOLS",
+    "EV_SET_MESSAGE_STATE",
+    "EV_SYSTEM_PROMPT",
+    "AttachArtifactEvent",
+    "DraftReplacedEvent",
+    "EnableToolsEvent",
+    "ExportCtx",
+    "HookType",
+    "OnDemandCtx",
+    "PostCtx",
+    "PostEvent",
+    "PreCtx",
+    "PreEvent",
+    "PublicEvent",
+    "QueryCtx",
+    "RegenCtx",
+    "RerollGenCtx",
+    "SetMessageStateEvent",
+    "Subscription",
+    "SystemPromptEvent",
     "ToolSpec",
+    "UploadCtx",
     "Workflow",
     "WorkflowEventStream",
     "WorkflowUserFacingError",
+    "subscription",
 )
 
 

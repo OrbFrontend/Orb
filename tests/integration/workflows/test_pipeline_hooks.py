@@ -1,8 +1,7 @@
 """Orchestrator-level coverage of the workflow pre/post-pipeline hooks.
 
-Tests target the pre-pipeline iteration helper, the attachment staging
-helper, and a full ``_run_pipeline`` run with patched LLM passes to
-verify the post-pipeline draft-replacement and attachment-staging path.
+Tests target the pre-pipeline iteration helper, the attachment staging helper, and a full ``run_pipeline`` run with patched LLM
+passes to verify the post-pipeline draft-replacement and attachment-staging path.
 """
 
 from __future__ import annotations
@@ -20,26 +19,23 @@ from backend.database import (
     set_active_leaf,
     set_workflow_config,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
-from backend.pipeline.persistence import _consume_pipeline
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline import handle_turn
+from backend.pipeline.events import PROTECTED_TURN_EVENTS
+from backend.pipeline.orchestrator import run_pipeline
+from backend.pipeline.persistence import consume_pipeline
 from backend.pipeline.workflow_bridge import (
-    _iterate_pre_pipeline_hooks,
-    _PostPipelineResult,
-    _run_post_pipeline,
+    PostPipelineResult,
     _stage_workflow_attachment,
+    iterate_pre_pipeline_hooks,
+    run_post_pipeline,
 )
 
 from ._fixtures import make_workflow, register_for_test
 
 _DIRECTOR_STATE = {"active_moods": []}
 _PREFIX = [{"role": "system", "content": "You are an assistant."}]
-_SETTINGS = {
-    "model_name": "test",
-    "enable_agent": 1,
-    "enabled_tools": {},
-    "reasoning_enabled_passes": {},
-}
+_SETTINGS = {"model_name": "test", "enable_agent": 1, "enabled_tools": {}, "reasoning_enabled_passes": {}}
 
 
 def _make_client() -> LLMClient:
@@ -55,7 +51,7 @@ def _pipeline_kwargs(enabled_tools: dict | None = None) -> dict:
         "prefix": _PREFIX,
         "enabled_tools": dict(enabled_tools or {}),
         "turn_scratch": {},
-        "kv_tracker": _KVCacheTracker(),
+        "kv_tracker": KVCacheTracker(),
         "schema_overrides": {},
     }
 
@@ -71,7 +67,7 @@ async def _run_pre_hooks(
     enabled_tools = dict(enabled_tools or {})
     return [
         event
-        async for event in _iterate_pre_pipeline_hooks(
+        async for event in iterate_pre_pipeline_hooks(
             conversation_id="c1",
             history=[],
             last_user_message=last_user_message,
@@ -80,7 +76,7 @@ async def _run_pre_hooks(
             enabled_tools_pre_merge=enabled_tools,
             turn_scratch=turn_scratch if turn_scratch is not None else {},
             client=client,
-            kv_tracker=_KVCacheTracker(),
+            kv_tracker=KVCacheTracker(),
             schema_overrides={},
             accumulators=accumulators,
         )
@@ -99,20 +95,13 @@ async def _run_with_writer(
     kwargs.update(pipeline_kwargs or {})
     with patch("backend.pipeline.passes.writer.writer_pass", new=writer):
         return await _drain(
-            _run_pipeline(
-                client or _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                last_user_message,
-                history=history or [],
-                **kwargs,
+            run_pipeline(
+                client or _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], last_user_message, history=history or [], **kwargs
             )
         )
 
 
-# -- _iterate_pre_pipeline_hooks ------------------------------------------
+# -- iterate_pre_pipeline_hooks ------------------------------------------
 
 
 async def test_pre_pipeline_iter_empty_registry_no_events_no_accumulator_change():
@@ -248,7 +237,7 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
     with register_for_test(w):
         events = [
             ev
-            async for ev in _run_post_pipeline(
+            async for ev in run_post_pipeline(
                 draft="draft",
                 conversation_id="c1",
                 character_id=None,
@@ -261,12 +250,12 @@ async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
     assert len(events) == 1
-    assert isinstance(events[0], _PostPipelineResult)
+    assert isinstance(events[0], PostPipelineResult)
 
 
 async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client):
@@ -293,7 +282,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
     ):
         events = [
             ev
-            async for ev in _run_post_pipeline(
+            async for ev in run_post_pipeline(
                 draft="Editor-final draft.",
                 conversation_id="c1",
                 character_id=None,
@@ -306,7 +295,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
@@ -321,7 +310,7 @@ async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client)
     ]
     assert events[0]["data"] == {"channel": "workflow:prose_rewriter", "label": "Rewriting prose…"}
     assert events[3]["data"] == {"channel": "workflow:prose_rewriter", "state": "done"}
-    assert isinstance(events[-1], _PostPipelineResult)
+    assert isinstance(events[-1], PostPipelineResult)
     assert events[-1].draft == "Prose-rewritten draft."
 
 
@@ -342,7 +331,7 @@ async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(client, w
     with patch("backend.workflows.prose_rewriter_host.resolve_config", return_value=None) as resolve:
         events = [
             event
-            async for event in _run_post_pipeline(
+            async for event in run_post_pipeline(
                 draft="Editor-final draft.",
                 conversation_id="c1",
                 character_id=None,
@@ -355,14 +344,14 @@ async def test_prose_rewriter_automatic_hook_obeys_workflow_enablement(client, w
                 enabled_tools={},
                 turn_scratch={},
                 client=_make_client(),
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
             )
         ]
 
     resolve.assert_not_called()
     assert len(events) == 1
-    assert isinstance(events[0], _PostPipelineResult)
+    assert isinstance(events[0], PostPipelineResult)
     assert events[0].draft == "Editor-final draft."
 
 
@@ -390,13 +379,7 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
 
 
 def test_stage_attachment_happy_path_with_data_bytes():
-    att = {
-        "filename": "out.mp3",
-        "mime": "audio/mpeg",
-        "data": b"\xff\xfb",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "out.mp3", "mime": "audio/mpeg", "data": b"\xff\xfb", "source": "workflow:tts", "workflow_id": "tts"}
     staged = _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["data"] == b"\xff\xfb"
@@ -439,23 +422,12 @@ def test_stage_attachment_rejects_both_data_and_path():
 
 
 def test_stage_attachment_rejects_neither_data_nor_path():
-    att = {
-        "filename": "x.bin",
-        "mime": "application/octet-stream",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "x.bin", "mime": "application/octet-stream", "source": "workflow:tts", "workflow_id": "tts"}
     assert _stage_workflow_attachment(att, "tts") is None
 
 
 def test_stage_attachment_rejects_empty_data():
-    att = {
-        "filename": "x.bin",
-        "mime": "application/octet-stream",
-        "data": b"",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "x.bin", "mime": "application/octet-stream", "data": b"", "source": "workflow:tts", "workflow_id": "tts"}
     assert _stage_workflow_attachment(att, "tts") is None
 
 
@@ -558,7 +530,7 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
         assert staged["consumption_metadata"] is None
 
 
-# -- _run_pipeline post-pipeline iteration --------------------------------
+# -- run_pipeline post-pipeline iteration --------------------------------
 
 
 async def test_prose_rewriter_does_not_force_the_editor_to_run(client):
@@ -710,10 +682,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
             mock_writer,
             client=client,
             last_user_message="hi",
-            pipeline_kwargs={
-                "enabled_tools": accumulators["merged_enabled_tools"],
-                "turn_scratch": turn_scratch,
-            },
+            pipeline_kwargs={"enabled_tools": accumulators["merged_enabled_tools"], "turn_scratch": turn_scratch},
         )
 
     assert captured["pre_id"] == captured["post_id"]
@@ -913,17 +882,10 @@ async def test_post_pipeline_set_message_state_persists_to_assistant_row(client)
     w = make_workflow("ms_persist", post_pipeline=post_hook)
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            pipeline = _run_pipeline(
-                _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                "hi",
-                conversation_id="cms",
-                **_pipeline_kwargs(),
+            pipeline = run_pipeline(
+                _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], "hi", conversation_id="cms", **_pipeline_kwargs()
             )
-            await _drain(_consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
+            await _drain(consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
 
     msgs = await get_messages("cms")
     assistant = [m for m in msgs if m["role"] == "assistant"][-1]
@@ -945,28 +907,20 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
     w = make_workflow("ms_empty", post_pipeline=post_hook)
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            pipeline = _run_pipeline(
-                _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                "hi",
-                conversation_id="cms_empty",
-                **_pipeline_kwargs(),
+            pipeline = run_pipeline(
+                _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], "hi", conversation_id="cms_empty", **_pipeline_kwargs()
             )
-            await _drain(_consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
+            await _drain(consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
 
     msgs = await get_messages("cms_empty")
     assert [m for m in msgs if m["role"] == "assistant"] == []
 
 
 async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_starts_no_other():
-    """A render hook hands over a finished artifact, then blocks on more work.
-    Stop tears that work down rather than waiting for it, keeps the artifact
-    (and reports it as accepted while the hook is still running, so a turn
-    cancelled mid-hook saves it too), drops what the hook would publish after
-    the stop, and starts no later hook."""
+    """A render hook hands over a finished artifact, then blocks on more work. Stop tears that work down rather than waiting for
+    it, keeps the artifact (and reports it as accepted while the hook is still running, so a turn cancelled mid-hook saves it
+    too), drops what the hook would publish after the stop, and starts no later hook.
+    """
     client = _make_client()
     rendering = asyncio.Event()
     log: list[str] = []
@@ -993,7 +947,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
         log.append("later hook started")
         yield {"event": "later", "data": {}}
 
-    accepted: list[_PostPipelineResult] = []
+    accepted: list[PostPipelineResult] = []
     with (
         register_for_test(
             make_workflow(
@@ -1008,7 +962,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
         register_for_test(make_workflow("tw_later", post_pipeline=later, priority=10)),
     ):
         run = _drain(
-            _run_post_pipeline(
+            run_post_pipeline(
                 draft="draft",
                 conversation_id="c1",
                 character_id=None,
@@ -1021,7 +975,7 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
                 enabled_tools={},
                 turn_scratch={},
                 client=client,
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
                 on_accepted=accepted.append,
             )
@@ -1034,5 +988,127 @@ async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_
 
     assert log == ["render torn down"]
     assert not [e for e in events if isinstance(e, dict) and e.get("event") in ("tts_autoplay", "later")]
-    assert isinstance(events[-1], _PostPipelineResult)
+    assert isinstance(events[-1], PostPipelineResult)
     assert [att["filename"] for att in events[-1].staged_attachments] == ["a.png"]
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+@pytest.mark.parametrize("name", sorted(PROTECTED_TURN_EVENTS))
+async def test_turn_hooks_drop_protected_events_and_continue(phase, name, caplog):
+    async def hook(ctx):
+        yield {"event": name, "data": {"forged": True}}
+        yield {"event": "custom_after_rejection", "data": {"extension": [1, 2]}}
+
+    async def later(ctx):
+        yield {"event": "later_hook", "data": "still runs"}
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "real reply"}
+
+    with (
+        register_for_test(make_workflow("tw_owner", priority=-20, **{phase: hook})),
+        register_for_test(make_workflow("tw_later_owner", priority=20, **{phase: later})),
+    ):
+        if phase == "pre_pipeline":
+            events = await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+        else:
+            events = await _run_with_writer(writer)
+    assert not any(e.get("data") == {"forged": True} for e in events)
+    assert [e["event"] for e in events if e["event"] in {"custom_after_rejection", "later_hook"}] == [
+        "custom_after_rejection",
+        "later_hook",
+    ]
+    assert f"event {name!r} is protected by the turn host" in caplog.text
+    assert "tw_owner" in caplog.text and phase in caplog.text
+
+
+_SHARED_EVENTS = [
+    {"event": "phase_status", "data": {"channel": "workflow:tw_shared", "label": "Working", "extra": [1]}},
+    {"event": "phase_status", "data": {"channel": "workflow:tw_shared", "state": "done"}},
+    {"event": "reasoning", "data": {"pass": "workflow:tw_shared", "delta": "thought", "feature": {"x": 1}}},
+    {"event": "draft_update", "data": {"draft": "cosmetic", "feature": True}},
+    {"event": "warning", "data": {"headline": "Optional work declined", "sentence": "reason", "status": 503, "extra": [2]}},
+    {"event": "tts_autoplay", "data": {}},
+    {"event": "custom_without_data"},
+    {"event": "custom_text", "data": "text"},
+]
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+async def test_turn_hooks_preserve_shared_and_custom_json(phase):
+    async def hook(ctx):
+        for event in _SHARED_EVENTS:
+            yield event
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "authoritative"}
+
+    with register_for_test(make_workflow("tw_shared", **{phase: hook})):
+        if phase == "pre_pipeline":
+            events = await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+        else:
+            events = await _run_with_writer(writer)
+            assert next(e["data"] for e in events if e["event"] == "_result")["resp_text"] == "authoritative"
+    assert [e for e in events if e in _SHARED_EVENTS] == _SHARED_EVENTS
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+@pytest.mark.parametrize(
+    "bad_event,reason",
+    [
+        ({"event": "phase_status", "data": {"label": "working"}}, "phase_status.channel"),
+        ({"event": "phase_status", "data": {"channel": "workflow:x"}}, "requires label or state"),
+        ({"event": "phase_status", "data": {"channel": "workflow:x", "state": 1}}, "phase_status.state"),
+        ({"event": "reasoning", "data": {"pass": "writer", "delta": 3}}, "reasoning.delta"),
+        ({"event": "draft_update", "data": {"draft": None}}, "draft_update.draft"),
+        ({"event": "warning", "data": {"headline": 1}}, "warning.headline"),
+        ({"event": "warning", "data": {"headline": "failed", "status": True}}, "warning.status"),
+        ({"event": "warning", "data": {"headline": "failed", "body": []}}, "warning.body"),
+    ],
+)
+async def test_turn_hooks_drop_invalid_shared_fields(phase, bad_event, reason, caplog):
+    async def hook(ctx):
+        yield bad_event
+        yield {"event": "custom_survives"}
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "reply"}
+
+    with register_for_test(make_workflow("tw_bad_shared", **{phase: hook})):
+        events = (
+            await _run_pre_hooks({"merged_enabled_tools": {}, "extras": []})
+            if phase == "pre_pipeline"
+            else await _run_with_writer(writer)
+        )
+    assert bad_event not in events
+    assert {"event": "custom_survives"} in events
+    assert reason in caplog.text
+
+
+@pytest.mark.parametrize("phase", ["pre_pipeline", "post_pipeline"])
+async def test_premature_hook_done_cannot_precede_the_successful_save(client, phase):
+    await create_conversation("hook_done", "T", "X", "")
+    await client.put("/api/settings", json={"enable_agent": False})
+
+    async def writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "saved reply"}
+
+    async def hook(ctx):
+        yield {"event": "done"}
+        yield {"event": "custom_after_done"}
+
+    seen = []
+    with (
+        register_for_test(make_workflow("tw_done", **{phase: hook})),
+        patch("backend.pipeline.passes.writer.writer_pass", new=writer),
+    ):
+        async for event in handle_turn("hook_done", "hi"):
+            seen.append(event)
+            if event["event"] == "custom_after_done":
+                assert not [m for m in await get_messages("hook_done") if m["role"] == "assistant"]
+            if event["event"] == "done":
+                replies = [m for m in await get_messages("hook_done") if m["role"] == "assistant"]
+                assert len(replies) == 1 and replies[0]["content"] == "saved reply"
+    assert [e["event"] for e in seen].count("done") == 1
+    assert seen[-1] == {"event": "done"}
+    assert not any(e["event"].startswith("_") for e in seen)

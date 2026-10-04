@@ -37,10 +37,7 @@ def model(monkeypatch):
                     {
                         "id": "card",
                         "type": "function",
-                        "function": {
-                            "name": "generate_character_card",
-                            "arguments": json.dumps(DRAFT),
-                        },
+                        "function": {"name": "generate_character_card", "arguments": json.dumps(DRAFT)},
                     }
                 ]
             },
@@ -51,16 +48,14 @@ def model(monkeypatch):
 
 
 async def test_draft_stream_and_explicit_save(client, model):
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A harbour fence"})
-    assert response.status_code == 200
+    response = await client.post_checked("/api/library/card-generator/run", json={"idea": "A harbour fence"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "done"]
     assert (await client.get("/api/characters")).json() == []
     card = events[-1][1]["card"]
     assert "id" not in card
-    saved = await client.post("/api/characters", json=card)
-    assert saved.status_code == 200
-    stored = (await client.get(f"/api/characters/{saved.json()['id']}")).json()
+    saved = await client.post_json("/api/characters", json=card)
+    stored = (await client.get(f"/api/characters/{saved['id']}")).json()
     assert stored["source_format"] == "generated"
     assert stored["first_mes"] == DRAFT["first_mes"]
     assert stored["system_prompt"] == stored["post_history_instructions"] == ""
@@ -153,7 +148,7 @@ async def test_deep_tailoring_first_step_failure_is_an_sse_error(client, monkeyp
     response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "error"]
-    assert events[-1][1] == "Context too long"
+    assert json.loads(events[-1][1])["sentence"] == "Context too long"
 
 
 @pytest.mark.parametrize("idea", ["", " \n ", "x" * 2001])
@@ -184,12 +179,11 @@ async def test_model_failures_are_sse_errors(client, monkeypatch, failure):
         yield {"type": "done", "message": {"content": "No tool call"}}
 
     monkeypatch.setattr(LLMClient, "complete", complete)
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence"})
-    assert response.status_code == 200
+    response = await client.post_checked("/api/library/card-generator/run", json={"idea": "A fence"})
     events = frames(response)
     assert [event for event, _ in events] == ["start", "progress", "error"]
     if failure in ("provider", "status"):
-        assert events[-1][1] == "Model is unavailable"
+        assert json.loads(events[-1][1])["sentence"] == "Model is unavailable"
 
 
 async def test_empty_digest_is_explicit(client, db):
@@ -203,11 +197,7 @@ async def test_empty_digest_is_explicit(client, db):
 async def test_digest_counts_tags_and_ranks_played_cards_without_reading_prose(client):
     ids = []
     for name, tags in [("Mara", ["Noir", "Harbour"]), ("Mara", ["Noir"])]:
-        ids.append(
-            (await client.post("/api/characters", json={"name": name, "tags": tags, "description": "SECRET CARD BODY"})).json()[
-                "id"
-            ]
-        )
+        ids.append(await client.create("/api/characters", json={"name": name, "tags": tags, "description": "SECRET CARD BODY"}))
     await client.post("/api/conversations", json={"character_card_id": ids[1]})
     await create_user_persona({"name": "Captain", "description": "SECRET PERSONA BODY"})
     state = (await client.get("/api/library/tags")).json()
@@ -228,7 +218,7 @@ async def test_digest_ranks_personas_by_the_conversations_they_speak_in(client, 
     ids = {name: (await create_user_persona({"name": name}))["id"] for name in ("Alpha", "Beta", "Card", "Zed")}
     await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (ids["Beta"],))
     await db.commit()
-    card_id = (await client.post("/api/characters", json={"name": "Lira"})).json()["id"]
+    card_id = await client.create("/api/characters", json={"name": "Lira"})
     await client.put(f"/api/characters/{card_id}", json={"persona_lock_id": ids["Card"]})
     for pin in (None, None, ids["Zed"]):
         conversation = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()

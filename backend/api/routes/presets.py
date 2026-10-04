@@ -39,11 +39,7 @@ async def api_download_preset(name: str):
         path = await asyncio.to_thread(presets._library_path, name)
     except presets.PresetError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return FileResponse(
-        path,
-        media_type="application/octet-stream",
-        filename=name,
-    )
+    return FileResponse(path, media_type="application/octet-stream", filename=name)
 
 
 @router.post("/api/presets/import")

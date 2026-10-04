@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import cast
 
 from ...core.domain_types import EndpointKind
-from ..connection import _build_set_clause, get_db
+from ..connection import build_set_clause, get_db, select_rows
 from ..models import EndpointRow, ModelConfigRow
 
 # The EndpointRow projection. Spelled once so every read of the table returns the
-# same columns — `SELECT *` would leak future columns into the row contract.
+# same columns -- `SELECT *` would leak future columns into the row contract.
 _ENDPOINT_COLS = "id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy, kind"
 
 
@@ -20,14 +20,11 @@ async def _endpoint_on(db, endpoint_id: int) -> EndpointRow | None:
 async def get_endpoints(kind: EndpointKind | None = None) -> list[EndpointRow]:
     """Return all endpoints or those selectable by one lane."""
     where = "" if kind is None else " WHERE kind = ?"
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT {_ENDPOINT_COLS} FROM endpoints{where} ORDER BY id ASC",  # nosec B608
-                () if kind is None else (kind,),
-            )
-        )
-        return [cast(EndpointRow, dict(r)) for r in rows]
+    rows = await select_rows(
+        f"SELECT {_ENDPOINT_COLS} FROM endpoints{where} ORDER BY id ASC",  # nosec B608
+        () if kind is None else (kind,),
+    )
+    return [cast(EndpointRow, dict(r)) for r in rows]
 
 
 async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
@@ -66,15 +63,8 @@ async def create_endpoint(url: str, api_key: str = "", kind: EndpointKind = "cha
 
 async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
     async with get_db() as db:
-        allowed = [
-            "url",
-            "api_key",
-            "active_model_config_id",
-            "agent_active_model_config_id",
-            "completion_mode",
-            "proxy",
-        ]
-        sets, vals = _build_set_clause(allowed, data)
+        allowed = ["url", "api_key", "active_model_config_id", "agent_active_model_config_id", "completion_mode", "proxy"]
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(endpoint_id)
             await db.execute(
@@ -93,14 +83,8 @@ async def delete_endpoint(endpoint_id: int) -> bool:
 
 
 async def get_model_configs(endpoint_id: int) -> list[ModelConfigRow]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT * FROM model_configs WHERE endpoint_id = ? ORDER BY id ASC",
-                (endpoint_id,),
-            )
-        )
-        return [cast(ModelConfigRow, dict(r)) for r in rows]
+    rows = await select_rows("SELECT * FROM model_configs WHERE endpoint_id = ? ORDER BY id ASC", (endpoint_id,))
+    return [cast(ModelConfigRow, dict(r)) for r in rows]
 
 
 async def create_model_config(endpoint_id: int, data: dict) -> ModelConfigRow:
@@ -147,7 +131,7 @@ async def update_model_config(config_id: int, data: dict) -> ModelConfigRow | No
             "extra_headers",
             "extra_body",
         ]
-        sets, vals = _build_set_clause(allowed, data)
+        sets, vals = build_set_clause(allowed, data)
         if sets:
             vals.append(config_id)
             await db.execute(

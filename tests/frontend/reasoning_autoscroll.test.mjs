@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// chat_inspector.js is browser-facing and its import graph registers delegated
-// handlers. These tiny stubs are enough to exercise the DOM-local scroll helper
-// without pulling a browser emulator into the zero-dependency frontend tests.
+// chat_inspector.js is browser-facing and its import graph registers delegated handlers. These tiny stubs are enough to
+// exercise the DOM-local scroll helper without pulling a browser emulator into the zero-dependency frontend tests.
 globalThis.window = {};
 globalThis.document = {
   addEventListener() {},

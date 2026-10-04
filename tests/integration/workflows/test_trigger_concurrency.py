@@ -1,9 +1,7 @@
 """Pins per-(cid, workflow_id) serialization of ``/trigger``.
 
-``workflow_state_lock(cid, wid)`` must serialize same-pair callers so a
-read-modify-write hook never loses an increment, and must not serialize
-different-pair callers so unrelated workflows on the same conversation
-run in parallel.
+``workflow_state_lock(cid, wid)`` must serialize same-pair callers so a read-modify-write hook never loses an increment, and
+must not serialize different-pair callers so unrelated workflows on the same conversation run in parallel.
 """
 
 from __future__ import annotations
@@ -13,17 +11,11 @@ import time
 
 from backend.database import get_workflow_state
 
-from ._fixtures import (
-    counter_on_demand_hook,
-    make_workflow,
-    register_for_test,
-)
+from ._fixtures import counter_on_demand_hook, make_workflow, register_for_test
 
 
 async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "trigger-conc"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "trigger-conc"})
 
 
 async def test_n_concurrent_triggers_no_lost_writes(client):
@@ -44,9 +36,8 @@ async def test_n_concurrent_triggers_no_lost_writes(client):
 
 
 async def test_different_workflow_ids_run_in_parallel(client):
-    """Two ``/trigger``s on the same conversation but distinct workflow ids
-    must not serialize against each other. Two hooks each sleep 0.3s; wall
-    time staying well under the serialized total proves parallel execution.
+    """Two ``/trigger``s on the same conversation but distinct workflow ids must not serialize against each other. Two hooks
+    each sleep 0.3s; wall time staying well under the serialized total proves parallel execution.
     """
     cid = await _new_conversation(client)
 

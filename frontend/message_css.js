@@ -1,32 +1,8 @@
-// The CSS half of message rendering. A card ships a `<style>` block and `style`
-// attributes; this module is the only thing between that CSS and the app's own
-// stylesheet, so it reads the sheet as a token stream rather than as text.
+// Tokenise and reserialise card CSS with escapes decoded and delimiters balanced. Containment requires scoped
+// selectors, renamed global symbols, and paint containment on `.msg-css-scope` (chat.css) to bound fixed overlays and
+// z-index. Remote URLs remain allowed, including conditional fetches via :hover or @media.
 //
-// Why a tokenizer: every interesting attack on a CSS allowlist is a spelling
-// attack. `\75 rl(...)` is `url(...)`, `back/**/ground` is not `background`, and
-// a stray `}` ends a rule the scoper thought it owned. Reading the sheet the way
-// an engine reads it -- escapes decoded, comments elided, strings and functions
-// balanced -- is what lets the policy be permissive: card CSS keeps escapes, web
-// fonts, remote images and `position: fixed`, because each is checked on the
-// value the browser will actually see. Output is re-serialised from tokens, so
-// nothing survives that this file did not deliberately write.
-//
-// Containment rests on three things, none of them a property ban:
-//   * every selector is prefixed with `.msg-body .<scope>`, so a rule reaches
-//     the one message that wrote it and no other;
-//   * globally named things (keyframes, font families, registered properties,
-//     counter styles, layers) are renamed into the message's scope;
-//   * `.msg-css-scope` in chat.css takes paint containment, which makes the
-//     wrapper the containing block for `position: fixed` and opens a stacking
-//     context, so overlays and `z-index` stay inside the bubble.
-//
-// A remote `url()` is a beacon its author can watch, like the `<img src>` the
-// sanitiser already allows. Card CSS can make that fetch conditional (`:hover`,
-// `@media`) where `<img>` cannot; that is the deliberate cost of rendering the
-// cards that use web fonts and remote art.
-
-// ---- Tokenizer -------------------------------------------------------------
-// CSS Syntax Level 3 section 4, minus the tokens a message body cannot contain.
+// Tokenizer: CSS Syntax Level 3 section 4, restricted to message-body tokens.
 
 const T = {
   WS: "ws",
@@ -219,7 +195,7 @@ const SINGLES = {
 };
 
 /** Tokenize a sheet, a declaration list or a selector. Never throws. */
-export function tokenize(css) {
+function tokenize(css) {
   const out = [];
   const n = css.length;
   // Comments and whitespace both separate tokens, which is what keeps
@@ -310,9 +286,7 @@ export function tokenize(css) {
   return out;
 }
 
-// ---- Serialiser ------------------------------------------------------------
-// Output is written from tokens, never copied from the source, so a rule can
-// only contain characters this file chose to emit.
+// Serialise from tokens; never copy unchecked source characters.
 
 /** Escape a name so it re-parses as the same identifier. */
 function escapeIdent(name) {
@@ -426,10 +400,7 @@ function splitOnComma(tokens) {
 
 /**
  * Split one nesting level into `{ prelude, block }` statements.
- *
- * An unclosed block runs to end of input rather than being discarded: a card cut
- * off mid-generation is the common case, and what it wrote so far is still
- * scoped and still allowlisted by the passes below.
+ * Keep unclosed blocks through EOF for partial streaming output; later passes scope and filter them.
  */
 function splitStatements(tokens) {
   const out = [];
@@ -476,11 +447,8 @@ function unprefixed(name) {
 // ---- Policy ----------------------------------------------------------------
 
 /**
- * Property names are open: an unknown one is ignored by the engine, and every
- * value is still held to the function allowlist and URL check below, which is
- * where CSS reaches the network or runs anything. What is named here is a
- * property whose effect escapes the bubble whatever its value: script extension
- * points, editing, window chrome, and the view-transition overlay.
+ * Ban properties whose effects escape bubble containment. Other property names
+ * remain open, with all values checked against function and URL policies.
  */
 const CSS_PROP_DENY = new Set([
   "app-region",
@@ -497,12 +465,7 @@ const CSS_PROP_DENY = new Set([
 /** `animation` is the one property whose value is renamed wholesale (see below). */
 const ANIMATION_PROPS = new Set(["animation", "animation-name"]);
 
-/**
- * Functions allowed in a value, after vendor-prefix stripping. An allowlist
- * rather than a denylist: this is what makes `url()` safe to permit at all,
- * since anything the list does not name -- `expression()`, `element()`,
- * tomorrow's escape hatch -- drops the declaration.
- */
+/** Allow value functions after vendor-prefix stripping. Unknown functions drop the declaration. */
 const CSS_FN_ALLOW = new Set([
   // math
   "abs",
@@ -709,23 +672,13 @@ const CSS_ANIMATION_KEYWORDS = new Set([
   "unset",
 ]);
 
-/**
- * `data:` payloads a card may point CSS at. Images and fonts only: both are
- * parsed in a context that cannot run script, and an SVG loaded as an image is
- * one of them.
- */
+/** Allow image and font data URLs; these contexts do not execute scripts, including SVG images. */
 const DATA_URL_RE =
   /^data:(?:image\/[a-z0-9.+-]+|font\/[a-z0-9.+-]+|application\/(?:font-woff2?|x-font-[a-z0-9.+-]+|vnd\.ms-fontobject|octet-stream))[;,]/i;
 
 const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
 
-/**
- * Decide whether a URL may be fetched from card CSS.
- *
- * The check runs on the decoded URL with whitespace and control characters
- * removed, because that is what a URL parser resolves: `\6a avascript:` and
- * `java\nscript:` are both `javascript:` by the time anything acts on them.
- */
+/** Check decoded URLs without whitespace or controls so obfuscated schemes cannot bypass policy. */
 function isSafeUrl(url) {
   if (typeof url !== "string") return false;
   // biome-ignore lint/suspicious/noControlCharactersInRegex: matching what a URL parser strips is the point.
@@ -745,10 +698,7 @@ function isAllowedProp(prop) {
   return !CSS_PROP_DENY.has(unprefixed(prop));
 }
 
-// ---- Scoped names ----------------------------------------------------------
-// A name declared at the top of a sheet is global to the document. Each one is
-// renamed into the message's scope, so a card's `pulse` is its own and the app's
-// stays the app's.
+// Rename global CSS symbols into the message scope to avoid collisions with app styles.
 
 /** Every global name a sheet declares, collected before anything is emitted. */
 export function emptyNames() {
@@ -769,10 +719,8 @@ export function scopeClassName(token) {
 }
 
 /**
- * Rewrite a `data-*` attribute name the way class tokens are rewritten, so a
- * card keeps its own data attributes but can never spell one the app's
- * dispatchers select on (`data-chat-action` becomes `data-custom-chat-action`).
- * HTML lowercases attribute names, so the CSS side is lowercased to match.
+ * Lowercase and rename card `data-*` attributes to `data-custom-*`, matching HTML
+ * and keeping them outside app dispatchers.
  */
 export function scopeDataAttr(name) {
   const lower = name.toLowerCase();
@@ -794,11 +742,7 @@ function splitImportant(tokens) {
   return { value: trimWs(value.slice(0, bang)), important: true };
 }
 
-/**
- * Walk a value and reject anything the policy does not name: an unknown
- * function, a URL that would reach somewhere it should not, a token that could
- * end the declaration early.
- */
+/** Reject unknown functions, disallowed URLs, and tokens that could end a declaration early. */
 function valueIsAllowed(tokens) {
   const open = [];
   for (const tk of tokens) {
@@ -868,11 +812,8 @@ function rewriteUrls(tokens) {
 }
 
 /**
- * Rename the animation names in a value.
- *
- * Every top-level identifier that is not a keyword is renamed, including one the
- * card never defined -- an unknown animation name does nothing, but an unrenamed
- * `pulse` would drive the app's own keyframes.
+ * Rename all non-keyword animation identifiers, including undefined ones,
+ * so card references cannot invoke app keyframes.
  */
 function rewriteAnimation(tokens, ctx) {
   let depth = 0;
@@ -952,10 +893,8 @@ function rewriteAttrRefs(tokens) {
 }
 
 /**
- * `appearance` takes one keyword, and only a keyword is accepted, so `var()` and
- * `attr()` cannot supply the one it must not reach: `base-select` renders a
- * `<select>` picker in the top layer, above the bubble's containment, where card
- * CSS could stretch it over the app.
+ * Accept only literal appearance keywords. `base-select` uses the top layer
+ * and escapes containment, so var()/attr() must not supply it indirectly.
  */
 function appearanceIsAllowed(value) {
   return value.length === 1 && value[0].t === T.IDENT && !/^base\b/i.test(value[0].u);
@@ -1032,11 +971,8 @@ function selectorIsAllowed(tokens) {
 }
 
 /**
- * Namespace the classes and ids a selector names.
- *
- * Orb's own vocabulary gets no exemption: card CSS naming `.quoted` must not
- * reach the prose chrome formatProse emits. Ids follow the rewrite DOMPurify's
- * SANITIZE_NAMED_PROPS performs, or the selector would silently stop matching.
+ * Namespace all card classes and ids, including Orb class names.
+ * Match DOMPurify's SANITIZE_NAMED_PROPS id rewrite.
  */
 function rewriteSelectorTokens(tokens) {
   const out = [];
@@ -1079,13 +1015,8 @@ export function sanitizedNamedProp(value) {
 const PREFIXED_ATTR_OPS = new Set(["=", "^=", "~=", "|="]);
 
 /**
- * Apply the sanitiser's attribute renames to the attribute form of the selector.
- *
- * `#foo` is handled by the HASH branch above; `[id^=foo]` names the same
- * attribute and needs the same treatment, or it keeps matching the name the card
- * wrote rather than the one the sanitiser stored, and quietly selects nothing.
- * `[data-x]` is the same problem with the attribute's name instead of its value.
- * Returns the index of the last token consumed.
+ * Rewrite attribute selector names and values to match sanitised HTML.
+ * Returns the last consumed token index.
  */
 function rewriteAttrSelector(tokens, open, out) {
   let close = open + 1;
@@ -1126,11 +1057,8 @@ function serializeWithParent(tokens, parent) {
 }
 
 /**
- * Prefix a selector with this message's scope.
- *
- * The prefix ends in a descendant combinator, so every rule's subject is inside
- * the message's own wrapper -- which is also why the wrapper itself can never be
- * targeted, and why its containment cannot be styled away.
+ * Scope selectors with a descendant combinator so rules cannot target
+ * the containment wrapper itself.
  */
 function scopeSelector(prelude, ctx) {
   const parts = [];
@@ -1170,20 +1098,15 @@ function nestSelector(prelude, parent) {
 const MAX_DEPTH = 8;
 
 /**
- * Two budgets, both about a sheet that costs more to scope than to write.
- * Nesting comma lists multiplies the resolved selector at every level -- ten
- * parts eight deep is 10^8 characters of output from a few hundred of input --
- * so a resolved selector past the cap drops its rule, and the sheet as a whole
- * stops once it has produced more than a message could plausibly want.
+ * Cap resolved-selector and total-sheet output to bound exponential growth
+ * from nested comma lists. Drop oversized rules and stop at the sheet budget.
  */
 const MAX_SELECTOR_CHARS = 4096;
 const MAX_OUTPUT_CHARS = 256 * 1024;
 
 /**
- * Emit a block: its own declarations, then the rules nested inside it.
- *
- * `parent` is the already-scoped selector the block belongs to, or "" at the top
- * of a sheet -- where a bare declaration is not CSS and is dropped.
+ * Emit declarations, then nested rules. `parent` is the scoped selector;
+ * at sheet level it is empty and bare declarations are dropped.
  */
 function emitBody(tokens, ctx, parent, depth) {
   if (depth > MAX_DEPTH) return { decls: "", rules: "" };
@@ -1419,10 +1342,8 @@ function declaredFamily(tokens) {
 // ---- Entry points ----------------------------------------------------------
 
 /**
- * Compile card CSS into rules scoped to one message.
- *
- * The returned `names` is the sheet's rename table; the same table has to reach
- * the `style` attributes in that message, which are filtered separately.
+ * Compile CSS for one message. Pass the returned `names` rename table
+ * to its separately filtered inline styles too.
  */
 export function compileCss(cssText, scope) {
   if (!cssText || !scope) return { css: "", names: emptyNames() };
@@ -1431,18 +1352,12 @@ export function compileCss(cssText, scope) {
     const tokens = tokenize(cssText);
     collectNames(tokens, ctx, 0);
     const css = emitBody(tokens, ctx, "", 0).rules;
-    // Belt and braces on top of the string escaping: the fragment is serialised
-    // before it reaches innerHTML, and `</style` is the one token that ends a
-    // style element's raw text on the way back in.
+    // Belt and braces on top of the string escaping: the fragment is serialised before it reaches innerHTML, and
+    // `</style` is the one token that ends a style element's raw text on the way back in.
     return { css: css.replace(/<\/style/gi, "\\3c /style"), names: ctx.names };
   } catch {
     return { css: "", names: ctx.names };
   }
-}
-
-/** Return card CSS scoped to one message. */
-export function sanitizeCss(cssText, scope) {
-  return compileCss(cssText, scope).css;
 }
 
 /** Return a stable scope for a message source. */

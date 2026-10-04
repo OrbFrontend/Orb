@@ -1,9 +1,8 @@
 """Upgrade coverage for migration 0067: progressive fragments and direction notes become state.
 
-Builds a database as it stood before 0067 -- the frozen historical schema run
-through every earlier migration -- fills it with legacy state across a branching
-tree, runs 0067, and then holds the result to the same standalone check that is
-meant to run against real databases (``scripts/check_state_conversion.py``).
+Builds a database as it stood before 0067 -- the frozen historical schema run through every earlier migration -- fills it with
+legacy state across a branching tree, runs 0067, and then holds the result to an independent reading of the legacy columns
+(``_state_conversion_oracle``).
 """
 
 from __future__ import annotations
@@ -11,17 +10,16 @@ from __future__ import annotations
 import importlib
 import json
 import sqlite3
-import sys
 from pathlib import Path
 
 from backend.core import fold_events
 from backend.database.migrations import MIGRATIONS
 
+from . import _state_conversion_oracle as state_conversion_oracle
+
 _ROOT = Path(__file__).resolve().parents[2]
 _BASELINE = _ROOT / "tests" / "fixtures" / "schema_pre_group_chats.sql"
 _MIGRATION = "0067_state_fragments"
-sys.path.insert(0, str(_ROOT / "scripts"))
-check_state_conversion = importlib.import_module("check_state_conversion")
 
 _OLD = "2026-01-01T00:00:00+00:00"
 
@@ -47,8 +45,7 @@ def _run_0067(conn: sqlite3.Connection) -> None:
 
 def _settings(conn: sqlite3.Connection, *, record: int, inject: str, tools: dict) -> None:
     conn.execute(
-        "INSERT OR REPLACE INTO settings (id, endpoint_url, model_name, direction_notes_record, direction_notes_inject, "
-        "enabled_tools) VALUES (1, 'http://x', 'm', ?, ?, ?)",
+        "INSERT OR REPLACE INTO settings (id, direction_notes_record, direction_notes_inject, enabled_tools) VALUES (1, ?, ?, ?)",
         (record, inject, json.dumps(tools)),
     )
 
@@ -81,14 +78,14 @@ def _legacy_tree(conn: sqlite3.Connection) -> None:
     """A tree with a regenerated branch, a partial save, a dropped value, and notes.
 
     1 greeting
-    └ 2 user
-      ├ 3 asst {trust: wary, mood: calm}           note(plan) "north"
-      │ └ 4 user
-      │   ├ 5 asst {trust: warming}  -- mood dropped
-      │   │ └ 6 user                 human note "Plot" "the key is fake", human note "Note" "remember"
-      │   │   └ 7 asst {}            -- partial save: keeps warming
-      │   └ 8 asst {trust: wary, mood: tense}   -- a sibling branch
-      └ 9 asst {trust: hostile}
+    + 2 user
+      + 3 asst {trust: wary, mood: calm}           note(plan) "north"
+      | + 4 user
+      |   + 5 asst {trust: warming}  -- mood dropped
+      |   | + 6 user                 human note "Plot" "the key is fake", human note "Note" "remember"
+      |   |   + 7 asst {}            -- partial save: keeps warming
+      |   + 8 asst {trust: wary, mood: tense}   -- a sibling branch
+      + 9 asst {trust: hostile}
     """
     conn.execute("INSERT INTO conversations (id, title, created_at) VALUES ('c1', 'Tree', ?)", (_OLD,))
     _message(conn, "c1", 1, None, "assistant")
@@ -167,7 +164,7 @@ def test_converts_fragments_settings_and_every_branch_tip(tmp_path):
     assert not any(message_id == 7 for message_id, _, _ in ops)
     conn.close()
 
-    report = check_state_conversion.check(str(db))
+    report = state_conversion_oracle.check(str(db))
     assert report.mismatches == []
     assert (report.leaves, report.checked, report.restored) == (3, 3, 1)
 
@@ -207,7 +204,7 @@ def test_a_chats_only_snapshot_converts_without_fragments(tmp_path):
     labels = {row[0] for row in conn.execute("SELECT fragment_label FROM fragment_state_events WHERE fragment_id = 'trust'")}
     assert labels == {"trust"}
     conn.close()
-    assert check_state_conversion.check(str(db)).mismatches == []
+    assert state_conversion_oracle.check(str(db)).mismatches == []
 
 
 def test_a_notes_id_taken_by_another_fragment_moves_notes_aside(tmp_path):
@@ -222,16 +219,13 @@ def test_a_notes_id_taken_by_another_fragment_moves_notes_aside(tmp_path):
     _run_0067(conn)
 
     assert conn.execute("SELECT field_type FROM interactive_fragments WHERE id = 'notes'").fetchone() == ("string",)
-    assert conn.execute("SELECT label, enabled FROM interactive_fragments WHERE id = 'user_notes'").fetchone() == (
-        "Notes",
-        1,
-    )
+    assert conn.execute("SELECT label, enabled FROM interactive_fragments WHERE id = 'user_notes'").fetchone() == ("Notes", 1)
     assert conn.execute("SELECT fragment_id, text, source FROM fragment_state_events").fetchall() == [
         ("user_notes", "mine", "user")
     ]
 
 
-def test_check_script_reports_a_leaf_that_lost_state(tmp_path):
+def test_oracle_reports_a_leaf_that_lost_state(tmp_path):
     db = tmp_path / "app.db"
     conn = _pre_0067(db)
     _settings(conn, record=1, inject="both", tools={})
@@ -242,5 +236,5 @@ def test_check_script_reports_a_leaf_that_lost_state(tmp_path):
     conn.commit()
     conn.close()
 
-    report = check_state_conversion.check(str(db))
+    report = state_conversion_oracle.check(str(db))
     assert len(report.mismatches) == 1 and "leaf 9" in report.mismatches[0]

@@ -1,9 +1,8 @@
 """Small square avatar thumbnails for list surfaces.
 
-Every list shows an avatar as a circle of at most 80 CSS px, and the stored
-avatar is usually the whole card PNG: hundreds of KB, sometimes 10 MB, with the
-card JSON embedded. On the live library, thumbnails cut the avatars from 282 MB
-to 2.8 MB, and a thumbnail takes about 8 ms to make at the median.
+Every list shows an avatar as a circle of at most 80 CSS px, and the stored avatar is usually the whole card PNG: hundreds of
+KB, sometimes 10 MB, with the card JSON embedded. On the live library, thumbnails cut the avatars from 282 MB to 2.8 MB, and a
+thumbnail takes about 8 ms to make at the median.
 """
 
 from __future__ import annotations
@@ -19,9 +18,8 @@ THUMB_EDGE = 192
 def avatar_thumbnail(data: bytes) -> bytes | None:
     """A ``THUMB_EDGE``-square WebP of *data*, center-cropped the way ``object-fit: cover`` crops.
 
-    None means the caller should serve the original. That covers an animated
-    image, since a still frame would stop the animation in every list. It also
-    covers bytes Pillow cannot decode, and a source already smaller than its thumbnail.
+    None means the caller should serve the original. That covers an animated image, since a still frame would stop the animation
+    in every list. It also covers bytes Pillow cannot decode, and a source already smaller than its thumbnail.
     """
     try:
         with Image.open(io.BytesIO(data)) as src:

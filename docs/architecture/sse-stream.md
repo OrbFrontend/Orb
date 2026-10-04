@@ -34,7 +34,7 @@ data: <payload>
 
 ```
 
-The backend's `_sse_stream` wrapper serializes dictionary data as one-line JSON
+The backend's `sse_stream` wrapper serializes dictionary data as one-line JSON
 and escapes newlines in string data. Keepalive comments prevent an idle
 connection from being dropped.
 
@@ -127,7 +127,7 @@ exchange.
 ## Persistence and reconciliation
 
 The internal `_result` event carries the completed reply to the persistence
-layer. It is consumed by `_consume_pipeline` and never sent to the browser.
+layer. It is consumed by `consume_pipeline` and never sent to the browser.
 The internal `_turn_state` event, emitted just before the Writer starts, hands
 persistence the turn's live working state and is consumed the same way. When a
 turn fails or is cancelled before `_result`, persistence saves that state as a
@@ -137,6 +137,18 @@ state changes, and the Inspector log. The `error` event still ends the stream.
 A turn with no reply text saves nothing, including the Director's moods.
 Persistence happens before `done`, so the browser can trust the server when the
 stream closes.
+
+`pipeline/events.py` owns the fixed public turn payloads and the two internal
+handoffs. `run_pipeline` yields `PipelineEvent`; persistence consumes those
+internal events and yields `PublicTurnEvent` through the entrypoints to the API.
+`TurnState.as_result_event_data()` explicitly projects a typed `TurnResultData`,
+so reconstruction and saving check the same fields. Feature and provider JSON
+inside those fields remains open. Validated hook envelopes use the nominal
+`HookEvent` wrapper (still a dictionary at runtime), so an open custom event
+cannot erase fixed core payload checks or narrowing. Consumers distinguish that
+wrapper before narrowing core events by name. The public SSE encoder rejects
+internal names, and its input type excludes both internal handoffs. Its generic
+envelope validation imposes no turn ownership policy on other streams.
 
 The reply is saved at most once. Once the `_result` save has started, a
 cancellation waits for that same save and the fallback never runs; its INSERT
@@ -234,14 +246,52 @@ not `error`. A failure caused by cutting a call short is logged instead. A
 failed save is still reported as `error`.
 
 Once Stop is pressed, the browser freezes the bubble and repaints it from the
-saved row after settlement. `stopConversation()` is also used outside chat
-replies, for example by compression, and needs no bubble.
+saved row after settlement. The same conversation `/stop` route also stops
+work that is not a chat reply, such as compression, which has no bubble.
 
 `error` is terminal. `warning` is optional work that declined and does not stop
 the turn. An Editor call that fails is a `warning`: the reply keeps the best
 draft the Editor reached, and the turn continues through workflows and the
 after-reply steps. Workflow hooks may emit custom events, but names owned by the
 core dispatcher or names beginning with `_` are reserved.
+
+### Shared failure handling
+
+`backend/inference/errors.py` constructs provider failures, extracts their useful
+sentence, redacts the API key, and bounds the response body. Credential-bearing
+calls must raise `LLMCallError` through that seam; a bare `HTTPStatusError` has no
+credential available to redact.
+
+`backend/pipeline/failures.py` classifies failures into `headline`, `sentence`,
+`kind`, and `stage`, with provider status, host, model, and body when available.
+Passes add their stage and use the same classification for optional warnings.
+The API reuses this contract in `backend/api/errors.py`: uncaught generator or
+event-encoding errors become terminal `error` frames, including document,
+summary, library, and lazy workflow streams. Internal defects keep their full
+traceback in the server log. Cancellation still unwinds through cleanup instead
+of becoming an error frame; streams retain their existing Stop and settlement
+ownership.
+
+Before response headers are sent, shared exception handlers return FastAPI's
+`{"detail": ...}` shape. Configuration problems answer 409, invalid workflow
+input 400, unavailable workflow resources 503, and provider failures 502.
+Explicit `HTTPException` responses retain their status and detail. Unexpected
+defects answer 500 with a generic message and log a traceback. Local route guards
+may add context for defects, but must pass `API_PASSTHROUGH_ERRORS` through so
+expected failures keep their meaning. Attachment regeneration translates these
+same failures into its existing `regenerate_error` payload with `status` and
+`detail`.
+
+`frontend/errors.js` owns failure parsing for both request styles.
+`responseError(response)` retains `status`, the raw `body`, and a readable
+message; body-read failures propagate, including `AbortError`.
+`sseError(data)` accepts the structured failure object or a legacy string and
+retains the normalized object on `error.failure`. It parses JSON before
+unescaping legacy text, so JSON newlines and provider response bodies survive.
+Workflow plug-ins access both helpers through `/static/workflow_api.js`.
+
+New features should use these boundaries, keep feature-specific recovery near
+the feature, and preserve specialized terminal events their callers rely on.
 
 ## Routes using the stream
 

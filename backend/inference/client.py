@@ -10,11 +10,11 @@ from typing import Any, TypeVar, cast
 
 import httpx
 
-from ..core.llm_types import ReasoningReplay
+from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
-from .errors import LLMCallError, llm_call_error
+from .errors import EndpointConfigError, LLMCallError, llm_call_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
@@ -26,7 +26,7 @@ class AbortToken:
     """Shared stop signal for all clients in one turn.
 
     All clients in a turn hold the same token, so calling ``abort()`` once
-    stops every ongoing completion — no per-client fan-out needed.
+    stops every ongoing completion -- no per-client fan-out needed.
     """
 
     def __init__(self) -> None:
@@ -49,12 +49,10 @@ _T = TypeVar("_T")
 async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncIterator[_T]:
     """Yield *events* until *token* fires, then interrupt the source.
 
-    Each step is raced against the token. On a stop (or if the caller is
-    cancelled) the pending step is cancelled and awaited, and the source is
-    closed, so work it had in flight -- a local rewrite, a remote render -- is
-    torn down rather than left running unread. An event that arrives once the
-    token has fired is discarded: it may have been built from a call the stop
-    cut short.
+    Each step is raced against the token. On a stop (or if the caller is cancelled) the pending step is cancelled and awaited,
+    and the source is closed, so work it had in flight -- a local rewrite, a remote render -- is torn down rather than left
+    running unread. An event that arrives once the token has fired is discarded: it may have been built from a call the stop cut
+    short.
     """
     it = aiter(events)
     abort_wait = asyncio.ensure_future(token.wait())
@@ -104,25 +102,18 @@ def reasoning_cfg(on: bool, prefill: str = "") -> dict:
 def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
     """Return the reasoning fields of a ``done`` message to copy onto its replayed assistant turn.
 
-    The names are whatever the provider streamed, so the next request hands the
-    reasoning back the way that server reads it. A server that refuses one of
-    them is learned from the rejection (see ``endpoint_profiles``).
+    The names are whatever the provider streamed, so the next request hands the reasoning back the way that server reads it. A
+    server that refuses one of them is learned from the rejection (see ``endpoint_profiles``).
     """
     fields = {field: response[field] for field in endpoint_profiles.REASONING_REPLAY_FIELDS if response.get(field)}
     return cast(ReasoningReplay, fields)
 
 
 def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
-    """Inject the per-model reasoning-effort setting into an outbound chat body.
+    """Apply per-model effort only to reasoning-enabled chat requests.
 
-    Applies only when the call itself has reasoning enabled (the
-    ``reasoning_cfg(True)`` shape); reasoning-off calls and callers that sent no
-    reasoning params are left untouched. A standard level lands as the OpenAI
-    ``reasoning_effort`` param plus the OpenRouter-style ``reasoning.effort``
-    mirror; the ``custom`` sentinel sends exactly ``{param: value}`` instead,
-    with *value* JSON-decoded when it parses (numbers, objects) and sent as a
-    raw string otherwise. Runs before the endpoint profile, so providers that
-    reject these params get them stripped there (e.g. DeepSeek's allowlist).
+    Standard levels set reasoning_effort and reasoning.effort; custom uses its body key with JSON-decoded value or raw string.
+    Apply before endpoint profiles so unsupported fields can be stripped.
     """
     if not effort:
         return
@@ -141,20 +132,17 @@ def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str 
     body["reasoning"] = {**reasoning, "effort": effort}
 
 
-# RFC 7230 token: the only characters a header name may contain. Must stay
-# identical to the API-layer check in schemas.py, so a row saved through the API
-# is never silently dropped here.
+# RFC 7230 token: the only characters a header name may contain. Must stay identical to the API-layer check in schemas.py, so a
+# row saved through the API is never silently dropped here.
 _HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
 
 
 def parse_extra_headers(text: str) -> dict[str, str]:
     """Parse ``Name: value`` lines into a header dict.
 
-    Blank lines and ``#`` comments are skipped; a malformed line is dropped with
-    a warning rather than raised on. The API layer rejects malformed input at
-    save time, so this tolerance only ever covers a row that predates that
-    validation or was edited in the DB by hand -- such a row degrades to "send
-    fewer headers" instead of killing every turn.
+    Blank lines and ``#`` comments are skipped; a malformed line is dropped with a warning rather than raised on. The API layer
+    rejects malformed input at save time, so this tolerance only ever covers a row that predates that validation or was edited
+    in the DB by hand -- such a row degrades to "send fewer headers" instead of killing every turn.
     """
     out: dict[str, str] = {}
     for raw in (text or "").splitlines():
@@ -195,26 +183,29 @@ def parse_extra_body(text: str) -> dict:
     return parsed
 
 
-def _text_message(content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content") -> dict:
+def _text_message(
+    content_parts: list[str], reasoning_parts: list[str], reasoning_key: str = "reasoning_content"
+) -> CompletionMessage:
     """Assemble the free-decoded half of a ``done`` message from its deltas.
 
-    Both transports build the same shape: content and reasoning are included
-    only when non-empty, so a pass can test presence rather than emptiness.
-    Reasoning is stored under *reasoning_key*, the name the provider streamed it
-    under. Tool calls and ``finish_reason`` are transport-specific and layered
-    on by the caller.
+    Both transports build the same shape: content and reasoning are included only when non-empty, so a pass can test presence
+    rather than emptiness. Reasoning is stored under *reasoning_key*, the name the provider streamed it under. Tool calls and
+    ``finish_reason`` are transport-specific and layered on by the caller.
     """
-    message: dict = {}
+    message: CompletionMessage = {}
     content = "".join(content_parts)
     if content:
         message["content"] = content
     reasoning = "".join(reasoning_parts)
     if reasoning:
-        message[reasoning_key] = reasoning
+        if reasoning_key == "reasoning":
+            message["reasoning"] = reasoning
+        else:
+            message["reasoning_content"] = reasoning
     return message
 
 
-def _done(label: str, message: dict, usage: dict | None) -> dict:
+def _done(label: str, message: CompletionMessage, usage: dict | None) -> CompletionDone:
     """Log the assembled completion and return the terminal ``done`` event."""
     logger.info(
         "LLM complete%s: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
@@ -230,9 +221,8 @@ def _done(label: str, message: dict, usage: dict | None) -> dict:
 async def _read_error_body(resp: httpx.Response, url: str) -> str:
     """Read and log an HTTP error response's body for upstream detail.
 
-    Streaming responses aren't eagerly read, so ``raise_for_status()`` alone
-    would log only the status line. Never raises — an unreadable body degrades
-    to a placeholder string.
+    Streaming responses aren't eagerly read, so ``raise_for_status()`` alone would log only the status line. Never raises -- an
+    unreadable body degrades to a placeholder string.
     """
     try:
         err_text = (await resp.aread()).decode("utf-8", errors="replace")
@@ -268,9 +258,8 @@ class LLMClient:
         self.reasoning_effort = reasoning_effort
         self.reasoning_effort_param = reasoning_effort_param
         self.reasoning_effort_value = reasoning_effort_value
-        # "chat" = OpenAI-compatible /chat/completions; "text" = llama.cpp's
-        # native /apply-template + /completion transport (byte-level prompt
-        # control). See text_completion.py and _complete_text.
+        # "chat" = OpenAI-compatible /chat/completions; "text" = llama.cpp's native /apply-template + /completion transport
+        # (byte-level prompt control). See text_completion.py and _complete_text.
         self.completion_mode = completion_mode
         # Empty string (the settings default = "no proxy") normalizes to None so
         # httpx connects directly; httpx rejects "" as a proxy URL.
@@ -297,10 +286,9 @@ class LLMClient:
         base: dict = {}
         if self.api_key:
             base["Authorization"] = f"Bearer {self.api_key}"
-        # HTTP header names are case-insensitive but dict keys are not, so drop a
-        # base header the configured set respells: a lowercase 'authorization'
-        # override -- the form most provider docs use -- would otherwise send the
-        # Bearer key alongside it. These ride every transport, unlike extra_body.
+        # HTTP header names are case-insensitive but dict keys are not, so drop a base header the configured set respells: a
+        # lowercase 'authorization' override -- the form most provider docs use -- would otherwise send the Bearer key alongside
+        # it. These ride every transport, unlike extra_body.
         configured = {k.lower() for k in self.extra_headers}
         headers = {k: v for k, v in base.items() if k.lower() not in configured}
         headers.update(self.extra_headers)
@@ -324,11 +312,9 @@ class LLMClient:
     async def list_models(self) -> list[str]:
         """Return model ids advertised by a compatible ``GET /models``.
 
-        Explicit resource shapes have one sibling catalogue. For an ambiguous
-        base, discovery walks the same bounded route/auth candidates as
-        generation and caches the first catalogue that satisfies the shared
-        ``data[].id`` contract. It uses a short finite timeout so failure still
-        falls back to Orb's editable model-name field promptly.
+        Explicit resource shapes have one sibling catalogue. For an ambiguous base, discovery walks the same bounded route/auth
+        candidates as generation and caches the first catalogue that satisfies the shared ``data[].id`` contract. It uses a
+        short finite timeout so failure still falls back to Orb's editable model-name field promptly.
         """
         routes = endpoint_profiles.endpoint_candidates(self.base_url)
         seen: set[tuple[str, endpoint_profiles.AuthFamily]] = set()
@@ -361,8 +347,7 @@ class LLMClient:
                     model_id = item.get("id") if isinstance(item, dict) else None
                     if isinstance(model_id, str) and model_id.strip():
                         normalized = model_id.strip()
-                        # This compatibility resource lists ids with a
-                        # ``models/`` prefix that generation does not need.
+                        # This compatibility resource lists ids with a ``models/`` prefix that generation does not need.
                         if normalized.startswith("models/") and endpoint_profiles.is_gemini_openai_surface(route.url):
                             normalized = normalized.removeprefix("models/")
                         model_ids.add(normalized)
@@ -388,33 +373,18 @@ class LLMClient:
     def _chat_tool_policy(self, model: str, *, tools_in_prompt: bool) -> tuple[bool, bool]:
         """Return ``(structured, sends_schemas)`` for one chat call.
 
-        Both request construction and the pipeline-facing predicate consume this
-        answer, so a future endpoint policy cannot change one side without the
-        other. ``structured`` stays separate because forced calls still need the
-        supplied tuple as the source of their ``response_format`` schema even
-        when ``sends_schemas`` is false.
+        Both request construction and the pipeline-facing predicate consume this answer, so a future endpoint policy cannot
+        change one side without the other. ``structured`` stays separate because forced calls still need the supplied tuple as
+        the source of their ``response_format`` schema even when ``sends_schemas`` is false.
         """
         structured = endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
         return structured, tools_in_prompt and not structured
 
-    def sends_tool_schemas(
-        self,
-        messages: Sequence[Mapping[str, Any]],
-        model: str,
-        *,
-        tools_in_prompt: bool = True,
-    ) -> bool:
-        """Whether this call shape sends a ``tools`` field on the wire.
+    def sends_tool_schemas(self, messages: Sequence[Mapping[str, Any]], model: str, *, tools_in_prompt: bool = True) -> bool:
+        """Whether this request sends tools on the wire, independent of tuple emptiness.
 
-        This deliberately describes Orb's request, not the provider's rendered
-        prompt: chat templates may narrow or omit a supplied schema array based
-        on ``tool_choice``. Text transport never sends schemas; an image-bearing
-        text-mode call takes the chat branch and is answered accordingly.
-
-        The caller still owns whether its tools tuple is empty. Keeping that
-        separate lets :class:`~backend.pipeline.state.ModelLane` combine the
-        frozen cache base with this transport policy without teaching the
-        client about pipeline state.
+        Text transport omits schemas unless images force chat fallback. Provider
+        templates may still narrow or omit supplied schemas.
         """
         if self._uses_text_transport(messages):
             return False
@@ -428,45 +398,35 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """Stream one completion and yield deltas followed by the assembled message."""
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
         if self._uses_text_transport(messages):
             transport = self._complete_text
         else:
-            # Chat transport: prefill (no render step) and raw GBNF grammar are
-            # text-mode concepts; drop them so such calls degrade cleanly here.
-            # json_schema is NOT dropped: _complete_chat consumes it for
-            # structured forced calls (and discards it otherwise).
+            # Chat transport: prefill (no render step) and raw GBNF grammar are text-mode concepts; drop them so such calls
+            # degrade cleanly here. json_schema is NOT dropped: _complete_chat consumes it for structured forced calls (and
+            # discards it otherwise).
             params.pop("prefill", None)
             params.pop("grammar", None)
             # Reasoning prefill needs byte control of the prompt; chat mode has no
             # such seam (the provider owns the reasoning channel).
             params.pop("reasoning_prefill", None)
-            # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
+            # n_probs is a llama.cpp /completion field; a text->chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
             transport = self._complete_chat
 
-        # Retry transient server failures via _with_retry, which re-opens a fresh
-        # transport stream per attempt.
+        # Retry transient server failures via _with_retry, which re-opens a fresh transport stream per attempt.
         async for event in self._with_retry(lambda: transport(messages, model, tools, tool_choice, **params)):
             yield event
 
-    async def _with_retry(self, open_stream: Callable[[], AsyncIterator[dict]]) -> AsyncIterator[dict]:
-        """Yield events from ``open_stream()``, re-opening it on a transient failure.
+    async def _with_retry(self, open_stream: Callable[[], AsyncIterator[CompletionEvent]]) -> AsyncIterator[CompletionEvent]:
+        """Retry fresh streams on transient failures only before the first yielded event.
 
-        ``open_stream`` is a zero-arg factory returning a fresh completion stream;
-        it is called once per attempt. A retry fires only while no event has been
-        yielded -- once the stream emits content, re-issuing would double it, and
-        both transports raise before their first event (HTTP status check /
-        connect), so "produced is still False" is exactly the clean-retry window.
-
-        Race the whole attempt against Stop, including connection setup,
-        response headers, error bodies and text-mode template preparation.
-        Racing only SSE reads leaves those silent waits uninterruptible. The
-        caller keeps deltas already yielded; a cut-short call has no result.
+        Race the entire attempt against Stop, including setup and template preparation.
+        Keep already yielded deltas; aborted calls have no result.
         """
         attempt = 0
         while not self.is_aborted:
@@ -488,24 +448,16 @@ class LLMClient:
                     raise
                 attempt += 1
                 detail = f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else type(exc).__name__
-                logger.warning(
-                    "LLM retry %d/%d after %s; waiting %.1fs",
-                    attempt,
-                    self.retry.count,
-                    detail,
-                    self.retry.delay,
-                )
+                logger.warning("LLM retry %d/%d after %s; waiting %.1fs", attempt, self.retry.count, detail, self.retry.delay)
                 if not await self._sleep_or_abort(self.retry.delay):
                     raise  # aborted mid-wait: surface the real error, stop retrying
 
     async def _sleep_or_abort(self, delay: float) -> bool:
         """Wait up to *delay* seconds, returning early if the turn is aborted.
 
-        Returns True if the full delay elapsed, False if aborted first, so the
-        retry loop drops out immediately on Stop instead of sleeping out its
-        remaining attempts. The abort token is a shared ``asyncio.Event``; waiting
-        on it (rather than a bare ``asyncio.sleep``) is what makes the delay
-        interruptible.
+        Returns True if the full delay elapsed, False if aborted first, so the retry loop drops out immediately on Stop instead
+        of sleeping out its remaining attempts. The abort token is a shared ``asyncio.Event``; waiting on it (rather than a bare
+        ``asyncio.sleep``) is what makes the delay interruptible.
         """
         if delay <= 0:
             return not self.is_aborted
@@ -523,9 +475,8 @@ class LLMClient:
             decoded = json.loads(content)
         except json.JSONDecodeError:
             decoded = None
-        # Every schema this path can carry describes an object -- a tool's
-        # `function.parameters`, or a caller override narrowing it -- so a
-        # decoded scalar or array is as much proof as a decode failure.
+        # Every schema this path can carry describes an object -- a tool's `function.parameters`, or a caller override narrowing
+        # it -- so a decoded scalar or array is as much proof as a decode failure.
         if not isinstance(decoded, dict):
             endpoint_profiles.note_structured_output_ignored(self.base_url, model)
             logger.warning(
@@ -544,22 +495,10 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """The OpenAI-compatible ``/chat/completions`` transport (default)."""
-        # Structured forced calls: a forced-function tool_choice is rewritten as
-        # a strict ``response_format`` structured-output request -- the chat
-        # analogue of text mode's forced grammar (see _complete_text). The
-        # provider then grammar-constrains the content to the tool's argument
-        # schema, which guarantees byte-exact argument keys where free-decoded
-        # tool calls do not (e.g. GLM-5.2 snake-cases hyphenated keys). Two
-        # triggers:
-        #   * profile opt-in -- the endpoint honors strict json_schema for the
-        #     models it fronts (``supports_structured_tool_calls``).
-        #   * ``tools_in_prompt=False`` -- the caller's conversation has no
-        #     tools in its cached prefix (doc-mode auditor), so the schema must
-        #     not touch the prompt at all.
-        # The caller-supplied ``json_schema`` (per-fragment director steps)
-        # narrows the schema exactly as it narrows the text-mode grammar.
+        # Rewrite forced tool calls as strict response_format when the profile opts in
+        # or tools_in_prompt=False. Use any caller json_schema override to narrow it.
         tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
         # How many leading messages every call on this base shares; the cache
@@ -570,10 +509,9 @@ class LLMClient:
         def _plan() -> tuple[dict, str | None, bool]:
             """Resolve the current tool policy into ``(body, forced_name, structured)``.
 
-            A closure rather than straight-line code because the policy it reads
-            can change *between* the two issues below: a reply that disproves
-            structured output demotes the pair mid-call, and the retry has to be
-            shaped by the new answer, not the one that already failed.
+            A closure rather than straight-line code because the policy it reads can change *between* the two issues below: a
+            reply that disproves structured output demotes the pair mid-call, and the retry has to be shaped by the new answer,
+            not the one that already failed.
             """
             structured, sends_schemas = self._chat_tool_policy(model, tools_in_prompt=tools_in_prompt)
             call_tools, call_choice = tools, tool_choice
@@ -589,38 +527,14 @@ class LLMClient:
                         "json_schema": {"name": name, "strict": True, "schema": strictify_schema(schema)},
                     }
                     call_choice = None
-            # Both triggers withhold the tool blob -- and ``tool_choice`` with it --
-            # from the body; on a structured-output endpoint that holds for EVERY
-            # pass, not just the forced ones. Two reasons:
-            #
-            # Correctness -- a model that can still see ``tools`` may answer with a
-            # native tool call instead, and that path bypasses the schema entirely.
-            # DeepSeek rewrites the argument keys when it does (0/39 came back
-            # intact under ``tools`` + strict schema, 22/22 without ``tools``), so
-            # the caller's lookup by the name it sent silently finds nothing.
-            #
-            # Caching -- the server renders ``tools`` into the prompt, so dropping
-            # it only on forced passes would leave the writer with a different
-            # prefix from the director and editor and thrash the shared KV base
-            # they sit on (Invariant 3, docs/architecture/kv-cache.md). Dropping it
-            # for every pass keeps one stable prefix, and a smaller one. For
-            # ``tools_in_prompt=False`` callers the same drop is simply the flag's
-            # contract: their prefix never had schemas to begin with.
-            #
-            # ``tools`` still arrives here: it is the source of the response_format
-            # schema built above. If that derivation fails the call goes out with
-            # neither tools nor tool_choice and degrades to the parse_tool_calls
-            # recovery chain, which is the same posture as any unforced pass.
+            # Withhold tools/tool_choice on every structured-output pass, preserving a shared schema-free prefix and preventing
+            # native calls from bypassing strict argument keys. Tools still supplies the response_format schema; derivation
+            # failure falls back to parse_tool_calls recovery without a tool blob.
             if not sends_schemas:
                 call_tools = None
                 call_choice = None
 
-            body = {
-                "model": model,
-                "messages": messages,
-                "stream": True,
-                **extra,
-            }
+            body = {"model": model, "messages": messages, "stream": True, **extra}
             if call_tools:
                 body["tools"] = call_tools
             if call_choice:
@@ -639,10 +553,9 @@ class LLMClient:
             logger.debug(messages)
             return body, forced_name, structured
 
-        # The body is re-derived on every recovery, auth retry and route probe, so
-        # its INFO lines would otherwise repeat once per attempt. Keyed on the
-        # rendered line, not on "first attempt only": a recovery that learns a new
-        # quirk adds an action, and that line is exactly the one worth surfacing.
+        # The body is re-derived on every recovery, auth retry and route probe, so its INFO lines would otherwise repeat once
+        # per attempt. Keyed on the rendered line, not on "first attempt only": a recovery that learns a new quirk adds an
+        # action, and that line is exactly the one worth surfacing.
         logged_lines: set[str] = set()
 
         def _log_once(line: str) -> None:
@@ -666,14 +579,12 @@ class LLMClient:
 
         acc = ChatStream()
 
-        async def _issue(body: dict, forced_name: str | None) -> AsyncIterator[dict]:
+        async def _issue(body: dict, forced_name: str | None) -> AsyncIterator[CompletionEvent]:
             """Stream one request into a fresh ``acc``, replacing anything already there.
 
-            Yielding is the reason this is a generator and not a coroutine: the
-            content/reasoning deltas belong to the caller as they arrive. A
-            second issue re-yields its own reasoning, so a retried call shows
-            two thinking runs in the pass's box -- the honest picture of what
-            was spent, and bounded to once per model per process.
+            Yielding is the reason this is a generator and not a coroutine: the content/reasoning deltas belong to the caller as
+            they arrive. A second issue re-yields its own reasoning, so a retried call shows two thinking runs in the pass's box
+            -- the honest picture of what was spent, and bounded to once per model per process.
             """
             nonlocal acc
             acc = ChatStream()
@@ -699,14 +610,11 @@ class LLMClient:
                         async with client.stream("POST", route.url, json=outbound, headers=headers) as resp:
                             if resp.status_code >= 400:
                                 err_text = await _read_error_body(resp, route.url)
-                                # One attempt per independent quirk class: the profile
-                                # rules, a refused reasoning_effort level, refused
-                                # replayed reasoning, Anthropic sampling controls, and
-                                # the 4.6+ reasoning fields can each need their own
-                                # rejection before a body this endpoint accepts is
-                                # reached. No route reaches more than three of them --
-                                # reasoning_effort and replayed reasoning are
-                                # OpenAI-body fields the Anthropic translation drops.
+                                # One attempt per independent quirk class: the profile rules, a refused reasoning_effort level,
+                                # refused replayed reasoning, Anthropic sampling controls, and the 4.6+ reasoning fields can
+                                # each need their own rejection before a body this endpoint accepts is reached. No route reaches
+                                # more than three of them -- reasoning_effort and replayed reasoning are OpenAI-body fields the
+                                # Anthropic translation drops.
                                 if recovery_count < 3:
                                     fix = endpoint_profiles.recover_from_error(
                                         self.base_url, model, outbound, resp.status_code, err_text
@@ -721,6 +629,16 @@ class LLMClient:
                                         recovery_count += 1
                                         logger.warning("LLM recovery: %s", fix)
                                         continue
+                                # Uncounted: each refusal sheds a key the body still carries, so a strict server that names
+                                # one unknown field per rejection is walked to a body it takes. The Anthropic translation
+                                # has its own sampling recovery above.
+                                if route.protocol == "openai" and (
+                                    fix := endpoint_profiles.recover_refused_field(
+                                        self.base_url, model, outbound, resp.status_code, err_text
+                                    )
+                                ):
+                                    logger.warning("LLM recovery: %s", fix)
+                                    continue
                                 auths = endpoint_profiles.auth_families(route, resp.status_code, err_text)
                                 if not auth_retried and len(auths) > 1:
                                     auth_family = auths[1]
@@ -737,11 +655,9 @@ class LLMClient:
                                     )
                                     route_index += 1
                                     break
-                                # Last resort before failing: one unmarked retry. A strict
-                                # schema can refuse the markers' text-list shape without
-                                # naming anything recognizable, so the refusal is learned
-                                # only once that retry is accepted; a 400 the markers did
-                                # not cause costs one round-trip, never the cache.
+                                # Last resort before failing: one unmarked retry. A strict schema can refuse the markers'
+                                # text-list shape without naming anything recognizable, so the refusal is learned only once that
+                                # retry is accepted; a 400 the markers did not cause costs one round-trip, never the cache.
                                 if cache_markers and resp.status_code in {400, 422}:
                                     cache_markers = False
                                     markers_withdrawn = True
@@ -752,11 +668,7 @@ class LLMClient:
                                     )
                                     continue
                                 raise llm_call_error(
-                                    response=resp,
-                                    body=err_text,
-                                    url=route.url,
-                                    model=model,
-                                    api_key=self.api_key,
+                                    response=resp, body=err_text, url=route.url, model=model, api_key=self.api_key
                                 )
                             if markers_withdrawn:
                                 endpoint_profiles.note_cache_markers_refused(self.base_url, model)
@@ -791,20 +703,9 @@ class LLMClient:
         async for _ev in _issue(body, forced_name):
             yield _ev
 
-        # A structured forced call that came back disproving its own schema:
-        # demote the pair and re-issue once under the new policy. The wasted
-        # attempt is otherwise a whole pass lost per process -- and this is the
-        # one moment a retry is clean, because a forced call buffers its content
-        # rather than streaming it, so nothing but reasoning has reached the
-        # caller yet. Same shape as workflows/_forced_call.py's retry after
-        # note_forced_tool_choice_ignored.
-        #
-        # ``tools_in_prompt`` is the gate: a caller whose prefix must stay
-        # schema-free has no second shape to fall back to -- re-planning would
-        # rebuild the identical request -- so it demotes for everyone else's
-        # benefit and keeps its own degraded reply.
-        # The tracker sees only the surviving attempt's usage, so a retried call
-        # under-reports its true token cost by the discarded one.
+        # Demote a structured-output endpoint that violates its schema and retry once while content is still buffered.
+        # Schema-free prefixes cannot change shape, so tools_in_prompt=False keeps the degraded reply. Usage tracks only the
+        # surviving attempt and undercounts the discarded call.
         if forced_name is not None and structured and tools_in_prompt and not acc.tool_calls:
             if self._audit_structured_reply(model, "".join(acc.content_parts), acc.finish_reason):
                 body, forced_name, structured = _plan()
@@ -813,9 +714,8 @@ class LLMClient:
 
         # Assemble the final message dict (mirrors the non-streaming message format)
         if forced_name is not None and not acc.tool_calls:
-            # Structured forced call: the constrained content IS the arguments
-            # JSON; re-synthesize the tool-call shape the pipeline expects. A
-            # provider that answered with real tool_calls anyway wins below.
+            # Structured forced call: the constrained content IS the arguments JSON; re-synthesize the tool-call shape the
+            # pipeline expects. A provider that answered with real tool_calls anyway wins below.
             message = text_completion.forced_tool_message(forced_name, "".join(acc.content_parts))
             message.update(_text_message([], acc.reasoning_parts, acc.reasoning_key))
         else:
@@ -827,10 +727,7 @@ class LLMClient:
                 {
                     "id": v["id"],
                     "type": "function",
-                    "function": {
-                        "name": v["function"]["name"],
-                        "arguments": v["function"]["arguments"],
-                    },
+                    "function": {"name": v["function"]["name"], "arguments": v["function"]["arguments"]},
                 }
                 for v in (acc.tool_calls[k] for k in sorted(acc.tool_calls))
             ]
@@ -840,16 +737,10 @@ class LLMClient:
         yield _done("", message, acc.usage)
 
     async def _iter_sse_payloads(self, resp, *, include_done: bool = False) -> AsyncIterator[str]:
-        """Yield each SSE ``data:`` payload string, racing reads against abort.
+        """Yield SSE data payloads, racing reads against abort.
 
-        Each line read is raced against the abort signal so ``client.abort()``
-        breaks out immediately, letting the caller's ``async with`` exit
-        *normally* and cleanly close the TCP connection to the LLM server.
-        (asyncio task cancellation instead would leave the connection open under
-        Python 3.11+ strict cancellation semantics.) Stops at ``[DONE]``; the
-        OpenAI chat parser asks to receive that marker so it can distinguish
-        normal completion from an unexpected EOF. Shared by the chat and text
-        transports so the abort race lives in one place.
+        Exit the HTTP context normally to close the connection. Stop at [DONE],
+        optionally yielding it so chat parsing can distinguish completion from EOF.
         """
         aiter = resp.aiter_lines().__aiter__()
         abort_wait = asyncio.create_task(self.abort_token.wait())
@@ -857,10 +748,7 @@ class LLMClient:
             while True:
                 line_task = asyncio.ensure_future(aiter.__anext__())
                 try:
-                    done, _ = await asyncio.wait(
-                        {line_task, abort_wait},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+                    done, _ = await asyncio.wait({line_task, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
                 except BaseException:
                     line_task.cancel()
                     with contextlib.suppress(BaseException):
@@ -873,7 +761,7 @@ class LLMClient:
                         await line_task
                     except (asyncio.CancelledError, StopAsyncIteration):
                         pass
-                    return  # stop iterating → async-with closes connection cleanly
+                    return  # stop iterating -> async-with closes connection cleanly
 
                 try:
                     line = line_task.result()
@@ -896,50 +784,37 @@ class LLMClient:
                 pass
 
     async def _apply_template(
-        self,
-        server_root: str,
-        messages: Sequence[Mapping[str, Any]],
-        chat_template_kwargs: Mapping[str, Any] | None = None,
+        self, server_root: str, messages: Sequence[Mapping[str, Any]], chat_template_kwargs: Mapping[str, Any] | None = None
     ) -> str:
         """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``.
 
         *chat_template_kwargs* (e.g. ``{"enable_thinking": False}``) is forwarded so
-        the template renders its own reasoning on/off bytes — see ``_complete_text``.
+        the template renders its own reasoning on/off bytes -- see ``_complete_text``.
         """
         body: dict[str, Any] = {"messages": list(messages)}
         if chat_template_kwargs is not None:
             body["chat_template_kwargs"] = dict(chat_template_kwargs)
         async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.post(
-                f"{server_root}/apply-template",
-                json=body,
-                headers=self._headers(),
-            )
+            resp = await client.post(f"{server_root}/apply-template", json=body, headers=self._headers())
             resp.raise_for_status()
             return resp.json()["prompt"]
 
     def _template_effort(self) -> str:
         """The reasoning-effort level to render into a text-mode prompt.
 
-        ``custom`` names a provider-specific *request body* field (see
-        :func:`apply_reasoning_effort`), which a chat template cannot read, so
-        only a standard level rides the render.
+        ``custom`` names a provider-specific *request body* field (see :func:`apply_reasoning_effort`), which a chat template
+        cannot read, so only a standard level rides the render.
         """
         return "" if self.reasoning_effort == "custom" else self.reasoning_effort
 
     async def _render_with_effort_fallback(
-        self,
-        server_root: str,
-        render_msgs: Sequence[Mapping[str, Any]],
-        ctk: dict[str, Any] | None,
+        self, server_root: str, render_msgs: Sequence[Mapping[str, Any]], ctk: dict[str, Any] | None
     ) -> str:
         """``/apply-template``, retried once without ``reasoning_effort`` if refused.
 
-        Templates validate the level and raise on anything outside their own
-        vocabulary: Qwen3.8 accepts only low/medium/xhigh, so three of the six
-        levels Orb's own picker offers render as HTTP 500. Dropping just the
-        effort keeps the call in the text transport; without this the caller's
-        blanket ``HTTPError`` fallback would drop the whole turn to the chat
+        Templates validate the level and raise on anything outside their own vocabulary: Qwen3.8 accepts only low/medium/xhigh,
+        so three of the six levels Orb's own picker offers render as HTTP 500. Dropping just the effort keeps the call in the
+        text transport; without this the caller's blanket ``HTTPError`` fallback would drop the whole turn to the chat
         transport, losing the byte control this transport exists for.
         """
         try:
@@ -948,9 +823,7 @@ class LLMClient:
             if not (ctk and "reasoning_effort" in ctk):
                 raise
             logger.warning(
-                "text mode: /apply-template refused reasoning_effort=%r (%r); rendering without it",
-                ctk["reasoning_effort"],
-                e,
+                "text mode: /apply-template refused reasoning_effort=%r (%r); rendering without it", ctk["reasoning_effort"], e
             )
             return await self._apply_template(
                 server_root, render_msgs, {k: v for k, v in ctk.items() if k != "reasoning_effort"}
@@ -1000,20 +873,13 @@ class LLMClient:
         return fmt
 
     async def _stream_completion(self, url: str, body: dict) -> AsyncIterator[dict]:
-        """POST *body* to llama.cpp ``/completion`` and yield each parsed SSE chunk.
+        """Stream parsed llama.cpp /completion SSE chunks with abortable reads.
 
-        Races reads against abort via the shared :meth:`_iter_sse_payloads`.
-        The single HTTP seam of the text transport (patched wholesale in tests,
-        which is why the signature stays exactly ``(url, body)``).
-
-        A rejection is raised as :class:`LLMCallError` with no model attributed:
-        llama.cpp's native ``/completion`` serves whichever model the server
-        loaded and the body never names one, so there is nothing honest to put
-        there.
+        Keep the (url, body) seam for tests. Rejections have no model attribution:
+        the server selects its loaded model, not a body field.
         """
-        # read=None for the same reason as the chat transport: llama.cpp is
-        # silent for the whole prefill, which legitimately exceeds any flat
-        # read timeout on long contexts.
+        # read=None for the same reason as the chat transport: llama.cpp is silent for the whole prefill, which legitimately
+        # exceeds any flat read timeout on long contexts.
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
             async with client.stream("POST", url, json=body, headers=self._headers()) as resp:
                 if resp.status_code >= 400:
@@ -1033,20 +899,10 @@ class LLMClient:
         reasoning: bool = False,
         fmt: rf.ReasoningFormat | None = None,
     ) -> str:
-        """Render *messages* to the exact prompt string ``_complete_text`` sends.
+        """Reproduce the unconstrained text transport prompt byte-for-byte.
 
-        Text-transport only. Replicates the transport's render step byte-for-byte
-        (trailing open assistant turn for *prefill*; ``enable_thinking`` kwargs
-        only when there is no prefill) so a caller can re-derive a past
-        generation's prompt and byte-extend it via :meth:`complete_raw` — the
-        doc-mode auditor's KV-parity hook. Template quirks (e.g. Qwen injecting
-        ``<think></think>`` into the generation prompt) are reproduced for free
-        because it is the same render, not a reconstruction.
-
-        For routed-channel models, *fmt* also reproduces the non-reasoning
-        header written by the transport. Only the unconstrained render is
-        reproduced; a grammar-forced call takes one further tail in
-        ``_complete_text``, and nothing re-derives such a prompt.
+        Match prefill, thinking kwargs and routed-channel headers so audit callers
+        can extend it via complete_raw. Grammar-forced tails are not reproduced.
         """
         server_root = self._server_root()
         render_msgs: list[Mapping[str, Any]] = list(messages)
@@ -1055,12 +911,10 @@ class LLMClient:
         ctk: dict[str, Any] | None = None
         if not prefill:
             ctk = {"enable_thinking": reasoning, "thinking": reasoning}
-            # Text mode's only seam for the per-model effort level: the chat
-            # transport's apply_reasoning_effort writes a request body this
-            # transport never sends. Reasoning-off calls are skipped for the same
-            # reason apply_reasoning_effort skips them. Read off self rather than
-            # taken as an argument so the doc-mode auditor's re-render (which
-            # reuses this client) cannot drift from the transport by a byte.
+            # Text mode's only seam for the per-model effort level: the chat transport's apply_reasoning_effort writes a request
+            # body this transport never sends. Reasoning-off calls are skipped for the same reason apply_reasoning_effort skips
+            # them. Read off self rather than taken as an argument so the doc-mode auditor's re-render (which reuses this
+            # client) cannot drift from the transport by a byte.
             effort = self._template_effort() if reasoning else ""
             if effort:
                 ctk["reasoning_effort"] = effort
@@ -1079,17 +933,15 @@ class LLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         **params,
-    ) -> AsyncIterator[dict]:
+    ) -> AsyncIterator[CompletionEvent]:
         """llama.cpp native text-completion transport (``/apply-template`` + ``/completion``).
 
-        Preserves the ``complete()`` event contract. Falls back to the chat
-        transport on any ``/apply-template`` HTTP error (odd templates/shapes).
-        See text_completion.py for the pure helpers.
+        Preserves the ``complete()`` event contract. Falls back to the chat transport on any ``/apply-template`` HTTP error (odd
+        templates/shapes). See text_completion.py for the pure helpers.
         """
         prefill = params.pop("prefill", None)
         grammar = params.pop("grammar", None)
-        # Popped before the /apply-template try below so the chat fallback never
-        # leaks it into an OpenAI-compat body either.
+        # Popped before the /apply-template try below so the chat fallback never leaks it into an OpenAI-compat body either.
         rprefill = params.pop("reasoning_prefill", "") or ""
         schema_override = params.pop("json_schema", None)
         # No-op here: tools are never rendered into a text-mode prompt. If
@@ -1102,24 +954,18 @@ class LLMClient:
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         fmt = await self._reasoning_format(server_root)
-        # Let the chat template control tag-pair reasoning; prefills own their
-        # trailing assistant turn.
+        # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
             prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt)
         except httpx.HTTPError as e:
-            logger.warning(
-                "text mode: /apply-template failed (%r); falling back to chat transport",
-                e,
-            )
+            logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
             async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
                 yield event
             return
 
-        # Forced tool_choice → grammar-constrain the whole output to the tool's
-        # JSON schema. tools is otherwise unused in text mode (never rendered).
-        # A caller-supplied json_schema narrows the forced grammar per call
-        # (e.g. one direct_scene field per step) — decoding-only, so the prompt
-        # bytes and KV cache are untouched.
+        # Forced tool_choice -> grammar-constrain the whole output to the tool's JSON schema. tools is otherwise unused in text
+        # mode (never rendered). A caller-supplied json_schema narrows the forced grammar per call (e.g. one direct_scene field
+        # per step) -- decoding-only, so the prompt bytes and KV cache are untouched.
         schema = text_completion.forced_schema(tools, tool_choice)
         if schema is not None and schema_override is not None:
             schema = schema_override
@@ -1141,9 +987,8 @@ class LLMClient:
         body["prompt"] = prompt
         body["stream"] = True
         if grammar is not None:
-            # Caller-supplied raw GBNF wins over the schema-derived grammar: a
-            # prefilled call continues mid-JSON, where json_schema (which
-            # constrains a fresh, complete object) would reject the remainder.
+            # Caller-supplied raw GBNF wins over the schema-derived grammar: a prefilled call continues mid-JSON, where
+            # json_schema (which constrains a fresh, complete object) would reject the remainder.
             body["grammar"] = grammar
         elif schema is not None:
             body["json_schema"] = schema
@@ -1178,17 +1023,18 @@ class LLMClient:
             delta = data.get("content") or ""
             if delta:
                 if forced_name is not None:
-                    # Forced call: buffer as arguments, emit no content deltas
-                    # (mirrors chat mode, where args stream as tool_calls deltas
-                    # the pipeline doesn't surface).
+                    # Forced call: buffer as arguments, emit no content deltas (mirrors chat mode, where args stream as
+                    # tool_calls deltas the pipeline doesn't surface).
                     forced_buf.append(delta)
                 else:
                     for kind, text in splitter.feed(delta):
                         (reasoning_parts if kind == "reasoning" else content_parts).append(text)
-                        yield {"type": kind, "delta": text}
-            # Per-token alternatives ride a separate channel (Document mode's
-            # token-swap steering); never for a forced tool call, whose output is
-            # buffered as arguments rather than surfaced as content.
+                        if kind == "reasoning":
+                            yield {"type": "reasoning", "delta": text}
+                        else:
+                            yield {"type": "content", "delta": text}
+            # Per-token alternatives ride a separate channel (Document mode's token-swap steering); never for a forced tool
+            # call, whose output is buffered as arguments rather than surfaced as content.
             if forced_name is None:
                 for rec in text_completion.parse_token_probs(data):
                     yield {"type": "token_probs", **rec}
@@ -1196,25 +1042,27 @@ class LLMClient:
                 break
 
         if forced_name is not None:
-            # The arguments are the whole assistant turn: the prompt-side
-            # prefill bytes plus the generated continuation.
+            # The arguments are the whole assistant turn: the prompt-side prefill bytes plus the generated continuation.
             message = text_completion.forced_tool_message(forced_name, (prefill or "") + "".join(forced_buf))
         else:
             for kind, text in splitter.flush():
                 (reasoning_parts if kind == "reasoning" else content_parts).append(text)
-                yield {"type": kind, "delta": text}
+                if kind == "reasoning":
+                    yield {"type": "reasoning", "delta": text}
+                else:
+                    yield {"type": "content", "delta": text}
             message = _text_message(content_parts, reasoning_parts)
         if finish_reason:
             message["finish_reason"] = finish_reason
 
         yield _done(" (text)", message, usage)
 
-    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
+    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Stream a raw completion for prompt."""
         async for event in self._with_retry(lambda: self._complete_raw(prompt, **params)):
             yield event
 
-    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[dict]:
+    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[CompletionEvent]:
         """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
         grammar = params.pop("grammar", None)
         schema = params.pop("json_schema", None)
@@ -1251,7 +1099,7 @@ class LLMClient:
             if stop:
                 break
 
-        message: dict = {"content": "".join(content_parts)}
+        message: CompletionMessage = {"content": "".join(content_parts)}
         if finish_reason:
             message["finish_reason"] = finish_reason
         yield {"type": "done", "message": message, "usage": usage}
@@ -1260,12 +1108,13 @@ class LLMClient:
 def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken | None = None) -> LLMClient:
     """Build the writer :class:`LLMClient` from a settings row.
 
-    The single construction seam for writer clients: ``LLMClient`` is resolved
-    from this module's globals at call time, so tests substitute the client
-    everywhere by patching ``backend.inference.client.LLMClient`` alone.
+    The single construction seam for writer clients: ``LLMClient`` is resolved from this module's globals at call time, so tests
+    substitute the client everywhere by patching ``backend.inference.client.LLMClient`` alone.
     """
+    if not settings.get("endpoint_url"):
+        raise EndpointConfigError("No Writer endpoint is selected. Pick an endpoint and its model in the model settings.")
     if settings["endpoint_url"] == "claude-code://local":
-        from .claude_code import ClaudeCodeClient
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 -- claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(settings["endpoint_url"]).lower().startswith("claude-code:"):
@@ -1292,7 +1141,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     """
     agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
     if agent_url == "claude-code://local":
-        from .claude_code import ClaudeCodeClient
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 -- claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(agent_url).lower().startswith("claude-code:"):
@@ -1312,35 +1161,36 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
 
 
 def separate_agent_lane_configured(settings: Mapping[str, Any]) -> bool:
-    """Whether settings resolve to a usable, physically separate Agent lane."""
-    return (
-        not bool(settings.get("agent_same_as_writer", True))
-        and bool(settings.get("agent_endpoint_id"))
-        and bool(settings.get("agent_endpoint_url"))
-        and bool(settings.get("agent_model_name"))
-    )
+    """Whether the Agent runs on a lane of its own rather than the Writer's.
+
+    Turning "Same as Writer" off chooses a separate lane, so one missing its endpoint or model raises
+    :class:`EndpointConfigError` naming what to pick -- it never quietly runs the Agent on the Writer.
+    """
+    if bool(settings.get("agent_same_as_writer", True)):
+        return False
+    if not settings.get("agent_endpoint_id"):
+        raise EndpointConfigError(
+            "Agent “Same as Writer” is off, but no Agent endpoint is selected. Pick one, or turn Same as Writer back on."
+        )
+    if not settings.get("agent_endpoint_url") or not settings.get("agent_model_name"):
+        raise EndpointConfigError(
+            "Agent “Same as Writer” is off, but the Agent endpoint has no model selected. Pick one, or turn Same as Writer back on."
+        )
+    return True
 
 
 def agent_lane_from_settings(
-    settings: Mapping[str, Any],
-    *,
-    writer_client: LLMClient,
-    abort_token: AbortToken | None = None,
+    settings: Mapping[str, Any], *, writer_client: LLMClient, abort_token: AbortToken | None = None
 ) -> tuple[LLMClient, str]:
     """Resolve the client/model pair used by agentic off-turn work.
 
-    The pipeline represents single-model mode by reusing the writer lane and
-    dual-model mode by constructing a separate agent lane. Workflow HTTP routes
-    need the same resolution without importing ``pipeline`` upward into ``api``:
-    reuse the already-built ``writer_client`` unless a concrete separate agent
-    endpoint is selected, otherwise construct the configured agent client.
-    ``separate_agent_lane_configured`` already guarantees ``agent_model_name``.
+    The pipeline represents single-model mode by reusing the writer lane and dual-model mode by constructing a separate agent
+    lane. Workflow HTTP routes need the same resolution without importing ``pipeline`` upward into ``api``: reuse the
+    already-built ``writer_client`` unless a concrete separate agent endpoint is selected, otherwise construct the configured
+    agent client. ``separate_agent_lane_configured`` already guarantees ``agent_model_name``.
     """
     if separate_agent_lane_configured(settings):
-        return (
-            agent_client_from_settings(settings, abort_token=abort_token),
-            settings["agent_model_name"],
-        )
+        return (agent_client_from_settings(settings, abort_token=abort_token), settings["agent_model_name"])
     return writer_client, settings["model_name"]
 
 
@@ -1351,12 +1201,11 @@ def _preview(text: str, limit: int = 200) -> str:
 
 
 def _balanced_span(text: str, open_ch: str, close_ch: str) -> str | None:
-    """Return the first brace-balanced ``open_ch``…``close_ch`` slice of *text*.
+    """Return the first brace-balanced ``open_ch``...``close_ch`` slice of *text*.
 
-    String-aware: braces inside a JSON string literal (and escaped quotes
-    inside one) do not move the depth counter, so a payload whose values are
-    prose full of punctuation still closes at the right place. Returns ``None``
-    when *text* has no opener or never returns to depth zero.
+    String-aware: braces inside a JSON string literal (and escaped quotes inside one) do not move the depth counter, so a
+    payload whose values are prose full of punctuation still closes at the right place. Returns ``None`` when *text* has no
+    opener or never returns to depth zero.
     """
     start = text.find(open_ch)
     if start == -1:
@@ -1386,7 +1235,7 @@ def _balanced_span(text: str, open_ch: str, close_ch: str) -> str | None:
 
 
 def _first_json(text: str, open_ch: str, close_ch: str) -> Any | None:
-    """Decode the first balanced ``open_ch``…``close_ch`` value in *text*, or ``None``."""
+    """Decode the first balanced ``open_ch``...``close_ch`` value in *text*, or ``None``."""
     span = _balanced_span(text, open_ch, close_ch)
     if span is None:
         return None
@@ -1396,7 +1245,7 @@ def _first_json(text: str, open_ch: str, close_ch: str) -> Any | None:
         return None
 
 
-def _sanitize_args(obj):
+def _sanitize_args(obj: Any) -> Any:
     """Recursively strip tokenizer-artifact quote tokens (``<|"|>``) from string values."""
     if isinstance(obj, str):
         return obj.replace('<|"|>', "")
@@ -1407,7 +1256,7 @@ def _sanitize_args(obj):
     return obj
 
 
-def _make_tool_call(name: str, arguments) -> dict:
+def _make_tool_call(name: str, arguments: Any) -> ParsedToolCall:
     """Build a normalized tool-call dictionary."""
     raw = arguments if isinstance(arguments, str) else None
     if raw is not None:
@@ -1427,15 +1276,13 @@ def _make_tool_call(name: str, arguments) -> dict:
     return {"name": name, "arguments": _sanitize_args(arguments)}
 
 
-def parse_tool_calls(message: dict) -> list[dict]:
+def parse_tool_calls(message: Mapping[str, Any]) -> list[ParsedToolCall]:
     """Extract tool calls from a completion message.
 
-    Tries, in order: the standard ``tool_calls`` array, Hermes-style
-    ``<tool_call>...</tool_call>`` tags, Gemma 4 native
-    ``<|tool_call>call:NAME{...}<tool_call|>`` tokens, then JSON embedded in
-    the content body (common with some local servers).
+    Tries, in order: the standard ``tool_calls`` array, Hermes-style ``<tool_call>...</tool_call>`` tags, Gemma 4 native
+    ``<|tool_call>call:NAME{...}<tool_call|>`` tokens, then JSON embedded in the content body (common with some local servers).
     """
-    tool_calls = []
+    tool_calls: list[ParsedToolCall] = []
 
     # Standard OpenAI tool_calls format
     if "tool_calls" in message and message["tool_calls"]:

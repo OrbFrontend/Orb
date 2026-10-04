@@ -1,11 +1,10 @@
 """Each lane sends the sampler preset of the endpoint it is calling.
 
-The Agent endpoint carries its own model config -- temperature, budget, samplers --
-and the Agent passes are the ones dialing that endpoint. Sending the Writer's preset
-there is the bug this file guards: it reads as the Agent ignoring its own settings.
+The Agent endpoint carries its own model config -- temperature, budget, samplers -- and the Agent passes are the ones dialing
+that endpoint. Sending the Writer's preset there is the bug this file guards: it reads as the Agent ignoring its own settings.
 
-The budget passes straight through too: no call raises or lowers the configured
-`max_tokens`, so the number in settings is the number every request carries.
+The budget passes straight through too: no call raises or lowers the configured `max_tokens`, so the number in settings is the
+number every request carries.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ async def _two_lane_setup(client, agent_preset: dict) -> None:
 
     # A new endpoint auto-provisions a writer and an agent model config; the agent
     # lane reads the latter once `agent_same_as_writer` is off.
-    agent_endpoint = (await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})).json()["id"]
+    agent_endpoint = await client.create("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})
     await client.put(f"/api/models/{await _config_id(client, agent_endpoint, 'agent')}", json=agent_preset)
     await client.put(
         "/api/settings",

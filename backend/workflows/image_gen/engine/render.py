@@ -5,21 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .adapters.base import ImageAdapter
-from .contracts import (
-    ImageRequest,
-    ImageResult,
-    ProgressCallback,
-    RenderTarget,
-    fold_seed_into,
-)
+from .contracts import ImageRequest, ImageResult, ProgressCallback, RenderTarget, fold_seed_into
 
 
 async def resolve_and_generate(
-    adapter: ImageAdapter,
-    request: ImageRequest,
-    *,
-    target: RenderTarget,
-    progress: ProgressCallback | None = None,
+    adapter: ImageAdapter, request: ImageRequest, *, target: RenderTarget, progress: ProgressCallback | None = None
 ) -> ImageResult:
     """Apply explicit compatibility settings and make exactly one render attempt.
 

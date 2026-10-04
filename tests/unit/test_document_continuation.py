@@ -1,9 +1,8 @@
 """Unit tests for DocumentContinuer + parse_doc_macros against a stub client.
 
-Covers the four transport×mode branches, the exact chat-fallback and assisted
-message shapes, that reasoning is suppressed on the chat/prefill paths, the
-delta filter, and the full parse_doc_macros contract (alternation, defaults,
-prefill extraction, macro coalescing).
+Covers the four transportxmode branches, the exact chat-fallback and assisted message shapes, that reasoning is suppressed on
+the chat/prefill paths, the delta filter, and the full parse_doc_macros contract (alternation, defaults, prefill extraction,
+macro coalescing).
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ def _deltas(chunks):
 
 
 def _assert_alternates(messages, prefill):
-    """The load-bearing invariant: [system, user, assistant, user, …] — starts
+    """The load-bearing invariant: [system, user, assistant, user, ...] -- starts
     [system, user] and strictly alternates, and appending the open prefill as an
     assistant turn keeps it alternating (so the rendered template is well-formed)."""
     assert messages[0]["role"] == "system"
@@ -66,16 +65,13 @@ def _assert_alternates(messages, prefill):
     assert roles[-1] == "user"
 
 
-# ── parse_doc_macros ─────────────────────────────────────────────────────────
+# -- parse_doc_macros ---------------------------------------------------------
 
 
 def test_interleaved_notes_and_prose_alternate_in_document_order():
     text = (
-        "### SYSTEM: You are a co-writer.\n"
-        "### USER: Write a story about a monkey.\n"
-        "Once upon a time, there lived a monkey.\n"
-        "### USER: Write tersely now. Short sentences.\n"
-        "The monkey woke. He"
+        "### SYSTEM: You are a co-writer.\n### USER: Write a story about a monkey.\nOnce upon a time, there lived a monkey.\n"
+        "### USER: Write tersely now. Short sentences.\nThe monkey woke. He"
     )
     messages, prefill = parse_doc_macros(text)
     assert messages == [
@@ -97,21 +93,15 @@ def test_missing_system_defaults_to_assist_instruction():
 
 def test_missing_user_inserts_default_user_turn():
     messages, prefill = parse_doc_macros("### SYSTEM: be terse\nthe body prose")
-    assert messages == [
-        {"role": "system", "content": "be terse"},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": "be terse"}, {"role": "user", "content": _DEFAULT_USER}]
     assert prefill == "the body prose"
 
 
 def test_macro_free_doc_is_backward_compat_three_turn_shape():
-    # No macros at all → [system(default), default-user] + whole doc as prefill.
+    # No macros at all -> [system(default), default-user] + whole doc as prefill.
     doc = "Once upon a time, beneath the canopy, there lived a monkey."
     messages, prefill = parse_doc_macros(doc)
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
     assert prefill == doc
 
 
@@ -138,7 +128,7 @@ def test_trailing_note_yields_none_prefill():
         {"role": "assistant", "content": "The prior paragraph."},
         {"role": "user", "content": "now write the ending"},
     ]
-    # No prefill → messages end on a user turn (generation-prompt / fresh turn).
+    # No prefill -> messages end on a user turn (generation-prompt / fresh turn).
     assert messages[-1]["role"] == "user"
 
 
@@ -152,10 +142,7 @@ def test_consecutive_user_lines_join_into_one_turn():
 def test_whitespace_only_prose_between_notes_dropped_and_notes_merge():
     text = "### USER: alpha\n   \n### USER: beta\nThe tale begins"
     messages, prefill = parse_doc_macros(text)
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": "alpha\nbeta"},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": "alpha\nbeta"}]
     assert prefill == "The tale begins"
 
 
@@ -163,10 +150,7 @@ def test_assistant_macro_content_joins_surrounding_prose():
     text = "Chapter one.\n### ASSISTANT: The hero rose.\nAnd walked on."
     messages, prefill = parse_doc_macros(text)
     # ### ASSISTANT: is stripped and its content folded into the one prose block.
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
     assert prefill == "Chapter one.\nThe hero rose.\nAnd walked on."
 
 
@@ -176,20 +160,14 @@ def test_assistant_macro_is_escape_hatch_for_literal_macro_prose():
     text = "### ASSISTANT: ### USER: this is literal prose"
     messages, prefill = parse_doc_macros(text)
     assert prefill == "### USER: this is literal prose"
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
 
 
 def test_empty_macro_content_is_ignored():
     # An empty ### USER: drops out, so the prose on either side stays one block.
     text = "line one\n### USER:\nline two"
     messages, prefill = parse_doc_macros(text)
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
     assert prefill == "line one\nline two"
 
 
@@ -216,10 +194,7 @@ def test_case_insensitive_macros():
 
 def test_empty_document_yields_default_shape_none_prefill():
     messages, prefill = parse_doc_macros("")
-    assert messages == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": _DEFAULT_USER},
-    ]
+    assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
     assert prefill is None
 
 
@@ -236,7 +211,7 @@ def test_alternation_invariant_holds_on_adversarial_interleavings():
         _assert_alternates(messages, prefill)
 
 
-# ── DocumentContinuer transport × mode branches ──────────────────────────────
+# -- DocumentContinuer transport x mode branches ------------------------------
 
 
 async def test_chat_path_builds_system_user_and_suppresses_thinking():
@@ -246,10 +221,7 @@ async def test_chat_path_builds_system_user_and_suppresses_thinking():
 
     assert _deltas(out) == ["chat-out"]  # reasoning delta dropped
     call = client.chat_calls[0]
-    assert call["messages"] == [
-        {"role": "system", "content": DOC_CHAT_INSTRUCTION},
-        {"role": "user", "content": "the prefix"},
-    ]
+    assert call["messages"] == [{"role": "system", "content": DOC_CHAT_INSTRUCTION}, {"role": "user", "content": "the prefix"}]
     # reasoning_cfg(False) spread in: thinking disabled.
     assert call["params"]["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
     assert call["params"]["temperature"] == 0.9
@@ -258,13 +230,12 @@ async def test_chat_path_builds_system_user_and_suppresses_thinking():
 
 async def test_text_path_calls_complete_raw_with_verbatim_prompt():
     client = _StubClient("text")
-    cont = DocumentContinuer(client, {})
+    cont = DocumentContinuer(client, {"max_tokens": 300})
     out = await _drain(cont.stream("continue me", "m"))
 
     assert _deltas(out) == ["raw-out"]
     assert client.raw_calls[0]["prompt"] == "continue me"
-    # unset max_tokens defaults to 512 (guards n_predict=-1 runaway).
-    assert client.raw_calls[0]["params"]["max_tokens"] == 512
+    assert client.raw_calls[0]["params"]["max_tokens"] == 300
     assert not client.chat_calls
 
 
@@ -277,10 +248,7 @@ async def test_text_assisted_calls_complete_with_parsed_messages_and_prefill():
     assert _deltas(out) == ["chat-out"]  # reasoning delta dropped
     assert not client.raw_calls  # assisted goes through complete(), not complete_raw
     call = client.chat_calls[0]
-    assert call["messages"] == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": "be vivid"},
-    ]
+    assert call["messages"] == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": "be vivid"}]
     # Final prose is the open prefill; reasoning suppressed (no-op on text/prefill).
     assert call["params"]["prefill"] == "The old lighthouse"
     assert call["params"]["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
@@ -294,7 +262,7 @@ async def test_text_assisted_trailing_note_passes_none_prefill():
 
     assert _deltas(out) == ["chat-out"]
     call = client.chat_calls[0]
-    # prefill=None → client falls through to the generation-prompt branch;
+    # prefill=None -> client falls through to the generation-prompt branch;
     # reasoning kwargs still sent (load-bearing for the trailing-note case).
     assert call["params"]["prefill"] is None
     assert call["messages"][-1] == {"role": "user", "content": "write the ending"}
@@ -326,12 +294,12 @@ async def test_chat_assisted_trailing_note_sends_messages_as_is():
     await _drain(cont.stream("prose\n### USER: wrap it up", "m", assisted=True))
 
     call = client.chat_calls[0]
-    # prefill is None → no closed-prefill/re-anchor turns; messages end on the note.
+    # prefill is None -> no closed-prefill/re-anchor turns; messages end on the note.
     assert call["messages"][-1] == {"role": "user", "content": "wrap it up"}
     assert not any(m["content"] == DOC_ASSIST_CONTINUE for m in call["messages"])
 
 
-# ── token_probs flag: per-branch request params + chunk forwarding ────────────
+# -- token_probs flag: per-branch request params + chunk forwarding ------------
 
 
 async def test_token_probs_off_by_default_sends_no_prob_params():
@@ -363,7 +331,7 @@ async def test_text_assisted_token_probs_adds_n_probs():
     client = _StubClient("text")
     cont = DocumentContinuer(client, {})
     await _drain(cont.stream("### USER: be vivid\nThe old lighthouse", "m", assisted=True, token_probs=True))
-    # Assisted text uses complete(), still on the llama.cpp transport → n_probs.
+    # Assisted text uses complete(), still on the llama.cpp transport -> n_probs.
     assert client.chat_calls[0]["params"]["n_probs"] == 10
     assert "logprobs" not in client.chat_calls[0]["params"]
 

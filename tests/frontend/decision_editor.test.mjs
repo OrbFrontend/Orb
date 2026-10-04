@@ -1,8 +1,7 @@
 // The decision-fragment editor's write contract, driven through the real DOM.
 //
-// The rules under test are the ones the backend rejects a save over, and that
-// an author cannot see going wrong: an explicit null is the only way to clear a
-// decision column, and the outcome space is per type.
+// The rules under test are the ones the backend rejects a save over, and that an author cannot see going wrong: an
+// explicit null is the only way to clear a decision column, and the outcome space is per type.
 import assert from "node:assert/strict";
 import { beforeEach, mock, test } from "node:test";
 import { JSDOM } from "jsdom";
@@ -23,9 +22,8 @@ const {
   repaintDecisionSection,
 } = await import("../../frontend/library_decisions.js");
 
-// The shape GET /api/decisions/config returns. Every control in the section is
-// rendered from this, so the test supplies it rather than the module hardcoding
-// anything the backend owns.
+// The shape GET /api/decisions/config returns. Every control in the section is rendered from this, so the test supplies
+// it rather than the module hardcoding anything the backend owns.
 const CONFIG = {
   configured: true,
   decision_model: "typesafe/jev-1.13",
@@ -165,9 +163,8 @@ test("adding a primary outcome appends an unnamed row, leaving the authored ones
   mount(CHOICE_FRAGMENT);
   click('[data-dec-act="add-option"]');
 
-  // The authored outcomes survive. The new one is unnamed, because a choice key
-  // is prompt text: a generated `option_3` would go to the Judge as the name of
-  // an option and tell it nothing.
+  // The authored outcomes survive. The new one is unnamed, because a choice key is prompt text: a generated `option_3`
+  // would go to the Judge as the name of an option and tell it nothing.
   const keys = [...document.querySelectorAll('[data-field="key"]')].map((el) => el.value);
   assert.deepEqual(keys, ["win", "lose", ""]);
   const fields = readDecisionFields();

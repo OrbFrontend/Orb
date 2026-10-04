@@ -1,9 +1,8 @@
 """Decision fragments end to end: authoring API, turn placement, persistence.
 
-The gateway is stubbed at the transport boundary so these tests exercise the real
-pipeline wiring -- stage placement, the Director's tail, the Writer's Scene
-Guidance, atomic persistence, group scope, replay, and branch copies -- without a
-network call.
+The gateway is stubbed at the transport boundary so these tests exercise the real pipeline wiring -- stage placement, the
+Director's tail, the Writer's Scene Guidance, atomic persistence, group scope, replay, and branch copies -- without a network
+call.
 """
 
 from __future__ import annotations
@@ -16,12 +15,7 @@ import pytest
 import backend.database as dbmod
 from backend.inference import RAW_ANSWER_CACHE, DecisionCancelled, DecisionResponse
 from backend.inference.errors import llm_call_error
-from backend.pipeline import (
-    handle_magic_rewrite,
-    handle_regenerate,
-    handle_speak,
-    handle_turn,
-)
+from backend.pipeline import handle_magic_rewrite, handle_regenerate, handle_speak, handle_turn
 from backend.pipeline.passes.judge import judge as judge_module
 
 DEFINITION = {
@@ -75,12 +69,10 @@ class Gateway:
 async def _configure(client, *, agent: bool = True, url: str = "https://openrouter.ai/api/v1") -> None:
     """Point decisions at a judge endpoint of their own and set the Agent lane."""
     endpoint = (await client.post("/api/endpoints", json={"url": url, "api_key": "k", "kind": "judge"})).json()
-    response = await client.put(
-        "/api/decisions/config",
-        json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"},
+    response = await client.put_json(
+        "/api/decisions/config", json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"}
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["configured"] is True
+    assert response["configured"] is True
     await client.put("/api/settings", json={"enable_agent": agent, "enabled_tools": {"direct_scene": agent}})
 
 
@@ -141,7 +133,7 @@ async def _solo_scene(client, cid: str = "conv-decision") -> str:
     return cid
 
 
-# ── authoring API ────────────────────────────────────────────────────────────
+# -- authoring API ------------------------------------------------------------
 
 
 async def test_a_valid_decision_round_trips_through_the_api(client, db):
@@ -172,14 +164,14 @@ async def test_a_valid_decision_round_trips_through_the_api(client, db):
     ],
 )
 async def test_an_invalid_decision_is_rejected_with_a_reason(client, db, broken):
-    response = await client.put("/api/interactive-fragments/outcome", json={**DEFINITION, **broken})
-    assert response.status_code == 422
-    assert response.json()["detail"]
+    response = await client.put_json("/api/interactive-fragments/outcome", json={**DEFINITION, **broken}, expected_status=422)
+    assert response["detail"]
 
 
 async def test_an_unknown_decision_variant_is_rejected_by_the_schema(client, db):
-    response = await client.put("/api/interactive-fragments/outcome", json={**DEFINITION, "decision_type": "score"})
-    assert response.status_code == 422
+    await client.put_checked(
+        "/api/interactive-fragments/outcome", json={**DEFINITION, "decision_type": "score"}, expected_status=422
+    )
 
 
 async def test_a_partial_update_is_validated_against_the_merged_row(client, db):
@@ -187,11 +179,10 @@ async def test_a_partial_update_is_validated_against_the_merged_row(client, db):
     assert (await client.put("/api/interactive-fragments/outcome", json={"decision_threshold": 0.8})).status_code == 200
     # Switching to roll mode without clearing the threshold is refused.
     assert (await client.put("/api/interactive-fragments/outcome", json={"decision_resolution": "roll"})).status_code == 422
-    ok = await client.put(
+    ok = await client.put_json(
         "/api/interactive-fragments/outcome", json={"decision_resolution": "roll", "decision_threshold": None}
     )
-    assert ok.status_code == 200
-    assert ok.json()["decision_threshold"] is None
+    assert ok["decision_threshold"] is None
 
 
 async def test_switching_a_decision_to_another_type_clears_its_decision_columns(client, db):
@@ -215,14 +206,13 @@ async def test_a_decision_shares_the_director_priority_lane(client, db):
             "sort_order": 6,
         },
     )
-    response = await client.put(
+    await client.put_checked(
         "/api/interactive-fragments/reorder",
         json={"items": [{"id": "pacing", "sort_order": 5}, {"id": "outcome", "sort_order": 6}]},
     )
-    assert response.status_code == 200
 
 
-# ── configuration, preview, and the connection test ──────────────────────────
+# -- configuration, preview, and the connection test --------------------------
 
 
 async def test_configuration_derives_the_route(client, db):
@@ -251,10 +241,11 @@ async def test_the_route_prefix_is_not_doubled_when_the_endpoint_already_carries
 
 async def test_a_chat_endpoint_cannot_be_selected_as_the_judge(client, db):
     chat = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})).json()
-    response = await client.put(
-        "/api/decisions/config", json={"decision_endpoint_id": chat["id"], "decision_model": "typesafe/jev-1.13"}
+    await client.put_checked(
+        "/api/decisions/config",
+        json={"decision_endpoint_id": chat["id"], "decision_model": "typesafe/jev-1.13"},
+        expected_status=422,
     )
-    assert response.status_code == 422
     assert (await client.get("/api/decisions/config")).json()["configured"] is False
 
 
@@ -269,14 +260,12 @@ async def test_the_two_endpoint_pools_are_listed_apart(client, db):
     assert chat["id"] in [row["id"] for row in chat_pool]
     assert chat["id"] not in [row["id"] for row in judge_pool]
     assert [row["kind"] for row in judge_pool] == ["judge"]
-    # A judge row has no model configs: the classifier takes a model name and
-    # nothing a model config carries.
+    # A judge row has no model configs: the classifier takes a model name and nothing a model config carries.
     assert (await client.get(f"/api/endpoints/{judge_pool[0]['id']}/models")).json() == []
 
 
 async def test_the_removed_preview_route_is_not_available(client):
-    response = await client.post("/api/decisions/preview", json={"fragment": DEFINITION})
-    assert response.status_code == 404
+    await client.post_checked("/api/decisions/preview", json={"fragment": DEFINITION}, expected_status=404)
 
 
 async def test_the_connection_test_sends_a_synthetic_scene(client, db, monkeypatch):
@@ -300,9 +289,8 @@ async def test_the_connection_test_reports_a_failure_as_a_result(client, db, mon
 
 
 async def test_a_rejected_test_names_the_status_and_what_to_look_at(client, db, monkeypatch):
-    # The whole symptom of the doubled route was a bare "Not Found" next to a
-    # resolved URL the panel was already showing. The status leads, and a 404
-    # says which field is wrong.
+    # The whole symptom of the doubled route was a bare "Not Found" next to a resolved URL the panel was already showing. The
+    # status leads, and a 404 says which field is wrong.
     await _configure(client)
     request = httpx.Request("POST", "https://openrouter.ai/api/alpha/decisions")
     rejection = llm_call_error(
@@ -328,7 +316,7 @@ async def test_the_connection_test_says_so_when_nothing_is_configured(client, db
     assert "configured" in body["error"]
 
 
-# ── the solo turn ────────────────────────────────────────────────────────────
+# -- the solo turn ------------------------------------------------------------
 
 
 async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(client, db, llm_mock, monkeypatch):
@@ -392,8 +380,7 @@ async def test_a_director_only_decision_is_not_asked_while_the_director_is_off(c
 
 
 async def test_inject_rejects_off(client, db):
-    response = await client.post("/api/interactive-fragments", json={**DEFINITION, "decision_inject": "off"})
-    assert response.status_code == 422
+    await client.post_checked("/api/interactive-fragments", json={**DEFINITION, "decision_inject": "off"}, expected_status=422)
 
 
 async def test_the_after_reply_state_request_carries_no_guidance(client, db, llm_mock, monkeypatch):
@@ -436,8 +423,7 @@ async def test_the_guidance_survives_the_directors_own_output(client, db, llm_mo
 
     assert "Pacing: slow" in injection
     assert "Doorway: Alric holds the doorway." in injection
-    # A decision is not a Director field, so nothing it returned under that name
-    # can reach the prompt.
+    # A decision is not a Director field, so nothing it returned under that name can reach the prompt.
     assert "hijacked" not in injection
 
 
@@ -479,7 +465,7 @@ async def test_no_endpoint_means_a_skip_and_no_request(client, db, llm_mock, mon
     assert "Doorway:" not in _event(events, "director_done")["injection_block"]
 
 
-# ── persistence ──────────────────────────────────────────────────────────────
+# -- persistence --------------------------------------------------------------
 
 
 async def test_records_and_cooldowns_commit_with_the_reply(client, db, llm_mock, monkeypatch):
@@ -543,7 +529,7 @@ async def test_cooldowns_age_even_when_every_decision_is_disabled(client, db, ll
     assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 2}
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 
 
 async def test_regeneration_replays_the_targets_own_outcome(client, db, llm_mock, monkeypatch):
@@ -601,8 +587,7 @@ async def test_editing_the_guidance_changes_the_prompt_without_a_call_or_a_rerol
     original = target["decision_evaluations"]["evaluations"][0]
 
     await client.put(
-        "/api/interactive-fragments/outcome",
-        json={"decision_outputs": {"true": "He keeps the doorway, barely.", "false": "x"}},
+        "/api/interactive-fragments/outcome", json={"decision_outputs": {"true": "He keeps the doorway, barely.", "false": "x"}}
     )
     llm_mock.enqueue_director(_direct_scene(moods=[]))
     llm_mock.enqueue_writer("again")
@@ -649,7 +634,7 @@ async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, 
     source = await _last_assistant(cid)
     source_anchor = source["decision_evaluations"]["evaluations"][0]["input_branch_anchor"]
 
-    copied_id = (await client.post(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})).json()["id"]
+    copied_id = await client.create(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})
     copied = await _last_assistant(copied_id)
     record = copied["decision_evaluations"]["evaluations"][0]
 
@@ -662,18 +647,15 @@ async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, 
     assert record["input_branch_anchor"] in copied_ids
 
 
-# ── card decisions ───────────────────────────────────────────────────────────
+# -- card decisions -----------------------------------------------------------
 
 
 async def _card_with_decision(client, **overrides) -> str:
     entry = {key: value for key, value in DEFINITION.items() if key not in ("injection_label", "description")}
     entry.update({"id": "card_outcome", "label": "Card outcome", "description": "Card-authored.", **overrides})
-    response = await client.post(
-        "/api/characters",
-        json={"name": "Alric", "extensions": {"orb": {"fragments": {"interactive": [entry]}}}},
+    return await client.create(
+        "/api/characters", json={"name": "Alric", "extensions": {"orb": {"fragments": {"interactive": [entry]}}}}
     )
-    assert response.status_code == 200, response.text
-    return response.json()["id"]
 
 
 async def test_a_card_decision_runs_like_any_other_card_fragment(client, db, llm_mock, monkeypatch):
@@ -716,16 +698,17 @@ async def test_validate_route_reports_a_card_decisions_problems(client):
     entry = {key: value for key, value in DEFINITION.items() if key != "description"}
     assert (await client.post("/api/decisions/validate", json=entry)).json() == {"ok": True}
 
-    response = await client.post("/api/decisions/validate", json={**entry, "decision_instructions": ""})
-    assert response.status_code == 422
-    assert "decision_instructions must not be empty" in response.json()["detail"]
+    response = await client.post_json(
+        "/api/decisions/validate", json={**entry, "decision_instructions": ""}, expected_status=422
+    )
+    assert "decision_instructions must not be empty" in response["detail"]
 
 
-# ── group scope ──────────────────────────────────────────────────────────────
+# -- group scope --------------------------------------------------------------
 
 
 async def _group(client, speakers: int = 2) -> dict:
-    cards = [(await client.post("/api/characters", json={"name": name})).json()["id"] for name in ("Aria", "Kael")]
+    cards = [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
     return (
         await client.post(
             "/api/conversations",
@@ -759,8 +742,7 @@ async def test_a_group_exchange_evaluates_once_and_copies_onto_every_reply(clien
     assert len(replies) == 2
     occurrences = {reply["decision_evaluations"]["evaluations"][0]["occurrence_id"] for reply in replies}
     draws = {reply["decision_evaluations"]["evaluations"][0]["outcome"] for reply in replies}
-    # The same occurrence on both, so each reply stays independently inspectable
-    # without the exchange having been judged twice.
+    # The same occurrence on both, so each reply stays independently inspectable without the exchange having been judged twice.
     assert len(occurrences) == 1
     assert len(draws) == 1
     # And the cooldown advanced once for the exchange, not once per speaker.
@@ -841,15 +823,14 @@ async def test_a_preset_round_trips_a_decision_like_any_other_fragment(client, d
     assert imported["enabled"] == 1
 
 
-# ── payload shape ────────────────────────────────────────────────────────────
+# -- payload shape ------------------------------------------------------------
 
 
 async def test_the_message_listing_does_not_carry_evaluation_records(client, db, llm_mock, monkeypatch):
     """A rendered state is up to 16 KiB and the Inspector fetches it separately.
 
-    Shipping every record on every conversation open would put the whole
-    diagnostic envelope -- rendered state, criteria and both authored outputs,
-    per decision, per message -- on the wire for a panel most opens never open.
+    Shipping every record on every conversation open would put the whole diagnostic envelope -- rendered state, criteria and
+    both authored outputs, per decision, per message -- on the wire for a panel most opens never open.
     """
     cid = await _solo_scene(client)
     Gateway(monkeypatch)
@@ -877,15 +858,14 @@ async def test_the_live_event_summarises_rather_than_streaming_every_record(clie
     assert "outputs" not in published
 
 
-# ── diagnostics for definitions that cannot run ──────────────────────────────
+# -- diagnostics for definitions that cannot run ------------------------------
 
 
 async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db, llm_mock, monkeypatch):
     """A row that cannot be parsed is reported, not silently dropped.
 
-    The authoring API rejects these on write, so the rows that reach here arrived
-    another way -- a preset import, or a definition a later schema invalidated.
-    Those are exactly the cases where an author needs to be told.
+    The authoring API rejects these on write, so the rows that reach here arrived another way -- a preset import, or a
+    definition a later schema invalidated. Those are exactly the cases where an author needs to be told.
     """
     cid = await _solo_scene(client)
     await db.execute("UPDATE interactive_fragments SET decision_criteria = '{\"true\": \"only\"}' WHERE id = 'outcome'")
@@ -906,16 +886,15 @@ async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db,
     }
 
 
-# ── cancellation ─────────────────────────────────────────────────────────────
+# -- cancellation -------------------------------------------------------------
 
 
 async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mock, monkeypatch):
     """Cancellation stops the turn; it is not a provider failure.
 
-    `director_pass` already refuses to call once the token is set, so nothing was
-    ever billed. What the solo path was missing is the group driver's early
-    return: without it a cancelled turn still announced a directing phase it was
-    not going to run, and no decision guidance is produced either way.
+    `director_pass` already refuses to call once the token is set, so nothing was ever billed. What the solo path was missing is
+    the group driver's early return: without it a cancelled turn still announced a directing phase it was not going to run, and
+    no decision guidance is produced either way.
     """
     cid = await _solo_scene(client)
     gateway = Gateway(monkeypatch)
@@ -933,8 +912,7 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
     assert gateway.batches == [["outcome"]]
     assert _captured(llm_mock, "director") == []
     assert _captured(llm_mock, "writer") == []
-    # The decision step starts, then the turn ends: no director_start for a
-    # directing phase that will not happen.
+    # The decision step starts, then the turn ends: no director_start for a directing phase that will not happen.
     assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
     assert _events(events, "step_start") == [{"step": "judge"}]
     # No reply was retained, so no decision cooldown was committed either.
@@ -966,15 +944,14 @@ async def test_a_stop_during_the_decision_stage_ends_a_group_exchange(client, db
     assert [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"] == []
 
 
-# ── steered regeneration ─────────────────────────────────────────────────────
+# -- steered regeneration -----------------------------------------------------
 
 
 async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):
     """Magic rewrite of an exchange's first speaker rewinds to the exchange's own input.
 
-    Without the rewind the decision reads the replaced reply as
-    ``{{last_assistant_message}}`` -- substituting the reply for the original
-    exchange input. (A later speaker never asks at all; see the inheritance tests.)
+    Without the rewind the decision reads the replaced reply as ``{{last_assistant_message}}`` -- substituting the reply for the
+    original exchange input. (A later speaker never asks at all; see the inheritance tests.)
     """
     conv = await _group(client)
     await _configure(client)
@@ -996,9 +973,8 @@ async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db
     regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
     record = regenerated["decision_evaluations"]["evaluations"][0]
 
-    # The steering is part of the current request, so this is a new occurrence
-    # and a second call -- but it is asked about the exchange's own input, with
-    # neither speaker's reply standing in for it.
+    # The steering is part of the current request, so this is a new occurrence and a second call -- but it is asked about the
+    # exchange's own input, with neither speaker's reply standing in for it.
     assert len(gateway.batches) == 2
     assert "aria speaks" not in gateway.states[-1]
     assert "kael speaks" not in gateway.states[-1]
@@ -1147,7 +1123,7 @@ async def test_a_card_decision_in_a_group_reads_its_own_character(client, db, ll
         decision_state_template="{{char}}: {{description}}\n\n{{last_message}}",
         decision_instructions="Does {{char}} hold the doorway?",
     )
-    other = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    other = await client.create("/api/characters", json={"name": "Kael"})
     conv = (
         await client.post(
             "/api/conversations",

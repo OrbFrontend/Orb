@@ -81,7 +81,7 @@ def _record_view_reads(conn: sqlite3.Connection) -> frozenset[tuple[str, str]]:
 
     conn.set_authorizer(record)
     for name in _VIEWS:
-        conn.execute(f"SELECT * FROM {name} LIMIT 0")
+        conn.execute(f"SELECT * FROM {name} LIMIT 0")  # nosec B608 -- view names from _VIEWS
     return frozenset(reads)
 
 
@@ -140,12 +140,7 @@ def _run(sql: str, max_rows: int, max_cell_chars: int, max_result_chars: int, ti
 
 
 async def run_library_query(
-    sql: str,
-    *,
-    max_rows: int,
-    max_cell_chars: int,
-    max_result_chars: int,
-    time_limit_s: float,
+    sql: str, *, max_rows: int, max_cell_chars: int, max_result_chars: int, time_limit_s: float
 ) -> LibraryQueryResult:
     """Run one model-written SELECT and return SQL errors as data."""
     return await asyncio.to_thread(_run, sql, max_rows, max_cell_chars, max_result_chars, time_limit_s)

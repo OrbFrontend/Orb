@@ -1,0 +1,23 @@
+{
+  "library": "DOMPurify",
+  "version": "3.4.15",
+  "upstream": "https://github.com/cure53/DOMPurify/tree/3.4.15",
+  "generator": "terser@5.44.1",
+  "source_sha256": "493e9f430fbdde595f9e12ff46aa5b3606a514d5c8556eb144da69612f77fc8e",
+  "readable_source": "purify.js.map: sourcesContent[0]",
+  "options": {
+    "module": true,
+    "compress": false,
+    "mangle": false,
+    "format": {
+      "comments": "some",
+      "preserve_annotations": true,
+      "max_line_len": 120
+    },
+    "sourceMap": {
+      "filename": "purify.js",
+      "url": "purify.js.map",
+      "includeSources": true
+    }
+  }
+}

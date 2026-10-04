@@ -40,11 +40,7 @@ class BuiltinSparkAdapter(TTSAdapter):
             if settings is None:
                 settings = await get_settings()
             return await spark_voice_speak(
-                chunk.text,
-                speaker_tokens,
-                settings,
-                reference_tokens=reference_tokens,
-                reference_text=reference_text,
+                chunk.text, speaker_tokens, settings, reference_tokens=reference_tokens, reference_text=reference_text
             )
 
         raw_pcm, sample_rate = await stitch_pcm(chunks, speak)

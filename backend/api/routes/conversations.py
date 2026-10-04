@@ -4,19 +4,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import (
-    CardScripts,
-    estimate_tokens,
-    has_inline_macros,
-    resolve_inline,
-    scrub_log,
-    state_fragments_of,
-)
+from ...core import CardScripts, estimate_tokens, has_inline_macros, resolve_inline, scrub_log, state_fragments_of
 from ...database import (
     PROPOSAL_STATUSES,
     REVIEW_STATUSES,
@@ -78,18 +71,8 @@ from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.cards import draft_scene_profile
 from ...features.summarization import ConversationSummarizer
-from ...inference import (
-    AbortToken,
-    agent_lane_from_settings,
-    client_from_settings,
-)
-from ...pipeline import (
-    agent_enabled,
-    conversation_macro_seed,
-    persona_macros,
-    remap_decision_anchors,
-    resolve_card_and_persona,
-)
+from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
+from ...pipeline import agent_enabled, conversation_macro_seed, persona_macros, remap_decision_anchors, resolve_card_and_persona
 from ...prompting import (
     compute_style_injection_block,
     group_context,
@@ -98,13 +81,14 @@ from ...prompting import (
     render_state_block,
     resolve_mood_fragment_randoms,
 )
+from ...workflows.contracts import PublicEvent
 from ..deps import (
-    _CleanupStreamingResponse,
-    _sse_stream,
+    CleanupStreamingResponse,
     deleting_resources,
     profile_draft_failures,
     require_conversation,
     rows_response,
+    sse_stream,
     stop_active_stream,
 )
 from ..schemas import (
@@ -121,10 +105,9 @@ from ..schemas import (
 
 logger = logging.getLogger(__name__)
 
-# How many cast names one scene-profile drafting prompt carries, and how long a
-# single name may be. The roster has no size ceiling, so this is a prompt-size
-# guard rather than a roster limit -- and the drafter is told how many names it
-# did not get instead of being left to assume the list is the whole cast.
+# How many cast names one scene-profile drafting prompt carries, and how long a single name may be. The roster has no size
+# ceiling, so this is a prompt-size guard rather than a roster limit -- and the drafter is told how many names it did not get
+# instead of being left to assume the list is the whole cast.
 SCENE_PROFILE_CAST_LIMIT = 16
 _SCENE_PROFILE_NAME_CHARS = 64
 
@@ -197,10 +180,9 @@ async def api_create_conversation(data: ConversationCreate):
         character_card_id=card_id,
     )
 
-    # If there's a first message, auto-add it as the first assistant turn.
-    # Content is stored macro-resolved; the raw template rides the per-message
-    # "macros" slot so the greeting can re-roll freely until the first user
-    # message freezes it (see reroll_unfrozen_greetings).
+    # If there's a first message, auto-add it as the first assistant turn. Content is stored macro-resolved; the raw template
+    # rides the per-message "macros" slot so the greeting can re-roll freely until the first user message freezes it (see
+    # reroll_unfrozen_greetings).
     if first_mes.strip():
         raw_greeting = first_mes.strip()
         msg_id, _ = await add_message(cid, "assistant", resolve_inline(raw_greeting), 0, attachments=None)
@@ -246,9 +228,8 @@ async def api_sync_group_members(
         if spec.character_card_id:
             card = await get_character_card(spec.character_card_id)
             old = existing.get(spec.id or "")
-            # A deleted card's stable dangling id is retained on its existing
-            # member so re-import can relink it. New/reassigned missing ids are
-            # invalid roster input.
+            # A deleted card's stable dangling id is retained on its existing member so re-import can relink it. New/reassigned
+            # missing ids are invalid roster input.
             missing_allowed = old is not None and old.get("character_card_id") == spec.character_card_id
             if card is None and not missing_allowed:
                 raise HTTPException(status_code=404, detail=f"Character card not found: {spec.character_card_id}")
@@ -262,16 +243,10 @@ async def api_sync_group_members(
 
 
 async def _scene_cast_names(cid: str, data: SceneProfileGenerateRequest) -> tuple[list[str], int]:
-    """The other members' names for one drafting prompt, and how many were left out.
+    """Return other cast names and the omitted count for a drafting prompt.
 
-    Client-supplied names are untrusted display text: stripped and capped per
-    name, but neither sorted nor deduplicated — the canonical UI order is what
-    the user sees, and two members may legitimately share one display name.
-
-    An omitted ``cast_names`` falls back to the stored roster minus the target's
-    own row. Active character cards are unique per roster, so matching on the
-    card id is exact; an unrostered target (a row added in the modal and not yet
-    saved) simply has every durable row as an other member.
+    Strip and cap client names while preserving order and duplicates. When omitted,
+    use the stored roster minus the target card; unrostered targets retain all rows.
     """
     if "cast_names" in data.model_fields_set:
         supplied = data.cast_names
@@ -312,8 +287,7 @@ async def api_generate_scene_profile(
             settings=settings,
             display_name=data.display_name,
             cast_names=cast_names,
-            # The premise is the server's, never the client's -- it is durable
-            # scene configuration, not modal state.
+            # The premise is the server's, never the client's -- it is durable scene configuration, not modal state.
             premise=str(conv.get("character_scenario") or ""),
             card_profile=render_public_profile(orb.get("public_profile") if isinstance(orb, dict) else None),
             omitted_cast=omitted,
@@ -349,10 +323,9 @@ async def api_apply_sheet_proposal(
 ):
     """Write a staged sheet onto its member.
 
-    409 on a proposal that is already decided, whose member has left the scene,
-    or whose sheet has moved since it was derived. There is no force-apply and
-    no rebase, for the reason the changeset apply gives: two edits that look
-    unrelated can still contradict each other in meaning.
+    409 on a proposal that is already decided, whose member has left the scene, or whose sheet has moved since it was derived.
+    There is no force-apply and no rebase, for the reason the changeset apply gives: two edits that look unrelated can still
+    contradict each other in meaning.
     """
     try:
         return await apply_sheet_proposal(pid, conversation_id=cid)
@@ -385,9 +358,8 @@ async def api_convert_to_group(cid: str, _conv: ConversationRow = Depends(requir
 async def api_new_group_conversation(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Start a fresh, empty conversation with the same cast, in the same family.
 
-    The group counterpart of "New conversation" on a character: same roster and
-    scene configuration, no history, and one more entry under the group the
-    sidebar already shows -- not a second group.
+    The group counterpart of "New conversation" on a character: same roster and scene configuration, no history, and one more
+    entry under the group the sidebar already shows -- not a second group.
     """
     if conv.get("kind", "solo") != "group":
         raise HTTPException(status_code=409, detail="Conversation is not a group")
@@ -434,9 +406,8 @@ async def api_delete_conversation(cid: str):
     async with deleting_resources([cid]):
         if not await delete_conversation(cid):
             raise HTTPException(status_code=404, detail="Conversation not found")
-    # The cascade NULLed the source pointers of every changeset raised in this
-    # chat. Unreviewed proposals lose the evidence they were derived from and go
-    # stale; applied ones stay canon, carrying their denormalised labels.
+    # The cascade NULLed the source pointers of every changeset raised in this chat. Unreviewed proposals lose the evidence they
+    # were derived from and go stale; applied ones stay canon, carrying their denormalised labels.
     await mark_orphaned_changesets_stale()
     return {"ok": True}
 
@@ -481,11 +452,9 @@ async def api_summarize_conversation(
         raise HTTPException(status_code=400, detail="Not enough messages to summarize")
 
     settings = await get_settings()
-    # The one place the group context mode deliberately does *not* apply.
-    # Compression is scene-wide narration, so it always reads the public-cast
-    # projection: paying for every dossier — or swapping in one arbitrary card
-    # the summary is not written from — buys nothing and inflates the single
-    # longest call in the app.
+    # The one place the group context mode deliberately does *not* apply. Compression is scene-wide narration, so it always
+    # reads the public-cast projection: paying for every dossier -- or swapping in one arbitrary card the summary is not written
+    # from -- buys nothing and inflates the single longest call in the app.
     summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
     char_name, cast_names = macro_identity(conv, summary_cast)
     char_name = char_name or "Character"
@@ -516,28 +485,22 @@ async def api_summarize_conversation(
         speaker_names=speaker_names,
     )
 
-    async def _gen():
-        try:
-            async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
-                yield {"event": "token", "data": delta}
-            yield {"event": "done", "data": ""}
-        except Exception as e:
-            logger.error("Summarize error: %s", e)
-            yield {"event": "error", "data": "Summarize failed; see server logs"}
+    async def _gen() -> AsyncIterator[PublicEvent]:
+        async for delta in summarizer.stream(llm_messages, settings.get("model_name", "")):
+            yield {"event": "token", "data": delta}
+        yield {"event": "done", "data": ""}
 
-    return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
-        media_type="text/event-stream",
+    return CleanupStreamingResponse(
+        sse_stream(_gen(), request, abort_token=abort_token, cid=cid), media_type="text/event-stream"
     )
 
 
 async def _member_map(conv: ConversationRow, source_cid: str, new_cid: str) -> dict[str, str]:
-    """Old member id → new member id, for a copy of a group's messages.
+    """Old member id -> new member id, for a copy of a group's messages.
 
-    ``fork_conversation`` recreates the roster with fresh member ids, so every
-    copied assistant row has to be re-pointed or the copy loses its speakers.
-    ``speaker_key`` is the join: it is immutable and the fork carries it over,
-    which ``id`` and ``display_name`` do not. Empty for a solo conversation.
+    ``fork_conversation`` recreates the roster with fresh member ids, so every copied assistant row has to be re-pointed or the
+    copy loses its speakers. ``speaker_key`` is the join: it is immutable and the fork carries it over, which ``id`` and
+    ``display_name`` do not. Empty for a solo conversation.
     """
     if conv.get("kind", "solo") != "group":
         return {}
@@ -570,10 +533,9 @@ async def api_compress_conversation(
 
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
-    # The state folded up to the kept tail rides the summary as `carried` entries;
-    # the tail's own changes are copied onto its re-added messages below. Folding
-    # the whole path onto the summary instead would make regenerating the first
-    # kept reply apply that reply's changes twice.
+    # The state folded up to the kept tail rides the summary as `carried` entries; the tail's own changes are copied onto its
+    # re-added messages below. Folding the whole path onto the summary instead would make regenerating the first kept reply
+    # apply that reply's changes twice.
     await snapshot_state_to_message(new_cid, await fold_path_state(cid, [m["id"] for m in summarized]), prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
@@ -607,13 +569,13 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     if not conv:
         return None
 
-    # Active path, root→leaf, with user_attachments already populated.
+    # Active path, root->leaf, with user_attachments already populated.
     messages = await get_messages(source_cid)
 
     new_cid = await fork_conversation(conv, new_title)
     member_map = await _member_map(conv, source_cid, new_cid)
 
-    # Re-insert the path linearly, remapping parent_id and recording old→new
+    # Re-insert the path linearly, remapping parent_id and recording old->new
     # message ids so the conversation_logs below can be re-pointed onto the copy.
     id_map: dict[int, int] = {}
     prev_id: int | None = None
@@ -629,9 +591,8 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
             writer_draft=msg.get("writer_draft"),
-            # Anchors are remapped through the same id map the logs below use.
-            # The path is copied root-to-leaf, so a reply's own anchor -- always
-            # an earlier row -- is already in the map by the time it is read.
+            # Anchors are remapped through the same id map the logs below use. The path is copied root-to-leaf, so a reply's own
+            # anchor -- always an earlier row -- is already in the map by the time it is read.
             decision_evaluations=remap_decision_anchors(decision_evaluations_of(msg), id_map),
             decision_cooldowns=msg.get("decision_cooldowns") or {},
         )
@@ -645,8 +606,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     # decision anchors, so the copy keeps each value's history and source.
     await copy_state_events(source_cid, new_cid, id_map)
 
-    # Carry the director state verbatim so the first turn on the checkpoint
-    # starts from the same moods as the original.
+    # Carry the director state verbatim so the first turn on the checkpoint starts from the same moods as the original.
     director = await get_director_state(source_cid)
     await update_director_state(
         new_cid,
@@ -655,9 +615,8 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
         macro_choices=director.get("macro_choices", {}),
     )
 
-    # Carry the per-turn inspector logs, re-pointing message_id onto the copied
-    # rows. Logs tied to messages off the active path (other branches) or with
-    # no message_id resolve to None in id_map and are skipped.
+    # Carry the per-turn inspector logs, re-pointing message_id onto the copied rows. Logs tied to messages off the active path
+    # (other branches) or with no message_id resolve to None in id_map and are skipped.
     for log in await get_conversation_logs(source_cid):
         src_msg_id = log.get("message_id")
         new_msg_id = id_map.get(src_msg_id) if src_msg_id is not None else None
@@ -705,10 +664,9 @@ async def api_checkpoint_conversation(
 async def api_stop_generation(cid: str, operation_id: str | None = None):
     """Stop the conversation's active stream and wait, bounded, for it to settle.
 
-    ``settled`` means the stream has finished saving what it keeps and released
-    the conversation, so a refetch now reads the final result. ``active: False``
-    means nothing was registered when this arrived, which a client whose own
-    request is still in flight must not read as "stopped".
+    ``settled`` means the stream has finished saving what it keeps and released the conversation, so a refetch now reads the
+    final result. ``active: False`` means nothing was registered when this arrived, which a client whose own request is still in
+    flight must not read as "stopped".
     """
     result = await stop_active_stream(cid, operation_id=operation_id)
     if result["active"]:
@@ -728,9 +686,8 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     messages = await get_active_path(cid)
     director = await get_director_state(cid) or {}
 
-    # Resolve the same effective persona generation would use (conversation/
-    # character lock overrides the global active persona) so the size
-    # breakdown matches the prompt that is actually sent.
+    # Resolve the same effective persona generation would use (conversation/ character lock overrides the global active persona)
+    # so the size breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     turn_cast = await resolve_cast(conv)
     # The same reader and the same merge the turn uses (globals win on id
@@ -756,21 +713,17 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     post_text = macros.resolve_message(
         "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
     )
-    # The group breakdown is a *maximum* call, not a sum, and its shape follows
-    # the context mode: the shared body once, plus the largest single speaker's
-    # share of it. Rendered through the same projection the prompt uses, so the
-    # estimate cannot drift from what is actually sent.
+    # The group breakdown is a *maximum* call, not a sum, and its shape follows the context mode: the shared body once, plus the
+    # largest single speaker's share of it. Rendered through the same projection the prompt uses, so the estimate cannot drift
+    # from what is actually sent.
     group_components: list[tuple[str, str]] = []
     if turn_cast.grouped:
-        # The card-derived halves are replaced by the group components below;
-        # `post_text` is the *scene's* directive, which `build_prefix` still
-        # renders into the shared body for a group, so it keeps being billed.
+        # The card-derived halves are replaced by the group components below; `post_text` is the *scene's* directive, which
+        # `build_prefix` still renders into the shared body for a group, so it keeps being billed.
         persona_text = ""
         mes_text = ""
         group_components = group_context.context_size_components(
-            turn_cast,
-            macros,
-            prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
+            turn_cast, macros, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
         )
     resolved_user_desc = macros.resolve_message(user_desc)
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
@@ -792,19 +745,13 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         else:
             msg_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
 
-    # Director injection — fragment {{random}} resolves against a throwaway
-    # copy of the stored choice map so the estimate matches the prompt bytes a
-    # real turn would inject, without recording new picks.
+    # Director injection -- fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
+    # matches the prompt bytes a real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
     est_choices = dict(director.get("macro_choices", {}) if director else {})
     est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
     inj_block = compute_style_injection_block(
-        active_moods,
-        active_moods,
-        est_mood_frags,
-        director_frags,
-        agent_enabled(settings),
-        {},
+        active_moods, active_moods, est_mood_frags, director_frags, agent_enabled(settings), {}
     )
     # The Writer's current-state block rides the same injection on every turn.
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
@@ -849,7 +796,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     }
 
 
-# Inspector ──
+# Inspector --
 
 
 @router.get("/api/conversations/{cid}/director")

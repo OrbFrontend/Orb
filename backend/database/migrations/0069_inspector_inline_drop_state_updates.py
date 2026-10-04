@@ -1,24 +1,20 @@
-"""Add the ``inspector_inline`` setting and drop the ``state_updates`` setting.
+"""Add inspector_inline and remove state_updates.
 
-``inspector_inline`` shows each reply's Inspector sections in the chat.
-
-State fragments are now gated by the Agent and each fragment's own update
-timing. Fragments the old ``state_updates`` master switch kept from updating
-become Manual only first, so no update call starts running on upgrade.
+Make previously blocked state fragments Manual only before removing the master switch, preserving upgrade behaviour.
 """
 
 from __future__ import annotations
 
 import sqlite3
 
+from .helpers import add_columns
+
 
 def migrate(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
     if not cols:
         return
-    if "inspector_inline" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN inspector_inline INTEGER NOT NULL DEFAULT 0")
-        print("[migrations] 0069: added inspector_inline column to settings")
+    add_columns(conn, "settings", "inspector_inline INTEGER NOT NULL DEFAULT 0", migration="0069")
     if "state_updates" in cols:
         row = conn.execute("SELECT state_updates FROM settings WHERE id = 1").fetchone()
         if row is not None and not row[0]:

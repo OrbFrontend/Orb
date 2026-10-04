@@ -25,15 +25,21 @@ def _split_target_sentences(target_text: str) -> set[str]:
 
 
 def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_field: str):
-    """Filter flagged items to the supplied sentences."""
+    """Filter findings to the supplied sentences.
+
+    If the original was filtered out, set ``original_listed=False``: all remaining
+    sentences are repeats. Drop groups left with only their original.
+    """
     filtered = []
     for item in items:
         kept = [s for s in item.sentences if s in sentences]
-        if kept:
+        original_listed = item.original_listed and item.sentences[0] in sentences
+        repeats = kept[1:] if original_listed else kept
+        if repeats:
             extra = {
                 descriptor.name: getattr(item, descriptor.name)
                 for descriptor in fields(item)
-                if descriptor.name not in (label_field, "count", "fraction", "sentences")
+                if descriptor.name not in (label_field, "count", "fraction", "sentences", "original_listed")
             }
             filtered.append(
                 cls(
@@ -41,6 +47,7 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
                     count=len(kept),
                     fraction=len(kept) / total if total > 0 else 0.0,
                     sentences=kept,
+                    original_listed=original_listed,
                     **extra,
                 )
             )
@@ -50,9 +57,8 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
 def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditReport:
     """Limit an audit report to findings present in *target_text*.
 
-    Negated-narration findings are already draft-scoped and offset-anchored:
-    they pass through only when *target_text* is their exact source, and a
-    mismatch raises ``StaleSourceError`` rather than relocating them.
+    Negated-narration findings are already draft-scoped and offset-anchored: they pass through only when *target_text* is their
+    exact source, and a mismatch raises ``StaleSourceError`` rather than relocating them.
     """
     check_negation_source(report, target_text)
     target_sents = _split_target_sentences(target_text)
@@ -204,9 +210,7 @@ def apply_id_patches_with_edits(
         if not isinstance(p, dict):
             errors.append(
                 PatchError(
-                    f"Error: patch {i} is not an object with `id` and `replace`.",
-                    tid=None,
-                    kind=PatchErrorKind.MALFORMED,
+                    f"Error: patch {i} is not an object with `id` and `replace`.", tid=None, kind=PatchErrorKind.MALFORMED
                 )
             )
             continue
@@ -244,11 +248,7 @@ def apply_id_patches_with_edits(
         replace = p.get("replace")
         if replace is None:
             errors.append(
-                PatchError(
-                    f"Error: the patch for id {pid} has no `replace` text.",
-                    tid=pid,
-                    kind=PatchErrorKind.MALFORMED,
-                )
+                PatchError(f"Error: the patch for id {pid} has no `replace` text.", tid=pid, kind=PatchErrorKind.MALFORMED)
             )
             continue
         if not isinstance(replace, str):
@@ -269,7 +269,10 @@ def apply_id_patches_with_edits(
     heal_errors: list[PatchError] = []
     bounds = _neighbour_bounds(draft, targets)
     for target, replace in sorted(resolved, key=lambda r: r[0].start, reverse=True):
-        healed = heal_replacement(out, target.start, target.end, replace)
+        # Negated narration is fixed by removal, so a restated neighbour there means "delete the span", not a mis-aimed rewrite.
+        healed = heal_replacement(
+            out, target.start, target.end, replace, restatement_deletes="negated_narration" in target.categories
+        )
         for note in healed.notes:
             logger.info("Patch id %d healed: %s", target.tid, note)
         if healed.rejection is not None:
@@ -286,9 +289,7 @@ def apply_id_patches_with_edits(
             continue
         previous_end, next_start = bounds[target.tid]
         clone = guard_protected_sequences(
-            healed.replace,
-            protected_bands(draft, previous_end, target.start, target.end, next_start),
-            target.span,
+            healed.replace, protected_bands(draft, previous_end, target.start, target.end, next_start), target.span
         )
         if clone is not None:
             logger.warning("Protected-sequence guard rejected patch id %d: %s", target.tid, clone.rejection)

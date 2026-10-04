@@ -1,8 +1,7 @@
 """Unit tests for the TTS workflow's synthesis logic.
 
-Covers profile normalization, the reproduction record (seed + generation
-metadata), and the determinism the reroll/rehydrate paths depend on -- all
-with a stub adapter, no network or DB.
+Covers profile normalization, the reproduction record (seed + generation metadata), and the determinism the reroll/rehydrate
+paths depend on -- all with a stub adapter, no network or DB.
 """
 
 from __future__ import annotations
@@ -131,8 +130,7 @@ async def test_synthesize_blocks_segments_each_dialogue(monkeypatch):
     assert blocks[0]["byte_start"] == 0
     assert blocks[0]["byte_end"] == blocks[1]["byte_start"]
     assert blocks[-1]["byte_end"] == len(audio)
-    # The inter-dialogue gap is carried as the first block's trailing pause; the
-    # last block has none.
+    # The inter-dialogue gap is carried as the first block's trailing pause; the last block has none.
     assert blocks[0]["pause_after_ms"] > 0
     assert blocks[-1]["pause_after_ms"] == 0
     assert mime
@@ -148,8 +146,7 @@ async def test_synthesize_blocks_raises_without_dialogue(monkeypatch):
 def test_alignable_tokens_keeps_alnum_drops_punctuation_and_nonascii():
     assert synth._alignable_tokens("hello world") == ["hello", "world"]
     assert synth._alignable_tokens("-- ... !!!") == []
-    # A CJK-only token (here U+4F60 U+597D) carries no ASCII letter or digit and
-    # is dropped; the ASCII word survives.
+    # A CJK-only token (here U+4F60 U+597D) carries no ASCII letter or digit and is dropped; the ASCII word survives.
     assert synth._alignable_tokens("你好 hi") == ["hi"]
     # Trailing punctuation rides along on an otherwise-alphanumeric token.
     assert synth._alignable_tokens("Hi, friend!") == ["Hi,", "friend!"]
@@ -175,8 +172,7 @@ def test_estimate_word_spans_count_monotonic_and_empty():
 
 def test_reconcile_boundaries_one_to_one():
     spans = synth.reconcile_boundaries(
-        "Hello there",
-        [{"text": "Hello", "start_ms": 0, "end_ms": 100}, {"text": "there", "start_ms": 100, "end_ms": 250}],
+        "Hello there", [{"text": "Hello", "start_ms": 0, "end_ms": 100}, {"text": "there", "start_ms": 100, "end_ms": 250}]
     )
     assert spans == [{"start_ms": 0.0, "end_ms": 100.0}, {"start_ms": 100.0, "end_ms": 250.0}]
 
@@ -185,8 +181,7 @@ def test_reconcile_boundaries_aligns_across_punctuation():
     # The backend word text omits the comma/bang our token keeps; character
     # overlap still attributes each boundary to the right token.
     spans = synth.reconcile_boundaries(
-        "Hi, friend!",
-        [{"text": "Hi", "start_ms": 0, "end_ms": 80}, {"text": "friend", "start_ms": 80, "end_ms": 200}],
+        "Hi, friend!", [{"text": "Hi", "start_ms": 0, "end_ms": 80}, {"text": "friend", "start_ms": 80, "end_ms": 200}]
     )
     assert spans is not None
     assert len(spans) == 2
@@ -201,11 +196,9 @@ def test_reconcile_boundaries_merges_multiword_boundary():
 
 
 def test_reconcile_boundaries_unions_split_within_one_token():
-    # Two boundaries inside a single whitespace token: the token takes their
-    # union (min start, max end).
+    # Two boundaries inside a single whitespace token: the token takes their union (min start, max end).
     spans = synth.reconcile_boundaries(
-        "well-being",
-        [{"text": "well", "start_ms": 0, "end_ms": 90}, {"text": "being", "start_ms": 90, "end_ms": 200}],
+        "well-being", [{"text": "well", "start_ms": 0, "end_ms": 90}, {"text": "being", "start_ms": 90, "end_ms": 200}]
     )
     assert spans == [{"start_ms": 0.0, "end_ms": 200.0}]
 

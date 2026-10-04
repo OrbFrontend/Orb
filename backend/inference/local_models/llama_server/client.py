@@ -32,7 +32,7 @@ class LaunchProfile:
     model_id: str  # opaque identity for the caller's own registry
     model_path: str  # trusted absolute path, resolved by the caller's closed catalog
     alias: str
-    gpu_layers: int  # 999 | 0 — an int chosen by the feature, never a settings string
+    gpu_layers: int  # 999 | 0 -- an int chosen by the feature, never a settings string
     ctx_size: int
     parallel: int
     http_threads: int
@@ -62,8 +62,7 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
         "127.0.0.1",
         "--port",
         str(port),
-        # GPU vs CPU is this flag ALONE. Vulkan is a property of which binary
-        # was fetched, not a runtime switch.
+        # GPU vs CPU is this flag ALONE. Vulkan is a property of which binary was fetched, not a runtime switch.
         "--n-gpu-layers",
         str(profile.gpu_layers),
         "--ctx-size",
@@ -78,8 +77,7 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
     argv += ["--threads-http", str(profile.http_threads)]
     # Optional, and asked for only if this build has it: nothing here calls
     # /v1/chat/completions, and llama.cpp's own front end has no business being
-    # reachable on a port we opened. Read through the module so the probe stays
-    # one patchable seam.
+    # reachable on a port we opened. Read through the module so the probe stays one patchable seam.
     if profile.no_webui and binary_module.supports_flag(binary, "--no-webui"):
         argv.append("--no-webui")
     return argv
@@ -117,10 +115,8 @@ class LlamaServerClient:
         self.port = _free_port()
         self.started_at = time.monotonic()
         self.log: deque[str] = deque(maxlen=60)
-        # Guards `log` alone. Under _ThreadChild the reader appends from its own
-        # thread while `tail()` snapshots from the loop, and iterating a deque
-        # mid-append raises -- in the boot-failure path, which is the one place
-        # the log has to survive.
+        # Guards `log` alone. Under _ThreadChild the reader appends from its own thread while `tail()` snapshots from the loop,
+        # and iterating a deque mid-append raises -- in the boot-failure path, which is the one place the log has to survive.
         self._log_lock = threading.Lock()
         self.ready = False
         self.child: Child | None = None
@@ -153,19 +149,17 @@ class LlamaServerClient:
     async def wait_ready(self, timeout: float = BOOT_TIMEOUT) -> None:
         """Poll ``/health`` until ok, or say why it never will.
 
-        A 4.7 GB model off a cold page cache is tens of seconds, so the timeout
-        is generous; what it is really for is the case where the child died,
-        which shows up here as a returncode that is no longer None.
+        A 4.7 GB model off a cold page cache is tens of seconds, so the timeout is generous; what it is really for is the case
+        where the child died, which shows up here as a returncode that is no longer None.
         """
         assert self.child is not None
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             code = self.child.returncode
             if code is not None:
-                # Drain before reporting: the reason the child gave up is in its
-                # last few lines, and the reader can still be behind them. This
-                # is the one message anybody diagnoses a bad GGUF or a Vulkan
-                # build with no loader from, so it does not get to be racy.
+                # Drain before reporting: the reason the child gave up is in its last few lines, and the reader can still be
+                # behind them. This is the one message anybody diagnoses a bad GGUF or a Vulkan build with no loader from, so it
+                # does not get to be racy.
                 await self.stop()
                 model = os.path.basename(self.profile.model_path)
                 raise RuntimeError(f"llama-server exited with status {code} while loading {model}:\n{self.tail()}")
@@ -193,9 +187,8 @@ class LlamaServerClient:
             if not await child.wait(timeout=15):
                 child.kill()
                 await child.wait(timeout=5)
-        # AFTER the process is gone, not before. The drain is what captures a
-        # dying child's last words, and `tail()` is how `wait_ready` explains a
-        # boot failure — closing it first threw away the explanation.
+        # AFTER the process is gone, not before. The drain is what captures a dying child's last words, and `tail()` is how
+        # `wait_ready` explains a boot failure -- closing it first threw away the explanation.
         with contextlib.suppress(Exception):
             await child.aclose()
 
@@ -212,10 +205,9 @@ class LlamaServerClient:
     async def count_tokens(self, text: str) -> int:
         """The real count from the model's own vocabulary.
 
-        A character estimate would be free and wrong in the one direction that
-        matters: the 512-token ceiling is where the model leaves the length it
-        was trained on, and a paragraph waved through on an estimate degrades
-        quietly instead of being passed through intact.
+        A character estimate would be free and wrong in the one direction that matters: the 512-token ceiling is where the model
+        leaves the length it was trained on, and a paragraph waved through on an estimate degrades quietly instead of being
+        passed through intact.
         """
         response = await self._http().post("/tokenize", json={"content": text}, timeout=30.0)
         if response.status_code != 200:
@@ -286,9 +278,8 @@ class LlamaServerClient:
     async def tokenize(self, text: str, *, parse_special: bool = False) -> list[int]:
         """*text* as token ids from the model's own vocabulary.
 
-        ``parse_special`` defaults OFF, which is the safe direction for text
-        that came from a user: with it on, a line containing ``<|end_content|>``
-        becomes a control token instead of six characters of dialogue.
+        ``parse_special`` defaults OFF, which is the safe direction for text that came from a user: with it on, a line
+        containing ``<|end_content|>`` becomes a control token instead of six characters of dialogue.
         """
         body = {"content": text, "parse_special": parse_special}
         response = await self._http().post("/tokenize", json=body, timeout=30.0)
@@ -306,17 +297,10 @@ class LlamaServerClient:
         stop: Sequence[str] = (),
         cache_prompt: bool = True,
     ) -> tuple[str, bool]:
-        """Stream one completion; return ``(text, stopped)``.
+        """Stream a completion; return (text, stopped), where stopped means model-ended.
 
-        ``stopped`` is whether the model ended the generation itself; a caller
-        trims the half-sentence tail of one that merely ran out of budget.
-        Cancelling the awaiting task closes the connection mid-stream, which
-        llama.cpp treats as a cancellation, so Stop frees the slot at once.
-
-        *stop* belongs to the CALLER'S WEIGHTS, not to llama-server: a stop
-        token is a property of the checkpoint's chat template. The key is
-        omitted entirely when nothing was asked for, so a caller with no stop
-        sequence sends the body a stop-less client would have sent.
+        Cancellation closes the connection and frees the server slot. Stop sequences
+        belong to the checkpoint template; omit the key if none were supplied.
         """
         payload: dict = {
             "prompt": prompt,
@@ -349,9 +333,8 @@ class LlamaServerClient:
                 if content:
                     parts.append(content)
                 if message.get("stop"):
-                    # Newer builds report `stop_type`; older ones report the
-                    # three booleans. Either way the question is the same one:
-                    # did it end, or did it run out of budget?
+                    # Newer builds report `stop_type`; older ones report the three booleans. Either way the question is the same
+                    # one: did it end, or did it run out of budget?
                     stop_type = message.get("stop_type")
                     if stop_type is not None:
                         stopped = stop_type in ("eos", "word")

@@ -4,11 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.workflows.image_gen.engine.contracts import (
-    ImageRequest,
-    ImageResult,
-    RenderTarget,
-)
+from backend.workflows.image_gen.engine.contracts import ImageRequest, ImageResult, RenderTarget
 from backend.workflows.image_gen.engine.openai_image_client import CloudImageError
 from backend.workflows.image_gen.engine.render import resolve_and_generate
 

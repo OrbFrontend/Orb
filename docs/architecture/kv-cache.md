@@ -94,7 +94,7 @@ already carry it, and an appended schema is a diverging tools region: it renders
 ahead of history, so it evicts the whole conversation from the server's prefix
 cache rather than costing only its own bytes. A call that forces a tool therefore
 has to pick a side. Either it rides the turn's lane, and the tool must be in the
-map **before** `_resolve_pipeline_config` freezes it into a `CachedBase` — what
+map **before** `resolve_pipeline_config` freezes it into a `CachedBase` — what
 `apply_length_guard_tools` does for `editor_rewrite`, what defined
 post-processing fragments do for `editor_search_replace`, and what a workflow would do
 by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and

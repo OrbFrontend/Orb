@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { sentenceTail } from "../../frontend/utils.js";
-import { sentenceStream, splitSentences } from "../../frontend/text_segmentation.js";
+import { sentenceStream } from "../../frontend/text_segmentation.js";
 import { tokenizeRun } from "../../frontend/workflow_segmentation.js";
 
 const fixtureUrl = new URL("../fixtures/text_segmentation_cases.json", import.meta.url);
@@ -15,7 +15,11 @@ for (const fixture of cases) {
     const stream = sentenceStream(fixture.text);
     assert.equal(stream.map((unit) => unit.text).join(""), fixture.text);
     assert.ok(stream.filter((unit) => unit.kind === "sentence").every((unit) => !hardBreak.test(unit.text)));
-    assert.deepEqual(splitSentences(fixture.text), fixture.sentences);
+    const sentences = stream
+      .filter((unit) => unit.kind === "sentence")
+      .map((unit) => unit.text.trim())
+      .filter(Boolean);
+    assert.deepEqual(sentences, fixture.sentences);
     assert.equal(sentenceTail(fixture.text, 1), fixture.sentences.at(-1));
 
     const initial = {

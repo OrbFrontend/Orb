@@ -5,11 +5,11 @@ import { syncActivity } from "./operations.js";
 import { charactersView, S, subscribe } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr } from "./utils.js";
 
-export const _avatarBust = new Map();
+export const avatarBust = new Map();
 
 /** The query that busts a card's cached avatar once it has changed this session, else "". */
 export function avatarBustQuery(cardId) {
-  return _avatarBust.has(cardId) ? `?v=${_avatarBust.get(cardId)}` : "";
+  return avatarBust.has(cardId) ? `?v=${avatarBust.get(cardId)}` : "";
 }
 
 const PANEL_LIMIT = 5;
@@ -87,19 +87,19 @@ export function renderCharacters() {
   }
   $("char-list").innerHTML = S.characters
     .map((c) => {
-      const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
+      const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
       const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
-      return `<div class="char-item${isActive ? " active" : ""}" onclick="selectChar('${c.id}', 'recent')">
+      return `<div class="char-item${isActive ? " active" : ""}" data-wf-action="conversations:selectChar" data-char-id="${c.id}" data-source="recent">
       <div class="chat-activity" data-activity="${escAttr(c.id)}"><div class="char-avatar-sm${c.has_expressions ? " avatar-halo" : ""}">${av}</div></div>
       <div class="char-item-info">
         <div class="char-item-name">${esc(c.name)}</div>
         <div class="char-item-meta">${meta}</div>
       </div>
       <div class="char-item-actions">
-        <button class="char-action-edit" onclick="event.stopPropagation();showCharEditModal('${c.id}')" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${EDIT_ICON}</button>
-        <button class="char-action-delete" onclick="event.stopPropagation();deleteCharacter('${c.id}')" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${CLOSE_ICON}</button>
+        <button class="char-action-edit" data-wf-action="library:edit" data-char-id="${c.id}" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${EDIT_ICON}</button>
+        <button class="char-action-delete" data-wf-action="library:delete" data-char-id="${c.id}" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${CLOSE_ICON}</button>
       </div>
     </div>`;
     })

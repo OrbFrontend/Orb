@@ -1,18 +1,9 @@
-:root {
-  --bg-deep:#e8ddd0;--bg-primary:#f0e8d8;--bg-surface:#f7f2e8;--bg-elevated:#ede5d5;
-  --bg-hover:#e4d9c8;--border:#c8b89a;--border-light:#b8a888;
-  --text-primary:#1e1208;--text-secondary:#5a4030;--text-muted:#8a7060;
-  --accent:#8b1515;--accent-dim:#5c0e0e;--accent-glow:rgba(139,21,21,0.10);
-  --red:#8b1515;
-  --warning:#7a5608;
-  --font-prose:'Palatino Linotype',Palatino,Georgia,serif;--font-ui:Optima,Candara,Georgia,serif;
-  --font-mono:'Courier New',Courier,monospace;--radius:3px;
-  --font-prose-size:16px;
-  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
-}
+:root { --bg-deep:#e8ddd0; --bg-primary:#f0e8d8; --bg-surface:#f7f2e8; --bg-elevated:#ede5d5; --bg-hover:#e4d9c8;
+  --border:#c8b89a; --border-light:#b8a888; --text-primary:#1e1208; --text-secondary:#5a4030; --text-muted:#8a7060;
+  --accent:#8b1515; --accent-dim:#5c0e0e; --accent-glow:rgba(139,21,21,0.10); --red:#8b1515; --warning:#7a5608;
+  --font-prose:'Palatino Linotype',Palatino,Georgia,serif; --font-ui:Optima,Candara,Georgia,serif;
+  --font-mono:'Courier New',Courier,monospace; --radius:3px; --font-prose-size:16px; --sidebar-width:300px;
+  --inspector-width:340px; --tools-width:260px; }
 
-/* The paper surface sits 58 degrees from the oxblood accent, close to where the
-   default lane triad parks the Judge, which then reads as a darker sheet of the
-   same paper. At 86 every lane clears the surface and the accent by 30 degrees
-   or more. */
+/* Hue offset 86 keeps pass colours at least 30 degrees from the paper surface and accent. */
 :root { --frag-lane-offset: 86; }

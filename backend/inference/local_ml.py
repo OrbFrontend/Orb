@@ -10,12 +10,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from ..core.text_segmentation import (
-    HARD_LINE_BREAK_RE,
-    remove_quoted_spans,
-    split_sentences,
-    strip_protected_markup,
-)
+from ..core.text_segmentation import HARD_LINE_BREAK_RE, remove_quoted_spans, split_sentences, strip_protected_markup
 from .local_models import (
     MODELS,
     ModelSpec,
@@ -78,9 +73,8 @@ __all__ = [
 ]
 
 
-# The 28 go-emotions labels in standard id2label order (neutral last, index 27).
-# Order MUST match the GGUF head's logit order — the classifier reads argmax(v[0:28])
-# and maps back through this tuple. Also the standard expression-pack label set.
+# The 28 go-emotions labels in standard id2label order (neutral last, index 27). Order MUST match the GGUF head's logit order --
+# the classifier reads argmax(v[0:28]) and maps back through this tuple. Also the standard expression-pack label set.
 GO_EMOTIONS: tuple[str, ...] = (
     "admiration",
     "amusement",
@@ -112,11 +106,10 @@ GO_EMOTIONS: tuple[str, ...] = (
     "neutral",
 )
 
-# The povtense head's 12 logits are a row-major 4x3 grid: POV rows x tense
-# columns. Row-sum the softmax for the POV, column-sum it for the tense. Order
-# MUST match the GGUF head's logit order -- a transposed reading still returns a
-# plausible label, so every cell is pinned by test: the rows in
-# tests/unit/workflows/image_gen/test_pov.py, the columns in tests/unit/test_local_ml.py.
+# The povtense head's 12 logits are a row-major 4x3 grid: POV rows x tense columns. Row-sum the softmax for the POV, column-sum
+# it for the tense. Order MUST match the GGUF head's logit order -- a transposed reading still returns a plausible label, so
+# every cell is pinned by test: the rows in tests/unit/workflows/image_gen/test_pov.py, the columns in
+# tests/unit/test_local_ml.py.
 POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
 TENSE_COLS: tuple[str, ...] = ("past", "present", "ambiguous")
 _TENSE_COUNT = len(TENSE_COLS)
@@ -137,9 +130,8 @@ _locks: dict[str, asyncio.Lock] = {}
 def _close_llamas() -> None:
     """Free handles while llama_cpp's globals still exist.
 
-    Left to GC, ``Llama.__del__`` runs after interpreter shutdown has nulled the
-    llama_cpp module globals and dies on ``llama_model_free is None`` — noisy
-    "Exception ignored in" tracebacks at the tail of every test run.
+    Left to GC, ``Llama.__del__`` runs after interpreter shutdown has nulled the llama_cpp module globals and dies on
+    ``llama_model_free is None`` -- noisy "Exception ignored in" tracebacks at the tail of every test run.
     """
     while _llamas:
         _, llama = _llamas.popitem()
@@ -191,17 +183,12 @@ def _complete_blocking(feature: str, prompt: str, n_predict: int, stop: Sequence
 
 
 async def acomplete(
-    feature: str,
-    prompt: str,
-    n_predict: int = 12,
-    stop: Sequence[str] = ("\n",),
-    temperature: float = 0.25,
+    feature: str, prompt: str, n_predict: int = 12, stop: Sequence[str] = ("\n",), temperature: float = 0.25
 ) -> str:
     """Raw continuation of *prompt* using *feature*'s model (no chat template).
 
-    Lazy-loads on first call. Serialized by the feature's lock (Llama isn't
-    reentrant) and run off the event loop so the blocking C call never stalls
-    in-flight generation or the SSE keepalive.
+    Lazy-loads on first call. Serialized by the feature's lock (Llama isn't reentrant) and run off the event loop so the
+    blocking C call never stalls in-flight generation or the SSE keepalive.
     """
     async with _lock(feature):
         return await asyncio.to_thread(_complete_blocking, feature, prompt, n_predict, stop, temperature)
@@ -215,12 +202,11 @@ _SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past
 def _rank_logits(llama: Any, text: str) -> list[float]:
     """The class-head logits for *text* off a RANK-pooled *llama*.
 
-    Mirrors `Llama.embed` for one sequence, including its first-n_batch token cut,
-    but reads only n_cls_out floats. `embed` copies n_embd floats out of that
-    n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped
-    page, and then it segfaults the whole process.
+    Mirrors `Llama.embed` for one sequence, including its first-n_batch token cut, but reads only n_cls_out floats. `embed`
+    copies n_embd floats out of that n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped page, and
+    then it segfaults the whole process.
     """
-    import llama_cpp  # noqa: PLC0415 — deferred like the loaders; ML extras are optional
+    import llama_cpp  # noqa: PLC0415 -- deferred like the loaders; ML extras are optional
 
     tokens = llama.tokenize(text.encode("utf-8"))[: llama.n_batch]
     batch = llama._batch
@@ -242,7 +228,7 @@ def _load_scorer_blocking(feature: str) -> None:
     if feature in _llamas or feature in _load_errors:
         return
     try:
-        import llama_cpp  # noqa: PLC0415 — deferred; need the pooling-type constant
+        import llama_cpp  # noqa: PLC0415 -- deferred; need the pooling-type constant
 
         _llamas[feature] = llama_cpp.Llama(
             model_path=resolve_path(feature),
@@ -268,7 +254,7 @@ def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
             out.append(0.0)
             continue
         v = _rank_logits(llama, text)
-        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax → P(slop)
+        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax -> P(slop)
         m = max(a, b)
         ea, eb = math.exp(a - m), math.exp(b - m)
         out.append(eb / (ea + eb))
@@ -278,26 +264,23 @@ def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
 async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
     """Per-sentence slop confidence in [0, 1] (class-1 softmax), aligned to input order.
 
-    Lazy-loads on first call; serialized by the feature's lock (Llama isn't
-    reentrant) and run off the event loop.
+    Lazy-loads on first call; serialized by the feature's lock (Llama isn't reentrant) and run off the event loop.
     """
     async with _lock(feature):
         return await asyncio.to_thread(_score_blocking, feature, list(sentences))
 
 
-# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head:
-# argmax over the head's logits → GO_EMOTIONS[i]. The tail slice below is purely an n_ctx=512 guard, NOT a
-# recency heuristic: the model (DistilBERT/go-emotions, trained on short comments)
-# can't be trusted to weight late text, so the caller enforces recency by sending
-# only the last few sentences (frontend sentenceTail); we just cap runaway input.
+# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head: argmax over the head's logits -> GO_EMOTIONS[i].
+# The tail slice below is purely an n_ctx=512 guard, NOT a recency heuristic: the model (DistilBERT/go-emotions, trained on
+# short comments) can't be trusted to weight late text, so the caller enforces recency by sending only the last few sentences
+# (frontend sentenceTail); we just cap runaway input.
 _CLASSIFY_MAX_CHARS = 1500
 
 
 def _head_logits(feature: str, text: str, n: int) -> list[float]:
     """The first *n* class logits off feature's RANK-pooled classification head.
 
-    A head with fewer than *n* outputs means the GGUF carries a different head than
-    the caller expects.
+    A head with fewer than *n* outputs means the GGUF carries a different head than the caller expects.
     """
     _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
     llama = _llamas.get(feature)
@@ -314,38 +297,33 @@ def _classify_blocking(feature: str, text: str) -> str:
     if not text:
         return "neutral"
     logits = _head_logits(feature, text, len(GO_EMOTIONS))
-    # No softmax — only the single top label is wanted, and argmax is invariant to it.
+    # No softmax -- only the single top label is wanted, and argmax is invariant to it.
     return GO_EMOTIONS[max(range(len(logits)), key=logits.__getitem__)]
 
 
 async def aclassify(feature: str, text: str) -> str:
-    """Single latest message → single go-emotions label. Not batched (one message,
-    one mood — YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
+    """Single latest message -> single go-emotions label. Not batched (one message,
+    one mood -- YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
     async with _lock(feature):
         return await asyncio.to_thread(_classify_blocking, feature, text)
 
 
-# The v2 model still needs short windows. Keep narration extraction in callers:
-# empirical dialogue-insertion probes favor it over trusting native markers
-# (docs/experiments/povtense-v2.md). The model card asks for 1-4 sentences, not a
-# whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
-# that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
-# the span instead of just capping it. Tail-anchored like the emotion path: the
-# composer freezes the FINAL visible instant of a reply, so the end of the message
-# is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard
-# for text with no sentence breaks at all.
+# The v2 model still needs short windows. Keep narration extraction in callers: empirical dialogue-insertion probes favor it
+# over trusting native markers. The model card asks for 1-4 sentences, not a whole reply: the encoder's trained context is 256
+# tokens, and a raw tail slice of that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes the span
+# instead of just capping it. Tail-anchored like the emotion path: the composer freezes the FINAL visible instant of a reply, so
+# the end of the message is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard for text with no
+# sentence breaks at all.
 _POV_MAX_CHARS = 800
 _POV_SENTENCES = 3
 
 
 def pov_input(text: str) -> str:
-    """The span of *text* the povtense model should see: the last few narration
-    sentences, dialogue removed.
+    """The span of *text* the povtense model should see: the last few narration sentences, dialogue removed.
 
-    Pure, so the shaping — which decides what the model is even asked about — is
-    testable without loading it. Returns "" for a reply that is all dialogue; the
-    caller reads that as "ambiguous" and walks back to the previous message, which
-    is the right answer for a turn that shows no narration.
+    Pure, so the shaping -- which decides what the model is even asked about -- is testable without loading it. Returns "" for a
+    reply that is all dialogue; the caller reads that as "ambiguous" and walks back to the previous message, which is the right
+    answer for a turn that shows no narration.
     """
     chunks = pov_chunks(text)
     return chunks[0] if chunks else ""
@@ -372,9 +350,8 @@ def _argmax(values: Sequence[float]) -> int:
 def _grid_margins(logits: Sequence[float], rows: Sequence[str], cols: Sequence[str]) -> tuple[str, str]:
     """Read a row-major joint head as (row label, column label).
 
-    Each label is the argmax of its own softmax marginal (row sums, column sums),
-    never the top cell's coordinates. The softmax stays unnormalized: dividing
-    every mass by one constant cannot move an argmax.
+    Each label is the argmax of its own softmax marginal (row sums, column sums), never the top cell's coordinates. The softmax
+    stays unnormalized: dividing every mass by one constant cannot move an argmax.
     """
     m = max(logits)
     exp = [math.exp(x - m) for x in logits]
@@ -412,47 +389,30 @@ def _classify_pov_blocking(feature: str, text: str) -> str:
 
 
 async def aclassify_pov(text: str) -> str:
-    """One message → one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
+    """One message -> one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
 
     Only the span `pov_input` selects is read, not the whole message.
 
-    "ambiguous" is a real class the model was trained to emit, not a confidence
-    floor we impose, so the caller treats it as "ask the previous message" rather
-    than as a failure. Lazy-loads; serialized by the feature's lock; off the loop.
+    "ambiguous" is a real class the model was trained to emit, not a confidence floor we impose, so the caller treats it as "ask
+    the previous message" rather than as a failure. Lazy-loads; serialized by the feature's lock; off the loop.
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
 
 
 async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
-    """One (POV, tense) pair per `pov_chunks` window, newest first; ``[]`` for a
-    reply with no narration.
+    """One (POV, tense) pair per `pov_chunks` window, newest first; ``[]`` for a reply with no narration.
 
-    For callers that judge a whole message rather than its final instant. One
-    model call per window, all under one lock acquisition, off the loop.
+    For callers that judge a whole message rather than its final instant. One model call per window, all under one lock
+    acquisition, off the loop.
     """
     async with _lock("pov_classifier"):
         return await asyncio.to_thread(_classify_pov_tense_chunks_blocking, "pov_classifier", text)
 
 
-# The markup classifier (narration x dialogue convention) reads a WHOLE message:
-# convention is a coverage ratio and the dead band is a whole-message property, so
-# unlike `pov_input` nothing is windowed. Protected formatting runs (fenced code,
-# **bold**, dividers) are removed with the exact pattern `classify_axes` ignores.
-# Quote and asterisk glyphs are deliberately NOT normalized: the tokenizer reads
-# every variant, and a broken or unusual mark is the very signal being classified.
-# The one exception is a markdown bullet (`* item` at a line start): the parser
-# already refuses to read it as emphasis, and its star becomes "-" so a list never
-# looks like asterisk narration to the model. A line that closes an asterisk later
-# (`* She waves. *`) is a sloppy beat rather than a list, and keeps its star.
-#
-# The model's own cut is the token one. `_rank_logits` keeps the
-# first n_batch (512) ids, so a long message loses its tail and its [SEP]; the
-# trainer (../RP-Markup-Classifier) truncates the same way rather than HF's
-# keep-[SEP] way, so both sides see identical ids. MARKUP_INPUT_CHARS is only a
-# runaway guard: on app.db it never binds before the token cut. Training builds
-# record MARKUP_INPUT_VERSION and a digest of this function's output, so bump the
-# version whenever the shaping changes.
+# Classify markup from the whole message, excluding classify_axes protected runs. Keep quote/emphasis variants; turn genuine
+# markdown bullet stars into hyphens. Ranking truncates to n_batch ids, including loss of SEP, matching training.
+# MARKUP_INPUT_CHARS is a runaway guard; bump MARKUP_INPUT_VERSION when shaping changes.
 MARKUP_INPUT_VERSION = "markup-input-v2"
 MARKUP_INPUT_CHARS = 4000
 
@@ -471,21 +431,17 @@ def _dash_bullets(text: str) -> str:
 
 
 def markup_input(text: str) -> str:
-    """The text the markup classifier sees: protected runs removed, bullet stars
-    dashed, then capped.
+    """The text the markup classifier sees: protected runs removed, bullet stars dashed, then capped.
 
-    Pure, so the shaping that training and serving share is testable without
-    loading the model.
+    Pure, so the shaping that training and serving share is testable without loading the model.
     """
     return _dash_bullets(strip_protected_markup(text or ""))[:MARKUP_INPUT_CHARS]
 
 
-# The markup head is one 9-way softmax over a row-major 3x3 grid: narration rows x
-# dialogue columns (../RP-Markup-Classifier/src/schema.py). Read like povtense:
-# row sums for the narration, column sums for the dialogue, never both off the top
-# cell. Order MUST match the GGUF head's logit order -- a transposed read still
-# returns plausible labels, so tests/unit/test_local_ml.py pins every cell.
-# "unknown" is a trained class (nothing to read, or both styles mixed in this one
+# The markup head is one 9-way softmax over a row-major 3x3 grid: narration rows x dialogue columns
+# (../RP-Markup-Classifier/src/schema.py). Read like povtense: row sums for the narration, column sums for the dialogue, never
+# both off the top cell. Order MUST match the GGUF head's logit order -- a transposed read still returns plausible labels, so
+# tests/unit/test_local_ml.py pins every cell. "unknown" is a trained class (nothing to read, or both styles mixed in this one
 # message), not a confidence floor: callers read it as "leave this alone".
 NARRATION_ROWS: tuple[str, ...] = ("asterisk", "bare", "unknown")
 DIALOGUE_COLS: tuple[str, ...] = ("quoted", "bare", "unknown")
@@ -507,9 +463,8 @@ def _classify_markup_blocking(feature: str, text: str) -> tuple[str, str]:
 async def aclassify_markup(text: str) -> tuple[str, str]:
     """One whole message -> (NARRATION_ROWS label, DIALOGUE_COLS label). One model call.
 
-    The model reads `markup_input(text)`, of which llama.cpp keeps the first 512
-    tokens, exactly as training cut it. Lazy-loads; serialized by the feature's
-    lock; off the loop.
+    The model reads `markup_input(text)`, of which llama.cpp keeps the first 512 tokens, exactly as training cut it. Lazy-loads;
+    serialized by the feature's lock; off the loop.
     """
     async with _lock("markup_classifier"):
         return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)

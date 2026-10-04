@@ -1,511 +1,147 @@
 
-:root {
-  --mobile-header-button-size: 34px;
-  --mobile-actions-menu-min-width: 170px;
-  --mobile-sidebar-width: min(82vw, 320px);
-  --mobile-panel-width: min(88vw, 340px);
-  --mobile-overlay-z: 80;
-  --mobile-sidebar-z: 90;
-  --mobile-panel-z: 95;
-  --mobile-menu-z: 115;
-  --mobile-overlay-color: rgba(0, 0, 0, .45);
+:root { --mobile-header-button-size: 34px; --mobile-actions-menu-min-width: 170px;
+  --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px); --mobile-overlay-z: 80;
+  --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-menu-z: 115; --mobile-overlay-color: rgba(0, 0, 0, .45);
   --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);
-  --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45);
-  --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
-  --mobile-slide-duration: .2s ease;
+  --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45); --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+  --mobile-slide-duration: .2s ease; }
+html { height: 100%; }
+#chat-header .chat-actions { position: relative; }
+#mobile-sidebar-toggle, #mobile-chat-actions-toggle {
+  --ui-icon-size: 18px; display: none; width: var(--mobile-header-button-size);
+  height: var(--mobile-header-button-size); padding: 0; align-items: center; justify-content: center;
+  border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-secondary); flex-shrink: 0; transition: all .15s;
 }
-
-html {
-  height: 100%;
+#mobile-sidebar-toggle:hover, #mobile-chat-actions-toggle:hover {
+  background: var(--bg-hover); color: var(--text-primary);
 }
-
-body {
-  height: 100dvh;
-}
-
-#app {
-  height: 100dvh;
-}
-
-@supports (-webkit-touch-callout: none) {
-  html,
-  body,
-  #app {
-    min-height: -webkit-fill-available;
-  }
-}
-
-#chat-header .chat-actions {
-  position: relative;
-}
-
-#mobile-sidebar-toggle,
-#mobile-chat-actions-toggle {
-  --ui-icon-size: 18px;
-  display: none;
-  width: var(--mobile-header-button-size);
-  height: var(--mobile-header-button-size);
-  padding: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  transition: all .15s;
-}
-
-#mobile-sidebar-toggle:hover,
-#mobile-chat-actions-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-#mobile-chat-actions-toggle {
-  font-size: 20px;
-  line-height: 1;
-}
-
-#mobile-chat-actions-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: var(--mobile-actions-menu-min-width);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--mobile-menu-shadow);
-  overflow: hidden;
-  z-index: var(--mobile-menu-z);
-  display: none;
-}
-
-#mobile-chat-actions-menu.open {
-  display: block;
-}
+#mobile-chat-actions-toggle { font-size: 20px; line-height: 1; }
+#mobile-chat-actions-menu { position: absolute; top: calc(100% + 6px); right: 0;
+  min-width: var(--mobile-actions-menu-min-width); background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--mobile-menu-shadow); overflow: hidden; z-index: var(--mobile-menu-z);
+  display: none; }
+#mobile-chat-actions-menu.open { display: block; }
 
 @media (max-width: 900px) {
-  #app {
-    position: relative;
+  #app { position: relative; }
+  #mobile-sidebar-toggle { display: inline-flex; }
+  #sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--mobile-sidebar-width); min-width: 0;
+    z-index: var(--mobile-sidebar-z); transform: translateX(-100%); transition: transform var(--mobile-slide-duration);
+    box-shadow: var(--mobile-panel-shadow-left); }
+  #app.mobile-sidebar-open #sidebar { transform: translateX(0); }
+  #app::before { content: ""; position: fixed; inset: 0; background: var(--mobile-overlay-color); opacity: 0;
+    pointer-events: none; transition: opacity var(--mobile-slide-duration); z-index: var(--mobile-overlay-z); }
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before { opacity: 1; pointer-events: auto;
   }
-
-  #mobile-sidebar-toggle {
-    display: inline-flex;
+  #tools-panel, #inspector {
+    position: fixed; right: 0; top: 0; bottom: 0; width: var(--mobile-panel-width); min-width: 0;
+    z-index: var(--mobile-panel-z); transform: translateX(100%); transition: transform var(--mobile-slide-duration);
+    box-shadow: var(--mobile-panel-shadow-right); pointer-events: none;
   }
-
-  #sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: var(--mobile-sidebar-width);
-    min-width: 0;
-    z-index: var(--mobile-sidebar-z);
-    transform: translateX(-100%);
-    transition: transform var(--mobile-slide-duration);
-    box-shadow: var(--mobile-panel-shadow-left);
+  #tools-panel.open, #inspector.open {
+    width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
-
-  #app.mobile-sidebar-open #sidebar {
-    transform: translateX(0);
-  }
-
-  #app::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background: var(--mobile-overlay-color);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--mobile-slide-duration);
-    z-index: var(--mobile-overlay-z);
-  }
-
-  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  #tools-panel,
-  #inspector {
-    position: fixed;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: var(--mobile-panel-width);
-    min-width: 0;
-    z-index: var(--mobile-panel-z);
-    transform: translateX(100%);
-    transition: transform var(--mobile-slide-duration);
-    box-shadow: var(--mobile-panel-shadow-right);
-    pointer-events: none;
-  }
-
-  #tools-panel.open,
-  #inspector.open {
-    width: var(--mobile-panel-width);
-    min-width: 0;
-    transform: translateX(0);
-    pointer-events: auto;
-  }
-
-  .inspector-inner,
-  .tools-inner {
-    width: 100%;
-  }
-
-  #user-profile-btn,
-  #tools-panel-btn,
-  #inspector-toggle {
-    display: none;
-  }
-
-  #mobile-chat-actions-toggle {
-    display: inline-flex;
-  }
-
-  #main {
-    width: 100%;
-  }
-
-  .char-item-actions {
-    opacity: 1;
-  }
-
-  .avatar-popup {
-    width: 100%;
-    z-index: 120;
-  }
-
-  .toast-stack {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
-    max-width: none;
-    align-items: stretch;
-  }
+  .inspector-inner, .tools-inner { width: 100%; }
+  #user-profile-btn, #tools-panel-btn, #inspector-toggle { display: none; }
+  #mobile-chat-actions-toggle { display: inline-flex; }
+  #main { width: 100%; }
+  .char-item-actions { opacity: 1; }
+  .avatar-popup { width: 100%; z-index: 120; }
+  .toast-stack { left: 12px; right: 12px; bottom: 12px; max-width: none; align-items: stretch; }
 
 }
 
 @media (max-width: 700px) {
-  #chat-messages[data-avatars="on"] {
-    --msg-avatar-size: 30px;
-  }
-
-  .modal {
-    width: 100%;
-    max-width: calc(100vw - 16px);
-    max-height: calc(100vh - 16px);
-    padding: 16px;
-    border-radius: 8px;
-  }
-
-  .modal-title-row {
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-
-  .modal-title-actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .persona-modal-header {
-    flex-wrap: nowrap;
-    align-items: center;
-  }
-
-  .persona-modal-header .modal-title-actions {
-    width: auto;
-    justify-content: flex-end;
-  }
-
-  .persona-item {
-    gap: 10px;
-    padding: 10px;
-  }
+  #chat-messages[data-avatars="on"] { --msg-avatar-size: 30px; }
+  .modal { width: 100%; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); padding: 16px;
+    border-radius: 8px; }
+  .modal-title-row { flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .modal-title-actions { width: 100%; justify-content: flex-start; }
+  .persona-modal-header { flex-wrap: nowrap; align-items: center; }
+  .persona-modal-header .modal-title-actions { width: auto; justify-content: flex-end; }
+  .persona-item { gap: 10px; padding: 10px; }
 
   /* A suggestion's label wraps above its badge rather than squeezing it, and
      the two actions share the row so neither is a thin target. */
-  .phrase-suggest-head {
-    flex-wrap: wrap;
-  }
-
-  .phrase-suggest-actions .btn {
-    flex: 1 1 0;
-    justify-content: center;
-  }
-
-  .persona-desc {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
+  .phrase-suggest-head { flex-wrap: wrap; }
+  .phrase-suggest-actions .btn { flex: 1 1 0; justify-content: center; }
+  .persona-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
   /* The toggle takes the whole row and its modes share it, so the last one is
      never clipped by the modal's edge. */
-  .view-toggle {
-    flex: 1 1 auto;
-  }
-
-  .view-toggle-btn {
-    flex: 1 1 0;
-    justify-content: center;
-    padding: 7px 8px;
-    font-size: 12px;
-  }
-
-  .char-browser-search-row {
-    flex-direction: column;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-
-  .char-browser-search,
-  .char-browser-sort {
-    flex: 1 1 auto;
-    width: 100%;
-  }
-
-  .char-browser-grid,
-  .char-browser-list {
-    max-height: 52vh;
-    overflow-y: auto;
-  }
-
-  .internet-controls {
-    flex-wrap: wrap;
-  }
-  .internet-controls input {
-    flex-basis: 100%;
-    order: 1;
-  }
-  .internet-controls select {
-    flex: 0 1 auto;
-    min-width: 0;
-  }
-  .internet-controls .btn {
-    flex: 1 0 auto;
-    justify-content: center;
-  }
-
-  .modal-char-header > div {
-    min-width: 0;
-  }
-
-  .modal .tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .modal .tabs::-webkit-scrollbar {
-    display: none;
-  }
-  .modal .tab {
-    white-space: nowrap;
-    flex-shrink: 0;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
-  .modal-actions {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
+  .view-toggle { flex: 1 1 auto; }
+  .view-toggle-btn { flex: 1 1 0; justify-content: center; padding: 7px 8px; font-size: 12px; }
+  .char-browser-search-row { flex-direction: column; gap: 10px; margin-bottom: 12px; }
+  .char-browser-search, .char-browser-sort { flex: 1 1 auto; width: 100%; }
+  .char-browser-grid, .char-browser-list { max-height: 52vh; overflow-y: auto; }
+  .internet-controls { flex-wrap: wrap; }
+  .internet-controls input { flex-basis: 100%; order: 1; }
+  .internet-controls select { flex: 0 1 auto; min-width: 0; }
+  .internet-controls .btn { flex: 1 0 auto; justify-content: center; }
+  .modal-char-header > div { min-width: 0; }
+  .modal .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .modal .tabs::-webkit-scrollbar { display: none; }
+  .modal .tab { white-space: nowrap; flex-shrink: 0; padding-left: 12px; padding-right: 12px; }
+  .modal-actions { flex-wrap: wrap; row-gap: 8px; }
 
   /* The row has no width to spare for a status beside its buttons, so the status
      drops to a line of its own under them, and only while it has something to
      say. */
   .modal-actions > .modal-action-status {
-    order: 1;
-    flex-basis: 100%;
-    text-align: right;
-    scroll-margin-bottom: 16px; /* the modal's padding, when it scrolls into view */
+    order: 1; flex-basis: 100%; text-align: right; scroll-margin-bottom: 16px; /* the modal's padding, when it scrolls into view */
   }
-
-  .modal-actions > .modal-action-status:empty {
-    display: none;
-  }
+  .modal-actions > .modal-action-status:empty { display: none; }
 
   /* Paired fields stack: side by side, a label whose hint wraps onto a second
      line pushes its input below its neighbour's. */
-  .field-row {
-    display: block;
-  }
+  .field-row { display: block; }
 
   /* Card scripts: the row gives back some padding so the header -- title, the
      script's name, the switch, and the three square actions -- still fits on
      one line. */
-  .ce-script-row {
-    --ce-row-pad: 10px;
-  }
-
-  .ce-script-actions {
-    gap: 4px;
-  }
+  .ce-script-row { --ce-row-pad: 10px; }
+  .ce-script-actions { gap: 4px; }
 
   /* The script's own name is what a narrow header is worth reading, so the
      switch keeps its box and gives up its word -- to the eye only; the label
      still names the checkbox for a screen reader. */
-  .ce-script-enabled > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  #lorebook-drawer .lb-entry-list {
-    width: 100%;
-    min-width: 0;
-    border-right: none;
-  }
-
-  #lorebook-drawer .lb-editor {
-    display: none;
-  }
-
-  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-entry-list {
-    display: none;
-  }
-
-  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-editor {
-    display: flex;
-  }
-
-  #lorebook-drawer .lb-back-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  #lorebook-drawer .lb-entry-item {
-    padding: 10px 10px;
-  }
-
-  #lorebook-drawer .lb-entry-name {
-    font-size: 14px;
-  }
-
-  #lorebook-drawer .lb-editor-header {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
-  #lorebook-drawer .lb-entry-name-input {
-    flex: 1 1 60%;
-  }
-
-  #lorebook-drawer .lb-keyword-footer {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
-  #lorebook-drawer .lb-keyword-hint {
-    flex-basis: 100%;
-    margin-left: 0;
-  }
-
-  #preset-top-actions {
-    flex-wrap: wrap;
-  }
-  #preset-top-actions .btn {
-    flex: 1 1 0;
-    min-width: 0;
-    justify-content: center;
-  }
-
-  .preset-item-top {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .preset-item-title {
-    flex-wrap: wrap;
-    overflow-wrap: anywhere;
-  }
-
-  .preset-item-actions {
-    width: 100%;
-    gap: 6px;
-  }
-  .preset-item-actions .btn {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: 8px 6px;
-    justify-content: center;
-  }
+  .ce-script-enabled > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+    white-space: nowrap; }
+  #lorebook-drawer .lb-entry-list { width: 100%; min-width: 0; border-right: none; }
+  #lorebook-drawer .lb-editor { display: none; }
+  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-entry-list { display: none; }
+  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-editor { display: flex; }
+  #lorebook-drawer .lb-back-btn { display: inline-flex; align-items: center; justify-content: center; }
+  #lorebook-drawer .lb-entry-item { padding: 10px 10px; }
+  #lorebook-drawer .lb-entry-name { font-size: 14px; }
+  #lorebook-drawer .lb-editor-header { flex-wrap: wrap; row-gap: 6px; }
+  #lorebook-drawer .lb-entry-name-input { flex: 1 1 60%; }
+  #lorebook-drawer .lb-keyword-footer { flex-wrap: wrap; row-gap: 6px; }
+  #lorebook-drawer .lb-keyword-hint { flex-basis: 100%; margin-left: 0; }
+  #preset-top-actions { flex-wrap: wrap; }
+  #preset-top-actions .btn { flex: 1 1 0; min-width: 0; justify-content: center; }
+  .preset-item-top { flex-direction: column; align-items: stretch; gap: 8px; }
+  .preset-item-title { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .preset-item-actions { width: 100%; gap: 6px; }
+  .preset-item-actions .btn { flex: 1 1 0; min-width: 0; padding: 8px 6px; justify-content: center; }
 }
 
 @media (max-width: 480px) {
-  #chat-header {
-    padding: 10px 12px;
-  }
-
-  #chat-input-area {
-    padding: 12px;
-  }
-
-  #chat-header .chat-actions {
-    gap: 4px;
-  }
-
-  #chat-header .chat-actions .btn {
-    padding-left: 7px;
-    padding-right: 7px;
-  }
-
-  .modal h2 {
-    font-size: 16px;
-  }
+  #chat-header { padding: 10px 12px; }
+  #chat-input-area { padding: 12px; }
+  #chat-header .chat-actions { gap: 4px; }
+  #chat-header .chat-actions .btn { padding-left: 7px; padding-right: 7px; }
+  .modal h2 { font-size: 16px; }
 
   /* A phone is too narrow for four icon-and-label modes in a line, so each mode
      stacks its icon over its label rather than losing either. */
-  .view-toggle-btn {
-    flex-direction: column;
-    gap: 3px;
-    padding: 6px 4px;
-  }
-
-  .char-browser-grid {
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 10px;
-  }
-
-  .char-browser-card {
-    gap: 6px;
-    padding: 10px 6px;
-  }
-
-  .char-browser-avatar {
-    width: 52px;
-    height: 52px;
-    font-size: 20px;
-  }
-
-  .char-browser-list-item {
-    padding: 8px 10px;
-    gap: 10px;
-  }
-
-  .char-browser-list-avatar {
-    width: 36px;
-    height: 36px;
-    font-size: 14px;
-  }
-
-  .msg-toolbar {
-    flex-wrap: wrap;
-  }
-
-  .magic-input-wrap {
-    order: 1;
-    flex-basis: 100%;
-    max-width: none;
-  }
+  .view-toggle-btn { flex-direction: column; gap: 3px; padding: 6px 4px; }
+  .char-browser-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px; }
+  .char-browser-card { gap: 6px; padding: 10px 6px; }
+  .char-browser-avatar { width: 52px; height: 52px; font-size: 20px; }
+  .char-browser-list-item { padding: 8px 10px; gap: 10px; }
+  .char-browser-list-avatar { width: 36px; height: 36px; font-size: 14px; }
+  .msg-toolbar { flex-wrap: wrap; }
+  .magic-input-wrap { order: 1; flex-basis: 100%; max-width: none; }
 }

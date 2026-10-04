@@ -1,11 +1,9 @@
 """Drift backstop + end-to-end exercise for the schema-driven preset engine.
 
-The merge engine derives its mechanics from the live schema, so adding a table or
-an FK column needs no edit in ``presets.py``. The price of that is a loud check that
-nothing new escapes the *policy* declared in ``preset_schema.py``: every table must
-belong to a domain (or be excluded), every FK must resolve, and no secret-looking
-column may be unaccounted for. These tests are that check, plus a full round-trip
-that drives the generic engine across every domain at once.
+The merge engine derives its mechanics from the live schema, so adding a table or an FK column needs no edit in ``presets.py``.
+The price of that is a loud check that nothing new escapes the *policy* declared in ``preset_schema.py``: every table must
+belong to a domain (or be excluded), every FK must resolve, and no secret-looking column may be unaccounted for. These tests are
+that check, plus a full round-trip that drives the generic engine across every domain at once.
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ import importlib
 import json
 import sqlite3
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -34,7 +33,7 @@ def _fresh_schema_db(tmp_path, extra_sql: str = "") -> sqlite3.Connection:
     return conn
 
 
-# ── drift check ──────────────────────────────────────────────────────────────
+# -- drift check --------------------------------------------------------------
 
 
 def test_live_schema_is_fully_covered(tmp_path):
@@ -134,7 +133,7 @@ def test_domain_list_is_frozen():
     assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "fragments", "lorebooks", "phrase_bank"]
 
 
-# ── reverse policy validation (a stale/typo'd constant must be caught) ───────────
+# -- reverse policy validation (a stale/typo'd constant must be caught) -----------
 
 
 def test_coverage_flags_a_non_root_domain_key(tmp_path):
@@ -173,7 +172,7 @@ def test_coverage_flags_a_stale_secret_column(tmp_path):
         conn.close()
 
 
-# ── fresh-vs-migrated equivalence (the 0026 class of bug) ────────────────────────
+# -- fresh-vs-migrated equivalence (the 0026 class of bug) ------------------------
 
 
 def _strip_persona_lock_fk(conn: sqlite3.Connection, table: str) -> None:
@@ -249,12 +248,11 @@ def test_schema_safety_problems_is_non_fatal_but_preset_ops_stay_fatal(tmp_path)
 
 
 def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
-    """A real fresh install runs CREATE_TABLES_SQL *then every migration*, so the
-    fully-migrated schema -- not raw CREATE_TABLES_SQL -- is what production boots
-    with. It must satisfy the schema-safety gate. This is the integration guard that
-    fails the day a migration leaves the live schema unlike CREATE_TABLES_SQL (a
-    missing FK like 0026, a stale column like 0008's settings.active_model_config_id)
-    -- a class the equivalence gate exists to stop reaching production."""
+    """A real fresh install runs CREATE_TABLES_SQL *then every migration*, so the fully-migrated schema -- not raw
+    CREATE_TABLES_SQL -- is what production boots with. It must satisfy the schema-safety gate. This is the integration guard
+    that fails the day a migration leaves the live schema unlike CREATE_TABLES_SQL (a missing FK like 0026, a stale column
+    like 0008's settings.active_model_config_id) -- a class the equivalence gate exists to stop reaching production.
+    """
     from backend.database.migrations import run_pending
 
     db = tmp_path / "fresh.db"
@@ -273,7 +271,7 @@ def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
         conn.close()
 
 
-# ── merge regressions (PR #90 audit) ────────────────────────────────────────────
+# -- merge regressions (PR #90 audit) --------------------------------------------
 
 
 def _seed(path: str, sql_pairs: list[tuple[str, tuple]]) -> None:
@@ -404,7 +402,7 @@ def test_self_parented_message_is_healed_to_root(tmp_path):
     assert parents == [(None,)], parents
 
 
-# ── full round-trip across every domain ────────────────────────────────────────
+# -- full round-trip across every domain ----------------------------------------
 
 
 def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
@@ -432,9 +430,8 @@ def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
         conn.close()
 
 
-# The tables the round-trip's _signature() actually reads (declared explicitly so a
-# new table can't silently drop out of round-trip coverage -- see
-# test_signature_covers_every_domain_table).
+# The tables the round-trip's _signature() actually reads (declared explicitly so a new table can't silently drop out of
+# round-trip coverage -- see test_signature_covers_every_domain_table).
 SIGNATURE_TABLES = frozenset(
     {
         "character_cards",
@@ -469,15 +466,11 @@ SIGNATURE_ALLOWLIST = frozenset(
         "model_configs",
         # pure log / attachment tables: not part of any domain's user-facing identity.
         "conversation_logs",
-        # Legacy, converted to fragment_state_events and no longer written.
-        "direction_notes",
         "user_attachments",
         "workflow_attachments",
-        # Local review state for the duplicate finder: "I looked at this exact
-        # pair of cards and chose to keep both". Every row names two card ids and
-        # stamps their body hashes, so it is meaningful only against this
-        # install's library -- a preset applied elsewhere would carry dismissals
-        # for pairs that do not exist there.
+        # Local review state for the duplicate finder: "I looked at this exact pair of cards and chose to keep both". Every row
+        # names two card ids and stamps their body hashes, so it is meaningful only against this install's library -- a preset
+        # applied elsewhere would carry dismissals for pairs that do not exist there.
         "duplicate_dismissals",
     }
 )
@@ -486,11 +479,9 @@ SIGNATURE_ALLOWLIST = frozenset(
 def _signature(path: str) -> dict:
     """Canonical, surrogate-id-independent content of every data domain.
 
-    Surrogate ids (messages, personas, …) are never compared directly; references
-    to them are resolved to the parent's portable identity (a persona's name, a
-    leaf message's content) so two databases that differ only by autoincrement
-    renumbering produce the same signature. The tables read here are pinned by
-    ``SIGNATURE_TABLES`` and checked against the live schema below.
+    Surrogate ids (messages, personas, ...) are never compared directly; references to them are resolved to the parent's portable
+    identity (a persona's name, a leaf message's content) so two databases that differ only by autoincrement renumbering produce
+    the same signature. The tables read here are pinned by ``SIGNATURE_TABLES`` and checked against the live schema below.
     """
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -517,10 +508,8 @@ def _signature(path: str) -> dict:
                 "SELECT conversation_id, speaker_key, character_card_id, display_name, public_profile_override, "
                 "card_sheet_override, member_kind, sort_order, muted, active FROM group_members"
             ),
-            # A pending sheet update is user-facing work in progress, not a log:
-            # its whole point is that someone still has to decide it. Compared
-            # through the member's portable identity, since group_members.id is
-            # re-minted on the way in.
+            # A pending sheet update is user-facing work in progress, not a log: its whole point is that someone still has to
+            # decide it. Compared through the member's portable identity, since group_members.id is re-minted on the way in.
             "member_sheet_proposals": q(
                 "SELECT gm.speaker_key, p.base_sheet, p.proposed_sheet, p.summary, p.status "
                 "FROM member_sheet_proposals p JOIN group_members gm ON p.member_id = gm.id"
@@ -528,18 +517,16 @@ def _signature(path: str) -> dict:
             "messages": q("SELECT conversation_id, turn_index, role, content FROM messages"),
             "active_leaf": q("SELECT c.id, m.content FROM conversations c LEFT JOIN messages m ON c.active_leaf_id = m.id"),
             "director_state": q("SELECT conversation_id FROM director_state"),
-            # A branch's saved state is user-facing chat content. Its anchor is a
-            # surrogate id, so it is compared through the anchor's content; entry
-            # ids are portable text and must survive, or a later event would name
-            # an entry that no longer exists.
+            # A branch's saved state is user-facing chat content. Its anchor is a surrogate id, so it is compared through the
+            # anchor's content; entry ids are portable text and must survive, or a later event would name an entry that no
+            # longer exists.
             "fragment_state_events": q(
                 "SELECT e.conversation_id, m.content, e.fragment_id, e.entry_id, e.op, e.text, e.source "
                 "FROM fragment_state_events e JOIN messages m ON e.message_id = m.id"
             ),
             "worlds": q("SELECT id, name, is_global, dynamic_enabled, content_revision FROM worlds"),
-            # Overlay metadata is part of a lorebook's identity: a preset that
-            # restored the rows but flattened their layer would silently turn
-            # Agent-managed state into authored lore.
+            # Overlay metadata is part of a lorebook's identity: a preset that restored the rows but flattened their layer would
+            # silently turn Agent-managed state into authored lore.
             "lorebook_entries": q(
                 "SELECT world_id, name, content, entry_layer, overlay_action, archived FROM lorebook_entries"
             ),
@@ -551,16 +538,14 @@ def _signature(path: str) -> dict:
                 "WHERE le.entry_layer = 'dynamic'"
             ),
             "world_changesets": q("SELECT world_id, status, origin, summary, operations FROM world_changesets"),
-            # The source pointers are nullable cross-domain references; compare
-            # them through the message they name, so a changeset that came back
-            # attached to the wrong message (or detached) is caught.
+            # The source pointers are nullable cross-domain references; compare them through the message they name, so a
+            # changeset that came back attached to the wrong message (or detached) is caught.
             "changeset_sources": q(
                 "SELECT wc.summary, m.content, wc.source_conversation_id, wc.source_character_label "
                 "FROM world_changesets wc LEFT JOIN messages m ON wc.source_assistant_message_id = m.id"
             ),
-            # The library's curated vocabulary, plus the tags and tagger stamps
-            # that live on the cards themselves. Compared through the card's name,
-            # like expressions above, because the round-trip is free to renumber ids.
+            # The library's curated vocabulary, plus the tags and tagger stamps that live on the cards themselves. Compared
+            # through the card's name, like expressions above, because the round-trip is free to renumber ids.
             "library_tags": q("SELECT name, position FROM library_tags"),
             "auto_tags": q("SELECT name, tags, auto_tag_vocab_hash, auto_tag_card_updated_at FROM character_cards"),
             "personas": q("SELECT name, description FROM user_personas"),
@@ -600,32 +585,28 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     path = str(db_path)
 
     # personas, worlds + entries, characters (one world-linked, one persona-locked).
-    p1 = (await client.post("/api/user-personas", json={"name": "Ada"})).json()["id"]
-    w1 = (await client.post("/api/worlds", json={"name": "Mythos"})).json()["id"]
+    p1 = await client.create("/api/user-personas", json={"name": "Ada"})
+    w1 = await client.create("/api/worlds", json={"name": "Mythos"})
     await client.post(f"/api/worlds/{w1}/entries", json={"name": "Lore A", "content": "alpha"})
     await client.post(f"/api/worlds/{w1}/entries", json={"name": "Lore B", "content": "beta"})
-    linked = (await client.post("/api/characters", json={"name": "Linked"})).json()["id"]
+    linked = await client.create("/api/characters", json={"name": "Linked"})
     await client.put(f"/api/characters/{linked}", json={"world_id": w1})
-    locked = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
+    locked = await client.create("/api/characters", json={"name": "Locked"})
     await client.put(f"/api/characters/{locked}", json={"persona_lock_id": p1})
     from backend.database import set_workflow_character_state
     from backend.workflows.tts.synth import WORKFLOW_ID, normalize_profile
 
     await set_workflow_character_state(
-        locked,
-        WORKFLOW_ID,
-        normalize_profile({"backend": "spark", "voice_id": "cloned", "speaker_tokens": list(range(32))}),
+        locked, WORKFLOW_ID, normalize_profile({"backend": "spark", "voice_id": "cloned", "speaker_tokens": list(range(32))})
     )
 
     # a chat tree, persona-locked, with an active leaf to remap.
     _insert_conv_tree(path, "conv-keep", p1)
     await client.put(f"/api/conversations/conv-keep/worlds/{w1}", json={"enabled": True})
 
-    # Dynamic Worlds: an overlay row replacing an authored entry, plus one
-    # applied changeset (source pointers into the chat above -- a nullable
-    # cross-domain reference) and one pending proposal. Together these cover the
-    # overlay metadata, the self-FK on supersedes_entry_id, and the
-    # world_changesets -> messages/conversations pointers.
+    # Dynamic Worlds: an overlay row replacing an authored entry, plus one applied changeset (source pointers into the chat
+    # above -- a nullable cross-domain reference) and one pending proposal. Together these cover the overlay metadata, the
+    # self-FK on supersedes_entry_id, and the world_changesets -> messages/conversations pointers.
     await client.put(f"/api/worlds/{w1}/dynamic", json={"enabled": True})
     dyn = sqlite3.connect(path)
     try:
@@ -658,7 +639,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
     # mood fragment (stable upsert) so those domains carry real data round-trip.
-    await client.put("/api/settings", json={"user_name": "Ada", "api_key": "sk-keep"})
+    await client.put("/api/settings", json={"user_name": "Ada", "system_prompt": "keep me"})
     seed = sqlite3.connect(path)
     try:
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
@@ -676,9 +657,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
             "INSERT INTO documents (id, title, content, generated_spans, created_at, updated_at) "
             "VALUES ('doc-1', 'Draft', 'once upon a time', '[[10,16]]', '2026-01-01', '2026-01-01')"
         )
-        # The library's tag vocabulary plus one card carrying a tagger answer: a
-        # root in the characters domain whose names the cards' own tags column
-        # references, so the round-trip has to carry both halves.
+        # The library's tag vocabulary plus one card carrying a tagger answer: a root in the characters domain whose names the
+        # cards' own tags column references, so the round-trip has to carry both halves.
         seed.execute("INSERT INTO library_tags (name, position) VALUES ('Fantasy', 0), ('Romance', 1)")
         seed.execute(
             "UPDATE character_cards SET tags = '[\"Fantasy\"]', "
@@ -693,8 +673,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     name = (
         await client.post(
-            "/api/presets/export",
-            json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"},
+            "/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"}
         )
     ).json()["name"]
     preset_path = presets._library_path(name)
@@ -715,7 +694,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     await client.put(f"/api/characters/{locked}", json={"name": "Renamed"})
     await client.post("/api/characters", json={"name": "Intruder"})
     _insert_conv_tree(path, "conv-extra", None)
-    w2 = (await client.post("/api/worlds", json={"name": "Junk"})).json()["id"]
+    w2 = await client.create("/api/worlds", json={"name": "Junk"})
     await client.post(f"/api/worlds/{w2}/entries", json={"name": "noise", "content": "x"})
     await client.put("/api/settings", json={"user_name": "Eve"})
 
@@ -726,9 +705,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
 
     after = _signature(path)
     assert after == before, {k: (before[k], after[k]) for k in before if before[k] != after[k]}
-    # "characters" sums the row counts of every root in the domain: two cards plus
-    # the two curated vocabulary tags (character_expressions rides along as a
-    # cascade child and is not counted).
+    # "characters" sums the row counts of every root in the domain: two cards plus the two curated vocabulary tags
+    # (character_expressions rides along as a cascade child and is not counted).
     assert summary["chats"] == 1 and summary["characters"] == 4 and summary["configs"] == 1
 
     # And the committed state has no dangling foreign keys.
@@ -739,7 +717,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         conn.close()
 
 
-# ── excluded-table tripwires (data must never hide in EXCLUDED_TABLES) ────────────
+# -- excluded-table tripwires (data must never hide in EXCLUDED_TABLES) ------------
 
 
 def test_excluded_data_tables_are_empty_in_fresh_schema(tmp_path):
@@ -768,9 +746,8 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
     seed = sqlite3.connect(path)
     try:
         seed.execute("PRAGMA foreign_keys=OFF")  # message_attachments.message_id NOT NULL; we only need a row to exist
-        # Fresh installs no longer carry this legacy table (schema.py dropped it
-        # when first-boot migration stamping landed); recreate it as an upgraded
-        # pre-0020 DB would still have it.
+        # Fresh installs no longer carry this legacy table (schema.py dropped it when first-boot migration stamping landed);
+        # recreate it as an upgraded pre-0020 DB would still have it.
         seed.execute(
             "CREATE TABLE IF NOT EXISTS message_attachments ("
             " id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL,"
@@ -790,16 +767,15 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
     assert "message_attachments" in str(exc.value)
 
 
-# ── secrets hiding inside free-form JSON columns ─────────────────────────────────
+# -- secrets hiding inside free-form JSON columns ---------------------------------
 
 
 def _sensitive_leaves(node, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
     """Every path under `node` whose leaf key reads as a credential.
 
-    ``is_sensitive_column``'s own rule, run one level down: these columns hold JSON,
-    so the name check that guards a real column has to be applied to the keys inside
-    it. A list level contributes ``"*"``, the same wildcard a map keyed by provider
-    id does.
+    ``is_sensitive_column``'s own rule, run one level down: these columns hold JSON, so the name check that guards a real column
+    has to be applied to the keys inside it. A list level contributes ``"*"``, the same wildcard a map keyed by provider id
+    does.
     """
     found: list[tuple[str, ...]] = []
     if isinstance(node, dict):
@@ -823,9 +799,8 @@ def _path_is_declared(declared: tuple[tuple[str, ...], ...], found: tuple[str, .
 def _profile_surfaces(workflow_id: str) -> list[dict]:
     """``normalize_profile({})`` for every module of a workflow that defines one.
 
-    Found by scanning modules already imported rather than by walking the package:
-    registering the workflows imports every ``hooks`` module, which is what pulls
-    both of today's normalizers in, while a tree walk would import optional adapter
+    Found by scanning modules already imported rather than by walking the package: registering the workflows imports every
+    ``hooks`` module, which is what pulls both of today's normalizers in, while a tree walk would import optional adapter
     dependencies that need not be installed.
     """
     prefix = f"backend.workflows.{workflow_id}."
@@ -844,15 +819,12 @@ def _profile_surfaces(workflow_id: str) -> list[dict]:
 def test_secret_json_paths_declare_every_workflow_credential():
     """Walk what the workflows actually *normalize to* -- not ``CONFIG_DEFAULTS``.
 
-    A ``CONFIG_DEFAULTS`` walk would pass while the leak it exists to guard sat
-    undefended: the TTS key is not config at all, it is a per-character profile
-    field, and TTS's ``CONFIG_DEFAULTS`` carries no ``api_key``. ``Workflow`` exposes
-    no profile-defaults field for a walker to find either, so the normalized
-    surfaces are the only honest thing to walk.
+    A ``CONFIG_DEFAULTS`` walk would pass while the leak it exists to guard sat undefended: the TTS key is not config at all, it
+    is a per-character profile field, and TTS's ``CONFIG_DEFAULTS`` carries no ``api_key``. ``Workflow`` exposes no
+    profile-defaults field for a walker to find either, so the normalized surfaces are the only honest thing to walk.
 
-    The test may import both the registry and ``preset_schema``; ``preset_schema``
-    must not import the registry (layering), so the table stays hand-maintained and
-    this asserts it matches.
+    The test may import both the registry and ``preset_schema``; ``preset_schema`` must not import the registry (layering), so
+    the table stays hand-maintained and this asserts it matches.
     """
     from backend.workflows import list_workflows
 
@@ -873,9 +845,8 @@ def test_secret_json_paths_declare_every_workflow_credential():
 def test_every_free_form_workflow_json_column_is_declared(tmp_path):
     """An absent key and an empty tuple say different things.
 
-    The three ``workflow_state`` columns are the same free-form per-workflow slot,
-    written through the same toolkit helpers; only one holds a credential today. All
-    of them must therefore be a deliberate declaration rather than an oversight.
+    The three ``workflow_state`` columns are the same free-form per-workflow slot, written through the same toolkit helpers;
+    only one holds a credential today. All of them must therefore be a deliberate declaration rather than an oversight.
     """
     conn = _fresh_schema_db(tmp_path)
     try:
@@ -894,10 +865,9 @@ def test_every_free_form_workflow_json_column_is_declared(tmp_path):
 async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_path):
     """The reason the column is declared by *path* and not by name.
 
-    Declaring ``settings.workflow_config`` secret would blank the whole slot and
-    destroy every style, imported graph and TTS setting; a blind recursive
-    blank-by-key-name would mangle an imported ComfyUI graph's node inputs. So this
-    asserts both halves: the key goes, everything beside it survives byte-for-byte.
+    Declaring ``settings.workflow_config`` secret would blank the whole slot and destroy every style, imported graph and TTS
+    setting; a blind recursive blank-by-key-name would mangle an imported ComfyUI graph's node inputs. So this asserts both
+    halves: the key goes, everything beside it survives byte-for-byte.
     """
     blob = {
         "image_gen": {
@@ -940,7 +910,7 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
     assert stored["tts"] == {"auto_play": True}
 
 
-# ── secret-canary leak sentinel ──────────────────────────────────────────────────
+# -- secret-canary leak sentinel --------------------------------------------------
 
 
 def _nest(path: tuple[str, ...], value: str) -> dict:
@@ -961,17 +931,13 @@ def _deep_merge(dst: dict, src: dict) -> dict:
 
 
 async def test_no_secret_canary_leaks_in_exports(client, db_path):
-    """Seed a unique sentinel into every declared secret -- column *and* JSON path --
-    then prove no leak path ships it: (a) any single domain exported without
-    ``configs`` must contain no sentinel at all; (b) a full export with
-    ``strip_keys`` must contain no *api_key* sentinel. A future leak fails this
-    generically, not just for the declared columns' happy path.
+    """Seed a unique sentinel into every declared secret -- column *and* JSON path -- then prove no leak path ships it: (a) any
+    single domain exported without ``configs`` must contain no sentinel at all; (b) a full export with ``strip_keys`` must
+    contain no *api_key* sentinel. A future leak fails this generically, not just for the declared columns' happy path.
 
-    Deriving the JSON canaries from ``SECRET_JSON_PATHS`` proves more than a
-    table-shape assertion can: it proves ``_blank_json_paths`` actually *walks* each
-    declared path. Seeding ``character_cards.workflow_state`` is also the failing-
-    then-passing proof of the live TTS leak -- before this landed, the ``characters``
-    domain exported with that key intact.
+    Deriving the JSON canaries from ``SECRET_JSON_PATHS`` proves more than a table-shape assertion can: it proves
+    ``_blank_json_paths`` actually *walks* each declared path. Seeding ``character_cards.workflow_state`` is also the failing-
+    then-passing proof of the live TTS leak -- before this landed, the ``characters`` domain exported with that key intact.
     """
     path = str(db_path)
 
@@ -981,8 +947,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     def json_canary(table: str, col: str, leaf: tuple[str, ...]) -> bytes:
         return "LEAK-CANARY-{}-{}-{}".format(table, col, ".".join(leaf)).encode()
 
-    # The JSON canaries need rows to live on: character_cards is where the TTS key
-    # sits, and it is empty on a fresh DB.
+    # The JSON canaries need rows to live on: character_cards is where the TTS key sits, and it is empty on a fresh DB.
     await client.post("/api/characters", json={"name": "Canary"})
 
     json_canaries: list[bytes] = []
@@ -1016,7 +981,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     non_configs = [d for d in presets.ALL_DOMAINS if d != "configs"]
     for domain in non_configs:
         name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
-        blob = open(presets._library_path(name), "rb").read()
+        blob = Path(presets._library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
@@ -1024,20 +989,18 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     name = (await client.post("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True})).json()[
         "name"
     ]
-    blob = open(presets._library_path(name), "rb").read()
+    blob = Path(presets._library_path(name)).read_bytes()
     leaked_keys = [c.decode() for c in api_key_canaries if c in blob]
     assert leaked_keys == [], leaked_keys
 
 
 async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_path):
     canary = base64.b64encode(b"LEAK-CANARY-user_personas-avatar_b64").decode().encode()
-    resp = await client.post(
-        "/api/user-personas",
-        json={"name": "Pictured", "avatar_b64": canary.decode(), "avatar_mime": "image/png"},
+    await client.post_checked(
+        "/api/user-personas", json={"name": "Pictured", "avatar_b64": canary.decode(), "avatar_mime": "image/png"}
     )
-    assert resp.status_code == 200
 
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
         name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
-        blob = open(presets._library_path(name), "rb").read()
+        blob = Path(presets._library_path(name)).read_bytes()
         assert canary not in blob, domain

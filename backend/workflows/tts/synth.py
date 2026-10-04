@@ -21,14 +21,13 @@ from .engine.router import get_adapter
 
 #: This workflow's registry id, and the key its per-character profile is stored
 #: under. Defined here rather than in ``hooks`` because the profile is this
-#: module's contract and a caller outside the workflow — the voice-enrollment
-#: route — needs the key without importing the hook surface.
+#: module's contract and a caller outside the workflow -- the voice-enrollment
+#: route -- needs the key without importing the hook surface.
 WORKFLOW_ID = "tts"
 
-# Field set of a per-character voice profile, stored in
-# ``character_cards.workflow_state['tts']`` (read via get_workflow_character_state).
-# Voice identity and credentials both live here; ``enabled`` gates automatic
-# per-turn generation for the character.
+# Field set of a per-character voice profile, stored in ``character_cards.workflow_state['tts']`` (read via
+# get_workflow_character_state). Voice identity and credentials both live here; ``enabled`` gates automatic per-turn generation
+# for the character.
 PROFILE_DEFAULTS: dict = {
     "backend": "spark",
     "voice_id": "cloned",
@@ -77,9 +76,8 @@ def _as_float(value: object, default: float) -> float:
 def normalize_profile(raw: object) -> dict:
     """Merge a stored/partial profile over ``PROFILE_DEFAULTS``.
 
-    Missing or null fields fall back to defaults; ``rate``/``pitch`` are
-    coerced to float so a value that round-tripped through JSON as a string
-    still reaches the adapter as a number.
+    Missing or null fields fall back to defaults; ``rate``/``pitch`` are coerced to float so a value that round-tripped through
+    JSON as a string still reaches the adapter as a number.
     """
     out = dict(PROFILE_DEFAULTS)
     if isinstance(raw, dict):
@@ -117,9 +115,8 @@ def _voice_record(profile: Mapping[str, Any]) -> dict:
     return record
 
 
-# Local backends that stitch per-chunk clips together and emit WAV; every
-# other backend returns MP3. `spark` is the built-in cloner and `spark_remote`
-# the sidecar it replaced; both emit 16 kHz PCM.
+# Local backends that stitch per-chunk clips together and emit WAV; every other backend returns MP3. `spark` is the built-in
+# cloner and `spark_remote` the sidecar it replaced; both emit 16 kHz PCM.
 _WAV_BACKENDS = frozenset({"kokoro", "spark", "spark_remote"})
 
 
@@ -203,9 +200,8 @@ def compute_seed(text: str, profile: dict, blocks: list[dict] | None = None) -> 
 def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | None = None) -> dict:
     """The self-contained reproduction record stored on the attachment.
 
-    Carries every parameter the synthesis call needs plus the source text, so
-    reroll/rehydrate -- whose context has no character to read the profile
-    from -- can reproduce the audio from this dict alone.
+    Carries every parameter the synthesis call needs plus the source text, so reroll/rehydrate -- whose context has no character
+    to read the profile from -- can reproduce the audio from this dict alone.
     """
     md = _voice_record(profile)
     md["text"] = text
@@ -215,16 +211,10 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
 
 
 def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
-    """Profile fields only some backends read, passed to all of them.
+    """Pass optional backend profile fields through a shared kwargs shape.
 
-    Every adapter takes ``**kwargs``, so this stays one call shape rather than a
-    branch per backend. ``speaker_tokens`` is the built-in Spark cloner's voice,
-    and ``reference_tokens``/``reference_text`` its advanced reference, sent
-    only when the profile speaks with it;
-    ``settings`` is how a local backend reads its own Local ML gates, and stays
-    ``None`` when the caller had none — preview and reroll both synthesize from
-    a context that carries no settings, and making this path fetch them would
-    put a database read in front of every remote backend that never looks.
+    Include Spark speaker/reference tokens only for its profile. Preserve absent
+    settings for preview/reroll rather than adding unnecessary database reads.
     """
     advanced = speaks_advanced(profile)
     return {
@@ -238,8 +228,7 @@ def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
 async def synthesize(text: str, profile: dict, *, settings: Mapping[str, Any] | None = None) -> tuple[bytes, str]:
     """Render ``text`` to audio under ``profile``. Returns ``(bytes, mime)``.
 
-    Raises ``ValueError`` for an unknown backend (from ``get_adapter``) or
-    when the backend produces no audio.
+    Raises ``ValueError`` for an unknown backend (from ``get_adapter``) or when the backend produces no audio.
     """
     backend = profile.get("backend") or "spark"
     adapter = get_adapter(backend)
@@ -270,10 +259,9 @@ def _alignment_key(token: str) -> str:
 def _alignable_tokens(text: str) -> list[str]:
     """Whitespace tokens of ``text`` carrying at least one ASCII letter or digit.
 
-    This is the word-alignment contract shared with the frontend karaoke mapper,
-    which applies the same rule (lowercase, strip non-``[a-z0-9]``, drop empties).
-    Punctuation-only and non-ASCII-only tokens are dropped on both sides, so the
-    k-th span produced here lines up with the k-th highlighted on-screen word.
+    This is the word-alignment contract shared with the frontend karaoke mapper, which applies the same rule (lowercase, strip
+    non-``[a-z0-9]``, drop empties). Punctuation-only and non-ASCII-only tokens are dropped on both sides, so the k-th span
+    produced here lines up with the k-th highlighted on-screen word.
     """
     return [token for token in text.split() if _alignment_key(token)]
 
@@ -281,10 +269,9 @@ def _alignable_tokens(text: str) -> list[str]:
 def estimate_word_spans(dialogue_text: str) -> list[dict]:
     """Char-proportional clip-relative spans, one per alignable token.
 
-    Used when a backend reports no native word timing. The ms scale is nominal:
-    the karaoke driver re-anchors every span set to the decoded clip duration, so
-    only the relative widths matter (here, proportional to token length). Empty
-    when the text has no alignable token.
+    Used when a backend reports no native word timing. The ms scale is nominal: the karaoke driver re-anchors every span set to
+    the decoded clip duration, so only the relative widths matter (here, proportional to token length). Empty when the text has
+    no alignable token.
     """
     tokens = _alignable_tokens(dialogue_text)
     spans: list[dict] = []
@@ -297,16 +284,10 @@ def estimate_word_spans(dialogue_text: str) -> list[dict]:
 
 
 def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dict] | None:
-    """Map a backend's native word-boundary events onto the alignable tokens.
+    """Map native word boundaries to alignable token spans by forward character search.
 
-    ``boundaries`` is the backend's per-word timing stream
-    (``[{text, start_ms, end_ms}]``); its tokenization need not match ours, so
-    each boundary is located in ``dialogue_text`` by a forward character cursor
-    and attributed to every alignable token whose character span it overlaps. A
-    token covered by several boundaries takes their union. Returns ``None`` when
-    any token receives no boundary -- the mapping is then incomplete and the
-    caller estimates instead. When not ``None``, the result has one span per
-    alignable token, in order.
+    Union overlapping boundaries per token. Return None if any token lacks timing
+    so callers can estimate; otherwise return one ordered span per token.
     """
     tokens = _alignable_tokens(dialogue_text)
     if not tokens or not boundaries:
@@ -438,9 +419,8 @@ async def synthesize_blocks(
 async def synthesize_blocks_from_metadata(metadata: dict) -> tuple[bytes, str, list[dict]]:
     """Reproduce per-block audio from a stored ``generation_metadata`` dict.
 
-    Backs the reroll and rehydrate hooks, whose context carries no character
-    profile -- the metadata is the sole input. Raises ``ValueError`` when the
-    record lacks the source text.
+    Backs the reroll and rehydrate hooks, whose context carries no character profile -- the metadata is the sole input. Raises
+    ``ValueError`` when the record lacks the source text.
     """
     text = metadata.get("text") if isinstance(metadata, dict) else None
     if not text:

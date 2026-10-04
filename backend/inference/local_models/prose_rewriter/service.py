@@ -30,46 +30,36 @@ def available(variant_id: str | None) -> bool:
 
 
 def state() -> dict[str, str]:
-    """``{"state": idle|loading|ready|failed, "error": …}`` for the panel."""
+    """``{"state": idle|loading|ready|failed, "error": ...}`` for the panel."""
     return {"state": HOST.state, "error": HOST.error}
 
 
 async def shutdown() -> None:
     """Stop this feature's llama-server child.
 
-    The app lifespan stops every host through the shared manager; this is the
-    one-host spelling, kept for symmetry with :func:`state` and for a caller
-    that means this feature specifically.
+    The app lifespan stops every host through the shared manager; this is the one-host spelling, kept for symmetry with
+    :func:`state` and for a caller that means this feature specifically.
     """
     await HOST.shutdown()
 
 
 async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGenerator[dict, None]:
-    """Rewrite *draft*, yielding the caller-independent event vocabulary.
+    """Yield whole-draft rewrite events in visible paragraph order.
 
-    Yields:
-        ``{"type": "draft_update", "draft": str}`` — one per completed
-        top-to-bottom run of paragraphs, carrying the WHOLE current assembly
-        rather than a delta; generation is concurrent, so there is no
-        meaningful delta.
-        ``{"type": "warning", "reason": str}`` — the rewrite did not happen.
-        ``{"type": "rewritten", "draft": str}`` — exactly once, last. Terminal
-        and internal: a caller consumes it and never forwards it as-is.
+    Events: draft_update after a completed assembly run, warning if rewriting did not happen, then exactly one terminal
+    rewritten. Callers consume the terminal event internally rather than forwarding it.
     """
-    # A queue bridges the rewriter's progress callback into this generator: an
-    # async generator cannot yield from inside a callback its own body is
-    # awaiting, and batching the repaints until the end would leave the bubble
-    # frozen for the whole rewrite — which is the hang this event exists to
-    # avoid. The rewrite runs as a task; this loop drains snapshots as they land.
+    # A queue bridges the rewriter's progress callback into this generator: an async generator cannot yield from inside a
+    # callback its own body is awaiting, and batching the repaints until the end would leave the bubble frozen for the whole
+    # rewrite -- which is the hang this event exists to avoid. The rewrite runs as a task; this loop drains snapshots as they
+    # land.
     queue: asyncio.Queue[str | object] = asyncio.Queue()
 
     async def worker() -> str:
         try:
-            # The profile is built HERE, inside the task: a checkpoint that
-            # went missing, a registry change since the config was resolved, or
-            # a batch size outside the allowlist all raise, and inside the task
-            # that failure reaches the `except` below as one warning plus the
-            # writer's draft, which is this generator's whole contract.
+            # The profile is built HERE, inside the task: a checkpoint that went missing, a registry change since the config was
+            # resolved, or a batch size outside the allowlist all raise, and inside the task that failure reaches the `except`
+            # below as one warning plus the writer's draft, which is this generator's whole contract.
             profile = config.launch_profile(cfg)
             return await arewrite(draft, profile, host=HOST, on_progress=queue.put)
         finally:
@@ -89,9 +79,8 @@ async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGen
         yield {"type": "rewritten", "draft": draft}
         return
     finally:
-        # Abandoning this generator (an abort mid-rewrite) must not leave the
-        # task decoding into a queue nobody reads. Cancelling closes the
-        # connection, which is llama.cpp's cancel signal, so the slots free.
+        # Abandoning this generator (an abort mid-rewrite) must not leave the task decoding into a queue nobody reads.
+        # Cancelling closes the connection, which is llama.cpp's cancel signal, so the slots free.
         if not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):

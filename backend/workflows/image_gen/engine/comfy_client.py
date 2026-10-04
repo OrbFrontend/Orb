@@ -47,8 +47,7 @@ def invalidate_object_info(api_url: str | None = None) -> None:
 def _first_input_name(node_errors: Any) -> str | None:
     """The first non-empty input name named by any node error, or None.
 
-    ``extra_info.input_name`` is the precise field and wins over the free-text
-    ``details`` when an error carries both.
+    ``extra_info.input_name`` is the precise field and wins over the free-text ``details`` when an error carries both.
     """
     if not isinstance(node_errors, Mapping):
         return None
@@ -130,13 +129,7 @@ def _validation_message(payload: Any) -> str:
 
 
 class ComfyClient:
-    def __init__(
-        self,
-        api_url: str,
-        api_key: str = "",
-        *,
-        transport: httpx.AsyncBaseTransport | None = None,
-    ):
+    def __init__(self, api_url: str, api_key: str = "", *, transport: httpx.AsyncBaseTransport | None = None):
         self.api_url = api_url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.transport = transport
@@ -188,9 +181,8 @@ class ComfyClient:
     async def node_info(self, class_type: str) -> dict:
         """One node class's declaration, or `{}` where the server does not know it.
 
-        Served out of the full catalogue while that is still cached, and fetched on
-        its own otherwise: `/object_info` is tens of megabytes, which is not a price
-        a render should pay to read one widget's declared bounds.
+        Served out of the full catalogue while that is still cached, and fetched on its own otherwise: `/object_info` is tens of
+        megabytes, which is not a price a render should pay to read one widget's declared bounds.
         """
         cached = _object_info_cache.get(self.api_url)
         if cached and cached[0] > time.monotonic():
@@ -202,21 +194,14 @@ class ComfyClient:
         return dict(entry) if isinstance(entry, Mapping) else {}
 
     async def upload_image(
-        self,
-        data: bytes,
-        mime: str,
-        *,
-        digest: str,
-        timeout: float = 60.0,
-        progress: ProgressCallback | None = None,
+        self, data: bytes, mime: str, *, digest: str, timeout: float = 60.0, progress: ProgressCallback | None = None
     ) -> str:
         """Upload one reference image and return the widget value for `LoadImage`.
 
-        ``/upload/image`` takes multipart ``image``/``subfolder``/``type``/``overwrite``
-        and answers ``{name, subfolder, type}``; a bare ``"<subfolder>/<name>"`` is what
-        ``folder_paths.get_annotated_filepath`` resolves under the input directory, so
-        that is what the widget carries. The name is content-addressed off `digest`, so
-        repeat renders overwrite one file and a reroll resolves to the same name.
+        ``/upload/image`` takes multipart ``image``/``subfolder``/``type``/``overwrite`` and answers ``{name, subfolder,
+        type}``; a bare ``"<subfolder>/<name>"`` is what ``folder_paths.get_annotated_filepath`` resolves under the input
+        directory, so that is what the widget carries. The name is content-addressed off `digest`, so repeat renders overwrite
+        one file and a reroll resolves to the same name.
         """
         name = f"orb_{digest[:16]}.{MIME_EXTENSIONS.get(mime, 'png')}"
         await emit(progress, "uploading", {"name": name, "bytes": len(data)})
@@ -249,11 +234,9 @@ class ComfyClient:
     async def queue_ahead(self, number: Any, *, timeout: float = 10.0) -> int | None:
         """How many renders sit ahead of queue entry `number`, or None if unknown.
 
-        A shared server may hold this job behind other clients' renders, and
-        "queued behind 2" is the difference between *broken* and *waiting*.
-        Position is informational, so every failure mode — an unreachable
-        server, a malformed body, an older build without /queue — reports None
-        and lets the render proceed rather than raising.
+        A shared server may hold this job behind other clients' renders, and "queued behind 2" is the difference between
+        *broken* and *waiting*. Position is informational, so every failure mode -- an unreachable server, a malformed body, an
+        older build without /queue -- reports None and lets the render proceed rather than raising.
         """
         if not isinstance(number, int) or isinstance(number, bool):
             return None
@@ -277,11 +260,9 @@ class ComfyClient:
     async def cancel(self, prompt_id: str, *, timeout: float = _WITHDRAW_SECS) -> None:
         """Withdraw one prompt, queued or running, without touching anyone else's.
 
-        ``/api/jobs/{id}/cancel`` (ComfyUI since June 2026) does both, scoped to
-        the id. Older servers take a ``/queue`` delete for a waiting prompt and
-        ``/interrupt`` for a running one; ``/interrupt`` honours ``prompt_id``
-        only since mid-2025 and before that stops whatever is running, so it is
-        sent only while ``/queue`` lists this prompt as the running one.
+        ``/api/jobs/{id}/cancel`` (ComfyUI since June 2026) does both, scoped to the id. Older servers take a ``/queue`` delete
+        for a waiting prompt and ``/interrupt`` for a running one; ``/interrupt`` honours ``prompt_id`` only since mid-2025 and
+        before that stops whatever is running, so it is sent only while ``/queue`` lists this prompt as the running one.
         """
         async with self._http(timeout) as client:
             response = await client.post(f"/api/jobs/{quote(prompt_id, safe='')}/cancel")
@@ -308,12 +289,7 @@ class ComfyClient:
             logger.warning("Could not withdraw a stopped ComfyUI render: %s", type(exc).__name__)
 
     async def generate(
-        self,
-        graph: dict,
-        output_node: str,
-        *,
-        timeout_seconds: float,
-        progress: ProgressCallback | None = None,
+        self, graph: dict, output_node: str, *, timeout_seconds: float, progress: ProgressCallback | None = None
     ) -> ImageResult:
         submission = asyncio.ensure_future(
             self._json(
@@ -324,8 +300,7 @@ class ComfyClient:
             )
         )
         try:
-            # Shielded: a Stop landing mid-request must still learn the prompt id,
-            # or the job it queued renders on unseen.
+            # Shielded: a Stop landing mid-request must still learn the prompt id, or the job it queued renders on unseen.
             submitted = await asyncio.shield(submission)
             return await self._render(submitted, output_node, timeout_seconds=timeout_seconds, progress=progress)
         except asyncio.CancelledError:
@@ -333,12 +308,7 @@ class ComfyClient:
             raise
 
     async def _render(
-        self,
-        submitted: Any,
-        output_node: str,
-        *,
-        timeout_seconds: float,
-        progress: ProgressCallback | None,
+        self, submitted: Any, output_node: str, *, timeout_seconds: float, progress: ProgressCallback | None
     ) -> ImageResult:
         if not isinstance(submitted, Mapping) or not isinstance(submitted.get("prompt_id"), str):
             raise ImageGenerationError("ComfyUI did not return a prompt id")

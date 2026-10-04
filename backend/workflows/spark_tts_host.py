@@ -5,21 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..database import get_settings, set_local_ml_config
 from ..inference.local_models import whisper
-from ..inference.local_models.spark_tts import (
-    audio_in,
-    catalog,
-    codec,
-    config,
-    enroll,
-    reference,
-    service,
-    tokens,
-)
+from ..inference.local_models.spark_tts import audio_in, catalog, codec, config, enroll, reference, service, tokens
+from .errors import WorkflowInputError, WorkflowUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +134,25 @@ async def enroll_upload(data: bytes, *, filename: str = "", with_reference: bool
         return Enrollment(speaker, semantic, text, note)
 
     return await asyncio.to_thread(run)
+
+
+async def enroll_voice(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> Enrollment:
+    """Enroll a clip for the TTS workflow, with the advanced reference when it can be prepared.
+
+    An unreadable file raises ``WorkflowInputError`` and a voice model that is not set up raises ``WorkflowUnavailableError``,
+    both with a message for the user. When the reference cannot be prepared, ``reference_note`` says why.
+    """
+    ok, reason = enrollment_ready(settings)
+    if not ok:
+        raise WorkflowUnavailableError(reason)
+    with_reference, reference_reason = reference_ready(settings)
+    try:
+        enrollment = await enroll_upload(data, filename=filename, with_reference=with_reference)
+    except audio_in.UnsupportedAudio as exc:
+        raise WorkflowInputError(str(exc)) from exc
+    except enroll.EnrollmentUnavailable as exc:
+        raise WorkflowUnavailableError(str(exc)) from exc
+    return enrollment if with_reference else replace(enrollment, reference_note=reference_reason)
 
 
 async def reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:

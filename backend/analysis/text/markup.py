@@ -12,26 +12,10 @@ from ...core.text_segmentation import (
     split_paragraphs,
     strip_protected_markup,
 )
-from .roleplay import (
-    THOUGHT_ATTRIBUTION,
-    AxisStyle,
-    Dialogue,
-    Narration,
-    emphasis_inner,
-    is_inline_emphasis,
-    strip_quotes,
-)
-from .roleplay_segmentation import (
-    extract_block_spans,
-    find_emphasis_spans,
-)
+from .roleplay import THOUGHT_ATTRIBUTION, AxisStyle, Dialogue, Narration, emphasis_inner, is_inline_emphasis, strip_quotes
+from .roleplay_segmentation import extract_block_spans, find_emphasis_spans
 
-__all__ = [
-    "classify_axes",
-    "narration_only",
-    "protected_runs",
-    "spoken_lines",
-]
+__all__ = ["classify_axes", "narration_only", "protected_runs", "spoken_lines"]
 
 
 _NARR_HIGH = 0.6  # >= this fraction of narration chars inside *asterisks* -> ASTERISK

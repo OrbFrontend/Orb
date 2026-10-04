@@ -14,7 +14,7 @@ function _commonSuffix(a, b, prefix) {
   return i;
 }
 
-export function remapRuns(runs, oldContent, newContent) {
+function remapRuns(runs, oldContent, newContent) {
   if (oldContent === newContent) return runs.map((r) => ({ ...r }));
   const prefix = _commonPrefix(oldContent, newContent);
   const suffix = _commonSuffix(oldContent, newContent, prefix);
@@ -32,7 +32,7 @@ export function remapRuns(runs, oldContent, newContent) {
   return out;
 }
 
-export function segmentTokens(tokens, text) {
+function segmentTokens(tokens, text) {
   const segs = [];
   let cur = null;
   for (const tok of tokens) {
@@ -51,7 +51,7 @@ export function segmentTokens(tokens, text) {
   return segs;
 }
 
-export function tokenAtOffset(run, offset) {
+function tokenAtOffset(run, offset) {
   let pos = run.start;
   for (let i = 0; i < run.tokens.length; i++) {
     const tokEnd = pos + run.tokens[i].text.length;
@@ -61,7 +61,7 @@ export function tokenAtOffset(run, offset) {
   return null;
 }
 
-export function visualizeWhitespace(text) {
+function visualizeWhitespace(text) {
   return text.replace(/ /g, "␣").replace(/\t/g, "⇥").replace(/\n/g, "↵");
 }
 

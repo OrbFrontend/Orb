@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import get_db
+from ..connection import get_db, select_rows
 from ..models import ConversationLogRow
 
 
@@ -48,16 +48,13 @@ async def add_conversation_log(
 
 async def get_moods_before_turn(cid: str, turn_index: int) -> list[str]:
     """Return active_moods_after from the most recent log entry before turn_index."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT active_moods_after FROM conversation_logs WHERE conversation_id = ? AND turn_index < ? ORDER BY turn_index DESC LIMIT 1",
-                (cid, turn_index),
-            )
-        )
-        if rows and rows[0]["active_moods_after"]:
-            return json.loads(rows[0]["active_moods_after"])
-        return []
+    rows = await select_rows(
+        "SELECT active_moods_after FROM conversation_logs WHERE conversation_id = ? AND turn_index < ? ORDER BY turn_index DESC LIMIT 1",
+        (cid, turn_index),
+    )
+    if rows and rows[0]["active_moods_after"]:
+        return json.loads(rows[0]["active_moods_after"])
+    return []
 
 
 def _decoded_log(row) -> dict:
@@ -89,59 +86,43 @@ _LOG_SELECT = (
 
 
 async def get_conversation_logs(cid: str) -> list[ConversationLogRow]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"{_LOG_SELECT} WHERE l.conversation_id = ? ORDER BY l.turn_index ASC",  # nosec B608 -- module literal
-                (cid,),
-            )
-        )
-        return [cast(ConversationLogRow, _decoded_log(r)) for r in rows]
+    rows = await select_rows(
+        f"{_LOG_SELECT} WHERE l.conversation_id = ? ORDER BY l.turn_index ASC",  # nosec B608 -- module literal
+        (cid,),
+    )
+    return [cast(ConversationLogRow, _decoded_log(r)) for r in rows]
 
 
 async def get_director_log_for_message(message_id: int) -> ConversationLogRow | None:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"{_LOG_SELECT} WHERE l.message_id = ? ORDER BY l.id DESC LIMIT 1",  # nosec B608 -- module literal
-                (message_id,),
-            )
-        )
-        if not rows:
-            return None
-        d = _decoded_log(rows[0])
-        d.setdefault("reasoning_director", "")
-        d.setdefault("reasoning_writer", "")
-        d.setdefault("reasoning_editor", "")
-        return cast(ConversationLogRow, d)
+    rows = await select_rows(
+        f"{_LOG_SELECT} WHERE l.message_id = ? ORDER BY l.id DESC LIMIT 1",  # nosec B608 -- module literal
+        (message_id,),
+    )
+    if not rows:
+        return None
+    d = _decoded_log(rows[0])
+    d.setdefault("reasoning_director", "")
+    d.setdefault("reasoning_writer", "")
+    d.setdefault("reasoning_editor", "")
+    return cast(ConversationLogRow, d)
 
 
 async def get_director_logs_for_messages(message_ids: Sequence[int]) -> dict[int, ConversationLogRow]:
     """The newest log of each message, keyed by message id; messages without one are absent."""
     marks = ",".join("?" * len(message_ids))
-    async with get_db() as db:
-        rows = await db.execute_fetchall(
-            f"{_LOG_SELECT} WHERE l.id IN (SELECT MAX(id) FROM conversation_logs "  # nosec B608 -- module literal, placeholders only
-            f"WHERE message_id IN ({marks}) GROUP BY message_id)",
-            list(message_ids),
-        )
+    rows = await select_rows(
+        f"{_LOG_SELECT} WHERE l.id IN (SELECT MAX(id) FROM conversation_logs "  # nosec B608 -- module literal, placeholders only
+        f"WHERE message_id IN ({marks}) GROUP BY message_id)",
+        list(message_ids),
+    )
     return {row["message_id"]: cast(ConversationLogRow, _decoded_log(row)) for row in rows}
 
 
-# ── Retention
-# The Director audit trail is the fastest-growing purely-diagnostic table in the
-# schema (one row per turn, each holding full LLM output, reasoning and injection
-# blocks). Cleanup blanks the payload in place rather than dropping the row: two
-# callers read ``active_moods_after`` off old rows to carry mood state forward
-# (:func:`get_moods_before_turn` and the branch-switch restore in queries/messages),
-# and a missing row silently breaks that continuity.
-#
-# ``cutoff`` is an ISO-8601 UTC string, matching how ``created_at`` is written;
-# a plain string compare therefore orders correctly. None means "no age limit".
+# Blank diagnostic payloads without deleting log rows: active_moods_after is needed for mood continuity and branch restoration.
+# UTC ISO-8601 cutoff strings sort chronologically; None disables the age limit.
 
-# A whitelist, deliberately: every column *not* named here is wiped, so a column
-# added to the table later is reclaimed by default instead of quietly growing
-# forever. Adding one here is the explicit act, not leaving one out.
+# A whitelist, deliberately: every column *not* named here is wiped, so a column added to the table later is reclaimed by
+# default instead of quietly growing forever. Adding one here is the explicit act, not leaving one out.
 LOG_KEEP_COLUMNS = frozenset(
     {
         "id",
@@ -158,10 +139,9 @@ LOG_KEEP_COLUMNS = frozenset(
 async def _wipeable(db) -> list[tuple[str, str, int]]:
     """``(column, blank_sql, blank_len)`` for every non-whitelisted column.
 
-    NOT NULL columns reset to their schema default rather than NULL; readers
-    already treat both as "nothing here" (``json.loads(x) if x else {}``).
-    ``blank_len`` is what survives the wipe, so the size estimate counts only
-    what is actually reclaimable and a second run correctly finds nothing.
+    NOT NULL columns reset to their schema default rather than NULL; readers already treat both as "nothing here"
+    (``json.loads(x) if x else {}``). ``blank_len`` is what survives the wipe, so the size estimate counts only what is actually
+    reclaimable and a second run correctly finds nothing.
     """
     rows = list(await db.execute_fetchall("PRAGMA table_info(conversation_logs)"))
     out = []

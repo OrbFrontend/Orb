@@ -1,9 +1,8 @@
 """End-to-end cover for scripts/migrate_sillytavern.py.
 
-Builds a miniature SillyTavern install on disk, migrates it into a fresh Orb
-database, and then reads the result back **through the HTTP API** rather than
-off the tables. The script writes raw SQL, so proving the rows exist proves
-very little; proving the app can render them is the actual contract.
+Builds a miniature SillyTavern install on disk, migrates it into a fresh Orb database, and then reads the result back **through
+the HTTP API** rather than off the tables. The script writes raw SQL, so proving the rows exist proves very little; proving the
+app can render them is the actual contract.
 """
 
 from __future__ import annotations
@@ -295,8 +294,7 @@ async def test_character_card_and_expressions_survive(st_install: Path, db_path:
     assert testy["alternate_greetings"] == ["Fog tonight."]
     assert cards["Testy"]["has_avatar"] is True
 
-    # Sprites live under the card's name, while its chats live under the file
-    # stem -- and only real go-emotions labels are kept.
+    # Sprites live under the card's name, while its chats live under the file stem -- and only real go-emotions labels are kept.
     labels = set((await client.get(f"/api/characters/{cards['Testy']['id']}/expressions")).json()["labels"])
     assert labels == {"joy", "anger", "neutral"}
 
@@ -359,8 +357,7 @@ async def test_personas_are_created_and_pinned_to_their_chat(st_install: Path, d
     assert personas["Mariner"]["has_avatar"] is True
     assert personas["Quiet One"]["has_avatar"] is False
     assert personas["Huge"]["has_avatar"] is False
-    avatar = await client.get(f"/api/user-personas/{personas['Mariner']['id']}/avatar")
-    assert avatar.status_code == 200
+    avatar = await client.get_checked(f"/api/user-personas/{personas['Mariner']['id']}/avatar")
     assert avatar.content == PERSONA_AVATAR_BYTES
 
     solo = [c for c in (await client.get("/api/conversations")).json() if c["kind"] == "solo"][0]

@@ -1,12 +1,10 @@
 """Turn-level integration tests for persistent state fragments.
 
-A state fragment remembers changing conversation state as one value or as
-multiple entries. These tests drive real turns through the pipeline with the
-LLM mocked, and assert on what the history stores and what each pass receives:
-the update transports (direct_scene before the Writer, the ``update_state`` step
-before the Writer or after the reply), ``keep`` semantics, validation, branch
-behaviour, carried corrections, group exchanges, partial saves, Checkpoint and
-Compress History, the State tab routes, and the tools-blob invariants.
+A state fragment remembers changing conversation state as one value or as multiple entries. These tests drive real turns through
+the pipeline with the LLM mocked, and assert on what the history stores and what each pass receives: the update transports
+(direct_scene before the Writer, the ``update_state`` step before the Writer or after the reply), ``keep`` semantics,
+validation, branch behaviour, carried corrections, group exchanges, partial saves, Checkpoint and Compress History, the State
+tab routes, and the tools-blob invariants.
 """
 
 from __future__ import annotations
@@ -40,24 +38,22 @@ async def _fragment(client, fid: str, *, mode: str, update: str, inject: str = "
         "injection_label": extra.pop("injection_label", fid.replace("_", " ").title()),
         **extra,
     }
-    resp = await client.post("/api/interactive-fragments", json=payload)
-    assert resp.status_code == 200, resp.text
+    await client.post_checked("/api/interactive-fragments", json=payload)
 
 
 async def test_reserved_fragment_ids_are_refused(client, db):
     for fid in ("retire", "moods", "speaking_plan"):
-        resp = await client.post(
+        resp = await client.post_checked(
             "/api/interactive-fragments",
             json={"id": fid, "label": "X", "description": "d", "field_type": "state", "injection_label": "X"},
+            expected_status=400,
         )
-        assert resp.status_code == 400, fid
         assert "reserved" in resp.json()["detail"]
 
 
 async def _settings(client, **overrides) -> None:
     body = {"enable_agent": True, "enabled_tools": {"direct_scene": True}, **overrides}
-    resp = await client.put("/api/settings", json=body)
-    assert resp.status_code == 200, resp.text
+    await client.put_checked("/api/settings", json=body)
 
 
 def _state_call(**fields) -> list[dict]:
@@ -101,7 +97,7 @@ def _requests(llm_mock, pass_name: str) -> list[str]:
     return out
 
 
-# ── Transports ───────────────────────────────────────────────────────────────
+# -- Transports ---------------------------------------------------------------
 
 
 async def test_after_reply_entries_update_replays_the_reply_and_commits_with_it(client, db, llm_mock):
@@ -220,7 +216,7 @@ async def test_migrated_progressive_settings_add_no_model_call(client, db, llm_m
     assert [p for p, _ in llm_mock.calls] == ["director", "writer"]
 
 
-# ── Switches and gates ───────────────────────────────────────────────────────
+# -- Switches and gates -------------------------------------------------------
 
 
 async def test_manual_only_stops_automatic_updates_and_keeps_injection(client, db, llm_mock):
@@ -235,8 +231,7 @@ async def test_manual_only_stops_automatic_updates_and_keeps_injection(client, d
     await _drain(handle_turn(cid, "one"))
 
     for fid in ("threads", "trust"):
-        resp = await client.put(f"/api/interactive-fragments/{fid}", json={"state_update": "manual"})
-        assert resp.status_code == 200, resp.text
+        await client.put_checked(f"/api/interactive-fragments/{fid}", json={"state_update": "manual"})
     llm_mock.enqueue_director(_direct(trust="ignored"))
     llm_mock.enqueue_writer("Two.")
     llm_mock.enqueue_state(_state_call(threads=["ignored"]))  # must stay unconsumed
@@ -310,8 +305,7 @@ async def test_injection_targets_are_per_fragment(client, db, llm_mock):
     await _settings(client)
     await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
     for fid in ("to_director", "to_writer", "to_both", "to_none"):
-        resp = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": fid, "op": "add", "text": fid})
-        assert resp.status_code == 200, resp.text
+        await client.post_checked(f"/api/conversations/{cid}/state", json={"fragment_id": fid, "op": "add", "text": fid})
 
     llm_mock.enqueue_director(_direct())
     llm_mock.enqueue_writer("A reply.")
@@ -325,7 +319,7 @@ async def test_injection_targets_are_per_fragment(client, db, llm_mock):
     assert "- to_writer" not in director_request and "- to_none" not in director_request
 
 
-# ── Operations, validation, and keep ─────────────────────────────────────────
+# -- Operations, validation, and keep -----------------------------------------
 
 
 async def test_retire_by_alias_frees_a_slot_and_revision_is_retire_plus_add(client, db, llm_mock):
@@ -357,9 +351,8 @@ async def test_keep_semantics_for_skipped_empty_and_malformed_calls(client, db, 
     await _drain(handle_turn(cid, "one"))
     before = await _active_state(cid)
 
-    # Skipped (no tool call), empty values, an object where a list belongs, a
-    # list where one value belongs, an unknown alias, and an unknown field: none
-    # of it changes the state.
+    # Skipped (no tool call), empty values, an object where a list belongs, a list where one value belongs, an unknown alias,
+    # and an unknown field: none of it changes the state.
     llm_mock.enqueue_writer("Two.")
     llm_mock.enqueue_state([])
     await _drain(handle_turn(cid, "two"))
@@ -406,8 +399,7 @@ async def test_per_fragment_option_makes_one_call_per_fragment_with_its_own_alia
     await _fragment(client, "beta", mode="entries", update="after_reply")
     await _settings(client, director_individual_fragments=True, enabled_tools={"direct_scene": False})
     llm_mock.enqueue_writer("One.")
-    # The wire schema is the shared union, so a reply may fill both; each call
-    # keeps only its own fragment.
+    # The wire schema is the shared union, so a reply may fill both; each call keeps only its own fragment.
     both = _state_call(alpha=["a-1"], beta=["b-1"])
     llm_mock.enqueue_state(both)
     llm_mock.enqueue_state(both)
@@ -450,7 +442,7 @@ async def test_a_judge_outcome_is_context_for_the_updater_not_a_write(client, db
     assert await _active_state(cid) == {}
 
 
-# ── Modes ────────────────────────────────────────────────────────────────────
+# -- Modes --------------------------------------------------------------------
 
 
 # Editing a fragment's mode is a configuration change: it rebuilds the schema on
@@ -484,8 +476,7 @@ async def test_mode_switch_writes_nothing_and_keeps_entry_ids(client, db, llm_mo
     assert shapes[0]["function"]["parameters"]["properties"]["place"]["type"] == "string"
     assert shapes[1]["function"]["parameters"]["properties"]["place"]["type"] == "array"
 
-    # Back to one value: both entries stay, render together everywhere, and the
-    # panel says the next update replaces them.
+    # Back to one value: both entries stay, render together everywhere, and the panel says the next update replaces them.
     await client.put("/api/interactive-fragments/place", json={"state_mode": "value"})
     panel = (await client.get(f"/api/conversations/{cid}/state")).json()
     assert next(f for f in panel["fragments"] if f["fragment_id"] == "place")["several_values"] is True
@@ -504,7 +495,7 @@ async def test_mode_switch_writes_nothing_and_keeps_entry_ids(client, db, llm_mo
     assert {h["text"] for h in history if h["op"] == "add"} >= {"The docks.", "The warehouse.", "The rooftop."}
 
 
-# ── Branches, regeneration, and carried corrections ─────────────────────────
+# -- Branches, regeneration, and carried corrections -------------------------
 
 
 async def test_regeneration_starts_from_the_parent_path_and_branches_keep_their_state(client, db, llm_mock):
@@ -545,16 +536,14 @@ async def test_manual_correction_is_carried_to_the_regenerated_reply(client, db,
     threads = next(f for f in panel["fragments"] if f["fragment_id"] == "threads")
     entries = {e["text"]: e["entry_id"] for e in threads["entries"]}
 
-    # Three corrections anchored on the reply: an add (always carries), a revise
-    # of an entry from an earlier turn (carries), and a retire of the entry the
-    # reply itself added (nothing to apply to once the reply is regenerated).
+    # Three corrections anchored on the reply: an add (always carries), a revise of an entry from an earlier turn (carries), and
+    # a retire of the entry the reply itself added (nothing to apply to once the reply is regenerated).
     for body in (
         {"fragment_id": "threads", "op": "add", "text": "user fact"},
         {"fragment_id": "threads", "op": "revise", "entry_id": entries["kept"], "text": "kept, corrected"},
         {"fragment_id": "threads", "op": "retire", "entry_id": entries["from the reply"]},
     ):
-        resp = await client.post(f"/api/conversations/{cid}/state", json=body)
-        assert resp.status_code == 200, resp.text
+        await client.post_checked(f"/api/conversations/{cid}/state", json=body)
 
     llm_mock.enqueue_writer("Two, again.")
     llm_mock.enqueue_state(_state_call())
@@ -584,8 +573,7 @@ async def test_regeneration_folds_state_anchored_on_its_parent_user_message(clie
     greeting, _ = await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
     user, _ = await dbmod.add_message(cid, "user", "hi", 1, parent_id=greeting, advance_leaf=True)
     # The user message is the leaf (its reply failed, say), so the correction anchors there.
-    resp = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "set", "text": "Docks"})
-    assert resp.status_code == 200, resp.text
+    await client.post_checked(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "set", "text": "Docks"})
     reply, _ = await dbmod.add_message(cid, "assistant", "At the docks.", 2, parent_id=user, advance_leaf=True)
 
     llm_mock.enqueue_writer("Still at the docks.")
@@ -599,20 +587,16 @@ async def test_regeneration_folds_state_anchored_on_its_parent_user_message(clie
     assert await _active_state(cid) == {"place": ["Harbor"]}
 
 
-# ── Group exchanges ──────────────────────────────────────────────────────────
+# -- Group exchanges ----------------------------------------------------------
 
 
 async def _group(client) -> str:
-    aria = (await client.post("/api/characters", json={"name": "Aria"})).json()["id"]
-    kael = (await client.post("/api/characters", json={"name": "Kael"})).json()["id"]
+    aria = await client.create("/api/characters", json={"name": "Aria"})
+    kael = await client.create("/api/characters", json={"name": "Kael"})
     conv = (
         await client.post(
             "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Campfire",
-                "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-            },
+            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
         )
     ).json()
     return conv["id"]
@@ -647,7 +631,7 @@ async def test_group_exchange_updates_state_once_and_anchors_each_placement(clie
     assert all("before-note" in json.dumps(c["messages"]) for c in writer_calls)
 
 
-# ── Partial saves ────────────────────────────────────────────────────────────
+# -- Partial saves ------------------------------------------------------------
 
 
 async def test_stopped_reply_keeps_its_before_writer_changes(client, db, llm_mock):
@@ -673,7 +657,7 @@ async def test_stopped_reply_keeps_its_before_writer_changes(client, db, llm_moc
 async def test_fallback_save_keeps_the_announced_before_writer_changes(client, db):
     """A turn cut off before ``_result`` saves its streamed text with the
     before-Writer changes on the live state announced ahead of the Writer."""
-    from backend.pipeline.persistence import _consume_pipeline
+    from backend.pipeline.persistence import consume_pipeline
     from backend.pipeline.state import TurnState
 
     cid = await _conversation("conv-state-fallback")
@@ -698,7 +682,7 @@ async def test_fallback_save_keeps_the_announced_before_writer_changes(client, d
     settings = await dbmod.get_settings()
     events = []
     try:
-        async for event in _consume_pipeline(cut_off(), cid, settings, user_id, 1):
+        async for event in consume_pipeline(cut_off(), cid, settings, user_id, 1):
             events.append(event)
     except RuntimeError:
         pass
@@ -709,7 +693,7 @@ async def test_fallback_save_keeps_the_announced_before_writer_changes(client, d
     assert [r["text"] for r in await dbmod.get_state_events_for_message(reply["id"])] == ["wary"]
 
 
-# ── Checkpoint and Compress History ─────────────────────────────────────────
+# -- Checkpoint and Compress History -----------------------------------------
 
 
 async def test_compress_carries_state_and_regenerating_the_first_kept_reply_does_not_double_apply(client, db, llm_mock):
@@ -738,7 +722,7 @@ async def test_compress_carries_state_and_regenerating_the_first_kept_reply_does
     assert await _active_state(new_cid) == {"threads": ["one", "two", "three, again"]}
 
 
-# ── State tab routes ─────────────────────────────────────────────────────────
+# -- State tab routes ---------------------------------------------------------
 
 
 async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, db, llm_mock):
@@ -747,8 +731,7 @@ async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, 
     await _fragment(client, "threads", mode="entries", update="manual")
     leaf, _ = await dbmod.add_message(cid, "assistant", "Greeting.", 0, advance_leaf=True)
 
-    ok = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "set", "text": "Docks"})
-    assert ok.status_code == 200
+    await client.post_checked(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "set", "text": "Docks"})
     rows = await dbmod.get_state_events_for_message(leaf)
     assert [(r["op"], r["source"]) for r in rows] == [("add", "user")]
 
@@ -763,8 +746,7 @@ async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, 
         resp = await client.post(f"/api/conversations/{cid}/state", json=body)
         assert resp.status_code == status, (body, resp.text)
 
-    cleared = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "clear"})
-    assert cleared.status_code == 200
+    await client.post_checked(f"/api/conversations/{cid}/state", json={"fragment_id": "place", "op": "clear"})
     assert await _active_state(cid) == {}
 
 
@@ -818,14 +800,15 @@ async def test_deleted_fragment_state_is_read_only_and_deletable(client, db, llm
     panel = (await client.get(f"/api/conversations/{cid}/state")).json()
     orphan = next(f for f in panel["fragments"] if f["fragment_id"] == "threads")
     assert orphan["configured"] is False and orphan["read_only"] is True and orphan["label"] == "Old threads"
-    edit = await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "threads", "op": "add", "text": "y"})
-    assert edit.status_code == 409
+    await client.post_checked(
+        f"/api/conversations/{cid}/state", json={"fragment_id": "threads", "op": "add", "text": "y"}, expected_status=409
+    )
 
     assert (await client.delete(f"/api/conversations/{cid}/state/threads")).json() == {"deleted": 1}
     assert (await client.get(f"/api/conversations/{cid}/state")).json()["has_state"] is False
 
 
-# ── Cache invariants ─────────────────────────────────────────────────────────
+# -- Cache invariants ---------------------------------------------------------
 
 
 async def test_tools_blob_is_byte_identical_while_state_changes(client, db, llm_mock):

@@ -1,28 +1,18 @@
+import { loadDom } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// After a stopped turn settles, the chat must show exactly what the server
-// saved: this operation's own reply with its real id, never an earlier branch,
-// never a cosmetic preview, and never an ID-less row claiming to be saved.
+// After a stopped turn settles, the chat must show exactly what the server saved: this operation's own reply with its
+// real id, never an earlier branch, never a cosmetic preview, and never an ID-less row claiming to be saved.
 
-let dom = null;
-let failure = "";
-try {
-  const { JSDOM } = await import("jsdom");
-  dom = new JSDOM(
-    `<!doctype html><html><body>
+const { dom, failure } = await loadDom({ html: `<!doctype html><html><body>
       <div id="chat-messages"></div><div id="char-list"></div>
       <button id="send-btn"></button><button id="stop-btn"></button>
       <div id="generation-status"><span class="gen-text"></span></div>
       <div id="inspector-content"></div><div id="inspector-workflow-content"></div>
       <div id="state-panel-content"></div>
       <div id="avatar-popup" class="hidden"><img id="avatar-popup-image"></div>
-    </body></html>`,
-    { url: "https://orb.invalid/" },
-  );
-} catch (e) {
-  failure = e?.message || String(e);
-}
+    </body></html>` });
 
 // The server the reconciliation reads back from.
 let saved = [];
@@ -34,10 +24,6 @@ let settle = null;
 let S = null;
 if (dom) {
   const w = dom.window;
-  globalThis.window = w;
-  for (const name of ["document", "Node", "NodeFilter", "Element", "DocumentFragment", "HTMLElement", "DOMParser"]) {
-    if (w[name] !== undefined) globalThis[name] = w[name];
-  }
   // Layout APIs jsdom does not implement; scrolling is not under test.
   w.Element.prototype.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};
@@ -178,15 +164,25 @@ it("EOF without a terminal event waits for settlement and keeps unconfirmed pros
   assert.equal(S.streamOp, null);
 });
 
-it("done and error are terminal, but speaker_done is not", async () => {
+it("done and error are terminal; group, shared and custom progress cannot confirm persistence", async () => {
   const container = document.getElementById("chat-messages");
   for (const event of ["done", "error"]) {
     const response = new Response(`event: ${event}\ndata: Test result\n\n`);
     await stream.processSSEStream(response, container, { el: null });
     if (event === "error") assert.equal(S.turnError.headline, "Test result");
   }
-  const response = new Response("event: speaker_done\ndata: {}\n\n");
-  await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+  for (const [event, data] of [
+    ["speaker_done", {}],
+    ["phase_status", { channel: "workflow:x", state: "done" }],
+    ["reasoning", { pass: "workflow:x", delta: "thinking" }],
+    ["draft_update", { draft: "cosmetic preview" }],
+    ["writer_rewrite", { refined_text: "authoritative, awaiting persistence" }],
+    ["warning", { headline: "Optional work declined" }],
+    ["custom_done", {}],
+  ]) {
+    const response = new Response(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    await assert.rejects(stream.processSSEStream(response, container, { el: null }), /ended before completion/);
+  }
 });
 
 it("Expression Playback keeps saved Editor prose buffered through settlement and reveals expression runs", async () => {

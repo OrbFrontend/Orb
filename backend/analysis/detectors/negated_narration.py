@@ -1,10 +1,7 @@
-"""Flag narration that repeatedly describes what does not happen.
+"""Detect repeated negated narration in one draft.
 
-The detector reads one draft, never its history. It excludes dialogue,
-standalone thoughts, and protected regions (fences, HTML, OOC asides) by
-source offset, so every finding addresses its exact characters in the input.
-A message passes the gate only with at least ``min_hits`` raw shape matches;
-a single denial is often good writing.
+Exclude dialogue, thoughts and protected regions by source offset.
+Require at least ``min_hits`` raw shape matches before reporting findings.
 """
 
 from __future__ import annotations
@@ -12,23 +9,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ...core.text_segmentation import (
-    PARA_SPLIT,
-    ends_with_question,
-    find_quote_spans,
-    split_sentence_units,
-)
+from ...core.text_segmentation import PARA_SPLIT, ends_with_question, find_quote_spans, split_sentence_units
 from ..text.lexical import TOKEN_RE, normalize_word
 from ..text.roleplay import THOUGHT_ATTRIBUTION, is_inline_emphasis
 from ..text.roleplay_segmentation import find_emphasis_spans, ooc_spans
 
-__all__ = [
-    "NegationConstituent",
-    "NegationFinding",
-    "NegationResult",
-    "detect_negated_narration",
-    "evaluate_negated_narration",
-]
+__all__ = ["NegationConstituent", "NegationFinding", "NegationResult", "detect_negated_narration", "evaluate_negated_narration"]
 
 ASTERISK = "asterisk"
 PROSE = "prose"
@@ -72,7 +58,7 @@ class NegationResult:
         return self.negated_sentences / self.narration_sentences if self.narration_sentences else 0.0
 
 
-# ── Vocabulary ────────────────────────────────────────────────────────────────
+# -- Vocabulary ----------------------------------------------------------------
 
 _NEG_WORDS = frozenset("not never no nobody nothing none neither nor nowhere cannot".split())
 _COPULA_NT = frozenset("isn't aren't wasn't weren't ain't".split())
@@ -93,7 +79,7 @@ _SAY_VERBS = frozenset(
 # Words that make a would-be descriptive fragment read as a clause.
 _FINITE_CUES = _BE | _AUX | _BE_CONTRACTED
 _FRAGMENT_BLOCKERS = _PRONOUNS | frozenset("this that these those there then and but so".split())
-# Trailing participle denials: ", still not looking." / "—never quite touching."
+# Trailing participle denials: ", still not looking." / "--never quite touching."
 _TRAIL_LEAD = frozenset("still yet even clearly".split())
 _TRAIL_ADVERBS = frozenset("quite even yet once really fully exactly entirely".split())
 # Motives ("not wanting to seem eager") and -ing nouns stage no withheld action.
@@ -120,12 +106,10 @@ _TAG_SUBJECT = r"(?:i|you|he|she|it|we|they|there)"
 # A negative tag anywhere (", didn't he"); an affirmative one only at the end
 # (", did she."), so ", did she go" mid-sentence is not mistaken for a tag.
 _TAG_QUESTION = re.compile(
-    rf",\s*(?:(?:{_TAG_AUX}|wo|ca)n't\s+{_TAG_SUBJECT}\b|{_TAG_AUX}\s+{_TAG_SUBJECT}\W*$)",
-    re.IGNORECASE,
+    rf",\s*(?:(?:{_TAG_AUX}|wo|ca)n't\s+{_TAG_SUBJECT}\b|{_TAG_AUX}\s+{_TAG_SUBJECT}\W*$)", re.IGNORECASE
 )
 _INTERJECTION = re.compile(
-    r"(?:(?:oh|ah),?\s+)?no+(?:\s*[,.!…—–-]+\s*(?:(?:oh|ah),?\s+)?(?:no+|oh|god|wait))*[\s.!…—–-]*",
-    re.IGNORECASE,
+    r"(?:(?:oh|ah),?\s+)?no+(?:\s*[,.!…—–-]+\s*(?:(?:oh|ah),?\s+)?(?:no+|oh|god|wait))*[\s.!…—–-]*", re.IGNORECASE
 )
 _NO_FOLLOWER_PUNCT = frozenset(",;:—–.!?…")
 
@@ -138,7 +122,7 @@ def _strip_outer(text: str) -> str:
     return text.strip().strip(_OUTER).strip()
 
 
-# ── Excluded regions ──────────────────────────────────────────────────────────
+# -- Excluded regions ----------------------------------------------------------
 
 _FENCE = re.compile(r"```")
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
@@ -204,7 +188,7 @@ def _excluded_regions(text: str) -> list[tuple[int, int]]:
     )
 
 
-# ── Paragraph tiling ──────────────────────────────────────────────────────────
+# -- Paragraph tiling ----------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -306,9 +290,8 @@ def _paragraphs(text: str) -> list[_Paragraph]:
     paragraphs: list[_Paragraph] = []
     for seg_start, seg_end in _segments(text, _excluded_regions(text)):
         segment = text[seg_start:seg_end]
-        # A balanced quote may span paragraphs. When a quote mark is left
-        # unpaired, per-paragraph parsing adds what the malformed quote would
-        # otherwise flip from speech to narration; the union only grows speech.
+        # A balanced quote may span paragraphs. When a quote mark is left unpaired, per-paragraph parsing adds what the
+        # malformed quote would otherwise flip from speech to narration; the union only grows speech.
         segment_quotes = find_quote_spans(segment)
         balanced = _quotes_well_formed(segment, segment_quotes)
         for p_start, p_end in _paragraph_ranges(segment):
@@ -338,7 +321,7 @@ def _classify_style(paragraphs: list[_Paragraph]) -> str:
     return ASTERISK if emphasis > 0.30 * total and emphasis > narration else PROSE
 
 
-# ── Narration runs ────────────────────────────────────────────────────────────
+# -- Narration runs ------------------------------------------------------------
 
 _TERMINAL = ".!?…"
 
@@ -475,7 +458,7 @@ def _runs(text: str, paragraphs: list[_Paragraph], style: str) -> tuple[list[lis
     return runs, usable
 
 
-# ── Shapes ────────────────────────────────────────────────────────────────────
+# -- Shapes --------------------------------------------------------------------
 
 
 def _without_but(words: list[str]) -> list[str]:
@@ -521,8 +504,7 @@ def _same_referent(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
         return True
     if second != ("it",):
         return False
-    # A thing named by a determiner phrase or a demonstrative may become "it";
-    # a personal pronoun never does.
+    # A thing named by a determiner phrase or a demonstrative may become "it"; a personal pronoun never does.
     return first in (("this",), ("that",)) or (len(first) >= 2 and first[0] in _DETERMINERS)
 
 
@@ -574,7 +556,7 @@ def _stacked(unit: _Unit) -> bool:
         if first is None:
             continue
         if clauses and _HEDGE_TAIL.fullmatch(_strip_outer(text[start:end])):
-            continue  # "—not yet." is a hedge, not a parallel denial
+            continue  # "--not yet." is a hedge, not a parallel denial
         clauses.append(first)
     if len(clauses) < 2:
         return False
@@ -761,8 +743,7 @@ def detect_negated_narration(text: str, *, min_hits: int = 2) -> NegationResult:
 def evaluate_negated_narration(text: str, style: str, *, min_hits: int = 0) -> NegationResult:
     """Re-detect a full patched draft under an explicit narration style.
 
-    Evaluation only, not an application setting: a repair benchmark scores the
-    edited draft with the original draft's interpretation instead of letting a
-    shortened draft re-infer its style. Every exclusion rule still applies.
+    Evaluation only, not an application setting: a repair benchmark scores the edited draft with the original draft's
+    interpretation instead of letting a shortened draft re-infer its style. Every exclusion rule still applies.
     """
     return _detect(text, min_hits=min_hits, style=style)

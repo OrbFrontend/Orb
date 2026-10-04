@@ -151,9 +151,8 @@ async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client
         await _drain(handle_regenerate(cid, target["id"]))
         assert (await _last_assistant(cid))["fragment_cooldowns"] == {"stormy": 2}
 
-    response = await client.post(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})
-    assert response.status_code == 200
-    copied = await _last_assistant(response.json()["id"])
+    response = await client.post_json(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})
+    copied = await _last_assistant(response["id"])
     assert copied["fragment_cooldowns"] == {"stormy": 2}
 
 

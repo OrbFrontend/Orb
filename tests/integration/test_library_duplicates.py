@@ -39,16 +39,13 @@ def _events(text: str) -> list[tuple[str, object]]:
 
 
 async def _card(client, name: str, **extra) -> str:
-    response = await client.post(
+    return await client.create(
         "/api/characters", json={"name": name, "description": _BODY, "first_mes": "Welcome home.", **extra}
     )
-    assert response.status_code == 200
-    return response.json()["id"]
 
 
 async def _scan(client) -> dict:
-    response = await client.post("/api/library/duplicates/scan")
-    assert response.status_code == 200
+    response = await client.post_checked("/api/library/duplicates/scan")
     done = [data for name, data in _events(response.text) if name == "done"]
     assert len(done) == 1
     assert isinstance(done[0], dict)
@@ -63,7 +60,7 @@ def _strong_pair(report: dict, a: str, b: str) -> dict:
     raise AssertionError("the scan did not return the expected strong group")
 
 
-# ── Scan cache and dismissals ───────────────────────────────────────────────
+# -- Scan cache and dismissals -----------------------------------------------
 
 
 async def test_a_scan_finds_two_cards_that_differ_only_in_tags(client):
@@ -124,9 +121,8 @@ async def test_a_dismissed_pair_stops_being_reported_and_an_edit_reopens_it(clie
     hidden = await _scan(client)
     assert hidden["groups"] == [] and hidden["pairs"] == []
 
-    # Scenario is meaningful identity content but not a shingle field. The
-    # cards remain a strong description+greeting match while their dismissal
-    # body hashes now differ.
+    # Scenario is meaningful identity content but not a shingle field. The cards remain a strong description+greeting match
+    # while their dismissal body hashes now differ.
     assert (await client.put(f"/api/characters/{left}", json={"scenario": "The fog has lifted."})).status_code == 200
     reopened = await _scan(client)
     assert _strong_pair(reopened, left, right)
@@ -146,22 +142,20 @@ async def test_retagging_a_dismissed_card_does_not_bring_the_pair_back(client):
     assert hidden["groups"] == [] and hidden["stats"]["dismissed"] == 1
 
 
-# ── Guarded resolution ──────────────────────────────────────────────────────
+# -- Guarded resolution ------------------------------------------------------
 
 
 async def test_deleting_a_card_with_conversations_is_refused_without_relink(client):
     """A no-relink delete never silently turns a live conversation into an orphan."""
     keep = await _card(client, "Mara")
     remove = await _card(client, "Mara")
-    conversation = await client.post("/api/conversations", json={"character_card_id": remove})
-    assert conversation.status_code == 200
+    await client.post_checked("/api/conversations", json={"character_card_id": remove})
 
-    response = await client.post(
-        "/api/library/duplicates/resolve", json={"keep_id": keep, "remove_id": remove, "relink": False}
+    response = await client.post_json(
+        "/api/library/duplicates/resolve", json={"keep_id": keep, "remove_id": remove, "relink": False}, expected_status=409
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["impact"]["conversations"] == 1
+    assert response["detail"]["impact"]["conversations"] == 1
     assert (await client.get(f"/api/characters/{remove}")).status_code == 200
 
 
@@ -231,13 +225,11 @@ async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
     second = await _card(client, "Mallory")
     conversation = (await client.post("/api/conversations", json={"character_card_id": first})).json()
 
-    response = await client.post(
-        "/api/library/duplicates/resolve-group",
-        json={"keep_id": keep, "remove_ids": [first, second], "relink": True},
+    response = await client.post_json(
+        "/api/library/duplicates/resolve-group", json={"keep_id": keep, "remove_ids": [first, second], "relink": True}
     )
 
-    assert response.status_code == 200
-    assert response.json()["removed"] == 2 and response.json()["impact"]["conversations"] == 1
+    assert response["removed"] == 2 and response["impact"]["conversations"] == 1
     assert (await client.get(f"/api/characters/{first}")).status_code == 404
     assert (await client.get(f"/api/characters/{second}")).status_code == 404
     moved = next(item for item in (await client.get("/api/conversations")).json() if item["id"] == conversation["id"])
@@ -252,8 +244,7 @@ async def test_a_group_removal_that_would_orphan_history_deletes_nothing(client)
     assert (await client.post("/api/conversations", json={"character_card_id": linked})).status_code == 200
 
     response = await client.post(
-        "/api/library/duplicates/resolve-group",
-        json={"keep_id": keep, "remove_ids": [safe, linked], "relink": False},
+        "/api/library/duplicates/resolve-group", json={"keep_id": keep, "remove_ids": [safe, linked], "relink": False}
     )
 
     assert response.status_code == 409 and response.json()["detail"]["impact"]["conversations"] == 1
@@ -266,12 +257,12 @@ async def test_a_group_removal_cannot_name_the_keeper(client):
     keep = await _card(client, "Mallory")
     other = await _card(client, "Mallory")
 
-    response = await client.post(
+    await client.post_checked(
         "/api/library/duplicates/resolve-group",
         json={"keep_id": keep, "remove_ids": [other, keep], "relink": False},
+        expected_status=422,
     )
 
-    assert response.status_code == 422
     assert (await client.get(f"/api/characters/{keep}")).status_code == 200
 
 

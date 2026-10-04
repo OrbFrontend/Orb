@@ -1,108 +1,27 @@
-.audio-transport {
-  --at-mx: clamp(10px, 1.4vw, 22px);
-  --at-my: clamp(6px, 0.6vw, 11px);
-  --at-px: clamp(12px, 1.3vw, 24px);
-  --at-py: clamp(6px, 0.55vw, 11px);
-  --at-gap: clamp(6px, 0.6vw, 11px);
-  --at-fs: clamp(11px, 0.85vw, 15px);
-  --at-fs-sm: clamp(10px, 0.78vw, 14px);
-  --at-btn-px: clamp(7px, 0.7vw, 13px);
-  --at-btn-py: clamp(2px, 0.25vw, 5px);
-  --at-track: clamp(7px, 0.7vw, 12px);
-
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--at-gap) * 0.5);
-  margin: var(--at-my) var(--at-mx);
-  padding: var(--at-py) var(--at-px);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  font-size: var(--at-fs);
-  color: var(--text-secondary);
-}
+.audio-transport { --at-mx: clamp(10px, 1.4vw, 22px); --at-my: clamp(6px, 0.6vw, 11px);
+  --at-px: clamp(12px, 1.3vw, 24px); --at-py: clamp(6px, 0.55vw, 11px); --at-gap: clamp(6px, 0.6vw, 11px);
+  --at-fs: clamp(11px, 0.85vw, 15px); --at-fs-sm: clamp(10px, 0.78vw, 14px); --at-btn-px: clamp(7px, 0.7vw, 13px);
+  --at-btn-py: clamp(2px, 0.25vw, 5px); --at-track: clamp(7px, 0.7vw, 12px); position: absolute; left: 0; right: 0;
+  bottom: 100%; display: flex; flex-direction: column; gap: calc(var(--at-gap) * 0.5);
+  margin: var(--at-my) var(--at-mx); padding: var(--at-py) var(--at-px); background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: var(--at-fs); color: var(--text-secondary); }
 .audio-transport.hidden { display: none; }
-.audio-transport-suspended::before {
-  content: "tap to enable audio";
-  color: var(--text-muted);
-  font-style: italic;
-}
-.audio-transport-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--at-gap) * 0.5);
-}
-.audio-transport-tab {
-  flex: 0 0 auto;
-  max-width: clamp(90px, 9vw, 150px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px var(--at-btn-px);
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--at-fs-sm);
-  cursor: pointer;
-}
-.audio-transport-tab.selected {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-.audio-transport-row {
-  display: flex;
-  align-items: center;
-  gap: var(--at-gap);
-}
-.audio-transport-source {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  padding: var(--at-btn-py) 0;
-  background: none;
-  border: 0;
-  color: var(--text-secondary);
-  font-size: var(--at-fs-sm);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.audio-transport-source:hover {
-  color: var(--text-primary);
-}
-.audio-transport-time {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  font-size: var(--at-fs-sm);
-  white-space: nowrap;
-}
-.audio-transport-progress {
-  flex: 0 1 clamp(90px, 18vw, 240px);
-  width: auto;
-  min-width: 56px;
-  height: var(--at-track);
-  background: var(--bg-hover);
-  border-radius: calc(var(--at-track) / 2);
-  overflow: hidden;
-  cursor: pointer;
-  transition: height 0.1s ease;
-}
-.audio-transport-progress:hover {
-  height: calc(var(--at-track) + 3px);
-}
-.audio-transport-fill {
-  height: 100%;
-  width: 0;
-  background: var(--accent);
-}
+.audio-transport-suspended::before { content: "tap to enable audio"; color: var(--text-muted); font-style: italic; }
+.audio-transport-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--at-gap) * 0.5); }
+.audio-transport-tab { flex: 0 0 auto; max-width: clamp(90px, 9vw, 150px); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; padding: 1px var(--at-btn-px); background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-secondary); font-size: var(--at-fs-sm); cursor: pointer; }
+.audio-transport-tab.selected { color: var(--text-primary); border-color: var(--accent); }
+.audio-transport-row { display: flex; align-items: center; gap: var(--at-gap); }
+.audio-transport-source { flex: 1 1 auto; min-width: 0; overflow: hidden; padding: var(--at-btn-py) 0; background: none;
+  border: 0; color: var(--text-secondary); font-size: var(--at-fs-sm); text-align: left; text-overflow: ellipsis;
+  white-space: nowrap; cursor: pointer; }
+.audio-transport-source:hover { color: var(--text-primary); }
+.audio-transport-time { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: var(--at-fs-sm); white-space: nowrap; }
+.audio-transport-progress { flex: 0 1 clamp(90px, 18vw, 240px); width: auto; min-width: 56px; height: var(--at-track);
+  background: var(--bg-hover); border-radius: calc(var(--at-track) / 2); overflow: hidden; cursor: pointer;
+  transition: height 0.1s ease; }
+.audio-transport-progress:hover { height: calc(var(--at-track) + 3px); }
+.audio-transport-fill { height: 100%; width: 0; background: var(--accent); }

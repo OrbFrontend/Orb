@@ -3,49 +3,81 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
+
+if TYPE_CHECKING:
+    from ..inference import KVCacheTracker, LLMClient
 
 
-def _readonly(obj: Any) -> Any:
+def readonly_view(obj: Any) -> Any:
     """Return a recursive read-only view of obj."""
     if isinstance(obj, dict):
-        return MappingProxyType({k: _readonly(v) for k, v in obj.items()})
+        return MappingProxyType({k: readonly_view(v) for k, v in obj.items()})
     if isinstance(obj, (list, tuple)):
-        return tuple(_readonly(v) for v in obj)
+        return tuple(readonly_view(v) for v in obj)
     if isinstance(obj, (set, frozenset)):
-        return frozenset(_readonly(v) for v in obj)
+        return frozenset(readonly_view(v) for v in obj)
     if isinstance(obj, bytearray):
         return bytes(obj)
     return obj
 
 
-# Control-event discriminators a workflow hook may yield (the ``"type"`` key the
-# bridge dispatches on). Defined once here, where the seam owns its contract, so
-# the bridge and any workflow import the same names instead of duplicating bare
-# string literals. The string values are the stable wire shape.
-EV_ENABLE_TOOLS = "enable_tools"  # pre-pipeline
-EV_SYSTEM_PROMPT = "system_prompt"  # pre-pipeline
-EV_DRAFT_REPLACED = "draft_replaced"  # post-pipeline
-EV_ATTACH_ARTIFACT = "attach_artifact"  # post-pipeline
-EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
+# Control-event discriminators a workflow hook may yield (the ``"type"`` key the bridge dispatches on). Defined once here, where
+# the seam owns its contract, so the bridge and any workflow import the same names instead of duplicating bare string literals.
+# The string values are the stable wire shape.
+EV_ENABLE_TOOLS: Final = "enable_tools"  # pre-pipeline
+EV_SYSTEM_PROMPT: Final = "system_prompt"  # pre-pipeline
+EV_DRAFT_REPLACED: Final = "draft_replaced"  # post-pipeline
+EV_ATTACH_ARTIFACT: Final = "attach_artifact"  # post-pipeline
+EV_SET_MESSAGE_STATE: Final = "set_message_state"  # post-pipeline
+
+
+class PublicEvent(TypedDict):
+    """A public SSE event. Workflow-specific JSON data stays open."""
+
+    event: str
+    data: NotRequired[str | dict[str, Any]]
+
+
+class EnableToolsEvent(TypedDict):
+    type: Literal["enable_tools"]
+    tools: set[str] | frozenset[str] | dict[str, Literal[True]]
+
+
+class SystemPromptEvent(TypedDict):
+    type: Literal["system_prompt"]
+    block: str
+
+
+class DraftReplacedEvent(TypedDict):
+    type: Literal["draft_replaced"]
+    draft: str
+
+
+class AttachArtifactEvent(TypedDict):
+    type: Literal["attach_artifact"]
+    attachment: dict[str, Any]
+
+
+class SetMessageStateEvent(TypedDict):
+    type: Literal["set_message_state"]
+    state: dict[str, Any]
+
+
+PreEvent = PublicEvent | EnableToolsEvent | SystemPromptEvent
+PostEvent = PublicEvent | DraftReplacedEvent | AttachArtifactEvent | SetMessageStateEvent
 
 
 @dataclass
 class ToolSpec:
-    """A tool a workflow contributes to the global tool catalog.
+    """Workflow-contributed tool; name must match schema.function.name.
 
-    ``name`` must equal ``schema["function"]["name"]``. ``choice`` is the
-    pre-built ``tool_choice`` payload (almost always
-    ``{"type": "function", "function": {"name": name}}``) so forced-call
-    sites can pass it directly to ``client.complete(tool_choice=...)``.
-    ``standalone`` defaults to True: workflow tools stay out of the pipeline
-    union and are only reachable via direct forced calls. Setting False
-    merges the tool into ``enabled_schemas(...)``'s output (subject to the
-    workflow's ``enable_tools`` yields gating it per turn).
+    choice is a ready tool_choice payload. Standalone tools default to direct
+    forced calls only; standalone=False joins enabled_schemas, gated per turn.
     """
 
     name: str
@@ -59,44 +91,43 @@ class PreCtx:
     """Inputs available to a workflow's pre-pipeline hook."""
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    prefix: tuple
-    enabled_tools_pre_merge: MappingProxyType
-    turn_scratch: dict
-    client: Any
-    kv_tracker: Any
-    schema_overrides: MappingProxyType
+    settings: Mapping[str, Any]
+    prefix: tuple[Mapping[str, Any], ...]
+    enabled_tools_pre_merge: Mapping[str, bool]
+    turn_scratch: dict[str, Any]
+    client: LLMClient
+    kv_tracker: KVCacheTracker
+    schema_overrides: Mapping[str, Mapping[str, Any]]
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
 class PostCtx:
     """Inputs available to a workflow's post-pipeline hook.
 
-    ``client``/``prefix`` are the Writer lane. ``agent_client`` and
-    ``agent_model_name`` identify the resolved Agent execution target, which is
-    the Writer target in single-model mode. The defaults keep a hand-built
-    ``PostCtx`` (tests, out-of-tree callers) valid.
+    ``client``/``prefix`` are the Writer lane. ``agent_client`` and ``agent_model_name`` identify the resolved Agent execution
+    target, which is the Writer target in single-model mode. The defaults keep a hand-built ``PostCtx`` (tests, out-of-tree
+    callers) valid.
     """
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     draft: str
     effective_msg: str
-    director_output: MappingProxyType
-    settings: MappingProxyType
-    prefix: tuple
-    enabled_tools: MappingProxyType
-    turn_scratch: dict
-    client: Any
-    kv_tracker: Any
-    schema_overrides: MappingProxyType
+    director_output: Mapping[str, Any]
+    settings: Mapping[str, Any]
+    prefix: tuple[Mapping[str, Any], ...]
+    enabled_tools: Mapping[str, bool]
+    turn_scratch: dict[str, Any]
+    client: LLMClient
+    kv_tracker: KVCacheTracker
+    schema_overrides: Mapping[str, Mapping[str, Any]]
     character_id: str | None = None
-    character: MappingProxyType | None = None
-    agent_client: Any = None
+    character: Mapping[str, Any] | None = None
+    agent_client: LLMClient | None = None
     agent_model_name: str = ""
 
 
@@ -104,22 +135,20 @@ class PostCtx:
 class OnDemandCtx:
     """Inputs available to a workflow's on-demand HTTP handler.
 
-    No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside
-    any turn, Python locals serve in place of scratch, and on-demand LLM
-    calls do not participate in turn cache accounting. ``client`` is the
-    Writer lane; ``agent_client`` and ``agent_model_name`` are the resolved
-    Agent lane, reusing that same client in single-model mode.
+    No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside any turn, Python locals serve in place of scratch, and
+    on-demand LLM calls do not participate in turn cache accounting. ``client`` is the Writer lane; ``agent_client`` and
+    ``agent_model_name`` are the resolved Agent lane, reusing that same client in single-model mode.
     """
 
     conversation_id: str
-    history: tuple
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    client: Any
-    agent_client: Any
+    settings: Mapping[str, Any]
+    client: LLMClient
+    agent_client: LLMClient
     agent_model_name: str
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -129,24 +158,22 @@ class RegenCtx:
     conversation_id: str
     message_id: int
     attachment_id: int
-    original_attachment: MappingProxyType
-    history: tuple
+    original_attachment: Mapping[str, Any]
+    history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: MappingProxyType
-    client: Any
-    agent_client: Any
+    settings: Mapping[str, Any]
+    client: LLMClient
+    agent_client: LLMClient
     agent_model_name: str
     character_id: str | None = None
-    character: MappingProxyType | None = None
+    character: Mapping[str, Any] | None = None
     phase: Callable[[str], None] = lambda _label: None  # step label, streamed to a client that asks
-    # Saves one attachment as a sibling now, instead of with the handler's return,
-    # and answers its id (None when the cache rejected it). A handler that makes
-    # several renders keeps each as it lands, so Stop keeps them and the client
-    # sees them arrive. None where no route is saving for it.
+    # Saves one attachment as a sibling now, instead of with the handler's return, and answers its id (None when the cache
+    # rejected it). A handler that makes several renders keeps each as it lands, so Stop keeps them and the client sees them
+    # arrive. None where no route is saving for it.
     keep: Callable[[dict], Awaitable[int | None]] | None = None
-    # Sends one extra event on the regenerate stream, for a client that asks for
-    # events. The name must start with "<workflow_id>_". Silent where no stream is
-    # attached.
+    # Sends one extra event on the regenerate stream, for a client that asks for events. The name must start with
+    # "<workflow_id>_". Silent where no stream is attached.
     emit: Callable[[str, dict], None] = lambda _event, _data: None
 
 
@@ -157,16 +184,14 @@ class RerollGenCtx:
     conversation_id: str
     message_id: int
     attachment_id: int
-    original_attachment: MappingProxyType
-    settings: MappingProxyType
-    client: Any
-    prior_consumption_metadata: MappingProxyType | None = None
-    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it
-    # required -- so the default covers only a ctx constructed directly, in a
-    # test or out of tree. Reproducing is the safe end of it: a wrong ``True``
-    # costs a render nobody asked for, while a wrong ``False`` hands
-    # ``/rehydrate`` a *different* image and overwrites the row with it, which is
-    # the one failure on these two routes that destroys something.
+    original_attachment: Mapping[str, Any]
+    settings: Mapping[str, Any]
+    client: LLMClient
+    prior_consumption_metadata: Mapping[str, Any] | None = None
+    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it required -- so the default covers only a ctx
+    # constructed directly, in a test or out of tree. Reproducing is the safe end of it: a wrong ``True`` costs a render nobody
+    # asked for, while a wrong ``False`` hands ``/rehydrate`` a *different* image and overwrites the row with it, which is the
+    # one failure on these two routes that destroys something.
     replay: bool = True
 
 
@@ -174,21 +199,35 @@ class RerollGenCtx:
 class QueryCtx:
     """Inputs available to a workflow's query hook."""
 
-    settings: MappingProxyType
+    settings: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class UploadCtx:
+    """Inputs available to a workflow's upload hook: one file for one character.
+
+    No conversation, client, or lock: the hook takes the toolkit lock matching
+    any state it rewrites, so slow processing of the file holds nothing.
+    """
+
+    settings: Mapping[str, Any]
+    character_id: str
+    character: Mapping[str, Any]
+    filename: str
+    data: bytes
 
 
 @dataclass(frozen=True)
 class ExportCtx:
     """Inputs available to a workflow's export hook.
 
-    ``attachment`` is the row without its bytes, and ``stored_bytes`` reads them
-    only when called (None once evicted): an export that can fetch the file from
-    where it was made never loads the stored copy.
+    ``attachment`` is the row without its bytes, and ``stored_bytes`` reads them only when called (None once evicted): an export
+    that can fetch the file from where it was made never loads the stored copy.
     """
 
     attachment_id: int
-    attachment: MappingProxyType
-    consumption_metadata: MappingProxyType | None
+    attachment: Mapping[str, Any]
+    consumption_metadata: Mapping[str, Any] | None
     stored_bytes: Callable[[], Awaitable[bytes | None]]
 
 
@@ -210,21 +249,14 @@ class ExportedFile:
 class WorkflowEventStream:
     """Transport-neutral stream of public workflow events."""
 
-    events: AsyncIterator[dict]
+    events: AsyncIterator[PublicEvent]
 
 
 def public_event_error(ev: object) -> str | None:
-    """Validate a public workflow event; return ``None`` if valid, else a short reason.
+    """Validate public {event, data}; return None or a rejection reason.
 
-    A public event is a dict ``{"event": <name>, "data": <payload>}`` where
-    ``name`` is a non-empty, single-line string that does not start with ``_``
-    (the reserved prefix for internal control events) and ``payload`` is a
-    string or a JSON-serializable (``allow_nan=False``) dict. ``data`` defaults
-    to ``""`` when absent.
-
-    One definition of the wire shape, shared by the pipeline bridge (pre/post
-    hook pass-through events) and the API on-demand SSE encoder, so the two
-    consumers cannot drift into subtly different notions of a valid event.
+    Event names must be non-empty, single-line and not start with _. Data defaults to empty text and accepts strings or strict
+    JSON-serializable dicts. Shared by pipeline hooks and on-demand SSE.
     """
     if not isinstance(ev, dict):
         return f"not a dict (type={type(ev).__name__})"
@@ -247,11 +279,10 @@ def public_event_error(ev: object) -> str | None:
 class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
-    PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, and EXPORT are
-    single-dispatch slots resolved by workflow id from an HTTP route. QUERY is
-    the only one with no conversation in scope -- the global config/discovery
-    surface. EXPORT is optional, even for artifact workflows.
+    PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY,
+    UPLOAD, and EXPORT are single-dispatch slots resolved by workflow id from an HTTP route. QUERY and UPLOAD have no
+    conversation in scope: QUERY is the global config/discovery surface, and UPLOAD takes a file for one character. EXPORT is
+    optional, even for artifact workflows.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -260,11 +291,12 @@ class HookType(Enum):
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
     QUERY = "query"
+    UPLOAD = "upload"
     EXPORT = "export"
 
 
-PreHook = Callable[[PreCtx], AsyncIterator[dict]]
-PostHook = Callable[[PostCtx], AsyncIterator[dict]]
+PreHook = Callable[[PreCtx], AsyncIterator[PreEvent]]
+PostHook = Callable[[PostCtx], AsyncIterator[PostEvent]]
 # An on-demand hook returns either a plain JSON object (the API renders it as a
 # JSON response) or a WorkflowEventStream (the API renders it as an SSE stream).
 OnDemandResult = dict | WorkflowEventStream
@@ -272,6 +304,9 @@ OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
 QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
-# None means there is nothing left to export: the bytes are evicted and the
-# workflow cannot fetch the file from anywhere else.
+# The second argument is the upload request's query-string parameters.
+UploadHook = Callable[[UploadCtx, dict[str, str]], Awaitable[dict]]
+# None means there is nothing left to export: the bytes are evicted and the workflow cannot fetch the file from anywhere else.
 ExportHook = Callable[[ExportCtx], Awaitable[ExportedFile | None]]
+
+WorkflowHook = PreHook | PostHook | OnDemandHook | RegenHook | RerollGenHook | QueryHook | UploadHook | ExportHook

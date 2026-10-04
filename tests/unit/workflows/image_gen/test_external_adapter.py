@@ -6,18 +6,9 @@ import httpx
 import pytest
 
 from backend.workflows.image_gen.config import normalize_config, resolve_style
-from backend.workflows.image_gen.engine.adapters.external_comfy import (
-    ExternalComfyAdapter,
-)
-from backend.workflows.image_gen.engine.comfy_client import (
-    ComfyClient,
-    invalidate_object_info,
-)
-from backend.workflows.image_gen.engine.contracts import (
-    ImageGenerationError,
-    ImageRequest,
-    ResolvedReference,
-)
+from backend.workflows.image_gen.engine.adapters.external_comfy import ExternalComfyAdapter
+from backend.workflows.image_gen.engine.comfy_client import ComfyClient, invalidate_object_info
+from backend.workflows.image_gen.engine.contracts import ImageGenerationError, ImageRequest, ResolvedReference
 
 OBJECT_INFO = {
     "KSampler": {"input": {"required": {"seed": ["INT", {}], "steps": ["INT", {}]}}},
@@ -27,9 +18,8 @@ OBJECT_INFO = {
     "CLIPTextEncode": {"input": {"required": {"text": ["STRING", {}], "clip": ["CLIP"]}}},
     "VAEDecode": {"input": {"required": {}}},
     "SaveImage": {"input": {"required": {"images": ["IMAGE"]}}, "output_node": True},
-    # An upload widget's declared type is the *combo* of files already in the
-    # server's input directory, so no string-kind comparison can find it; the
-    # `image_upload` flag is the typing rule.
+    # An upload widget's declared type is the *combo* of files already in the server's input directory, so no string-kind
+    # comparison can find it; the `image_upload` flag is the typing rule.
     "LoadImage": {
         "input": {
             "required": {"image": [["a.png", "b.png"], {"image_upload": True}]},
@@ -50,9 +40,8 @@ USER_GRAPH = {
     "slots": {"positive": ["1", "text"], "negative": ["2", "text"], "seed": ["3", "seed"], "output": ["4", "images"]},
 }
 
-# An imported graph that loads its diffusion model via UNETLoader and pins a
-# filename from the machine that exported the PNG. The `checkpoint` slot marks the
-# input Orb's model selection overrides.
+# An imported graph that loads its diffusion model via UNETLoader and pins a filename from the machine that exported the PNG.
+# The `checkpoint` slot marks the input Orb's model selection overrides.
 UNET_USER_GRAPH = {
     **USER_GRAPH,
     "id": "user_unet",
@@ -108,7 +97,7 @@ def _bound(config: dict, style_id: str) -> ExternalComfyAdapter:
     return ExternalComfyAdapter(config, resolve_style(config, style_id))
 
 
-# ── test connection ──────────────────────────────────────────────────────────
+# -- test connection ----------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -199,7 +188,7 @@ async def test_the_style_that_fails_validation_is_named(monkeypatch):
         await ExternalComfyAdapter(config).validate_connection()
 
 
-# ── slot typing for the importer ─────────────────────────────────────────────
+# -- slot typing for the importer ---------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -242,7 +231,7 @@ async def test_only_inputs_literally_named_width_and_height_type_as_a_size(monke
     assert roles["KSampler"]["dimension_inputs"] == []
 
 
-# ── per-graph resolution ─────────────────────────────────────────────────────
+# -- per-graph resolution -----------------------------------------------------
 
 SIZED_USER_GRAPH = {
     **USER_GRAPH,
@@ -305,7 +294,7 @@ def test_a_default_resolution_on_an_unmapped_graph_says_nothing():
     assert target.notes == ()
 
 
-# ── generation ───────────────────────────────────────────────────────────────
+# -- generation ---------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -400,9 +389,8 @@ async def test_a_sized_graph_submits_the_styles_resolution_and_records_it(monkey
     assert (result.backend_info["width"], result.backend_info["height"]) == (1024, 1536)
 
 
-# A graph sampling through a custom seed node. rgthree's tops out at 2**50 where the
-# core sampler takes the whole 2**64, and ComfyUI rejects the entire prompt over the
-# difference -- "Value 18257206749444865874 bigger than max of 1125899906842624".
+# A graph sampling through a custom seed node. rgthree's tops out at 2**50 where the core sampler takes the whole 2**64, and
+# ComfyUI rejects the entire prompt over the difference -- "Value 18257206749444865874 bigger than max of 1125899906842624".
 SEED_NODE_GRAPH = {
     **USER_GRAPH,
     "id": "user_seeded",

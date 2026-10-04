@@ -4,25 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
+from ..core.llm_types import ParsedToolCall
 from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
-from ..prompting.lorebook import (
-    AGENTIC_LOREBOOK_SCAN_DEPTH,
-    LOREBOOK_SCAN_DEPTH,
-    compute_lorebook_block,
-)
+from ..prompting.lorebook import compute_agentic_lorebook_block
 from .passes.editor.length_guard import LengthGuard
 
 
 class BranchBaseline(DirectorStateRow, total=False):
     """The Director state a turn starts from, rebased onto the branch it extends.
 
-    ``get_director_state`` supplies the row; the turn handlers fill the rest from
-    the branch's own history, so a regeneration starts where the reply it
-    replaces did rather than where the conversation's latest turn left off.
+    ``get_director_state`` supplies the row; the turn handlers fill the rest from the branch's own history, so a regeneration
+    starts where the reply it replaces did rather than where the conversation's latest turn left off.
     """
 
     # Resting counters for mood/interactive fragments and for decisions.
@@ -30,8 +26,7 @@ class BranchBaseline(DirectorStateRow, total=False):
     decision_cooldowns: dict[str, int]
     # The replaced reply's stored Judge evaluations, replayed on a regeneration.
     decision_replay: list[dict[str, Any]]
-    # The branch's folded state fragments, and the user corrections carried onto
-    # it from the reply a regeneration replaces.
+    # The branch's folded state fragments, and the user corrections carried onto it from the reply a regeneration replaces.
     fragment_state: StateView
     state_carried: list[dict[str, Any]]
 
@@ -52,54 +47,52 @@ class ModelLane:
 
 
 @dataclass(slots=True)
-class _PipelineConfig:
-    """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
+class PipelineConfig:
+    """Resolved per-turn flags, lanes, and prefixes for ``run_pipeline``."""
 
     agent_on: bool
     enabled_tools: Mapping[str, bool]
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
-    # Macro-resolved reasoning prefill per pass (text mode only; ignored when
-    # that pass's reasoning is off — see reasoning_cfg).
+    # Macro-resolved reasoning prefill per pass (text mode only; ignored when that pass's reasoning is off -- see reasoning_cfg).
     director_reasoning_prefill: str
     writer_reasoning_prefill: str
     editor_reasoning_prefill: str
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
-    # ``agent_lane`` runs director + editor. In single-model mode they are the
-    # same object by construction (see :class:`ModelLane`).
+    # The two call surfaces for the turn. ``writer_lane`` runs the writer pass; ``agent_lane`` runs director + editor. In
+    # single-model mode they are the same object by construction (see :class:`ModelLane`).
     writer_lane: ModelLane
     agent_lane: ModelLane
 
 
-# Fields included in the terminal ``_result`` event.
-_RESULT_FIELDS = (
-    "active_moods",
-    "agent_raw",
-    "calls",
-    "latency",
-    "effective_msg",
-    "resp_text",
-    "writer_draft",
-    "inj_block",
-    "extra_fields",
-    "fragment_cooldowns",
-    "decision_evaluations",
-    "decision_cooldowns",
-    "reasoning_director",
-    "reasoning_writer",
-    "reasoning_editor",
-    "feedback_values",
-    "state_events",
-    "state_report",
-    "staged_attachments",
-    "staged_message_state",
-    "macro_choices",
-    "world_proposals",
-)
+class TurnResultData(TypedDict):
+    """The stable persistence projection of a finished turn; feature JSON stays open."""
+
+    active_moods: list[str]
+    agent_raw: str
+    calls: list[ParsedToolCall]
+    latency: int
+    effective_msg: str
+    resp_text: str
+    writer_draft: str
+    inj_block: str
+    extra_fields: dict
+    fragment_cooldowns: dict[str, int]
+    decision_evaluations: dict
+    decision_cooldowns: dict[str, int]
+    reasoning_director: str
+    reasoning_writer: str
+    reasoning_editor: str
+    feedback_values: dict
+    state_events: list[dict]
+    state_report: dict
+    staged_attachments: list[dict]
+    staged_message_state: dict
+    macro_choices: dict[str, str]
+    world_proposals: list[dict]
 
 
 # Fields copied from the shared Director result to each group speaker.
@@ -121,9 +114,8 @@ _DIRECTOR_SEED_FIELDS = (
     "scene_direction",
     "writer_lorebook_block",
     "reasoning_director",
-    # The exchange's before-Writer state changes and the working state they
-    # produced. The driver clears the events and report once the first reply
-    # has anchored them; the view stays, so later speakers read the same state.
+    # The exchange's before-Writer state changes and the working state they produced. The driver clears the events and report
+    # once the first reply has anchored them; the view stays, so later speakers read the same state.
     "state_events",
     "state_report",
     "state_view",
@@ -132,13 +124,7 @@ _DIRECTOR_SEED_FIELDS = (
 
 
 # Fields exposed as the read-only Director output to post-pipeline workflows.
-_DIRECTOR_OUTPUT_FIELDS = (
-    "active_moods",
-    "agent_raw",
-    "calls",
-    "latency",
-    "extra_fields",
-)
+_DIRECTOR_OUTPUT_FIELDS = ("active_moods", "agent_raw", "calls", "latency", "extra_fields")
 
 
 def empty_state_report() -> dict[str, list[dict]]:
@@ -157,7 +143,7 @@ class TurnState:
     macro_choices: dict[str, str] = field(default_factory=dict)
 
     agent_raw: str = ""
-    calls: list[dict] = field(default_factory=list)
+    calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
@@ -216,9 +202,32 @@ class TurnState:
         setattr(self, buffer, getattr(self, buffer) + delta)
         return delta
 
-    def as_result_event_data(self) -> dict:
+    def as_result_event_data(self) -> TurnResultData:
         """Return the stable field subset for the ``_result`` SSE event."""
-        return {name: getattr(self, name) for name in _RESULT_FIELDS}
+        return {
+            "active_moods": self.active_moods,
+            "agent_raw": self.agent_raw,
+            "calls": self.calls,
+            "latency": self.latency,
+            "effective_msg": self.effective_msg,
+            "resp_text": self.resp_text,
+            "writer_draft": self.writer_draft,
+            "inj_block": self.inj_block,
+            "extra_fields": self.extra_fields,
+            "fragment_cooldowns": self.fragment_cooldowns,
+            "decision_evaluations": self.decision_evaluations,
+            "decision_cooldowns": self.decision_cooldowns,
+            "reasoning_director": self.reasoning_director,
+            "reasoning_writer": self.reasoning_writer,
+            "reasoning_editor": self.reasoning_editor,
+            "feedback_values": self.feedback_values,
+            "state_events": self.state_events,
+            "state_report": self.state_report,
+            "staged_attachments": self.staged_attachments,
+            "staged_message_state": self.staged_message_state,
+            "macro_choices": self.macro_choices,
+            "world_proposals": self.world_proposals,
+        }
 
     def as_director_output(self) -> dict:
         """Return the read-only Director output for post-pipeline workflows."""
@@ -237,21 +246,11 @@ class LorebookTurn:
     # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
 
-    @property
-    def scan_depth(self) -> int:
-        return AGENTIC_LOREBOOK_SCAN_DEPTH if self.agentic else LOREBOOK_SCAN_DEPTH
-
     def writer_block(self, director_selected: Sequence[str], macros: Macros | None = None) -> str:
         """Return the lorebook block appended to the Writer prompt."""
         if not self.agentic:
             return self.block
-        return compute_lorebook_block(
-            self.entries,
-            self.messages,
-            scan_depth=self.scan_depth,
-            director_selected=director_selected,
-            macros=macros,
-        )
+        return compute_agentic_lorebook_block(self.entries, director_selected, macros, self.messages)
 
 
 @dataclass(frozen=True, slots=True)

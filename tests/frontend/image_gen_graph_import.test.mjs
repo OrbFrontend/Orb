@@ -47,9 +47,8 @@ test("refuses a graph too large for the config slot", () => {
   assert.throws(() => graphFromApiJson(JSON.stringify(huge)), /too large/);
 });
 
-// The picker must weigh a graph exactly as the normalizer does — UTF-8 bytes,
-// taken after `is_changed` is stripped. Measuring UTF-16 code units let a CJK
-// graph through at a third of its real size and the save came back one workflow
+// The picker must weigh a graph exactly as the normalizer does -- UTF-8 bytes, taken after `is_changed` is stripped.
+// Measuring UTF-16 code units let a CJK graph through at a third of its real size and the save came back one workflow
 // short; measuring before the strip bounced graphs the backend would have stored.
 test("measures the size cap the way the backend does", () => {
   const cjk = JSON.stringify({
@@ -63,7 +62,7 @@ test("measures the size cap the way the backend does", () => {
   const graph = { 1: { class_type: "CLIPTextEncode", inputs: { text: "" } }, 2: { class_type: "KSampler", inputs: { seed: 1 } } };
   for (let i = 3; i < 800; i++) graph[i] = { class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] };
   assert.ok(JSON.stringify(graph).length > 512_000, "precondition: over the cap only because of is_changed");
-  // Accepted, and the caller still gets the graph it passed in — the strip is for
+  // Accepted, and the caller still gets the graph it passed in -- the strip is for
   // measurement only, and the backend repeats it on arrival.
   assert.deepEqual(graphFromApiJson(JSON.stringify(graph))[3].is_changed, graph[3].is_changed);
 });
@@ -78,8 +77,7 @@ test("builds explicit slot candidates", () => {
 test("a save node's filename_prefix is not a prompt candidate", () => {
   // Krea/Flux export: SaveImage (#29) sorts before the encoder (#51), and real
   // /object_info types filename_prefix as STRING. Offering it made it the default
-  // positive slot, pushing the real prompt onto the filename and the negative
-  // onto the only encoder.
+  // positive slot, pushing the real prompt onto the filename and the negative onto the only encoder.
   const graph = {
     29: { class_type: "SaveImage", inputs: { filename_prefix: "Krea2", images: ["56", 0] } },
     51: { class_type: "CLIPTextEncode", inputs: { text: "1girl", clip: ["4", 1] } },
@@ -179,9 +177,8 @@ test("metadata-stripped PNG gets a clear error", () => {
 });
 
 test("candidate values survive HTML-attribute parsing", () => {
-  // The picker writes each value into an <option value> via innerHTML, and the
-  // HTML tokenizer rewrites U+0000 in an attribute to U+FFFD. The original NUL
-  // separator was mangled on that round-trip, so splitCandidate returned null and
+  // The picker writes each value into an <option value> via innerHTML, and the HTML tokenizer rewrites U+0000 in an
+  // attribute to U+FFFD. The original NUL separator was mangled on that round-trip, so splitCandidate returned null and
   // the Confirm button silently did nothing. Simulate the rewrite here.
   const value = slotCandidates(GRAPH, NODE_TYPES).seed[0].value;
   assert.ok(!value.includes("\u0000"), "separator must not be NUL");
@@ -205,9 +202,8 @@ test("model-loader inputs are offered as model-override candidates", () => {
 });
 
 test("upload widgets become reference candidates from server typing", () => {
-  // Qwen-Image-Edit shape: LoadImage (#103) feeds a scale node, which feeds both
-  // encoders. The reference always enters through the LoadImage widget — the
-  // encoder's image1 is a link and has no widget to patch.
+  // Qwen-Image-Edit shape: LoadImage (#103) feeds a scale node, which feeds both encoders. The reference always enters
+  // through the LoadImage widget -- the encoder's image1 is a link and has no widget to patch.
   const edit = {
     103: { class_type: "LoadImage", inputs: { image: "woman-in-black.jpeg" }, _meta: { title: "Load Image" } },
     93: { class_type: "ImageScaleToTotalPixels", inputs: { image: ["103", 0], megapixels: 1 } },
@@ -242,8 +238,7 @@ test("size inputs are offered only where they are literally width and height", (
   };
   const typing = {
     EmptyLatentImage: { output_node: false, dimension_inputs: ["width", "height"] },
-    // The server's rule already excluded it; this pins that the client agrees when
-    // the server is the one answering.
+    // The server's rule already excluded it; this pins that the client agrees when the server is the one answering.
     ImageScaleBy: { output_node: false, dimension_inputs: [] },
     KSampler: { output_node: false, seed_inputs: ["seed"] },
     SaveImage: { output_node: true },
@@ -255,9 +250,8 @@ test("size inputs are offered only where they are literally width and height", (
       ["5", "height"],
     ],
   );
-  // With the server unreachable the name list stands in, and reaches the same
-  // verdict on `grounding_px` -- a wrong guess here costs a broken render, so the
-  // fallback is deliberately exact rather than seed's substring rule.
+  // With the server unreachable the name list stands in, and reaches the same verdict on `grounding_px` -- a wrong
+  // guess here costs a broken render, so the fallback is deliberately exact rather than seed's substring rule.
   assert.deepEqual(
     slotCandidates(sized, {}).dimension.map((i) => splitCandidate(i.value)),
     [

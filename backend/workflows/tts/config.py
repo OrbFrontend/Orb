@@ -18,22 +18,9 @@ CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
         "auto_play": {"type": "boolean", "title": "Play generated speech automatically"},
-        "volume": {
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            "title": "Playback volume",
-        },
-        "click_granularity": {
-            "type": "string",
-            "enum": ["none", "message", "block"],
-            "title": "Click-to-speak granularity",
-        },
-        "click_play_scope": {
-            "type": "string",
-            "enum": ["whole", "unit"],
-            "title": "Click playback scope",
-        },
+        "volume": {"type": "number", "minimum": 0.0, "maximum": 1.0, "title": "Playback volume"},
+        "click_granularity": {"type": "string", "enum": ["none", "message", "block"], "title": "Click-to-speak granularity"},
+        "click_play_scope": {"type": "string", "enum": ["whole", "unit"], "title": "Click playback scope"},
         "show_karaoke": {"type": "boolean", "title": "Highlight words during playback (karaoke)"},
     },
 }

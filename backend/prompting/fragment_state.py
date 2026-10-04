@@ -9,12 +9,7 @@ from ..core import StateFragment, StateView
 STATE_BLOCK_HEADING = "**Current State**"
 
 
-def render_state_block(
-    fragments: Sequence[StateFragment],
-    view: StateView,
-    *,
-    prior: StateView | None = None,
-) -> str:
+def render_state_block(fragments: Sequence[StateFragment], view: StateView, *, prior: StateView | None = None) -> str:
     """Render injected state, showing before-Writer changes as ``old -> new``."""
     parts: list[str] = []
     for fragment in fragments:

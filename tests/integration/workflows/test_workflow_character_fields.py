@@ -1,9 +1,7 @@
 """Character-card snapshot (``ctx.character``) delivery to workflow hooks.
 
-Pins that each in-scope hook context (PreCtx, PostCtx, OnDemandCtx,
-RegenCtx) receives a read-only snapshot of the conversation's character
-card and its character_id, and that both degrade to None when the
-conversation has no card.
+Pins that each in-scope hook context (PreCtx, PostCtx, OnDemandCtx, RegenCtx) receives a read-only snapshot of the
+conversation's character card and its character_id, and that both degrade to None when the conversation has no card.
 """
 
 from __future__ import annotations
@@ -19,9 +17,9 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.inference import LLMClient, _KVCacheTracker
-from backend.pipeline.orchestrator import _run_pipeline
-from backend.pipeline.workflow_bridge import _iterate_pre_pipeline_hooks
+from backend.inference import KVCacheTracker, LLMClient
+from backend.pipeline.orchestrator import run_pipeline
+from backend.pipeline.workflow_bridge import iterate_pre_pipeline_hooks
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -36,13 +34,7 @@ async def _drain(gen) -> list:
 
 
 def _pipeline_kwargs() -> dict:
-    return {
-        "prefix": _PREFIX,
-        "enabled_tools": {},
-        "turn_scratch": {},
-        "kv_tracker": _KVCacheTracker(),
-        "schema_overrides": {},
-    }
+    return {"prefix": _PREFIX, "enabled_tools": {}, "turn_scratch": {}, "kv_tracker": KVCacheTracker(), "schema_overrides": {}}
 
 
 async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
@@ -56,7 +48,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
     w = make_workflow("cf_pre", pre_pipeline=pre_hook)
     with register_for_test(w):
         await _drain(
-            _iterate_pre_pipeline_hooks(
+            iterate_pre_pipeline_hooks(
                 conversation_id="conv",
                 character_id="c1",
                 card=dict(_CARD),
@@ -67,7 +59,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
                 enabled_tools_pre_merge={},
                 turn_scratch={},
                 client=None,
-                kv_tracker=_KVCacheTracker(),
+                kv_tracker=KVCacheTracker(),
                 schema_overrides={},
                 accumulators={"merged_enabled_tools": {}, "extras": []},
             )
@@ -76,7 +68,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
     snapshot = captured["character"]
     assert captured["character_id"] == "c1"
     assert snapshot["personality"] == "warm"
-    # _readonly recursively freezes: nested lists arrive as tuples.
+    # readonly_view recursively freezes: nested lists arrive as tuples.
     assert snapshot["tags"] == ("a", "b")
     with pytest.raises(TypeError):
         snapshot["personality"] = "x"
@@ -97,7 +89,7 @@ async def test_post_pipeline_ctx_carries_readonly_card_snapshot():
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
             await _drain(
-                _run_pipeline(
+                run_pipeline(
                     LLMClient("http://localhost:9999"),
                     _SETTINGS,
                     _DIRECTOR_STATE,
@@ -179,17 +171,9 @@ async def test_regenerate_ctx_carries_card_snapshot_and_id_from_route(client):
         captured["character_id"] = ctx.character_id
         return []
 
-    wf = make_workflow(
-        "cf_rg",
-        regenerate=regenerate,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("cf_rg", regenerate=regenerate, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/conv_rg/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/conv_rg/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
 
     assert resp.status_code == 200
     assert captured["character_id"] == "card_rg"

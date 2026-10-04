@@ -1,10 +1,8 @@
 """The HTTP body the client actually sends, over a mock transport.
 
-The stop sequence is the one part of a completion request that belongs to the
-CALLER'S WEIGHTS rather than to llama-server: a stop token is a property of a
-checkpoint's chat template. This pins both halves of that — what a caller with
-a stop token sends, and that a caller without one sends a body with no ``stop``
-key at all rather than an empty list.
+The stop sequence is the one part of a completion request that belongs to the CALLER'S WEIGHTS rather than to llama-server: a
+stop token is a property of a checkpoint's chat template. This pins both halves of that -- what a caller with a stop token sends,
+and that a caller without one sends a body with no ``stop`` key at all rather than an empty list.
 """
 
 from __future__ import annotations
@@ -81,11 +79,9 @@ async def test_the_older_stopped_flags_still_read_as_a_finished_generation(monke
 
 # --- the token-id path, which an audio model cannot do without ---------------
 #
-# Spark-TTS's speaker and audio tokens are all typed CONTROL in the GGUF, and
-# `--special` defaults to false, so `content` arrives EMPTY for a completion
-# that is entirely audio. A text-based reader does not fail against that; it
-# silently returns nothing. These pin both halves of the alternative: an int
-# array going out, and `tokens` coming back.
+# Spark-TTS's speaker and audio tokens are all typed CONTROL in the GGUF, and `--special` defaults to false, so `content`
+# arrives EMPTY for a completion that is entirely audio. A text-based reader does not fail against that; it silently returns
+# nothing. These pin both halves of the alternative: an int array going out, and `tokens` coming back.
 
 
 def _token_client(monkeypatch, sent: list[dict], chunks: list[str]) -> C.LlamaServerClient:

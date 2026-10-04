@@ -1,9 +1,8 @@
 """Re-encoding on the way out (display) and on the way in (references).
 
-The reference half is the one with a contract: a destination that declares
-`allowed`/`max_bytes` must be honoured or refused, while one that declares nothing
-stays best effort. Both halves live here rather than beside each backend, because
-the rule is the same wherever the bytes are going.
+The reference half is the one with a contract: a destination that declares `allowed`/`max_bytes` must be honoured or refused,
+while one that declares nothing stays best effort. Both halves live here rather than beside each backend, because the rule is
+the same wherever the bytes are going.
 """
 
 import io
@@ -12,11 +11,7 @@ import pytest
 from PIL import Image
 
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
-from backend.workflows.image_gen.engine.display_encode import (
-    lossless_png,
-    normalize_reference,
-    shrink_for_display,
-)
+from backend.workflows.image_gen.engine.display_encode import lossless_png, normalize_reference, shrink_for_display
 
 _CAP = 4 * 1024 * 1024
 
@@ -29,7 +24,7 @@ def _png(w, h, fmt: str = "PNG") -> bytes:
     return buf.getvalue()
 
 
-# ── display ──────────────────────────────────────────────────────────────────
+# -- display ------------------------------------------------------------------
 
 
 def test_reencodes_to_webp_at_full_resolution():
@@ -45,7 +40,7 @@ def test_non_image_bytes_pass_through_untouched():
     assert shrink_for_display(b"not an image", "image/png") == (b"not an image", "image/png")
 
 
-# ── export ───────────────────────────────────────────────────────────────────
+# -- export -------------------------------------------------------------------
 
 
 def test_an_exported_png_is_the_source_itself():
@@ -68,7 +63,7 @@ def test_bytes_that_are_not_an_image_are_refused_rather_than_exported():
         lossless_png(b"not an image")
 
 
-# ── references, with nothing declared ────────────────────────────────────────
+# -- references, with nothing declared ----------------------------------------
 
 
 def test_a_normal_reference_is_uploaded_byte_for_byte():
@@ -89,7 +84,7 @@ def test_an_oversized_reference_is_bounded():
         assert abs(img.size[0] / img.size[1] - 4200 / 600) < 0.01  # aspect preserved
 
 
-# ── references, against a declared contract ──────────────────────────────────
+# -- references, against a declared contract ----------------------------------
 
 
 def test_a_stored_webp_reference_arrives_as_a_mime_the_provider_accepts():

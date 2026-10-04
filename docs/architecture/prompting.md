@@ -63,9 +63,9 @@ Built-in tools use this order:
 ```
 
 Enabled built-ins preserve that order. Workflow tools append in registration
-order, and re-registering a workflow tool preserves its position. Schema
-property order and insertion-order-preserving JSON serialization are part of
-the transport contract.
+order, which is plug-in package-name order, and re-registering a workflow tool
+preserves its position. Schema property order and insertion-order-preserving
+JSON serialization are part of the transport contract.
 
 ## Card message projections
 

@@ -1,4 +1,4 @@
-"""Parse and serialize Tavern Card V1–V3 payloads."""
+"""Parse and serialize Tavern Card V1-V3 payloads."""
 
 from __future__ import annotations
 
@@ -99,16 +99,14 @@ class TavernCardV2Data(BaseModel):
 
 class TavernCardV2(BaseModel):
     spec: Literal["chara_card_v2"] = "chara_card_v2"
-    # Not a Literal: pinning the version *string* turns a cosmetic mismatch into
-    # a total parse failure that degrades silently to V1. `spec` is the
-    # discriminator we actually dispatch on.
+    # Not a Literal: pinning the version *string* turns a cosmetic mismatch into a total parse failure that degrades silently to
+    # V1. `spec` is the discriminator we actually dispatch on.
     spec_version: str = "2.0"
     data: TavernCardV2Data = Field(default_factory=TavernCardV2Data)
 
 
-# V3-only card fields. Orb has no column for any of them, so they park at
-# extensions.orb.v3 on import and are rehydrated to the top level on export
-# (see card_to_dict / to_png).
+# V3-only card fields. Orb has no column for any of them, so they park at extensions.orb.v3 on import and are rehydrated to the
+# top level on export (see card_to_dict / to_png).
 V3_ONLY_FIELDS = (
     "nickname",
     "creator_notes_multilingual",
@@ -121,7 +119,7 @@ V3_ONLY_FIELDS = (
 
 
 class TavernCardV3Data(TavernCardV2Data):
-    """V3 card data. Purely additive over V2 — every V2 field keeps its type."""
+    """V3 card data. Purely additive over V2 -- every V2 field keeps its type."""
 
     nickname: str = ""
     creator_notes_multilingual: dict[str, str] | None = None
@@ -132,9 +130,8 @@ class TavernCardV3Data(TavernCardV2Data):
     modification_date: int | None = None
 
 
-# A sibling of TavernCardV2, not a subclass: overriding `spec`/`data` on a
-# subclass is a mutable-attribute variance error under Pyright, and AGENTS.md
-# forbids suppressions.
+# A sibling of TavernCardV2, not a subclass: overriding `spec`/`data` on a subclass is a mutable-attribute variance error under
+# Pyright, and AGENTS.md forbids suppressions.
 class TavernCardV3(BaseModel):
     spec: Literal["chara_card_v3"] = "chara_card_v3"
     spec_version: str = "3.0"
@@ -151,14 +148,9 @@ def extract_exif_data(image_path: str) -> dict[str, Any]:
 
 
 def position_converter(data: Any) -> Any:
-    """Coerce a lorebook entry's ``position`` to the V2 spec's literal values.
+    """Normalize lorebook positions to V2 before_char/after_char.
 
-    The V2 spec only allows ``before_char``/``after_char``, but cards exported
-    by frontends (and mirrored by sites like botbooru) store the numeric
-    world-info position instead — often as a string — where 0 = before char
-    defs and 1 = after, plus higher values (author's note, at-depth, …) with no
-    V2 equivalent. Map the two representable values and drop anything else so a
-    single odd field doesn't reject the whole card down to the V1 parser.
+    Accept numeric 0/1, including strings; drop unrepresentable positions without forcing the entire card through V1 parsing.
     """
     if data in ("before_char", "after_char"):
         return data
@@ -177,10 +169,9 @@ CARD_CHUNKS = ("ccv3", "chara")
 def first_text_chunk(image_path: str, key: str) -> str | None:
     """Return the first tEXt chunk of a PNG under *key*, or None.
 
-    PIL's ``img.info`` is a plain dict, so a card carrying *several* chunks under
-    one key (some editors append instead of replacing) collapses to the **last**
-    one — often a stale copy missing alternate_greetings. Other card readers
-    take the first match, so we do too.
+    PIL's ``img.info`` is a plain dict, so a card carrying *several* chunks under one key (some editors append instead of
+    replacing) collapses to the **last** one -- often a stale copy missing alternate_greetings. Other card readers take the first
+    match, so we do too.
     """
     with open(image_path, "rb") as fh:
         data = fh.read()
@@ -199,7 +190,7 @@ def first_text_chunk(image_path: str, key: str) -> str | None:
 
 
 def _decode_chunk(key: str, raw: str) -> dict[str, Any]:
-    """base64 → utf-8 → JSON for one card chunk. Raises ValueError on any step."""
+    """base64 -> utf-8 -> JSON for one card chunk. Raises ValueError on any step."""
     try:
         raw_json_string = base64.b64decode(raw).decode("utf-8")
         logger.info(f"Decoded '{key}' JSON string length: {len(raw_json_string)} chars")
@@ -217,10 +208,8 @@ def _decode_chunk(key: str, raw: str) -> dict[str, Any]:
 
 
 def parse(image_path: str) -> TavernCard:
-    """
-    Parses Tavern Card data from an image file's metadata.
-    Prefers the V3 ``ccv3`` chunk and falls back to the legacy ``chara`` one;
-    the payload itself is then parsed as V3, V2 or V1 (see :func:`from_json_obj`).
+    """Parses Tavern Card data from an image file's metadata. Prefers the V3 ``ccv3`` chunk and falls back to the legacy
+    ``chara`` one; the payload itself is then parsed as V3, V2 or V1 (see :func:`from_json_obj`).
     """
     logger.info(f"Parsing tavern card from: {image_path}")
     metadata = extract_exif_data(image_path)
@@ -251,9 +240,8 @@ def parse(image_path: str) -> TavernCard:
 def from_json_obj(jobj: dict[str, Any]) -> TavernCard:
     """Build a Tavern card from an already-parsed JSON object.
 
-    Dispatches on ``spec`` (V3, then V2) and falls back to V1, mirroring
-    :func:`parse` but for callers that obtained the card JSON directly rather
-    than embedded in a PNG (e.g. an archive API that serves the definition as JSON).
+    Dispatches on ``spec`` (V3, then V2) and falls back to V1, mirroring :func:`parse` but for callers that obtained the card
+    JSON directly rather than embedded in a PNG (e.g. an archive API that serves the definition as JSON).
     """
     spec = jobj.get("spec")
     logger.info(f"Detected card version: {spec or 'V1'}")
@@ -299,10 +287,9 @@ def _b64_payload(payload: dict[str, Any]) -> str:
 def to_png(card_dict: dict, avatar_bytes: bytes | None = None) -> bytes:
     """Serialize card_dict to a Character Card V3 PNG with a V2 legacy chunk.
 
-    ``ccv3`` carries the V3 payload (V3-only fields rehydrated from
-    extensions.orb.v3 to the top level), ``chara`` the V2 projection for
-    V2-only readers. An additional orb_id tEXt chunk carries the card UUID so
-    that re-importing an exported card relinks existing conversation history.
+    ``ccv3`` carries the V3 payload (V3-only fields rehydrated from extensions.orb.v3 to the top level), ``chara`` the V2
+    projection for V2-only readers. An additional orb_id tEXt chunk carries the card UUID so that re-importing an exported card
+    relinks existing conversation history.
     """
     # Build strictly-spec-compliant V2 JSON (no extra fields)
     v2_data: dict[str, Any] = {

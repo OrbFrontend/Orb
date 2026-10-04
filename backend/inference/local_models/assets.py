@@ -14,7 +14,7 @@ from .catalog import MODELS, ModelFileSpec, ModelVariantSpec
 MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
 
 #: The repo root: four directories up from ``backend/inference/local_models/``.
-#: A wrong count here does not raise — it silently creates a second, empty
+#: A wrong count here does not raise -- it silently creates a second, empty
 #: models directory and reports every downloaded weight as missing. Pinned by
 #: ``tests/unit/test_local_models_paths.py``.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -27,7 +27,7 @@ def model_dir() -> str:
 
 
 def resolve_path(feature: str) -> str:
-    """Where feature's GGUF lives: env override → data/models → repo root (back-compat)."""
+    """Where feature's GGUF lives: env override -> data/models -> repo root (back-compat)."""
     if feature == "autocomplete":
         env = os.environ.get("ORB_AUTOCOMPLETE_MODEL")
         if env and os.path.exists(env):  # stale override must not hide a downloaded model
@@ -38,7 +38,7 @@ def resolve_path(feature: str) -> str:
         # The old mirrored/root paths cannot establish which weights they hold.
         return os.path.join(model_dir(), spec.local_name)
     for candidate in (
-        os.path.join(model_dir(), spec.local_name),  # flat — what download() writes
+        os.path.join(model_dir(), spec.local_name),  # flat -- what download() writes
         os.path.join(model_dir(), spec.filename),  # legacy: hf's mirror of the repo layout
         os.path.join(_ROOT, spec.local_name),  # legacy: manual drop at repo root
         os.path.join(_ROOT, spec.filename),  # legacy: mirrored drop at repo root
@@ -51,9 +51,8 @@ def resolve_path(feature: str) -> str:
 def present(feature: str) -> bool:
     """Is *feature* usable from disk?
 
-    For a variant-bearing spec that means ANY variant is downloaded — the
-    Settings card flips from "download something" to "pick one and enable" on
-    the first file, not on the default one.
+    For a variant-bearing spec that means ANY variant is downloaded -- the Settings card flips from "download something" to "pick
+    one and enable" on the first file, not on the default one.
     """
     spec = MODELS.get(feature)
     if spec is None:
@@ -95,22 +94,13 @@ def missing_files(feature: str) -> list[str]:
 
 
 def prune_stale(root: str | None = None) -> None:
-    """Delete any .gguf under data/models/ that no current MODELS spec claims.
+    """Prune unclaimed managed artifacts after downloads, preserving other extensions.
 
-    Runs after every download so bumping a model (e.g. v2 typeahead) doesn't leave
-    the old weights eating disk. Only touches the extensions the catalog itself
-    writes (``MANAGED_SUFFIXES``) — hf's .cache bookkeeping and manual drops of
-    anything else are left alone.
-
-    Claim is by *basename*, not full path: comparing paths meant a model sitting in
-    a legacy mirrored subdir read as unclaimed and got deleted the moment any other
-    feature downloaded — and on a case-insensitive filesystem, where ``GGUF/`` and
-    ``gguf/`` are one directory, that fired on a model we had just fetched.
+    Compare basenames so legacy mirrored paths and case-insensitive directories do not make current weights appear unclaimed.
     """
     root = root or model_dir()
-    # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A
-    # name the claim set forgets is wiped the next time any feature downloads —
-    # 4.7 GB gone because an unrelated button was pressed.
+    # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A name the claim set forgets is wiped the next time
+    # any feature downloads -- 4.7 GB gone because an unrelated button was pressed.
     keep = {name for s in MODELS.values() for name in s.all_names()}
     walked: list[str] = []
     for dirpath, dirs, files in os.walk(root):
@@ -152,11 +142,9 @@ def file_sha256(path: str) -> str:
 def _verify(path: str, expected: str) -> None:
     """Reject a file whose bytes are not the ones that were verified.
 
-    A revision pin says WHICH commit; this says which BYTES, and the two are
-    not the same promise — a repo that is force-pushed, deleted and recreated,
-    or replaced by a namespace takeover can satisfy the first and fail this. A
-    mismatch deletes the download rather than leaving a file that `present()`
-    would then call ready.
+    A revision pin says WHICH commit; this says which BYTES, and the two are not the same promise -- a repo that is force-pushed,
+    deleted and recreated, or replaced by a namespace takeover can satisfy the first and fail this. A mismatch deletes the
+    download rather than leaving a file that `present()` would then call ready.
     """
     if not expected:
         return
@@ -172,7 +160,7 @@ def _verify(path: str, expected: str) -> None:
 
 def _fetch(repo_id: str, path: str, revision: str, local_name: str, sha256: str) -> None:
     """One file into ``data/models/<local_name>``, flattened and checked."""
-    from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
+    from huggingface_hub import hf_hub_download  # noqa: PLC0415 -- deferred
 
     got = hf_hub_download(repo_id=repo_id, filename=path, revision=revision, local_dir=model_dir())
     flat = os.path.join(model_dir(), local_name)
@@ -198,13 +186,12 @@ def download(feature: str, variant: str | None = None) -> None:
 def delete_model(feature: str, variant: str | None = None) -> bool:
     """Remove one downloaded artifact. Returns whether anything was deleted.
 
-    Exists because the three rewriter variants are 9.6 GB combined and "find
-    the folder yourself" is not an acceptable only exit at that size.
+    Exists because the three rewriter variants are 9.6 GB combined and "find the folder yourself" is not an acceptable only exit
+    at that size.
 
-    Deleting a spec's own file takes its companions with it: they are useless
-    alone, and leaving 23 MB behind that nothing claims is the shape of bug
-    ``prune_stale`` exists to prevent. Deleting one VARIANT leaves them, since
-    its siblings still need them.
+    Deleting a spec's own file takes its companions with it: they are useless alone, and leaving 23 MB behind that nothing
+    claims is the shape of bug ``prune_stale`` exists to prevent. Deleting one VARIANT leaves them, since its siblings still
+    need them.
     """
     spec = MODELS[feature]
     _repo, _path, _rev, local_name = variant_spec(feature, variant)
@@ -217,34 +204,3 @@ def delete_model(feature: str, variant: str | None = None) -> bool:
             os.remove(target)
             removed = True
     return removed
-
-
-if __name__ == "__main__":
-    # Self-check for the destructive prune (temp dir; never touches real models).
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as d:
-        keep = os.path.join(d, MODELS["autocomplete"].local_name)
-        open(keep, "w").close()
-        mirrored = os.path.join(d, MODELS["emotion_classifier"].filename)  # legacy gguf/ nesting
-        os.makedirs(os.path.dirname(mirrored), exist_ok=True)
-        open(mirrored, "w").close()
-        companion = os.path.join(d, next(iter(MODELS["spark_tts_codec"].extra_files)).local_name)
-        open(companion, "w").close()
-        stale = os.path.join(d, "old-granite-Q8_0.gguf")
-        open(stale, "w").close()
-        stale_onnx = os.path.join(d, "left-over-decoder.onnx")
-        open(stale_onnx, "w").close()
-        notes = os.path.join(d, "readme.txt")  # an unmanaged extension must survive
-        open(notes, "w").close()
-        cached = os.path.join(d, ".cache", "huggingface", "download")
-        os.makedirs(cached)
-        prune_stale(d)
-        assert os.path.exists(keep), "current spec's gguf must be kept"
-        assert os.path.exists(mirrored), "a claimed gguf in a legacy subdir must survive"
-        assert os.path.exists(companion), "a claimed companion .onnx must be kept"
-        assert not os.path.exists(stale), "unclaimed gguf must be removed"
-        assert not os.path.exists(stale_onnx), "unclaimed onnx must be removed"
-        assert os.path.exists(notes), "an unmanaged extension must be left alone"
-        assert os.path.isdir(cached), "hf's .cache must be left alone, empty or not"
-    print("prune_stale OK")

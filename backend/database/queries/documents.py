@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import _build_set_clause, get_db, immediate_tx
+from ..connection import build_set_clause, get_db, immediate_tx, select_rows
 from ..models import DocumentListRow, DocumentRow
 
 
@@ -18,12 +18,9 @@ class DocumentConflict(Exception):
 
 
 async def get_documents() -> list[DocumentListRow]:
-    """List projection — never selects the full ``content`` (see DocumentListRow)."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT id, title, created_at, updated_at FROM documents ORDER BY updated_at DESC")
-        )
-        return [cast(DocumentListRow, dict(r)) for r in rows]
+    """List projection -- never selects the full ``content`` (see DocumentListRow)."""
+    rows = await select_rows("SELECT id, title, created_at, updated_at FROM documents ORDER BY updated_at DESC")
+    return [cast(DocumentListRow, dict(r)) for r in rows]
 
 
 async def _document_on(db, document_id: str) -> DocumentRow | None:
@@ -64,7 +61,7 @@ async def create_document(data: dict) -> DocumentRow:
 async def update_document(document_id: str, data: dict) -> DocumentRow | None:
     async with immediate_tx() as db:
         allowed = ["title", "content", "generated_spans"]
-        sets, vals = _build_set_clause(allowed, data, json_fields={"generated_spans"})
+        sets, vals = build_set_clause(allowed, data, json_fields={"generated_spans"})
         if sets:
             sets.append("revision = revision + 1")
             sets.append("updated_at = ?")

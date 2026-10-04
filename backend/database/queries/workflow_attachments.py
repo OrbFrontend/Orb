@@ -7,44 +7,36 @@ import json
 import logging
 import os
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import cast
 
 from ...core import scrub_log
-from ..connection import get_db
+from ..connection import get_db, select_rows
 from ..models import WorkflowAttachmentMeta, WorkflowAttachmentRow
 
 logger = logging.getLogger(__name__)
 
-# Sentinel string written into ``data_b64`` when an artifact's bytes are
-# evicted (the other columns stay intact so a later rehydrate can recover the
-# bytes from stored parameters). Defined here -- in the database boundary --
-# because it describes the persisted shape of the column, not cache policy.
-# ``backend.workflows.attachment_cache`` re-exports it for the eviction layer.
+# Sentinel string written into ``data_b64`` when an artifact's bytes are evicted (the other columns stay intact so a later
+# rehydrate can recover the bytes from stored parameters). Defined here -- in the database boundary -- because it describes the
+# persisted shape of the column, not cache policy. ``backend.workflows.attachment_cache`` re-exports it for the eviction layer.
 EVICTED_MARKER = "[evicted]"
 
 
-def _staging_root() -> str:
-    """Canonical root directory for path-shape attachments.
+def staging_root() -> str:
+    """Root for file-path attachments.
 
-    Path-shape attachments let a workflow reference a file on disk instead of
-    inlining bytes. Since the path can be influenced by user input, each
-    ``open()``/``stat()`` call normalizes it with ``realpath`` and rejects it
-    unless it lives under this root. Inlined (not a shared helper) so CodeQL
-    ``py/path-injection`` can trace the guard to the sink.
+    Each open/stat validates realpath containment inline so CodeQL can trace the guard to the sink.
     """
     configured = os.environ.get("ORB_WORKFLOW_STAGING_DIR") or tempfile.gettempdir()
     return os.path.realpath(configured)
 
 
-def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
-    """JSON-encode a dict-shaped metadata field, or return None for absent/bad shape.
+def encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
+    """Strictly JSON-encode dict metadata, otherwise return None.
 
-    Non-dict values produce None silently -- the row helper accepts these from
-    callers that have already coerced them and from defensive paths upstream.
-    A dict containing non-serializable contents (e.g. nested ``set``) or
-    non-finite numbers trips strict JSON encoding; the error is logged and the
-    column is written as NULL so the row insert still lands.
+    Log serialization failures, including non-finite numbers, and store NULL
+    so malformed metadata does not prevent inserting the attachment.
     """
     if not isinstance(value, dict):
         return None
@@ -61,50 +53,50 @@ def _encode_metadata_field(value: object, field_name: str, workflow_id: str, fil
 
 
 async def get_workflow_attachment_by_id(att_id: int) -> WorkflowAttachmentRow | None:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, message_id, mime_type, data_b64, filename, created_at, "
-                "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
-                "consumption_metadata, active_sibling_id, recent_accesses "
-                "FROM workflow_attachments WHERE id = ?",
-                (att_id,),
-            )
-        )
-        return cast(WorkflowAttachmentRow, dict(rows[0])) if rows else None
+    rows = await select_rows(
+        "SELECT id, message_id, mime_type, data_b64, filename, created_at, "
+        "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+        "consumption_metadata, active_sibling_id, recent_accesses "
+        "FROM workflow_attachments WHERE id = ?",
+        (att_id,),
+    )
+    return cast(WorkflowAttachmentRow, dict(rows[0])) if rows else None
+
+
+async def conversation_attachment_ids(cid: str, ids: Sequence[int]) -> set[int]:
+    """The subset of *ids* that are attachments on messages of conversation *cid*."""
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    rows = await select_rows(
+        "SELECT wa.id FROM workflow_attachments wa JOIN messages m ON m.id = wa.message_id "  # nosec B608 -- placeholders only
+        f"WHERE m.conversation_id = ? AND wa.id IN ({placeholders})",
+        (cid, *ids),
+    )
+    return {int(row["id"]) for row in rows}
 
 
 async def get_workflow_attachment_meta(att_id: int) -> WorkflowAttachmentMeta | None:
     """One row without its bytes, for a reader that may never need them."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, message_id, mime_type, filename, created_at, "
-                "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
-                "consumption_metadata, active_sibling_id, recent_accesses "
-                "FROM workflow_attachments WHERE id = ?",
-                (att_id,),
-            )
-        )
-        return cast(WorkflowAttachmentMeta, dict(rows[0])) if rows else None
+    rows = await select_rows(
+        "SELECT id, message_id, mime_type, filename, created_at, "
+        "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+        "consumption_metadata, active_sibling_id, recent_accesses "
+        "FROM workflow_attachments WHERE id = ?",
+        (att_id,),
+    )
+    return cast(WorkflowAttachmentMeta, dict(rows[0])) if rows else None
 
 
 async def get_workflow_attachment_bytes(att_id: int) -> bytes | None:
     """One row's stored bytes, or None when the row is gone or its bytes are evicted."""
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT data_b64 FROM workflow_attachments WHERE id = ?", (att_id,)))
+    rows = await select_rows("SELECT data_b64 FROM workflow_attachments WHERE id = ?", (att_id,))
     if not rows or rows[0]["data_b64"] == EVICTED_MARKER:
         return None
     return base64.b64decode(rows[0]["data_b64"])
 
 
-async def insert_workflow_attachment_row(
-    message_id: int,
-    attachment: dict,
-    *,
-    db=None,
-    insert_as_evicted: bool = False,
-) -> int:
+async def insert_workflow_attachment_row(message_id: int, attachment: dict, *, db=None, insert_as_evicted: bool = False) -> int:
     """Insert one workflow attachment row."""
     workflow_id = attachment.get("workflow_id")
     if not isinstance(workflow_id, str) or not workflow_id:
@@ -115,20 +107,18 @@ async def insert_workflow_attachment_row(
     if has_data == has_path:
         raise ValueError("attachment must have exactly one of 'data' or 'path'")
 
-    # Validate emptiness up front so marker-mode inserts skip byte
-    # materialization entirely -- reading multi-GB artifacts only to
-    # discard them for EVICTED_MARKER would block unrelated writes while
-    # the enclosing BEGIN IMMEDIATE transaction is open. Path-branch
-    # emptiness check is stat-driven, matching attachment_cache's
-    # _estimate_size and validate_workflow_attachment_shape.
+    # Validate emptiness up front so marker-mode inserts skip byte materialization entirely -- reading multi-GB artifacts only
+    # to discard them for EVICTED_MARKER would block unrelated writes while the enclosing BEGIN IMMEDIATE transaction is open.
+    # Path-branch emptiness check is stat-driven, matching attachment_cache's _estimate_size and
+    # validate_workflow_attachment_shape.
     safe_path: str | None = None
     if has_path:
         path = attachment["path"]
         if not isinstance(path, str):
             raise ValueError(f"path must be a string; got {type(path).__name__}")
-        # Confine to the staging root before any stat/open (see _staging_root).
+        # Confine to the staging root before any stat/open (see staging_root).
         resolved = os.path.realpath(path)
-        if not resolved.startswith(_staging_root() + os.sep):
+        if not resolved.startswith(staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
         safe_path = resolved
         if os.path.getsize(safe_path) == 0:
@@ -160,10 +150,10 @@ async def insert_workflow_attachment_row(
     parent_attachment_id = attachment.get("parent_attachment_id")
     annotation = attachment.get("annotation")
     seed = attachment.get("seed")
-    generation_metadata_json = _encode_metadata_field(
+    generation_metadata_json = encode_metadata_field(
         attachment.get("generation_metadata"), "generation_metadata", workflow_id, filename
     )
-    consumption_metadata_json = _encode_metadata_field(
+    consumption_metadata_json = encode_metadata_field(
         attachment.get("consumption_metadata"), "consumption_metadata", workflow_id, filename
     )
 

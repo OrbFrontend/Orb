@@ -380,10 +380,7 @@ async def test_each_gate_sees_the_request_and_the_evolving_draft(monkeypatch):
 
     _, result = await _step(editor, fragments)
 
-    assert judge.states == [
-        gate_state(REQUEST, "Hey there."),
-        gate_state(REQUEST, "Hey, friend."),
-    ]
+    assert judge.states == [gate_state(REQUEST, "Hey there."), gate_state(REQUEST, "Hey, friend.")]
     assert editor.drafts == ["Hello there.", "Hey there.", "Hey, friend."]
     assert result.draft == "Hey, pal."
     assert [call["name"] for call in result.tool_calls] == [
@@ -557,14 +554,7 @@ async def test_stop_racing_a_completed_answer_skips_the_fragment(monkeypatch):
     assert editor.seen == []
     assert len(judge.states) == 1
     assert _gates(result) == [
-        {
-            "fragment_id": "first",
-            "label": "First",
-            "question": "Q?",
-            "fired": 1,
-            "reason": "condition_met",
-            "probability": 0.9,
-        }
+        {"fragment_id": "first", "label": "First", "question": "Q?", "fired": 1, "reason": "condition_met", "probability": 0.9}
     ]
     assert result.draft == "Hello there."
 

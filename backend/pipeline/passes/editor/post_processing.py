@@ -10,13 +10,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
-from ....inference import (
-    CachedBase,
-    DecisionCancelled,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
@@ -25,40 +20,47 @@ from .prompts import build_post_processing_prompt
 logger = logging.getLogger(__name__)
 
 
-def post_processing_active(
-    post_processing_fragments: Sequence[Mapping[str, Any]],
-    *,
-    agent_on: bool,
-) -> bool:
+def post_processing_active(post_processing_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return whether fragment-defined Editor work should run this turn."""
     return agent_on and bool(post_processing_fragments)
 
 
-def apply_search_replace_patches(draft: str, patches: object) -> str:
+def apply_search_replace_patches(draft: str, patches: object, *, label: str = "") -> str:
     """Apply valid exact patches sequentially, skipping every unsafe entry.
 
-    A patch is safe only when it has string ``search`` and ``replace`` values,
-    the search is non-empty and differs from the replacement, and the evolving
-    draft contains exactly one case-sensitive match. Invalid entries do not
-    prevent later valid patches from being considered.
+    A patch is safe only when it has string ``search`` and ``replace`` values, the search is non-empty and differs from the
+    replacement, and the evolving draft contains exactly one case-sensitive match. Invalid entries do not prevent later valid
+    patches from being considered; each one skipped is logged with its reason, under the fragment *label*.
     """
     if not isinstance(patches, list):
+        if patches is not None:
+            logger.warning("Post-processing %r: patches is not a list, nothing applied: %r", label, patches)
         return draft
 
     current = draft
-    for patch in patches:
+    for index, patch in enumerate(patches):
+        reason = ""
         if not isinstance(patch, Mapping):
-            continue
-        search = patch.get("search")
-        replace = patch.get("replace")
-        if not isinstance(search, str) or not isinstance(replace, str):
-            continue
-        if not search or search == replace:
-            continue
-        first = current.find(search)
-        if first < 0 or current.find(search, first + 1) >= 0:
-            continue
-        current = current[:first] + replace + current[first + len(search) :]
+            reason = "not a search/replace object"
+        else:
+            search = patch.get("search")
+            replace = patch.get("replace")
+            if not isinstance(search, str) or not isinstance(replace, str):
+                reason = "search and replace must both be strings"
+            elif not search:
+                reason = "empty search"
+            elif search == replace:
+                reason = "replace repeats the search"
+            else:
+                first = current.find(search)
+                if first < 0:
+                    reason = "search not found in the draft"
+                elif current.find(search, first + 1) >= 0:
+                    reason = "search matches more than one place"
+                else:
+                    current = current[:first] + replace + current[first + len(search) :]
+        if reason:
+            logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
 
 
@@ -67,7 +69,7 @@ class PostProcessingResult:
     """The evolving draft and normalized calls produced by all fragments."""
 
     draft: str
-    tool_calls: list[dict] = field(default_factory=list)
+    tool_calls: list[ParsedToolCall] = field(default_factory=list)
 
 
 async def post_processing_step(
@@ -84,19 +86,18 @@ async def post_processing_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[Mapping[str, Any]]:
     """Run one forced exact-edit call per fragment in ``sort_order``.
 
-    A fragment with a gate question first asks the Judge about the draft as the
-    earlier fragments left it, and is skipped on a no. The gate may also show
-    the Judge some of *recent_replies* (newest first). Every gate in the step
-    shares one ``GATE_BUDGET_SECONDS`` of Judge waiting.
+    A fragment with a gate question first asks the Judge about the draft as the earlier fragments left it, and is skipped on a
+    no. The gate may also show the Judge some of *recent_replies* (newest first). Every gate in the step shares one
+    ``GATE_BUDGET_SECONDS`` of Judge waiting.
 
-    A fragment whose call fails is reported as a ``failure`` event and skipped;
-    the draft keeps the earlier fragments' edits and the later ones still run.
+    A fragment whose call fails is reported as a ``failure`` event and skipped; the draft keeps the earlier fragments' edits and
+    the later ones still run.
     """
     current = draft
-    all_calls: list[dict] = []
+    all_calls: list[ParsedToolCall] = []
     fragments = sorted(post_processing_fragments, key=lambda item: item.get("sort_order", 0))
     judge_allowance = GATE_BUDGET_SECONDS
 
@@ -133,8 +134,8 @@ async def post_processing_step(
             {"role": "assistant", "content": current},
             {"role": "user", "content": edit_prompt},
         ]
-        hyperparams = extract_hyperparams(settings, lane="agent", defaults={"temperature": 0.25})
-        resp: dict = {}
+        hyperparams = extract_hyperparams(settings, lane="agent")
+        resp: CompletionMessage = {}
         try:
             async for event in base.complete_into(
                 client,
@@ -162,7 +163,9 @@ async def post_processing_step(
         before = current
         for call in parsed:
             if call.get("name") == "editor_search_replace":
-                current = apply_search_replace_patches(current, call.get("arguments", {}).get("patches"))
+                current = apply_search_replace_patches(
+                    current, call.get("arguments", {}).get("patches"), label=fragment.get("label") or fragment.get("id", "")
+                )
         if current != before:
             yield {"type": "draft_update", "draft": current}
 

@@ -1,9 +1,7 @@
 """Tests for migration 0033_disable_workflows.
 
-Adds the two workflow-toggle columns idempotently and carries a prior
-format_consistency disable from its retired config flag into the new
-workflow_enabled map, dropping the stale config key. Synchronous sqlite3, like
-the runner.
+Adds the two workflow-toggle columns idempotently and carries a prior format_consistency disable from its retired config flag
+into the new workflow_enabled map, dropping the stale config key. Synchronous sqlite3, like the runner.
 """
 
 from __future__ import annotations
@@ -33,8 +31,7 @@ def mig_db(tmp_path, monkeypatch):
 
 
 def _stage_pre_0033(conn: sqlite3.Connection, *, workflow_config: str = "{}") -> None:
-    # A pre-0033 settings row: workflow_config exists (added by 0020), but the two
-    # toggle columns do not.
+    # A pre-0033 settings row: workflow_config exists (added by 0020), but the two toggle columns do not.
     conn.execute("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id=1), workflow_config TEXT NOT NULL DEFAULT '{}')")
     conn.execute("INSERT INTO settings (id, workflow_config) VALUES (1, ?)", (workflow_config,))
     conn.commit()

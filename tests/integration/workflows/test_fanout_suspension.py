@@ -1,21 +1,15 @@
 """Fan-out suspension: a disabled workflow's PRE/POST hooks do not fire.
 
-Drives the bridge iterators directly with probe hooks and varying settings. The
-gate reads the settings snapshot threaded into each seam, so global-off suppresses
-every workflow and local-off suppresses exactly one. The last test pins the 3.9
-contract: the framework toggle is the sole on/off for format_consistency's markup
-normalization. (Its later voice half has an opt-in config of its own, off by
-default -- so with the toggle on, markup is what this drives.)
+Drives the bridge iterators directly with probe hooks and varying settings. The gate reads the settings snapshot threaded into
+each seam, so global-off suppresses every workflow and local-off suppresses exactly one. The last test pins the 3.9 contract:
+the framework toggle is the sole on/off for format_consistency's markup normalization. (Its later voice half has an opt-in
+config of its own, off by default -- so with the toggle on, markup is what this drives.)
 """
 
 from __future__ import annotations
 
-from backend.inference import _KVCacheTracker
-from backend.pipeline.workflow_bridge import (
-    _iterate_pre_pipeline_hooks,
-    _PostPipelineResult,
-    _run_post_pipeline,
-)
+from backend.inference import KVCacheTracker
+from backend.pipeline.workflow_bridge import PostPipelineResult, iterate_pre_pipeline_hooks, run_post_pipeline
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -30,7 +24,7 @@ DRIFTING_DRAFT = "*She steps closer, watching him carefully.* Are you sure about
 async def _pre_events(settings) -> list[dict]:
     accumulators = {"merged_enabled_tools": {}, "extras": []}
     events = []
-    async for ev in _iterate_pre_pipeline_hooks(
+    async for ev in iterate_pre_pipeline_hooks(
         conversation_id="c1",
         history=[],
         last_user_message="hi",
@@ -39,7 +33,7 @@ async def _pre_events(settings) -> list[dict]:
         enabled_tools_pre_merge={},
         turn_scratch={},
         client=None,
-        kv_tracker=_KVCacheTracker(),
+        kv_tracker=KVCacheTracker(),
         schema_overrides={},
         accumulators=accumulators,
     ):
@@ -49,7 +43,7 @@ async def _pre_events(settings) -> list[dict]:
 
 async def _post_event_names(settings, *, draft="draft", history=None) -> list[str]:
     names = []
-    async for ev in _run_post_pipeline(
+    async for ev in run_post_pipeline(
         draft=draft,
         conversation_id="c1",
         character_id=None,
@@ -62,10 +56,10 @@ async def _post_event_names(settings, *, draft="draft", history=None) -> list[st
         enabled_tools={},
         turn_scratch={},
         client=None,
-        kv_tracker=_KVCacheTracker(),
+        kv_tracker=KVCacheTracker(),
         schema_overrides={},
     ):
-        if not isinstance(ev, _PostPipelineResult):
+        if not isinstance(ev, PostPipelineResult):
             names.append(ev.get("event"))
     return names
 
@@ -114,17 +108,14 @@ async def test_post_local_off_suppresses_probe():
 
 
 async def test_format_consistency_runs_when_enabled_and_is_suppressed_when_toggled_off(client):
-    # The real format_consistency workflow is registered at import; the framework
-    # toggle is the only on/off for its markup half. writer_rewrite is its signature
-    # event (the draft_replaced the bridge turns into an SSE rewrite). The `client`
-    # fixture is here for the config slot the hook reads to decide whether the
-    # opt-in voice half runs -- it defaults off, so this drives the markup path.
+    # The real format_consistency workflow is registered at import; the framework toggle is the only on/off for its markup half.
+    # writer_rewrite is its signature event (the draft_replaced the bridge turns into an SSE rewrite). The `client` fixture is
+    # here for the config slot the hook reads to decide whether the opt-in voice half runs -- it defaults off, so this drives
+    # the markup path.
     history = [{"role": "assistant", "content": QUOTED_BASELINE}]
     on = await _post_event_names({"model_name": "test"}, draft=DRIFTING_DRAFT, history=history)
     off = await _post_event_names(
-        {"model_name": "test", "workflow_enabled": {"format_consistency": False}},
-        draft=DRIFTING_DRAFT,
-        history=history,
+        {"model_name": "test", "workflow_enabled": {"format_consistency": False}}, draft=DRIFTING_DRAFT, history=history
     )
 
     assert "writer_rewrite" in on

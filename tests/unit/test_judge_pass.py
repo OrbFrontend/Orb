@@ -29,16 +29,9 @@ from backend.pipeline.passes.judge import (
     judge_pass,
 )
 from backend.pipeline.passes.judge import judge as judge_module
-from backend.pipeline.passes.judge.judge import (
-    MAX_DECISIONS_PER_CARD,
-    MAX_DECISIONS_PER_EXCHANGE,
-)
+from backend.pipeline.passes.judge.judge import MAX_DECISIONS_PER_CARD, MAX_DECISIONS_PER_EXCHANGE
 
-CONFIG = JudgeConfig(
-    url="https://example.test/api/alpha/decisions",
-    api_key="secret",
-    model="typesafe/jev-1.13",
-)
+CONFIG = JudgeConfig(url="https://example.test/api/alpha/decisions", api_key="secret", model="typesafe/jev-1.13")
 
 SNAPSHOT = DecisionSnapshot(
     last_message="I shove the door.",
@@ -148,7 +141,7 @@ async def test_imported_decisions_obey_authoring_macro_rules(monkeypatch, overri
     assert gateway.batches == []
 
 
-# ── inline macros ────────────────────────────────────────────────────────────
+# -- inline macros ------------------------------------------------------------
 
 _ROLLING = {
     "decision_state_template": "{{// hidden}}Omen: {{random::a::b::c::d::e::f::g::h}}\n{{last_message}}",
@@ -192,7 +185,7 @@ async def test_seeded_rolls_let_a_regeneration_replay_and_a_new_exchange_reroll(
     assert len(states) > 1
 
 
-# ── the happy path ───────────────────────────────────────────────────────────
+# -- the happy path -----------------------------------------------------------
 
 
 async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
@@ -253,7 +246,7 @@ async def test_publication_order_is_fragment_order(monkeypatch):
     assert [record["fragment_id"] for record in result.evaluations] == ["a", "b", "c"]
 
 
-# ── batching ─────────────────────────────────────────────────────────────────
+# -- batching -----------------------------------------------------------------
 
 
 async def test_identical_states_share_one_request(monkeypatch):
@@ -268,12 +261,7 @@ async def test_identical_states_share_one_request(monkeypatch):
 
 async def test_different_states_split_and_are_never_concatenated(monkeypatch):
     gateway = FakeGateway(answers={"a": 0.9, "b": 0.9}).install(monkeypatch)
-    await judge_pass(
-        _turn(
-            _candidate("a"),
-            _candidate("b", decision_state_template="Only the request: {{last_message}}"),
-        )
-    )
+    await judge_pass(_turn(_candidate("a"), _candidate("b", decision_state_template="Only the request: {{last_message}}")))
     assert sorted(sorted(batch) for batch in gateway.batches) == [["a"], ["b"]]
     assert len(set(gateway.states)) == 2
     # Unrelated states must never be welded together to force a batch.
@@ -331,7 +319,7 @@ async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):
     }
 
 
-# ── the raw-answer cache ─────────────────────────────────────────────────────
+# -- the raw-answer cache -----------------------------------------------------
 
 
 async def test_an_identical_question_is_served_from_cache_without_a_request(monkeypatch):
@@ -390,7 +378,7 @@ async def test_an_unanswered_question_is_never_cached(monkeypatch):
     assert len(gateway.batches) == 2
 
 
-# ── decisions that cannot answer ─────────────────────────────────────────────
+# -- decisions that cannot answer ---------------------------------------------
 
 
 async def test_missing_configuration_skips_without_a_request(monkeypatch):
@@ -461,9 +449,8 @@ async def test_an_oversized_state_skips_instead_of_being_truncated(monkeypatch):
 
     assert result.evaluations == []
     assert gateway.batches == []
-    # Nothing is sent, and the skip keeps the measurement rather than the prose:
-    # truncating would drop a possibly decisive fact, and echoing an over-limit
-    # state onto the reply would store exactly the bytes the limit exists to avoid.
+    # Nothing is sent, and the skip keeps the measurement rather than the prose: truncating would drop a possibly decisive fact,
+    # and echoing an over-limit state onto the reply would store exactly the bytes the limit exists to avoid.
     row = _skips(result)["outcome"]
     assert row["reason"] == SkipReason.OVERSIZED_INPUT
     assert "rendered_state" not in row
@@ -506,7 +493,7 @@ async def test_a_provider_rejection_skips_without_extra_attempts(monkeypatch):
     assert len(gateway.batches) == 1
 
 
-# ── routine skips ────────────────────────────────────────────────────────────
+# -- routine skips ------------------------------------------------------------
 
 
 async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(monkeypatch):
@@ -523,7 +510,7 @@ async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(mon
     assert result.cooldowns == {"outcome": 1}
 
 
-# ── budgets ──────────────────────────────────────────────────────────────────
+# -- budgets ------------------------------------------------------------------
 
 
 async def test_over_budget_decisions_are_skipped_and_stay_visible(monkeypatch):
@@ -557,7 +544,7 @@ async def test_the_batch_cap_skips_the_rest(monkeypatch):
     assert len(exhausted) == 2
 
 
-# ── cancellation ─────────────────────────────────────────────────────────────
+# -- cancellation -------------------------------------------------------------
 
 
 async def test_a_stop_propagates_rather_than_producing_guidance(monkeypatch):
@@ -577,7 +564,7 @@ async def test_a_stop_before_the_first_request_asks_for_nothing(monkeypatch):
     assert gateway.batches == []
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 
 
 async def _record_for(candidate: DecisionCandidate, monkeypatch, probability: float | ChoiceAnswer | ScoreAnswer = 0.9):
@@ -644,9 +631,8 @@ async def test_an_identical_regeneration_replays_a_read_off_outcome_without_a_re
 async def test_an_identical_regeneration_redraws_on_the_stored_odds(monkeypatch, overrides, answer, first, second):
     """A drawn outcome is rolled again; the classifier's answer it is drawn against is not.
 
-    Replaying the draw would make regenerate unable to ever land on the other
-    side of odds the author chose to roll against, and asking again would spend
-    a request on an answer that is already on the record.
+    Replaying the draw would make regenerate unable to ever land on the other side of odds the author chose to roll against, and
+    asking again would spend a request on an answer that is already on the record.
     """
     candidate = _candidate(**overrides)
     _draws(monkeypatch, 0.1, 0.9)
@@ -692,9 +678,7 @@ async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_re
     original = await _record_for(candidate, monkeypatch, probability=1.0)
 
     edited = _candidate(
-        label="Renamed",
-        injection_label="Renamed",
-        decision_outputs={"true": "New words for the same outcome.", "false": ""},
+        label="Renamed", injection_label="Renamed", decision_outputs={"true": "New words for the same outcome.", "false": ""}
     )
     gateway = FakeGateway(answers={"outcome": 1.0}).install(monkeypatch)
     replayed = await judge_pass(_turn(edited, replay_records=tuple(original)))
@@ -772,7 +756,7 @@ async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
     assert record["replay_invalidated"] == SkipReason.MISSING_ANCHOR
 
 
-# ── the empty stage ──────────────────────────────────────────────────────────
+# -- the empty stage ----------------------------------------------------------
 
 
 async def test_a_stage_with_no_candidates_still_ages_cooldowns():
@@ -782,9 +766,8 @@ async def test_a_stage_with_no_candidates_still_ages_cooldowns():
 
 
 async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypatch):
-    # Two states, so two requests; the first answer to land must not be
-    # observable before the other has also landed. The result object is the only
-    # publication point, which is what makes that true by construction.
+    # Two states, so two requests; the first answer to land must not be observable before the other has also landed. The result
+    # object is the only publication point, which is what makes that true by construction.
     started = asyncio.Event()
 
     async def _slow(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001

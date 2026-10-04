@@ -51,13 +51,10 @@ function _ensureChannel(name) {
   let ch = _channels.get(name);
   if (ch) return ch;
   const baseGain = _ctx.createGain();
-  const userGain = _ctx.createGain();
-  baseGain.connect(userGain);
-  userGain.connect(_master);
+  baseGain.connect(_master);
   ch = {
     token: 0,
     baseGain,
-    userGain,
     sources: [],
     plan: null,
     startedAt: 0,
@@ -88,9 +85,8 @@ function _b64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
-// One request per clip however many spans of it a plan decodes at once. The
-// entry lives only while the request is pending; later plays go back through
-// the browser's HTTP cache.
+// One request per clip however many spans of it a plan decodes at once. The entry lives only while the request is
+// pending; later plays go back through the browser's HTTP cache.
 const _rowFetches = new Map(); // url -> Promise<ArrayBuffer>
 
 function _fetchRowBytes(url) {
@@ -346,16 +342,6 @@ export function setChannelVolume(channel, vol) {
   _ensureChannel(channel).baseGain.gain.value = _clamp01(vol);
 }
 
-export function setChannelUserVolume(channel, vol) {
-  if (!_ensureCtx()) return;
-  _ensureChannel(channel).userGain.gain.value = _clamp01(vol);
-}
-
-export function channelUserVolume(channel) {
-  const ch = _channels.get(channel);
-  return ch ? _clamp01(ch.userGain.gain.value) : 1;
-}
-
 export function channelState(channel) {
   const ch = _channels.get(channel);
   if (!ch?.plan) return null;
@@ -545,7 +531,19 @@ export function setBarChangeHook(fn) {
   _barChangeHook = typeof fn === "function" ? fn : null;
 }
 
+// iOS files bare Web Audio as ambient sound, which the silent switch mutes. The playback type plays through it but
+// pauses other apps' audio, so it is held only while something is audible.
+function _syncAudioSession() {
+  const session = navigator.audioSession;
+  if (!session) return;
+  let audible = false;
+  for (const ch of _channels.values()) audible ||= !!(ch.plan && ch.playing && !ch.paused);
+  const type = audible ? "playback" : "auto";
+  if (session.type !== type) session.type = type;
+}
+
 function _notifyBar() {
+  _syncAudioSession();
   if (!_barChangeHook) return;
   try {
     _barChangeHook();

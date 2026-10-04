@@ -1,10 +1,8 @@
 """The workflows layer must not depend on HTTP transport.
 
-Workflow hooks return transport-neutral domain results (a dict, or a
-``WorkflowEventStream``); turning those into HTTP/SSE responses is the API
-layer's job. A Starlette/FastAPI import anywhere under ``backend/workflows``
-would re-introduce exactly the coupling the on-demand streaming refactor
-removed, so this guards the boundary permanently.
+Workflow hooks return transport-neutral domain results (a dict, or a ``WorkflowEventStream``); turning those into HTTP/SSE
+responses is the API layer's job. A Starlette/FastAPI import anywhere under ``backend/workflows`` would re-introduce exactly the
+coupling the on-demand streaming refactor removed, so this guards the boundary permanently.
 """
 
 from __future__ import annotations

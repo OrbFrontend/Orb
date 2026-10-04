@@ -1,9 +1,8 @@
 """Who a render is a picture of, and in what order.
 
-The order is not cosmetic: it is what decides which member's likeness goes into
-which reference slot and whose fixed appearance the prompt injects. Getting it
-wrong is silent -- a perfectly good picture of the wrong person -- so the rules are
-pinned here rather than left to the end-to-end path.
+The order is not cosmetic: it is what decides which member's likeness goes into which reference slot and whose fixed appearance
+the prompt injects. Getting it wrong is silent -- a perfectly good picture of the wrong person -- so the rules are pinned here
+rather than left to the end-to-end path.
 """
 
 from __future__ import annotations
@@ -141,15 +140,13 @@ async def test_one_reply_per_click_is_still_one_round(_scene):
 
 @pytest.mark.asyncio
 async def test_the_camera_does_not_change_who_is_in_the_scene(_scene):
-    """First-person looks through the *user's* eyes, and the user is a persona rather
-    than a cast member -- so nobody is behind the lens and everyone in the round is in
-    front of it.
+    """First-person looks through the *user's* eyes, and the user is a persona rather than a cast member -- so nobody is behind
+    the lens and everyone in the round is in front of it.
 
-    This used to truncate to the primary under first-person, which was a solo chat's
-    arithmetic (one character, so one subject) applied to a group: in a scene of the
-    user plus two characters, the second was dropped from the picture *and* from the
-    prompt, and a two-slot style papered over it by sending the first one's likeness
-    twice. Keeping the viewer out of frame is the shot instructions' job.
+    This used to truncate to the primary under first-person, which was a solo chat's arithmetic (one character, so one subject)
+    applied to a group: in a scene of the user plus two characters, the second was dropped from the picture *and* from the
+    prompt, and a two-slot style papered over it by sending the first one's likeness twice. Keeping the viewer out of frame is
+    the shot instructions' job.
     """
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
     history = [_msg(1, speaker="m2"), _msg(2, speaker="m1")]
@@ -182,11 +179,10 @@ async def test_a_removed_speaker_still_leads_under_the_card_name(_scene):
 async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_round(_scene):
     """Scoped to the round *so far*, because that is all the render may read.
 
-    `hooks._history_through` cuts the branch at the message being visualized, and that
-    cut is deliberate: a render never composes from replies that came after it, and the
-    regenerate ctx cannot even see them. So the first of three replies addresses one
-    subject and the last addresses three -- and the picker's plain `cast` row is
-    documented as the strict choice for exactly this reason.
+    `hooks._history_through` cuts the branch at the message being visualized, and that cut is deliberate: a render never
+    composes from replies that came after it, and the regenerate ctx cannot even see them. So the first of three replies
+    addresses one subject and the last addresses three -- and the picker's plain `cast` row is documented as the strict choice
+    for exactly this reason.
     """
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Ashley", "card-b")])
     # The whole round, as it sits in the database: Iris answered, then Ashley.
@@ -194,26 +190,22 @@ async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_round(_scene):
 
     # Visualizing Ashley's reply -- the last -- sees both.
     assert [s.name for s in await _resolve(history=round_, anchor_id=2)] == ["Ashley", "Iris"]
-    # Visualizing Iris's reply sees only her: Ashley had not spoken yet, and the
-    # history the hook hands in is already cut there.
+    # Visualizing Iris's reply sees only her: Ashley had not spoken yet, and the history the hook hands in is already cut there.
     assert [s.name for s in await _resolve(history=round_[:1], anchor_id=1)] == ["Iris"]
 
 
 @pytest.mark.asyncio
 async def test_two_members_with_one_name_are_told_apart(_scene):
-    """`group_members.display_name` carries no uniqueness constraint -- only
-    `speaker_key` and the active `character_card_id` do -- so two members really can
-    both be "Guard".
+    """`group_members.display_name` carries no uniqueness constraint -- only `speaker_key` and the active `character_card_id` do
+    -- so two members really can both be "Guard".
 
-    Every binding downstream is by name: the roster quotes it, `visible_subjects` comes
-    back as it, and the composer matches an analyzed cast entry on it. Left alone, one
-    "Guard" in the answer would inject *both* sheets and name one person for two
-    images. Numbered off with plain digits, never `(2)`, which a booru encoder reads as
-    attention syntax in a prompt this text is written into.
+    Every binding downstream is by name: the roster quotes it, `visible_subjects` comes back as it, and the composer matches an
+    analyzed cast entry on it. Left alone, one "Guard" in the answer would inject *both* sheets and name one person for two
+    images. Numbered off with plain digits, never `(2)`, which a booru encoder reads as attention syntax in a prompt this text
+    is written into.
     """
     _scene(
-        [_member("m1", "Guard", "card-a"), _member("m2", "Guard", "card-b")],
-        {"card-b": {"appearance_prompt": "scarred jaw"}},
+        [_member("m1", "Guard", "card-a"), _member("m2", "Guard", "card-b")], {"card-b": {"appearance_prompt": "scarred jaw"}}
     )
     history = [_msg(1, speaker="m2"), _msg(2, speaker="m1")]
 

@@ -1,10 +1,6 @@
-"""Test GET /api/conversations/{cid}/context-size"""
-
-# Persona fields are flat top-level keys on CharacterCardCreate (main.py).
-# An earlier version of this test nested them under data={"spec":...,"data":{...}},
-# which Pydantic silently dropped -- the card was created name-only and the
-# breakdown never saw the persona. These constants are asserted against the
-# breakdown below so a regression that drops them fails loudly.
+# Persona fields are flat top-level keys on CharacterCardCreate (main.py). An earlier version of this test nested them under
+# data={"spec":...,"data":{...}}, which Pydantic silently dropped -- the card was created name-only and the breakdown never saw
+# the persona. These constants are asserted against the breakdown below so a regression that drops them fails loudly.
 DESCRIPTION = (
     "A test character with a detailed persona for context size testing. "
     "She is curious, witty, and observant. She enjoys long conversations "
@@ -20,12 +16,11 @@ FIRST_MES = "Hello! I see you're reading about neural networks too. What brings 
 async def test_context_size_returns_breakdown(client):
     """Context size endpoint returns token estimates per component.
 
-    Drives the persona through the real card -> conversation path: the card's
-    description+personality become ``char_persona``, its scenario becomes
-    ``scenario``, and its first_mes is seeded as the opening assistant message,
-    so the breakdown's char counts must equal those source strings exactly.
+    Drives the persona through the real card -> conversation path: the card's description+personality become ``char_persona``,
+    its scenario becomes ``scenario``, and its first_mes is seeded as the opening assistant message, so the breakdown's char
+    counts must equal those source strings exactly.
     """
-    card_resp = await client.post(
+    card_id = await client.create(
         "/api/characters",
         json={
             "name": "TestChar",
@@ -35,23 +30,14 @@ async def test_context_size_returns_breakdown(client):
             "first_mes": FIRST_MES,
         },
     )
-    assert card_resp.status_code == 200
-    card_id = card_resp.json()["id"]
 
-    # Create the conversation purely from the card so every persona field the
-    # breakdown reports is sourced from the card, not from conversation-level
-    # overrides.
-    resp = await client.post(
-        "/api/conversations",
-        json={"character_card_id": card_id},
-    )
-    assert resp.status_code == 200
-    cid = resp.json()["id"]
+    # Create the conversation purely from the card so every persona field the breakdown reports is sourced from the card, not
+    # from conversation-level overrides.
+    cid = await client.create("/api/conversations", json={"character_card_id": card_id})
 
     # Get context size
-    resp = await client.get(f"/api/conversations/{cid}/context-size")
-    assert resp.status_code == 200
-    data = resp.json()
+    resp = await client.get_json(f"/api/conversations/{cid}/context-size")
+    data = resp
 
     # Verify structure
     assert "total_tokens_est" in data
@@ -85,9 +71,8 @@ async def test_context_size_returns_breakdown(client):
         assert isinstance(val["chars"], int)
         assert isinstance(val["tokens_est"], int)
 
-    # The persona fields must actually flow into the breakdown. char_persona is
-    # description and personality joined by a blank line (resolve_char_context);
-    # scenario and the seeded first_mes pass through verbatim.
+    # The persona fields must actually flow into the breakdown. char_persona is description and personality joined by a blank
+    # line (resolve_char_context); scenario and the seeded first_mes pass through verbatim.
     assert bd["char_persona"]["chars"] == len(f"{DESCRIPTION}\n\n{PERSONALITY}")
     assert bd["scenario"]["chars"] == len(SCENARIO)
     assert bd["messages"]["chars"] == len(FIRST_MES)
@@ -99,8 +84,7 @@ async def test_context_size_returns_breakdown(client):
 
 async def test_context_size_404_for_missing(client):
     """Context size returns 404 for non-existent conversation."""
-    resp = await client.get("/api/conversations/nonexistent/context-size")
-    assert resp.status_code == 404
+    await client.get_checked("/api/conversations/nonexistent/context-size", expected_status=404)
 
 
 async def test_context_size_counts_prompt_rendered_message(client):
@@ -113,20 +97,14 @@ async def test_context_size_counts_prompt_rendered_message(client):
                 "first_mes": "secret",
                 "extensions": {
                     "regex_scripts": [
-                        {
-                            "findRegex": "/secret/g",
-                            "replaceString": replacement,
-                            "placement": [2],
-                            "promptOnly": True,
-                        }
+                        {"findRegex": "/secret/g", "replaceString": replacement, "placement": [2], "promptOnly": True}
                     ]
                 },
             },
         )
     ).json()
-    cid = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()["id"]
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
-    response = await client.get(f"/api/conversations/{cid}/context-size")
+    response = await client.get_json(f"/api/conversations/{cid}/context-size")
 
-    assert response.status_code == 200
-    assert response.json()["breakdown"]["messages"]["chars"] == len(replacement)
+    assert response["breakdown"]["messages"]["chars"] == len(replacement)

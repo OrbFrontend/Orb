@@ -1,13 +1,7 @@
-// Stop and settlement for one generation request.
+// Stop keeps the stream open until the server saves and settles. Drop it only if /stop fails, finds no registered
+// stream, or times out. After disconnect, ask /stop again before refetching to wait for server cleanup.
 //
-// Stop keeps the stream open: the server stops generating, saves what it keeps,
-// and closes the stream, and POST /stop answers once that has happened. The
-// browser drops the connection only when the stop could not be delivered, found
-// nothing registered yet (a request still on its way), or timed out. After a
-// dropped connection, /stop is asked once more so the refetch waits for the
-// server's cleanup. Imports nothing, so it can be tested without a DOM.
-
-// How long a stream may stay open after the server said it settled.
+// Maximum stream wait after server settlement.
 const CLOSE_GRACE_MS = 2000;
 // Allow the server's 15-second settlement wait plus time for delivery.
 const STOP_TIMEOUT_MS = 20000;

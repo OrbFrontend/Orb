@@ -1,18 +1,7 @@
-"""
-0026_persona_locking — add the persona_lock_id mirror column to the
-conversations and character_cards tables for databases created before
-persona locking existed.
+"""Add persona_lock_id to conversations and character cards.
 
-A locked persona overrides the global settings.active_persona_id within a
-scope: a conversation lock binds to a single conversation, a character lock
-binds to a character card (and thus all conversations using it). Each column
-is a plain INTEGER pointing at user_personas(id); resolution priority is
-conversation lock → character lock → global active persona.
-
-NOTE: an ALTER-added column cannot carry a REFERENCES clause whose ON DELETE
-action is reliably enforced on already-migrated SQLite databases, so the FK
-action is omitted here. Dangling locks are cleared explicitly in
-delete_user_persona() instead of relying on ON DELETE SET NULL.
+Resolution is conversation lock, then card lock, then global persona.
+These columns omit FK actions; delete_user_persona clears dangling locks.
 """
 
 from __future__ import annotations

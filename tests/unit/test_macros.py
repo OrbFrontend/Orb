@@ -1,10 +1,8 @@
 """Unit tests for the inline macro engine (backend/core/macros.py).
 
-Covers the {{random::a::b}} grammar, the fresh-roll persist-boundary entry
-(resolve_inline), the per-conversation choice map (resolve_stored_random), the
-seeded Macros determinism used for per-turn-rebuilt prompt fields, and the
-idempotency invariant the persist boundary relies on (resolving already
-resolved text is a no-op).
+Covers the {{random::a::b}} grammar, the fresh-roll persist-boundary entry (resolve_inline), the per-conversation choice map
+(resolve_stored_random), the seeded Macros determinism used for per-turn-rebuilt prompt fields, and the idempotency invariant
+the persist boundary relies on (resolving already resolved text is a no-op).
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from backend.core.macros import (
     resolve_stored_random,
 )
 
-# ── grammar / resolve_inline ─────────────────────────────────────────────────
+# -- grammar / resolve_inline -------------------------------------------------
 
 
 def test_random_two_options_picks_a_member():
@@ -61,7 +59,7 @@ def test_resolve_inline_handles_empty_and_none():
     assert resolve_inline(None) == ""  # type: ignore[arg-type]
 
 
-# ── has_inline_macros ────────────────────────────────────────────────────────
+# -- has_inline_macros --------------------------------------------------------
 
 
 def test_has_inline_macros():
@@ -72,7 +70,7 @@ def test_has_inline_macros():
     assert not has_inline_macros("")
 
 
-# ── idempotency (the persist-boundary invariant) ─────────────────────────────
+# -- idempotency (the persist-boundary invariant) -----------------------------
 
 
 def test_resolve_message_idempotent_on_resolved_text():
@@ -82,7 +80,7 @@ def test_resolve_message_idempotent_on_resolved_text():
     assert resolve_message(once, "Alice", "Bot") == once
 
 
-# ── seeded determinism (per-turn-rebuilt prompt fields) ──────────────────────
+# -- seeded determinism (per-turn-rebuilt prompt fields) ----------------------
 
 
 def test_seeded_macros_are_deterministic():
@@ -94,8 +92,7 @@ def test_seeded_macros_are_deterministic():
 
 
 def test_seeded_pick_survives_surrounding_edits():
-    # The ordinal keys on the macro's own text, so unrelated prose changes
-    # around it must not re-roll the pick.
+    # The ordinal keys on the macro's own text, so unrelated prose changes around it must not re-roll the pick.
     m = Macros("A", "B", seed="conv-2")
     pick = m.resolve_message("{{random::sun::rain::fog}}")
     assert m.resolve_message("Today: {{random::sun::rain::fog}}, allegedly.") == f"Today: {pick}, allegedly."
@@ -125,7 +122,7 @@ def test_unseeded_roll_rolls_fresh():
     assert len({resolve_inline("{{roll::10d100}}") for _ in range(20)}) > 1
 
 
-# ── resolve_stored_random (per-conversation choice map) ──────────────────────
+# -- resolve_stored_random (per-conversation choice map) ----------------------
 
 
 def test_stored_random_records_and_reuses():
@@ -137,20 +134,14 @@ def test_stored_random_records_and_reuses():
 
 
 def test_stored_random_keys_by_macro_text_and_ordinal():
-    # Distinct macros key independently; a repeat of the same macro gets its
-    # own ordinal; keys span all texts of the call.
+    # Distinct macros key independently; a repeat of the same macro gets its own ordinal; keys span all texts of the call.
     choices: dict[str, str] = {}
     resolve_stored_random(["{{random::a::b}} {{random::c::d}}", "{{random::a::b}}"], choices, "mood:m2")
-    assert set(choices) == {
-        "mood:m2:{{random::a::b}}:0",
-        "mood:m2:{{random::c::d}}:0",
-        "mood:m2:{{random::a::b}}:1",
-    }
+    assert set(choices) == {"mood:m2:{{random::a::b}}:0", "mood:m2:{{random::c::d}}:0", "mood:m2:{{random::a::b}}:1"}
 
 
 def test_stored_random_pick_survives_inserted_macro():
-    # Text-keyed (not position-keyed): a new macro inserted before an existing
-    # one cannot shift or steal its stored pick.
+    # Text-keyed (not position-keyed): a new macro inserted before an existing one cannot shift or steal its stored pick.
     choices: dict[str, str] = {}
     (before,) = resolve_stored_random(["{{random::kept::other}}"], choices, "mood:m2b")
     (after,) = resolve_stored_random(["{{random::new::stuff}} then {{random::kept::other}}"], choices, "mood:m2b")
@@ -173,7 +164,7 @@ def test_stored_random_leaves_roll_and_plain_text_alone():
     assert choices == {}
 
 
-# ── backtick literals (macros in `…` spans never resolve) ────────────────────
+# -- backtick literals (macros in `...` spans never resolve) --------------------
 
 
 def test_backticked_macros_stay_literal_everywhere():
@@ -209,7 +200,7 @@ def test_unpaired_or_multiline_backticks_do_not_escape():
     assert resolve_inline("`no close\n{{random::a}}`") == "`no close\na`"
 
 
-# ── {{pick}} alias and {{time}} ──────────────────────────────────────────────
+# -- {{pick}} alias and {{time}} ----------------------------------------------
 
 
 def test_pick_is_random_alias():
@@ -233,7 +224,7 @@ def test_date_resolves_to_iso_date():
     assert resolve_inline("say `{{date}}`") == "say `{{date}}`"
 
 
-# ── {{// comment }} (the author-note macro) ──────────────────────────────────
+# -- {{// comment }} (the author-note macro) ----------------------------------
 
 
 def test_comment_stripped_with_its_line():
@@ -283,37 +274,33 @@ def test_comment_with_unclosed_braces_stays_linear():
 
 
 def test_comment_does_not_eat_the_prose_that_follows_it():
-    # A line-opening comment takes itself, never the writing after it. The line
-    # branch used to backtrack past its own `}}` looking for one followed by a
-    # newline, so a trailing macro — the usual way a line ends — handed it the
-    # whole line to delete.
+    # A line-opening comment takes itself, never the writing after it. The line branch used to backtrack past its own `}}`
+    # looking for one followed by a newline, so a trailing macro -- the usual way a line ends -- handed it the whole line to
+    # delete.
     assert resolve_inline("{{// note }}Hello {{user}}\nBody") == "Hello {{user}}\nBody"
     assert resolve_inline("{{// note }}plain tail\nBody") == "plain tail\nBody"
 
 
 def test_comment_does_not_eat_following_lines():
-    # Same backtracking, at range: any later line-ending `}}` dragged every
-    # line between it and the comment along with it.
+    # Same backtracking, at range: any later line-ending `}}` dragged every line between it and the comment along with it.
     assert resolve_inline("{{// note }}one\ntwo {{char}}\nthree") == "one\ntwo {{char}}\nthree"
     assert resolve_inline("{{// note }}x\nmore\ny}}\ntail") == "x\nmore\ny}}\ntail"
 
 
 def test_run_of_comments_owns_its_line():
-    # Several comments alone on a line still take the line with them; spacing
-    # between and around them is part of the run.
+    # Several comments alone on a line still take the line with them; spacing between and around them is part of the run.
     assert resolve_inline("{{// a }}{{// b }}\nBody") == "Body"
     assert resolve_inline("  {{// a }} {{// b }}  \nBody") == "Body"
 
 
 def test_comment_owns_its_line_in_a_crlf_card():
-    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n`
-    # never fired on CRLF text — every own-line comment left the blank line it
-    # is supposed to take with it.
+    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n` never fired on CRLF text -- every own-line
+    # comment left the blank line it is supposed to take with it.
     assert resolve_inline("a\r\n{{// note }}\r\nb") == "a\r\nb"
     assert resolve_inline("{{// a }}{{// b }}\r\nBody") == "Body"
 
 
-# ── {{trim}} (joins what the newlines around it separated) ───────────────────
+# -- {{trim}} (joins what the newlines around it separated) -------------------
 
 
 def test_trim_joins_across_newlines():
@@ -337,9 +324,8 @@ def test_trim_case_insensitive_and_repeated():
 
 
 def test_trim_after_comment_is_the_card_idiom():
-    # The shape real cards use: a header comment followed by {{trim}} to drop
-    # the blank lines it would otherwise leave. The comment's own line-eating
-    # branch must not swallow the {{trim}} that follows it.
+    # The shape real cards use: a header comment followed by {{trim}} to drop the blank lines it would otherwise leave. The
+    # comment's own line-eating branch must not swallow the {{trim}} that follows it.
     assert resolve_inline("{{// note }}{{trim}}\n\nBody") == "Body"
     assert resolve_inline("{{// note }}{{trim}}\r\n\r\nBody") == "Body"
     assert resolve_inline("{{// note }}\n{{trim}}\nBody") == "Body"
@@ -347,7 +333,7 @@ def test_trim_after_comment_is_the_card_idiom():
 
 
 def test_trim_leaves_horizontal_whitespace_alone():
-    # Newlines only — spaces and tabs around the macro survive.
+    # Newlines only -- spaces and tabs around the macro survive.
     assert resolve_inline("a \n{{trim}}\n b") == "a  b"
 
 
@@ -367,7 +353,7 @@ def test_trim_is_idempotent_and_resolves_in_messages():
     assert Macros("Alice", "Bot", seed="conv-t").resolve_message("a\n{{trim}}\nb") == "ab"
 
 
-# ── {{description}} (the one macro that substitutes prose, not a name) ───────
+# -- {{description}} (the one macro that substitutes prose, not a name) -------
 
 
 def test_description_expands_into_text():
@@ -381,9 +367,8 @@ def test_description_is_case_insensitive():
 
 
 def test_description_resolves_its_own_macros():
-    # The ordering the feature rests on: descriptions are written with
-    # {{char}}/{{user}} in them, so the injection has to happen before the name
-    # substitution rather than after it.
+    # The ordering the feature rests on: descriptions are written with {{char}}/{{user}} in them, so the injection has to happen
+    # before the name substitution rather than after it.
     m = Macros("Alice", "Bot", description="{{char}} distrusts {{user}}.")
     assert m.resolve_message("Sheet: {{description}}") == "Sheet: Bot distrusts Alice."
 
@@ -423,9 +408,8 @@ def test_self_reference_terminates_after_one_pass():
 
 
 def test_description_containing_regex_template_syntax_is_literal():
-    # A name never carries a backslash; a description does. Passed as a plain
-    # re.sub replacement these would be read as template syntax -- \g<1> would
-    # raise and \n would become a newline.
+    # A name never carries a backslash; a description does. Passed as a plain re.sub replacement these would be read as template
+    # syntax -- \g<1> would raise and \n would become a newline.
     m = Macros("Alice", "Bot", description=r"writes \g<1> and \n on the wall")
     assert m.resolve_message("{{description}}") == r"writes \g<1> and \n on the wall"
 
@@ -462,7 +446,7 @@ def test_card_description_handles_a_missing_card_or_field():
     assert card_description({"description": "  padded  "}) == "padded"
 
 
-# ── hostile values ───────────────────────────────────────────────────────────
+# -- hostile values -----------------------------------------------------------
 
 
 def test_names_are_inserted_literally_not_as_regex_templates():

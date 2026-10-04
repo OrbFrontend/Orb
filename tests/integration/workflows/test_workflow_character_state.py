@@ -1,11 +1,8 @@
-"""Per-character workflow state: storage round-trip and cross-conversation
-serialization.
+"""Per-character workflow state: storage round-trip and cross-conversation serialization.
 
-Covers the DB helper contract (per-slot read/write/remove keyed by
-workflow_id, graceful no-op on a missing/dangling card) and the property
-that makes the dedicated character-keyed lock necessary: two conversations
-that share one character card must serialize their per-character
-read-modify-write even though their conversation ids -- and therefore their
+Covers the DB helper contract (per-slot read/write/remove keyed by workflow_id, graceful no-op on a missing/dangling card) and
+the property that makes the dedicated character-keyed lock necessary: two conversations that share one character card must
+serialize their per-character read-modify-write even though their conversation ids -- and therefore their
 ``workflow_state_lock`` keys -- differ.
 """
 
@@ -52,10 +49,9 @@ async def test_missing_card_degrades_without_raising(client):
 
 
 async def test_two_conversations_one_character_no_lost_write(client):
-    """Concurrent on-demand triggers on two conversations that share one
-    character must not lose a per-character increment. Their conversation
-    ids differ, so ``workflow_state_lock`` keys differ and cannot serialize
-    them; only the character-keyed lock can.
+    """Concurrent on-demand triggers on two conversations that share one character must not lose a per-character increment.
+    Their conversation ids differ, so ``workflow_state_lock`` keys differ and cannot serialize them; only the character-keyed
+    lock can.
     """
     await create_character_card({"id": "shared", "name": "Shared"})
     await create_conversation("conv_a", "A", "Shared", "", character_card_id="shared")
@@ -74,10 +70,7 @@ async def test_two_conversations_one_character_no_lost_write(client):
     with register_for_test(wf):
         n = 20
         requests = [
-            client.post(
-                f"/api/conversations/{'conv_a' if i % 2 == 0 else 'conv_b'}/workflows/{wid}/trigger",
-                json={},
-            )
+            client.post(f"/api/conversations/{'conv_a' if i % 2 == 0 else 'conv_b'}/workflows/{wid}/trigger", json={})
             for i in range(n)
         ]
         results = await asyncio.gather(*requests)

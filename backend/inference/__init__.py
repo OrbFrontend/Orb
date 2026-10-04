@@ -23,7 +23,7 @@ from .endpoint_profiles import (
     note_forced_tool_choice_ignored,
     profile_for,
 )
-from .errors import LLMCallError, provider_sentence, redact
+from .errors import EndpointConfigError, LLMCallError, provider_sentence, redact
 from .jev import (
     MAX_QUESTION_BYTES,
     MAX_QUESTIONS_PER_REQUEST,
@@ -41,12 +41,12 @@ from .jev import (
     cache_key,
     decisions_url,
 )
-from .kv_tracker import _KVCacheTracker
+from .kv_tracker import KVCacheTracker
 from .retry import RetryPolicy
 from .text_completion import has_image_parts
 
 __all__ = [
-    # client — LLM transport
+    # client -- LLM transport
     "AbortToken",
     "LLMClient",
     "agent_client_from_settings",
@@ -57,7 +57,7 @@ __all__ = [
     "replay_reasoning",
     "separate_agent_lane_configured",
     "until_aborted",
-    # drafting — forced calls outside the pipeline
+    # drafting -- forced calls outside the pipeline
     "BRACES",
     "ReplyCutOff",
     "forced_draft",
@@ -65,11 +65,12 @@ __all__ = [
     "normalize",
     # retry
     "RetryPolicy",
-    # errors — the provider's own words, kept
+    # errors -- the provider's own words, kept
+    "EndpointConfigError",
     "LLMCallError",
     "provider_sentence",
     "redact",
-    # jev — the decision gateway adapter
+    # jev -- the decision gateway adapter
     "MAX_QUESTIONS_PER_REQUEST",
     "MAX_QUESTION_BYTES",
     "MAX_REQUEST_BYTES",
@@ -85,7 +86,7 @@ __all__ = [
     "ScoreAnswer",
     "cache_key",
     "decisions_url",
-    # endpoint_profiles — provider adapter
+    # endpoint_profiles -- provider adapter
     "ModelProfile",
     "honors_forced_tool_choice",
     "is_forced_tool_choice",
@@ -93,7 +94,7 @@ __all__ = [
     "profile_for",
     # cached_call / kv_tracker
     "CachedBase",
-    "_KVCacheTracker",
+    "KVCacheTracker",
     # text_completion
     "has_image_parts",
 ]

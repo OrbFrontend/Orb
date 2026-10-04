@@ -19,14 +19,14 @@ try:
 
     _COMFY = ExternalComfyAdapter
     _REGISTRY[ExternalComfyAdapter.source_id] = ExternalComfyAdapter
-except ImportError:  # pragma: no cover — httpx is a hard dependency today
+except ImportError:  # pragma: no cover -- httpx is a hard dependency today
     logger.info("httpx not installed — external ComfyUI image backend disabled")
 
 try:
     from .adapters.openai_image import OpenAICompatibleImageAdapter
 
     _REGISTRY[OpenAICompatibleImageAdapter.source_id] = OpenAICompatibleImageAdapter
-except ImportError:  # pragma: no cover — httpx is a hard dependency today
+except ImportError:  # pragma: no cover -- httpx is a hard dependency today
     logger.info("httpx not installed — cloud API image backend disabled")
 
 _FALLBACK = "external_comfy"
@@ -35,16 +35,14 @@ _FALLBACK = "external_comfy"
 def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAdapter:
     """The adapter that renders `style`, bound to both.
 
-    `style` is required and positional, so no render path can quietly fall back to
-    the default style. Routing on `config["source"]` -- which `normalize_config`
-    derives from the *default* style -- was wrong for every path that names another:
-    a rehydrate replays the style the stored image recorded, so a ComfyUI-linked
-    style rehydrated while the default style is cloud-linked went to the cloud
-    adapter. It survived only because that adapter ignored the style it was handed.
+    `style` is required and positional, so no render path can quietly fall back to the default style. Routing on
+    `config["source"]` -- which `normalize_config` derives from the *default* style -- was wrong for every path that names
+    another: a rehydrate replays the style the stored image recorded, so a ComfyUI-linked style rehydrated while the default
+    style is cloud-linked went to the cloud adapter. It survived only because that adapter ignored the style it was handed.
     """
     source, _ = style_source(config, style)
     cls = _REGISTRY.get(source) or _REGISTRY.get(_FALLBACK)
-    if cls is None:  # pragma: no cover — the fallback adapter has no optional deps
+    if cls is None:  # pragma: no cover -- the fallback adapter has no optional deps
         raise RuntimeError("No image generation backend is available")
     if source not in _REGISTRY:
         logger.warning("unknown image source %r; falling back to %s", source, cls.source_id)
@@ -53,7 +51,7 @@ def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAda
 
 def comfy_adapter(config: Mapping[str, Any], style: Mapping[str, Any] | None = None) -> ExternalComfyAdapter:
     """Return the ComfyUI adapter, optionally bound to a style."""
-    if _COMFY is None:  # pragma: no cover — the ComfyUI adapter has no optional deps
+    if _COMFY is None:  # pragma: no cover -- the ComfyUI adapter has no optional deps
         raise RuntimeError("The external ComfyUI backend is unavailable")
     return _COMFY(config, style)
 

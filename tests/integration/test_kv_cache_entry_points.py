@@ -1,36 +1,8 @@
-"""
-test_kv_cache_entry_points.py — KV-cache tools/prefix consistency across EVERY
-message-generating entry point, not just ``/send``.
+"""Check shared system/tools prefixes across regenerate, super-regenerate, fork-edit
+and magic-rewrite against an established send turn.
 
-Why this file exists (the gap that shipped a real cache regression):
-
-    ``test_kv_cache_real_stack.py`` drives only ``handle_turn`` (``POST /send``)
-    and asserts the cache invariants *within one turn* — every pass compared
-    against its sibling passes. That can never catch a defect in a DIFFERENT
-    entry point, and it can never catch a single-call handler that diverges from
-    the conversation's established cache: ``handle_magic_rewrite`` once issued a
-    single LLM call, so "all my calls agree with each other" was trivially true
-    even when that one call shipped ``tools=None`` and busted the whole provider
-    prefix cache (cached_tokens -> 0). It now runs the full pipeline, but the
-    cross-entry-point invariant below still guards every call it makes.
-
-    The real bug: every normal pass ships the byte-identical tool-schema blob, so
-    the inference server caches a prefix that *includes* the templated tools
-    region. ``magic_rewrite`` sent no tools, diverging the prompt at that region
-    (near the top of the wire format) and re-billing from token zero.
-
-These tests drive each entry point through the genuine HTTP → handler →
-build_prefix → complete() stack and assert, at the ``FakeLLMClient`` boundary,
-that every entry point ships a tools blob and system prefix consistent with the
-conversation's cached turns. ``handle_turn`` is covered by the baseline turn each
-test establishes; the parametrized cases cover regenerate / super_regenerate /
-fork_edit / magic_rewrite.
-
-OUT OF SCOPE (same as the real-stack file): the fake replaces ``complete``
-wholesale, so the server's chat-template rendering is unknowable locally —
-provider ``usage`` is the only ground truth for that (see kv-cache.md §8). Here
-the tool *blob* each call ships is the local proxy for "the templated tools
-region is byte-stable across entry points."
+Capture at FakeLLMClient through the real HTTP/handler/prefix stack. Provider
+chat-template rendering and cache usage remain outside this offline test.
 """
 
 from __future__ import annotations
@@ -57,26 +29,21 @@ def _wire_tools(tools) -> str:
 async def _configure_all_features(client) -> None:
     """Enable agent + every cache-relevant tool, with a tight length guard so
     director, writer, and editor all fire and ship a non-empty tools blob."""
-    resp = await client.put(
+    await client.put_checked(
         "/api/settings",
         json={
             "model_name": "writer-model",
             "enable_agent": True,
-            "enabled_tools": {
-                "direct_scene": True,
-                "editor_apply_patch": True,
-            },
+            "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
             "length_guard_enabled": True,
             "length_guard_max_words": 5,  # _LONG_DRAFT (60 words) always trips it
         },
     )
-    assert resp.status_code == 200
 
 
 async def _make_conversation(client) -> str:
-    # Macros in the card text exercise the cached base's macro ``resolve`` hook,
-    # which every entry point must apply identically.
-    card = await client.post(
+    # Macros in the card text exercise the cached base's macro ``resolve`` hook, which every entry point must apply identically.
+    card = await client.post_json(
         "/api/characters",
         json={
             "name": "Aria",
@@ -85,24 +52,17 @@ async def _make_conversation(client) -> str:
             "scenario": "Deep woods at dusk.",
         },
     )
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
-    return conv.json()["id"]
+    return await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
 
 def _enqueue_turn(llm_mock) -> None:
     """Queue one writer draft + an editor stop for a single pipeline turn."""
     llm_mock.enqueue_writer(_LONG_DRAFT)
-    llm_mock.enqueue_editor(None)  # no tool call → editor loop stops after iter 0
+    llm_mock.enqueue_editor(None)  # no tool call -> editor loop stops after iter 0
 
 
 async def _send(client, cid: str, content: str) -> None:
-    resp = await client.post(
-        f"/api/conversations/{cid}/send",
-        json={"content": content, "attachments": []},
-    )
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": content, "attachments": []})
     _ = resp.text  # drain the buffered SSE stream so the turn fully completes
 
 
@@ -144,40 +104,34 @@ async def _baseline_turn(client, llm_mock) -> _Baseline:
     )
 
 
-# ── Per-entry-point drivers: each enqueues its responses and hits its route ─────
+# -- Per-entry-point drivers: each enqueues its responses and hits its route -----
 
 
 async def _drive_regenerate(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post(f"/api/conversations/{b.cid}/messages/{b.asst_id}/regenerate", json={})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/regenerate", json={})
     _ = resp.text
 
 
 async def _drive_super_regenerate(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post(f"/api/conversations/{b.cid}/messages/{b.asst_id}/super_regenerate", json={})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/super_regenerate", json={})
     _ = resp.text
 
 
 async def _drive_fork_edit(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post(
-        f"/api/conversations/{b.cid}/messages/{b.user_id}/fork-edit",
-        json={"content": "I sheathe my sword instead."},
+    resp = await client.post_checked(
+        f"/api/conversations/{b.cid}/messages/{b.user_id}/fork-edit", json={"content": "I sheathe my sword instead."}
     )
-    assert resp.status_code == 200
     _ = resp.text
 
 
 async def _drive_magic_rewrite(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post(
-        f"/api/conversations/{b.cid}/messages/{b.asst_id}/magic_rewrite",
-        json={"direction": "make it darker"},
+    resp = await client.post_checked(
+        f"/api/conversations/{b.cid}/messages/{b.asst_id}/magic_rewrite", json={"direction": "make it darker"}
     )
-    assert resp.status_code == 200
     _ = resp.text
 
 
@@ -189,17 +143,16 @@ _ENTRY_POINTS = [
 ]
 
 
-# ── Tests ───────────────────────────────────────────────────────────────────
+# -- Tests -------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("name,driver", _ENTRY_POINTS, ids=[e[0] for e in _ENTRY_POINTS])
 async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock, name, driver):
-    """Every entry point that generates a message must, on every LLM call it
-    issues, ship a NON-EMPTY tools blob (single-model), keep that blob
-    byte-identical across its own calls, and start from the conversation's cached
-    system prefix. This is the invariant ``magic_rewrite`` violated by sending
-    ``tools=None`` — caught here because we compare against the turn's cache, not
-    only the handler's own sibling calls."""
+    """Every entry point that generates a message must, on every LLM call it issues, ship a NON-EMPTY tools blob (single-model),
+    keep that blob byte-identical across its own calls, and start from the conversation's cached system prefix. This is the
+    invariant ``magic_rewrite`` violated by sending ``tools=None`` -- caught here because we compare against the turn's cache,
+    not only the handler's own sibling calls.
+    """
     b = await _baseline_turn(client, llm_mock)
 
     start = len(llm_mock.captured)
@@ -241,13 +194,12 @@ async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock
 
 
 async def test_magic_rewrite_writer_call_ships_a_stable_blob(client, llm_mock):
-    """The magic_rewrite writer call ships a non-empty, cache-stable tools blob
-    with tool_choice='none', on the writer model.
+    """The magic_rewrite writer call ships a non-empty, cache-stable tools blob with tool_choice='none', on the writer model.
 
-    The rewrite runs the full pipeline (director, writer, editor); its writer
-    call mirrors super_regenerate -- the turn's blob shipped purely to keep the
-    templated tools region byte-stable, with the writer barred from invoking a
-    tool. An empty blob here is the original ``tools=None`` cache bust."""
+    The rewrite runs the full pipeline (director, writer, editor); its writer call mirrors super_regenerate -- the turn's blob
+    shipped purely to keep the templated tools region byte-stable, with the writer barred from invoking a tool. An empty blob
+    here is the original ``tools=None`` cache bust.
+    """
     b = await _baseline_turn(client, llm_mock)
 
     start = len(llm_mock.captured)
@@ -264,21 +216,14 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
     """Dual-model counterpart: when the agent runs on a separate server, the
     writer lane carries NO tools (Invariant 5) because its KV cache lives on a
     different server than the agent's tool-bearing passes. magic_rewrite is a
-    writer-style call, so it must match the writer server's tool-less cache —
+    writer-style call, so it must match the writer server's tool-less cache --
     sending the agent's blob here would bust the writer cache instead of helping."""
-    # A separate endpoint auto-provisions writer+agent model configs; pointing
-    # ``agent_endpoint_id`` at it (with agent_same_as_writer=False) puts the
-    # director/editor on that server while the writer stays on the active one.
-    ep = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})
-    assert ep.status_code == 200
-    ep_id = ep.json()["id"]
+    # A separate endpoint auto-provisions writer+agent model configs; pointing ``agent_endpoint_id`` at it (with
+    # agent_same_as_writer=False) puts the director/editor on that server while the writer stays on the active one.
+    ep_id = await client.create("/api/endpoints", json={"url": "http://agent.local", "api_key": "k"})
 
     await _configure_all_features(client)
-    resp = await client.put(
-        "/api/settings",
-        json={"agent_same_as_writer": False, "agent_endpoint_id": ep_id},
-    )
-    assert resp.status_code == 200
+    resp = await client.put_checked("/api/settings", json={"agent_same_as_writer": False, "agent_endpoint_id": ep_id})
 
     cid = await _make_conversation(client)
     start = len(llm_mock.captured)
@@ -286,9 +231,8 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
     await _send(client, cid, "I draw my sword.")
     turn = llm_mock.captured[start:]
 
-    # Sanity: the dual turn really did put a non-empty tool blob on the agent
-    # passes — so an empty writer/rewrite blob below is a deliberate drop, not a
-    # "no tools configured" false pass.
+    # Sanity: the dual turn really did put a non-empty tool blob on the agent passes -- so an empty writer/rewrite blob below is
+    # a deliberate drop, not a "no tools configured" false pass.
     assert any(_wire_tools(c["tools"]) for c in turn), "expected the agent passes to carry a tools blob"
     writer = next(c for c in turn if c["pass"] == "writer")
     assert _wire_tools(writer["tools"]) == "", "dual-model writer must drop tools (Invariant 5)"
@@ -298,11 +242,9 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
 
     start = len(llm_mock.captured)
     _enqueue_turn(llm_mock)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{asst_id}/magic_rewrite",
-        json={"direction": "make it darker"},
+    resp = await client.post_checked(
+        f"/api/conversations/{cid}/messages/{asst_id}/magic_rewrite", json={"direction": "make it darker"}
     )
-    assert resp.status_code == 200
     _ = resp.text
     calls = llm_mock.captured[start:]
 

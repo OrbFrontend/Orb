@@ -1,10 +1,8 @@
-"""Character Card Spec V3 ingest: the `ccv3` chunk, V3-only field parking, and
-the lorebook semantics Orb can act on (`use_regex`, `selective`/`secondary_keys`,
-decorator stripping).
+"""Character Card Spec V3 ingest: the `ccv3` chunk, V3-only field parking, and the lorebook semantics Orb can act on
+(`use_regex`, `selective`/`secondary_keys`, decorator stripping).
 
-Before this, a card declaring ``spec: "chara_card_v3"`` fell through to the V1
-parser and silently lost its character_book, tags, alternate_greetings and
-extensions.
+Before this, a card declaring ``spec: "chara_card_v3"`` fell through to the V1 parser and silently lost its character_book,
+tags, alternate_greetings and extensions.
 """
 
 from __future__ import annotations
@@ -15,8 +13,8 @@ import json
 import pytest
 from PIL import Image, PngImagePlugin
 
-from backend.api.deps import _normalise_lorebook_entry, lorebook_to_book
 from backend.features.cards.parsing import card_to_dict, parse, to_png
+from backend.features.lorebook import lorebook_to_book, normalise_lorebook_entry
 from backend.prompting.lorebook import select_keyword_entries
 
 
@@ -37,13 +35,10 @@ def _png(tmp_path, name="card.png", **chunks) -> str:
     return str(path)
 
 
-_BOOK = {
-    "name": "marvel",
-    "entries": [{"keys": ["doom"], "content": "Victor von Doom.", "use_regex": True, "selective": True}],
-}
+_BOOK = {"name": "marvel", "entries": [{"keys": ["doom"], "content": "Victor von Doom.", "use_regex": True, "selective": True}]}
 
 
-# ── Ingest ────────────────────────────────────────────────────────────────────
+# -- Ingest --------------------------------------------------------------------
 
 
 def test_v3_card_keeps_everything_v1_used_to_drop(tmp_path):
@@ -92,13 +87,13 @@ def test_missing_both_chunks_raises(tmp_path):
 
 
 def test_odd_spec_version_does_not_degrade_to_v1(tmp_path):
-    """spec_version is not a Literal — a cosmetic mismatch must not lose the card."""
+    """spec_version is not a Literal -- a cosmetic mismatch must not lose the card."""
     payload = _v3(tags=["kept"])
     payload["spec_version"] = "3.0.0"
     assert card_to_dict(parse(_png(tmp_path, ccv3=_b64(payload))))["tags"] == ["kept"]
 
 
-# ── V3-only fields park at extensions.orb.v3 ─────────────────────────────────
+# -- V3-only fields park at extensions.orb.v3 ---------------------------------
 
 
 def test_v3_only_fields_park_and_round_trip(tmp_path):
@@ -134,20 +129,21 @@ def test_exported_chara_chunk_still_parses_as_v2(tmp_path):
     out = tmp_path / "export.png"
     out.write_bytes(to_png(d))
 
-    chara = json.loads(base64.b64decode(Image.open(out).info["chara"]))
+    with Image.open(out) as image:
+        chara = json.loads(base64.b64decode(image.info["chara"]))
     assert chara["spec"] == "chara_card_v2"
     assert chara["data"]["tags"] == ["t"]
     # V3-only fields stay out of the V2 projection's top level.
     assert "nickname" not in chara["data"]
 
 
-# ── Lorebook normalisation ────────────────────────────────────────────────────
+# -- Lorebook normalisation ----------------------------------------------------
 
 
 def test_blanket_selective_without_secondary_keys_is_not_honoured():
     """The reported card sets selective+use_regex on all 55 entries with no
-    secondary_keys — taken literally the whole book would match nothing."""
-    e = _normalise_lorebook_entry({"keys": ["doom"], "content": "x", "use_regex": True, "selective": True})
+    secondary_keys -- taken literally the whole book would match nothing."""
+    e = normalise_lorebook_entry({"keys": ["doom"], "content": "x", "use_regex": True, "selective": True})
     assert e["selective"] is False
     assert e["use_regex"] is True
 
@@ -155,13 +151,13 @@ def test_blanket_selective_without_secondary_keys_is_not_honoured():
 
 
 def test_selective_with_secondary_keys_is_honoured():
-    e = _normalise_lorebook_entry({"keys": ["doom"], "selective": True, "secondary_keys": ["latveria"]})
+    e = normalise_lorebook_entry({"keys": ["doom"], "selective": True, "secondary_keys": ["latveria"]})
     assert (e["selective"], e["secondary_keys"]) == (True, ["latveria"])
 
 
 def test_insertion_order_becomes_sort_order():
-    assert _normalise_lorebook_entry({"keys": ["a"], "insertion_order": 7})["sort_order"] == 7
-    assert _normalise_lorebook_entry({"keys": ["a"]})["sort_order"] == 0
+    assert normalise_lorebook_entry({"keys": ["a"], "insertion_order": 7})["sort_order"] == 7
+    assert normalise_lorebook_entry({"keys": ["a"]})["sort_order"] == 0
 
 
 @pytest.mark.parametrize(
@@ -176,7 +172,7 @@ def test_insertion_order_becomes_sort_order():
     ],
 )
 def test_decorators_are_stripped_from_content(raw, expected):
-    assert _normalise_lorebook_entry({"keys": ["a"], "content": raw})["content"] == expected
+    assert normalise_lorebook_entry({"keys": ["a"], "content": raw})["content"] == expected
 
 
 def test_export_emits_the_v3_entry_fields():
@@ -197,4 +193,4 @@ def test_export_emits_the_v3_entry_fields():
     entry = lorebook_to_book("marvel", [row])["entries"][0]
     assert (entry["use_regex"], entry["selective"], entry["secondary_keys"]) == (True, True, ["latveria"])
     # Round trip back through the importer.
-    assert _normalise_lorebook_entry(entry)["secondary_keys"] == ["latveria"]
+    assert normalise_lorebook_entry(entry)["secondary_keys"] == ["latveria"]

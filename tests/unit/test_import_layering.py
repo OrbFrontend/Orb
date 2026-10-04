@@ -72,10 +72,7 @@ def test_feature_slices_cannot_import_peers(tmp_path: Path):
         ("from backend.workflows.peer import workflow\n", "backend.workflows.peer"),
         ("from backend.workflows.registry import Workflow\n", "backend.workflows.registry"),
         ("from backend.workflows.contracts import ToolSpec\n", "backend.workflows.contracts"),
-        (
-            "from backend.workflows.attachment_cache import insert_workflow_attachment\n",
-            "backend.workflows.attachment_cache",
-        ),
+        ("from backend.workflows.attachment_cache import insert_workflow_attachment\n", "backend.workflows.attachment_cache"),
     ],
 )
 def test_workflow_slices_import_only_their_api(tmp_path: Path, statement: str, target: str):
@@ -99,11 +96,7 @@ from backend.workflows.plugin.local import helper
 
 
 def test_workflow_framework_modules_remain_host_adapters(tmp_path: Path):
-    root, backend = _fixture(
-        tmp_path,
-        "workflows/toolkit",
-        "__all__ = []\nfrom backend.prompting import build_prefix\n",
-    )
+    root, backend = _fixture(tmp_path, "workflows/toolkit", "__all__ = []\nfrom backend.prompting import build_prefix\n")
     assert _checker().check(root=root, backend=backend) == []
 
 
@@ -122,6 +115,25 @@ def test_workflow_slices_use_only_named_public_toolkit_exports(tmp_path: Path, s
     root, backend = _fixture(tmp_path, "workflows/plugin/bad", statement)
     problems = _checker().check(root=root, backend=backend)
     assert any("workflow slice 'plugin'" in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "from backend.core.utils import _helper\n",
+        "from .sibling import _helper\n",
+        "from backend.prompting import base, _helper\n",
+    ],
+)
+def test_private_names_are_not_imported_across_modules(tmp_path: Path, statement: str):
+    root, backend = _fixture(tmp_path, "inference/bad", statement)
+    problems = _checker().check(root=root, backend=backend)
+    assert any("imports private name '_helper'" in problem for problem in problems), problems
+
+
+def test_dunder_names_are_not_private(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "inference/good", "from backend.core import __version__\n")
+    assert _checker().check(root=root, backend=backend) == []
 
 
 def test_python_packages_must_be_classified(tmp_path: Path):

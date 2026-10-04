@@ -10,14 +10,7 @@ from backend.analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from backend.analysis.text.roleplay_segmentation import split_segment_sentences
 from backend.features.slop_suggestions.patterns import LOOSE, STRICT, Shape, build_regex
 from backend.features.slop_suggestions.runner import REFRESH_REPLIES, stale
-from backend.features.slop_suggestions.scoring import (
-    KeyStats,
-    count_candidates,
-    count_card,
-    fill_lane,
-    key_stats,
-    overuse_lb,
-)
+from backend.features.slop_suggestions.scoring import KeyStats, count_candidates, count_card, fill_lane, key_stats, overuse_lb
 from backend.features.slop_suggestions.shapes import sentence_keys, sentences
 
 NO_NAMES: frozenset[str] = frozenset()
@@ -27,7 +20,7 @@ def _keys(text: str) -> set[str]:
     return {key for sentence in sentences(text) for key in sentence_keys(sentence, NO_NAMES)}
 
 
-# ── shapes ──────────────────────────────────────────────────────────────────
+# -- shapes ------------------------------------------------------------------
 
 
 def test_despair_sentence_abstracts_to_its_skeleton():
@@ -55,7 +48,7 @@ def test_a_name_keeps_a_short_sentence_out_of_the_literal_keys():
     assert not any("=" in key for key in sentence_keys(sentence, frozenset({"oscar"})))
 
 
-# ── patterns ────────────────────────────────────────────────────────────────
+# -- patterns ----------------------------------------------------------------
 
 SOURCES = [
     "*No hate, no anger, just... despair.*",
@@ -86,7 +79,7 @@ def test_every_pattern_is_bank_safe_and_matches_its_source_sentence(source):
                 assert compiled.search(bank_sentence), (key, pattern)
 
 
-# ── scoring ─────────────────────────────────────────────────────────────────
+# -- scoring -----------------------------------------------------------------
 
 
 def test_absent_from_cards_counts_only_once_expected_is_large():

@@ -97,10 +97,7 @@ async def test_the_budget_is_the_setting_and_thinking_is_explicit(thinking):
                     {
                         "id": "draft",
                         "type": "function",
-                        "function": {
-                            "name": "generate_character_card",
-                            "arguments": json.dumps(DRAFT),
-                        },
+                        "function": {"name": "generate_character_card", "arguments": json.dumps(DRAFT)},
                     }
                 ]
             },

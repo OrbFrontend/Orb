@@ -1,13 +1,7 @@
-"""Database operations for the Phrase Bank suggestion miner.
+"""Suggestion-miner persistence and corpus reads.
 
-Two halves. The corpus reads are synchronous and take a plain ``sqlite3``
-connection, because a run happens in a child process that opens the database
-read-only (:func:`open_readonly`). The rest is the app's async surface: stored
-suggestions, dismissals, staleness bookkeeping, and the accept path, which is
-the only place a suggestion becomes a phrase-bank entry.
-
-User messages are never read: every reply query filters ``role = 'assistant'``,
-and ``turn_index > 0`` leaves out turn 0, which holds card-authored greetings.
+Child-process corpus readers use a synchronous read-only connection; app operations are async. Read only assistant replies after
+turn 0, excluding user messages and card-authored greetings.
 """
 
 from __future__ import annotations
@@ -18,14 +12,13 @@ from collections.abc import Collection, Iterator, Sequence
 from pathlib import Path
 from typing import cast
 
-from ..connection import get_db, immediate_tx
+from ..connection import immediate_tx, select_rows
 from ..models import SlopCardRow, SlopReplyRow, SlopSuggestionDraft, SlopSuggestionRow
 
 _MODEL_REPLIES = "m.role = 'assistant' AND m.turn_index > 0"
 
-# A group reply belongs to the member who spoke it; anything else to the
-# conversation's character. Each fallback is prefixed with its kind so a card id
-# can never equal a name.
+# A group reply belongs to the member who spoke it; anything else to the conversation's character. Each fallback is prefixed
+# with its kind so a card id can never equal a name.
 _CHARACTER_KEY = """
     CASE WHEN gm.id IS NOT NULL THEN
         COALESCE('card:' || NULLIF(gm.character_card_id, ''), 'name:' || lower(trim(gm.display_name)))
@@ -37,7 +30,7 @@ _CHARACTER_KEY = """
 """
 
 
-# ── corpus reads (child process, read-only) ─────────────────────────────────
+# -- corpus reads (child process, read-only) ---------------------------------
 
 
 def open_readonly(db_path: str) -> sqlite3.Connection:
@@ -85,7 +78,7 @@ def read_names(conn: sqlite3.Connection) -> list[str]:
     return [str(row[0]) for row in rows if row[0]]
 
 
-# ── app surface ─────────────────────────────────────────────────────────────
+# -- app surface -------------------------------------------------------------
 
 
 def _suggestion(row) -> SlopSuggestionRow:
@@ -96,38 +89,31 @@ def _suggestion(row) -> SlopSuggestionRow:
 
 
 async def count_model_replies() -> int:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall(f"SELECT COUNT(*) FROM messages m WHERE {_MODEL_REPLIES}"))  # nosec B608
+    rows = await select_rows(f"SELECT COUNT(*) FROM messages m WHERE {_MODEL_REPLIES}")  # nosec B608
     return int(rows[0][0])
 
 
 async def get_slop_replies_at_run() -> int | None:
     """The model reply count when the miner last ran, or ``None`` if it never has."""
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT replies_at_run FROM slop_mining_state WHERE id = 1"))
+    rows = await select_rows("SELECT replies_at_run FROM slop_mining_state WHERE id = 1")
     return int(rows[0][0]) if rows else None
 
 
 async def list_slop_suggestions() -> list[SlopSuggestionRow]:
     """Stored suggestions in rank order: each run inserts its picks best first."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, key, lane, label, pattern, stats, fillers, examples, mined_at FROM slop_suggestions ORDER BY id"
-            )
-        )
+    rows = await select_rows(
+        "SELECT id, key, lane, label, pattern, stats, fillers, examples, mined_at FROM slop_suggestions ORDER BY id"
+    )
     return [_suggestion(row) for row in rows]
 
 
 async def list_slop_suggestion_keys() -> list[str]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT key FROM slop_suggestions"))
+    rows = await select_rows("SELECT key FROM slop_suggestions")
     return [str(row[0]) for row in rows]
 
 
 async def list_slop_dismissed_keys() -> list[str]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT key FROM slop_dismissals ORDER BY key"))
+    rows = await select_rows("SELECT key FROM slop_dismissals ORDER BY key")
     return [str(row[0]) for row in rows]
 
 
@@ -139,14 +125,10 @@ async def replace_slop_suggestions(
     mined_at: str,
     keys_at_start: Collection[str] = (),
 ) -> None:
-    """Record a run and replace every stored suggestion with its results, in one
-    transaction. ``None`` (a skipped or failed run) keeps the stored suggestions.
+    """Record a run and atomically replace suggestions; None preserves existing results.
 
-    A run takes a minute of wall clock, and the user may accept or dismiss a
-    suggestion meanwhile. Only those two actions (and a reset) remove single
-    rows, so a key in *keys_at_start* that is gone now was handled mid-run and
-    is not offered back, even if it was accepted with an edited pattern.
-    Dismissals and regex bank entries are re-read under the write lock too.
+    Do not reoffer keys removed since keys_at_start. Re-read dismissals and bank
+    regexes under the write lock to preserve actions taken during mining.
     """
     async with immediate_tx() as db:
         if drafts is not None:
@@ -182,18 +164,14 @@ async def replace_slop_suggestions(
 async def accept_slop_suggestion(suggestion_id: int, pattern: str) -> int | None:
     """Create a regex phrase group from a suggestion and drop the suggestion.
 
-    The caller has validated *pattern*. Returns the new group's id, or ``None``
-    when the suggestion no longer exists (a run replaced it, or it was handled
-    in another tab) -- in which case nothing is written.
+    The caller has validated *pattern*. Returns the new group's id, or ``None`` when the suggestion no longer exists (a run
+    replaced it, or it was handled in another tab) -- in which case nothing is written.
     """
     async with immediate_tx() as db:
         cursor = await db.execute("DELETE FROM slop_suggestions WHERE id = ?", (suggestion_id,))
         if cursor.rowcount == 0:
             return None
-        cursor = await db.execute(
-            "INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[]', 'regex', ?)",
-            (pattern,),
-        )
+        cursor = await db.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[]', 'regex', ?)", (pattern,))
         assert cursor.lastrowid is not None
         return cursor.lastrowid
 

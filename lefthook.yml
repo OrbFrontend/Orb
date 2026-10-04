@@ -6,7 +6,7 @@ pre-commit:
   commands:
     format-python:
       glob: "*.py"
-      run: python3 -m ruff check --select I --fix --quiet {staged_files} && python3 -m ruff format --line-length 128 --quiet {staged_files}
+      run: python3 -m ruff check --select I --fix --quiet {staged_files} && python3 -m ruff format --quiet {staged_files}
       stage_fixed: true
 
     format-js:
@@ -18,15 +18,3 @@ pre-commit:
     lint-python:
       glob: "*.py"
       run: python3 -m ruff check {staged_files}
-
-commit-msg:
-  commands:
-    conventional:
-      run: |
-        # Optional: enforce conventional commit prefixes
-        # Uncomment to enable:
-        # head -1 "$LEFTHOOK_GIT_PARAMS" | grep -qE "^(feat|fix|refactor|style|docs|test|chore|ci|perf|build|revert)(\(.+\))?: .+" || {
-        #   echo "Commit message must follow conventional format: type(scope): message"
-        #   exit 1
-        # }
-        exit 0

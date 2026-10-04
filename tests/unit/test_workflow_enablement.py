@@ -1,20 +1,15 @@
 """Unit tests for the pure workflow-enablement predicates.
 
-``effective_workflow_enabled`` is the ``global AND local`` truth table with
-both sides defaulting to on when absent, plus a defensive coercion that turns a
-stray non-dict ``workflow_enabled`` into "enabled" rather than raising.
-``disabled_workflow_tool_names`` projects the registry to the tool names owned
-by currently-disabled workflows; it reads ``list_workflows`` (monkeypatched here
-so the test owns the registry view without touching process-global state).
+``effective_workflow_enabled`` is the ``global AND local`` truth table with both sides defaulting to on when absent, plus a
+defensive coercion that turns a stray non-dict ``workflow_enabled`` into "enabled" rather than raising.
+``disabled_workflow_tool_names`` projects the registry to the tool names owned by currently-disabled workflows; it reads
+``list_workflows`` (monkeypatched here so the test owns the registry view without touching process-global state).
 """
 
 from __future__ import annotations
 
 from backend.workflows import ToolSpec, Workflow, enablement
-from backend.workflows.enablement import (
-    disabled_workflow_tool_names,
-    effective_workflow_enabled,
-)
+from backend.workflows.enablement import disabled_workflow_tool_names, effective_workflow_enabled
 
 
 def test_truth_table_global_and_local():

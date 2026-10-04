@@ -1,25 +1,18 @@
 """The message listing carries attachments without bytes; content routes serve them.
 
-A chat's attachments are megabytes of base64, and inlining them made the one
-response that opens a chat the slow part of opening it. The listing now says
-only whether a workflow row's bytes are evicted, and each attachment's bytes
-load from a content route the browser caches and revalidates.
+A chat's attachments are megabytes of base64, and inlining them made the one response that opens a chat the slow part of opening
+it. The listing now says only whether a workflow row's bytes are evicted, and each attachment's bytes load from a content route
+the browser caches and revalidates.
 """
 
 from __future__ import annotations
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-)
+from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.workflows.attachment_cache import evict, rehydrate_attachment
 
 
 async def _chat_with_artifact(client, data: bytes = b"RIFF-audio-bytes", mime: str = "audio/wav") -> tuple[str, int, int]:
-    resp = await client.post("/api/conversations", json={"title": "content"})
-    assert resp.status_code == 200
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "content"})
     mid, _ = await add_message(cid, "assistant", "spoken reply", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(
@@ -57,14 +50,9 @@ async def test_listing_carries_metadata_and_eviction_but_no_bytes(client):
 
 
 async def test_listing_carries_user_uploads_without_bytes(client):
-    resp = await client.post("/api/conversations", json={"title": "upload"})
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "upload"})
     mid, _ = await add_message(
-        cid,
-        "user",
-        "look",
-        0,
-        attachments=[{"mime_type": "image/png", "data_b64": "QUJD", "filename": "a.png", "size": 3}],
+        cid, "user", "look", 0, attachments=[{"mime_type": "image/png", "data_b64": "QUJD", "filename": "a.png", "size": 3}]
     )
     await set_active_leaf(cid, mid)
 
@@ -72,8 +60,7 @@ async def test_listing_carries_user_uploads_without_bytes(client):
     assert "data_b64" not in upload
     assert upload["size"] == 3
 
-    content = await client.get(f"/api/user-attachments/{upload['id']}/content")
-    assert content.status_code == 200
+    content = await client.get_checked(f"/api/user-attachments/{upload['id']}/content")
     assert content.content == b"ABC"
     assert content.headers["content-type"] == "image/png"
 
@@ -81,8 +68,7 @@ async def test_listing_carries_user_uploads_without_bytes(client):
 async def test_content_route_serves_bytes_and_revalidates(client):
     _, _, aid = await _chat_with_artifact(client, data=b"RIFF-audio-bytes")
 
-    resp = await client.get(f"/api/workflow-attachments/{aid}/content")
-    assert resp.status_code == 200
+    resp = await client.get_checked(f"/api/workflow-attachments/{aid}/content")
     assert resp.content == b"RIFF-audio-bytes"
     assert resp.headers["content-type"] == "audio/wav"
     assert resp.headers["cache-control"] == "private, no-cache"
@@ -90,8 +76,9 @@ async def test_content_route_serves_bytes_and_revalidates(client):
     assert resp.headers["content-security-policy"].startswith("sandbox")
 
     etag = resp.headers["etag"]
-    again = await client.get(f"/api/workflow-attachments/{aid}/content", headers={"If-None-Match": etag})
-    assert again.status_code == 304
+    again = await client.get_checked(
+        f"/api/workflow-attachments/{aid}/content", headers={"If-None-Match": etag}, expected_status=304
+    )
     assert again.content == b""
 
 
@@ -105,8 +92,7 @@ async def test_rehydrated_bytes_do_not_revalidate_as_the_old_ones(client):
     assert (await client.get(f"/api/workflow-attachments/{aid}/content")).status_code == 410
 
     await rehydrate_attachment(aid, b"REGENERATED")
-    resp = await client.get(f"/api/workflow-attachments/{aid}/content", headers={"If-None-Match": old_etag})
-    assert resp.status_code == 200
+    resp = await client.get_checked(f"/api/workflow-attachments/{aid}/content", headers={"If-None-Match": old_etag})
     assert resp.content == b"REGENERATED"
 
 
@@ -141,8 +127,7 @@ async def test_byte_ranges(client):
         assert whole.status_code == 200, ignored
         assert whole.content == b"0123456789"
 
-    stale = await client.get(url, headers={"Range": "bytes=0-1", "If-Range": '"stale"'})
-    assert stale.status_code == 200
+    await client.get_checked(url, headers={"Range": "bytes=0-1", "If-Range": '"stale"'})
 
 
 async def test_ill_formed_mime_is_served_as_opaque_bytes(client):
@@ -152,8 +137,7 @@ async def test_ill_formed_mime_is_served_as_opaque_bytes(client):
 
 
 async def test_undecodable_upload_bytes_are_422(client, db):
-    resp = await client.post("/api/conversations", json={"title": "bad"})
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "bad"})
     mid, _ = await add_message(cid, "user", "x", 0)
     cur = await db.execute(
         "INSERT INTO user_attachments (message_id, mime_type, data_b64, created_at) VALUES (?, ?, ?, ?)",

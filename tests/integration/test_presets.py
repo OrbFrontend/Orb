@@ -13,20 +13,14 @@ async def _full_snapshot(client, label=""):
     """A restorable full-coverage snapshot, via the same route the UI uses."""
     from backend.features.presets import ALL_DOMAINS
 
-    resp = await client.post(
-        "/api/presets/export",
-        json={"domains": list(ALL_DOMAINS), "strip_keys": False, "label": label},
-    )
+    resp = await client.post("/api/presets/export", json={"domains": list(ALL_DOMAINS), "strip_keys": False, "label": label})
     return resp.json()["name"]
 
 
 async def _make_conv_with_tree(db, cid="conv-1"):
     """Insert a conversation with a two-message branch + active leaf via raw SQL."""
     ts = "2024-01-01T00:00:00"
-    await db.execute(
-        "INSERT INTO conversations (id, title, created_at) VALUES (?, ?, ?)",
-        (cid, "Tree Chat", ts),
-    )
+    await db.execute("INSERT INTO conversations (id, title, created_at) VALUES (?, ?, ?)", (cid, "Tree Chat", ts))
     cur = await db.execute(
         "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, created_at) "
         "VALUES (?, 'user', 'hello', 0, NULL, ?)",
@@ -45,14 +39,13 @@ async def _make_conv_with_tree(db, cid="conv-1"):
     return m1, m2
 
 
-# ── export / library ─────────────────────────────────────────────────────
+# -- export / library -----------------------------------------------------
 
 
 async def test_export_creates_library_entry(client, db_path):
     await client.post("/api/characters", json={"name": "Lira"})
-    resp = await client.post("/api/presets/export", json={"domains": ["characters"], "label": "cast"})
-    assert resp.status_code == 200
-    name = resp.json()["name"]
+    resp = await client.post_json("/api/presets/export", json={"domains": ["characters"], "label": "cast"})
+    name = resp["name"]
     assert (_snap_dir(db_path) / name).exists()
 
     lst = await client.get("/api/presets")
@@ -63,8 +56,7 @@ async def test_export_creates_library_entry(client, db_path):
 
 
 async def test_export_empty_domains_rejected(client):
-    resp = await client.post("/api/presets/export", json={"domains": []})
-    assert resp.status_code == 400
+    await client.post_checked("/api/presets/export", json={"domains": []}, expected_status=400)
 
 
 async def test_chats_export_forces_characters(client, db_path):
@@ -74,27 +66,26 @@ async def test_chats_export_forces_characters(client, db_path):
     assert "characters" in meta and "chats" in meta
 
 
-# ── apply (merge) ──────────────────────────────────────────────────────────
+# -- apply (merge) ----------------------------------------------------------
 
 
 async def test_apply_readds_deleted_and_preserves_new(client, db):
-    keep = (await client.post("/api/characters", json={"name": "Keep"})).json()["id"]
-    temp = (await client.post("/api/characters", json={"name": "Temp"})).json()["id"]
+    keep = await client.create("/api/characters", json={"name": "Keep"})
+    temp = await client.create("/api/characters", json={"name": "Temp"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
 
     await client.delete(f"/api/characters/{keep}")
     await client.delete(f"/api/characters/{temp}")
     await client.post("/api/characters", json={"name": "Fresh"})
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert {"Keep", "Temp", "Fresh"} <= names
 
 
 async def test_apply_overwrites_by_id(client):
-    cid = (await client.post("/api/characters", json={"name": "Orig"})).json()["id"]
+    cid = await client.create("/api/characters", json={"name": "Orig"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
 
     await client.put(f"/api/characters/{cid}", json={"name": "Changed"})
@@ -110,16 +101,14 @@ async def test_apply_restores_chat_tree(client, db):
     await client.delete("/api/conversations/conv-1")
     assert (await client.get("/api/conversations/conv-1/messages")).status_code in (200, 404)
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     # Conversation + its two messages are back; the branch link survives a remap.
     async with db.execute("SELECT active_leaf_id FROM conversations WHERE id = 'conv-1'") as cur:
         leaf = (await cur.fetchone())["active_leaf_id"]
-    async with db.execute(
+    rows = await db.all(
         "SELECT id, parent_id, role, content FROM messages WHERE conversation_id = 'conv-1' ORDER BY turn_index"
-    ) as cur:
-        rows = await cur.fetchall()
+    )
     assert [r["content"] for r in rows] == ["hello", "hi there"]
     assert rows[1]["parent_id"] == rows[0]["id"]  # child still points at parent
     assert leaf == rows[1]["id"]  # active leaf remapped to the new id
@@ -135,8 +124,7 @@ async def test_apply_chats_does_not_duplicate_tree(client, db):
     await _make_conv_with_tree(db)
     name = (await client.post("/api/presets/export", json={"domains": ["chats"]})).json()["name"]
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = 'conv-1'") as cur:
         assert (await cur.fetchone())["n"] == 2  # not 4
@@ -147,12 +135,11 @@ async def test_apply_chats_does_not_duplicate_tree(client, db):
 async def test_apply_configs_leaves_no_orphaned_model_configs(client, db):
     """A full-domain preset including configs must merge without the FK check
     aborting on model_configs whose endpoint was deleted but not cascaded."""
-    eid = (await client.post("/api/endpoints", json={"url": "http://x"})).json()["id"]
+    eid = await client.create("/api/endpoints", json={"url": "http://x"})
     await client.post(f"/api/endpoints/{eid}/models", json={"model_name": "m1"})
     name = (await client.post("/api/presets/export", json={"domains": ["configs"]})).json()["name"]
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     async with db.execute("SELECT COUNT(*) AS n FROM model_configs WHERE endpoint_id NOT IN (SELECT id FROM endpoints)") as cur:
         assert (await cur.fetchone())["n"] == 0
@@ -160,25 +147,32 @@ async def test_apply_configs_leaves_no_orphaned_model_configs(client, db):
         assert await cur.fetchall() == []
 
 
-# ── configs / key stripping ────────────────────────────────────────────────
+# -- configs / key stripping ------------------------------------------------
+
+
+async def _set_active_endpoint_key(client, api_key: str) -> None:
+    endpoint_id = (await client.get("/api/settings")).json()["active_endpoint_id"]
+    await client.put_checked(f"/api/endpoints/{endpoint_id}", json={"api_key": api_key})
 
 
 async def test_export_strips_api_keys_by_default(client, db_path):
-    await client.put("/api/settings", json={"api_key": "sk-secret"})
+    await _set_active_endpoint_key(client, "sk-secret")
     name = (await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": True})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
-    assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == ""
-    assert all(r[0] == "" for r in conn.execute("SELECT api_key FROM endpoints").fetchall())
+    keys = [r[0] for r in conn.execute("SELECT api_key FROM endpoints").fetchall()]
+    assert keys and all(key == "" for key in keys)
 
 
 async def test_export_without_configs_scrubs_keys(client, db_path):
-    await client.put("/api/settings", json={"api_key": "sk-secret"})
+    await _set_active_endpoint_key(client, "sk-secret")
+    await client.put_checked("/api/settings", json={"system_prompt": "private"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
-    assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == ""
+    assert conn.execute("SELECT COUNT(*) FROM endpoints").fetchone()[0] == 0
+    assert conn.execute("SELECT system_prompt FROM settings WHERE id=1").fetchone()[0] == ""
 
 
-# ── snapshot / restore ─────────────────────────────────────────────────────
+# -- snapshot / restore -----------------------------------------------------
 
 
 async def test_restore_is_full_rollback(client, db):
@@ -194,16 +188,13 @@ async def test_restore_is_full_rollback(client, db):
 
 
 async def test_restore_succeeds_with_open_connection(client, db_path):
-    """Regression: restoring while another connection holds the live DB open
-    (as the running app does for any overlapping request) used to fail with
-    'database is locked' because the file/WAL was swapped out from under it.
+    """Regression: restoring while another connection holds the live DB open (as the running app does for any overlapping
+    request) used to fail with 'database is locked' because the file/WAL was swapped out from under it.
 
-    The same case is what makes the restore portable. Replacing the live file by
-    renaming a prepared one over it is POSIX-only: Windows opens files without
-    FILE_SHARE_DELETE, so that rename fails with PermissionError [WinError 5]
-    whenever anyone -- this holder, or any overlapping request -- still has the
-    database open. Keep the copy going through SQLite (restore_full's online
-    backup), not through the filesystem.
+    The same case is what makes the restore portable. Replacing the live file by renaming a prepared one over it is POSIX-only:
+    Windows opens files without FILE_SHARE_DELETE, so that rename fails with PermissionError [WinError 5] whenever anyone --
+    this holder, or any overlapping request -- still has the database open. Keep the copy going through SQLite (restore_full's
+    online backup), not through the filesystem.
     """
     from backend.features.presets import engine as presets
 
@@ -227,11 +218,9 @@ async def test_restore_succeeds_with_open_connection(client, db_path):
 async def test_restore_realigns_mismatched_page_size(client, db_path):
     """A library file whose page size differs from the live DB still restores.
 
-    The live DB runs in WAL mode, and SQLite cannot change a WAL database's page
-    size, so copying such a file in fails with a bare "attempt to write a
-    readonly database" unless the prepared copy is rebuilt to match first. Only
-    reachable via a preset imported from an install configured differently --
-    a locally produced one inherits the live page size.
+    The live DB runs in WAL mode, and SQLite cannot change a WAL database's page size, so copying such a file in fails with a
+    bare "attempt to write a readonly database" unless the prepared copy is rebuilt to match first. Only reachable via a preset
+    imported from an install configured differently -- a locally produced one inherits the live page size.
     """
     from backend.features.presets import engine as presets
 
@@ -269,22 +258,21 @@ async def test_apply_takes_auto_backup(client):
     assert lst[backup]["kind"] == "auto"
 
 
-# ── partial restore (domain-scoped replace) ────────────────────────────────
+# -- partial restore (domain-scoped replace) --------------------------------
 
 
 async def test_partial_restore_replaces_covered_domain(client):
     """Restoring a characters-only backup makes characters match the file
     exactly: post-backup additions are dropped and edits reverted -- unlike
     apply, which keeps them (see test_apply_readds_deleted_and_preserves_new)."""
-    keep = (await client.post("/api/characters", json={"name": "Keep"})).json()["id"]
+    keep = await client.create("/api/characters", json={"name": "Keep"})
     await client.post("/api/characters", json={"name": "Temp"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
 
     await client.put(f"/api/characters/{keep}", json={"name": "Edited"})
     await client.post("/api/characters", json={"name": "Fresh"})
 
-    resp = await client.post(f"/api/presets/{name}/restore", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/restore", json={})
 
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert names == {"Keep", "Temp"}  # Fresh dropped, Keep reverted
@@ -296,8 +284,7 @@ async def test_partial_restore_leaves_other_domains_untouched(client, db):
     await client.post("/api/characters", json={"name": "Solo"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
 
-    resp = await client.post(f"/api/presets/{name}/restore", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/restore", json={})
 
     async with db.execute("SELECT COUNT(*) AS n FROM conversations WHERE id = 'conv-1'") as cur:
         assert (await cur.fetchone())["n"] == 1
@@ -313,12 +300,11 @@ async def test_partial_restore_nulls_dangling_world(client, db):
 
     # A world (and character link) created *after* the backup: the restore must
     # drop W2 (worlds end up matching the file = {W1}) and null the stale link.
-    w2 = (await client.post("/api/worlds", json={"name": "W2"})).json()["id"]
-    ch = (await client.post("/api/characters", json={"name": "Linked"})).json()["id"]
+    w2 = await client.create("/api/worlds", json={"name": "W2"})
+    ch = await client.create("/api/characters", json={"name": "Linked"})
     await client.put(f"/api/characters/{ch}", json={"world_id": w2})
 
-    resp = await client.post(f"/api/presets/{name}/restore", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/restore", json={})
 
     async with db.execute("SELECT world_id FROM character_cards WHERE id = ?", (ch,)) as cur:
         assert (await cur.fetchone())["world_id"] is None
@@ -334,8 +320,8 @@ async def test_apply_nulls_dangling_character_persona_lock(client, db):
     where the locked persona no longer exists must leave no dangling FK that
     aborts the whole import. (On a fresh-schema DB the export-time scrub already
     nulls the lock; this guards the end state for the migrated, FK-less case.)"""
-    pid = (await client.post("/api/user-personas", json={"name": "Pinned"})).json()["id"]
-    ch = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
+    pid = await client.create("/api/user-personas", json={"name": "Pinned"})
+    ch = await client.create("/api/characters", json={"name": "Locked"})
     await client.put(f"/api/characters/{ch}", json={"persona_lock_id": pid})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
 
@@ -343,8 +329,7 @@ async def test_apply_nulls_dangling_character_persona_lock(client, db):
     # but the exported file still carries persona_lock_id = pid.
     await client.delete(f"/api/user-personas/{pid}")
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     async with db.execute("SELECT persona_lock_id FROM character_cards WHERE id = ?", (ch,)) as cur:
         assert (await cur.fetchone())["persona_lock_id"] is None
@@ -356,13 +341,12 @@ async def test_apply_remaps_persona_lock_when_configs_included(client, db):
     """When configs travels with characters, personas are re-keyed on import
     (fresh auto-increment ids). A character's persona_lock_id must follow that
     remap so the pin survives instead of binding to the wrong persona / dangling."""
-    pid = (await client.post("/api/user-personas", json={"name": "Pinned"})).json()["id"]
-    ch = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
+    pid = await client.create("/api/user-personas", json={"name": "Pinned"})
+    ch = await client.create("/api/characters", json={"name": "Locked"})
     await client.put(f"/api/characters/{ch}", json={"persona_lock_id": pid})
     name = (await client.post("/api/presets/export", json={"domains": ["characters", "configs"]})).json()["name"]
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     # The lock still resolves to the persona named "Pinned", whatever its new id.
     async with db.execute("SELECT persona_lock_id FROM character_cards WHERE id = ?", (ch,)) as cur:
@@ -382,12 +366,11 @@ async def test_apply_configs_clears_orphaned_local_persona_lock(client, db):
 
     # Local persona + locked character created *after* the configs backup; the
     # configs merge wipes/re-keys user_personas, orphaning this lock.
-    pid = (await client.post("/api/user-personas", json={"name": "Local"})).json()["id"]
-    ch = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
+    pid = await client.create("/api/user-personas", json={"name": "Local"})
+    ch = await client.create("/api/characters", json={"name": "Locked"})
     await client.put(f"/api/characters/{ch}", json={"persona_lock_id": pid})
 
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     async with db.execute("SELECT persona_lock_id FROM character_cards WHERE id = ?", (ch,)) as cur:
         assert (await cur.fetchone())["persona_lock_id"] is None
@@ -407,35 +390,29 @@ async def test_restore_overwrites_imported(client, db_path):
     ]
 
     await client.post("/api/characters", json={"name": "Fresh"})  # added after the backup
-    resp = await client.post(f"/api/presets/{stored}/restore", json={})
-    assert resp.status_code == 200, resp.json()
+    await client.post_checked(f"/api/presets/{stored}/restore", json={})
 
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert names == {"Keep"}  # Fresh dropped -- characters match the imported file
 
 
-# ── import upload + version skew ───────────────────────────────────────────
+# -- import upload + version skew -------------------------------------------
 
 
 async def test_import_lands_in_library_non_destructively(client, db_path):
-    cid = (await client.post("/api/characters", json={"name": "Imported"})).json()["id"]
+    cid = await client.create("/api/characters", json={"name": "Imported"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     blob = (_snap_dir(db_path) / name).read_bytes()
 
     await client.delete(f"/api/characters/{cid}")
-    resp = await client.post(
-        "/api/presets/import",
-        files={"file": ("shared.db", blob, "application/octet-stream")},
-    )
-    assert resp.status_code == 200
+    await client.post_checked("/api/presets/import", files={"file": ("shared.db", blob, "application/octet-stream")})
     # Import only stocks the library -- it does not touch live data, so the
     # deleted character is NOT brought back (the user applies/restores to do that).
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert "Imported" not in names
 
-    # The uploaded file was a "manual" export, but in this library it is now an
-    # imported preset -- the "imported" kind overrides the embedded one, while
-    # its partial domain coverage is preserved.
+    # The uploaded file was a "manual" export, but in this library it is now an imported preset -- the "imported" kind overrides
+    # the embedded one, while its partial domain coverage is preserved.
     imported = [e for e in (await client.get("/api/presets")).json() if e["kind"] == "imported"]
     assert len(imported) == 1
     assert imported[0]["included_domains"] == ["characters"]
@@ -450,20 +427,14 @@ async def test_import_rejects_newer_schema(client, db_path):
     conn.close()
     blob = path.read_bytes()
 
-    resp = await client.post(
-        "/api/presets/import",
-        files={"file": ("future.db", blob, "application/octet-stream")},
+    resp = await client.post_json(
+        "/api/presets/import", files={"file": ("future.db", blob, "application/octet-stream")}, expected_status=400
     )
-    assert resp.status_code == 400
-    assert "newer version" in resp.json()["detail"]
+    assert "newer version" in resp["detail"]
 
 
 async def test_import_rejects_non_db(client):
-    resp = await client.post(
-        "/api/presets/import",
-        files={"file": ("notes.txt", b"hello", "text/plain")},
-    )
-    assert resp.status_code == 400
+    await client.post_checked("/api/presets/import", files={"file": ("notes.txt", b"hello", "text/plain")}, expected_status=400)
 
 
 def test_library_path_rejects_traversal():
@@ -478,16 +449,11 @@ def test_library_path_rejects_traversal():
 
 
 async def test_apply_preserves_local_workflow_toggles(client):
-    """Which workflows an install has disabled -- and which opt-in local-ML
-    features it has running -- is local operational state, not content a shared
-    preset should dictate. All three toggle columns are in PRESERVED_COLUMNS, so
-    applying a configs preset must not re-enable something the user turned off
-    locally."""
-    from backend.database import (
-        get_settings,
-        set_local_ml_enabled,
-        set_workflow_enabled,
-    )
+    """Which workflows an install has disabled -- and which opt-in local-ML features it has running -- is local operational
+    state, not content a shared preset should dictate. All three toggle columns are in PRESERVED_COLUMNS, so applying a
+    configs preset must not re-enable something the user turned off locally.
+    """
+    from backend.database import get_settings, set_local_ml_enabled, set_workflow_enabled
 
     # Snapshot configs while the toggles sit at their on-state defaults.
     name = (await client.post("/api/presets/export", json={"domains": ["configs"]})).json()["name"]
@@ -496,8 +462,7 @@ async def test_apply_preserves_local_workflow_toggles(client):
     await client.put("/api/settings", json={"workflows_globally_enabled": False})
     await set_workflow_enabled("tts", False)
     await set_local_ml_enabled("autocomplete", False)
-    resp = await client.post(f"/api/presets/{name}/apply", json={})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/presets/{name}/apply", json={})
 
     s = await get_settings()
     assert s["workflows_globally_enabled"] == 0

@@ -1,5 +1,3 @@
-"""Tests for ComfyUI health verdicts."""
-
 from __future__ import annotations
 
 import pytest

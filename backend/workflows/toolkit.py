@@ -24,10 +24,7 @@ from ..analysis import (
 
 # Shared span primitives used by markup repair, voice shaping, and classification.
 from ..analysis.text.roleplay import emphasis_inner, span_role, split_ws, strip_quotes
-from ..analysis.text.roleplay_segmentation import (
-    extract_block_spans,
-    find_emphasis_spans,
-)
+from ..analysis.text.roleplay_segmentation import extract_block_spans, find_emphasis_spans
 from ..core import (
     CardScripts,
     Macros,
@@ -68,14 +65,10 @@ from ..database import (
     resolve_char_context,
 )
 from ..inference import local_ml as _local_ml
-from ..inference import (
-    separate_agent_lane_configured as _separate_agent_lane_configured,
-)
+from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
 from ..prompting import build_prefix as _build_prefix
 from ..prompting import macro_identity as _macro_identity
-from ..prompting.lorebook import (
-    compute_constant_lorebook_block as _compute_constant_lorebook_block,
-)
+from ..prompting.lorebook import compute_constant_lorebook_block as _compute_constant_lorebook_block
 from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import (
@@ -84,9 +77,36 @@ from .attachment_cache import (
     insert_workflow_variant,
     set_workflow_consumption_metadata,
 )
-from .contracts import EV_DRAFT_REPLACED, ExportedFile, ToolSpec, WorkflowEventStream
-from .errors import WorkflowUserFacingError
+from .contracts import (
+    EV_ATTACH_ARTIFACT,
+    EV_DRAFT_REPLACED,
+    EV_ENABLE_TOOLS,
+    EV_SET_MESSAGE_STATE,
+    EV_SYSTEM_PROMPT,
+    AttachArtifactEvent,
+    DraftReplacedEvent,
+    EnableToolsEvent,
+    ExportCtx,
+    ExportedFile,
+    HookType,
+    OnDemandCtx,
+    PostCtx,
+    PostEvent,
+    PreCtx,
+    PreEvent,
+    PublicEvent,
+    QueryCtx,
+    RegenCtx,
+    RerollGenCtx,
+    SetMessageStateEvent,
+    SystemPromptEvent,
+    ToolSpec,
+    UploadCtx,
+    WorkflowEventStream,
+)
+from .errors import WorkflowInputError, WorkflowUnavailableError, WorkflowUserFacingError
 from .registry import (
+    Subscription,
     Workflow,
     get_workflow_character_state,
     get_workflow_config,
@@ -97,6 +117,7 @@ from .registry import (
     set_workflow_config,
     set_workflow_message_state,
     set_workflow_state,
+    subscription,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,16 +128,40 @@ __all__ = [
     "CastMember",
     "Dialogue",
     "EVICTED_MARKER",
+    "EV_ATTACH_ARTIFACT",
     "EV_DRAFT_REPLACED",
+    "EV_ENABLE_TOOLS",
+    "EV_SET_MESSAGE_STATE",
+    "EV_SYSTEM_PROMPT",
+    "AttachArtifactEvent",
+    "DraftReplacedEvent",
+    "EnableToolsEvent",
+    "PostEvent",
+    "PreEvent",
+    "PublicEvent",
+    "SetMessageStateEvent",
+    "SystemPromptEvent",
+    "ExportCtx",
     "ExportedFile",
+    "HookType",
     "Macros",
     "Narration",
     "OPEN_QUOTES",
+    "OnDemandCtx",
+    "PostCtx",
+    "PreCtx",
+    "QueryCtx",
+    "RegenCtx",
+    "RerollGenCtx",
+    "Subscription",
     "TOGGLE_QUOTES",
     "ToolSpec",
     "TurnCast",
+    "UploadCtx",
     "Workflow",
     "WorkflowEventStream",
+    "WorkflowInputError",
+    "WorkflowUnavailableError",
     "WorkflowUserFacingError",
     "classify_pov",
     "classify_pov_tense_chunks",
@@ -164,6 +209,7 @@ __all__ = [
     "spark_voice_clean_reference_text",
     "spark_voice_clean_reference_tokens",
     "spark_voice_clean_tokens",
+    "spark_voice_enroll",
     "spark_voice_reference_audio",
     "spark_voice_speak",
     "protected_runs",
@@ -178,6 +224,7 @@ __all__ = [
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
+    "subscription",
     "workflow_character_state_lock",
     "workflow_config_lock",
     "workflow_state_lock",
@@ -239,10 +286,9 @@ async def _classify_markup(text: str) -> AxisStyle | None:
 def spark_voice_clean_tokens(raw: object) -> list[int]:
     """A stored voice as 32 validated speaker tokens, or ``[]``.
 
-    The shape rule (exactly 32 ints in ``[0, 4096)``) is a property of BiCodec's
-    FSQ quantizer, so it is answered by the model slice rather than restated in
-    the workflow — a hand-rolled copy that drifts is a malformed voice reaching
-    the codec, which fails inside an einsum rather than at the boundary.
+    The shape rule (exactly 32 ints in ``[0, 4096)``) is a property of BiCodec's FSQ quantizer, so it is answered by the model
+    slice rather than restated in the workflow -- a hand-rolled copy that drifts is a malformed voice reaching the codec, which
+    fails inside an einsum rather than at the boundary.
     """
     return _spark_tts_host.clean_tokens(raw)
 
@@ -257,6 +303,22 @@ def spark_voice_clean_reference_text(raw: object) -> str:
     return _spark_tts_host.clean_reference_text(raw)
 
 
+async def spark_voice_enroll(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> dict[str, Any]:
+    """Enroll an uploaded clip as a voice, with the advanced reference when it can be prepared.
+
+    Returns ``speaker_tokens``, ``reference_tokens``, ``reference_text``, and ``reference_note`` (why the reference is missing
+    or needs editing). Raises ``WorkflowInputError`` for an unreadable file and ``WorkflowUnavailableError`` when the voice
+    models are not set up.
+    """
+    enrollment = await _spark_tts_host.enroll_voice(data, settings, filename=filename)
+    return {
+        "speaker_tokens": enrollment.speaker_tokens,
+        "reference_tokens": enrollment.reference_tokens,
+        "reference_text": enrollment.reference_text,
+        "reference_note": enrollment.reference_note,
+    }
+
+
 async def spark_voice_speak(
     text: str,
     speaker_tokens: Sequence[int],
@@ -267,11 +329,7 @@ async def spark_voice_speak(
 ) -> tuple[bytes, int]:
     """Speak *text* in an enrolled voice."""
     return await _spark_tts_host.synthesize(
-        text,
-        speaker_tokens,
-        settings,
-        reference_tokens=reference_tokens,
-        reference_text=reference_text,
+        text, speaker_tokens, settings, reference_tokens=reference_tokens, reference_text=reference_text
     )
 
 
@@ -312,12 +370,7 @@ async def _turn_macros(
     return macros, persona
 
 
-async def conversation_macros(
-    conversation_id: str,
-    settings: Mapping[str, Any],
-    *,
-    seed: str | None = None,
-) -> Macros:
+async def conversation_macros(conversation_id: str, settings: Mapping[str, Any], *, seed: str | None = None) -> Macros:
     """Build the macros for workflow-owned text in a conversation."""
     conv = await get_conversation(conversation_id)
     if conv is None:
@@ -328,13 +381,7 @@ async def conversation_macros(
     return macros
 
 
-async def build_offturn_prefix(
-    conversation_id: str,
-    history,
-    settings,
-    *,
-    lane: AgentLane = "writer",
-) -> list[Any]:
+async def build_offturn_prefix(conversation_id: str, history, settings, *, lane: AgentLane = "writer") -> list[Any]:
     """Build the character and persona prefix for an off-turn call."""
     if lane not in ("writer", "agent"):
         raise ValueError(f"unknown off-turn model lane {lane!r}")
@@ -343,21 +390,14 @@ async def build_offturn_prefix(
         return []
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
-    # A group names no single character: the scene's title is {{char}}, the cast
-    # section stands in for the card, and each replayed reply is attributed to
-    # the member who wrote it. Resolved through the same reader the turn uses,
-    # against the *neutral* base (no speaker) — which is the base the Director
-    # runs on in every mode, Classic card swap included.
+    # A group names no single character: the scene's title is {{char}}, the cast section stands in for the card, and each
+    # replayed reply is attributed to the member who wrote it. Resolved through the same reader the turn uses, against the
+    # *neutral* base (no speaker) -- which is the base the Director runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     dual_agent = lane == "agent" and _separate_agent_lane_configured(settings)
     if dual_agent:
-        system_prompt, _, _ = await resolve_char_context(
-            conv,
-            settings,
-            card=card,
-            shared_key="agent_shared_system_prompt",
-        )
+        system_prompt, _, _ = await resolve_char_context(conv, settings, card=card, shared_key="agent_shared_system_prompt")
     macros, persona = await _turn_macros(conv, settings, card, turn_cast)
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}

@@ -11,8 +11,8 @@ import {
 
 const WORKFLOW_ID = "image_gen";
 
-export const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
-export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
+const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 let referenceImage = { reference_image_b64: "", reference_mime: "" };
 let loadedProfile = null;

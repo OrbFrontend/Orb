@@ -1,21 +1,6 @@
-"""The `offer_tools` blob must be order-stable across sibling forced calls.
+"""Check byte-stable offer_tools across sibling forced calls; only tool_choice varies.
 
-image_gen's select + compose calls ship one shared array so that a backend
-which renders the whole array can serve the second call from the first call's
-cached prefix (docs/architecture/kv-cache.md, Invariant 3). That only works if
-the array is byte-identical regardless of which member is forced — the sole
-difference between the two requests must be `tool_choice`.
-
-Nothing else pins this. `enabled_schemas()` ordering is covered by
-test_tool_catalog.py, but the `offer_tools` path bypasses `enabled_schemas`
-entirely: it builds the array from the caller's tuple, so a reordered
-OFFER_TOOLS or an append-on-miss regression would silently split the two calls
-onto different prefixes with no test failing.
-
-Whether the *server* then renders the whole array is a provider property Orb
-cannot control or test offline — several backends render only the forced tool.
-That is documented, not asserted here. What is asserted is the part Orb owns:
-the bytes it sends.
+Provider rendering of the full array cannot be asserted offline.
 """
 
 from __future__ import annotations
@@ -56,12 +41,7 @@ class _CapturingClient:
 
 async def _run(client, tool_name: str, offer=OFFER_TOOLS) -> None:
     async for _ in forced_tool_call(
-        client=client,
-        prefix=_PREFIX,
-        tail_messages=_TAIL,
-        tool_name=tool_name,
-        settings=_SETTINGS,
-        offer_tools=offer,
+        client=client, prefix=_PREFIX, tail_messages=_TAIL, tool_name=tool_name, settings=_SETTINGS, offer_tools=offer
     ):
         pass
 
@@ -106,7 +86,7 @@ async def test_offer_member_is_not_duplicated_when_forced(client):
 
 
 async def test_blob_carries_the_registry_schemas_verbatim(client):
-    """The array is the registry's bytes — not a copy that could drift."""
+    """The array is the registry's bytes -- not a copy that could drift."""
     await _run(client, "read_image_skills")
     sent = client.calls[0]["tools"]
     assert sent == [TOOLS[n]["schema"] for n in OFFER_TOOLS]
@@ -115,13 +95,10 @@ async def test_blob_carries_the_registry_schemas_verbatim(client):
 async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(client, monkeypatch):
     """Correctness outranks the cache: an unforced array is a coin flip.
 
-    Guards the branch that trades the shared prefix away — with compose forced
+    Guards the branch that trades the shared prefix away -- with compose forced
     but coerced, a model can answer with the selector instead.
     """
-    monkeypatch.setattr(
-        "backend.workflows._forced_call.honors_forced_tool_choice",
-        lambda *a, **k: False,
-    )
+    monkeypatch.setattr("backend.workflows._forced_call.honors_forced_tool_choice", lambda *a, **k: False)
     await _run(client, "compose_image_prompt")
     names = [t["function"]["name"] for t in client.calls[0]["tools"]]
     assert names == ["compose_image_prompt"]

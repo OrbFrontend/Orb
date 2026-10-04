@@ -1,3 +1,4 @@
+import { registerAction } from "./actions.js";
 import { api } from "./api.js";
 import { messageBody, toast } from "./utils.js";
 import { segmentBody } from "./workflow_segmentation.js";
@@ -53,7 +54,7 @@ function paint(body, sentIndices, bySent, scores) {
   else msg?.appendChild(chip);
 }
 
-export async function scoreSlop(msgId, btn) {
+async function scoreSlop(msgId, btn) {
   const body = messageBody(msgId);
   if (!body) return;
   if (body.dataset.slopScored === "1") {
@@ -90,3 +91,5 @@ export async function scoreSlop(msgId, btn) {
     if (btn) btn.disabled = false;
   }
 }
+
+registerAction("slop", "score", (el) => scoreSlop(Number(el.dataset.msgId), el));

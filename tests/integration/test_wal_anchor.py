@@ -1,16 +1,6 @@
-"""The lifespan-scoped WAL anchor: one idle connection held open for the life of
-the process so the transient per-query connections are never the last WAL
-connection.
+"""Check WAL-anchor path/lifespan isolation and lock-free maintenance.
 
-Why this exists at all is in ``connection.open_wal_anchor``'s docstring. What
-these tests defend is the *shape* of the anchor rather than the byte count: it
-must follow the patched ``DB_PATH``, never leak across lifespans, and above all
-stay completely idle -- no statement, no cursor, no transaction -- because
-``VACUUM`` and the restore path's online backup both fail against a connection
-holding a lock.
-
-Deliberately no assertion on OS write bytes. That measurement is a
-macOS-``proc_pid_rusage`` manual benchmark, not something portable CI can see.
+The anchor must remain idle for VACUUM and online backup. OS write-byte benchmarks are not portable CI assertions.
 """
 
 from __future__ import annotations
@@ -32,9 +22,8 @@ _TS = "2024-01-01T00:00:00"
 async def _no_anchor_leak():
     """No test may hand the next one a live anchor.
 
-    The anchor is process-global module state, and a test that leaves one open
-    on its own temp path would hold that file (and a worker thread) for the
-    rest of the session.
+    The anchor is process-global module state, and a test that leaves one open on its own temp path would hold that file (and a
+    worker thread) for the rest of the session.
     """
     yield
     try:
@@ -60,7 +49,7 @@ class _ExplodingConnection:
         self.closed = True
 
 
-# ── lifecycle ────────────────────────────────────────────────────────────
+# -- lifecycle ------------------------------------------------------------
 
 
 async def test_open_is_idempotent_for_the_same_path(db_path, monkeypatch):
@@ -176,17 +165,15 @@ async def test_close_clears_state_even_when_close_raises():
     assert db_connection._wal_anchor_path is None
 
 
-# ── the mechanism itself ─────────────────────────────────────────────────
+# -- the mechanism itself -------------------------------------------------
 
 
 async def test_anchor_keeps_the_wal_alive_across_transient_connections(db_path, monkeypatch):
     """The whole point, in the one form portable CI can see.
 
-    The measured saving is OS write bytes, which only the macOS ``rusage`` probe
-    can read. What causes it is visible anywhere: SQLite's last WAL connection
-    to close checkpoints and *deletes* the WAL and its shared-memory wal-index,
-    and the next connection recreates them. The anchor is what makes a transient
-    connection stop being the last one.
+    The measured saving is OS write bytes, which only the macOS ``rusage`` probe can read. What causes it is visible anywhere:
+    SQLite's last WAL connection to close checkpoints and *deletes* the WAL and its shared-memory wal-index, and the next
+    connection recreates them. The anchor is what makes a transient connection stop being the last one.
     """
     wal = Path(f"{db_path}-wal")
     shm = Path(f"{db_path}-shm")
@@ -208,7 +195,7 @@ async def test_anchor_keeps_the_wal_alive_across_transient_connections(db_path, 
     assert not wal.exists() and not shm.exists()  # last one out still cleans up
 
 
-# ── transient connection compatibility ───────────────────────────────────
+# -- transient connection compatibility -----------------------------------
 
 
 async def test_transient_reads_and_writes_work_with_the_anchor_open(db_path, monkeypatch):
@@ -216,10 +203,7 @@ async def test_transient_reads_and_writes_work_with_the_anchor_open(db_path, mon
     await db_connection.open_wal_anchor()
 
     async with db_connection.get_db() as db:
-        await db.execute(
-            "INSERT INTO conversations (id, title, created_at) VALUES ('anchored', 'Anchored', ?)",
-            (_TS,),
-        )
+        await db.execute("INSERT INTO conversations (id, title, created_at) VALUES ('anchored', 'Anchored', ?)", (_TS,))
         await db.commit()
 
     async with db_connection.get_db() as db:
@@ -257,8 +241,7 @@ async def test_concurrent_readers_and_a_serialized_writer(db_path, monkeypatch):
 
 
 async def test_integrity_survives_anchor_close_and_reopen(db_path, monkeypatch):
-    """Closing the anchor is what performs the final WAL checkpoint, so this is
-    the shutdown path's correctness check."""
+    """Closing the anchor is what performs the final WAL checkpoint, so this is the shutdown path's correctness check."""
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
 
     await db_connection.open_wal_anchor()
@@ -278,7 +261,7 @@ async def test_integrity_survives_anchor_close_and_reopen(db_path, monkeypatch):
     assert row is not None and row[0] == "wal"
 
 
-# ── FastAPI lifespan ─────────────────────────────────────────────────────
+# -- FastAPI lifespan -----------------------------------------------------
 
 
 async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path, monkeypatch):
@@ -286,7 +269,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
     themselves; the anchor is only opened once they are done."""
     path = tmp_path / "fresh.db"
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(path))
 
     seen: dict[str, set[str]] = {}
     real_open = db_connection.open_wal_anchor
@@ -311,7 +293,6 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
 
 async def test_lifespan_closes_the_anchor_on_a_normal_exit(db_path, monkeypatch):
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async with api_module.lifespan(FastAPI()):
         anchor = db_connection._wal_anchor
@@ -324,10 +305,8 @@ async def test_lifespan_closes_the_anchor_on_a_normal_exit(db_path, monkeypatch)
 
 
 async def test_lifespan_closes_the_anchor_when_child_shutdown_raises(db_path, monkeypatch):
-    """A llama-server child that refuses to die must not cost the final WAL
-    checkpoint -- hence the nested ``finally``."""
+    """A llama-server child that refuses to die must not cost the final WAL checkpoint -- hence the nested ``finally``."""
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
-    monkeypatch.setattr(api_module, "DB_PATH", str(db_path))
 
     async def _boom() -> None:
         raise RuntimeError("child refused to stop")
@@ -352,7 +331,6 @@ async def test_repeated_lifespans_on_different_paths_do_not_leak(tmp_path, _fres
         path = tmp_path / name
         shutil.copyfile(_fresh_db_template, path)
         monkeypatch.setattr(db_connection, "DB_PATH", str(path))
-        monkeypatch.setattr(api_module, "DB_PATH", str(path))
         async with api_module.lifespan(FastAPI()):
             assert db_connection._wal_anchor_path == str(path)
             anchors.append(db_connection._wal_anchor)
@@ -364,7 +342,7 @@ async def test_repeated_lifespans_on_different_paths_do_not_leak(tmp_path, _fres
             await anchor.execute("SELECT 1")
 
 
-# ── maintenance operations ───────────────────────────────────────────────
+# -- maintenance operations -----------------------------------------------
 
 
 async def test_vacuum_succeeds_with_the_idle_anchor(db_path, monkeypatch):
@@ -427,7 +405,7 @@ async def test_full_restore_succeeds_with_the_idle_anchor(client, db_path):
     assert names == {"Before"}
 
 
-# ── whole-database maintenance must not strand a database-sized WAL ──────
+# -- whole-database maintenance must not strand a database-sized WAL ------
 
 
 async def _bulk_up(db, mib: int = 10) -> None:
@@ -499,16 +477,15 @@ async def test_replacing_preset_merge_does_not_strand_a_large_wal(client, db_pat
     assert wal_bytes < 1024 * 1024, f"WAL left at {wal_bytes:,} B after a replacing merge"
 
 
-# ── concurrent opens ─────────────────────────────────────────────────────
+# -- concurrent opens -----------------------------------------------------
 
 
 async def test_concurrent_opens_create_exactly_one_connection(db_path, monkeypatch):
     """Two overlapping opens must not both get past the ``is None`` check.
 
-    The first one awaits ``aiosqlite.connect`` and yields the loop right there,
-    which is the window a second caller used to walk into: both connected, the
-    second overwrote the global, and the first was left open with nothing
-    referencing it -- unreachable, and missed by ``close_wal_anchor``.
+    The first one awaits ``aiosqlite.connect`` and yields the loop right there, which is the window a second caller used to walk
+    into: both connected, the second overwrote the global, and the first was left open with nothing referencing it --
+    unreachable, and missed by ``close_wal_anchor``.
     """
     monkeypatch.setattr(db_connection, "DB_PATH", str(db_path))
     opened = []

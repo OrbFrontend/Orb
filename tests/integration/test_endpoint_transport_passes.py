@@ -1,8 +1,7 @@
 """Pass-shaped calls through real LLMClient protocol adapters.
 
-The normal integration mock replaces ``LLMClient.complete`` wholesale. This
-test stubs httpx one seam lower so Director/Writer/Editor request shapes and
-stream translation run for OpenAI, Anthropic, and Gemini transports.
+The normal integration mock replaces ``LLMClient.complete`` wholesale. This test stubs httpx one seam lower so
+Director/Writer/Editor request shapes and stream translation run for OpenAI, Anthropic, and Gemini transports.
 """
 
 from __future__ import annotations
@@ -27,11 +26,7 @@ def _tool(name: str) -> dict:
         "function": {
             "name": name,
             "description": name,
-            "parameters": {
-                "type": "object",
-                "properties": {"value": {"type": "string"}},
-                "required": ["value"],
-            },
+            "parameters": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]},
         },
     }
 
@@ -79,11 +74,7 @@ def _data(payload: dict) -> str:
 
 
 def _openai_tool(name: str) -> list[str]:
-    call = {
-        "index": 0,
-        "id": f"call-{name}",
-        "function": {"name": name, "arguments": '{"value":"ok"}'},
-    }
+    call = {"index": 0, "id": f"call-{name}", "function": {"name": name, "arguments": '{"value":"ok"}'}}
     return [_data({"choices": [{"delta": {"tool_calls": [call]}, "finish_reason": "tool_calls"}]}), "data: [DONE]"]
 
 
@@ -101,11 +92,7 @@ def _anthropic_tool(name: str) -> list[str]:
             }
         ),
         _data(
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "input_json_delta", "partial_json": '{"value":"ok"}'},
-            }
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": '{"value":"ok"}'}}
         ),
         _data({"type": "message_delta", "delta": {"stop_reason": "tool_use"}}),
         _data({"type": "message_stop"}),
@@ -189,10 +176,7 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
     ep._RESOLVED_ROUTES.clear()
     model = "claude-haiku-4-5" if provider == "anthropic" else "openai-model"
     endpoint = "https://api.anthropic.com/v1/messages" if provider == "anthropic" else "https://openai.test/v1/chat/completions"
-    messages = [
-        {"role": "system", "content": "system"},
-        {"role": "user", "content": "turn"},
-    ]
+    messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "turn"}]
     tools = enabled_schemas({name: True for name in BUILTIN_TOOL_ORDER})
     choice = {"type": "function", "function": {"name": "direct_scene"}}
     captured: list[str] = []
@@ -200,22 +184,12 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request.content.decode())
         lines = _anthropic_tool("direct_scene") if provider == "anthropic" else _openai_tool("direct_scene")
-        return httpx.Response(
-            200,
-            content="\n".join(lines),
-            headers={"content-type": "text/event-stream"},
-        )
+        return httpx.Response(200, content="\n".join(lines), headers={"content-type": "text/event-stream"})
 
     transport_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = LLMClient(endpoint, "secret")
     with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kwargs: transport_client):
-        async for _ in client.complete(
-            messages,
-            model,
-            tools=tools,
-            tool_choice=choice,
-            max_tokens=100,
-        ):
+        async for _ in client.complete(messages, model, tools=tools, tool_choice=choice, max_tokens=100):
             pass
 
     openai_body = {

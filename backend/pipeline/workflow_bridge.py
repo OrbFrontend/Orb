@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeVar
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
-from ..inference import AbortToken, LLMClient, _KVCacheTracker, until_aborted
+from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
 from ..prompting.tool_catalog import has_tool
 from ..workflows import (
     EV_ATTACH_ARTIFACT,
@@ -19,51 +19,37 @@ from ..workflows import (
     HookType,
     PostCtx,
     PreCtx,
-    _readonly,
     get_workflow,
     iter_subscriptions,
-    public_event_error,
+    readonly_view,
 )
 from ..workflows.enablement import effective_workflow_enabled
 from ..workflows.errors import WorkflowUserFacingError
+from .events import HookEvent, PublicTurnEvent, WarningEvent
 from .failures import describe_failure
 
 logger = logging.getLogger(__name__)
+_EventT = TypeVar("_EventT")
 
 
-def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict | None:
+def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> HookEvent | None:
     """Return a valid public SSE event, or log and drop malformed output.
 
-    Control events are consumed before this boundary. Anything left must use
-    the public ``{"event": <non-empty str>, ...}`` shape; accepting arbitrary
-    objects here merely defers the failure to the SSE adapter. Shape validation
-    lives in ``workflows.contracts.public_event_error`` so this bridge and the
-    API on-demand SSE encoder enforce one definition of a public event.
+    Control events are consumed before this boundary. Anything left must use the public ``{"event": <non-empty str>, ...}``
+    shape. Generic envelope validation remains shared with on-demand SSE; the pipeline
+    adds turn ownership and shared-payload validation before wrapping open hook JSON.
     """
-    reason = public_event_error(ev)
-    if reason is not None:
-        logger.warning(
-            "%s hook %r yielded an invalid public event (%s); dropping",
-            hook_type,
-            workflow_id,
-            reason,
-        )
+    try:
+        return HookEvent(ev)
+    except ValueError as exc:
+        logger.warning("%s hook %r yielded an invalid public event (%s); dropping", hook_type, workflow_id, exc)
         return None
-    return cast(dict, ev)
 
 
-def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
-    """A non-terminal ``warning`` event for a hook failure the user can act on.
+def _hook_warning(exc: Exception, workflow_id: str) -> WarningEvent | None:
+    """Return a non-terminal warning for WorkflowUserFacingError; defects stay log-only.
 
-    The turn legitimately continues -- a post-pipeline render that the provider
-    rejected does not invalidate the prose -- so the exception stays swallowed.
-    What stops is the *hiding*: a ``WorkflowUserFacingError`` names something the
-    user chose or configured, and vanishing into the log is the failure mode
-    ``workflows/errors.py`` exists to prevent. Anything else is a defect, and a
-    defect is log-only per the same doctrine.
-
-    ``warning``, not ``error``: sse-stream.md documents ``error`` as the single
-    *terminal* channel, and a mid-stream one would break that contract.
+    Hook failures do not invalidate prose. Do not emit error here: SSE reserves it for terminal failure.
     """
     if not isinstance(exc, WorkflowUserFacingError):
         return None
@@ -73,14 +59,14 @@ def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
     return {"event": "warning", "data": payload}
 
 
-def _hook_events(events: AsyncIterator[Any], abort: AbortToken | None) -> AsyncIterator[Any]:
+def _hook_events(events: AsyncIterator[_EventT], abort: AbortToken | None) -> AsyncIterator[_EventT]:
     """A hook's events, interrupted by a stop when the turn has an abort token."""
     return events if abort is None else until_aborted(events, abort)
 
 
 @dataclass(slots=True)
-class _PostPipelineResult:
-    """Final value of :func:`_run_post_pipeline`: the (possibly rewritten) draft
+class PostPipelineResult:
+    """Final value of :func:`run_post_pipeline`: the (possibly rewritten) draft
     plus any attachments and per-message state staged for persistence."""
 
     draft: str
@@ -88,7 +74,7 @@ class _PostPipelineResult:
     staged_message_state: dict[str, dict]
 
 
-async def _run_post_pipeline(
+async def run_post_pipeline(
     *,
     draft: str,
     conversation_id: str | None,
@@ -102,27 +88,18 @@ async def _run_post_pipeline(
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     client: LLMClient,
-    kv_tracker: _KVCacheTracker,
+    kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     agent_client: LLMClient | None = None,
     agent_model_name: str = "",
     post_workflow_ids: Collection[str] | None = None,
-    on_accepted: Callable[[_PostPipelineResult], None] | None = None,
-) -> AsyncIterator[dict | _PostPipelineResult]:
+    on_accepted: Callable[[PostPipelineResult], None] | None = None,
+) -> AsyncIterator[PublicTurnEvent | PostPipelineResult]:
     """Run selected POST_PIPELINE hooks over the post-Editor draft.
 
-    Streams pass-through SSE events and yields one final
-    :class:`_PostPipelineResult` when all hooks have run. Each hook may replace
-    the draft once, attach artifacts, or set per-message state. Hook failures
-    are logged and skipped so one bad hook cannot crash the turn. By default
-    every hook runs; ``post_workflow_ids`` lets an off-turn caller reuse this
-    dispatcher for an explicit subset without firing unrelated workflows.
-
-    A stop (the client's abort token) starts no further hook and interrupts the
-    running one; its events after the stop, such as an auto-play cue, are
-    dropped. What a hook had already handed over -- a whole replacement draft, a
-    complete artifact, message state -- stays, and *on_accepted* receives the
-    result so far each time that grows, so a turn cancelled mid-hook still saves it.
+    Yield public events and a final PostPipelineResult; log and skip hook failures. post_workflow_ids restricts dispatch. Stop
+    interrupts the active hook and starts no more, dropping later events but retaining accepted drafts/artifacts/ state.
+    on_accepted receives each growing result for cancellation-safe saves.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
@@ -130,7 +107,7 @@ async def _run_post_pipeline(
 
     def accepted() -> None:
         if on_accepted is not None:
-            on_accepted(_PostPipelineResult(draft, list(staged_attachments), dict(staged_message_state)))
+            on_accepted(PostPipelineResult(draft, list(staged_attachments), dict(staged_message_state)))
 
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
         if post_workflow_ids is not None and sub.workflow_id not in post_workflow_ids:
@@ -155,21 +132,20 @@ async def _run_post_pipeline(
             try:
                 post_ctx = PostCtx(
                     conversation_id=conversation_id or "",
-                    history=_readonly(history or []),
+                    history=readonly_view(history or []),
                     draft=draft,
                     effective_msg=effective_msg,
-                    director_output=_readonly(director_output),
-                    settings=_readonly(settings),
-                    prefix=_readonly(prefix),
-                    enabled_tools=_readonly(enabled_tools),
+                    director_output=readonly_view(director_output),
+                    settings=readonly_view(settings),
+                    prefix=readonly_view(prefix),
+                    enabled_tools=readonly_view(enabled_tools),
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
-                    schema_overrides=_readonly(schema_overrides),
+                    schema_overrides=readonly_view(schema_overrides),
                     character_id=character_id,
-                    character=_readonly(card),
-                    # The execution target for a forced Agent call: in
-                    # dual-model mode the Writer is a different endpoint.
+                    character=readonly_view(card),
+                    # The execution target for a forced Agent call: in dual-model mode the Writer is a different endpoint.
                     agent_client=agent_client if agent_client is not None else client,
                     agent_model_name=agent_model_name,
                 )
@@ -177,10 +153,7 @@ async def _run_post_pipeline(
                     t = ev.get("type") if isinstance(ev, dict) else None
                     if t == EV_DRAFT_REPLACED:
                         if replaced_this_hook:
-                            logger.warning(
-                                "post_pipeline hook %r yielded a second draft_replaced; ignoring",
-                                sub.workflow_id,
-                            )
+                            logger.warning("post_pipeline hook %r yielded a second draft_replaced; ignoring", sub.workflow_id)
                             continue
                         new_draft = ev.get("draft")
                         if not isinstance(new_draft, str) or new_draft == draft:
@@ -195,10 +168,7 @@ async def _run_post_pipeline(
                         draft = new_draft
                         replaced_this_hook = True
                         accepted()
-                        yield {
-                            "event": "writer_rewrite",
-                            "data": {"refined_text": draft},
-                        }
+                        yield {"event": "writer_rewrite", "data": {"refined_text": draft}}
                         continue
                     if t == EV_ATTACH_ARTIFACT:
                         # Only workflows with produces_artifacts=True may persist attachments.
@@ -212,8 +182,7 @@ async def _run_post_pipeline(
                             )
                             continue
                         staged = _stage_workflow_attachment(
-                            ev.get("attachment") if isinstance(ev, dict) else None,
-                            sub.workflow_id,
+                            ev.get("attachment") if isinstance(ev, dict) else None, sub.workflow_id
                         )
                         if staged is not None:
                             staged_attachments.append(staged)
@@ -232,22 +201,15 @@ async def _run_post_pipeline(
                         staged_message_state[sub.workflow_id] = state
                         accepted()
                         continue
-                    # A dict carrying a "type" key is a control event; if it matched
-                    # no known branch above it is malformed (e.g. a typo'd type, or a
-                    # leaked sub-generator terminal). Drop it rather than letting it
-                    # fall through and be emitted to the client as a stray SSE event.
+                    # A dict carrying a "type" key is a control event; if it matched no known branch above it is malformed (e.g.
+                    # a typo'd type, or a leaked sub-generator terminal). Drop it rather than letting it fall through and be
+                    # emitted to the client as a stray SSE event.
                     if t is not None:
                         logger.warning(
-                            "post_pipeline hook %r yielded unknown control event type %r; dropping",
-                            sub.workflow_id,
-                            t,
+                            "post_pipeline hook %r yielded unknown control event type %r; dropping", sub.workflow_id, t
                         )
                         continue
-                    public_event = _public_hook_event(
-                        ev,
-                        hook_type="post_pipeline",
-                        workflow_id=sub.workflow_id,
-                    )
+                    public_event = _public_hook_event(ev, hook_type="post_pipeline", workflow_id=sub.workflow_id)
                     if public_event is not None:
                         yield public_event
             except Exception as e:
@@ -256,15 +218,14 @@ async def _run_post_pipeline(
                 if warning is not None:
                     yield warning
 
-    yield _PostPipelineResult(draft, staged_attachments, staged_message_state)
+    yield PostPipelineResult(draft, staged_attachments, staged_message_state)
 
 
 def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     """Validate and normalize a workflow ``attach_artifact`` entry.
 
-    Returns a bytes-only dict ready for ``add_message``, or ``None`` if
-    validation fails (logged as a warning). Never raises — bad workflow output
-    must not crash the turn.
+    Returns a bytes-only dict ready for ``add_message``, or ``None`` if validation fails (logged as a warning). Never raises --
+    bad workflow output must not crash the turn.
     """
     if not isinstance(att, dict):
         logger.warning(
@@ -335,16 +296,14 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
 
     if not out.get("data"):
         logger.warning(
-            "post_pipeline hook %r yielded attach_artifact with empty data (filename=%r); dropping entry",
-            workflow_id,
-            filename,
+            "post_pipeline hook %r yielded attach_artifact with empty data (filename=%r); dropping entry", workflow_id, filename
         )
         return None
 
     return out
 
 
-async def _iterate_pre_pipeline_hooks(
+async def iterate_pre_pipeline_hooks(
     *,
     conversation_id: str,
     character_id: str | None = None,
@@ -355,22 +314,15 @@ async def _iterate_pre_pipeline_hooks(
     prefix_base: list[ChatMessage],
     enabled_tools_pre_merge: Mapping[str, bool],
     turn_scratch: dict,
-    client,
-    kv_tracker,
+    client: LLMClient,
+    kv_tracker: KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
-) -> AsyncIterator[dict]:
-    """Run every PRE_PIPELINE workflow hook before the pipeline starts.
+) -> AsyncIterator[PublicTurnEvent]:
+    """Run PRE_PIPELINE hooks, forwarding events and merging tools/system extras.
 
-    Yields pass-through SSE events and mutates *accumulators* in place:
-    ``enable_tools`` yields fold extra tools into the merged map;
-    ``system_prompt`` yields append blocks to the extras list. Hook failures
-    are logged and skipped.
-
-    *accumulators* must be pre-populated with
-    ``{"merged_enabled_tools": <dict>, "extras": []}``.
-
-    A stop starts no further hook and interrupts the running one.
+    Prepopulate accumulators with merged_enabled_tools and extras. Log and skip
+    hook failures; Stop interrupts the current hook and starts no more.
     """
     abort: AbortToken | None = getattr(client, "abort_token", None)
     for sub in iter_subscriptions(HookType.PRE_PIPELINE):
@@ -389,17 +341,17 @@ async def _iterate_pre_pipeline_hooks(
             try:
                 pre_ctx = PreCtx(
                     conversation_id=conversation_id,
-                    history=_readonly(history),
+                    history=readonly_view(history),
                     last_user_message=last_user_message,
-                    settings=_readonly(settings),
-                    prefix=_readonly(prefix_base),
-                    enabled_tools_pre_merge=_readonly(enabled_tools_pre_merge),
+                    settings=readonly_view(settings),
+                    prefix=readonly_view(prefix_base),
+                    enabled_tools_pre_merge=readonly_view(enabled_tools_pre_merge),
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
-                    schema_overrides=_readonly(schema_overrides),
+                    schema_overrides=readonly_view(schema_overrides),
                     character_id=character_id,
-                    character=_readonly(card),
+                    character=readonly_view(card),
                 )
                 async for ev in _hook_events(sub.callable(pre_ctx), abort):
                     t = ev.get("type") if isinstance(ev, dict) else None
@@ -426,11 +378,7 @@ async def _iterate_pre_pipeline_hooks(
                                 )
                                 continue
                             if not has_tool(name):
-                                logger.warning(
-                                    "workflow %r enabled unregistered tool %r; dropping",
-                                    sub.workflow_id,
-                                    name,
-                                )
+                                logger.warning("workflow %r enabled unregistered tool %r; dropping", sub.workflow_id, name)
                                 continue
                             accumulators["merged_enabled_tools"][name] = True
                         continue
@@ -438,8 +386,7 @@ async def _iterate_pre_pipeline_hooks(
                         block = ev.get("block")
                         if not isinstance(block, str) or not block.strip():
                             logger.warning(
-                                "pre_pipeline hook %r yielded empty/whitespace-only system_prompt; ignoring",
-                                sub.workflow_id,
+                                "pre_pipeline hook %r yielded empty/whitespace-only system_prompt; ignoring", sub.workflow_id
                             )
                             continue
                         accumulators["extras"].append(block)
@@ -448,16 +395,10 @@ async def _iterate_pre_pipeline_hooks(
                     # instead of leaking it through as a stray SSE event.
                     if t is not None:
                         logger.warning(
-                            "pre_pipeline hook %r yielded unknown control event type %r; dropping",
-                            sub.workflow_id,
-                            t,
+                            "pre_pipeline hook %r yielded unknown control event type %r; dropping", sub.workflow_id, t
                         )
                         continue
-                    public_event = _public_hook_event(
-                        ev,
-                        hook_type="pre_pipeline",
-                        workflow_id=sub.workflow_id,
-                    )
+                    public_event = _public_hook_event(ev, hook_type="pre_pipeline", workflow_id=sub.workflow_id)
                     if public_event is not None:
                         yield public_event
             except Exception as e:

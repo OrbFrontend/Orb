@@ -13,6 +13,7 @@ A workflow may:
 
 - add work before or after a generated turn;
 - expose a conversation-scoped action or a conversation-less query;
+- accept a file the user uploads for a character, such as a voice clip;
 - produce an attachment for a message and later regenerate, reroll, rehydrate,
   activate, or delete it;
 - keep state at conversation, message, character, or global config scope;
@@ -28,16 +29,16 @@ chrome. The workflow owns its feature logic.
 
 | Path | Purpose |
 |---|---|
-| `backend/workflows/registry.py` | Workflow records, subscriptions, lookups, and state access |
+| `backend/workflows/registry.py` | Workflow records, subscriptions, plug-in discovery, lookups, and state access |
 | `backend/workflows/contracts.py` | Hook types, context dataclasses, and `ToolSpec` |
 | `backend/workflows/toolkit.py` | Stable imports for workflow authors |
 | `backend/prompting/tool_catalog.py` | Ordered tool lookup and workflow-tool registration |
 | `backend/workflows/attachment_cache.py` | Attachment storage, variants, budget, and eviction |
-| `backend/workflows/__init__.py` | Built-in registration and hook subscriptions |
+| `backend/workflows/__init__.py` | Plug-in discovery and host-adapter hook bindings |
 | `backend/pipeline/workflow_bridge.py` | Pipeline hook dispatch and attachment staging |
 | `backend/api/routes/workflows.py` | Workflow and attachment routes |
 
-Each workflow has a directory such as `backend/workflows/tts/`.
+Each workflow is a package such as `backend/workflows/tts/`, named for its id.
 
 Code under `backend/workflows/<id>/` is a plug-in slice. It may import its own
 package and `backend.workflows.toolkit`, but not other framework modules,
@@ -77,49 +78,72 @@ decisions only that feature makes.
 | `frontend/workflow_api.js` | Public plugin facade |
 | `frontend/workflow_loader.js` | Loads one module per manifest entry |
 | `frontend/state.js` | Workflow registries and UI state |
-| `frontend/chat.js` | SSE dispatch, widgets, cards, and refetching |
+| `frontend/chat.js` | Chat facade used by the workflow API |
+| `frontend/chat_stream.js`, `frontend/chat_workflow.js` | SSE dispatch and workflow presentation/attachment actions |
 | `frontend/workflows/<id>/index.js` | Workflow entry point |
 | `frontend/default_widget.js` | Fallback image, audio, video, or download view |
 
 Frontend workflow code imports `/static/workflow_api.js` and its own relative
 modules. It should not import core frontend modules directly.
 
-## Declare and register a workflow
+Use the facade's `responseError(response)` for a failed HTTP response and
+`sseError(data)` for a terminal core `error` event. Both preserve useful messages
+from structured payloads. Lazy workflow streams can emit a core `error` when a
+hook raises, so handle it alongside the workflow's own terminal events. See the
+[shared failure contract](sse-stream.md#shared-failure-handling).
 
-The workflow module declares data. The package-level `backend/workflows/__init__.py`
-registers it and binds its hooks.
+## Declare a workflow
+
+A plug-in package declares its workflow as `WORKFLOW` in its `__init__.py`: a
+`Workflow` record whose `id` is the package name, carrying its hook
+subscriptions. `subscription(...)` builds each one and holds the hook to the
+signature its slot calls it with.
 
 ```python
-Workflow(
+from ..toolkit import HookType, Workflow, subscription
+from . import hooks
+
+WORKFLOW = Workflow(
     id="my_workflow",
     display_name="My workflow",
     tools=[],
     config_defaults={},
     config_schema=None,
     produces_artifacts=False,
+    subscriptions=[
+        subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=0),
+    ],
 )
 ```
 
 `id` is the boundary key used in URLs, JSON, tools, and static module paths.
 Tool names must be unique and must agree across `ToolSpec.name`, the schema,
-and `tool_choice`.
+and `tool_choice`. A workflow binds each hook type at most once, and only a
+`produces_artifacts=True` workflow may bind `REGENERATE`, `REROLL_GEN`, or
+`EXPORT`.
 
-Workflow tools append after the fixed built-in tool order. Re-registering an
-existing tool replaces its contract without changing its position; removing a
-tool on workflow replacement removes it through the framework-owned catalog
-API. The catalog itself is not part of the plug-in API.
+Adding a workflow needs no edit to a host file. When `backend.workflows` is
+imported, it registers every package directly under `backend/workflows/` in
+package-name order, then calls `finalize_registry()`, which verifies that an
+artifact-producing workflow has both regeneration hooks. Modules beside those
+packages are host modules and are never registered. Startup stops with the
+error when a package fails to import, lacks a `WORKFLOW` record, declares an id
+other than its package name, or declares an invalid subscription, and when a
+directory of Python modules has no `__init__.py`.
 
-Registration follows this shape:
+Registration order is the manifest order. The frontend loads workflow modules
+in that order, so it also orders the workflow rows in the Tools panel and the
+workflow buttons on a message. Re-registering a workflow keeps its position.
 
-```python
-register_workflow(my_workflow)
-subscribe(my_workflow.id, HookType.POST_PIPELINE, post_pipeline)
-finalize_registry()
-```
+A hook that needs a layer below the toolkit lives in a host adapter, which
+binds it to the plug-in's id with `subscribe` in `backend/workflows/__init__.py`.
+The Prose Rewriter's post hook is bound this way because it runs the local model
+runtime.
 
-`finalize_registry()` verifies that an artifact-producing workflow has both
-regeneration hooks. Registration order determines manifest order and is stable
-on re-registration.
+Workflow tools append after the fixed built-in tool order, in registration
+order. Re-registering an existing tool replaces its contract without changing
+its position; removing a tool on workflow replacement removes it through the
+framework-owned catalog API. The catalog itself is not part of the plug-in API.
 
 ### Hook types
 
@@ -127,14 +151,20 @@ on re-registration.
 |---|---|---|
 | `PRE_PIPELINE` | During a turn, before the main passes; all hooks in priority order | Async stream of events or pipeline instructions |
 | `POST_PIPELINE` | During a turn, after the main passes; all hooks in priority order | Async stream of events, draft changes, state, or attachments |
-| `ON_DEMAND` | Conversation-scoped trigger route | One response object |
+| `ON_DEMAND` | Conversation-scoped trigger route | A JSON object or `WorkflowEventStream` |
 | `REGENERATE` | Attachment regeneration route | A list of new attachment records |
 | `REROLL_GEN` | Attachment reroll and rehydrate routes | Bytes, or bytes plus consumption metadata |
 | `QUERY` | Global configuration/discovery route | One response object |
+| `UPLOAD` | Character-scoped file upload route | One response object |
 | `EXPORT` | Attachment export route; optional | An `ExportedFile`, or `None` when nothing is left to export |
 
 `QUERY` has no conversation or LLM client. It is for setup and discovery, such
-as checking an external server before a conversation exists. The message-level
+as checking an external server before a conversation exists. `UPLOAD` receives
+one file for one character, also without a conversation or client, and its
+query-string parameters as a second argument. The framework checks the card
+and a 25 MB cap, and holds no lock while the hook runs: the hook takes the
+toolkit lock for any state it rewrites, so slow processing of the file blocks
+nothing. The TTS voice clone is the worked example. The message-level
 regenerate route reruns the normal turn pipeline; `REGENERATE` is only for an
 attachment.
 
@@ -169,7 +199,42 @@ framework.
 | `RegenCtx` | Conversation, message and attachment ids, pre-anchor history, settings, client, character, `phase(label)`, `keep(attachment)`, `emit(event, data)` | Attachment regeneration |
 | `RerollGenCtx` | Conversation, message and attachment ids, settings, client, prior consumption metadata, `replay` | Shared by reroll and rehydrate |
 | `QueryCtx` | Settings | No conversation and no client |
+| `UploadCtx` | Settings, character id and card, filename, file bytes | No conversation, client, or lock |
 | `ExportCtx` | Attachment id, the row without its bytes, decoded consumption metadata, `stored_bytes()` | Bytes load only when the hook asks for them |
+
+Every context, and every control-event `type` a hook yields (`EV_ENABLE_TOOLS`,
+`EV_SYSTEM_PROMPT`, `EV_DRAFT_REPLACED`, `EV_ATTACH_ARTIFACT`,
+`EV_SET_MESSAGE_STATE`), is a toolkit export, so a plug-in annotates its hooks
+without reaching past the toolkit. Both `subscription` and `subscribe` are
+typed per hook type: Pyright rejects a hook whose signature does not fit its
+slot, such as a post hook that returns instead of yielding. The host's
+`get_subscription` and `iter_subscriptions` preserve that callable type through
+lookup and route gating, so dispatch is checked too.
+
+Annotate pre/post generators with `AsyncIterator[PreEvent]` or
+`AsyncIterator[PostEvent]`, and on-demand event streams with
+`AsyncIterator[PublicEvent]`. These types are toolkit exports, as are their
+individual control-event types. Pyright checks required payload keys and the
+instructions allowed in each slot; for example, a pre-hook cannot replace a
+draft. Public events require `event: str` and optionally `data: str | dict`;
+workflow-specific JSON remains open. The runtime still validates output from
+untyped plug-ins and drops malformed events.
+
+```python
+from collections.abc import AsyncIterator
+
+from ..toolkit import EV_SYSTEM_PROMPT, PreCtx, PreEvent
+
+
+async def pre_pipeline(ctx: PreCtx) -> AsyncIterator[PreEvent]:
+    yield {"type": EV_SYSTEM_PROMPT, "block": "A workflow instruction."}
+```
+
+Context collections are annotated as read-only mappings and tuples, and
+clients and cache trackers use their concrete service types. `turn_scratch`
+remains a mutable dictionary for workflow-owned data. Static contract
+regressions in `tests/unit/workflows/test_static_contracts.py` check valid
+declarations and dispatch alongside deliberately invalid examples.
 
 For group work, `character` identifies the relevant speaker. A
 `RerollGenCtx` with `replay=True` reproduces stored generation parameters;
@@ -219,13 +284,14 @@ SSE done
 
 Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
 can replace the draft, set message state, stage attachments, or emit public
-events. Hooks run in subscription priority order. The Prose Rewriter is a
-registered post-hook; its negative priority puts it before Format Consistency
-and artifact workflows. Its standard workflow toggle turns the rewriter on for
-both automatic runs and the saved-message rewrite route, and its `automatic`
-config gates the post-hook alone. Its workflow card manages the model through
-the generic Local ML routes, which also own the shared llama-server runtime.
-A hook failure is isolated so the main reply and other workflows can continue.
+events. Hooks run in subscription priority order, and equal priorities run in
+registration order. The Prose Rewriter is a registered post-hook; its negative
+priority puts it before Format Consistency and artifact workflows. Its standard
+workflow toggle turns the rewriter on for both automatic runs and the
+saved-message rewrite route, and its `automatic` config gates the post-hook
+alone. Its workflow card manages the model through the generic Local ML
+routes, which also own the shared llama-server runtime. A hook failure is
+isolated so the main reply and other workflows can continue.
 
 Stop is checked before each hook and after its locks are acquired, so no hook
 starts once the turn is stopped. The running hook is interrupted: its pending
@@ -243,8 +309,29 @@ enabled tools, schema overrides, client, and cache tracker so the call follows
 the same prompt and cache rules as the main turn. Its budget is the Agent lane's
 configured `max_tokens`, unchanged; a workflow does not pick its own.
 
-Public hook events pass through to SSE. Core events and names beginning with
-`_` are reserved. A useful custom event is `phase_status` with a channel that
+Public hook events pass through to SSE after envelope and turn-ownership
+validation at both `PRE_PIPELINE` and `POST_PIPELINE`. Names beginning with `_`
+are internal. The turn host protects terminal verdicts (`done`, `error`), message
+identity (`user_message_created`), group events (`speaking_plan`, `speaker_start`,
+`speaker_done`), authoritative content (`token`, `writer_rewrite`), and its pass
+and persistence reports (`director_start`, `director_done`, `step_start`,
+`writer_done`, `editor_done`, `decisions`, `feedback`, `state`,
+`world_change_proposed`, `workflow_attachments_rejected`). A hook cannot publish
+these directly. Invalid events are dropped with a logged reason; that hook and
+later hooks continue. A `draft_replaced` control still asks the bridge to publish
+its own `writer_rewrite`; attachment and message-state controls stay internal.
+
+Four shared events are supported: `phase_status` requires a string `channel`
+and a string `label` or `state`; `reasoning` requires string `pass` and `delta`;
+`draft_update` requires a string `draft`; `warning` requires a string `headline`.
+When supplied, warning text fields and phase fields must be strings, and
+`warning.status` must be an integer. Feature-owned JSON extensions remain open,
+as do custom event payloads. A cosmetic `draft_update` never changes the saved
+reply; only a completed replacement control does. This turn policy does not
+apply to on-demand, regeneration, document, or library event streams, whose
+hosts own different contracts.
+
+A useful shared event is `phase_status` with a channel that
 starts with `workflow:<id>`. On a turn stream its label becomes the status
 bar's text for the running step, so keep it a short description of the work
 (`Rewriting prose…`); outside a turn it shows as a separate pill.
@@ -307,6 +394,7 @@ GET  /api/workflows/{wid}/config
 PUT  /api/workflows/{wid}/config
 POST /api/workflows/{wid}/enabled
 POST /api/workflows/{wid}/query
+POST /api/characters/{card_id}/workflows/{wid}/upload
 POST /api/conversations/{cid}/workflows/{wid}/trigger
 POST /api/conversations/{cid}/workflows/stop
 POST /api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate
@@ -321,6 +409,13 @@ GET  /api/workflow-attachments/{aid}/export
 ```
 
 User uploads have the same split: `GET /api/user-attachments/{aid}/content`.
+
+A hook reports a failure the user can act on by raising the toolkit's
+`WorkflowUserFacingError`; its message becomes the response detail, with status
+502. Two subclasses narrow the status: `WorkflowInputError` (400) for input the
+user supplied that cannot be used, and `WorkflowUnavailableError` (503) for
+something not set up yet, such as a model that is not downloaded. Any other
+exception is logged and answers 500 with a generic message.
 
 `in-flight` reports `{"in_flight": bool}` for the attachment's canonical root:
 whether a request still holds the group's lock. Regenerate, reroll-gen,
@@ -372,6 +467,12 @@ The manifest returns workflow identity and config form metadata. Config is a
 full replacement; a workflow's `config_normalizer` owns its valid shape and is
 used on both read and write.
 
+`get_workflow_config` returns the stored slot when non-empty, otherwise an
+independent copy of `config_defaults`, including nested objects and lists. It
+does not merge partial stored configuration with defaults. A workflow that adds
+settings over time supplies missing values in its normalizer. Clearing the
+stored config with `{}` restores the defaults.
+
 ## Frontend integration
 
 At boot, the frontend fetches the manifest and imports
@@ -379,8 +480,8 @@ At boot, the frontend fetches the manifest and imports
 run when the module loads.
 
 The facade in `workflow_api.js` is the frontend ABI. It is additive-only: new
-exports may be added, but existing names and signatures do not change. Common
-registration points are:
+exports may be added, with a `WORKFLOW_API_VERSION` bump, but existing names and
+signatures do not change. Common registration points are:
 
 ```js
 registerWorkflowInspectorCard(wid, render)
@@ -411,6 +512,14 @@ handlers:
 registerAction("my_workflow", "refresh", (element, event) => { /* ... */ });
 ```
 
+The handler receives the element carrying the action and the event. Click is
+the default; `data-wf-on` names other events, space-separated: `change`,
+`input`, `keydown`, or `dragover dragleave drop` for a drop target. The core UI
+uses the same mechanism, so a workflow's markup may also name a core action. The
+lint step fails on an action name that nothing registers.
+Handlers may return a promise; synchronous throws and asynchronous rejections
+are logged with the action name.
+
 The facade also provides API helpers, modal and notification helpers, workflow
 phases, shared audio controls, text effects, message access, group cast data,
 and conversation repaint/refetch helpers.
@@ -431,7 +540,13 @@ An attachment renderer receives `{ att, buttons, defaultHtml, siblings, msgId,
 rootId, job }`: the shown attachment, the group's attachments in display order,
 the message and group root ids, and the group's running regenerate job (or
 null). Treat them as read-only. `activateWorkflowVariant(msgId, rootId,
-siblingId)` shows another variant through the arrow buttons' own path.
+siblingId)` shows another variant through the arrow buttons' own path. A widget
+that draws its own controls instead of `buttons` reaches the same operations
+through `stepWorkflowVariant(msgId, rootId, delta)`,
+`regenerateWorkflowAttachment(msgId, attId, button)`,
+`rehydrateWorkflowAttachment(msgId, attId, button)` (*button* becomes the
+render's Stop button), and `deleteWorkflowAttachment(msgId, rootId)`, which asks
+before deleting the shown variant or the whole group.
 `registerRegenerateSettled(wid, (msgId, rootId) => …)` is called when a
 regenerate ends, on every outcome, because a failed or stopped run repaints
 nothing; a widget holding live run state clears it there.
@@ -444,10 +559,10 @@ message refreshes resume.
 
 ## Authoring checklist
 
-1. Create `backend/workflows/<id>/` and declare a `Workflow` record.
+1. Create the package `backend/workflows/<id>/`; its name is the workflow id.
 2. Implement hooks with the context and return shapes above.
-3. Register the workflow and subscriptions in
-   `backend/workflows/__init__.py`.
+3. Export the `Workflow` record as `WORKFLOW` from the package's `__init__.py`,
+   with a `subscription(...)` for each hook. Discovery registers it.
 4. Use the toolkit and matching locks for state changes.
 5. If producing artifacts, implement `REGENERATE` and `REROLL_GEN`, and store
    recovery metadata where rehydrate is useful.
@@ -465,6 +580,7 @@ message refreshes resume.
 | Store workflow state | Toolkit state helpers and the matching lock |
 | Produce an attachment | `attach_artifact` and `attachment_cache.py` |
 | Add a custom stream event | Hook event plus `registerWorkflowEventHandler` |
+| Accept a file for a character | `UPLOAD` hook; `tts/hooks.py:upload` |
 | Add UI | `workflow_api.js` registrars and `registerAction` |
 
 

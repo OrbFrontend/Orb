@@ -7,10 +7,9 @@ HEADING = "**Major Decisions**"
 def decision_guidance_block(evaluations: Sequence[Mapping[str, Any]], target: Literal["director", "writer"]) -> str:
     """The guidance of the resolved *evaluations* that inject into *target*.
 
-    A record without ``inject`` predates the setting and reaches both passes.
-    Lines shared by both passes come first, so the Director's and the Writer's
-    blocks open on the same bytes and a prefix cache can carry one into the
-    other; decisions are independent, so their order carries no meaning.
+    A record without ``inject`` predates the setting and reaches both passes. Lines shared by both passes come first, so the
+    Director's and the Writer's blocks open on the same bytes and a prefix cache can carry one into the other; decisions are
+    independent, so their order carries no meaning.
     """
     shared: list[str] = []
     own: list[str] = []

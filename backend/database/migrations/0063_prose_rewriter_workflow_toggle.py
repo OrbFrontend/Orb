@@ -1,15 +1,7 @@
-"""Merge the Prose Rewriter's two on/off switches into its workflow toggle.
+"""Merge rewriter enablement into the workflow toggle; automatic config gates new turns.
 
-Before: ``local_ml_enabled.prose_rewriter`` turned the engine (and the manual
-rewrite button) on, and ``workflow_enabled.prose_rewriter`` turned the automatic
-pass on. After: the workflow toggle turns the rewriter on, and the workflow's
-``automatic`` config decides whether new replies run through it.
-
-With a model selected the old engine switch becomes the workflow toggle and the
-old workflow toggle becomes ``automatic``. Without one neither switch did
-anything, so the workflow toggle keeps its meaning and ``automatic`` starts at
-its default. Keyed on the absence of the ``prose_rewriter`` config slot, so it
-runs once.
+With a model selected, map the old engine toggle to enablement and the old workflow toggle to automatic. Without a model, retain
+workflow enablement and default automatic. Run once when the workflow config slot is absent.
 """
 
 from __future__ import annotations
