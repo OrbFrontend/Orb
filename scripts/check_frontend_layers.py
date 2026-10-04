@@ -5,7 +5,9 @@ Check that markup reaches code only through registered data-wf-action names (no
 inline handlers, no window globals, no unregistered names), cross-module private
 names, frozen workflow_api exports, and that every other export has an importer.
 Plugins may import only their own modules and workflow_api; computed dynamic
-imports are rejected. Exit non-zero on violations via lint.sh.
+imports are rejected. Shipped code loads only files Orb serves: no package
+imports and no remote scripts, stylesheets or fonts. Exit non-zero on violations
+via lint.sh.
 """
 
 from __future__ import annotations
@@ -246,6 +248,17 @@ _IMPORT_NAMESPACE = re.compile(r'\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\
 _DYNAMIC_DESTRUCTURE = re.compile(r'\{([^{}]*)\}\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
 _COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
 _DYNAMIC_NAMESPACE = re.compile(r'\b([A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
+# A page or stylesheet loading an asset from another origin, including protocol-relative `//host`.
+_REMOTE_ASSET = re.compile(r"""(?:\b(?:src|href)\s*=\s*["']?|@import\s+["']|url\(\s*["']?)\s*(?:https?:)?//""", re.IGNORECASE)
+
+
+def served_specifier(spec: str) -> bool:
+    """Users run the frontend as served, with no install or build: an import names a file under frontend/."""
+    return spec.startswith(("./", "../", "/static/"))
+
+
+def remote_asset_count(text: str) -> int:
+    return len(_REMOTE_ASSET.findall(text))
 
 
 def rel_basename(importer: Path, spec: str) -> str | None:
@@ -403,6 +416,15 @@ def main() -> int:
     workflow_files = sorted(FE.glob("workflows/**/*.js"))
     top_by_path = {path.resolve(): path.name for path in top_files}
     graph: dict[str, set[str]] = {path.name: set() for path in top_files}
+
+    # 0. Runtime self-containment: package names need a bundler or node_modules, URLs need a CDN at play time.
+    for path in sorted(FE.rglob("*.js")):
+        for spec in imported_paths(path.read_text(encoding="utf-8")):
+            if not served_specifier(spec):
+                errors.append(f"[runtime] {path.relative_to(FE)}: imports '{spec}'; vendor it under frontend/vendor/")
+    for path in [FE / "index.html", *sorted(FE.rglob("*.css"))]:
+        if n := remote_asset_count(path.read_text(encoding="utf-8")):
+            errors.append(f"[runtime] {path.relative_to(FE)}: {n} remote asset reference(s); ship the file under frontend/")
 
     # 1. Layer import-direction.
     for path in top_files:

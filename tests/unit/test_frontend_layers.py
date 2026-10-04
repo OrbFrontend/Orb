@@ -4,6 +4,8 @@ from scripts.check_frontend_layers import (
     has_computed_dynamic_import,
     import_cycle,
     imported_paths,
+    remote_asset_count,
+    served_specifier,
     unregistered_actions,
     unused_exports,
     workflow_import_allowed,
@@ -31,6 +33,21 @@ await import('./dynamic.js');
     assert set(imported_paths(source)) == {"./static.js", "./side_effect.js", "./dynamic.js"}
     assert not has_computed_dynamic_import(source)
     assert has_computed_dynamic_import("await import(modulePath);")
+
+
+def test_shipped_frontend_loads_only_served_files():
+    assert all(map(served_specifier, ["./state.js", "../api.js", "/static/vendor/purify.js"]))
+    assert not any(map(served_specifier, ["dompurify", "@scope/pkg", "https://esm.sh/x", "//cdn.example/x.js"]))
+
+    remote = [
+        '<script src="https://cdn.example/x.js">',
+        "<link href=//fonts.example/css rel=stylesheet>",
+        '@import "https://fonts.example/css";',
+        "src: url(https://fonts.example/a.woff2);",
+    ]
+    local = ['<script src="/static/app.js">', 'url("/static/fonts/a.woff2")', "url(data:image/png;base64,AA==)"]
+    assert all(map(remote_asset_count, remote))
+    assert not any(map(remote_asset_count, local))
 
 
 def test_module_cycle_is_reported():
