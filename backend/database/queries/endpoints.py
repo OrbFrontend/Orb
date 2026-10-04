@@ -7,7 +7,7 @@ from ..connection import build_set_clause, get_db, select_rows
 from ..models import EndpointRow, ModelConfigRow
 
 # The EndpointRow projection. Spelled once so every read of the table returns the
-# same columns — `SELECT *` would leak future columns into the row contract.
+# same columns -- `SELECT *` would leak future columns into the row contract.
 _ENDPOINT_COLS = "id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy, kind"
 
 

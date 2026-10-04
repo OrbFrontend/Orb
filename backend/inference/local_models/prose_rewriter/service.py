@@ -30,7 +30,7 @@ def available(variant_id: str | None) -> bool:
 
 
 def state() -> dict[str, str]:
-    """``{"state": idle|loading|ready|failed, "error": …}`` for the panel."""
+    """``{"state": idle|loading|ready|failed, "error": ...}`` for the panel."""
     return {"state": HOST.state, "error": HOST.error}
 
 
@@ -51,7 +51,7 @@ async def rewrite_events(draft: str, cfg: config.ProseRewriteConfig) -> AsyncGen
     """
     # A queue bridges the rewriter's progress callback into this generator: an async generator cannot yield from inside a
     # callback its own body is awaiting, and batching the repaints until the end would leave the bubble frozen for the whole
-    # rewrite — which is the hang this event exists to avoid. The rewrite runs as a task; this loop drains snapshots as they
+    # rewrite -- which is the hang this event exists to avoid. The rewrite runs as a task; this loop drains snapshots as they
     # land.
     queue: asyncio.Queue[str | object] = asyncio.Queue()
 

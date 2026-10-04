@@ -71,7 +71,7 @@ function solo() {
 }
 
 // Deliberately not asserted anywhere in this file: the *wording* of a label or a rail title. Those live in one table an
-// import away, so restating them here proves only that someone typed them twice — and costs a failing suite every time
+// import away, so restating them here proves only that someone typed them twice -- and costs a failing suite every time
 // the copy is improved. What is pinned instead is the shape the copy hangs on: which modes exist, that every field a
 // modal renders is filled, and the data attributes and ARIA state a click actually reads.
 
@@ -101,14 +101,14 @@ test("every context mode fills every field both modals render", () => {
   }
 });
 
-// ── Context-mode recommendation ─────────────────────────────────────────────
+// -- Context-mode recommendation ---------------------------------------------
 // The rule was fitted against simulated 30-beat, three-pass group sessions rendered through the shipped prompt
 // builders, on a server holding several prefix-cache lanes. These pin the boundary it landed on and, more importantly,
 // the direction it is allowed to be wrong in.
 
 // `def_chars` arrives from the library list, which is the only card payload creation ever holds.
 const card = (defChars) => ({ id: `c${defChars}`, name: "x", def_chars: defChars });
-// tokens → the `def_chars` a card of that weight would report (CHARS_PER_TOKEN=4).
+// tokens -> the `def_chars` a card of that weight would report (CHARS_PER_TOKEN=4).
 const ofTokens = (tokens) => card(tokens * 4);
 
 test("a card's weight counts only the fields the two modes disagree about", () => {
@@ -130,7 +130,7 @@ test("no cast, no recommendation", () => {
 });
 
 test("one character is not a cast, at any card weight", () => {
-  // The threshold is 500 * (cast - 1), which at one member is zero — so every card cleared it and an eight-token stub
+  // The threshold is 500 * (cast - 1), which at one member is zero -- so every card cleared it and an eight-token stub
   // was told it was heavy enough to cache. There is also nothing to weigh it against yet: the panel recomputes per
   // pick, so answering here means answering for a half-chosen cast.
   for (const tokens of [2, 8, 500, 2000]) {
@@ -169,7 +169,7 @@ test("the mean is the statistic, because both modes bill per speaking turn", () 
 
 test("a cast with no card text lands on the default rather than on the cheaper mode", () => {
   // Narrator-shaped members have nothing worth caching. From two members up the threshold is never below 500, so they
-  // fall to Private on the comparison itself — no separate floor to keep in step with the boundary.
+  // fall to Private on the comparison itself -- no separate floor to keep in step with the boundary.
   assert.equal(recommendContextMode([card(0), card(0)]).mode, "private");
   assert.equal(recommendContextMode([{}, {}]).mode, "private");
   assert.equal(recommendContextMode([card(0), card(0), card(0)]).mode, "private");
@@ -269,7 +269,7 @@ test("a display name cannot inject markup into the rail or the empty state", () 
   assert.doesNotMatch(sceneEmptyStateHtml(), /<img src=x/);
 });
 
-// ── Speaker labels ──────────────────────────────────────────────────────────
+// -- Speaker labels ----------------------------------------------------------
 // The role line over every reply. This reads `speakerNames`, never `members`, and the distinction is the whole point:
 // the active roster is what the rail paints, but the transcript outlives it.
 
@@ -286,7 +286,7 @@ test("the user is always 'You', in a group as in a solo chat", () => {
 test("a removed member still labels the lines it wrote", () => {
   // The regression this pins: Manage cast tombstones a member rather than deleting it, and its replies keep pointing at
   // that id forever. Resolving them through the active roster turned a roster edit into a silent rewrite of the
-  // transcript — every one of that member's lines read "Unknown speaker". The backend refuses the same shortcut in
+  // transcript -- every one of that member's lines read "Unknown speaker". The backend refuses the same shortcut in
   // `get_speaker_names`.
   scene({ members: [WALTER], retired: [ASSISTANT] });
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m2" }), "Assistant");
@@ -310,7 +310,7 @@ test("an id no roster has ever held is named as unknown rather than blank", () =
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "gone" }), "Unknown speaker");
 });
 
-// ── Group families ──────────────────────────────────────────────────────────
+// -- Group families ----------------------------------------------------------
 // A checkpoint of a group is a branch of that group. These cover the grouping the sidebar reads: what a fork belongs
 // to, and which conversation in a family supplies the name and the click target.
 
@@ -382,7 +382,7 @@ test("a family whose root is missing still renders, led by its newest member", (
   assert.equal(families[0].shown.id, "g2");
 });
 
-// ── Sidebar cap ─────────────────────────────────────────────────────────────
+// -- Sidebar cap -------------------------------------------------------------
 // The Groups section is capped the way Worlds and Documents are: a recent slice by default, a search box and a "show
 // all" behind it.
 
@@ -435,7 +435,7 @@ test("an open group already inside the cap is not moved", () => {
 
 test("search matches the group name or its cast, and ignores the cap", () => {
   // Twelve, not `GROUP_LIMIT + 4`. The match is a substring, and demonstrating that needs the list to reach double
-  // digits before "Group 1" has more than one answer — sizing the fixture off the cap instead is what quietly emptied
+  // digits before "Group 1" has more than one answer -- sizing the fixture off the cap instead is what quietly emptied
   // this expectation down to a single row when the cap moved to 5.
   const all = families(12);
   assert.deepEqual(

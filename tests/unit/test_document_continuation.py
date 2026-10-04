@@ -1,6 +1,6 @@
 """Unit tests for DocumentContinuer + parse_doc_macros against a stub client.
 
-Covers the four transport×mode branches, the exact chat-fallback and assisted message shapes, that reasoning is suppressed on
+Covers the four transportxmode branches, the exact chat-fallback and assisted message shapes, that reasoning is suppressed on
 the chat/prefill paths, the delta filter, and the full parse_doc_macros contract (alternation, defaults, prefill extraction,
 macro coalescing).
 """
@@ -51,7 +51,7 @@ def _deltas(chunks):
 
 
 def _assert_alternates(messages, prefill):
-    """The load-bearing invariant: [system, user, assistant, user, …] — starts
+    """The load-bearing invariant: [system, user, assistant, user, ...] -- starts
     [system, user] and strictly alternates, and appending the open prefill as an
     assistant turn keeps it alternating (so the rendered template is well-formed)."""
     assert messages[0]["role"] == "system"
@@ -65,7 +65,7 @@ def _assert_alternates(messages, prefill):
     assert roles[-1] == "user"
 
 
-# ── parse_doc_macros ─────────────────────────────────────────────────────────
+# -- parse_doc_macros ---------------------------------------------------------
 
 
 def test_interleaved_notes_and_prose_alternate_in_document_order():
@@ -98,7 +98,7 @@ def test_missing_user_inserts_default_user_turn():
 
 
 def test_macro_free_doc_is_backward_compat_three_turn_shape():
-    # No macros at all → [system(default), default-user] + whole doc as prefill.
+    # No macros at all -> [system(default), default-user] + whole doc as prefill.
     doc = "Once upon a time, beneath the canopy, there lived a monkey."
     messages, prefill = parse_doc_macros(doc)
     assert messages == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": _DEFAULT_USER}]
@@ -128,7 +128,7 @@ def test_trailing_note_yields_none_prefill():
         {"role": "assistant", "content": "The prior paragraph."},
         {"role": "user", "content": "now write the ending"},
     ]
-    # No prefill → messages end on a user turn (generation-prompt / fresh turn).
+    # No prefill -> messages end on a user turn (generation-prompt / fresh turn).
     assert messages[-1]["role"] == "user"
 
 
@@ -211,7 +211,7 @@ def test_alternation_invariant_holds_on_adversarial_interleavings():
         _assert_alternates(messages, prefill)
 
 
-# ── DocumentContinuer transport × mode branches ──────────────────────────────
+# -- DocumentContinuer transport x mode branches ------------------------------
 
 
 async def test_chat_path_builds_system_user_and_suppresses_thinking():
@@ -262,7 +262,7 @@ async def test_text_assisted_trailing_note_passes_none_prefill():
 
     assert _deltas(out) == ["chat-out"]
     call = client.chat_calls[0]
-    # prefill=None → client falls through to the generation-prompt branch;
+    # prefill=None -> client falls through to the generation-prompt branch;
     # reasoning kwargs still sent (load-bearing for the trailing-note case).
     assert call["params"]["prefill"] is None
     assert call["messages"][-1] == {"role": "user", "content": "write the ending"}
@@ -294,12 +294,12 @@ async def test_chat_assisted_trailing_note_sends_messages_as_is():
     await _drain(cont.stream("prose\n### USER: wrap it up", "m", assisted=True))
 
     call = client.chat_calls[0]
-    # prefill is None → no closed-prefill/re-anchor turns; messages end on the note.
+    # prefill is None -> no closed-prefill/re-anchor turns; messages end on the note.
     assert call["messages"][-1] == {"role": "user", "content": "wrap it up"}
     assert not any(m["content"] == DOC_ASSIST_CONTINUE for m in call["messages"])
 
 
-# ── token_probs flag: per-branch request params + chunk forwarding ────────────
+# -- token_probs flag: per-branch request params + chunk forwarding ------------
 
 
 async def test_token_probs_off_by_default_sends_no_prob_params():
@@ -331,7 +331,7 @@ async def test_text_assisted_token_probs_adds_n_probs():
     client = _StubClient("text")
     cont = DocumentContinuer(client, {})
     await _drain(cont.stream("### USER: be vivid\nThe old lighthouse", "m", assisted=True, token_probs=True))
-    # Assisted text uses complete(), still on the llama.cpp transport → n_probs.
+    # Assisted text uses complete(), still on the llama.cpp transport -> n_probs.
     assert client.chat_calls[0]["params"]["n_probs"] == 10
     assert "logprobs" not in client.chat_calls[0]["params"]
 

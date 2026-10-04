@@ -87,7 +87,7 @@ def test_the_catalogue_carries_the_whole_dimension_contract():
         assert "reference_drives_size" in row, row["id"]
 
 
-# ── the allowlist ────────────────────────────────────────────────────────────
+# -- the allowlist ------------------------------------------------------------
 
 
 def _xai_body(**kwargs) -> dict:
@@ -173,7 +173,7 @@ def test_a_declaring_provider_does_receive_the_optional_fields():
     assert "size" not in body
 
 
-# ── the pixel grid ───────────────────────────────────────────────────────────
+# -- the pixel grid -----------------------------------------------------------
 
 
 def test_a_size_on_the_grid_passes_through_and_says_nothing():
@@ -204,7 +204,7 @@ def test_a_tiny_request_is_floored_at_the_minimum():
     assert (width, height) == (TOGETHER.min_dimension, TOGETHER.min_dimension)
 
 
-# ── model-level capability holes ─────────────────────────────────────────────
+# -- model-level capability holes ---------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -241,7 +241,7 @@ def test_an_overlong_prompt_is_truncated_to_the_providers_own_limit(preset):
     assert any("truncated" in note for note in built.notes)
 
 
-# ── size pass-through ────────────────────────────────────────────────────────
+# -- size pass-through --------------------------------------------------------
 
 
 def test_a_size_preset_with_no_menu_sends_the_request_verbatim():
@@ -254,7 +254,7 @@ def test_a_size_preset_with_no_menu_sends_the_request_verbatim():
     assert built.notes == []
 
 
-# ── aspect mapping ───────────────────────────────────────────────────────────
+# -- aspect mapping -----------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -282,7 +282,7 @@ def test_an_inexact_ratio_maps_to_the_nearest_declared_one_and_discloses_it():
     assert (aspect_for(XAI, 2000, 1000)[0], aspect_for(XAI, 1000, 2000)[0]) == ("2:1", "1:2")
 
 
-# ── references ───────────────────────────────────────────────────────────────
+# -- references ---------------------------------------------------------------
 
 
 def _reference(mime: str = "image/png") -> ResolvedReference:

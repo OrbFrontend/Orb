@@ -78,14 +78,14 @@ def _legacy_tree(conn: sqlite3.Connection) -> None:
     """A tree with a regenerated branch, a partial save, a dropped value, and notes.
 
     1 greeting
-    └ 2 user
-      ├ 3 asst {trust: wary, mood: calm}           note(plan) "north"
-      │ └ 4 user
-      │   ├ 5 asst {trust: warming}  -- mood dropped
-      │   │ └ 6 user                 human note "Plot" "the key is fake", human note "Note" "remember"
-      │   │   └ 7 asst {}            -- partial save: keeps warming
-      │   └ 8 asst {trust: wary, mood: tense}   -- a sibling branch
-      └ 9 asst {trust: hostile}
+    + 2 user
+      + 3 asst {trust: wary, mood: calm}           note(plan) "north"
+      | + 4 user
+      |   + 5 asst {trust: warming}  -- mood dropped
+      |   | + 6 user                 human note "Plot" "the key is fake", human note "Note" "remember"
+      |   |   + 7 asst {}            -- partial save: keeps warming
+      |   + 8 asst {trust: wary, mood: tense}   -- a sibling branch
+      + 9 asst {trust: hostile}
     """
     conn.execute("INSERT INTO conversations (id, title, created_at) VALUES ('c1', 'Tree', ?)", (_OLD,))
     _message(conn, "c1", 1, None, "assistant")

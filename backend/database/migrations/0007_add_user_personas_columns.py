@@ -1,4 +1,4 @@
-"""0007_add_user_personas_columns — add avatar_color and updated_at columns to user_personas table for databases that were
+"""0007_add_user_personas_columns -- add avatar_color and updated_at columns to user_personas table for databases that were
 created before these columns were added.
 """
 

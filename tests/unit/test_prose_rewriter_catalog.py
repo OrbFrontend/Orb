@@ -1,6 +1,6 @@
 """How the feature reads the shared manifest: selection, and where a file lands.
 
-The manifest's own invariants — unique basenames, the prune claim set — are ``tests/unit/test_local_models_catalog.py``'s,
+The manifest's own invariants -- unique basenames, the prune claim set -- are ``tests/unit/test_local_models_catalog.py``'s,
 because they belong to every feature that ships weights. What is left here is the rewriter's own half: a stored selection is
 user data that must survive a registry bump, and the path a variant resolves to is the flat basename under ``data/models/``
 rather than upstream's ``GGUF/`` nesting.

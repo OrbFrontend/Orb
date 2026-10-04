@@ -60,7 +60,7 @@ def _strong_pair(report: dict, a: str, b: str) -> dict:
     raise AssertionError("the scan did not return the expected strong group")
 
 
-# ── Scan cache and dismissals ───────────────────────────────────────────────
+# -- Scan cache and dismissals -----------------------------------------------
 
 
 async def test_a_scan_finds_two_cards_that_differ_only_in_tags(client):
@@ -142,7 +142,7 @@ async def test_retagging_a_dismissed_card_does_not_bring_the_pair_back(client):
     assert hidden["groups"] == [] and hidden["stats"]["dismissed"] == 1
 
 
-# ── Guarded resolution ──────────────────────────────────────────────────────
+# -- Guarded resolution ------------------------------------------------------
 
 
 async def test_deleting_a_card_with_conversations_is_refused_without_relink(client):

@@ -30,7 +30,7 @@ _CHARACTER_KEY = """
 """
 
 
-# ── corpus reads (child process, read-only) ─────────────────────────────────
+# -- corpus reads (child process, read-only) ---------------------------------
 
 
 def open_readonly(db_path: str) -> sqlite3.Connection:
@@ -78,7 +78,7 @@ def read_names(conn: sqlite3.Connection) -> list[str]:
     return [str(row[0]) for row in rows if row[0]]
 
 
-# ── app surface ─────────────────────────────────────────────────────────────
+# -- app surface -------------------------------------------------------------
 
 
 def _suggestion(row) -> SlopSuggestionRow:

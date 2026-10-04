@@ -7,7 +7,7 @@ import io
 import logging
 import os
 import shutil
-import subprocess  # noqa: S404 — ffmpeg, argv-only, never a shell string
+import subprocess  # noqa: S404 -- ffmpeg, argv-only, never a shell string
 import tempfile
 import wave
 from typing import TYPE_CHECKING
@@ -32,7 +32,7 @@ class UnsupportedAudio(ValueError):
 
 def _have_soundfile() -> bool:
     try:
-        import soundfile  # noqa: F401, PLC0415 — deferred probe
+        import soundfile  # noqa: F401, PLC0415 -- deferred probe
     except Exception:
         return False
     return True
@@ -40,7 +40,7 @@ def _have_soundfile() -> bool:
 
 def _from_wave(data: bytes) -> tuple[np.ndarray, int] | None:
     """Decode PCM WAV with the stdlib. ``None`` when this is not that."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     try:
         with wave.open(io.BytesIO(data), "rb") as handle:
@@ -73,10 +73,10 @@ def _from_wave(data: bytes) -> tuple[np.ndarray, int] | None:
 
 
 def _from_soundfile(data: bytes) -> tuple[np.ndarray, int] | None:
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     try:
-        import soundfile  # noqa: PLC0415 — deferred; optional dependency
+        import soundfile  # noqa: PLC0415 -- deferred; optional dependency
     except Exception:
         return None
     try:
@@ -93,7 +93,7 @@ def _from_soundfile(data: bytes) -> tuple[np.ndarray, int] | None:
 
 def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
     """Use ffmpeg to decode formats unsupported by the in-process readers."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     binary = shutil.which("ffmpeg")
     if binary is None:
@@ -111,7 +111,7 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
             "pipe:1",
         ]  # fmt: skip
         try:
-            done = subprocess.run(argv, capture_output=True, timeout=120, check=False)  # noqa: S603 — argv-only, binary from which()
+            done = subprocess.run(argv, capture_output=True, timeout=120, check=False)  # noqa: S603 -- argv-only, binary from which()
         except (OSError, subprocess.SubprocessError) as exc:
             logger.warning("ffmpeg failed to decode the upload: %s", exc)
             return None
@@ -125,7 +125,7 @@ def _from_ffmpeg(data: bytes, suffix: str) -> tuple[np.ndarray, int] | None:
 
 
 def _to_mono(interleaved: np.ndarray, channels: int) -> np.ndarray:
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     if channels <= 1:
         return np.ascontiguousarray(interleaved, dtype=np.float32)
@@ -135,7 +135,7 @@ def _to_mono(interleaved: np.ndarray, channels: int) -> np.ndarray:
 
 def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.ndarray:
     """Band-limited resample of a mono signal using a windowed-sinc kernel."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     if src_rate == dst_rate or wav.size == 0:
         return np.ascontiguousarray(wav, dtype=np.float32)
@@ -165,7 +165,7 @@ def resample(wav: np.ndarray, src_rate: int, dst_rate: int = TARGET_RATE) -> np.
 
 def volume_normalize(wav: np.ndarray, coeff: float = 0.2) -> np.ndarray:
     """Apply Spark-TTS's volume normalization."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     audio = np.asarray(wav, dtype=np.float32).reshape(-1).copy()
     if audio.size == 0:
@@ -187,7 +187,7 @@ def volume_normalize(wav: np.ndarray, coeff: float = 0.2) -> np.ndarray:
 
 def decode(data: bytes, *, filename: str = "") -> np.ndarray:
     """Decode uploaded audio as 16 kHz mono float32."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     if not data:
         raise UnsupportedAudio("The uploaded file is empty.")
@@ -219,7 +219,7 @@ def _unreadable_message(suffix: str) -> str:
 
 def reference_signal(wav: np.ndarray, min_seconds: int = 6, hop: int = 320) -> np.ndarray:
     """Prepare a reference signal, repeating short clips and trimming frame tails."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     minimum = int(TARGET_RATE * min_seconds) // hop * hop
     audio = np.asarray(wav, dtype=np.float32).reshape(-1)

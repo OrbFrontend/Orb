@@ -16,7 +16,7 @@ _INDEXES = (
 
 
 def _column_names(conn: sqlite3.Connection, table: str) -> list[str]:
-    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]  # nosec B608 — literal table names
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]  # nosec B608 -- literal table names
 
 
 def _rebuild(conn: sqlite3.Connection, table: str) -> None:
@@ -31,7 +31,7 @@ def _rebuild(conn: sqlite3.Connection, table: str) -> None:
         # table predates every column this migration is here to introduce.
         old = set(_column_names(conn, table))
         cols = ", ".join(c for c in _column_names(conn, f"{table}_new") if c in old)
-        conn.execute(f"INSERT INTO {table}_new ({cols}) SELECT {cols} FROM {table}")  # nosec B608 — names from the canonical schema
+        conn.execute(f"INSERT INTO {table}_new ({cols}) SELECT {cols} FROM {table}")  # nosec B608 -- names from the canonical schema
         conn.execute(f"DROP TABLE {table}")
         conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
         conn.commit()
@@ -44,7 +44,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     existing = set(_column_names(conn, "worlds"))
     for name, ddl in _WORLD_COLUMNS:
         if name not in existing:
-            conn.execute(f"ALTER TABLE worlds ADD COLUMN {name} {ddl}")  # nosec B608 — literal names from a module constant
+            conn.execute(f"ALTER TABLE worlds ADD COLUMN {name} {ddl}")  # nosec B608 -- literal names from a module constant
             print(f"[migrations] 0053: added {name} column to worlds")
 
     if "entry_layer" not in set(_column_names(conn, "lorebook_entries")):

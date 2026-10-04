@@ -168,7 +168,7 @@ async def undo_changeset(changeset: Mapping[str, Any]) -> WorldChangesetRow:
     """Reverse an applied changeset by applying its compensating changeset.
 
     Raises :class:`db.OverlayStateConflict` when a later change moved one of the
-    targets — the whole undo refuses rather than clobbering it.
+    targets -- the whole undo refuses rather than clobbering it.
     """
     world_id = changeset["world_id"]
     async with world_apply_lock(world_id):

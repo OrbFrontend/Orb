@@ -110,7 +110,7 @@ export function switchTab(tab, contentId) {
 }
 
 /**
- * A title, a message, Cancel and one action — or several, as
+ * A title, a message, Cancel and one action -- or several, as
  * `actions: [{ label, className, run }]`, when the choice has more than one way
  * to go through (delete a variant or the whole attachment).
  */

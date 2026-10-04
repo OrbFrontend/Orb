@@ -25,7 +25,7 @@ def _wire_tools(tools: Any) -> str:
     """Serialize a tools list the way it actually hits the wire.
 
     httpx sends ``client.stream(..., json=body)`` via ``json.dumps(..., separators=(",", ":"), ensure_ascii=False)`` with NO
-    ``sort_keys`` — so the bytes preserve dict insertion order. The tracker's ``_serialize_tools`` uses ``sort_keys=True``,
+    ``sort_keys`` -- so the bytes preserve dict insertion order. The tracker's ``_serialize_tools`` uses ``sort_keys=True``,
     which normalizes key order away and therefore CANNOT see key-order drift (e.g. a fragment iterated in a different order, or
     fixed props inserted before dynamic ones). For schema *stability* assertions we must compare what the server actually
     receives, not the tracker's order-insensitive view.
@@ -35,7 +35,7 @@ def _wire_tools(tools: Any) -> str:
     return json.dumps(tools, separators=(",", ":"), ensure_ascii=False)
 
 
-# ── A long writer draft so the length guard fires and the editor pass runs.
+# -- A long writer draft so the length guard fires and the editor pass runs.
 _WRITER_DRAFT = (
     "Steel rings as the blade leaves its sheath and the whole courtyard seems to "
     "hold its breath while dust drifts down through the slanting afternoon light "
@@ -77,7 +77,7 @@ class CapturingClient:
         # The turn's clients share one abort token, mirroring LLMClient.
         self.abort_token = AbortToken()
         # FIFO of editor tool-call messages to return, one per ReAct iteration.
-        # Empty → the editor returns no tool call and the loop stops.
+        # Empty -> the editor returns no tool call and the loop stops.
         self._editor_queue: list[dict] = []
 
     def sends_tool_schemas(self, messages, model: str, *, tools_in_prompt: bool = True) -> bool:
@@ -90,7 +90,7 @@ class CapturingClient:
 
         *tid* is a finding id from the report that iteration will be shown. Ids
         are rebuilt per audit, so a fixed sentence drops out and the ones after
-        it shift down — which is why the drivers below queue the same id each
+        it shift down -- which is why the drivers below queue the same id each
         time rather than a stable per-sentence one."""
         self._editor_queue.append(
             {
@@ -160,7 +160,7 @@ class CapturingClient:
                 "msgs_serialized": _serialize_messages(messages),
                 "tools_serialized": _serialize_tools(tools),
                 "tools_chars": len(_serialize_tools(tools)),
-                # Wire-faithful (insertion-order) bytes — see _wire_tools. This
+                # Wire-faithful (insertion-order) bytes -- see _wire_tools. This
                 # is what catches key-order drift the tracker's sorted view hides.
                 "tools_wire": _wire_tools(tools),
             }
@@ -172,7 +172,7 @@ class CapturingClient:
             return
 
         if label == "editor":
-            # Pop the next queued patch; empty queue → no tool call → loop stops.
+            # Pop the next queued patch; empty queue -> no tool call -> loop stops.
             msg = self._editor_queue.pop(0) if self._editor_queue else {"role": "assistant", "content": "", "tool_calls": []}
             yield {"type": "done", "message": msg}
             return
@@ -211,7 +211,7 @@ class CapturingClient:
             }
             return
 
-        # director:* — return a well-formed forced call so the parse path runs.
+        # director:* -- return a well-formed forced call so the parse path runs.
         name = label.split(":", 1)[1]
         args = '{"moods": ["tense"], "pacing": "urgent"}' if name == "direct_scene" else "{}"
         yield {
@@ -281,7 +281,7 @@ async def _run_turn(
         [],  # mood_fragments
         interactive_fragments,
         "I draw my sword.",
-        phrase_bank=[],  # not None → audit_enabled path is live
+        phrase_bank=[],  # not None -> audit_enabled path is live
         agent_client=agent_client,
         agent_prefix=agent_prefix,
         conversation_id=conversation_id,
@@ -297,7 +297,7 @@ async def _run_turn(
     return tracker, client, agent_client
 
 
-# ── Reconciliation: the two witnesses must agree ──────────────────────────────
+# -- Reconciliation: the two witnesses must agree ------------------------------
 
 
 def _reconcile_tracker_with_client(tracker: KVCacheTracker, *clients: CapturingClient) -> None:
@@ -325,7 +325,7 @@ def _reconcile_tracker_with_client(tracker: KVCacheTracker, *clients: CapturingC
 
 
 def _wire_tools_by_label(*clients: CapturingClient) -> dict[str, set[str]]:
-    """Map pass-label → set of distinct wire-faithful tools blobs seen for it."""
+    """Map pass-label -> set of distinct wire-faithful tools blobs seen for it."""
     out: dict[str, set[str]] = {}
     for c in clients:
         if c is None:
@@ -335,7 +335,7 @@ def _wire_tools_by_label(*clients: CapturingClient) -> dict[str, set[str]]:
     return out
 
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
+# -- Tests ---------------------------------------------------------------------
 
 
 def test_direct_scene_schema_is_deterministic_and_dynamic():
@@ -343,7 +343,7 @@ def test_direct_scene_schema_is_deterministic_and_dynamic():
     fragment input, and must actually carry the fragment-derived properties.
 
     If ``build_direct_scene_tool`` ever iterates a set/dict with unstable order, or moves the fixed props relative to the
-    dynamic ones, the wire bytes drift turn-over-turn and the cross-turn cache busts — invisibly to the tracker's ``sort_keys``
+    dynamic ones, the wire bytes drift turn-over-turn and the cross-turn cache busts -- invisibly to the tracker's ``sort_keys``
     view. Comparing wire-faithful bytes here makes that ring.
     """
     a = build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)
@@ -377,7 +377,7 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
 
     prefix_bytes = _serialize_messages(prefix)
 
-    # Inv-1/2 — every pass starts with the identical system+history prefix.
+    # Inv-1/2 -- every pass starts with the identical system+history prefix.
     for label, e in entries.items():
         assert e["msgs_serialized"].startswith(prefix_bytes), (
             f"CACHE BUST: pass {label!r} does not start with the shared prefix. "
@@ -386,7 +386,7 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
             f"{len(prefix_bytes)} chars."
         )
 
-    # Inv-3 — tools blob byte-identical across all three passes, and non-empty. Compare WIRE-FAITHFUL bytes (insertion order
+    # Inv-3 -- tools blob byte-identical across all three passes, and non-empty. Compare WIRE-FAITHFUL bytes (insertion order
     # preserved), not the tracker's sort_keys view, so a key-order drift between passes also rings.
     wire = _wire_tools_by_label(client)
     all_blobs = {b for blobs in wire.values() for b in blobs}
@@ -397,7 +397,7 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
     )
     assert next(iter(all_blobs)), "expected a non-empty tools blob in single-model mode"
 
-    # §3 — the editor's prompt is a strict extension of the writer's prompt: the editor reuses the writer's trailing user
+    # section 3 -- the editor's prompt is a strict extension of the writer's prompt: the editor reuses the writer's trailing user
     # pancake verbatim, so the editor's cached bottom = writer's entire prompt.
     assert entries["editor"]["msgs_serialized"].startswith(entries["writer"]["msgs_serialized"]), (
         "CACHE BUST: the editor's prompt no longer extends the writer's prompt. "
@@ -420,7 +420,7 @@ _FEEDBACK_FRAGMENT = {
 async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     """The post-writer feedback step must NOT diverge the tools blob: with feedback enabled, ``give_feedback`` rides the shared
     per-turn blob (Invariant 3) and the feedback call reuses the same cached base as the director/writer/editor. Its wire
-    tools bytes must therefore equal every other pass's — no blob swap, no deliberate cache miss (the old TOFIX).
+    tools bytes must therefore equal every other pass's -- no blob swap, no deliberate cache miss (the old TOFIX).
     """
     prefix = _make_prefix("You are a vivid roleplay narrator.", n_pairs=4)
     tracker, client, _ = await _run_turn(
@@ -455,7 +455,7 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
         "feedback/writer/editor tools blobs differ — the feedback step is not reusing the frozen shared base."
     )
 
-    # Message-stack guard — the half a tools-only check misses. The feedback call must EXTEND the writer/editor stack, not fork
+    # Message-stack guard -- the half a tools-only check misses. The feedback call must EXTEND the writer/editor stack, not fork
     # off base.prefix with a fresh single message: it replays writer_user_msg + reply before its request, so the writer's full
     # message stack is a prefix of feedback's. Forking (the old behaviour) collapsed the provider cache to just the system+tools
     # block.
@@ -528,8 +528,8 @@ async def test_state_step_reuses_shared_blob_no_cache_bust():
 
 
 async def test_dual_model_feedback_rides_agent_lane_writer_stays_empty():
-    """Dual-model with feedback on: Invariant 5 must hold — the writer drops all
-    tools — while give_feedback rides only the agent lane, where the feedback
+    """Dual-model with feedback on: Invariant 5 must hold -- the writer drops all
+    tools -- while give_feedback rides only the agent lane, where the feedback
     step actually runs. The feedback call must reuse the agent base (same blob as
     the editor), never the empty writer base."""
     writer_prefix = _make_prefix("You are a narrator.", n_pairs=3)
@@ -548,7 +548,7 @@ async def test_dual_model_feedback_rides_agent_lane_writer_stays_empty():
 
     _reconcile_tracker_with_client(tracker, client, agent_client)
 
-    # Invariant 5 — the writer (its own server) ships no tools even with feedback on.
+    # Invariant 5 -- the writer (its own server) ships no tools even with feedback on.
     writer_wire = _wire_tools_by_label(client)
     assert writer_wire.get("writer") == {""}, "Inv-5 broken: the writer's tools blob is non-empty in dual-model."
 
@@ -558,7 +558,7 @@ async def test_dual_model_feedback_rides_agent_lane_writer_stays_empty():
     assert "feedback" in agent_wire, "feedback step did not run on the agent lane."
 
     # give_feedback rides only the agent lane, and the feedback call reuses the
-    # agent base verbatim (same blob as the editor — no swap, no cache miss).
+    # agent base verbatim (same blob as the editor -- no swap, no cache miss).
     agent_blobs = {b for blobs in agent_wire.values() for b in blobs}
     assert len(agent_blobs) == 1, "agent-lane passes must share one tools blob (feedback included)."
     assert '"give_feedback"' in next(iter(agent_blobs)), "give_feedback missing from the agent-lane blob."
@@ -603,7 +603,7 @@ async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools
         "burn tokens with no caching benefit."
     )
 
-    # Agent passes still share an identical tools blob with each other —
+    # Agent passes still share an identical tools blob with each other --
     # checked on wire-faithful bytes so key-order drift between them also rings.
     wire = _wire_tools_by_label(client, agent_client)
     director_blobs = wire["director:direct_scene"]
@@ -617,7 +617,7 @@ async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools
 
 
 async def test_cross_turn_prefix_grows_by_exactly_one_pair():
-    """§6 — turn N+1's prefix is turn N's prefix plus one (user,assistant)
+    """section 6 -- turn N+1's prefix is turn N's prefix plus one (user,assistant)
     pair, byte-for-byte, so the cache flows turn-over-turn."""
     conversation_id = "conv-crossturn"
     p1 = _make_prefix("You are a vivid roleplay narrator.", n_pairs=2)
@@ -649,7 +649,7 @@ async def test_cross_turn_prefix_grows_by_exactly_one_pair():
 
     # Case-1 cross-turn guard: the dynamic director/editor tool schema is rebuilt every turn. Identical config must yield
     # byte-identical wire tools across turns, or the cache busts at the tools boundary turn-over-turn. Compared on wire-faithful
-    # bytes because the tracker's sort_keys view would hide key-order drift — the most likely form of schema instability.
+    # bytes because the tracker's sort_keys view would hide key-order drift -- the most likely form of schema instability.
     w1 = _wire_tools_by_label(client1)
     w2 = _wire_tools_by_label(client2)
     for label in ("director:direct_scene", "editor"):
@@ -662,17 +662,17 @@ async def test_cross_turn_prefix_grows_by_exactly_one_pair():
 
 @pytest.mark.parametrize("reasoning_on", [False, True])
 async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
-    """§7 — across editor ReAct iterations the cached bottom (system + history + the writer's user pancake) must never change;
+    """section 7 -- across editor ReAct iterations the cached bottom (system + history + the writer's user pancake) must never change;
     only the top moves.
 
     The earlier tests stop the editor after one iteration, so the multi-iteration message bookkeeping went untested. This drives
-    a real ≥2-iteration loop: each queued patch removes one banned-phrase occurrence, so the audit count strictly drops and the
-    loop advances. Both message-feedback modes are covered — the default flat mode (``reasoning_on=False``, which rewrites the
+    a real >=2-iteration loop: each queued patch removes one banned-phrase occurrence, so the audit count strictly drops and the
+    loop advances. Both message-feedback modes are covered -- the default flat mode (``reasoning_on=False``, which rewrites the
     top two pancakes in place) and the append mode (``reasoning_on=True``).
     """
     prefix = _make_prefix("You are the editor's bench.", n_pairs=3)
     writer_user = "<lorebook>\n**Scene Guidance**: tense\n\nI strike the anvil."
-    # Four occurrences → the count can strictly decrease across ≥2 iterations.
+    # Four occurrences -> the count can strictly decrease across >=2 iterations.
     draft = (
         "The shiver ran down her spine. Later the shiver ran down her spine. Again the shiver ran down her spine. "
         "Once more the shiver ran down her spine."
@@ -718,7 +718,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
             "prefix is re-billed on every editor round."
         )
 
-    # Inv-3 across iterations — the tools blob must stay byte-identical every round. The schema list lives in the cached prefix;
+    # Inv-3 across iterations -- the tools blob must stay byte-identical every round. The schema list lives in the cached prefix;
     # narrowing it mid-loop would re-bill the tools region each iteration. (This particular path never narrows, but the
     # assertion documents the invariant cheaply; the rewrite path is covered by
     # test_editor_tools_blob_constant_across_tool_switch.)
@@ -729,7 +729,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
 
     if reasoning_on:
         # Append-only: every iteration extends the previous prompt verbatim, so
-        # even the writer's draft pancake stays cached (the doc §7 ideal).
+        # even the writer's draft pancake stays cached (the doc section 7 ideal).
         for a, b in zip(editor_calls, editor_calls[1:]):
             assert b["msgs_serialized"].startswith(a["msgs_serialized"]), (
                 "CACHE BUST: reasoning-mode editor iteration is not append-only — "
@@ -746,8 +746,8 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
 
 async def test_editor_tools_blob_constant_across_tool_switch():
     """Inv-3 regression: when the ReAct loop switches which tool it forces (rewrite on one iteration, patch on the next), the
-    tools *blob* must NOT change — only ``tool_choice`` may. The loop used to narrow ``editor_tools`` to a single-tool list
-    when changing tools mid-flight, shrinking the schema blob (e.g. 3 tools → 1) and re-billing the tools region every
+    tools *blob* must NOT change -- only ``tool_choice`` may. The loop used to narrow ``editor_tools`` to a single-tool list
+    when changing tools mid-flight, shrinking the schema blob (e.g. 3 tools -> 1) and re-billing the tools region every
     iteration.
 
     This drives that exact path: a 3-tool enabled set, a length-guard-forced rewrite on iteration 1 whose result still carries a
@@ -763,7 +763,7 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 
     client = CapturingClient("editor-model")
     # Iteration 1 is force-rewrite (length guard). Return a rewrite that clears the word limit but still repeats the banned
-    # phrase, so audit issues remain and the loop advances to a patch-forced iteration 2 (queue then empty → stop).
+    # phrase, so audit issues remain and the loop advances to a patch-forced iteration 2 (queue then empty -> stop).
     client.enqueue_editor_rewrite(" ".join([f"A {banned}."] * 4))
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
@@ -793,7 +793,7 @@ async def test_editor_tools_blob_constant_across_tool_switch():
     editor_calls = [c for c in client.calls if c["label"] == "editor"]
     assert len(editor_calls) >= 2, f"expected ≥2 editor iterations (rewrite then patch), got {len(editor_calls)}"
 
-    # The forced tool changed across iterations — but the blob must be constant.
+    # The forced tool changed across iterations -- but the blob must be constant.
     blobs = {c["tools_wire"] for c in editor_calls}
     assert len(blobs) == 1, (
         "CACHE BUST: the editor narrowed its tools blob when switching the forced "
@@ -805,7 +805,7 @@ async def test_editor_tools_blob_constant_across_tool_switch():
     assert next(iter(blobs)) == full_blob, "editor shipped a tools blob that is not the full enabled set"
 
 
-# ── The report itself, on a request that runs several pipelines ───────────────
+# -- The report itself, on a request that runs several pipelines ---------------
 
 
 def _entry(tracker: KVCacheTracker, label: str, body: str, *, model: str = "m", endpoint: str = "", shape: str = "") -> None:
@@ -846,7 +846,7 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     """Cross-turn comparison takes the *last* same-label entry, not the first.
 
     A group exchange leaves one ``writer`` entry per speaker. The next request's first writer call extends the history the
-    *final* speaker saw, so comparing it against speaker 1's call reported an overlap short by a whole exchange of replies — the
+    *final* speaker saw, so comparing it against speaker 1's call reported an overlap short by a whole exchange of replies -- the
     tracker's own numbers arguing the cache had broken when it had not.
     """
     from backend.inference import kv_tracker as mod
@@ -863,7 +863,7 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"
 
 
-# ── Lanes ─────────────────────────────────────────────────────────────────────
+# -- Lanes ---------------------------------------------------------------------
 #
 # A tracker lane is (server, model, rendered-prompt shape). The first two fields identify the physical cache owner. The third
 # keeps independent prompt families on that owner from being compared with each other.

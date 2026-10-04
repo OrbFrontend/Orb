@@ -606,7 +606,7 @@ async function _expressionTick() {
   const labels = img._exprLabels || [];
   const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
   if (!resolved) {
-    img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`; // no matching expression → plain avatar
+    img.src = `/api/characters/${charId}/avatar${avatarBustQuery(charId)}`; // no matching expression -> plain avatar
     return;
   }
   const next = `/api/characters/${charId}/expressions/${resolved}`;

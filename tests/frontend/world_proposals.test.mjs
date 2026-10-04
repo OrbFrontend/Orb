@@ -53,7 +53,7 @@ const changeset = (over = {}) => ({
   ...over,
 });
 
-// ── state predicates
+// -- state predicates
 
 test("pending and stale are the open states; decided ones are not", () => {
   assert.equal(isOpen(changeset()), true);
@@ -78,7 +78,7 @@ test("openProposals ignores decided changesets", () => {
   assert.deepEqual(openProposals({}), []);
 });
 
-// ── operation rendering
+// -- operation rendering
 
 test("activation is phrased for a reader, not as a schema value", () => {
   assert.equal(activationLabel(op({ activation: "constant" })), "Always in context");
@@ -127,7 +127,7 @@ test("rendered operation text is escaped", () => {
   assert.match(html, /&amp;/);
 });
 
-// ── actions
+// -- actions
 
 test("a pending proposal offers apply, edit and reject", () => {
   const html = actionsHtml(changeset());
@@ -177,7 +177,7 @@ test("a recorded deletion still says what was deleted, from the operation alone"
   assert.deepEqual(operationDiff(deletion().operations[0]), { before: "It spans the gorge.", after: "" });
 });
 
-// ── cards
+// -- cards
 
 test("the card carries the ids the delegated click handler dispatches on", () => {
   const html = proposalCardHtml(changeset());
@@ -237,7 +237,7 @@ test("a drawer row falls back to the first operation when there is no summary", 
   assert.match(changesetRowHtml(changeset({ summary: "" })), /Add “Collapsed Bridge”/);
 });
 
-// ── edit-before-apply
+// -- edit-before-apply
 
 test("the edit form exposes the fields a reviewer may change", () => {
   const html = operationEditHtml(op(), 0);

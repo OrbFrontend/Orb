@@ -47,7 +47,7 @@ _QUOTE_PAIRS = {
 OPEN_QUOTES = frozenset(_QUOTE_PAIRS)
 CLOSE_QUOTES = frozenset(_QUOTE_PAIRS.values())
 # The fullwidth quote and the double prime stand in for '"' in some writers'
-# text. A double prime after a digit is a measurement (12″) and is skipped like 12".
+# text. A double prime after a digit is a measurement (12") and is skipped like 12".
 TOGGLE_QUOTES = frozenset({'"', "＂", "″"})
 
 # Markdown formatting is excluded from roleplay markup by both classifiers.

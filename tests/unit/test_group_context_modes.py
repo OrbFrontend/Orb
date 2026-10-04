@@ -77,7 +77,7 @@ def _tail(mode: str, speaker: CastMember, **kwargs) -> str:
     return content
 
 
-# ── Private perspective — the default, and behaviour-preserving ──────────────
+# -- Private perspective -- the default, and behaviour-preserving --------------
 
 
 def test_private_keeps_other_members_raw_cards_out_of_a_speakers_whole_prompt():
@@ -116,7 +116,7 @@ def test_private_prefix_ignores_the_speaker_entirely():
 def test_both_boundary_modes_carry_the_scene_override(mode):
     """Private and Swap each keep a card away from everyone but its owner, so in
     both the curated view is the only thing the rest of the cast is told about a
-    member — and in both the override replaces the card profile rather than
+    member -- and in both the override replaces the card profile rather than
     sitting beside it. Shared is the mode that drops it."""
     system = _system(mode, ARIA)
     assert "### Aria\nARIA SCENE OVERRIDE" in system
@@ -136,7 +136,7 @@ def test_the_two_boundary_modes_render_one_and_the_same_public_cast():
     assert swap[len(public) :] == render_active_card(ARIA, MACROS, "Aria, Kael")
 
 
-# ── Shared dossier ──────────────────────────────────────────────────────────
+# -- Shared dossier ----------------------------------------------------------
 
 
 def test_shared_publishes_one_dossier_per_member_and_never_repeats_it_in_the_tail():
@@ -156,8 +156,8 @@ def test_shared_publishes_one_dossier_per_member_and_never_repeats_it_in_the_tai
 
 def test_shared_never_layers_a_curated_profile_over_the_cards_it_already_shares():
     """Every member reads every other member's card here, so a curated profile
-    would be a second view of the same member — and it rendered as a label on
-    labels (`Public profile: Appearance: …`). Neither provenance survives."""
+    would be a second view of the same member -- and it rendered as a label on
+    labels (`Public profile: Appearance: ...`). Neither provenance survives."""
     system = _system("shared", ARIA)
     assert "ARIA SCENE OVERRIDE" not in system  # the Manage cast override
     assert "Role: mage" not in system  # the card's own public profile
@@ -173,7 +173,7 @@ def test_shared_keeps_post_history_directives_active_only():
 
 
 def test_shared_dossiers_follow_the_active_roster_order_a_muted_member_included():
-    """A muted member is in scene and never speaks — it still has to be known."""
+    """A muted member is in scene and never speaks -- it still has to be known."""
     system = _system("shared", ARIA)
     assert system.index("dossier: Aria") < system.index("dossier: Kael")
     # resolve_cast hands over the active roster in `sort_order, id`; muting is a
@@ -190,14 +190,14 @@ def test_shared_skips_a_member_with_nothing_to_say_but_still_names_it():
     assert "## Cast\nAria, Narrator" in system
 
 
-# ── Classic card swap ───────────────────────────────────────────────────────
+# -- Classic card swap -------------------------------------------------------
 
 
 def test_swap_sends_only_the_active_card_and_public_profiles_for_everyone_else():
     system = _system("swap", ARIA)
-    # The public cast rides the system prompt exactly as it does under Private…
+    # The public cast rides the system prompt exactly as it does under Private...
     assert "### Aria\nARIA SCENE OVERRIDE" in system and "### Kael\nRole: mage" in system
-    # …and the speaker's own card is appended after it, card-style.
+    # ...and the speaker's own card is appended after it, card-style.
     assert "## Character: Aria" in system and "ARIA SHEET" in system and "ARIA EXAMPLE" in system
     assert system.index("### Kael") < system.index("## Character: Aria")
     # No other member's card text, in either half.
@@ -236,7 +236,7 @@ def test_swap_without_a_speaker_is_the_neutral_base_every_speaker_extends():
         assert scoped.startswith(neutral[: neutral.index(public) + len(public)])
 
 
-# ── Macro scoping ───────────────────────────────────────────────────────────
+# -- Macro scoping -----------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", ["shared", "swap"])
@@ -275,7 +275,7 @@ def test_the_same_card_rolls_the_same_wherever_the_mode_routes_it():
     )
 
 
-# ── Cross-mode invariants ───────────────────────────────────────────────────
+# -- Cross-mode invariants ---------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -291,7 +291,7 @@ def test_prevent_prompt_overrides_still_suppresses_post_history_in_every_mode(mo
 
 @pytest.mark.parametrize("mode", MODES)
 def test_no_mode_reads_a_card_system_prompt_or_scenario(mode):
-    """Swap substitutes identity, never control instructions — see group_context.py."""
+    """Swap substitutes identity, never control instructions -- see group_context.py."""
     system = _system(mode, ARIA)
     assert "legacy persona" not in system
 
@@ -301,7 +301,7 @@ def test_a_solo_turn_renders_no_cast_section_whatever_the_mode_says():
     assert render_cast_section(solo, MACROS) == ""
 
 
-# ── Context-size components ─────────────────────────────────────────────────
+# -- Context-size components -------------------------------------------------
 
 
 def test_size_components_name_what_each_mode_actually_bills():
@@ -325,7 +325,7 @@ def test_size_components_measure_the_same_text_the_prompt_sends():
 
 
 def test_size_components_never_bill_a_member_that_cannot_take_the_turn():
-    """A muted member is in scene — it keeps its dossier — but it is never
+    """A muted member is in scene -- it keeps its dossier -- but it is never
     scheduled, so a maximum built from its card would overstate every call."""
     loud = _member("l", "Loud", private="X" * 400, muted=True)
     quiet = _member("q", "Quiet", private="Y" * 10)

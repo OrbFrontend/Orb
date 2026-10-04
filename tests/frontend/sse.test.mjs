@@ -1,7 +1,7 @@
-// SSE parser fixtures for frontend/sse.js — the app-wide single SSE path. Zero deps (node --test, node v22+); no jsdom.
+// SSE parser fixtures for frontend/sse.js -- the app-wide single SSE path. Zero deps (node --test, node v22+); no jsdom.
 // Exercises the wire contract from backend/api/deps.py `sse_stream`: frame terminators, keepalive comments,
 // chunk-boundary splits, and the parser's must-NOT-unescape guarantee (token escaping vs raw probs-JSON are opposite
-// rules — un-escaping is consumer-side).
+// rules -- un-escaping is consumer-side).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sseEvents, unescapeSSE } from "../../frontend/sse.js";
@@ -65,7 +65,7 @@ test("token data is NOT unescaped by the parser (raw \\n preserved)", async () =
 test("probs JSON data is left raw so JSON.parse round-trips (must not unescape)", async () => {
   const json = '{"t":"x\\ny","p":0.5}';
   const [ev] = await collect([`event: probs\ndata: ${json}\n\n`]);
-  assert.equal(ev.data, json); // untouched — unescaping would corrupt the JSON
+  assert.equal(ev.data, json); // untouched -- unescaping would corrupt the JSON
   assert.deepEqual(JSON.parse(ev.data), { t: "x\ny", p: 0.5 });
 });
 

@@ -107,7 +107,7 @@ test("an @import still dies: it would pull in a sheet nothing here ever scopes",
 });
 
 test("an escape is decoded before it is judged, not rejected for being one", () => {
-  // `\75 rl(…)` is `url(…)` once the engine unescapes it. The tokenizer decodes it the same way, so the URL policy sees
+  // `\75 rl(...)` is `url(...)` once the engine unescapes it. The tokenizer decodes it the same way, so the URL policy sees
   // the scheme the browser would see -- which is what lets escapes stay a capability instead of a ban.
   assert.match(css(".a { background-image: \\75 rl(https://cdn.test/x.png) }"), /url\("https:\/\/cdn\.test\/x\.png"\)/);
   assert.equal(css(".a { background: \\000075rl(javascript:alert(1)) }"), "");

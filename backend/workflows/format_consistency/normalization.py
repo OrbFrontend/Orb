@@ -214,7 +214,7 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     return map_prose(draft, lambda seg: _rewrite_segment(seg, eff_src, td, tn))
 
 
-# A stray curly apostrophe ("the dogs’ bowls", "runnin’") is a closing single quote
+# A stray curly apostrophe ("the dogs\u2019 bowls", "runnin\u2019") is a closing single quote
 # to the parser, and it closes nothing, so it cannot swap a parse.
 _QUOTE_MARKS = (OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES) - {"’"}
 

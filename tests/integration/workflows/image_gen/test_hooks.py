@@ -181,7 +181,7 @@ def _cloud_render(monkeypatch):
     monkeypatch.setattr(_CLOUD_GENERATE, fake_generate)
 
 
-# ── guards ───────────────────────────────────────────────────────────────────
+# -- guards -------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,7 @@ async def test_two_concurrent_triggers_on_one_message_stay_separate_roots(client
     assert all(row["parent_attachment_id"] is None for row in rows)
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 #
 # One hook, two routes, one thing they disagree about. /rehydrate owes the row the image it lost, so it renders what the row
 # recorded; /reroll-gen owes the user another variant of the same subject, so it renders on the style as it stands -- otherwise
@@ -461,7 +461,7 @@ async def test_regenerate_streams_the_render_phase_a_fresh_generate_shows(client
     ]
 
 
-# ── refinement ───────────────────────────────────────────────────────────────
+# -- refinement ---------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -778,7 +778,7 @@ async def test_stopping_mid_write_still_saves_the_render(client):
     assert len(await get_workflow_attachments_for_message(mid)) == 1
 
 
-# ── camera ───────────────────────────────────────────────────────────────────
+# -- camera -------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -831,7 +831,7 @@ async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, m
     assert (consumption["pov"], consumption["pov_source"]) == ("first_person", "manual")
 
 
-# ── cloud source ─────────────────────────────────────────────────────────────
+# -- cloud source -------------------------------------------------------------
 
 
 @pytest.mark.asyncio

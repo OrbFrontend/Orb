@@ -266,7 +266,7 @@ async def test_list_characters_reports_card_weight_without_the_bodies(client, db
             # Excluded on purpose: every context mode keeps post-history in the
             # speaker's trailing message, so it cannot discriminate between them.
             "post_history_instructions": "h" * 500,
-            # Not card identity text either — neither mode puts these anywhere the other doesn't.
+            # Not card identity text either -- neither mode puts these anywhere the other doesn't.
             "scenario": "s" * 500,
             "first_mes": "f" * 500,
         },
@@ -276,7 +276,7 @@ async def test_list_characters_reports_card_weight_without_the_bodies(client, db
     assert card["def_chars"] == 900
     assert "description" not in card
 
-    # A card with no text at all weighs nothing rather than going missing — the client reads 0 as "nothing here worth caching".
+    # A card with no text at all weighs nothing rather than going missing -- the client reads 0 as "nothing here worth caching".
     await client.post("/api/characters", json={"name": "Bare"})
     resp = await client.get("/api/characters")
     assert next(c for c in resp.json() if c["name"] == "Bare")["def_chars"] == 0
@@ -295,7 +295,7 @@ async def test_post_history_instructions_synced_on_update(client, db):
 
 
 async def test_extensions_round_trip(client, db, tmp_path):
-    """extensions persists through create → get → unrelated update → PNG export,
+    """extensions persists through create -> get -> unrelated update -> PNG export,
     with third-party keys carried verbatim alongside orb.fragments."""
     ext = {
         "acme_ext": {"nested": [1, 2]},
@@ -351,7 +351,7 @@ def _profile_call(**arguments) -> dict:
     """The forced ``draft_public_profile`` response shape.
 
     ``_llm_mock._pass_from_tool_choice`` routes any forced tool name it does not recognise as a core pass tool to the
-    ``workflow`` queue, and this schema is deliberately not in ``prompting.tool_catalog.TOOLS`` — so this is the queue the
+    ``workflow`` queue, and this schema is deliberately not in ``prompting.tool_catalog.TOOLS`` -- so this is the queue the
     public-profile drafter reads from.
     """
     return {"tool_calls": [{"type": "function", "function": {"name": "draft_public_profile", "arguments": arguments}}]}
@@ -360,8 +360,8 @@ def _profile_call(**arguments) -> dict:
 async def test_public_profile_generate_returns_the_tool_call_fields(client, db, llm_mock):
     """The wire shape of the card drafter: the model's two fields, stripped.
 
-    Nothing is persisted — generation hands back an editable draft and the card
-    only changes when `PUT …/public-profile` saves it.
+    Nothing is persisted -- generation hands back an editable draft and the card
+    only changes when `PUT .../public-profile` saves it.
     """
     card_id = await client.create(
         "/api/characters", json={"name": "Lira", "description": "A wandering bard.", "personality": "Cheerful"}
@@ -501,7 +501,7 @@ async def test_card_render_projection_and_script_roundtrip(client, db, tmp_path)
         "orb": {"display_css": ".dialogue { color: red; }"},
         "foreign": {"keep": True},
     }
-    # Exercise the same parse → schema → persistence boundary as an imported card.
+    # Exercise the same parse -> schema -> persistence boundary as an imported card.
     source = tmp_path / "import.png"
     source.write_bytes(parsing.to_png({"name": "Scripted", "extensions": extensions}))
     imported = parsing.card_to_dict(parsing.parse(str(source)))

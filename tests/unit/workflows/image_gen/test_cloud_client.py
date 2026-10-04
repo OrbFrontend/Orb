@@ -29,7 +29,7 @@ def _ok(payload):
     return lambda _request: httpx.Response(200, json=payload)
 
 
-# ── decoding ─────────────────────────────────────────────────────────────────
+# -- decoding -----------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_a_non_image_payload_is_refused():
         await _client(handler).create_image("/images/generations", {}, provider_id="xai", timeout=10)
 
 
-# ── model listing ────────────────────────────────────────────────────────────
+# -- model listing ------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
     assert models == ["flux", "sdxl"]
 
 
-# ── the error funnel ─────────────────────────────────────────────────────────
+# -- the error funnel ---------------------------------------------------------
 
 
 @pytest.mark.asyncio

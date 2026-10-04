@@ -32,7 +32,7 @@ class LaunchProfile:
     model_id: str  # opaque identity for the caller's own registry
     model_path: str  # trusted absolute path, resolved by the caller's closed catalog
     alias: str
-    gpu_layers: int  # 999 | 0 — an int chosen by the feature, never a settings string
+    gpu_layers: int  # 999 | 0 -- an int chosen by the feature, never a settings string
     ctx_size: int
     parallel: int
     http_threads: int
@@ -188,7 +188,7 @@ class LlamaServerClient:
                 child.kill()
                 await child.wait(timeout=5)
         # AFTER the process is gone, not before. The drain is what captures a dying child's last words, and `tail()` is how
-        # `wait_ready` explains a boot failure — closing it first threw away the explanation.
+        # `wait_ready` explains a boot failure -- closing it first threw away the explanation.
         with contextlib.suppress(Exception):
             await child.aclose()
 

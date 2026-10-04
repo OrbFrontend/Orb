@@ -46,7 +46,7 @@ async def _draft_both(message: dict):
     ]
 
 
-# ── Accepted ────────────────────────────────────────────────────────────────
+# -- Accepted ----------------------------------------------------------------
 
 
 async def test_a_well_formed_draft_round_trips_stripped():
@@ -73,7 +73,7 @@ async def test_json_string_arguments_parse_the_same_way():
         assert draft == {"appearance": "Tall.", "role": "Bard."}
 
 
-# ── Rejected ────────────────────────────────────────────────────────────────
+# -- Rejected ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,7 @@ async def test_a_reply_cut_at_the_budget_names_the_setting(settings, limit):
             await drafter(_FakeClient(message), "m", CARD, settings=settings)  # type: ignore[arg-type]
 
 
-# ── The prompts ─────────────────────────────────────────────────────────────
+# -- The prompts -------------------------------------------------------------
 
 
 async def test_both_prompts_quote_the_same_no_secrets_floor():
@@ -178,7 +178,7 @@ def test_the_scene_message_labels_its_sections_and_omits_the_empty_ones():
 
 def test_the_scene_message_states_how_many_names_it_left_out():
     """The prompt is bounded, and says so rather than claiming the list is the
-    whole cast — the roster itself has no size ceiling."""
+    whole cast -- the roster itself has no size ceiling."""
     message = build_scene_message(CARD, cast_names=["Kael"], omitted_cast=3)
     assert "Other cast members omitted from this draft: 3" in message
     assert "omitted from this draft" not in build_scene_message(CARD, cast_names=["Kael"])

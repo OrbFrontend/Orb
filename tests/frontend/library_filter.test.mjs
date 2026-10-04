@@ -82,7 +82,7 @@ test("tag matching is not confused by numeric prefixes", () => {
   assert.ok(!matchesFilter("lira", tagsAttrFor(["Tag40"]), "", ["Tag4"]));
 });
 
-// ── the chip row ─────────────────────────────────────────────────────────────
+// -- the chip row -------------------------------------------------------------
 //
 // One derivation over the cards' own tags, since the auto-tagger writes the curated vocabulary onto them. What matters
 // is that it folds casing the same way the predicate above does, and that a chip it emits always selects something.

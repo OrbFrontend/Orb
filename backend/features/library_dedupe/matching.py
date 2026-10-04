@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-# ── Thresholds ───────────────────────────────────────────────────────────────
+# -- Thresholds ---------------------------------------------------------------
 
 # Token-shingle Jaccard at which two bodies are "the same text, lightly edited".
 STRONG_JACCARD = 0.9
@@ -18,12 +18,12 @@ STRONG_JACCARD = 0.9
 POSSIBLE_JACCARD = 0.6
 
 # A shared name *and* creator is corroboration, not proof, so it needs less text
-# agreement than a bare Jaccard match — but still some.
+# agreement than a bare Jaccard match -- but still some.
 NAME_CREATOR_JACCARD = 0.4
 
 # Hamming distance between two 64-bit dHashes that still counts as "same art". Measured on deliberately high-frequency synthetic
-# card art (512x768): a JPEG q82 re-encode costs 1, WebP q80 costs 2, a 3x downscale costs 1, and a plain 2x downscale — exactly
-# what a different download site does — already costs 5. So the threshold is 8, not the textbook 4; real card art is smoother
+# card art (512x768): a JPEG q82 re-encode costs 1, WebP q80 costs 2, a 3x downscale costs 1, and a plain 2x downscale -- exactly
+# what a different download site does -- already costs 5. So the threshold is 8, not the textbook 4; real card art is smoother
 # and should score lower, which leaves headroom without being loose.
 AVATAR_MAX_DISTANCE = 8
 
@@ -94,14 +94,14 @@ class Pair:
         }
 
 
-# ── Blocking ─────────────────────────────────────────────────────────────────
+# -- Blocking -----------------------------------------------------------------
 
 
 def build_blocks(signals: Sequence[CardSignals]) -> dict[tuple[str, str], list[str]]:
     """Inverted indexes over every signal worth blocking on.
 
     2000 cards is 2M pairs and pure-Python Jaccard over all of them is minutes, so only cards that land in a shared bucket are
-    ever scored. Empty values are skipped everywhere — a blank field is not evidence of anything, and indexing it is both a
+    ever scored. Empty values are skipped everywhere -- a blank field is not evidence of anything, and indexing it is both a
     quadratic blow-up and a false-positive factory.
     """
     blocks: dict[tuple[str, str], list[str]] = defaultdict(list)
@@ -116,7 +116,7 @@ def build_blocks(signals: Sequence[CardSignals]) -> dict[tuple[str, str], list[s
             if s.creator:
                 blocks[("creator+name", f"{s.creator}\x00{s.name}")].append(s.card_id)
         # Pigeonhole over 8 bands of 8 bits: two hashes within Hamming 7 must agree on at least one band, and at 8 the recall
-        # loss is negligible. A card with no usable avatar stores "" and is excluded here and from the "same avatar" predicate —
+        # loss is negligible. A card with no usable avatar stores "" and is excluded here and from the "same avatar" predicate --
         # otherwise every avatarless card reads as sharing an avatar with every other, which is the single largest
         # false-positive source this feature has available to it.
         if s.avatar_dhash:
@@ -144,7 +144,7 @@ def candidate_pairs(signals: Sequence[CardSignals]) -> set[tuple[str, str]]:
     return pairs
 
 
-# ── Scoring ──────────────────────────────────────────────────────────────────
+# -- Scoring ------------------------------------------------------------------
 
 
 def jaccard(a: frozenset[int], b: frozenset[int]) -> float:
@@ -244,7 +244,7 @@ def score_pair(a: CardSignals, b: CardSignals) -> Pair:
     return Pair(a.card_id, b.card_id, tier, overlap, distance, reasons)
 
 
-# ── Grouping ─────────────────────────────────────────────────────────────────
+# -- Grouping -----------------------------------------------------------------
 
 
 def group_strong_edges(pairs: Iterable[Pair]) -> list[list[str]]:

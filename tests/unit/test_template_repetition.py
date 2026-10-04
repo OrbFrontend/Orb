@@ -2,18 +2,18 @@
 Tests for template_repetition detection.
 
 Organised into:
-  - TRUE POSITIVES  – repetitive templates across paragraphs we *want* to catch
-  - FALSE POSITIVES – legitimate variation that should *not* trigger
-  - EDGE CASES      – boundary inputs
+  - TRUE POSITIVES  - repetitive templates across paragraphs we *want* to catch
+  - FALSE POSITIVES - legitimate variation that should *not* trigger
+  - EDGE CASES      - boundary inputs
 """
 
 import pytest
 
 from backend.analysis.detectors.template_repetition import detect_template_repetition
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRUE POSITIVES – repetitive templates across paragraphs that should be flagged
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# TRUE POSITIVES - repetitive templates across paragraphs that should be flagged
+# ===============================================================================
 
 
 class TestTruePositives:
@@ -73,9 +73,9 @@ class TestTruePositives:
         assert any("in the beginning" in ft.template for ft in flagged)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FALSE POSITIVES – legitimate variation that should NOT trigger
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# FALSE POSITIVES - legitimate variation that should NOT trigger
+# ===============================================================================
 
 
 class TestFalsePositives:
@@ -102,9 +102,9 @@ class TestFalsePositives:
         assert len(result.flagged_templates) == 0
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestEdgeCases:

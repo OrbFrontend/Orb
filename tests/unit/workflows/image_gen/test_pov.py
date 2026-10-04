@@ -1,6 +1,6 @@
 """Camera resolution: the three levers, and the grid math behind the classifier.
 
-No model and no network — `local_ml.aclassify_pov` is monkeypatched everywhere, and
+No model and no network -- `local_ml.aclassify_pov` is monkeypatched everywhere, and
 the grid math is exercised through the pure `pov_from_logits`.
 """
 

@@ -17,10 +17,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FE = ROOT / "frontend"
 
-# ── 1. Layer manifest ────────────────────────────────────────────────────────
+# -- 1. Layer manifest --------------------------------------------------------
 # Lower number = lower layer. A file may import its own layer or lower.
 LAYERS = {
-    # L0 core leaves — import nothing.
+    # L0 core leaves -- import nothing.
     "api.js": 0,
     "errors.js": 0,
     "document_saves.js": 0,
@@ -130,7 +130,7 @@ LAYERS = {
     "workflow_api.js": 6,
 }
 
-# ── 4. Frozen ABI ────────────────────────────────────────────────────────────
+# -- 4. Frozen ABI ------------------------------------------------------------
 # workflow_api.js's complete export surface, additive-only. A rename or removal fails; a genuinely new export is added here in
 # the same commit -- and, because that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with it. The check
 # below reads that constant back so the number cannot drift from the surface it describes.
@@ -211,7 +211,7 @@ FROZEN_ABI = {
     "refreshLocalMlStatus",
 }
 
-# ── Parsing helpers ──────────────────────────────────────────────────────────
+# -- Parsing helpers ----------------------------------------------------------
 # Matches `import ... from "path"` and re-export `export ... from "path"`.
 _IMPORT_FROM = re.compile(r'(?:import|export)\b[^;]*?\bfrom\s+["\']([^"\']+)["\']', re.DOTALL)
 _SIDE_EFFECT_IMPORT = re.compile(r'\bimport\s+["\']([^"\']+)["\']')
@@ -461,7 +461,7 @@ def main() -> int:
                 )
 
     # 4. ABI snapshot: workflow_api.js exports must equal FROZEN_ABI. Only real
-    # `export` statements count — NOT the `import {...}` blocks above them (the facade imports the same names it re-exports).
+    # `export` statements count -- NOT the `import {...}` blocks above them (the facade imports the same names it re-exports).
     api_text = (FE / "workflow_api.js").read_text(encoding="utf-8")
     exports = set(_EXPORT_DECL.findall(api_text))
     # Re-export blocks: `export { a, b as c };` and `export { a } from "...";`.

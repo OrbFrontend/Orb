@@ -2,7 +2,7 @@
 both transports.
 
 The chat fallback calls ``complete()`` with no tools/tool_choice, which ``_pass_from_tool_choice`` routes to the **writer**
-queue — so chat-mode doc tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
+queue -- so chat-mode doc tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ async def test_generate_text_mode(client, llm_mock):
 
 
 async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
-    # assisted:true in text mode → parse_doc_macros → complete() (writer queue),
+    # assisted:true in text mode -> parse_doc_macros -> complete() (writer queue),
     # NOT complete_raw. The mock sees the parsed multi-turn shape + open prefill.
     await _activate_text_endpoint(client)
     did = await client.create("/api/documents", json={})
@@ -142,7 +142,7 @@ async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
 
 
 async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
-    # assisted:true on a chat endpoint → prefill closed as an assistant turn +
+    # assisted:true on a chat endpoint -> prefill closed as an assistant turn +
     # a re-anchor user turn (chat transport can't hold an open prefill).
     did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" continued.")
@@ -180,11 +180,11 @@ async def test_generate_preserves_newlines(client, llm_mock):
 
 async def test_stop_with_and_without_active_token(client):
     did = await client.create("/api/documents", json={})
-    # no active generation → still a clean 200, saying nothing was running
+    # no active generation -> still a clean 200, saying nothing was running
     assert (await client.post("/api/documents/" + did + "/stop")).json() == {"ok": True, "active": False, "settled": True}
 
 
-# ── token_probs wire: `event: probs` frames ───────────────────────────────────
+# -- token_probs wire: `event: probs` frames -----------------------------------
 
 # Mock token records live on a separate channel from the text; keep their token strings newline-free so the test-only _parse_sse
 # (which unescapes \n on every frame, unlike the real reader) doesn't corrupt the probs JSON.
@@ -228,7 +228,7 @@ async def test_generate_chat_mode_probs_frames(client, llm_mock):
 
 
 async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
-    # Probs enqueued, but token_probs omitted → the continuer sends no n_probs, so
+    # Probs enqueued, but token_probs omitted -> the continuer sends no n_probs, so
     # the mock (like a real server) returns none; the wire carries only tokens.
     await _activate_text_endpoint(client)
     did = await client.create("/api/documents", json={})
@@ -242,7 +242,7 @@ async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
 
 async def test_generate_done_event_carries_finish_json(client, llm_mock):
     # The done frame is a JSON dict {"finish": ...} (like the probs channel);
-    # the mock's done message carries no finish_reason → empty string.
+    # the mock's done message carries no finish_reason -> empty string.
     did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer("some text")
     r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
@@ -251,7 +251,7 @@ async def test_generate_done_event_carries_finish_json(client, llm_mock):
     assert json.loads(done["data"]) == {"finish": ""}
 
 
-# ── Output Auditor: /audit + /patch ───────────────────────────────────────────
+# -- Output Auditor: /audit + /patch -------------------------------------------
 
 _BANNED = "shivers down her spine"
 
@@ -289,7 +289,7 @@ async def test_audit_flags_seeded_phrase(client):
 
 
 async def test_audit_truncated_excludes_tail(client):
-    # The banned phrase lives in the dangling half-sentence of a stopped run —
+    # The banned phrase lives in the dangling half-sentence of a stopped run --
     # trimmed before scanning, so the report is clean and the tail flagged as excluded.
     await _seed_phrase(client)
     did = await client.create("/api/documents", json={})

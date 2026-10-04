@@ -63,7 +63,7 @@ SPEAKING_PLAN_SCHEMA_DESCRIPTION = (
 def speaking_plan_instruction(speaker_keys: str) -> str:
     """The live half: which keys are castable *this* exchange, for the trailing message.
 
-    The mirror of the editor's numbered issues — the volatile list is stated in prose on the per-call tail and validated
+    The mirror of the editor's numbered issues -- the volatile list is stated in prose on the per-call tail and validated
     server-side (``cast.parse_speaking_plan``), never expressed as a schema override. It also reaches strictly more of the
     pipeline there: text mode never renders tool schemas at all, and the per-fragment step prompt only echoes a field's *stage*
     description, so the roster used to be invisible on both paths.
@@ -140,7 +140,7 @@ def _step_schema(tool_schema: dict, keep: str, stage: Mapping[str, Any] | None =
     """Single-field variant of the ``direct_scene`` parameters for one step call.
 
     Passed as the per-call ``json_schema`` decoding constraint so the model physically cannot fill any field but the step's
-    target — text mode applies it to the grammar (prompt bytes and KV cache untouched); the chat transport drops it and relies
+    target -- text mode applies it to the grammar (prompt bytes and KV cache untouched); the chat transport drops it and relies
     on the post-parse filter in the loop below. *stage* is the step's fragment, whose description the names-only blob does not
     carry; the speaking plan's synthetic stage keeps the blob's own text.
     """
@@ -251,7 +251,7 @@ async def director_pass(
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + state_block + "\n\n") if state_block else ""
     # Already-settled facts the Director plans *around*, so they ride the context section of the tail rather than the
-    # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) — a rolled outcome reaches
+    # instruction. Nothing about probabilities or dice is in the block (see passes/judge/guidance.py) -- a rolled outcome reaches
     # the model as the story constraint its author wrote.
     decisions_prefix = ("___\n\n" + decision_guidance + "\n\n") if decision_guidance else ""
 
@@ -328,7 +328,7 @@ async def director_pass(
                     logger.info("Agent tool=direct_scene target=%s: model skipped", target)
                     continue
                 # The model often fills fields besides the step's target despite the "Fill ONLY" instruction (the byte-stable
-                # schema still offers them all). Only the target is kept below, so strip the extras from the recorded call too —
+                # schema still offers them all). Only the target is kept below, so strip the extras from the recorded call too --
                 # otherwise the inspector/tool-call log shows every step re-deciding fragments already settled earlier.
                 keep = "moods" if stage is None else stage["id"]
                 for tc in parsed:
@@ -422,7 +422,7 @@ async def director_pass(
 def _resolve_random_in_value(value: Any) -> Any:
     """Resolve inline macros in a director-authored field value, fresh rolls.
 
-    The director authored the value this turn, so a {{random}}/{{roll}} it emits re-rolls on every emission — unlike fragment
+    The director authored the value this turn, so a {{random}}/{{roll}} it emits re-rolls on every emission -- unlike fragment
     source text, whose picks are pinned in the per-conversation choice map. String values and all-string lists (array fields)
     are resolved; anything else passes through untouched.
     """

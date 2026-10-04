@@ -2,18 +2,18 @@
 Tests for opening_monotony detection.
 
 Organised into:
-  - TRUE POSITIVES  – repetitive consecutive sentence openings we *want* to catch
-  - FALSE POSITIVES – legitimate variation that should *not* trigger
-  - EDGE CASES      – boundary inputs
+  - TRUE POSITIVES  - repetitive consecutive sentence openings we *want* to catch
+  - FALSE POSITIVES - legitimate variation that should *not* trigger
+  - EDGE CASES      - boundary inputs
 """
 
 import pytest
 
 from backend.analysis.detectors.opening_monotony import detect_opening_monotony
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TRUE POSITIVES – repetitive consecutive openings that should be flagged
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# TRUE POSITIVES - repetitive consecutive openings that should be flagged
+# ===============================================================================
 
 
 class TestTruePositives:
@@ -100,9 +100,9 @@ class TestTruePositives:
         assert he_flag[0].max_run == 4
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FALSE POSITIVES – legitimate variation that should NOT trigger
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# FALSE POSITIVES - legitimate variation that should NOT trigger
+# ===============================================================================
 
 
 class TestFalsePositives:
@@ -111,13 +111,13 @@ class TestFalsePositives:
     @pytest.mark.parametrize(
         ("text", "n_words"),
         [
-            # Two identical openers in a row — below the threshold of 4.
+            # Two identical openers in a row -- below the threshold of 4.
             ("He walked. He ran. The cat slept.", 1),
             # Same opener 3+ times but never consecutively.
             ("He walked. The cat slept. He ran. The dog barked. He jumped.", 1),
             # No repetition at all.
             ("I went home. She ate pizza. They played games.", 1),
-            # Same first word, different second — distinct 2-word openers.
+            # Same first word, different second -- distinct 2-word openers.
             ("He walked slowly. He ran fast. He jumped high.", 2),
         ],
         ids=[
@@ -131,7 +131,7 @@ class TestFalsePositives:
         assert detect_opening_monotony(text, n_words=n_words).flagged_openers == []
 
     def test_realistic_narrative_dialogue_does_not_protect_run(self):
-        """Dialogue between 'He' sentences is ignored — the run is still detected."""
+        """Dialogue between 'He' sentences is ignored -- the run is still detected."""
         text = (
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
@@ -145,7 +145,7 @@ class TestFalsePositives:
         )
         result = detect_opening_monotony(text, n_words=1)
         # After stripping dialogue, narration is: Henderson..., He doesn't look...,
-        # He rubs (attribution), He shifts, He waits — 4 consecutive 'he' sentences.
+        # He rubs (attribution), He shifts, He waits -- 4 consecutive 'he' sentences.
         assert len(result.flagged_openers) >= 1
         assert result.flagged_openers[0].opener == "he"
         assert result.flagged_openers[0].max_run >= 4
@@ -158,9 +158,9 @@ class TestFalsePositives:
         assert result.all_openers == {}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestEdgeCases:
@@ -223,9 +223,9 @@ class TestEdgeCases:
         assert he_flag[0].count == 5
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # AUDIT INTEGRATION TESTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestAuditIntegration:

@@ -131,7 +131,7 @@ def prefilter_terms(shape: Shape) -> tuple[str, ...]:
 
 
 def shape_label(shape: Shape) -> str:
-    """Readable shape: slots as ``…`` and pronouns as "she", without ``^`` or ``.``."""
+    """Readable shape: slots as ellipses (U+2026) and pronouns as "she", without ``^`` or ``.``."""
     if shape.literal:
         return " ".join(shape.tokens).capitalize() + "."
     parts: list[str] = []
@@ -156,7 +156,7 @@ def _filler(text: str | None) -> str:
     return _FILLER_SPACE.sub(" ", fold(text or "")).strip()
 
 
-# ── scoring a regex against the sentence corpus ─────────────────────────────
+# -- scoring a regex against the sentence corpus -----------------------------
 
 
 @dataclass(slots=True)

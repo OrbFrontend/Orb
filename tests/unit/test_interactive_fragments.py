@@ -12,7 +12,7 @@ from backend.pipeline.passes.state import build_state_request, entry_aliases
 from backend.prompting import build_style_injection, compute_style_injection_block
 from backend.prompting.tool_schemas import build_direct_scene_tool, build_feedback_tool, build_state_tool
 
-# ── build_direct_scene_tool ──────────────────────────────────────────────────
+# -- build_direct_scene_tool --------------------------------------------------
 
 
 class TestBuildDirectSceneTool:
@@ -98,7 +98,7 @@ class TestBuildDirectSceneTool:
                 assert frag["id"] in props
 
 
-# ── build_feedback_tool ──────────────────────────────────────────────────────
+# -- build_feedback_tool ------------------------------------------------------
 
 
 class TestBuildFeedbackTool:
@@ -143,7 +143,7 @@ class TestBuildFeedbackTool:
         assert tool["function"]["parameters"]["required"] == []
 
 
-# ── field_type split: writer vs feedback fragments ────────────────────────────
+# -- field_type split: writer vs feedback fragments ----------------------------
 
 
 class TestFieldTypeSplit:
@@ -179,7 +179,7 @@ class TestFieldTypeSplit:
         assert "plot" not in props
 
 
-# ── extract_feedback_values ──────────────────────────────────────────────────
+# -- extract_feedback_values --------------------------------------------------
 
 
 class TestExtractFeedbackValues:
@@ -199,7 +199,7 @@ class TestExtractFeedbackValues:
         assert extract_feedback_values(calls) == {}
 
 
-# ── apply_tool_calls ─────────────────────────────────────────────────────────
+# -- apply_tool_calls ---------------------------------------------------------
 
 MOOD_IDS = {"tense", "talkative"}
 
@@ -252,7 +252,7 @@ class TestApplyToolCalls:
         assert moods == ["existing-mood"]
 
 
-# ── build_style_injection ────────────────────────────────────────────────────
+# -- build_style_injection ----------------------------------------------------
 
 
 class TestBuildStyleInjection:
@@ -331,14 +331,14 @@ class TestBuildStyleInjection:
         assert result.index("A Label") < result.index("B Label")
 
     def test_moods_rendered_before_interactive(self):
-        # Moods first, interactive last (recency → writer attention).
+        # Moods first, interactive last (recency -> writer attention).
         active = [{"id": "tense", "prompt_text": "Write with tension.", "negative_prompt": ""}]
         frags = [{"id": "next_event", "field_type": "string", "injection_label": "Next event", "sort_order": 0}]
         result = build_style_injection(active, interactive_fragments=frags, extra_fields={"next_event": "She escapes."})
         assert result.index("Write with tension.") < result.index("Next event: She escapes.")
 
 
-# ── compute_style_injection_block ────────────────────────────────────────────
+# -- compute_style_injection_block --------------------------------------------
 
 
 class TestComputeStyleInjectionBlock:
@@ -389,7 +389,7 @@ class TestComputeStyleInjectionBlock:
         assert "- castle" in result
 
 
-# ── SEED_INTERACTIVE_FRAGMENTS sanity ───────────────────────────────────────────
+# -- SEED_INTERACTIVE_FRAGMENTS sanity -------------------------------------------
 
 
 class TestSeedInteractiveFragments:

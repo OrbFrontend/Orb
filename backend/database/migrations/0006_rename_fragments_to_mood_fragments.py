@@ -7,7 +7,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     # Check if the old fragments table exists.
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fragments'")
     if cursor.fetchone() is None:
-        # No old table — nothing to migrate (already using mood_fragments).
+        # No old table -- nothing to migrate (already using mood_fragments).
         return
 
     # Check if mood_fragments already exists.

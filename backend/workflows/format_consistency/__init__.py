@@ -22,7 +22,7 @@ WORKFLOW = Workflow(
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,
     # Negative priority makes the deterministic markup normalizer run before TTS's
-    # post hook (priority 0), so TTS — and any future artifact hook — synthesizes
+    # post hook (priority 0), so TTS -- and any future artifact hook -- synthesizes
     # from the normalized text rather than the raw draft.
     subscriptions=[subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=-10)],
 )

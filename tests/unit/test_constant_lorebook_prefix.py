@@ -113,7 +113,7 @@ def test_trailing_block_excludes_constant():
     assert "Canon" not in block
 
 
-# ── at_depth (@ Depth) ───────────────────────────────────────────────────────
+# -- at_depth (@ Depth) -------------------------------------------------------
 
 
 def test_at_depth_constant_leaves_the_prefix():
@@ -134,7 +134,7 @@ def test_depth_block_holds_only_at_depth_constants():
 
 def test_at_depth_entry_never_reaches_the_keyword_block():
     # It is `constant`, so the trailing keyword/director block must skip it even
-    # when a message happens to mention it — no double injection.
+    # when a message happens to mention it -- no double injection.
     msgs = [{"role": "user", "content": "roll the Dice"}]
     assert "Dice" not in compute_lorebook_injection_block(msgs, [_AT_DEPTH])
 

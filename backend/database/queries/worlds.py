@@ -103,7 +103,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
             vals.append(_now())
             vals.append(world_id)
             await db.execute(
-                f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()
@@ -220,7 +220,7 @@ def _entry_insert_values(world_id: str, data: Mapping[str, Any], now: str) -> tu
 
 
 _ENTRY_INSERT_SQL = (
-    f"INSERT INTO lorebook_entries ({', '.join(_ENTRY_INSERT_COLUMNS)})"  # nosec B608 — column names are a module constant
+    f"INSERT INTO lorebook_entries ({', '.join(_ENTRY_INSERT_COLUMNS)})"  # nosec B608 -- column names are a module constant
     f" VALUES ({', '.join('?' * len(_ENTRY_INSERT_COLUMNS))})"
 )
 
@@ -310,7 +310,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             vals.append(_now())
             vals.append(entry_id)
             await db.execute(
-                f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await bump_revision(db, existing["world_id"])
@@ -483,7 +483,7 @@ async def get_world_changesets(world_id: str, *, statuses: Sequence[str] | None 
         unknown = [s for s in statuses if s not in CHANGESET_STATUSES]
         if unknown:
             raise ValueError(f"unknown changeset status(es) {unknown!r}")
-        sql += f" AND status IN ({', '.join('?' * len(statuses))})"  # nosec B608 — values parameterised, count only
+        sql += f" AND status IN ({', '.join('?' * len(statuses))})"  # nosec B608 -- values parameterised, count only
         params.extend(statuses)
     sql += " ORDER BY id DESC"
     rows = await select_rows(sql, tuple(params))
@@ -502,7 +502,7 @@ async def count_pending_changesets(world_ids: Sequence[str] | None = None) -> di
     if world_ids is not None:
         if not world_ids:
             return {}
-        sql += f" AND world_id IN ({', '.join('?' * len(world_ids))})"  # nosec B608 — values parameterised, count only
+        sql += f" AND world_id IN ({', '.join('?' * len(world_ids))})"  # nosec B608 -- values parameterised, count only
         params = tuple(world_ids)
     sql += " GROUP BY world_id"
     rows = await select_rows(sql, params)
@@ -518,7 +518,7 @@ async def get_changesets_for_messages(message_ids: Sequence[int]) -> list[WorldC
         return []
     placeholders = ", ".join("?" * len(message_ids))
     rows = await select_rows(
-        f"SELECT * FROM world_changesets WHERE source_assistant_message_id IN ({placeholders}) ORDER BY id DESC",  # nosec B608 — values parameterised, count only
+        f"SELECT * FROM world_changesets WHERE source_assistant_message_id IN ({placeholders}) ORDER BY id DESC",  # nosec B608 -- values parameterised, count only
         tuple(message_ids),
     )
     return [_parse_changeset(r) for r in rows]
@@ -560,7 +560,7 @@ async def update_world_changeset(
                 where += f" AND status IN ({', '.join('?' * len(expected_statuses))})"
                 vals.extend(expected_statuses)
             cur = await db.execute(
-                f"UPDATE world_changesets SET {', '.join(sets)} WHERE {where}",  # nosec B608 — cols/status count from hardcoded allowlists
+                f"UPDATE world_changesets SET {', '.join(sets)} WHERE {where}",  # nosec B608 -- cols/status count from hardcoded allowlists
                 vals,
             )
             if expected_statuses and cur.rowcount != 1:
@@ -596,7 +596,7 @@ async def mark_changesets_stale_for_messages(message_ids: Sequence[int]) -> int:
     placeholders = ", ".join("?" * len(message_ids))
     async with get_db() as db:
         cur = await db.execute(
-            f"UPDATE world_changesets SET status = 'stale', decided_at = ? WHERE status = 'pending'"  # nosec B608 — values parameterised, count only
+            f"UPDATE world_changesets SET status = 'stale', decided_at = ? WHERE status = 'pending'"  # nosec B608 -- values parameterised, count only
             f" AND (source_assistant_message_id IN ({placeholders}) OR source_user_message_id IN ({placeholders}))",
             (_now(), *message_ids, *message_ids),
         )
@@ -717,7 +717,7 @@ async def _apply_one(db, world_id: str, op: Mapping[str, Any], now: str) -> tupl
         sets.extend(["entry_revision = entry_revision + 1", "updated_at = ?"])
         vals.extend([now, entry_id])
         await db.execute(
-            f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+            f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
             vals,
         )
     elif kind == "archive":

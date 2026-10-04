@@ -3,7 +3,7 @@
 THE PROMPT IS PINNED BYTE-FOR-BYTE because it is a property of the weights, not a setting. It is asserted literally rather than
 rebuilt from the implementation's own f-string, which would agree with any change made to it.
 
-The REPAIRS are pinned against the corpus defect each one exists for and — as importantly — against the near-misses they must
+The REPAIRS are pinned against the corpus defect each one exists for and -- as importantly -- against the near-misses they must
 NOT fire on: an abbreviation is not a sentence boundary and an emoticon is not punctuation spacing.
 """
 
@@ -11,21 +11,21 @@ from __future__ import annotations
 
 from backend.inference.local_models.prose_rewriter import text as T
 
-# ── the prompt ───────────────────────────────────────────────────────────────
+# -- the prompt ---------------------------------------------------------------
 
 
 def test_serve_prompt_is_the_exact_two_block_string():
     assert T.serve_prompt("The rain fell.") == "<|im_start|>source\nThe rain fell.<|im_end|>\n<|im_start|>rewrite\n"
 
 
-# ── plan: what gets rewritten and what is passed through ─────────────────────
+# -- plan: what gets rewritten and what is passed through ---------------------
 
 LONG = "A paragraph with more than eighty bytes in it, comfortably past the trained floor."
 
 
 def test_plan_splits_on_any_newline_run_not_only_blank_lines():
     """The corpus builder split on ``\\n+``, so a single newline is a boundary
-    too — a multi-line block welds the lines together."""
+    too -- a multi-line block welds the lines together."""
     assert T.plan(f"{LONG}\n{LONG}") == [("rewrite", LONG), ("keep", "\n"), ("rewrite", LONG)]
     assert T.plan(f"{LONG}\n\n{LONG}") == [("rewrite", LONG), ("keep", "\n\n"), ("rewrite", LONG)]
 
@@ -44,7 +44,7 @@ def test_plan_keeps_the_separators_so_the_draft_reassembles_whole():
     assert "".join(piece for _kind, piece in plan) == f"{LONG}\n\n\n{LONG}"
 
 
-# ── trim_to_sentence: an unfinished generation ───────────────────────────────
+# -- trim_to_sentence: an unfinished generation -------------------------------
 
 
 def test_trim_cuts_back_to_the_last_completed_sentence():
@@ -67,7 +67,7 @@ def test_trim_returns_empty_when_nothing_ever_ended():
     assert T.trim_to_sentence("no terminal mark here at all") == ""
 
 
-# ── normalise_spacing ────────────────────────────────────────────────────────
+# -- normalise_spacing --------------------------------------------------------
 
 
 def test_horizontal_whitespace_collapses_but_paragraphs_survive():
@@ -91,7 +91,7 @@ def test_space_before_punctuation_closes_up_but_spares_emoticons():
     assert T.normalise_spacing("We ... waited") == "We ... waited"
 
 
-# ── restore_sentence_spacing ─────────────────────────────────────────────────
+# -- restore_sentence_spacing -------------------------------------------------
 
 
 def test_a_welded_boundary_gets_its_space_back_but_abbreviations_do_not():
@@ -108,7 +108,7 @@ def test_the_space_lands_outside_the_quote_it_belongs_to():
     assert T.restore_sentence_spacing('"Stop.""Never."') == '"Stop." "Never."'
 
 
-# ── split_lost_paragraphs ────────────────────────────────────────────────────
+# -- split_lost_paragraphs ----------------------------------------------------
 
 
 def test_a_tight_close_open_weld_becomes_the_paragraph_break_it_was():
@@ -126,7 +126,7 @@ def test_a_line_end_is_wider_than_a_full_stop_but_excludes_the_comma():
     assert T.split_lost_paragraphs('"I know."”So do I.') == '"I know."”So do I.'
 
 
-# ── finish ───────────────────────────────────────────────────────────────────
+# -- finish -------------------------------------------------------------------
 
 
 def test_finish_trims_only_when_the_model_ran_out_of_budget():
@@ -135,7 +135,7 @@ def test_finish_trims_only_when_the_model_ran_out_of_budget():
 
 
 def test_an_unstopped_generation_with_no_finished_sentence_is_kept_whole():
-    """`trim_to_sentence() or text` — emptying the paragraph would be worse."""
+    """`trim_to_sentence() or text` -- emptying the paragraph would be worse."""
     assert T.finish("one long unfinished clause", stopped=False) == "one long unfinished clause"
 
 

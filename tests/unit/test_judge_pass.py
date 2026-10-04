@@ -141,7 +141,7 @@ async def test_imported_decisions_obey_authoring_macro_rules(monkeypatch, overri
     assert gateway.batches == []
 
 
-# ── inline macros ────────────────────────────────────────────────────────────
+# -- inline macros ------------------------------------------------------------
 
 _ROLLING = {
     "decision_state_template": "{{// hidden}}Omen: {{random::a::b::c::d::e::f::g::h}}\n{{last_message}}",
@@ -185,7 +185,7 @@ async def test_seeded_rolls_let_a_regeneration_replay_and_a_new_exchange_reroll(
     assert len(states) > 1
 
 
-# ── the happy path ───────────────────────────────────────────────────────────
+# -- the happy path -----------------------------------------------------------
 
 
 async def test_a_live_answer_resolves_injects_and_records(monkeypatch):
@@ -246,7 +246,7 @@ async def test_publication_order_is_fragment_order(monkeypatch):
     assert [record["fragment_id"] for record in result.evaluations] == ["a", "b", "c"]
 
 
-# ── batching ─────────────────────────────────────────────────────────────────
+# -- batching -----------------------------------------------------------------
 
 
 async def test_identical_states_share_one_request(monkeypatch):
@@ -319,7 +319,7 @@ async def test_one_invalid_sibling_answer_is_isolated(monkeypatch):
     }
 
 
-# ── the raw-answer cache ─────────────────────────────────────────────────────
+# -- the raw-answer cache -----------------------------------------------------
 
 
 async def test_an_identical_question_is_served_from_cache_without_a_request(monkeypatch):
@@ -378,7 +378,7 @@ async def test_an_unanswered_question_is_never_cached(monkeypatch):
     assert len(gateway.batches) == 2
 
 
-# ── decisions that cannot answer ─────────────────────────────────────────────
+# -- decisions that cannot answer ---------------------------------------------
 
 
 async def test_missing_configuration_skips_without_a_request(monkeypatch):
@@ -493,7 +493,7 @@ async def test_a_provider_rejection_skips_without_extra_attempts(monkeypatch):
     assert len(gateway.batches) == 1
 
 
-# ── routine skips ────────────────────────────────────────────────────────────
+# -- routine skips ------------------------------------------------------------
 
 
 async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(monkeypatch):
@@ -510,7 +510,7 @@ async def test_a_resting_decision_is_skipped_with_no_request_and_no_guidance(mon
     assert result.cooldowns == {"outcome": 1}
 
 
-# ── budgets ──────────────────────────────────────────────────────────────────
+# -- budgets ------------------------------------------------------------------
 
 
 async def test_over_budget_decisions_are_skipped_and_stay_visible(monkeypatch):
@@ -544,7 +544,7 @@ async def test_the_batch_cap_skips_the_rest(monkeypatch):
     assert len(exhausted) == 2
 
 
-# ── cancellation ─────────────────────────────────────────────────────────────
+# -- cancellation -------------------------------------------------------------
 
 
 async def test_a_stop_propagates_rather_than_producing_guidance(monkeypatch):
@@ -564,7 +564,7 @@ async def test_a_stop_before_the_first_request_asks_for_nothing(monkeypatch):
     assert gateway.batches == []
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 
 
 async def _record_for(candidate: DecisionCandidate, monkeypatch, probability: float | ChoiceAnswer | ScoreAnswer = 0.9):
@@ -756,7 +756,7 @@ async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
     assert record["replay_invalidated"] == SkipReason.MISSING_ANCHOR
 
 
-# ── the empty stage ──────────────────────────────────────────────────────────
+# -- the empty stage ----------------------------------------------------------
 
 
 async def test_a_stage_with_no_candidates_still_ages_cooldowns():

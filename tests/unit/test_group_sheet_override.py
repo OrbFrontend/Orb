@@ -1,8 +1,8 @@
-"""``card_sheet_override`` — the scene-local sheet a member reads about itself.
+"""``card_sheet_override`` -- the scene-local sheet a member reads about itself.
 
 The counterpart to ``public_profile_override``: that one is what the rest of the cast sees, this one is what the member reads
 about *itself*. Both resolve on ``is not None`` rather than truthiness, so a deliberate blanking stays distinguishable from an
-absent override — the assertion this file exists for, because the two are one character apart in the source and identical in
+absent override -- the assertion this file exists for, because the two are one character apart in the source and identical in
 every test that only ever passes ``None``.
 """
 
@@ -16,7 +16,7 @@ CARD = {"description": "A scout of the Watch.", "personality": "Terse."}
 def test_an_override_replaces_the_card_join_and_short_circuits_the_card_walk():
     """Not a merge and not an append: the sheet is one block of prose, and a scene that has cut the character's hair needs the
     old text gone, not contradicted two paragraphs later. The card is never consulted, so a member keeps its sheet after its
-    card is deleted — and a cardless narrator, which has nothing to fall back to, can hold one at all.
+    card is deleted -- and a cardless narrator, which has nothing to fall back to, can hold one at all.
     """
     assert resolve_private_sheet(CARD) == "A scout of the Watch.\n\nPersonality: Terse."
     assert resolve_private_sheet(CARD, "A scout, hair shorn, coat burned.") == "A scout, hair shorn, coat burned."

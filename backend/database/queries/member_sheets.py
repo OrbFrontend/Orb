@@ -21,7 +21,7 @@ class SheetProposalConflict(RuntimeError):
     """The member's sheet moved since the proposal was derived from it.
 
     Raised by :func:`apply_sheet_proposal` only. The route turns it into a 409,
-    matching the changeset apply — there is no force-apply here either.
+    matching the changeset apply -- there is no force-apply here either.
     """
 
 
@@ -49,7 +49,7 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
 
 
 async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:
-    """The scene's pending proposals keyed by member — at most one each.
+    """The scene's pending proposals keyed by member -- at most one each.
 
     Read by the staging pass so a fresh exchange can carry an undecided proposal forward rather than competing with it.
     """

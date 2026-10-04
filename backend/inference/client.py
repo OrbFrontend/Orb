@@ -26,7 +26,7 @@ class AbortToken:
     """Shared stop signal for all clients in one turn.
 
     All clients in a turn hold the same token, so calling ``abort()`` once
-    stops every ongoing completion — no per-client fan-out needed.
+    stops every ongoing completion -- no per-client fan-out needed.
     """
 
     def __init__(self) -> None:
@@ -221,7 +221,7 @@ def _done(label: str, message: CompletionMessage, usage: dict | None) -> Complet
 async def _read_error_body(resp: httpx.Response, url: str) -> str:
     """Read and log an HTTP error response's body for upstream detail.
 
-    Streaming responses aren't eagerly read, so ``raise_for_status()`` alone would log only the status line. Never raises — an
+    Streaming responses aren't eagerly read, so ``raise_for_status()`` alone would log only the status line. Never raises -- an
     unreadable body degrades to a placeholder string.
     """
     try:
@@ -413,7 +413,7 @@ class LLMClient:
             # Reasoning prefill needs byte control of the prompt; chat mode has no
             # such seam (the provider owns the reasoning channel).
             params.pop("reasoning_prefill", None)
-            # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
+            # n_probs is a llama.cpp /completion field; a text->chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
             transport = self._complete_chat
@@ -761,7 +761,7 @@ class LLMClient:
                         await line_task
                     except (asyncio.CancelledError, StopAsyncIteration):
                         pass
-                    return  # stop iterating → async-with closes connection cleanly
+                    return  # stop iterating -> async-with closes connection cleanly
 
                 try:
                     line = line_task.result()
@@ -789,7 +789,7 @@ class LLMClient:
         """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``.
 
         *chat_template_kwargs* (e.g. ``{"enable_thinking": False}``) is forwarded so
-        the template renders its own reasoning on/off bytes — see ``_complete_text``.
+        the template renders its own reasoning on/off bytes -- see ``_complete_text``.
         """
         body: dict[str, Any] = {"messages": list(messages)}
         if chat_template_kwargs is not None:
@@ -963,9 +963,9 @@ class LLMClient:
                 yield event
             return
 
-        # Forced tool_choice → grammar-constrain the whole output to the tool's JSON schema. tools is otherwise unused in text
+        # Forced tool_choice -> grammar-constrain the whole output to the tool's JSON schema. tools is otherwise unused in text
         # mode (never rendered). A caller-supplied json_schema narrows the forced grammar per call (e.g. one direct_scene field
-        # per step) — decoding-only, so the prompt bytes and KV cache are untouched.
+        # per step) -- decoding-only, so the prompt bytes and KV cache are untouched.
         schema = text_completion.forced_schema(tools, tool_choice)
         if schema is not None and schema_override is not None:
             schema = schema_override
@@ -1114,7 +1114,7 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
     if not settings.get("endpoint_url"):
         raise EndpointConfigError("No Writer endpoint is selected. Pick an endpoint and its model in the model settings.")
     if settings["endpoint_url"] == "claude-code://local":
-        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 — claude_code imports this module
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 -- claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(settings["endpoint_url"]).lower().startswith("claude-code:"):
@@ -1141,7 +1141,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     """
     agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
     if agent_url == "claude-code://local":
-        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 — claude_code imports this module
+        from .claude_code import ClaudeCodeClient  # noqa: PLC0415 -- claude_code imports this module
 
         return ClaudeCodeClient(abort_token=abort_token)
     if str(agent_url).lower().startswith("claude-code:"):
@@ -1201,7 +1201,7 @@ def _preview(text: str, limit: int = 200) -> str:
 
 
 def _balanced_span(text: str, open_ch: str, close_ch: str) -> str | None:
-    """Return the first brace-balanced ``open_ch``…``close_ch`` slice of *text*.
+    """Return the first brace-balanced ``open_ch``...``close_ch`` slice of *text*.
 
     String-aware: braces inside a JSON string literal (and escaped quotes inside one) do not move the depth counter, so a
     payload whose values are prose full of punctuation still closes at the right place. Returns ``None`` when *text* has no
@@ -1235,7 +1235,7 @@ def _balanced_span(text: str, open_ch: str, close_ch: str) -> str | None:
 
 
 def _first_json(text: str, open_ch: str, close_ch: str) -> Any | None:
-    """Decode the first balanced ``open_ch``…``close_ch`` value in *text*, or ``None``."""
+    """Decode the first balanced ``open_ch``...``close_ch`` value in *text*, or ``None``."""
     span = _balanced_span(text, open_ch, close_ch)
     if span is None:
         return None

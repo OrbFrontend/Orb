@@ -155,7 +155,7 @@ def llm_call_error(*, response: httpx.Response, body: str, url: str, model: str,
     *body* is the text ``_read_error_body`` already read and logged; passing it in rather than re-reading matters because a
     streaming response can only be read once.
 
-    ``Response.request`` raises ``RuntimeError`` when the response was constructed without one, so it is never read bare — a
+    ``Response.request`` raises ``RuntimeError`` when the response was constructed without one, so it is never read bare -- a
     synthesized request from *url* keeps the exception well-formed for ``RetryPolicy`` either way.
     """
     clean = redact(body, api_key)[:BODY_LIMIT]

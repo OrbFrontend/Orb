@@ -21,7 +21,7 @@ def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
     """Flatten the per-call tail messages for the console log.
 
     Only the tail is logged: the prefix is byte-identical across every pass of the turn, so printing it once per call is noise.
-    Multimodal parts render as their text, non-text parts as a ``[type]`` marker — never the base64 blob.
+    Multimodal parts render as their text, non-text parts as a ``[type]`` marker -- never the base64 blob.
     """
     out = []
     for m in tail:
@@ -128,7 +128,7 @@ class CachedBase:
     ) -> AsyncIterator[ReasoningDelta]:
         """:meth:`complete`, demuxed the way every agentic pass consumes it.
 
-        Yields only the reasoning deltas — for the pass to forward onto its own event stream — and collects the terminal
+        Yields only the reasoning deltas -- for the pass to forward onto its own event stream -- and collects the terminal
         assembled message into *reply*. *reply* is filled in place rather than returned because an async generator cannot return
         a value; it stays ``{}`` when the call produced no message, which is the "model skipped" shape the passes already
         handle.

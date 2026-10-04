@@ -17,7 +17,7 @@ def resolve(variant_id: str | None) -> ModelVariantSpec | None:
     """The selected variant, or ``None`` when nothing usable is selected.
 
     ``None`` is a supported state, not an error: a fresh install has an empty ``data/models/`` and the feature simply does not
-    run. A stored id that no longer names a registered variant reads the same way rather than raising — the selector is user
+    run. A stored id that no longer names a registered variant reads the same way rather than raising -- the selector is user
     data and a registry bump must not break a turn.
     """
     if not variant_id:

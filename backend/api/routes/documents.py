@@ -74,7 +74,7 @@ async def api_delete_document(did: str):
 async def api_generate_document(did: str, data: DocumentGenerateRequest, request: Request):
     """Stream a continuation of the document prefix from the cursor (SSE).
 
-    Stateless proxy — the client persists generated text; this only reads settings and drives the LLM. 404s an unknown ``did``
+    Stateless proxy -- the client persists generated text; this only reads settings and drives the LLM. 404s an unknown ``did``
     first so garbage ids never mint locks/abort entries.
     """
     if not await get_document(did):
@@ -96,7 +96,7 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
             elif chunk["type"] == "token_probs":
                 # dict data auto-JSON-serialized by sse_stream
                 yield {"event": "probs", "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]}}
-            else:  # done — carries the transport's finish_reason
+            else:  # done -- carries the transport's finish_reason
                 finish = chunk.get("finish_reason") or ""
         # Like `probs`, the done payload is a JSON dict the client must not unescapeSSE. "length" marks a token-budget
         # cutoff (Output Auditor trims the dangling half-sentence before scanning).
@@ -142,7 +142,7 @@ async def api_audit_document(did: str, data: DocumentAuditRequest) -> DocumentAu
 async def api_patch_document(did: str, data: DocumentAuditRequest) -> DocumentPatchResponse:
     """Fix the run's audit findings with one forced editor_apply_patch call.
 
-    Plain JSON (no SSE — patch output is short). The writer endpoint serves
+    Plain JSON (no SSE -- patch output is short). The writer endpoint serves
     the call, consistent with doc mode hiding all Agent config.
     """
     if not await get_document(did):

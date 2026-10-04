@@ -20,7 +20,7 @@ _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _STATE_FUNCTION_NAMES = {"update_state"}
 _WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
 # The library auto-tagger. Named here rather than left to the "workflow" catch-all below because that branch is also the one
-# *exempted* from the tools-blob check — falling into it would mislabel the pass and under-check it at the same time.
+# *exempted* from the tools-blob check -- falling into it would mislabel the pass and under-check it at the same time.
 _AUTO_TAG_FUNCTION_NAMES = {"assign_character_tags"}
 
 
@@ -120,7 +120,7 @@ class FakeLLMClient:
             "auto_tag": [],
             "workflow": [],
         }
-        # Raw text-completion queue (complete_raw, document text mode) — separate from the tool_choice-dispatched chat queues
+        # Raw text-completion queue (complete_raw, document text mode) -- separate from the tool_choice-dispatched chat queues
         # above; keyed by the call, not by a pass. capture prompt+params for assertions. Each entry is {"content": str, "probs":
         # list} so a test can attach per-token probs.
         self._raw_queue: list[dict] = []
@@ -365,7 +365,7 @@ class FakeLLMClient:
 
 
 def _wire(obj: Any) -> str:
-    """Wire-faithful bytes: insertion order preserved, no sort_keys — mirrors
+    """Wire-faithful bytes: insertion order preserved, no sort_keys -- mirrors
     the real client's httpx ``json=body`` serialization. ``kv_tracker``'s
     sorted serializers are for overlap *estimation*; equality here must match
     what the server's prefix matcher sees, and key order matters on the wire."""
@@ -394,7 +394,7 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
         if len(msgs) < 2:
             continue
         # Lane = (server, model): dual-model runs writer and agent on different servers with independent KV caches, and both
-        # auto-provisioned model configs may share a name — the endpoint is what separates the lanes. The third element is the
+        # auto-provisioned model configs may share a name -- the endpoint is what separates the lanes. The third element is the
         # group's identity within that lane: a conversation for a chat pass, the pass itself for a batch lane.
         pass_name = call.get("pass", "")
         identity = f"batch:{pass_name}" if pass_name in _BATCH_PASSES else _wire(msgs[1])

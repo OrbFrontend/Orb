@@ -35,7 +35,7 @@ def _assert_exact(result: NegationResult) -> None:
             cursor = at + len(sentence)
 
 
-# ── 1. Shape positives and ordinary negatives ─────────────────────────────────
+# -- 1. Shape positives and ordinary negatives ---------------------------------
 
 
 @pytest.mark.parametrize(
@@ -207,7 +207,7 @@ def test_word_limits_count_words_not_punctuation():
     assert _first_kind("He didn't answer. Just waits there by the old door with folded hands tonight.") != "split_contrast"
 
 
-# ── 2. Split contrast: conservative forms and measured misses ─────────────────
+# -- 2. Split contrast: conservative forms and measured misses -----------------
 
 
 def test_split_contrast_forms():
@@ -258,7 +258,7 @@ def test_split_contrast_needs_an_affirmative_second_sentence():
     assert _kinds("She doesn't turn. She just keeps painting, and she doesn't turn around.") == [["null_reaction"]]
 
 
-# ── 3. Cascades, chaining, pivots, and the gate ───────────────────────────────
+# -- 3. Cascades, chaining, pivots, and the gate -------------------------------
 
 
 def test_cascade_is_maximal_and_counts_once():
@@ -347,7 +347,7 @@ def test_min_hits_validation_and_counters_below_gate():
     assert detect_negated_narration("").density == 0.0
 
 
-# ── 4. Styles, thoughts, quotes, protected regions, boundaries ────────────────
+# -- 4. Styles, thoughts, quotes, protected regions, boundaries ----------------
 
 
 def test_prose_style_excludes_standalone_thoughts_and_dialogue():
@@ -445,7 +445,7 @@ def test_divider_is_a_barrier():
     assert _kinds("She doesn't move.\n***\nDoesn't breathe.") == [["null_reaction"]]
 
 
-# ── 5. Complete sentence targets ──────────────────────────────────────────────
+# -- 5. Complete sentence targets ----------------------------------------------
 
 
 def test_regression_12196_target_includes_inline_emphasis_payoff():
@@ -481,7 +481,7 @@ def test_double_spaces_unicode_and_outer_markers_are_preserved():
     assert finding.span == "Zoë doesn’t  move.  Doesn’t  breathe. Ñandú just waits."
 
 
-# ── 6. Exact offsets for repeated text ────────────────────────────────────────
+# -- 6. Exact offsets for repeated text ----------------------------------------
 
 
 def test_offsets_for_text_repeated_in_an_earlier_thought():
@@ -501,7 +501,7 @@ def test_offsets_for_repeated_beats():
     assert starts == [0, text.rindex(beat)]
 
 
-# ── 8. Draft-only input and evaluation style ──────────────────────────────────
+# -- 8. Draft-only input and evaluation style ----------------------------------
 
 
 def test_evaluation_reuses_an_explicit_style():

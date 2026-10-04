@@ -117,7 +117,7 @@ class _ThreadChild:
         self._reader: threading.Thread | None = None
 
     async def start(self, argv: Sequence[str]) -> None:
-        self._process = subprocess.Popen(  # noqa: S603 — local executable; request choices use closed argv allowlists
+        self._process = subprocess.Popen(  # noqa: S603 -- local executable; request choices use closed argv allowlists
             list(argv),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

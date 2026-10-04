@@ -1,6 +1,6 @@
 """Unit tests for the regex-based dialogue extractor.
 
-Tests regex_extract() which extracts speakable dialogue from RP text using pure heuristics — zero LLM calls.
+Tests regex_extract() which extracts speakable dialogue from RP text using pure heuristics -- zero LLM calls.
 """
 
 from __future__ import annotations
@@ -275,7 +275,7 @@ class TestBeatEmotionAndTagPropagation:
 
 
 class TestEmDashDialogue:
-    """Em-dash dialogue (—text—) used as fallback when no double quotes."""
+    """Em-dash dialogue (--text--) used as fallback when no double quotes."""
 
     def test_emdash_dialogue_extracted(self):
         text = "—Hello there.—"
@@ -284,7 +284,7 @@ class TestEmDashDialogue:
         assert chunks[0].text == "Hello there."
 
     def test_emdash_fallback_only_when_no_quotes(self):
-        # Double quotes take priority — em-dashes inside quotes are preserved
+        # Double quotes take priority -- em-dashes inside quotes are preserved
         # as part of the dialogue text (they're just punctuation)
         text = '"She said — yes — to me."'
         chunks = regex_extract(text)
@@ -306,7 +306,7 @@ class TestEmptyDialogueSkipped:
     """Empty quoted strings produce no chunks (continue, not break)."""
 
     def test_whitespace_only_quote_skipped_not_break(self):
-        # A quoted string that's only whitespace after strip() → skipped. The next real line must still appear. Using text that
+        # A quoted string that's only whitespace after strip() -> skipped. The next real line must still appear. Using text that
         # doesn't trigger the "" adjacent-match issue:
         text = 'Some text. "   " and then "Real dialogue here."'
         chunks = regex_extract(text)
@@ -324,7 +324,7 @@ class TestBeatConsumed:
         assert len(chunks) == 2
         # First chunk gets the gasp beat emotion (surprised)
         assert chunks[0].emotion == "surprised"
-        # Second chunk: beat was consumed, neutral text → inter-dialogue pause only
+        # Second chunk: beat was consumed, neutral text -> inter-dialogue pause only
         assert chunks[1].pause_before_ms == 300
 
 
@@ -332,11 +332,11 @@ class TestInferEmotionAllCaps:
     """Specifically tests the stripped.isupper() branch."""
 
     def test_all_caps_exactly_four_chars(self):
-        # len > 3, so "STOP" (4 chars) → angry
+        # len > 3, so "STOP" (4 chars) -> angry
         assert _infer_emotion("STOP") == "angry"
 
     def test_all_caps_three_chars_not_angry(self):
-        # len <= 3, so "HEY" → neutral (not angry)
+        # len <= 3, so "HEY" -> neutral (not angry)
         assert _infer_emotion("HEY") == "neutral"
 
 
@@ -347,7 +347,7 @@ class TestExtractBeatActionConjugation:
         assert _extract_beat_action("he moaned") == "moan"
 
     def test_no_false_positive_conjugation(self):
-        # "dances" → rstrip("s") → "dance" → not in BEATS
+        # "dances" -> rstrip("s") -> "dance" -> not in BEATS
         assert _extract_beat_action("she dances") == ""
 
 

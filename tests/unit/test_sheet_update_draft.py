@@ -1,7 +1,7 @@
 """The sheet updater's output contract and prompt.
 
 The sibling of ``test_public_profile_draft.py``, pinning the same three things: what the drafter accepts, what it refuses, and
-what its one call carries. The refusals are the interesting half — this call proposes a replacement for the text the model was
+what its one call carries. The refusals are the interesting half -- this call proposes a replacement for the text the model was
 handed, so "returned what it was given" and "returned an essay" are failures rather than merely poor answers.
 """
 
@@ -49,7 +49,7 @@ async def _propose(message: dict, *, sheet: str = SHEET):
     )
 
 
-# ── Accepted ────────────────────────────────────────────────────────────────
+# -- Accepted ----------------------------------------------------------------
 
 
 async def test_a_reported_change_round_trips_stripped():
@@ -58,7 +58,7 @@ async def test_a_reported_change_round_trips_stripped():
 
 
 async def test_no_change_is_the_cheap_answer_and_stages_nothing():
-    """The common case, and the one that must be easy to express — a model with
+    """The common case, and the one that must be easy to express -- a model with
     a tool it has to call will invent a change to fill it otherwise."""
     assert await _propose(_call(changed=False)) is None
     # Not even when it fills the fields anyway: `changed` is the decision.
@@ -67,7 +67,7 @@ async def test_no_change_is_the_cheap_answer_and_stages_nothing():
 
 async def test_a_missing_summary_costs_a_label_not_the_proposal():
     """The review row shows both sheets in full, so the summary is a
-    convenience — losing the whole proposal over it would be the wrong trade."""
+    convenience -- losing the whole proposal over it would be the wrong trade."""
     update = await _propose(_call(changed=True, sheet="A shorn scout."))
     assert update is not None and update["summary"] == ""
 
@@ -78,7 +78,7 @@ async def test_an_over_long_summary_is_trimmed_rather_than_refused():
     assert update is not None and len(update["summary"].split(" ")) == MAX_SUMMARY_WORDS
 
 
-# ── Refused ─────────────────────────────────────────────────────────────────
+# -- Refused -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -116,7 +116,7 @@ async def test_an_answer_with_no_usable_call_is_unavailable(message):
         await _propose(message)
 
 
-# ── The call ────────────────────────────────────────────────────────────────
+# -- The call ----------------------------------------------------------------
 
 
 async def test_the_call_is_forced_and_not_at_the_writing_preset():

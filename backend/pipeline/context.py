@@ -228,7 +228,7 @@ async def resolve_card_and_persona(
 ) -> tuple[CharacterCardRow | None, UserPersonaRow | None]:
     """Fetch the conversation's card and resolve the effective persona row.
 
-    Applies the same conversation-pin → card-pin → global precedence as generation (:func:`resolve_persona_id`), so callers
+    Applies the same conversation-pin -> card-pin -> global precedence as generation (:func:`resolve_persona_id`), so callers
     estimating or summarizing stay consistent with the prompt that is actually sent.
     """
     card_id = conv.get("character_card_id")
@@ -310,7 +310,7 @@ def build_prefixes(
     """Build the writer prefix and optional agent prefix for a turn.
 
     Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in single-model mode. *extra_system_blocks* from
-    pre-pipeline hooks are applied to both so the system body stays identical across all passes — and so is *speaker*, or the
+    pre-pipeline hooks are applied to both so the system body stays identical across all passes -- and so is *speaker*, or the
     Editor's agent lane would see a different cast than the Writer it is auditing.
     """
     prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks, speaker=speaker)

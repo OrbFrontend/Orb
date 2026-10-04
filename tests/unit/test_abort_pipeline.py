@@ -4,7 +4,7 @@ Verifies that aborting during the director pass prevents the writer pass from fi
 prevents the editor pass from firing.
 
 Also verifies the error-abort corner case: a genuine error in any of the three passes aborts the pipeline (the exception
-propagates out of ``run_pipeline``) rather than being swallowed, so a failed pass ends the turn just like a manual abort does —
+propagates out of ``run_pipeline``) rather than being swallowed, so a failed pass ends the turn just like a manual abort does --
 never producing a half-processed draft.
 """
 
@@ -134,7 +134,7 @@ class TestErrorAborts:
 
         async def mock_director(*args, **kwargs):
             raise RuntimeError("director endpoint exploded")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover -- makes this an async generator
 
         async def mock_writer(*args, **kwargs):
             writer_calls[0] += 1
@@ -170,7 +170,7 @@ class TestErrorAborts:
 
         async def mock_editor(*args, **kwargs):
             raise RuntimeError("editor endpoint exploded")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover -- makes this an async generator
 
         # editor_apply_patch is not a Director-loop tool, so the Director is skipped;
         # phrase_bank being non-None makes do_edit=True over the Writer draft.
@@ -216,7 +216,7 @@ class TestErrorAborts:
         async def mock_editor(*args, **kwargs):
             client.abort()
             raise RuntimeError("stream closed by stop")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover -- makes this an async generator
 
         settings = {
             "model_name": "test",
@@ -343,13 +343,13 @@ class TestStoppedTurnPersistence:
 
         async def cut_short(_ctx):
             raise RuntimeError("stream closed by stop")
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover -- makes this an async generator
 
         async def save_failed(_ctx):
             error = RuntimeError("database is locked")
             mark_stage(error, STAGE_SAVE)
             raise error
-            yield  # pragma: no cover — makes this an async generator
+            yield  # pragma: no cover -- makes this an async generator
 
         stopped = [e async for e in entrypoints._run_turn_handler("c1", token, cut_short, log_label="Test")]
         failed = [e async for e in entrypoints._run_turn_handler("c1", token, save_failed, log_label="Test")]

@@ -20,7 +20,7 @@ test("a well-formed attachment gets its data URL", () => {
 });
 
 test("a MIME type that is not one yields no URL at all", () => {
-  // `image/png" onerror="…` used to be interpolated straight into src=".
+  // `image/png" onerror="...` used to be interpolated straight into src=".
   for (const mime of [
     'image/png" onerror="alert(1)',
     "image/png;charset=x",

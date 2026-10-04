@@ -38,7 +38,7 @@ async def update_director_state(cid: str, active_moods: list, keywords: list | N
     vals.append(cid)
     async with get_db() as db:
         await db.execute(
-            f"UPDATE director_state SET {', '.join(sets)} WHERE conversation_id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+            f"UPDATE director_state SET {', '.join(sets)} WHERE conversation_id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
             vals,
         )
         await db.commit()

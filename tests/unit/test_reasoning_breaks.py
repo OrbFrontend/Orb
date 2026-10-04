@@ -137,7 +137,7 @@ async def test_editor_iterations_land_in_the_buffer_as_separate_paragraphs():
         }
 
     client.complete = fake_complete
-    # 3 issues → 2 issues → clean, producing two editor calls.
+    # 3 issues -> 2 issues -> clean, producing two editor calls.
     audits = iter(
         [_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]), _report(["Sentence 1.", "Sentence 2."]), _report([])]
     )

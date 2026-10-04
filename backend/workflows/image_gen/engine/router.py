@@ -19,14 +19,14 @@ try:
 
     _COMFY = ExternalComfyAdapter
     _REGISTRY[ExternalComfyAdapter.source_id] = ExternalComfyAdapter
-except ImportError:  # pragma: no cover — httpx is a hard dependency today
+except ImportError:  # pragma: no cover -- httpx is a hard dependency today
     logger.info("httpx not installed — external ComfyUI image backend disabled")
 
 try:
     from .adapters.openai_image import OpenAICompatibleImageAdapter
 
     _REGISTRY[OpenAICompatibleImageAdapter.source_id] = OpenAICompatibleImageAdapter
-except ImportError:  # pragma: no cover — httpx is a hard dependency today
+except ImportError:  # pragma: no cover -- httpx is a hard dependency today
     logger.info("httpx not installed — cloud API image backend disabled")
 
 _FALLBACK = "external_comfy"
@@ -42,7 +42,7 @@ def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAda
     """
     source, _ = style_source(config, style)
     cls = _REGISTRY.get(source) or _REGISTRY.get(_FALLBACK)
-    if cls is None:  # pragma: no cover — the fallback adapter has no optional deps
+    if cls is None:  # pragma: no cover -- the fallback adapter has no optional deps
         raise RuntimeError("No image generation backend is available")
     if source not in _REGISTRY:
         logger.warning("unknown image source %r; falling back to %s", source, cls.source_id)
@@ -51,7 +51,7 @@ def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAda
 
 def comfy_adapter(config: Mapping[str, Any], style: Mapping[str, Any] | None = None) -> ExternalComfyAdapter:
     """Return the ComfyUI adapter, optionally bound to a style."""
-    if _COMFY is None:  # pragma: no cover — the ComfyUI adapter has no optional deps
+    if _COMFY is None:  # pragma: no cover -- the ComfyUI adapter has no optional deps
         raise RuntimeError("The external ComfyUI backend is unavailable")
     return _COMFY(config, style)
 

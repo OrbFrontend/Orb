@@ -60,7 +60,7 @@ async def test_lorebook_export_round_trip(client, db):
 async def test_import_world_info_file_maps_at_depth(client, db):
     """A standalone World Info export (entries as an object, `position: 4` = @ Depth).
 
-    This is the shape community "rules module" lorebooks ship in — always-on
+    This is the shape community "rules module" lorebooks ship in -- always-on
     entries injected after the latest message so their {{roll}} macros re-roll.
     """
     world = (await client.post("/api/worlds", json={"name": "V20"})).json()

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
 # The search API serves at most 100k results and returns empty pages past them,
-# whatever the sort or query — the ceiling for a random page.
+# whatever the sort or query -- the ceiling for a random page.
 _CHUB_MAX_RESULTS = 100_000
 # The detail API 403s a bare "Mozilla/5.0"; a full browser UA passes.
 _CHUB_SITE_HEADERS = {
@@ -96,7 +96,7 @@ async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeou
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
     """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
 
-    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` — the PNG itself doubles as the avatar, and ``card_id`` is the
+    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` -- the PNG itself doubles as the avatar, and ``card_id`` is the
     embedded orb id when present, else a stable hash of the bytes so re-importing the same card relinks history.
     """
     if not content[:8].startswith(b"\x89PNG"):
@@ -126,7 +126,7 @@ def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, 
 async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | None, str | None, bytes]:
     """Best-effort fetch of a card's avatar image from a CDN URL.
 
-    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken avatar degrades to ``(None, None, b"")`` — it must
+    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken avatar degrades to ``(None, None, b"")`` -- it must
     not block importing the card text.
     """
     if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
@@ -216,7 +216,7 @@ async def _randomize_characterhub(q: str) -> dict:
 async def _chub_expression_pack(full_path: str) -> dict | None:
     """Best-effort fetch of a CharacterHub card's expression pack.
 
-    The pack (``{compressed, expressions}``) lives only in the detail API — the CDN card PNG carries ``expressions: null`` — so
+    The pack (``{compressed, expressions}``) lives only in the detail API -- the CDN card PNG carries ``expressions: null`` -- so
     we fetch it separately and let the caller merge it into the card's extensions. Never raises: expressions are a nice-to-have
     and must not block importing the card.
     """
@@ -534,7 +534,7 @@ async def _browse_wyvern(q: str, page: int) -> dict:
 async def _randomize_wyvern(q: str) -> dict:
     """Surface a random batch of cards from Wyvern.
 
-    Wyvern has no native random sort, so — like the CharacterHub randomizer — we jump to a random page of the (optionally
+    Wyvern has no native random sort, so -- like the CharacterHub randomizer -- we jump to a random page of the (optionally
     query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
     even when a query narrows the catalog to a handful of pages.
     """

@@ -128,7 +128,7 @@ export function resetChatUI() {
   renderMessages();
   renderInspector();
   renderWorldsSidebar();
-  updateUserBtn(); // no active character → drop any locked-to-character icon
+  updateUserBtn(); // no active character -> drop any locked-to-character icon
 }
 
 export async function selectChar(id, source = "recent") {

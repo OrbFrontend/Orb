@@ -73,7 +73,7 @@ __all__ = [
 ]
 
 
-# The 28 go-emotions labels in standard id2label order (neutral last, index 27). Order MUST match the GGUF head's logit order —
+# The 28 go-emotions labels in standard id2label order (neutral last, index 27). Order MUST match the GGUF head's logit order --
 # the classifier reads argmax(v[0:28]) and maps back through this tuple. Also the standard expression-pack label set.
 GO_EMOTIONS: tuple[str, ...] = (
     "admiration",
@@ -131,7 +131,7 @@ def _close_llamas() -> None:
     """Free handles while llama_cpp's globals still exist.
 
     Left to GC, ``Llama.__del__`` runs after interpreter shutdown has nulled the llama_cpp module globals and dies on
-    ``llama_model_free is None`` — noisy "Exception ignored in" tracebacks at the tail of every test run.
+    ``llama_model_free is None`` -- noisy "Exception ignored in" tracebacks at the tail of every test run.
     """
     while _llamas:
         _, llama = _llamas.popitem()
@@ -206,7 +206,7 @@ def _rank_logits(llama: Any, text: str) -> list[float]:
     copies n_embd floats out of that n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped page, and
     then it segfaults the whole process.
     """
-    import llama_cpp  # noqa: PLC0415 — deferred like the loaders; ML extras are optional
+    import llama_cpp  # noqa: PLC0415 -- deferred like the loaders; ML extras are optional
 
     tokens = llama.tokenize(text.encode("utf-8"))[: llama.n_batch]
     batch = llama._batch
@@ -228,7 +228,7 @@ def _load_scorer_blocking(feature: str) -> None:
     if feature in _llamas or feature in _load_errors:
         return
     try:
-        import llama_cpp  # noqa: PLC0415 — deferred; need the pooling-type constant
+        import llama_cpp  # noqa: PLC0415 -- deferred; need the pooling-type constant
 
         _llamas[feature] = llama_cpp.Llama(
             model_path=resolve_path(feature),
@@ -254,7 +254,7 @@ def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
             out.append(0.0)
             continue
         v = _rank_logits(llama, text)
-        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax → P(slop)
+        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax -> P(slop)
         m = max(a, b)
         ea, eb = math.exp(a - m), math.exp(b - m)
         out.append(eb / (ea + eb))
@@ -270,7 +270,7 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
         return await asyncio.to_thread(_score_blocking, feature, list(sentences))
 
 
-# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head: argmax over the head's logits → GO_EMOTIONS[i].
+# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head: argmax over the head's logits -> GO_EMOTIONS[i].
 # The tail slice below is purely an n_ctx=512 guard, NOT a recency heuristic: the model (DistilBERT/go-emotions, trained on
 # short comments) can't be trusted to weight late text, so the caller enforces recency by sending only the last few sentences
 # (frontend sentenceTail); we just cap runaway input.
@@ -297,13 +297,13 @@ def _classify_blocking(feature: str, text: str) -> str:
     if not text:
         return "neutral"
     logits = _head_logits(feature, text, len(GO_EMOTIONS))
-    # No softmax — only the single top label is wanted, and argmax is invariant to it.
+    # No softmax -- only the single top label is wanted, and argmax is invariant to it.
     return GO_EMOTIONS[max(range(len(logits)), key=logits.__getitem__)]
 
 
 async def aclassify(feature: str, text: str) -> str:
-    """Single latest message → single go-emotions label. Not batched (one message,
-    one mood — YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
+    """Single latest message -> single go-emotions label. Not batched (one message,
+    one mood -- YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
     async with _lock(feature):
         return await asyncio.to_thread(_classify_blocking, feature, text)
 
@@ -321,7 +321,7 @@ _POV_SENTENCES = 3
 def pov_input(text: str) -> str:
     """The span of *text* the povtense model should see: the last few narration sentences, dialogue removed.
 
-    Pure, so the shaping — which decides what the model is even asked about — is testable without loading it. Returns "" for a
+    Pure, so the shaping -- which decides what the model is even asked about -- is testable without loading it. Returns "" for a
     reply that is all dialogue; the caller reads that as "ambiguous" and walks back to the previous message, which is the right
     answer for a turn that shows no narration.
     """
@@ -389,7 +389,7 @@ def _classify_pov_blocking(feature: str, text: str) -> str:
 
 
 async def aclassify_pov(text: str) -> str:
-    """One message → one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
+    """One message -> one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
 
     Only the span `pov_input` selects is read, not the whole message.
 

@@ -114,7 +114,7 @@ def test_replay_of_a_deleted_graph_degrades_with_disclosure():
     assert "user_gone" in target.notes[0]
 
 
-# ── reference images on reroll ───────────────────────────────────────────────
+# -- reference images on reroll -----------------------------------------------
 
 EDIT_GRAPH = {**GRAPH, "r": {"class_type": "LoadImage", "inputs": {"image": "exported.png"}}}
 EDIT_SLOTS = {**SLOTS, "references": [{"slot": ["r", "image"], "source": "character", "label": "Load Image (#r)"}]}
@@ -272,7 +272,7 @@ async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_a
         await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
 
 
-# ── which configuration a reroll renders on ──────────────────────────────────
+# -- which configuration a reroll renders on ----------------------------------
 #
 # The one thing the two routes backed by this hook disagree about. /rehydrate owes the row the image it lost, so it pins what
 # the row recorded; /reroll-gen owes the user another variant of the same subject, so it renders on the style as it stands.
@@ -425,7 +425,7 @@ async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
     assert (params["width"], params["height"]) == (1024, 1536), "still recorded, just not shown"
 
 
-# ── routing, when the replayed style is not the default one ──────────────────
+# -- routing, when the replayed style is not the default one ------------------
 
 
 @pytest.mark.asyncio
@@ -475,7 +475,7 @@ async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypa
     assert not any("re-rendered on" in note for note in consumption.get("notes", []))
 
 
-# ── reference images on a cloud reroll ───────────────────────────────────────
+# -- reference images on a cloud reroll ---------------------------------------
 #
 # The cloud slot is synthetic and constant, so every question the ComfyUI cases
 # above answer about node ids has a different answer here.
@@ -648,7 +648,7 @@ async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(
     assert reference.slot == ("cloud", "image_0")
 
 
-# ── what a partly-filled target discloses ────────────────────────────────────
+# -- what a partly-filled target discloses ------------------------------------
 
 
 def test_the_unfilled_slot_note_counts_rather_than_claiming_nothing_was_sent():

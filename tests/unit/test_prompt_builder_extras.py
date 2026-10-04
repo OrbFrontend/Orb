@@ -70,7 +70,7 @@ def test_build_prefix_constant_lorebook_between_persona_and_scenario():
 
 
 def test_build_prefix_constant_lorebook_appended_verbatim():
-    # The block is opaque, pre-rendered data — no second macro expansion.
+    # The block is opaque, pre-rendered data -- no second macro expansion.
     class _Upper:
         char = ""
 

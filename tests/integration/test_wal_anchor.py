@@ -49,7 +49,7 @@ class _ExplodingConnection:
         self.closed = True
 
 
-# ── lifecycle ────────────────────────────────────────────────────────────
+# -- lifecycle ------------------------------------------------------------
 
 
 async def test_open_is_idempotent_for_the_same_path(db_path, monkeypatch):
@@ -165,7 +165,7 @@ async def test_close_clears_state_even_when_close_raises():
     assert db_connection._wal_anchor_path is None
 
 
-# ── the mechanism itself ─────────────────────────────────────────────────
+# -- the mechanism itself -------------------------------------------------
 
 
 async def test_anchor_keeps_the_wal_alive_across_transient_connections(db_path, monkeypatch):
@@ -195,7 +195,7 @@ async def test_anchor_keeps_the_wal_alive_across_transient_connections(db_path, 
     assert not wal.exists() and not shm.exists()  # last one out still cleans up
 
 
-# ── transient connection compatibility ───────────────────────────────────
+# -- transient connection compatibility -----------------------------------
 
 
 async def test_transient_reads_and_writes_work_with_the_anchor_open(db_path, monkeypatch):
@@ -261,7 +261,7 @@ async def test_integrity_survives_anchor_close_and_reopen(db_path, monkeypatch):
     assert row is not None and row[0] == "wal"
 
 
-# ── FastAPI lifespan ─────────────────────────────────────────────────────
+# -- FastAPI lifespan -----------------------------------------------------
 
 
 async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path, monkeypatch):
@@ -342,7 +342,7 @@ async def test_repeated_lifespans_on_different_paths_do_not_leak(tmp_path, _fres
             await anchor.execute("SELECT 1")
 
 
-# ── maintenance operations ───────────────────────────────────────────────
+# -- maintenance operations -----------------------------------------------
 
 
 async def test_vacuum_succeeds_with_the_idle_anchor(db_path, monkeypatch):
@@ -405,7 +405,7 @@ async def test_full_restore_succeeds_with_the_idle_anchor(client, db_path):
     assert names == {"Before"}
 
 
-# ── whole-database maintenance must not strand a database-sized WAL ──────
+# -- whole-database maintenance must not strand a database-sized WAL ------
 
 
 async def _bulk_up(db, mib: int = 10) -> None:
@@ -477,7 +477,7 @@ async def test_replacing_preset_merge_does_not_strand_a_large_wal(client, db_pat
     assert wal_bytes < 1024 * 1024, f"WAL left at {wal_bytes:,} B after a replacing merge"
 
 
-# ── concurrent opens ─────────────────────────────────────────────────────
+# -- concurrent opens -----------------------------------------------------
 
 
 async def test_concurrent_opens_create_exactly_one_connection(db_path, monkeypatch):

@@ -49,7 +49,7 @@ async def add_generated_chars(chars: int) -> None:
         await db.commit()
 
 
-# Recursive CTE yielding one row per message on a conversation's *active* branch (root→active_leaf). Swiped/regenerated siblings
+# Recursive CTE yielding one row per message on a conversation's *active* branch (root->active_leaf). Swiped/regenerated siblings
 # are alternate branches the user isn't currently viewing, so they're excluded everywhere a message COUNT is shown -- they're
 # drafts/trash, not part of the visible story. Exposes conv_id, id and created_at so callers can group by conversation and apply
 # recency filters.
@@ -132,7 +132,7 @@ async def get_global_stats() -> dict:
         favorite_character = _spotlight(favorite) if favorite else None
 
         # A random well-worn character (>100 messages) for the "misses you" spotlight theme. Excludes the favorite itself so the
-        # two themes stay distinct, and anyone talked to in the last 24h — they can't "miss you" if you just spoke. created_at
+        # two themes stay distinct, and anyone talked to in the last 24h -- they can't "miss you" if you just spoke. created_at
         # is an ISO-8601 UTC string, so a string compare against the cutoff sorts correctly. The endpoint flips the coin on
         # which theme actually shows.
         recent_cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()

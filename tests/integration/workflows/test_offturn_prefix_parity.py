@@ -2,7 +2,7 @@
 
 Off-turn workflow calls (image_gen's analyze/compose, and anything else built on ``build_offturn_prefix``) ride the llama.cpp
 server's cached KV for the whole conversation prefix. That only works if the toolkit builder and the pipeline's
-``build_prefixes`` produce **byte-identical** messages for the same conversation state — one diverging byte evicts the cache for
+``build_prefixes`` produce **byte-identical** messages for the same conversation state -- one diverging byte evicts the cache for
 the off-turn call and again for the next chat turn. This test seeds every prefix-shaping input (card-bound conversation, active
 persona, macros, post-history instructions, constant + keyword lorebook entries) and compares the two builders' output
 serialized, which is exactly the equality the server's prefix matcher sees.
@@ -110,7 +110,7 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
 async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     """A group's prefix is a different document: the cast section stands in for the card, {{char}} is the scene title, {{cast}}
     is the roster, and every assistant line is attributed to the member who wrote it. An off-turn builder that rebuilt the
-    solo shape would evict the conversation's KV on every workflow call — and hand image_gen a transcript with nobody's name
+    solo shape would evict the conversation's KV on every workflow call -- and hand image_gen a transcript with nobody's name
     on it.
 
     The neutral base (no active speaker) is the comparison in all three modes: it is the base the Director runs on, and under

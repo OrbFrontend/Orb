@@ -1,4 +1,4 @@
-"""Pure local-ML scaffold helpers: resolve_path / present / deps_ok. No model, no network — the route-level tri-state lives in
+"""Pure local-ML scaffold helpers: resolve_path / present / deps_ok. No model, no network -- the route-level tri-state lives in
 tests/integration/test_local_ml.py.
 
 PATCHES GO ON THE MODULE THAT OWNS THE NAME. ``local_ml`` re-exports the asset and dependency surface for callers that address

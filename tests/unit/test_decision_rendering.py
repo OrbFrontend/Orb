@@ -34,7 +34,7 @@ def _snapshot(**overrides) -> DecisionSnapshot:
     return DecisionSnapshot(**base)
 
 
-# ── the default template, exactly ────────────────────────────────────────────
+# -- the default template, exactly --------------------------------------------
 
 
 def test_the_default_template_renders_the_documented_text():
@@ -49,7 +49,7 @@ def test_missing_prior_history_renders_as_an_empty_previous_reply():
     )
 
 
-# ── one pass, never recursive ────────────────────────────────────────────────
+# -- one pass, never recursive ------------------------------------------------
 
 
 def test_message_bodies_are_inserted_as_opaque_values():
@@ -73,7 +73,7 @@ def test_unsupported_macros_are_left_raw_rather_than_blanked():
     assert render("A {{nonsense}} and a {{draft}}", _snapshot()) == "A {{nonsense}} and a {{draft}}"
 
 
-# ── inline macros ────────────────────────────────────────────────────────────
+# -- inline macros ------------------------------------------------------------
 
 
 def test_the_template_resolves_the_inline_macro_grammar():
@@ -130,7 +130,7 @@ def test_text_fields_resolve_only_the_three_identity_macros():
     assert rendered == "Does Maren beat Tester? {{last_message}}"
 
 
-# ── an unavailable macro raises rather than rendering empty ──────────────────
+# -- an unavailable macro raises rather than rendering empty ------------------
 
 
 def test_description_is_unavailable_at_the_group_exchange_stage():
@@ -144,7 +144,7 @@ def test_an_empty_description_is_not_the_same_as_an_unavailable_one():
     assert render("About {{description}}", _snapshot(description="")) == "About "
 
 
-# ── validation ───────────────────────────────────────────────────────────────
+# -- validation ---------------------------------------------------------------
 
 
 def test_macros_used_is_ordered_deduplicated_and_ignores_literals():
@@ -165,7 +165,7 @@ def test_every_supported_state_macro_resolves():
         assert render(f"<{{{{{macro}}}}}>", snapshot) != f"<{{{{{macro}}}}}>", macro
 
 
-# ── snapshot construction ────────────────────────────────────────────────────
+# -- snapshot construction ----------------------------------------------------
 
 
 def _history(*rows) -> list[dict]:

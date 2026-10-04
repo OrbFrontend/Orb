@@ -55,13 +55,13 @@ __all__ = [
     "compute_agentic_lorebook_block",
     "compute_constant_lorebook_block",
     "compute_depth_lorebook_block",
-    # Dynamic Worlds — proposal validation
+    # Dynamic Worlds -- proposal validation
     "ValidatedProposal",
     "build_world_change_catalog",
     "parse_proposal_call",
     "split_by_world",
     "validate_proposal",
-    # Dynamic Worlds — changeset lifecycle
+    # Dynamic Worlds -- changeset lifecycle
     "accept_changeset",
     "close_changeset",
     "delete_entry",

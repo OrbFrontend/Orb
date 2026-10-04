@@ -116,7 +116,7 @@ async def test_spotlight_falls_back_to_favorite_when_nothing_qualifies(client, d
 
 
 async def test_stats_message_count_excludes_swiped_branches(client, db):
-    # A linear chat of user→assistant, then an alternate assistant swipe off the user message. The swipe is an off-path sibling
+    # A linear chat of user->assistant, then an alternate assistant swipe off the user message. The swipe is an off-path sibling
     # (trash), so only the two active-path messages should be counted, not three.
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, "Swipe chat", "Sara", "")
@@ -130,7 +130,7 @@ async def test_stats_message_count_excludes_swiped_branches(client, db):
     assert body["total_messages"] == 2
     sp = body["character_spotlight"]
     assert sp["name"] == "Sara"
-    # The spotlight counts what the *character* wrote, so the one active-path assistant row — not the user's turn, and not the
+    # The spotlight counts what the *character* wrote, so the one active-path assistant row -- not the user's turn, and not the
     # swiped sibling. Counting the user's turn here would put a solo character at double a group member's total for the same
     # output (see _CHARACTER_USAGE_CTE).
     assert sp["messages"] == 1
@@ -157,7 +157,7 @@ async def test_the_spotlight_counts_a_group_member_and_a_solo_character_alike(cl
     """One definition of "messages": what the character wrote.
 
     The group arm counted assistant rows and the solo arm counted every row on the active path, so a cast member sat at half a
-    solo character's total for the same output — never the favourite, and clearing the "missed" threshold at twice the play.
+    solo character's total for the same output -- never the favourite, and clearing the "missed" threshold at twice the play.
 
     Vela out-writes Nova three replies to two. Under the old asymmetry Nova's four active-path rows exchange Vela's three and
     she took the spotlight anyway.

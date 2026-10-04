@@ -58,7 +58,7 @@ class NegationResult:
         return self.negated_sentences / self.narration_sentences if self.narration_sentences else 0.0
 
 
-# ── Vocabulary ────────────────────────────────────────────────────────────────
+# -- Vocabulary ----------------------------------------------------------------
 
 _NEG_WORDS = frozenset("not never no nobody nothing none neither nor nowhere cannot".split())
 _COPULA_NT = frozenset("isn't aren't wasn't weren't ain't".split())
@@ -79,7 +79,7 @@ _SAY_VERBS = frozenset(
 # Words that make a would-be descriptive fragment read as a clause.
 _FINITE_CUES = _BE | _AUX | _BE_CONTRACTED
 _FRAGMENT_BLOCKERS = _PRONOUNS | frozenset("this that these those there then and but so".split())
-# Trailing participle denials: ", still not looking." / "—never quite touching."
+# Trailing participle denials: ", still not looking." / "--never quite touching."
 _TRAIL_LEAD = frozenset("still yet even clearly".split())
 _TRAIL_ADVERBS = frozenset("quite even yet once really fully exactly entirely".split())
 # Motives ("not wanting to seem eager") and -ing nouns stage no withheld action.
@@ -122,7 +122,7 @@ def _strip_outer(text: str) -> str:
     return text.strip().strip(_OUTER).strip()
 
 
-# ── Excluded regions ──────────────────────────────────────────────────────────
+# -- Excluded regions ----------------------------------------------------------
 
 _FENCE = re.compile(r"```")
 _HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
@@ -188,7 +188,7 @@ def _excluded_regions(text: str) -> list[tuple[int, int]]:
     )
 
 
-# ── Paragraph tiling ──────────────────────────────────────────────────────────
+# -- Paragraph tiling ----------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -321,7 +321,7 @@ def _classify_style(paragraphs: list[_Paragraph]) -> str:
     return ASTERISK if emphasis > 0.30 * total and emphasis > narration else PROSE
 
 
-# ── Narration runs ────────────────────────────────────────────────────────────
+# -- Narration runs ------------------------------------------------------------
 
 _TERMINAL = ".!?…"
 
@@ -458,7 +458,7 @@ def _runs(text: str, paragraphs: list[_Paragraph], style: str) -> tuple[list[lis
     return runs, usable
 
 
-# ── Shapes ────────────────────────────────────────────────────────────────────
+# -- Shapes --------------------------------------------------------------------
 
 
 def _without_but(words: list[str]) -> list[str]:
@@ -556,7 +556,7 @@ def _stacked(unit: _Unit) -> bool:
         if first is None:
             continue
         if clauses and _HEDGE_TAIL.fullmatch(_strip_outer(text[start:end])):
-            continue  # "—not yet." is a hedge, not a parallel denial
+            continue  # "--not yet." is a hedge, not a parallel denial
         clauses.append(first)
     if len(clauses) < 2:
         return False

@@ -107,7 +107,7 @@ async def test_touch_conversation_bumps_access_not_update(client, db):
         updated_after, accessed_after = row["updated_at"], row["last_accessed_at"]
 
     # Opening a conversation is an access, not an edit: touch moves last_accessed_at forward (strict >, microsecond ISO strings
-    # + the 0.01s sleep) while leaving updated_at — the "content changed" timestamp — alone.
+    # + the 0.01s sleep) while leaving updated_at -- the "content changed" timestamp -- alone.
     assert accessed_after > (accessed_before or "")
     assert updated_after == updated_before
 
@@ -173,7 +173,7 @@ async def test_checkpoint_duplicates_active_path(client, db):
 
     msgs = (await client.get(f"/api/conversations/{new_cid}/messages")).json()
     assert [(m["role"], m["content"], m["turn_index"]) for m in msgs] == [("user", "hello", 0), ("assistant", "hi there", 1)]
-    # Fresh row ids — the copy is a distinct message tree, not a shared reference.
+    # Fresh row ids -- the copy is a distinct message tree, not a shared reference.
     assert msgs[1]["id"] != a1
     # User upload carried onto the copy.
     upload = msgs[0]["user_attachments"][0]
@@ -215,7 +215,7 @@ async def test_checkpoint_copies_only_active_branch(client, db):
 
     msgs = (await client.get(f"/api/conversations/{new_cid}/messages")).json()
     assert [m["content"] for m in msgs] == ["prompt", "active reply"]
-    # Only the active path is copied — the alternate swipe is not carried.
+    # Only the active path is copied -- the alternate swipe is not carried.
     async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?", (new_cid,)) as cur:
         assert (await cur.fetchone())["n"] == 2
 

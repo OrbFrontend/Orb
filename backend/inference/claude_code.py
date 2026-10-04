@@ -184,7 +184,7 @@ def _tool_schema(tools: list[dict], choice: dict | str | None) -> tuple[dict | N
 
 def _structured_message(output: Any, schema: dict, forced: str | None) -> CompletionMessage:
     try:
-        from jsonschema import Draft202012Validator, SchemaError, ValidationError  # noqa: PLC0415 — venv may predate it
+        from jsonschema import Draft202012Validator, SchemaError, ValidationError  # noqa: PLC0415 -- venv may predate it
     except ImportError as exc:
         raise ClaudeCodeError(
             "Claude Code structured calls require Orb's jsonschema dependency; install requirements.txt."

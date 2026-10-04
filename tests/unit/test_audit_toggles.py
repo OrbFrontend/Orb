@@ -1,4 +1,4 @@
-"""test_audit_toggles.py — verify run_audit honours the per-scanner toggle map, skipping disabled scanners while leaving enabled
+"""test_audit_toggles.py -- verify run_audit honours the per-scanner toggle map, skipping disabled scanners while leaving enabled
 ones intact.
 """
 
@@ -64,5 +64,5 @@ def test_anti_echo_toggle_off_skips_scanner():
 
 
 def test_anti_echo_skipped_without_user_message():
-    # No user message → nothing to compare against, scanner is a no-op.
+    # No user message -> nothing to compare against, scanner is a no-op.
     assert run_audit(_ECHO_DRAFT, []).echo_result is None

@@ -27,8 +27,8 @@ def _resolve_item(text: str, labels: Sequence[tuple[str, Mapping]]) -> tuple[Map
 def parse_speaking_plan(raw: object, members: Sequence[Mapping], cap: int) -> list[tuple[Mapping, str]] | None:
     """Validate a Director plan. None means malformed/missing; [] is intentional rest.
 
-    Each line is ``<speaker_key> — <cue>`` (the shape ``build_direct_scene_override`` asks for), but the speaker is found by
-    matching the roster's own keys and display names against the head of the line rather than by splitting on punctuation — a
+    Each line is ``<speaker_key> -- <cue>`` (the shape ``build_direct_scene_override`` asks for), but the speaker is found by
+    matching the roster's own keys and display names against the head of the line rather than by splitting on punctuation -- a
     speaker key is kebab-cased, so it contains the very characters a split would treat as the boundary.
     """
     if raw is None or not isinstance(raw, list):

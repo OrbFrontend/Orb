@@ -27,6 +27,6 @@ def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) ->
 def resolve_persona_id(conv: Mapping[str, Any], card: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> int | None:
     """Return the effective persona id for a turn.
 
-    Priority: conversation pin → character-card pin → global active persona.
+    Priority: conversation pin -> character-card pin -> global active persona.
     """
     return conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")

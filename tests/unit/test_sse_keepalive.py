@@ -30,7 +30,7 @@ async def test_keepalive_during_silence_and_events_passthrough(monkeypatch):
 
     async def gen():
         yield {"event": "token", "data": "hi"}
-        await asyncio.sleep(0.17)  # silent gap → expect keepalives
+        await asyncio.sleep(0.17)  # silent gap -> expect keepalives
         yield {"event": "done"}
 
     frames = [frame async for frame in deps.sse_stream(gen(), _FakeReq())]
@@ -42,7 +42,7 @@ async def test_keepalive_during_silence_and_events_passthrough(monkeypatch):
     assert all(not f.startswith("event:") for f in frames if f == ": keepalive\n\n")
 
 
-# ── Stop settlement ──────────────────────────────────────────────────────────
+# -- Stop settlement ----------------------------------------------------------
 # /stop answers only once the stopped stream has finished saving, and the
 # conversation lock is held until then, whether the client stays connected or goes away. The generators below stand in for a
 # turn: they wind down when the token fires and then "save" behind a barrier the test controls.

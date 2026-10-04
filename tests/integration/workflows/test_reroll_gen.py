@@ -173,7 +173,7 @@ async def test_hook_returns_non_bytes_500(client):
     assert resp.status_code == 500
 
 
-# ── caller-supplied overrides ────────────────────────────────────────────────
+# -- caller-supplied overrides ------------------------------------------------
 
 
 async def _reroll_with_overrides(client, stored: dict, body: dict) -> tuple[dict, dict]:

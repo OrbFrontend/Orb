@@ -30,7 +30,7 @@ def _audit(draft: str, **kwargs):
     return run_audit(draft, [], audit_toggles=kwargs.pop("toggles", _ON), structural_text=draft, **kwargs)
 
 
-# ── Audit wiring and toggles ──────────────────────────────────────────────────
+# -- Audit wiring and toggles --------------------------------------------------
 
 
 def test_findings_count_as_issues():
@@ -87,7 +87,7 @@ def test_min_hits_is_exposed():
     assert [f.kinds for f in report.negation_findings] == [["null_reaction"]]
 
 
-# ── Source-aware filtering ────────────────────────────────────────────────────
+# -- Source-aware filtering ----------------------------------------------------
 
 
 def test_filter_preserves_findings_for_the_same_draft():
@@ -112,7 +112,7 @@ def test_mismatched_span_is_rejected():
         filter_audit_report_to_text(report, _DRAFT)
 
 
-# ── Anchored targets ──────────────────────────────────────────────────────────
+# -- Anchored targets ----------------------------------------------------------
 
 
 def test_targets_are_anchored_and_numbered_with_reasons():
@@ -175,7 +175,7 @@ def test_overlap_with_contrastive_negation_is_one_target_with_both_reasons():
     assert report.total_issues == len(report.not_but_result) + len(report.negation_findings)
 
 
-# ── Serializers ───────────────────────────────────────────────────────────────
+# -- Serializers ---------------------------------------------------------------
 
 
 def test_report_to_dict_section_ids_point_at_the_right_occurrence():
@@ -197,7 +197,7 @@ def test_format_report_has_a_negated_narration_section():
     assert "2 consecutive denials" in text
 
 
-# ── Patching ──────────────────────────────────────────────────────────────────
+# -- Patching ------------------------------------------------------------------
 
 
 def test_multi_sentence_target_is_patched_once_with_surroundings_intact():
@@ -218,7 +218,7 @@ def test_unchanged_patch_is_a_no_op_error():
     assert [e.kind for e in errors] == ["no_op"]
 
 
-# ── Document mode never runs it ───────────────────────────────────────────────
+# -- Document mode never runs it -----------------------------------------------
 
 
 def test_document_audit_excludes_negated_narration_even_when_enabled():
@@ -231,7 +231,7 @@ async def test_document_audit_payload_has_no_negated_narration_section():
     assert "negated_narration" not in res["report"]["sections"]
 
 
-# ── Editor prompts ────────────────────────────────────────────────────────────
+# -- Editor prompts ------------------------------------------------------------
 
 
 def test_patch_prompt_carries_the_rule_and_span_wording():

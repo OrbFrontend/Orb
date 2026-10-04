@@ -35,7 +35,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.execute(block.replace(f"CREATE TABLE IF NOT EXISTS {_TABLE}", f"CREATE TABLE {_TABLE}_new", 1))
             present = set(old_cols)
             cols = ", ".join(c for c in _columns(conn, f"{_TABLE}_new") if c in present)
-            conn.execute(f"INSERT INTO {_TABLE}_new ({cols}) SELECT {cols} FROM {_TABLE}")  # nosec B608 — schema-derived identifiers
+            conn.execute(f"INSERT INTO {_TABLE}_new ({cols}) SELECT {cols} FROM {_TABLE}")  # nosec B608 -- schema-derived identifiers
             conn.execute(f"DROP TABLE {_TABLE}")
             conn.execute(f"ALTER TABLE {_TABLE}_new RENAME TO {_TABLE}")
             conn.commit()

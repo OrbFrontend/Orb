@@ -111,7 +111,7 @@ async def test_can_spawn_async_rejects_only_a_windows_loop_that_is_not_proactor(
     that cannot spawn.
 
     Patched on ``binary``, the module that defines the flag, because ``process`` reads it as an attribute rather than binding it
-    at import — which is what keeps this test on the branch instead of on the constant.
+    at import -- which is what keeps this test on the branch instead of on the constant.
     """
     monkeypatch.setattr(P.binary, "IS_WINDOWS", False)
     assert P._can_spawn_async() is True
@@ -126,7 +126,7 @@ async def test_can_spawn_async_rejects_only_a_windows_loop_that_is_not_proactor(
 
 async def test_boot_failure_reports_the_child_log(monkeypatch, tmp_path):
     """``stop()`` closes the drain *after* the process is reaped precisely so
-    this tail is not empty — it is the whole diagnostic for a bad GGUF or a
+    this tail is not empty -- it is the whole diagnostic for a bad GGUF or a
     Vulkan build with no loader."""
     monkeypatch.setattr(B, "supports_flag", lambda _binary, _flag: False)
     monkeypatch.setattr(C, "_free_port", lambda: 12345)

@@ -1,5 +1,5 @@
 // The image_gen panel hand-mirrors a dozen limits and enums from the Python normalizer, because the picker has to gate
-// a file *before* any query resolves — there is no payload to read them from at that moment.
+// a file *before* any query resolves -- there is no payload to read them from at that moment.
 //
 // The backend values are read straight out of the .py sources rather than duplicated here: a test that restates the
 // number it is guarding proves only that someone typed it twice.
@@ -11,7 +11,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 // policy.js is the one panel module free of the plugin facade, so it is the only one this test can import; everything
-// else is read as source. That is not a workaround — a constant the picker uses before any fetch resolves is a
+// else is read as source. That is not a workaround -- a constant the picker uses before any fetch resolves is a
 // *literal*, and reading the literal is what proves the two literals match.
 import {
   DEFAULT_PROMPT_FORMAT,

@@ -1,5 +1,5 @@
 """Autocomplete route: 503 when the model is unavailable, 200 with a completion
-otherwise. The model itself is monkeypatched — no GGUF needed here."""
+otherwise. The model itself is monkeypatched -- no GGUF needed here."""
 
 from __future__ import annotations
 

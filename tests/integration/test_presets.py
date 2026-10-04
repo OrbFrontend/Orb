@@ -39,7 +39,7 @@ async def _make_conv_with_tree(db, cid="conv-1"):
     return m1, m2
 
 
-# ── export / library ─────────────────────────────────────────────────────
+# -- export / library -----------------------------------------------------
 
 
 async def test_export_creates_library_entry(client, db_path):
@@ -66,7 +66,7 @@ async def test_chats_export_forces_characters(client, db_path):
     assert "characters" in meta and "chats" in meta
 
 
-# ── apply (merge) ──────────────────────────────────────────────────────────
+# -- apply (merge) ----------------------------------------------------------
 
 
 async def test_apply_readds_deleted_and_preserves_new(client, db):
@@ -147,7 +147,7 @@ async def test_apply_configs_leaves_no_orphaned_model_configs(client, db):
         assert await cur.fetchall() == []
 
 
-# ── configs / key stripping ────────────────────────────────────────────────
+# -- configs / key stripping ------------------------------------------------
 
 
 async def _set_active_endpoint_key(client, api_key: str) -> None:
@@ -172,7 +172,7 @@ async def test_export_without_configs_scrubs_keys(client, db_path):
     assert conn.execute("SELECT system_prompt FROM settings WHERE id=1").fetchone()[0] == ""
 
 
-# ── snapshot / restore ─────────────────────────────────────────────────────
+# -- snapshot / restore -----------------------------------------------------
 
 
 async def test_restore_is_full_rollback(client, db):
@@ -258,7 +258,7 @@ async def test_apply_takes_auto_backup(client):
     assert lst[backup]["kind"] == "auto"
 
 
-# ── partial restore (domain-scoped replace) ────────────────────────────────
+# -- partial restore (domain-scoped replace) --------------------------------
 
 
 async def test_partial_restore_replaces_covered_domain(client):
@@ -396,7 +396,7 @@ async def test_restore_overwrites_imported(client, db_path):
     assert names == {"Keep"}  # Fresh dropped -- characters match the imported file
 
 
-# ── import upload + version skew ───────────────────────────────────────────
+# -- import upload + version skew -------------------------------------------
 
 
 async def test_import_lands_in_library_non_destructively(client, db_path):

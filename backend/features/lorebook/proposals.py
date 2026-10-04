@@ -12,7 +12,7 @@ from ...prompting.lorebook import DYNAMIC_SECTION_TITLE, is_dynamic, select_effe
 ACTIVATIONS = ("constant", "keywords")
 
 # What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs, where `revise` and `retract` each cover two of
-# the five operations the table stores (create/replace/suppress/update/archive — the vocabulary the applier and the undo builder
+# the five operations the table stores (create/replace/suppress/update/archive -- the vocabulary the applier and the undo builder
 # dispatch on). Which one an operation becomes is decided by the layer of the row it targets, so the model is never asked to
 # tell authored lore from the overlay. Stored names are accepted as synonyms too, since a changeset re-validated on accept comes
 # back in the table's vocabulary.
@@ -34,7 +34,7 @@ _FULL_TAIL_CHARS = 200
 class ValidatedProposal:
     """The result of vetting one ``propose_world_changes`` call.
 
-    ``operations`` is what may be applied. ``rejected`` holds ``(index, reason)`` for every operation dropped — logged, never
+    ``operations`` is what may be applied. ``rejected`` holds ``(index, reason)`` for every operation dropped -- logged, never
     silently swallowed, so a model that keeps proposing something invalid is diagnosable. An empty ``operations`` list means "no
     proposal", which is a normal, common outcome.
     """
@@ -65,7 +65,7 @@ def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
     """
     if len(text) <= head_chars + tail_chars:
         return text
-    # `rsplit`/`split` drop the partial word at each cut — and give it back
+    # `rsplit`/`split` drop the partial word at each cut -- and give it back
     # unshortened when the slice holds no whitespace to cut on at all.
     head_parts = text[:head_chars].rsplit(maxsplit=1)
     tail_parts = text[-tail_chars:].split(maxsplit=1)
@@ -110,7 +110,7 @@ def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     if not full:
         body = _compact(body)
     elif not is_dynamic(entry):
-        # An authored body is only ever read here — no operation rewrites one — so a long one can afford to lose its middle. A
+        # An authored body is only ever read here -- no operation rewrites one -- so a long one can afford to lose its middle. A
         # dynamic body cannot: `update` rewrites content whole, and a middle the step never saw would be written out of the
         # World.
         body = _elide_middle(body, _FULL_HEAD_CHARS, _FULL_TAIL_CHARS)
@@ -369,7 +369,7 @@ def _validate_operation(
         item["world_id"] = resolved.world_id
     if resolved.target is not None:
         item["target_entry_id"] = resolved.target
-        # Snapshot what the target says *now*, so the review card can show a before/after without a second query — and so
+        # Snapshot what the target says *now*, so the review card can show a before/after without a second query -- and so
         # applied history still reads correctly once the live row has moved on. A proposal whose World changed underneath it
         # goes stale before it can be applied, so the snapshot can never silently misrepresent what will happen.
         item["target_name"] = _clean_str(resolved.target_row.get("name"))
@@ -407,7 +407,7 @@ def validate_proposal(
 
     scope = _WorldScope(worlds, entries)
     effective = select_effective_entries(entries)
-    # Two lookups, because the two layers of target mean different things. `live_by_id` resolves the row an operation names —
+    # Two lookups, because the two layers of target mean different things. `live_by_id` resolves the row an operation names --
     # every enabled, unarchived row, including suppression markers, since retiring one is how the Agent brings a suppressed
     # authored entry back. `by_id` is the narrower test an *authored* target then has to pass: lore already hidden by an overlay
     # is not something a further operation can act on.
@@ -415,7 +415,7 @@ def validate_proposal(
     live_by_id = {
         int(e["id"]): e for e in entries if e.get("id") is not None and bool(e.get("enabled", 1)) and not e.get("archived")
     }
-    # Names that would collide, bucketed per World — two Worlds may each hold an entry of the same name without ambiguity. Only
+    # Names that would collide, bucketed per World -- two Worlds may each hold an entry of the same name without ambiguity. Only
     # *live* dynamic entries count: an authored entry may legitimately share a name with the dynamic row replacing it.
     taken_names: dict[str, set[str]] = {}
     for e in effective:

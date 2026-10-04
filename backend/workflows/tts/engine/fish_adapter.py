@@ -45,7 +45,7 @@ class FishSpeechAdapter(TTSAdapter):
         if voice_id and voice_id != "default":
             body["reference_id"] = voice_id
 
-        # Map rate to temperature (loose mapping — faster = lower temp)
+        # Map rate to temperature (loose mapping -- faster = lower temp)
         temp = max(0.1, min(1.0, 0.8 / max(rate, 0.1)))
         body["temperature"] = round(temp, 2)
 

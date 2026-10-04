@@ -34,14 +34,14 @@ _INDEXES = (
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}  # nosec B608 — literal table name
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}  # nosec B608 -- literal table name
 
 
 def _add_columns(conn: sqlite3.Connection, table: str, additions: Sequence[tuple[str, str]]) -> None:
     existing = _columns(conn, table)
     for name, ddl in additions:
         if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")  # nosec B608 — names from a module constant
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")  # nosec B608 -- names from a module constant
             print(f"[migrations] 0054: added {table}.{name}")
 
 

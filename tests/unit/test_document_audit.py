@@ -30,7 +30,7 @@ _BANK = [[_BANNED]]  # one literal phrase group, detector-facing shape
 _SETTINGS = {"temperature": 0.7, "max_tokens": 512}
 
 
-# ── trim_incomplete_tail ─────────────────────────────────────────────────────
+# -- trim_incomplete_tail -----------------------------------------------------
 
 
 def test_trim_mid_sentence_splits_at_last_boundary():
@@ -72,7 +72,7 @@ def test_trim_empty_and_whitespace():
     assert trim_incomplete_tail("   \n") == ("", "   \n")
 
 
-# ── clean_context ────────────────────────────────────────────────────────────
+# -- clean_context ------------------------------------------------------------
 
 
 def test_clean_context_assisted_strips_macro_lines():
@@ -81,15 +81,15 @@ def test_clean_context_assisted_strips_macro_lines():
 
 
 def test_clean_context_raw_strips_template_marker_lines():
-    # Any line carrying a <|…|> token is template scaffold, not prose.
+    # Any line carrying a <|...|> token is template scaffold, not prose.
     ctx = "<|im_start|>user\nWrite a haiku.<|im_end|>\nPlain prose line."
     assert clean_context(ctx, assisted=False) == "Plain prose line."
 
 
 def test_clean_context_heuristics_are_mode_scoped():
-    # Raw mode leaves ### macro lines alone (they are literal prose there)…
+    # Raw mode leaves ### macro lines alone (they are literal prose there)...
     assert clean_context("### USER: literal\nprose", assisted=False) == "### USER: literal\nprose"
-    # …and assisted mode leaves template markers alone.
+    # ...and assisted mode leaves template markers alone.
     assert clean_context("<|im_start|>\nprose", assisted=True) == "<|im_start|>\nprose"
 
 
@@ -101,7 +101,7 @@ def test_clean_context_plain_prose_is_untouched_and_capped():
     assert len(clean_context(long, assisted=False)) == 8000
 
 
-# ── doc_audit_toggles ────────────────────────────────────────────────────────
+# -- doc_audit_toggles --------------------------------------------------------
 
 
 def test_toggles_none_defaults_all_on():
@@ -116,7 +116,7 @@ def test_toggles_intersected_with_doc_subset():
     assert out["repetitive_openers"] is True  # missing key defaults on
 
 
-# ── report_to_dict ───────────────────────────────────────────────────────────
+# -- report_to_dict -----------------------------------------------------------
 
 
 def test_report_to_dict_clean_shape():
@@ -131,7 +131,7 @@ def test_report_to_dict_flagged_sections_shape():
     hits = d["sections"]["banned_phrases"]
     assert any(_BANNED in item["phrase"] and item["sentence"] for item in hits)
     openers = d["sections"]["repetitive_openers"]
-    # No draft passed → no ids, rather than ids guessed against text we do not have.
+    # No draft passed -> no ids, rather than ids guessed against text we do not have.
     assert openers and set(openers[0]) == {"opener", "count", "sentences"}
 
 
@@ -147,7 +147,7 @@ def test_report_to_dict_with_draft_carries_the_patch_ids():
     assert openers[0]["ids"] and len(openers[0]["ids"]) == len(openers[0]["sentences"]) - 1
 
 
-# ── audit_document ───────────────────────────────────────────────────────────
+# -- audit_document -----------------------------------------------------------
 
 
 async def test_audit_clean_draft():
@@ -202,7 +202,7 @@ async def test_audit_scanner_toggle_off():
     assert res["report"]["is_clean"] is True
 
 
-# ── patch_document ───────────────────────────────────────────────────────────
+# -- patch_document -----------------------------------------------------------
 
 
 class _StubPatchClient:
@@ -326,7 +326,7 @@ async def test_patch_text_assisted_extends_rendered_generation_prompt():
     # reasoning off) so template quirks reproduce byte-for-byte.
     gen_messages, prefill = build_generation_messages(ctx, assisted=True, completion_mode="text")
     assert client.render_calls == [{"messages": gen_messages, "prefill": prefill, "reasoning": False}]
-    # …and the raw patch prompt byte-extends that render with the draft core.
+    # ...and the raw patch prompt byte-extends that render with the draft core.
     assert client.raw_calls[0]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")
 
 
@@ -355,7 +355,7 @@ async def test_patch_raw_garbage_content_yields_no_patches():
     assert res["errors"] == []
 
 
-# ── patch-prompt builders ────────────────────────────────────────────────────
+# -- patch-prompt builders ----------------------------------------------------
 
 
 def test_patch_messages_chat_raw_extends_generation():

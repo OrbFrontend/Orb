@@ -29,16 +29,16 @@ if TYPE_CHECKING:
     from ...database.models import PhraseGroup
 
 # The doc-applicable subset of analysis.AUDIT_TYPES: the three chat-context scanners (anti_echo, phrase_repetition,
-# structural_repetition) need previous assistant messages / the user's last message, which a document doesn't have — run_audit
+# structural_repetition) need previous assistant messages / the user's last message, which a document doesn't have -- run_audit
 # auto-skips them when those aren't passed. Single source for both the toggle filter here and the panel checkboxes in the
 # frontend.
 DOC_AUDIT_TYPES = ("banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation")
 
 # Semantic cap on the preceding-document context the scanners see (the client may send more; the server owns the cap). Keeps the
-# opener/template windows spanning the context→draft boundary without scanning a whole novel per run.
+# opener/template windows spanning the context->draft boundary without scanning a whole novel per run.
 DOC_AUDIT_CONTEXT_CHARS = 8000
 
-# llama.cpp-style chat-template control tokens (<|im_start|>, <|eot_id|>, …). In a Raw-mode document these live on their own
+# llama.cpp-style chat-template control tokens (<|im_start|>, <|eot_id|>, ...). In a Raw-mode document these live on their own
 # scaffold lines; a line carrying one is template markup, not prose.
 _TEMPLATE_TOKEN_RE = re.compile(r"<\|[^<>]*\|>")
 
@@ -97,7 +97,7 @@ def _audit_sync(
     draft_core: str, context: str, phrase_bank: list[PhraseGroup], toggles: Mapping[str, Any] | None
 ) -> AuditReport:
     """Audit ``context + draft_core`` (so opener/template windows span the
-    boundary), narrowed to draft-only findings — chat-editor semantics. No
+    boundary), narrowed to draft-only findings -- chat-editor semantics. No
     chat context is passed, so the three cross-message scanners never run."""
     text = f"{context}\n\n{draft_core}" if context else draft_core
     # Negated narration is chat-only: its findings are anchored to the text it read (context + draft here), so filtering to the
@@ -109,7 +109,7 @@ def _audit_sync(
 
 def build_fix_instruction(report_text: str) -> str:
     """The patch call's trailing instruction: the audit report + the JSON
-    patch contract. A pure suffix — the generation framing is the persona."""
+    patch contract. A pure suffix -- the generation framing is the persona."""
     return f"{report_text}\n\n{_PATCH_JSON_INSTRUCTION}"
 
 
@@ -135,9 +135,9 @@ def build_patch_messages(context: str, draft_core: str, report_text: str, *, ass
 
 
 def _extract_patches(resp: Mapping[str, Any]) -> list:
-    """``{id, replace}`` patches from either forced-call response shape: a ``tool_calls`` message (message transports — grammar
+    """``{id, replace}`` patches from either forced-call response shape: a ``tool_calls`` message (message transports -- grammar
     and response_format paths both re-synthesize ``forced_tool_message``) or the grammar-constrained JSON content of a raw
-    ``/completion``. Unparseable content → ``[]``.
+    ``/completion``. Unparseable content -> ``[]``.
     """
     patches = [
         p
@@ -166,8 +166,8 @@ async def audit_document(
 ) -> dict:
     """Scan a generated run. Returns the DocumentAuditResponse payload.
 
-    A truncated run (Stop, or token-budget cutoff) has its dangling partial sentence trimmed before auditing — the document
-    itself is untouched; the fragment is just never flagged. One partial sentence and nothing else → a clean report with the
+    A truncated run (Stop, or token-budget cutoff) has its dangling partial sentence trimmed before auditing -- the document
+    itself is untouched; the fragment is just never flagged. One partial sentence and nothing else -> a clean report with the
     ``no_complete_sentence`` skip marker.
     """
     core, tail = trim_incomplete_tail(draft) if truncated else (draft, "")
@@ -239,7 +239,7 @@ async def patch_document(
     schema = editor_patch["schema"]
     if client.completion_mode == "text":
         # Both text shapes byte-extend the generation prompt as a raw continuation: verbatim document (raw) or the re-run
-        # /apply-template render (assisted — reconstructing the draft as a closed assistant turn renders different bytes than
+        # /apply-template render (assisted -- reconstructing the draft as a closed assistant turn renders different bytes than
         # the open generation prompt the draft followed, e.g. Qwen's injected <think></think> block). json_schema constrains
         # decoding only; prompt bytes untouched.
         if assisted:

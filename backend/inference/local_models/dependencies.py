@@ -16,18 +16,18 @@ def import_llama():
     Public because it is the one deferred import two modules need: this one to
     answer ``deps_ok``, and ``local_ml`` to actually load a model with it.
     """
-    from llama_cpp import Llama  # noqa: PLC0415 — deferred so base Orb needs no ML deps
+    from llama_cpp import Llama  # noqa: PLC0415 -- deferred so base Orb needs no ML deps
 
     return Llama
 
 
 def _shell_quote(path: str) -> str:
-    """Quote only when needed — `C:\\Program Files\\...` breaks an unquoted paste."""
+    """Quote only when needed -- `C:\\Program Files\\...` breaks an unquoted paste."""
     return f'"{path}"' if " " in path else path
 
 
 def install_cmd() -> str:
-    """Install command for THIS interpreter, fully qualified — a bare `pip` targets whatever's on PATH, not the venv/uv env the
+    """Install command for THIS interpreter, fully qualified -- a bare `pip` targets whatever's on PATH, not the venv/uv env the
     server actually runs under, so the extras land in the wrong Python and the button stays gray; and a bare requirements
     filename only resolves if the shell happens to be cwd'd into the repo, which a fresh cmd prompt is not.
     """
@@ -46,8 +46,8 @@ def deps_ok(feature: str | None = None) -> tuple[bool, str]:
         if runtime == "llama_cpp":
             import_llama()
         if runtime == "onnx":
-            import onnxruntime  # noqa: F401, PLC0415 — deferred; base Orb has no ML extras
-        import huggingface_hub  # noqa: F401, PLC0415 — deferred; only needed for downloads
+            import onnxruntime  # noqa: F401, PLC0415 -- deferred; base Orb has no ML extras
+        import huggingface_hub  # noqa: F401, PLC0415 -- deferred; only needed for downloads
     except Exception as e:  # ModuleNotFoundError or a broken build
         return False, f"ML extras not installed ({e}); {install_cmd()}"
     return True, ""

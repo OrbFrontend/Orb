@@ -452,8 +452,8 @@ async def api_summarize_conversation(
 
     settings = await get_settings()
     # The one place the group context mode deliberately does *not* apply. Compression is scene-wide narration, so it always
-    # reads the public-cast projection: paying for every dossier — or swapping in one arbitrary card the summary is not written
-    # from — buys nothing and inflates the single longest call in the app.
+    # reads the public-cast projection: paying for every dossier -- or swapping in one arbitrary card the summary is not written
+    # from -- buys nothing and inflates the single longest call in the app.
     summary_cast = (await resolve_cast(conv))._replace(context_mode="private")
     char_name, cast_names = macro_identity(conv, summary_cast)
     char_name = char_name or "Character"
@@ -495,7 +495,7 @@ async def api_summarize_conversation(
 
 
 async def _member_map(conv: ConversationRow, source_cid: str, new_cid: str) -> dict[str, str]:
-    """Old member id → new member id, for a copy of a group's messages.
+    """Old member id -> new member id, for a copy of a group's messages.
 
     ``fork_conversation`` recreates the roster with fresh member ids, so every copied assistant row has to be re-pointed or the
     copy loses its speakers. ``speaker_key`` is the join: it is immutable and the fork carries it over, which ``id`` and
@@ -568,13 +568,13 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     if not conv:
         return None
 
-    # Active path, root→leaf, with user_attachments already populated.
+    # Active path, root->leaf, with user_attachments already populated.
     messages = await get_messages(source_cid)
 
     new_cid = await fork_conversation(conv, new_title)
     member_map = await _member_map(conv, source_cid, new_cid)
 
-    # Re-insert the path linearly, remapping parent_id and recording old→new
+    # Re-insert the path linearly, remapping parent_id and recording old->new
     # message ids so the conversation_logs below can be re-pointed onto the copy.
     id_map: dict[int, int] = {}
     prev_id: int | None = None
@@ -744,7 +744,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         else:
             msg_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
 
-    # Director injection — fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
+    # Director injection -- fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
     # matches the prompt bytes a real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
     est_choices = dict(director.get("macro_choices", {}) if director else {})
@@ -795,7 +795,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     }
 
 
-# Inspector ──
+# Inspector --
 
 
 @router.get("/api/conversations/{cid}/director")

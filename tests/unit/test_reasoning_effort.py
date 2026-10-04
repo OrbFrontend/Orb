@@ -150,7 +150,7 @@ def test_agent_lane_uses_configured_dual_model_client():
     assert model == "agent-model"
 
 
-# ── Wire-level: the client attribute must land in the outbound body ──────────
+# -- Wire-level: the client attribute must land in the outbound body ----------
 
 
 async def test_wire_level_reaches_body():

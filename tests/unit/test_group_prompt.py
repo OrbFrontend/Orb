@@ -103,8 +103,8 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
 def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     """A kebab-cased key is the shape `build_direct_scene_override` asks for.
 
-    Splitting a plan line on the first `-` used to consume the key itself, so every member whose display name had two words —
-    which is what produces a hyphen in `allocate_speaker_key` — was dropped, and a plan of nothing but those read as malformed
+    Splitting a plan line on the first `-` used to consume the key itself, so every member whose display name had two words --
+    which is what produces a hyphen in `allocate_speaker_key` -- was dropped, and a plan of nothing but those read as malformed
     and fell back to round-robin.
     """
     used: set[str] = set()

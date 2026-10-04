@@ -18,7 +18,7 @@ class DocumentConflict(Exception):
 
 
 async def get_documents() -> list[DocumentListRow]:
-    """List projection — never selects the full ``content`` (see DocumentListRow)."""
+    """List projection -- never selects the full ``content`` (see DocumentListRow)."""
     rows = await select_rows("SELECT id, title, created_at, updated_at FROM documents ORDER BY updated_at DESC")
     return [cast(DocumentListRow, dict(r)) for r in rows]
 

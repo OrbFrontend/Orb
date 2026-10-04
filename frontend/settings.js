@@ -720,7 +720,7 @@ export async function showPhraseBankModal() {
   _loadSuggestions();
 }
 
-// ── Suggested: phrases and shapes mined from model replies across every chat ──
+// -- Suggested: phrases and shapes mined from model replies across every chat --
 
 const SUGGESTION_POLL_MS = 4000;
 let _suggestions = new Map();

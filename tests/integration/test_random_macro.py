@@ -30,7 +30,7 @@ async def _greeting_contents(client, cid: str) -> list[str]:
     return [m["content"] for m in resp if m["turn_index"] == 0]
 
 
-# ── persist boundary: user + assistant + edit ────────────────────────────────
+# -- persist boundary: user + assistant + edit --------------------------------
 
 
 async def test_send_persists_user_message_resolved(client, db, llm_mock):
@@ -75,7 +75,7 @@ async def test_plain_edit_resolves_inline_macros(client, db, llm_mock):
     assert row["content"] == "changed to 3"
 
 
-# ── greetings: re-roll until first user message, then frozen ─────────────────
+# -- greetings: re-roll until first user message, then frozen -----------------
 
 
 async def test_greeting_rerolls_until_first_user_message(client, db, llm_mock):
@@ -92,7 +92,7 @@ async def test_greeting_rerolls_until_first_user_message(client, db, llm_mock):
     assert row["content"].split(",")[0] in _GREETING_OPTIONS
 
     # Unfrozen: repeated fetches re-roll from the template. 40 draws of a fair
-    # 2-option pick miss one side with probability 2^-40 — not a flake source.
+    # 2-option pick miss one side with probability 2^-40 -- not a flake source.
     seen = set()
     for _ in range(40):
         (content,) = await _greeting_contents(client, cid)
@@ -139,12 +139,12 @@ async def test_editing_greeting_drops_template_and_stops_reroll(client, db):
 
     await client.post_checked(f"/api/conversations/{cid}/messages/{greeting_id}/edit", json={"content": "Hand-written opening"})
 
-    # No template left, so fetches (still unfrozen — no user message) keep the edit.
+    # No template left, so fetches (still unfrozen -- no user message) keep the edit.
     for _ in range(5):
         assert await _greeting_contents(client, cid) == ["Hand-written opening"]
 
 
-# ── fragments: one pick per conversation via macro_choices ───────────────────
+# -- fragments: one pick per conversation via macro_choices -------------------
 
 
 async def _setup_directed_conversation(client, cid: str) -> None:

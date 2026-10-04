@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { BLOCK_TAGS, ORB_CLASS_PREFIXES, ORB_CLASSES } from "../../frontend/message_html.js";
 
 // message_html.js's class hook rewrites every class token a message body carries to `custom-<token>` unless ORB_CLASSES
-// vouches for it. That is what stops card markup borrowing an app class — and what would silently mangle Orb's own
+// vouches for it. That is what stops card markup borrowing an app class -- and what would silently mangle Orb's own
 // markup if formatProse grew a class the set does not know about.
 const SOURCES = ["../../frontend/utils.js", "../../frontend/icons.js"];
 

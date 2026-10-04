@@ -41,7 +41,7 @@ def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]
 
     The wire format (``mime``/``b64``) reaches a turn straight from the browser, while ``format_message_with_attachments`` reads
     history rows through the DB names. A later speaker in an exchange sees the user's image only as part of the replayed history
-    — not as its own trailing attachment — so the two spellings have to meet here or the picture silently stops at the first
+    -- not as its own trailing attachment -- so the two spellings have to meet here or the picture silently stops at the first
     speaker.
     """
     out: list[dict] = []
@@ -61,7 +61,7 @@ _ROUND_MAX_REPLIES = 8
 def _round_prefix(history: Sequence[Mapping[str, Any]], names: Mapping[str, str]) -> tuple[str, list[tuple[str, str]]]:
     """The round already on the branch: the user's last message and every reply since.
 
-    An exchange is *request*-scoped. Under `manual` — and for any cast-chip click on a resting scene — one round is several
+    An exchange is *request*-scoped. Under `manual` -- and for any cast-chip click on a resting scene -- one round is several
     requests, so this request's own replies are not the round. The sheet pass would otherwise be asked "did this exchange
     durably change Kael?" with the line that changed him in a different request, and on `handle_speak` with no user message at
     all. This is the same round ``workflows/image_gen/subjects.py`` reads, for the same reason, and it is consulted only when
@@ -94,9 +94,9 @@ def _group_pin_error(ctx: PipelineContext, pinned_speaker_id: str | None) -> str
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Shared turn driver + regenerate helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 async def _run_turn_handler(
@@ -109,7 +109,7 @@ async def _run_turn_handler(
     """Shared wrapper for the public turn handlers.
 
     Loads the pipeline context, guards the missing-conversation case, and converts any pipeline exception into the terminal SSE
-    error event — one place defines the error wire contract for every handler. The payload is ``describe_failure``'s dict, so
+    error event -- one place defines the error wire contract for every handler. The payload is ``describe_failure``'s dict, so
     the provider's own sentence survives to the browser instead of being replaced by a constant (see failures.py). Failures a
     step survived arrive as ``warning`` events, thinned by ``reported_once``.
     """
@@ -454,7 +454,7 @@ async def _generate_group_exchange(
         return
 
     # `manual` with nobody picked is the scene resting, which is the same empty plan the Director may choose in `director` mode
-    # — the user's message has landed and no one answers it yet. It exits here rather than falling through to plan resolution
+    # -- the user's message has landed and no one answers it yet. It exits here rather than falling through to plan resolution
     # because a rest that has already been decided must not cost a Director call, and `prepare_turn` would run one.
     if not pinned_speaker_id and ctx.conv.get("group_turn_mode") == "manual":
         yield {"event": "speaking_plan", "data": {"exchange_id": exchange_id, "plan": []}}
@@ -562,7 +562,7 @@ async def _generate_group_exchange(
             }
         )
 
-    # Under Classic card swap the shared setup base is the *neutral* one — the Director ran before a speaker was known — so even
+    # Under Classic card swap the shared setup base is the *neutral* one -- the Director ran before a speaker was known -- so even
     # the first speaker has to rebuild its prefix around its own card. Reusing the setup base there is a correctness bug in that
     # mode, not merely a cache miss.
     speaker_scoped = prefix_is_speaker_scoped(ctx.cast.context_mode)
@@ -646,7 +646,7 @@ async def _generate_group_exchange(
                     lines=(*prior_lines, *((name, text) for _, name, text in spoke)),
                 )
                 # The mode belongs in this condition and not only in Group settings. Under Shared and Swap a member's sheet is
-                # rendered into the *cached* body, so an applied update rebuilds the whole scene prefix — the exact cost the
+                # rendered into the *cached* body, so an applied update rebuilds the whole scene prefix -- the exact cost the
                 # opt-in is gated on avoiding. Leaving that invariant to one line of the client meant a `PUT` that changed only
                 # the mode left the pass running against the layout it was never priced for.
                 if is_final and ctx.conv.get("group_sheet_updates") and tail_carries_identity(ctx.cast.context_mode)
@@ -704,9 +704,9 @@ async def _generate_group_exchange(
     yield {"event": "done"}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Public entry points
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 async def handle_turn(

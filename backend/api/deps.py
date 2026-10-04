@@ -692,7 +692,7 @@ async def require_changeset(changeset_id: int, world: dict = Depends(require_wor
 def validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tuple[list[str], str]:
     """Validate a phrase group by kind. Returns (variants, pattern) to persist.
 
-    A group is *either* literal variants *or* a single regex — never both.
+    A group is *either* literal variants *or* a single regex -- never both.
     """
     if kind == "regex":
         pattern = (pattern or "").strip()

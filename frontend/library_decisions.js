@@ -54,7 +54,7 @@ export function initDecisionDraft(fragment) {
   };
 }
 
-// ── Reading the form ─────────────────────────────────────────────────────────
+// -- Reading the form ---------------------------------------------------------
 
 /** Serialize all decision fields, using null to clear unused values. */
 export function readDecisionFields() {
@@ -107,7 +107,7 @@ function _syncFromDom() {
   }
 }
 
-// ── Problems from a 422 ──────────────────────────────────────────────────────
+// -- Problems from a 422 ------------------------------------------------------
 
 // Map backend validation messages to the relevant editor fields.
 const PROBLEM_ANCHORS = [
@@ -138,7 +138,7 @@ function _problemHtml(anchor) {
   return list ? `<div class="decision-problem">${list.map((problem) => esc(problem)).join("<br>")}</div>` : "";
 }
 
-// ── Rendering ────────────────────────────────────────────────────────────────
+// -- Rendering ----------------------------------------------------------------
 
 export function decisionSectionHtml(fieldType) {
   const hidden = fieldType === "decision" ? "" : ' style="display:none"';
@@ -344,7 +344,7 @@ function _fit(el) {
   el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
-// ── Structural edits ─────────────────────────────────────────────────────────
+// -- Structural edits ---------------------------------------------------------
 
 /** Re-read the form, apply *change* to the draft, then repaint. */
 function _mutate(change) {

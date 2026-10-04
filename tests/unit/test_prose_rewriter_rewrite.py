@@ -112,7 +112,7 @@ async def test_progress_emits_the_top_paragraph_before_later_ones():
 async def test_a_failed_paragraph_takes_its_siblings_down_with_it():
     """``gather`` alone raises the first exception and lets the rest run on, past
     the point where the caller has reported the failure and released its
-    in-flight slot — so the host is free to stop the child underneath them."""
+    in-flight slot -- so the host is free to stop the child underneath them."""
     host = _Host(server=_FlakyServer())
 
     # Verbatim, not wrapped in an ExceptionGroup: this string is the warning the user reads.

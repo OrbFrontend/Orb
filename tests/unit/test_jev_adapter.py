@@ -36,7 +36,7 @@ def _payload(**overrides) -> dict:
     return payload
 
 
-# ── the route ────────────────────────────────────────────────────────────────
+# -- the route ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -72,7 +72,7 @@ def test_a_non_openrouter_base_keeps_its_own_path():
     assert decisions_url("https://gateway.test/proxy/v1") == "https://gateway.test/proxy/alpha/decisions"
 
 
-# ── request serialization ────────────────────────────────────────────────────
+# -- request serialization ----------------------------------------------------
 
 
 async def test_the_request_carries_the_shared_state_once_and_one_entry_per_question():
@@ -86,7 +86,7 @@ async def test_the_request_carries_the_shared_state_once_and_one_entry_per_quest
     assert list(payload["questions"]["outcome"]["criteria"]) == ["true", "false"]
 
 
-# ── response normalization ───────────────────────────────────────────────────
+# -- response normalization ---------------------------------------------------
 
 
 def test_a_valid_answer_normalizes_with_its_metadata():
@@ -185,7 +185,7 @@ def test_an_unreadable_envelope_raises_rather_than_answering(payload):
         normalize_response(payload, [QUESTION])
 
 
-# ── the raw-answer cache ─────────────────────────────────────────────────────
+# -- the raw-answer cache -----------------------------------------------------
 
 
 def _key(**overrides) -> str:
@@ -234,7 +234,7 @@ def test_a_cached_answer_expires_on_its_ttl(monkeypatch):
     assert cache.get("k") is None
 
 
-# ── transport ────────────────────────────────────────────────────────────────
+# -- transport ----------------------------------------------------------------
 
 
 def _client(handler, **kwargs) -> DecisionClient:
@@ -289,7 +289,7 @@ async def test_an_http_rejection_keeps_the_providers_own_sentence():
     assert "secret" not in raised.value.body
 
 
-# ── llama.cpp fallback ───────────────────────────────────────────────────────
+# -- llama.cpp fallback -------------------------------------------------------
 
 
 def _routed(monkeypatch, routes: dict[str, httpx.Response]) -> list[str]:

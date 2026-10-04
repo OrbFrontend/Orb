@@ -202,7 +202,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         """Model discovery **only** -- this must never submit a generation.
 
         ComfyUI's shape (`{ok, capabilities, system, models}`), so the panel needs no change; `system.devices` is absent, which
-        degrades its "Connected — <device>" line to a bare "Connected" rather than breaking it.
+        degrades its "Connected -- <device>" line to a bare "Connected" rather than breaking it.
         """
         preset = self._require_preset()
         client = self._client(30.0)

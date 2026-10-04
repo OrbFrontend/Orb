@@ -47,7 +47,7 @@ def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch)
     """All three at once, not just the one the test above happened to pick.
 
     ``prune_stale`` reads the WHOLE manifest to build its claim set, so the property that matters is that no variant is missing
-    from it — a checkpoint the claim set forgets is 4.7 GB deleted the next time an unrelated Download button is pressed.
+    from it -- a checkpoint the claim set forgets is 4.7 GB deleted the next time an unrelated Download button is pressed.
     """
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     variants = MODELS["prose_rewriter"].variants
@@ -84,7 +84,7 @@ def test_prune_stale_leaves_what_it_does_not_manage(tmp_path):
 def test_every_artifact_has_an_extension_prune_stale_can_claim():
     """``prune_stale`` only deletes the suffixes in ``MANAGED_SUFFIXES``. A spec
     that writes anything else puts a file on disk nothing will ever clean up on
-    a model bump — which is exactly what happened when ONNX artifacts were
+    a model bump -- which is exactly what happened when ONNX artifacts were
     added to a prune that knew only ``.gguf``."""
     for feature, spec in MODELS.items():
         for name in spec.all_names():

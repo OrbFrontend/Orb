@@ -59,7 +59,7 @@ def _head_repeat(keys: Sequence[str], preceding: Sequence[str]) -> int:
 
 
 # Target spans are marker-stripped (``audit.strip_markers``), so the quotes or emphasis around flagged text stay in the draft on
-# either side of the span. Straight and curly double quotes are one mark; a curly apostrophe stays apart from them so ``sayin’``
+# either side of the span. Straight and curly double quotes are one mark; a curly apostrophe stays apart from them so ``sayin\u2019``
 # never reads as a closing quote.
 _MARKER_KIND = str.maketrans({"“": '"', "”": '"', "’": "‘"})
 

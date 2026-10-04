@@ -101,7 +101,7 @@ def _checked_gate_write(payload: dict, existing: dict[str, Any] | None = None) -
     return payload
 
 
-# Mood Fragments ──
+# Mood Fragments --
 
 
 @router.get("/api/fragments")
@@ -132,7 +132,7 @@ async def api_delete_mood_fragment(fid: str):
     return {"ok": True}
 
 
-# Interactive Fragments ──
+# Interactive Fragments --
 
 
 @router.get("/api/interactive-fragments")

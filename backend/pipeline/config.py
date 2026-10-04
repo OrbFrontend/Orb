@@ -46,7 +46,7 @@ def resolve_pipeline_config(
     prefills = settings.get("reasoning_prefill_passes") or {}
 
     def _prefill(key: str) -> str:
-        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin per conversation exactly like fragment text —
+        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin per conversation exactly like fragment text --
         # the tail stays byte-stable turn over turn.
         raw = str(prefills.get(key) or "")
         return macros.resolve_message(raw) if raw else ""

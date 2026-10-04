@@ -396,9 +396,9 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
         "  keys_stripped INTEGER NOT NULL DEFAULT 0"
         ")"
     )
-    conn.execute(f"DELETE FROM {META_TABLE}")  # nosec B608 — schema-derived identifier, values parameterised
+    conn.execute(f"DELETE FROM {META_TABLE}")  # nosec B608 -- schema-derived identifier, values parameterised
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",  # nosec B608 — schema-derived identifier, values parameterised
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",  # nosec B608 -- schema-derived identifier, values parameterised
         (json.dumps(sorted(included)), datetime.datetime.now().isoformat(timespec="seconds"), label, kind, int(keys_stripped)),
     )
 
@@ -424,7 +424,7 @@ def read_meta(path: str) -> dict | None:
     conn = sqlite3.connect(path)
     try:
         row = conn.execute(
-            f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"  # nosec B608 — schema-derived identifier, values parameterised
+            f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"  # nosec B608 -- schema-derived identifier, values parameterised
         ).fetchone()
     except sqlite3.OperationalError:
         return None
@@ -489,7 +489,7 @@ def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: 
         return
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
         return
-    rows = conn.execute(f"SELECT rowid, {column} FROM {table}").fetchall()  # nosec B608 — schema-derived identifier
+    rows = conn.execute(f"SELECT rowid, {column} FROM {table}").fetchall()  # nosec B608 -- schema-derived identifier
     for rowid, raw in rows:
         if not isinstance(raw, str) or not raw:
             continue
@@ -505,7 +505,7 @@ def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: 
             changed = _blank_json_leaf(payload, path) or changed
         if changed:
             conn.execute(
-                f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # nosec B608 — schema-derived identifier, values parameterised
+                f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # nosec B608 -- schema-derived identifier, values parameterised
                 (json.dumps(payload), rowid),
             )
 
@@ -514,10 +514,10 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     """Remove personal configuration and secrets from an export."""
     for root, domain in ps.DOMAIN_ROOTS.items():
         if domain == "configs" and schema.tables[root].kind != "singleton":
-            conn.execute(f"DELETE FROM {root}")  # nosec B608 — schema-derived identifier, values parameterised
+            conn.execute(f"DELETE FROM {root}")  # nosec B608 -- schema-derived identifier, values parameterised
     for (table, col), blank in ps.SECRET_COLUMNS.items():
         if schema.tables[table].kind == "singleton":
-            conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))  # nosec B608 — schema-derived identifier, values parameterised
+            conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))  # nosec B608 -- schema-derived identifier, values parameterised
     for (table, col), paths in ps.SECRET_JSON_PATHS.items():
         _blank_json_paths(conn, table, col, paths)
 
@@ -557,14 +557,14 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 continue
             if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
                 continue
-            if c.execute(f"SELECT 1 FROM {tbl} LIMIT 1").fetchone():  # nosec B608 — schema-derived identifier, values parameterised
+            if c.execute(f"SELECT 1 FROM {tbl} LIMIT 1").fetchone():  # nosec B608 -- schema-derived identifier, values parameterised
                 raise PresetError(
                     f"Excluded table {tbl!r} has rows but is invisible to export and merge; "
                     f"its data would silently never be backed up. Give its root a domain in "
                     f"DOMAIN_ROOTS, or confirm it must stay excluded."
                 )
         for tbl in ps.DERIVED_TABLES:
-            c.execute(f"DELETE FROM {tbl}")  # nosec B608 — constant identifier
+            c.execute(f"DELETE FROM {tbl}")  # nosec B608 -- constant identifier
         # Prune each unselected domain by deleting its root tables: with FK on, a CASCADE prunes the owned children and a SET
         # NULL clears soft pointers, so no per-child delete is hand-coded. configs is special (it scrubs the singleton in place
         # rather than deleting it).
@@ -576,10 +576,10 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 continue
             for root in _roots_for(domain):
                 if schema.tables[root].kind != "singleton":
-                    c.execute(f"DELETE FROM {root}")  # nosec B608 — schema-derived identifier, values parameterised
+                    c.execute(f"DELETE FROM {root}")  # nosec B608 -- schema-derived identifier, values parameterised
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
-                c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 — schema-derived identifier, values parameterised
+                c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 -- schema-derived identifier, values parameterised
             # The same rule, one level deeper: "every declared secret whose leaf is api_key", not "every column literally named
             # api_key". A key inside a JSON column is the same key.
             for (table, col), paths in ps.SECRET_JSON_PATHS.items():
@@ -609,7 +609,7 @@ def _existing(conn: sqlite3.Connection, cache: dict[str, set], parent: str, to_c
     is stable once built.
     """
     if parent not in cache:
-        cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}  # nosec B608 — schema-derived identifier, values parameterised
+        cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}  # nosec B608 -- schema-derived identifier, values parameterised
     return cache[parent]
 
 
@@ -660,7 +660,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
         # keep their local values (cache bookkeeping, not config from the file).
         pk = t.pk[0]
         keep = set(t.pk) | set(ps.PRESERVED_COLUMNS.get(table, ()))
-        row = conn.execute(f"SELECT {','.join(cols)} FROM preset.{table} WHERE {pk} = 1").fetchone()  # nosec B608 — schema-derived identifier, values parameterised
+        row = conn.execute(f"SELECT {','.join(cols)} FROM preset.{table} WHERE {pk} = 1").fetchone()  # nosec B608 -- schema-derived identifier, values parameterised
         if row is None:
             return
         sets, vals = [], []
@@ -671,13 +671,13 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
                 v, _ = _resolve_fk(v, fks[c], idmaps, conn, cache)
             sets.append(f"{c} = ?")
             vals.append(v)
-        conn.execute(f"UPDATE main.{table} SET {', '.join(sets)} WHERE {pk} = 1", vals)  # nosec B608 — schema-derived identifier, values parameterised
+        conn.execute(f"UPDATE main.{table} SET {', '.join(sets)} WHERE {pk} = 1", vals)  # nosec B608 -- schema-derived identifier, values parameterised
         return
 
     if t.kind == "stable":
         # Identity is portable: upsert by primary key (the child-replace in phase B already cleared any subtree this row owns).
         ph = ",".join("?" * len(cols))
-        for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
+        for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 -- schema-derived identifier, values parameterised
             vals = list(row)
             for i, c in enumerate(cols):
                 if c in deferred:
@@ -692,7 +692,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
     ins_cols = [c for c in cols if c != pk]
     ph = ",".join("?" * len(ins_cols))
     idmap: dict[int, int] = {}
-    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
+    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 -- schema-derived identifier, values parameterised
         rowd = dict(zip(cols, row))
         vals, drop = [], False
         for c in ins_cols:
@@ -706,7 +706,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
             vals.append(v)
         if drop:
             continue  # an owning parent did not survive the import; drop the orphan
-        new = conn.execute(f"INSERT INTO main.{table} ({','.join(ins_cols)}) VALUES ({ph})", vals).lastrowid  # nosec B608 — schema-derived identifier, values parameterised
+        new = conn.execute(f"INSERT INTO main.{table} ({','.join(ins_cols)}) VALUES ({ph})", vals).lastrowid  # nosec B608 -- schema-derived identifier, values parameterised
         assert new is not None
         idmap[rowd[pk]] = new
     idmaps[table] = idmap
@@ -736,7 +736,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     pk = t.pk[0]
     own_map = idmaps.get(table)  # surrogate tables only
     resolved: dict = {}  # new_pk -> new_val, in the post-merge id space
-    for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
+    for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():  # nosec B608 -- schema-derived identifier, values parameterised
         old_pk, old_val = row[0], row[1]
         if own_map is not None and old_pk not in own_map:
             continue  # row was dropped during insert
@@ -746,7 +746,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     if fk.is_self:
         _break_self_cycles(resolved)
     for new_pk, new_val in resolved.items():
-        conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))  # nosec B608 — schema-derived identifier, values parameterised
+        conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))  # nosec B608 -- schema-derived identifier, values parameterised
 
 
 def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> None:
@@ -757,12 +757,12 @@ def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> No
         conn.execute("CREATE TEMP TABLE _fk_remap (old INTEGER PRIMARY KEY, new INTEGER)")
         conn.executemany("INSERT INTO _fk_remap (old, new) VALUES (?, ?)", list(pmap.items()))
         conn.execute(
-            f"UPDATE main.{table} SET {col} = (SELECT new FROM _fk_remap WHERE old = {col}) "  # nosec B608 — schema-derived identifier, values parameterised
+            f"UPDATE main.{table} SET {col} = (SELECT new FROM _fk_remap WHERE old = {col}) "  # nosec B608 -- schema-derived identifier, values parameterised
             f"WHERE {col} IN (SELECT old FROM _fk_remap)"
         )
         conn.execute("DROP TABLE _fk_remap")
     conn.execute(
-        f"UPDATE main.{table} SET {col} = NULL "  # nosec B608 — schema-derived identifier, values parameterised
+        f"UPDATE main.{table} SET {col} = NULL "  # nosec B608 -- schema-derived identifier, values parameterised
         f"WHERE {col} IS NOT NULL AND {col} NOT IN (SELECT {fk.to_col} FROM main.{fk.parent})"
     )
 
@@ -782,7 +782,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
             roots = _roots_for(domain)
             if roots and all(schema.tables[r].kind == "stable" for r in roots):
                 for table in reversed(schema.domain_tables(domain)):
-                    conn.execute(f"DELETE FROM main.{table}")  # nosec B608 — schema-derived identifier, values parameterised
+                    conn.execute(f"DELETE FROM main.{table}")  # nosec B608 -- schema-derived identifier, values parameterised
                     fully_replaced.add(table)
 
     # B. Child-replace: clear the subtree each incoming entity supersedes, child
@@ -797,9 +797,9 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
         root = schema.root_of(table)
         if root.kind == "stable":
             if table != root.name:
-                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")  # nosec B608 — schema-derived identifier, values parameterised
+                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")  # nosec B608 -- schema-derived identifier, values parameterised
         else:
-            conn.execute(f"DELETE FROM main.{table}")  # nosec B608 — schema-derived identifier, values parameterised
+            conn.execute(f"DELETE FROM main.{table}")  # nosec B608 -- schema-derived identifier, values parameterised
             fully_replaced.add(table)
 
     # C. Insert/upsert in topological order so every parent precedes its children.
@@ -833,7 +833,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
         if any(schema.tables[r].kind == "singleton" for r in roots):
             summary[domain] = 1
         else:
-            summary[domain] = sum(conn.execute(f"SELECT COUNT(*) FROM preset.{r}").fetchone()[0] for r in roots)  # nosec B608 — schema-derived identifier, values parameterised
+            summary[domain] = sum(conn.execute(f"SELECT COUNT(*) FROM preset.{r}").fetchone()[0] for r in roots)  # nosec B608 -- schema-derived identifier, values parameterised
     return summary
 
 

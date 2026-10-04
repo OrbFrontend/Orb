@@ -1,4 +1,4 @@
-"""0010_active_model_config_on_endpoints — move active_model_config_id ownership from settings to endpoints so each endpoint
+"""0010_active_model_config_on_endpoints -- move active_model_config_id ownership from settings to endpoints so each endpoint
 independently remembers its last-used model config.
 """
 

@@ -1,4 +1,4 @@
-"""Guards on apply_id_patches — the id-anchored replacement for search/replace.
+"""Guards on apply_id_patches -- the id-anchored replacement for search/replace.
 
 The error strings are fed back to the model verbatim as the tool result, so they are part of the contract and asserted as such.
 """
@@ -43,13 +43,13 @@ def test_patch_order_does_not_matter(targets):
 
 def test_empty_replace_deletes_the_span(targets):
     # The span never included its separator, so a bare splice would strand one.
-    # Healing closes the seam — see tests/unit/test_patch_healing.py.
+    # Healing closes the seam -- see tests/unit/test_patch_healing.py.
     out, errors = apply_id_patches(DRAFT, targets, [{"id": 1, "replace": ""}])
     assert out == "Beta two. Gamma three."
     assert errors == []
 
 
-# ── Error vocabulary ──────────────────────────────────────────────────────────
+# -- Error vocabulary ----------------------------------------------------------
 
 
 def test_non_dict_patch_element_reported(targets):
@@ -127,14 +127,14 @@ def test_empty_target_list_names_no_range():
     assert errors == ["Error: no finding with id 1 in the report. Valid ids: (none — the report has no numbered issues)."]
 
 
-# ── Error metadata ────────────────────────────────────────────────────────────
+# -- Error metadata ------------------------------------------------------------
 #
 # The message is written for the model; the kind and id are written for the loop around it. The editor tells a rejected real
 # target apart from a junk id on these, so they are as much a contract as the strings above.
 
 
 def test_errors_are_plain_strings_to_every_existing_caller(targets):
-    # A str subclass, so joining, comparing and counting are unchanged — the tool-result text and the `len(patches) -
+    # A str subclass, so joining, comparing and counting are unchanged -- the tool-result text and the `len(patches) -
     # len(errors)` count both rely on that staying true.
     _, errors = apply_id_patches(DRAFT, targets, [{"id": 9, "replace": "X."}])
     assert isinstance(errors[0], str)

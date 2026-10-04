@@ -19,7 +19,7 @@ GEMMA_OPEN, GEMMA_CLOSE = rf.GEMMA_TAGS
 GEMMA_DISABLE = "<|channel>thought\n<channel|>"
 
 
-# ── Splitter ────────────────────────────────────────────────────────────────
+# -- Splitter ----------------------------------------------------------------
 
 
 def _run(splitter: tc.Splitter, chunks: list[str]) -> tuple[str, str]:
@@ -62,21 +62,21 @@ def test_splitter_already_open_starts_in_reasoning():
 
 
 def test_splitter_non_thinking_passthrough():
-    # Empty tags → everything is content, from the first byte.
+    # Empty tags -> everything is content, from the first byte.
     r, c = _run(tc.ThinkSplitter(rf.NO_TAGS), ["hello ", "world"])
     assert r == ""
     assert c == "hello world"
 
 
 def test_splitter_reasoning_on_but_no_channel_is_all_content():
-    # Model never opens a thought channel despite reasoning-on → all content.
+    # Model never opens a thought channel despite reasoning-on -> all content.
     r, c = _run(tc.ThinkSplitter(rf.GEMMA_TAGS), ["Just ", "answering."])
     assert r == ""
     assert c == "Just answering."
 
 
 def test_splitter_flush_drains_mid_reasoning_tail_as_reasoning():
-    # Truncated mid-span with a held partial close tag → flushed as reasoning.
+    # Truncated mid-span with a held partial close tag -> flushed as reasoning.
     r, c = _run(tc.ThinkSplitter(rf.GEMMA_TAGS), [GEMMA_OPEN, "text", "<chan"])
     assert r == "text<chan"
     assert c == ""
@@ -89,7 +89,7 @@ def test_splitter_flush_drains_pre_state_tail_as_content():
     assert c == "<|chan"
 
 
-# ── Namespaced stream markers ────────────────────────────────────────────────
+# -- Namespaced stream markers ------------------------------------------------
 
 
 def test_splitter_minimax_pair():
@@ -98,7 +98,7 @@ def test_splitter_minimax_pair():
     assert c == "answer"
 
 
-# ── Param remap ──────────────────────────────────────────────────────────────
+# -- Param remap --------------------------------------------------------------
 
 
 def test_build_completion_params_remaps_and_drops():
@@ -135,7 +135,7 @@ def test_build_completion_params_n_probs_adds_post_sampling():
 
 
 def test_build_completion_params_n_probs_absent_by_default():
-    # No n_probs → neither field appears (old servers, probs toggle off).
+    # No n_probs -> neither field appears (old servers, probs toggle off).
     out = tc.build_completion_params({"temperature": 0.7})
     assert "n_probs" not in out
     assert "post_sampling_probs" not in out
@@ -149,7 +149,7 @@ def test_build_completion_params_n_probs_ignores_nonpositive_and_bool():
         assert "post_sampling_probs" not in out, bad
 
 
-# ── parse_token_probs: three llama.cpp shapes + garbage ───────────────────────
+# -- parse_token_probs: three llama.cpp shapes + garbage -----------------------
 
 
 def test_parse_token_probs_post_sampling_shape():
@@ -165,7 +165,7 @@ def test_parse_token_probs_post_sampling_shape():
 
 
 def test_parse_token_probs_logprob_shape_exponentiated():
-    # {token, logprob, top_logprobs:[{token, logprob}]} → math.exp to linear.
+    # {token, logprob, top_logprobs:[{token, logprob}]} -> math.exp to linear.
     import math
 
     data = {
@@ -181,7 +181,7 @@ def test_parse_token_probs_logprob_shape_exponentiated():
 
 
 def test_parse_token_probs_legacy_shape_derives_prob_from_alts():
-    # Legacy {content, probs:[{tok_str, prob}]} — no top-level prob; the sampled token's prob is read from the alternatives.
+    # Legacy {content, probs:[{tok_str, prob}]} -- no top-level prob; the sampled token's prob is read from the alternatives.
     data = {
         "completion_probabilities": [
             {"content": " the", "probs": [{"tok_str": " the", "prob": 0.7}, {"tok_str": " a", "prob": 0.2}]}
@@ -207,7 +207,7 @@ def test_parse_token_probs_multiple_records_and_missing_alts():
     assert tc.parse_token_probs(data) == [{"token": "a", "prob": 0.9, "top": []}, {"token": "b", "prob": 0.5, "top": []}]
 
 
-# ── Chat-transport logprobs normalization ─────────────────────────────────────
+# -- Chat-transport logprobs normalization -------------------------------------
 
 
 def test_parse_chat_logprobs_exponentiates_to_linear():
@@ -232,7 +232,7 @@ def test_parse_chat_logprobs_exponentiates_to_linear():
 
 
 def test_parse_chat_logprobs_absent_returns_empty():
-    # Provider omitted logprobs entirely (graceful degrade → no popup).
+    # Provider omitted logprobs entirely (graceful degrade -> no popup).
     assert parse_chat_logprobs({}) == []
     assert parse_chat_logprobs({"logprobs": None}) == []
     assert parse_chat_logprobs({"logprobs": {}}) == []
@@ -244,8 +244,8 @@ def test_parse_chat_logprobs_skips_malformed_records():
         "logprobs": {
             "content": [
                 42,
-                {"token": None, "logprob": -0.1},  # non-str token → skip
-                {"token": "x"},  # no readable prob → degrades to 0.0
+                {"token": None, "logprob": -0.1},  # non-str token -> skip
+                {"token": "x"},  # no readable prob -> degrades to 0.0
                 {"token": "y", "logprob": -0.5, "top_logprobs": ["junk", {"token": "z", "logprob": -0.9}]},
             ]
         }
@@ -258,7 +258,7 @@ def test_parse_chat_logprobs_skips_malformed_records():
     assert out[1]["top"] == [{"t": "z", "p": pytest.approx(__import__("math").exp(-0.9))}]
 
 
-# ── Usage synthesis (F8) ──────────────────────────────────────────────────────
+# -- Usage synthesis (F8) ------------------------------------------------------
 
 
 def test_synthesize_usage():
@@ -274,7 +274,7 @@ def test_synthesize_usage_never_negative_cache():
     assert usage["prompt_tokens_details"]["cached_tokens"] == 0
 
 
-# ── Forced-call done message ──────────────────────────────────────────────────
+# -- Forced-call done message --------------------------------------------------
 
 
 def test_forced_tool_message_survives_parse_tool_calls():
@@ -284,7 +284,7 @@ def test_forced_tool_message_survives_parse_tool_calls():
     assert parse_tool_calls(msg) == [{"name": "rate", "arguments": {"mood": "happy", "score": 3}}]
 
 
-# ── forced_schema lookup ──────────────────────────────────────────────────────
+# -- forced_schema lookup ------------------------------------------------------
 
 
 def test_forced_schema_looks_up_by_name():
@@ -304,7 +304,7 @@ def test_forced_schema_none_for_non_forced():
     assert tc.forced_schema(None, {"type": "function", "function": {"name": "a"}}) is None
 
 
-# ── Image-part detection ──────────────────────────────────────────────────────
+# -- Image-part detection ------------------------------------------------------
 
 
 def test_has_image_parts():
@@ -313,7 +313,7 @@ def test_has_image_parts():
     assert not tc.has_image_parts([{"role": "user", "content": [{"type": "text", "text": "hi"}]}])
 
 
-# ── reasoning flag ────────────────────────────────────────────────────────────
+# -- reasoning flag ------------------------------------------------------------
 
 
 def test_reasoning_enabled_reads_reasoning_cfg():
@@ -322,7 +322,7 @@ def test_reasoning_enabled_reads_reasoning_cfg():
     assert tc.reasoning_enabled({}) is True  # default on
 
 
-# ── Client-level wiring (patched HTTP seams) ──────────────────────────────────
+# -- Client-level wiring (patched HTTP seams) ----------------------------------
 
 
 def _format(props: str) -> rf.ReasoningFormat:
@@ -396,7 +396,7 @@ async def test_complete_text_forced_call_end_to_end():
         client.complete(messages=[{"role": "user", "content": "hi"}], model="m", tools=tools, tool_choice=choice)
     )
 
-    assert not any(e["type"] == "content" for e in events)  # forced → no content deltas
+    assert not any(e["type"] == "content" for e in events)  # forced -> no content deltas
     done = events[-1]
     assert parse_tool_calls(done["message"]) == [{"name": "rate", "arguments": {"mood": "happy", "score": 1}}]
     assert done["usage"]["prompt_tokens"] == 10
@@ -422,7 +422,7 @@ async def test_complete_text_enable_thinking_delegated_to_template_no_manual_suf
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
     assert captured["ctk"] == {"enable_thinking": True, "thinking": True}
-    assert captured["prompt"] == "BASE"  # reasoning on → template renders no disable bytes
+    assert captured["prompt"] == "BASE"  # reasoning on -> template renders no disable bytes
 
 
 async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
@@ -577,7 +577,7 @@ async def test_image_call_routes_through_chat_transport():
 
     async def must_not_run(*a, **k):
         raise AssertionError("text transport used for an image-bearing call")
-        yield  # pragma: no cover — makes this an async generator
+        yield  # pragma: no cover -- makes this an async generator
 
     client._complete_chat = fake_chat  # type: ignore[method-assign]
     client._complete_text = must_not_run  # type: ignore[method-assign]
@@ -600,7 +600,7 @@ async def test_chat_transport_drops_prefill():
     assert "prefill" not in captured["params"]
 
 
-# ── Reasoning prefill ─────────────────────────────────────────────────────────
+# -- Reasoning prefill ---------------------------------------------------------
 
 
 def test_reasoning_cfg_carries_prefill_only_when_reasoning_on():
@@ -646,7 +646,7 @@ async def test_reasoning_prefill_ignored_when_reasoning_off():
 
 async def test_reasoning_prefill_ignored_on_non_thinking_template():
     captured: dict = {}
-    client = _wired_text_client("BASE", "", ["x"], captured)  # props sniff → _NONE
+    client = _wired_text_client("BASE", "", ["x"], captured)  # props sniff -> _NONE
     events = await _drain(
         client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed."))
     )
@@ -692,7 +692,7 @@ async def test_reasoning_prefill_preserves_retry_window():
     assert sum(1 for e in events if e.get("delta") == "Seed.") == 1
 
 
-# ── Leading-whitespace trim at the content seam ───────────────────────────────
+# -- Leading-whitespace trim at the content seam -------------------------------
 
 
 def test_splitter_trims_template_padding_after_close_tag():
@@ -732,7 +732,7 @@ def test_splitter_retrims_after_a_late_open_tag():
     assert c == "Reply."
 
 
-# ── Routed-channel reasoning (Onyx ATEM / Muse Glimmer) ─────────────────────
+# -- Routed-channel reasoning (Onyx ATEM / Muse Glimmer) ---------------------
 
 # Captured from Muse-Glimmer-30B's template and completion stream.
 ONYX_TEMPLATE = (
@@ -829,7 +829,7 @@ def test_make_splitter_start_reasoning_opens_a_tag_pair_span():
     assert (r, c) == ("cot", "Hi")
 
 
-# ── Routed-channel reasoning through the transport ──────────────────────────
+# -- Routed-channel reasoning through the transport --------------------------
 
 
 async def test_complete_text_channel_splits_reasoning_from_the_reply():
@@ -989,7 +989,7 @@ async def test_render_prompt_skips_the_sniff_for_a_prefilled_call():
     )
 
 
-# ── Grammar-constrained calls close the reasoning span ──────────────────────
+# -- Grammar-constrained calls close the reasoning span ----------------------
 
 
 async def _forced(props: str, template: str, captured: dict) -> None:
@@ -1030,7 +1030,7 @@ async def test_complete_text_non_thinking_forced_call_appends_nothing():
     assert captured["prompt"] == "PROMPT"
 
 
-# ── Reasoning effort rides the text-mode render ─────────────────────────────
+# -- Reasoning effort rides the text-mode render -----------------------------
 
 
 def _effort_client(effort: str, captured: dict, refuse: tuple[str, ...] = ()) -> LLMClient:
@@ -1085,7 +1085,7 @@ async def test_render_prompt_retries_without_a_refused_reasoning_effort():
 
 
 async def test_render_prompt_reraises_a_failure_that_is_not_about_effort():
-    # No effort to drop → the caller's chat-transport fallback still owns this.
+    # No effort to drop -> the caller's chat-transport fallback still owns this.
     captured: dict = {}
     client = _effort_client("", captured)
 

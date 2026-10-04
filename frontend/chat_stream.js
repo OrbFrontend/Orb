@@ -665,7 +665,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         state.lastDirectorData = JSON.parse(data);
       } catch (_) {}
       if (isViewing(state)) {
-        advanceReasoningPass(1); // director done → move to Writer dot
+        advanceReasoningPass(1); // director done -> move to Writer dot
         renderInspector();
       }
       break;
@@ -692,7 +692,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       } catch (_) {}
       break;
     case "writer_rewrite":
-      if (isViewing(state)) advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
+      if (isViewing(state)) advanceReasoningPass(2); // writer done, editor starting -> move to Editor dot
       try {
         swapStreamingDraft(JSON.parse(data).refined_text, onRewrite, undefined, state);
       } catch (_) {}

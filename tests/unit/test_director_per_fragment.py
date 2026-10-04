@@ -83,7 +83,7 @@ async def _run(base, fragments, settings, director=None, resting=frozenset()):
     return events[-1]["result"]
 
 
-# ── build_director_scene_step_prompt ──────────────────────────────────────────
+# -- build_director_scene_step_prompt ------------------------------------------
 
 
 class TestStepPrompt:
@@ -140,7 +140,7 @@ class TestStepPrompt:
         assert "hp 42/100" not in plain
 
 
-# ── director_pass per-fragment loop ───────────────────────────────────────────
+# -- director_pass per-fragment loop -------------------------------------------
 
 
 class TestPerFragmentLoop:
@@ -158,7 +158,7 @@ class TestPerFragmentLoop:
         assert len(base.calls) == 4  # one per fragment + one moods call
         assert result.active_moods == ["tense"]  # fragment-stage moods are ignored
         assert result.extra_fields == {"user_intent": "wants X", "keywords": ["a", "b"]}  # empty next_event skipped
-        # Each recorded call keeps only its stage's field — extras the model
+        # Each recorded call keeps only its stage's field -- extras the model
         # volunteered (moods on call 1, user_intent on call 2) are stripped.
         assert [tc["arguments"] for tc in result.calls] == [
             {"user_intent": "wants X"},

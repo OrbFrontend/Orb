@@ -26,7 +26,7 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
     The one function that spans both halves, which is why it lives on the facade rather than in either module.
 
     Reached through the owning modules rather than the names re-exported above, so a test that patches ``dependencies.deps_ok``
-    or ``assets.present`` — the modules that define them — actually changes what this answers.
+    or ``assets.present`` -- the modules that define them -- actually changes what this answers.
     """
     ok, reason = dependencies.deps_ok(feature)
     if not ok:

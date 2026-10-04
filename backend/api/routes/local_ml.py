@@ -210,7 +210,7 @@ async def api_local_ml_config(feature: str, data: dict = Body(...)):  # noqa: B0
 
 @router.post("/api/local-ml/slop-score")
 async def api_slop_score(data: dict = Body(...)):  # noqa: B008
-    """Score each sentence for AI-slop → {"scores": [float in 0..1, ...]} in input order.
+    """Score each sentence for AI-slop -> {"scores": [float in 0..1, ...]} in input order.
 
     Sentences come pre-split from the frontend (which owns the coloring), so scores
     map back to spans by index. 503 when the extra/model is missing or the toggle is off.
@@ -226,10 +226,10 @@ async def api_slop_score(data: dict = Body(...)):  # noqa: B008
 
 @router.post("/api/local-ml/classify-emotion")
 async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
-    """Classify one text → {"label": go-emotions label}.
+    """Classify one text -> {"label": go-emotions label}.
 
     The frontend sends only the last few sentences of the latest assistant message (recency is enforced caller-side; the model
-    isn't trusted to weight late text). 503 when the extra/model is missing or the toggle is off — the expression popup treats
+    isn't trusted to weight late text). 503 when the extra/model is missing or the toggle is off -- the expression popup treats
     that as "no expressions" and falls back to the plain avatar.
     """
     ok, reason = local_ml.available("emotion_classifier")

@@ -1,5 +1,5 @@
 // Escaping + button-state fixtures for the image_gen message button and attachment details. Zero deps (node --test); no
-// jsdom — render.js is DOM-free and takes its escapers as arguments precisely so it loads here.
+// jsdom -- render.js is DOM-free and takes its escapers as arguments precisely so it loads here.
 //
 // The escaping tests inject MARKERS rather than the real esc()/escAttr(): the assertion is that no interpolated value
 // reaches the HTML unescaped, which is the property that actually matters and which entity-comparison would only check
@@ -97,7 +97,7 @@ test("a missing attachment renders empty fields rather than throwing", () => {
 });
 
 test("the style label links back to its entry in the style editor", () => {
-  // Generate → judge → edit the style → regenerate is the loop this feature lives
+  // Generate -> judge -> edit the style -> regenerate is the loop this feature lives
   // in; without the link every lap costs a hunt through settings.
   const linked = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, MARKERS);
   assert.match(linked, /data-wf-action="image_gen:editStyle"/);
@@ -222,7 +222,7 @@ test("selected composition skills are shown by label and escaped", () => {
   assert.ok(!attachmentDetailsHtml({ consumption_metadata: { composition_skills: [] } }, MARKERS).includes("Composition skills"));
 });
 
-// ── view toggle ─────────────────────────────────────────────────────────────
+// -- view toggle -------------------------------------------------------------
 
 test("the info button is pressed while the details show", () => {
   const details = viewToggleHtml(false);
@@ -239,7 +239,7 @@ test("the download button names its attachment through escAttr", () => {
   assert.ok(!html.includes("image-gen-view-btn"));
 });
 
-// ── seedless backends and cost ───────────────────────────────────────────────
+// -- seedless backends and cost -----------------------------------------------
 
 test("a normal attachment still prints its seed", () => {
   const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: {} }, MARKERS);
@@ -247,7 +247,7 @@ test("a normal attachment still prints its seed", () => {
 });
 
 test("a seedless backend says so instead of printing a meaningless hex", () => {
-  // The seed is still minted and stored — rehydrate refuses a null one — so the
+  // The seed is still minted and stored -- rehydrate refuses a null one -- so the
   // honest row is "recorded but unused", not a blank and not the hex.
   const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: { seed_honored: false } }, MARKERS);
   assert.match(html, /<dt>Seed<\/dt><dd>«not used»/);

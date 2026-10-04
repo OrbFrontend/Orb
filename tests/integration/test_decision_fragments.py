@@ -133,7 +133,7 @@ async def _solo_scene(client, cid: str = "conv-decision") -> str:
     return cid
 
 
-# ── authoring API ────────────────────────────────────────────────────────────
+# -- authoring API ------------------------------------------------------------
 
 
 async def test_a_valid_decision_round_trips_through_the_api(client, db):
@@ -212,7 +212,7 @@ async def test_a_decision_shares_the_director_priority_lane(client, db):
     )
 
 
-# ── configuration, preview, and the connection test ──────────────────────────
+# -- configuration, preview, and the connection test --------------------------
 
 
 async def test_configuration_derives_the_route(client, db):
@@ -316,7 +316,7 @@ async def test_the_connection_test_says_so_when_nothing_is_configured(client, db
     assert "configured" in body["error"]
 
 
-# ── the solo turn ────────────────────────────────────────────────────────────
+# -- the solo turn ------------------------------------------------------------
 
 
 async def test_a_resolved_decision_reaches_the_director_tail_and_the_writer(client, db, llm_mock, monkeypatch):
@@ -465,7 +465,7 @@ async def test_no_endpoint_means_a_skip_and_no_request(client, db, llm_mock, mon
     assert "Doorway:" not in _event(events, "director_done")["injection_block"]
 
 
-# ── persistence ──────────────────────────────────────────────────────────────
+# -- persistence --------------------------------------------------------------
 
 
 async def test_records_and_cooldowns_commit_with_the_reply(client, db, llm_mock, monkeypatch):
@@ -529,7 +529,7 @@ async def test_cooldowns_age_even_when_every_decision_is_disabled(client, db, ll
     assert (await _last_assistant(cid))["decision_cooldowns"] == {"outcome": 2}
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 
 
 async def test_regeneration_replays_the_targets_own_outcome(client, db, llm_mock, monkeypatch):
@@ -647,7 +647,7 @@ async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, 
     assert record["input_branch_anchor"] in copied_ids
 
 
-# ── card decisions ───────────────────────────────────────────────────────────
+# -- card decisions -----------------------------------------------------------
 
 
 async def _card_with_decision(client, **overrides) -> str:
@@ -704,7 +704,7 @@ async def test_validate_route_reports_a_card_decisions_problems(client):
     assert "decision_instructions must not be empty" in response["detail"]
 
 
-# ── group scope ──────────────────────────────────────────────────────────────
+# -- group scope --------------------------------------------------------------
 
 
 async def _group(client, speakers: int = 2) -> dict:
@@ -823,7 +823,7 @@ async def test_a_preset_round_trips_a_decision_like_any_other_fragment(client, d
     assert imported["enabled"] == 1
 
 
-# ── payload shape ────────────────────────────────────────────────────────────
+# -- payload shape ------------------------------------------------------------
 
 
 async def test_the_message_listing_does_not_carry_evaluation_records(client, db, llm_mock, monkeypatch):
@@ -858,7 +858,7 @@ async def test_the_live_event_summarises_rather_than_streaming_every_record(clie
     assert "outputs" not in published
 
 
-# ── diagnostics for definitions that cannot run ──────────────────────────────
+# -- diagnostics for definitions that cannot run ------------------------------
 
 
 async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db, llm_mock, monkeypatch):
@@ -886,7 +886,7 @@ async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db,
     }
 
 
-# ── cancellation ─────────────────────────────────────────────────────────────
+# -- cancellation -------------------------------------------------------------
 
 
 async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mock, monkeypatch):
@@ -944,7 +944,7 @@ async def test_a_stop_during_the_decision_stage_ends_a_group_exchange(client, db
     assert [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"] == []
 
 
-# ── steered regeneration ─────────────────────────────────────────────────────
+# -- steered regeneration -----------------------------------------------------
 
 
 async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):

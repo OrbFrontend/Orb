@@ -12,7 +12,7 @@ _split_sentences = split_sentences
 
 
 def _tokenize(sent: str) -> list[str]:
-    # Curly apostrophe → straight so contractions ("doesn’t") tokenize as one word.
+    # Curly apostrophes (U+2019) become straight ones so contractions tokenize as one word.
     return re.findall(r"\w+(?:'\w+)?|[^\s\w]", sent.replace("’", "'"))
 
 
@@ -274,7 +274,7 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
         return None
 
     # A conjunction between the boundary and the verb signals an independent clause
-    # ("do not like rain, but I brought …"), not a bare complement.
+    # ("do not like rain, but I brought ..."), not a bare complement.
     if any(tokens[j].lower() in _CONJUNCTIONS for j in range(boundary + 1, aff_verb_idx)):
         return None
 
@@ -372,7 +372,7 @@ _BE_CONTRACTION_STARTERS = frozenset(
 
 
 def _split_contractions(tokens: list[str]) -> list[str]:
-    """Split pronoun+be contractions:  she's → she 's,  they're → they 're."""
+    """Split pronoun+be contractions:  she's -> she 's,  they're -> they 're."""
     result = []
     for token in tokens:
         low = token.lower()

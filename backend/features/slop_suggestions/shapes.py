@@ -144,7 +144,7 @@ def key_core(key: str) -> tuple[str, ...]:
     return tuple(tokens)
 
 
-# ── card-authored baseline ──────────────────────────────────────────────────
+# -- card-authored baseline --------------------------------------------------
 
 _START_RE = re.compile(r"<START>", re.IGNORECASE)
 _EXAMPLE_LABEL_RE = re.compile(r"^[ \t]*(?:(?i:\{\{(?:char|user)\}\})|[A-Z][\w .'’-]{0,30}?)[ \t]*:[ \t]*", re.MULTILINE)
@@ -162,7 +162,7 @@ def card_baseline_text(first_mes: str, alternate_greetings: Iterable[str], mes_e
     return _MACRO_RE.sub(PLACEHOLDER_NAME, "\n\n".join(part for part in parts if part.strip()))
 
 
-# ── names ───────────────────────────────────────────────────────────────────
+# -- names -------------------------------------------------------------------
 
 
 def build_names(names: Iterable[str], descriptions: Iterable[str], card_texts: Iterable[str]) -> frozenset[str]:

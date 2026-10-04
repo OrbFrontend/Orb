@@ -143,7 +143,7 @@ def _match_sentence(
                         best_score = 1.0
                         best = ClicheHit(phrase=variant, score=1.0)
                 else:
-                    # 2–3 tokens: compare normalised forms (strips commas)
+                    # 2-3 tokens: compare normalised forms (strips commas)
                     normalised_variant = " ".join(var_tokens)
                     if normalised_variant in sent_normalised and 1.0 > best_score:
                         best_score = 1.0

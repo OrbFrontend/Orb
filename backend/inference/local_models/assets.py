@@ -14,7 +14,7 @@ from .catalog import MODELS, ModelFileSpec, ModelVariantSpec
 MANAGED_SUFFIXES = (".gguf", ".onnx", ".json")
 
 #: The repo root: four directories up from ``backend/inference/local_models/``.
-#: A wrong count here does not raise — it silently creates a second, empty
+#: A wrong count here does not raise -- it silently creates a second, empty
 #: models directory and reports every downloaded weight as missing. Pinned by
 #: ``tests/unit/test_local_models_paths.py``.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -27,7 +27,7 @@ def model_dir() -> str:
 
 
 def resolve_path(feature: str) -> str:
-    """Where feature's GGUF lives: env override → data/models → repo root (back-compat)."""
+    """Where feature's GGUF lives: env override -> data/models -> repo root (back-compat)."""
     if feature == "autocomplete":
         env = os.environ.get("ORB_AUTOCOMPLETE_MODEL")
         if env and os.path.exists(env):  # stale override must not hide a downloaded model
@@ -38,7 +38,7 @@ def resolve_path(feature: str) -> str:
         # The old mirrored/root paths cannot establish which weights they hold.
         return os.path.join(model_dir(), spec.local_name)
     for candidate in (
-        os.path.join(model_dir(), spec.local_name),  # flat — what download() writes
+        os.path.join(model_dir(), spec.local_name),  # flat -- what download() writes
         os.path.join(model_dir(), spec.filename),  # legacy: hf's mirror of the repo layout
         os.path.join(_ROOT, spec.local_name),  # legacy: manual drop at repo root
         os.path.join(_ROOT, spec.filename),  # legacy: mirrored drop at repo root
@@ -51,7 +51,7 @@ def resolve_path(feature: str) -> str:
 def present(feature: str) -> bool:
     """Is *feature* usable from disk?
 
-    For a variant-bearing spec that means ANY variant is downloaded — the Settings card flips from "download something" to "pick
+    For a variant-bearing spec that means ANY variant is downloaded -- the Settings card flips from "download something" to "pick
     one and enable" on the first file, not on the default one.
     """
     spec = MODELS.get(feature)
@@ -100,7 +100,7 @@ def prune_stale(root: str | None = None) -> None:
     """
     root = root or model_dir()
     # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A name the claim set forgets is wiped the next time
-    # any feature downloads — 4.7 GB gone because an unrelated button was pressed.
+    # any feature downloads -- 4.7 GB gone because an unrelated button was pressed.
     keep = {name for s in MODELS.values() for name in s.all_names()}
     walked: list[str] = []
     for dirpath, dirs, files in os.walk(root):
@@ -142,7 +142,7 @@ def file_sha256(path: str) -> str:
 def _verify(path: str, expected: str) -> None:
     """Reject a file whose bytes are not the ones that were verified.
 
-    A revision pin says WHICH commit; this says which BYTES, and the two are not the same promise — a repo that is force-pushed,
+    A revision pin says WHICH commit; this says which BYTES, and the two are not the same promise -- a repo that is force-pushed,
     deleted and recreated, or replaced by a namespace takeover can satisfy the first and fail this. A mismatch deletes the
     download rather than leaving a file that `present()` would then call ready.
     """
@@ -160,7 +160,7 @@ def _verify(path: str, expected: str) -> None:
 
 def _fetch(repo_id: str, path: str, revision: str, local_name: str, sha256: str) -> None:
     """One file into ``data/models/<local_name>``, flattened and checked."""
-    from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
+    from huggingface_hub import hf_hub_download  # noqa: PLC0415 -- deferred
 
     got = hf_hub_download(repo_id=repo_id, filename=path, revision=revision, local_dir=model_dir())
     flat = os.path.join(model_dir(), local_name)

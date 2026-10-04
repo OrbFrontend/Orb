@@ -37,7 +37,7 @@ test("the camera picker offers Auto only when the classifier can answer it", () 
 });
 
 // Both style pickers name the prompt format beside the style, so the label must be the format the render path will
-// actually use — and anything unknown or unset reads as the default the backend substitutes.
+// actually use -- and anything unknown or unset reads as the default the backend substitutes.
 test("every stored format has a label, and everything else reads as the default", () => {
   for (const [id, label] of PROMPT_FORMATS) {
     assert.equal(normalizePromptFormat(id), id);
@@ -103,10 +103,10 @@ test("the tools card summarizes enabled skills and the selected style format", (
   );
 });
 
-// ── connections ──────────────────────────────────────────────────────────────
+// -- connections --------------------------------------------------------------
 //
 // The connection list is derived from the credentials rather than stored beside them, so the interesting cases are all
-// about *which* stored rows count as a connection the user made — and what a style pointing at one resolves to.
+// about *which* stored rows count as a connection the user made -- and what a style pointing at one resolves to.
 
 // `supports_references` rides along because the panel offers the reference control
 // exactly where the adapter would send one: a provider with no reference field in
@@ -142,7 +142,7 @@ test("the inert shipped provider row is not a connection the user made", () => {
 });
 
 test("a just-added, still-empty connection is listed while it is pending", () => {
-  // The panel tracks those ids in a Set, so asking it the membership question in list form threw instead of answering —
+  // The panel tracks those ids in a Set, so asking it the membership question in list form threw instead of answering --
   // and took the settings modal with it, on the shipped defaults, which carry exactly the empty entry this filters.
   const args = [config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS];
   for (const pending of [["xai"], new Set(["xai"])]) {
@@ -190,7 +190,7 @@ test("a cloud connection is unready until it has every prerequisite", () => {
 
 test("a connection a style renders on is listed even with nothing in it", () => {
   // The model used to make an entry "held", so a keyless row stayed visible through it. With the model gone, only
-  // credentials count — and a connection a style resolves to must still be reachable, or "Paste an API key for xAI"
+  // credentials count -- and a connection a style resolves to must still be reachable, or "Paste an API key for xAI"
   // names a row the panel does not show and the one thing to fix is the one thing you cannot reach. Resolved, not raw:
   // this is the legacy fallback path, where the style names no connection at all.
   const unlinked = config({
@@ -235,7 +235,7 @@ test("an unlinked style resolves to whatever the old global source said", () => 
 });
 
 test("a connection just added is listed before it holds anything", () => {
-  // A fresh connection is genuinely empty — its model lives on a style now, and dropping the row between the click and
+  // A fresh connection is genuinely empty -- its model lives on a style now, and dropping the row between the click and
   // the first keystroke would read as the Add button doing nothing.
   const empty = config({ cloud: { providers: { openai: { api_key: "", base_url: "" } } } });
   assert.deepEqual(
@@ -250,7 +250,7 @@ test("a connection just added is listed before it holds anything", () => {
 
 test("reference support is a provider fact and is never asked of the model", () => {
   // The per-model allowlist is gone, and its absence is the point: it was a hand-kept table over catalogues of hundreds
-  // of models, so it was always behind, and being behind hid the control entirely — the user never learned the
+  // of models, so it was always behind, and being behind hid the control entirely -- the user never learned the
   // capability existed. A model that will not take a reference says so in the remote message; the user can then turn
   // the existing reference control off.
   assert.equal(providerTakesReferences({ supports_references: true }), true);
@@ -262,7 +262,7 @@ test("reference support is a provider fact and is never asked of the model", () 
   assert.equal(providerTakesReferences(null), false);
 });
 
-// ── resolution ───────────────────────────────────────────────────────────────
+// -- resolution ---------------------------------------------------------------
 // The picker's job is to offer only what the target will actually render. Anything else is a label that lies at the
 // moment the user is choosing what to pay for -- the backend does snap it, but it says so afterwards, on an image
 // already billed.

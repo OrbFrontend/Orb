@@ -44,7 +44,7 @@ def _entry(name, content="", keywords=None, *, constant=False, priority=100, wor
     }
 
 
-# ── direct_scene never carries lorebook (decoupled) ──────────────────────────
+# -- direct_scene never carries lorebook (decoupled) --------------------------
 
 
 class TestDirectSceneNoLorebookArg:
@@ -54,7 +54,7 @@ class TestDirectSceneNoLorebookArg:
         assert "moods" in props
 
 
-# ── select_lorebook tool: the standalone selection schema ────────────────────
+# -- select_lorebook tool: the standalone selection schema --------------------
 
 
 class TestSelectLorebookTool:
@@ -65,7 +65,7 @@ class TestSelectLorebookTool:
         assert props["selected_lorebook_entries"]["items"] == {"type": "string"}
 
 
-# ── compute_agentic_lorebook_block ───────────────────────────────────────────
+# -- compute_agentic_lorebook_block -------------------------------------------
 
 
 class TestComputeAgenticLorebookBlock:
@@ -91,7 +91,7 @@ class TestComputeAgenticLorebookBlock:
 
     def test_director_pick_naming_constant_stays_excluded(self):
         # A pick that names a constant entry must not duplicate it into the
-        # trailing block — the entry already rides the system prefix.
+        # trailing block -- the entry already rides the system prefix.
         assert compute_agentic_lorebook_block([_entry("Both", constant=True)], ["Both"]) == ""
 
     def test_no_selection_is_empty(self):
@@ -145,7 +145,7 @@ class TestComputeAgenticLorebookBlock:
         assert compute_agentic_lorebook_block(entries, [], messages=msgs) == ""
 
 
-# ── build_lorebook_catalog ───────────────────────────────────────────────────
+# -- build_lorebook_catalog ---------------------------------------------------
 
 
 class TestBuildLorebookCatalog:
@@ -181,7 +181,7 @@ class TestBuildLorebookCatalog:
         assert cat.index("- [B]") < cat.index("### Other")
 
 
-# ── keyword-scan parity after the renderer refactor ──────────────────────────
+# -- keyword-scan parity after the renderer refactor --------------------------
 
 
 class TestKeywordScanParity:
@@ -213,7 +213,7 @@ class TestKeywordScanParity:
         assert compute_lorebook_injection_block(msgs, entries) == render_lorebook_block([entries[0]])
 
 
-# ── render_lorebook_block: macro resolution ──────────────────────────────────
+# -- render_lorebook_block: macro resolution ----------------------------------
 
 
 class TestRenderMacros:
@@ -226,7 +226,7 @@ class TestRenderMacros:
         assert "NAME: BODY" in block
 
 
-# ── compute_constant_lorebook_block: the system-prefix section ───────────────
+# -- compute_constant_lorebook_block: the system-prefix section ---------------
 
 
 class TestComputeConstantLorebookBlock:
@@ -256,7 +256,7 @@ class TestComputeConstantLorebookBlock:
         assert "NAME: BODY" in block
 
 
-# ── constants-only pool: trailing block stays empty ──────────────────────────
+# -- constants-only pool: trailing block stays empty --------------------------
 
 
 class TestConstantsOnlyTrailing:
@@ -276,7 +276,7 @@ class TestConstantsOnlyTrailing:
         assert content == "___\n\nhi\n\n"
 
 
-# ── select_active_entries: the unified three-source core ─────────────────────
+# -- select_active_entries: the unified three-source core ---------------------
 
 
 class TestSelectActiveEntries:
@@ -298,11 +298,11 @@ class TestSelectActiveEntries:
         assert core == compute_agentic_lorebook_block(entries, ["Dragon"], None, msgs)
 
 
-# ── Catalog delimiters on Director picks ─────────────────────────────────────
+# -- Catalog delimiters on Director picks -------------------------------------
 
 
 class TestDirectorPickDelimiters:
-    """The catalog renders ``- [Name] — kw``; models copy the brackets too.
+    """The catalog renders ``- [Name] -- kw``; models copy the brackets too.
 
     ``.strip()`` removes whitespace and not delimiters, so before this a correct relevance judgment arriving as ``[The Ashen
     Seal]`` activated nothing, injected no lore, and logged nothing.
@@ -364,7 +364,7 @@ class TestDirectorPickDelimiters:
         assert "The Ashen Seal: The Ashen Seal content" in block
 
 
-# ── LorebookTurn ──────────────────────────────────────────────────────────────
+# -- LorebookTurn --------------------------------------------------------------
 
 
 class TestLorebookTurn:
@@ -386,7 +386,7 @@ class TestLorebookTurn:
         assert lt.writer_block(["Dragon"]) == compute_agentic_lorebook_block(entries, ["Dragon"], None, msgs)
 
 
-# ── agentic_lorebook_active: gating ──────────────────────────────────────────
+# -- agentic_lorebook_active: gating ------------------------------------------
 
 
 class TestAgenticLorebookActive:
@@ -405,7 +405,7 @@ class TestAgenticLorebookActive:
         assert not agentic_lorebook_active(self._on, [_entry("C", constant=True)], agent_on=True)
 
 
-# ── lorebook_select_step + build_lorebook_select_prompt ───────────────────────
+# -- lorebook_select_step + build_lorebook_select_prompt -----------------------
 
 
 class _FakeSelectBase:
@@ -451,7 +451,7 @@ async def test_select_step_extracts_names():
 
 
 async def test_select_step_empty_catalog_skips():
-    # No catalog → no call, empty selection (deterministic lorebook still applies downstream).
+    # No catalog -> no call, empty selection (deterministic lorebook still applies downstream).
     base = _FakeSelectBase({"selected_lorebook_entries": ["X"]})
     events = [e async for e in lorebook_select_step(_FakeClient(), base, settings={}, catalog="", user_message="hi")]  # type: ignore[arg-type]
     assert events[-1]["result"].selected == []

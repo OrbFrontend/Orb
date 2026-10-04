@@ -1,4 +1,4 @@
-"""test_structural_repetition_integration.py — Regression test for structural repetition detection through the
+"""test_structural_repetition_integration.py -- Regression test for structural repetition detection through the
 _run_contextual_audit integration path.
 
 The bug: _run_contextual_audit passed full_text (previous msgs + draft concatenated) as the `text` arg to run_audit, which

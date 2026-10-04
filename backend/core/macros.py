@@ -18,7 +18,7 @@ def _outside_literals(text: str, fn) -> str:
     """Apply *fn* to *text* with single-backtick spans masked out (kept literal).
 
     Spans are swapped for control-char placeholders, *fn* runs on the rest as one string (so occurrence counting spans the whole
-    text), then the spans are restored verbatim — backticks included, which is what makes literal macros survive repeated
+    text), then the spans are restored verbatim -- backticks included, which is what makes literal macros survive repeated
     resolution passes.
     """
     if "`" not in text:
@@ -226,7 +226,7 @@ def resolve_stored_random(texts: Sequence[str], choices: MutableMapping[str, str
 
 
 def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
-    """Resolve only {{user}}/{{char}} placeholders — no inline macros.
+    """Resolve only {{user}}/{{char}} placeholders -- no inline macros.
 
     Use this for historical messages and prompt context where inline macros (like {{roll}}) should NOT fire.
     """
@@ -274,7 +274,7 @@ class Macros(NamedTuple):
         return _resolve_inline(named, seed=self.seed)
 
     def resolve_prompt(self, text: str) -> str:
-        """Only substitution — {{description}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
+        """Only substitution -- {{description}}, {{user}}/{{char}}, {{cast}} (no inline macros)."""
         return _sub_cast(resolve_prompt(_sub_description(text, self.description), self.user, self.char), self.cast)
 
     def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:

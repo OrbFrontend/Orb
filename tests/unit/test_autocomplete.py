@@ -1,4 +1,4 @@
-"""Autocomplete: the pure prompt trimmer — no model, no DB.
+"""Autocomplete: the pure prompt trimmer -- no model, no DB.
 
 The real-weights smoke test lived here too, but it loaded the GGUF for ~10s to
 assert the output was a non-empty string; the trimmer is what Orb actually owns.
@@ -23,7 +23,7 @@ def test_build_prompt_ends_at_draft_and_excludes_injection():
     assert "Aria: You look lost." in p
     assert "Sam: Maybe I am." in p
     assert "Aria is a wry tavern keeper." in p
-    # Lightweight typeahead — the Director/pipeline injection block must not leak in.
+    # Lightweight typeahead -- the Director/pipeline injection block must not leak in.
     assert "Director" not in p and "Scene Direction" not in p
 
 
@@ -54,7 +54,7 @@ def test_complete_reconciles_trailing_space(monkeypatch):
     assert seen["prompt"] == "Sam: I hold up both"  # no trailing space reaches the model
     assert out == "hands"
 
-    # No trailing space: completion passes through untouched — its leading space is the separator the user hasn't typed yet.
+    # No trailing space: completion passes through untouched -- its leading space is the separator the user hasn't typed yet.
     out = asyncio.run(lc.complete("Sam: I hold up both"))
     assert seen["prompt"] == "Sam: I hold up both"
     assert out == " hands"

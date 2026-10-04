@@ -48,7 +48,7 @@ class ModelVariantSpec:
     detail: str
     repo_id: str
     path: str
-    revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
+    revision: str  # pinned commit sha -- a repo re-point can't swap the weights under us
     size_mb: int
 
     @property
@@ -61,9 +61,9 @@ class ModelSpec:
     """Describe one local-ML feature and its artifacts."""
 
     repo_id: str
-    filename: str  # path *inside the HF repo* — upstream's layout, not ours
+    filename: str  # path *inside the HF repo* -- upstream's layout, not ours
     size_mb: int
-    revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
+    revision: str  # pinned commit sha -- a repo re-point can't swap the weights under us
     runtime: RuntimeKind = "llama_cpp"
     variants: tuple[ModelVariantSpec, ...] = ()
     local_filename: str = ""  # versioned alias when upstream reuses an older artifact's basename
@@ -74,21 +74,21 @@ class ModelSpec:
     def local_name(self) -> str:
         """On-disk name under data/models/, always flat.
 
-        Upstream repos disagree about where a GGUF lives — root, ``gguf/``, ``GGUF/`` — and mirroring that gave us a tree whose
+        Upstream repos disagree about where a GGUF lives -- root, ``gguf/``, ``GGUF/`` -- and mirroring that gave us a tree whose
         two case-variant directories are ONE directory on macOS/Windows. Basenames must stay unique across MODELS *and* across
-        every spec's variants — a name two specs both claim is one file two features would fight over, and a variant name no
+        every spec's variants -- a name two specs both claim is one file two features would fight over, and a variant name no
         spec claims is a file ``prune_stale`` deletes the next time anything downloads. ``test_local_models_catalog`` asserts
         both.
         """
         return self.local_filename or os.path.basename(self.filename)
 
     def all_names(self) -> set[str]:
-        """Every basename this spec puts under data/models/ — the prune claim."""
+        """Every basename this spec puts under data/models/ -- the prune claim."""
         return {self.local_name, *(v.local_name for v in self.variants), *(f.local_name for f in self.extra_files)}
 
 
 # The two prose-rewriter repos, pinned. Named once because three variants share them and a half-updated pin is a silently
-# different model. The two lines version independently — upstream releases the sizes on their own cadence, so a mismatched pair
+# different model. The two lines version independently -- upstream releases the sizes on their own cadence, so a mismatched pair
 # of version numbers here is not a typo.
 _PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v2.2"
 _PROSE_1_7B_REV = "b404a131336d472d9672eea450fe9a3ada782e59"

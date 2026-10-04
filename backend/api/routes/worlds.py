@@ -44,7 +44,7 @@ from ..schemas import (
 router = APIRouter()
 
 
-# Worlds ──
+# Worlds --
 
 
 @router.get("/api/worlds")
@@ -80,7 +80,7 @@ async def api_set_dynamic_enabled(
     """Turn Dynamic Worlds on or off for one World.
 
     A dedicated route rather than a field on the general update so the intent is explicit in the audit and in the client.
-    Turning it off stops new proposals but changes nothing already applied — accepted lore is ordinary lore.
+    Turning it off stops new proposals but changes nothing already applied -- accepted lore is ordinary lore.
     """
     return await update_world(world["id"], {"dynamic_enabled": data.enabled})
 
@@ -92,7 +92,7 @@ async def api_delete_world(world_id: str):
     return {"ok": True}
 
 
-# Lorebook Entries ──
+# Lorebook Entries --
 
 
 @router.get("/api/worlds/{world_id}/entries")
@@ -194,7 +194,7 @@ async def api_get_active_lorebook_entries(cid: str):
     return lorebook.select_effective_entries(await get_active_lorebook_entries(await get_effective_world_ids(cid)))
 
 
-# Dynamic Worlds — changesets ──
+# Dynamic Worlds -- changesets --
 
 
 @router.get("/api/worlds/{world_id}/changesets")
@@ -304,7 +304,7 @@ async def api_reevaluate_changeset(
     """Derive a fresh proposal from this one's source messages and the current World.
 
     The stale original is retired either way. A ``null`` changeset in the response means the model, looking at the World as it
-    now stands, found nothing left to propose — which is a legitimate answer, not a failure.
+    now stands, found nothing left to propose -- which is a legitimate answer, not a failure.
     """
     _open_guard(changeset)
     try:
@@ -335,7 +335,7 @@ async def api_undo_changeset(
 async def api_reset_world(world: dict = Depends(require_world)):  # noqa: B008
     """Archive every dynamic entry, restoring the authored World exactly.
 
-    Itself an undoable changeset — the overlay is retired, never deleted, so the reset can be reversed like any other change.
+    Itself an undoable changeset -- the overlay is retired, never deleted, so the reset can be reversed like any other change.
     """
     try:
         changeset = await lorebook.reset_world_to_authored(world["id"])

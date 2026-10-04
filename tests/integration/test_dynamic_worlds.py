@@ -69,7 +69,7 @@ async def _effective_names(client, world_id: str) -> list[str]:
     return [r["name"] for r in rows]
 
 
-# ── pipeline: the proposal pass ───────────────────────────────────────────────
+# -- pipeline: the proposal pass -----------------------------------------------
 
 
 async def test_a_completed_turn_stages_a_pending_proposal(client, db, llm_mock):
@@ -354,7 +354,7 @@ async def test_the_message_projection_carries_its_changeset(client, llm_mock):
     assert "world_changesets" not in [m for m in messages if m["role"] == "user"][-1]
 
 
-# ── lifecycle: review, apply, undo, reset ─────────────────────────────────────
+# -- lifecycle: review, apply, undo, reset -------------------------------------
 
 
 async def _staged_proposal(client, llm_mock, cid: str, *, operations: list[dict] | None = None) -> tuple[str, dict]:
@@ -418,7 +418,7 @@ async def test_a_replacement_hides_its_target_in_the_prompt(client, llm_mock):
 
 async def test_rejecting_changes_nothing(client, llm_mock):
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-22")
-    before = (await client.get(f"/api/worlds/{world_id}")).json() if False else None  # noqa: F841 — see revision check below
+    before = (await client.get(f"/api/worlds/{world_id}")).json() if False else None  # noqa: F841 -- see revision check below
     revision = (await client.get(f"/api/worlds/{world_id}/entries")).json()
 
     resp = await client.post(f"/api/worlds/{world_id}/changesets/{changeset['id']}/reject")
@@ -632,7 +632,7 @@ async def test_deleting_a_suppressed_authored_entry_leaves_an_inert_marker(clien
     assert await _effective_names(client, world_id) == []
 
 
-# ── history: a deletion, by whichever hand ────────────────────────────────────
+# -- history: a deletion, by whichever hand ------------------------------------
 
 
 async def _history(client, world_id: str) -> list[dict]:
@@ -673,7 +673,7 @@ async def test_deleting_an_agent_managed_entry_by_hand_says_whose_lore_it_was(cl
 
 
 async def test_an_agent_retraction_lands_in_the_same_history(client, llm_mock):
-    """Both hands' removals read off one list — that is what makes it an account."""
+    """Both hands' removals read off one list -- that is what makes it an account."""
     world_id, _, applied = await _applied_overlay_on(
         client, llm_mock, "conv-dw-del-2", {"op": "suppress", "rationale": "the bridge is gone"}
     )
@@ -697,7 +697,7 @@ async def test_a_recorded_deletion_cannot_be_undone(client):
 
 
 async def test_a_deletion_makes_an_older_proposal_stale_and_is_recorded_once(client, llm_mock):
-    """One user action, one revision bump — the record must not cost a second."""
+    """One user action, one revision bump -- the record must not cost a second."""
     world_id, changeset = await _staged_proposal(client, llm_mock, "conv-dw-del-3")
     authored = [e for e in (await client.get(f"/api/worlds/{world_id}/entries")).json() if e["name"] == "The Bridge"][0]
 
@@ -808,7 +808,7 @@ async def test_re_evaluation_with_no_operations_still_retires_the_original(clien
     assert next(c for c in history if c["id"] == changeset["id"])["status"] == "superseded"
 
 
-# ── export ────────────────────────────────────────────────────────────────────
+# -- export --------------------------------------------------------------------
 
 
 async def test_effective_view_matches_prompt_when_a_replacement_is_disabled(client):

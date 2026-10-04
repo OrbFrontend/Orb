@@ -225,7 +225,7 @@ async def run_post_pipeline(
 def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     """Validate and normalize a workflow ``attach_artifact`` entry.
 
-    Returns a bytes-only dict ready for ``add_message``, or ``None`` if validation fails (logged as a warning). Never raises —
+    Returns a bytes-only dict ready for ``add_message``, or ``None`` if validation fails (logged as a warning). Never raises --
     bad workflow output must not crash the turn.
     """
     if not isinstance(att, dict):

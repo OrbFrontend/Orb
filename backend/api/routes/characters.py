@@ -87,8 +87,8 @@ async def api_create_character(data: CharacterCardCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # Auto-import an embedded expression pack (chub extension) so cards imported from the internet — or from a PNG that carries
-    # one — arrive with their sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
+    # Auto-import an embedded expression pack (chub extension) so cards imported from the internet -- or from a PNG that carries
+    # one -- arrive with their sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
     imgs = await card_expressions.fetch_embedded_expressions(card_data)
     if imgs:
         await set_character_expressions(card_data["id"], imgs)

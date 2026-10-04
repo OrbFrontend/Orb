@@ -280,7 +280,7 @@ export function renderEndpoints() {
   updateEndpointsLabel();
 }
 
-// ── Judge lane ───────────────────────────────────────────────────────────────
+// -- Judge lane ---------------------------------------------------------------
 // The classifier has its own endpoint and model, with no chat sampling options. Its route is derived from the URL,
 // which may already include `/decisions`.
 

@@ -345,7 +345,7 @@ async def test_summarizing_a_renamed_group_calls_it_by_its_current_name(client, 
     assert "Campfire" not in prompt
 
 
-# ── Character context modes ─────────────────────────────────────────────────
+# -- Character context modes -------------------------------------------------
 
 
 async def _two_card_group(
@@ -452,14 +452,14 @@ async def test_private_perspective_keeps_the_cast_prefix_stable_and_cards_speake
 
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per_speaker(client, llm_mock):
-    """Swap's per-speaker prefix is a *deliberate* cache divergence — hence the
+    """Swap's per-speaker prefix is a *deliberate* cache divergence -- hence the
     marker. What must not happen is the Director seeing an arbitrary member's
     card, or the first planned speaker silently inheriting that neutral base."""
     conv, _ = await _two_card_group(client, context_mode="swap")
     await _run_two_speaker_exchange(client, llm_mock, conv)
 
     director = _systems(llm_mock, "director")[0]
-    # The public cast, and only that — the Director must never see a card.
+    # The public cast, and only that -- the Director must never see a card.
     assert "### Aria" in director and "### Kael" in director
     assert "ARIA PRIVATE" not in director and "KAEL PRIVATE" not in director
 
@@ -479,7 +479,7 @@ async def test_classic_card_swap_uses_a_neutral_director_base_and_one_prefix_per
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
 async def test_the_editor_replays_the_exact_writer_input_in_every_mode(client, llm_mock, mode):
     """The Editor must extend the Writer's stack, never rebuild its own view of
-    the cast — otherwise it audits a draft written from a different prompt."""
+    the cast -- otherwise it audits a draft written from a different prompt."""
     await client.put(
         "/api/settings",
         json={
@@ -541,7 +541,7 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(client, llm_mock):
     """Swap hides cards, not members. The curated profile is the only thing the rest of the cast is ever told about someone, so
-    it rides the system prompt exactly as it does under Private — the active card is appended after it, not instead of it.
+    it rides the system prompt exactly as it does under Private -- the active card is appended after it, not instead of it.
     Pinned end-to-end because the visibility rule and the modal that fills the field are two halves of one feature.
     """
     conv, members = await _two_card_group(client, context_mode="swap")
@@ -575,7 +575,7 @@ async def test_classic_card_swap_still_tells_every_speaker_the_public_cast(clien
 
 @pytest.mark.kv_divergence_expected
 async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, llm_mock):
-    """Swap diverges both lanes per speaker (hence the marker) — but never
+    """Swap diverges both lanes per speaker (hence the marker) -- but never
     unevenly: an Editor auditing Aria must not be reading Kael's card."""
     await _dual_model(client)
     conv, _ = await _two_card_group(client, context_mode="swap")
@@ -631,7 +631,7 @@ async def test_context_size_breakdown_follows_the_context_mode(client, mode, exp
     )
     breakdown = (await client.get(f"/api/conversations/{conv['id']}/context-size")).json()["breakdown"]
     assert [key for key in expected if key in breakdown] == expected
-    # Exactly one shared-body key per mode — a stale one would double-count.
+    # Exactly one shared-body key per mode -- a stale one would double-count.
     assert {"cast_public", "cast_dossiers"} & set(breakdown) == {expected[0]}
     # The biggest card is billed once wherever the mode puts it, never summed.
     billed = "largest_speaker_tail" if mode == "private" else ("largest_active_card" if mode == "swap" else "cast_dossiers")
@@ -641,8 +641,8 @@ async def test_context_size_breakdown_follows_the_context_mode(client, mode, exp
 
 @pytest.mark.parametrize("mode", ["private", "shared", "swap"])
 async def test_compression_prompts_stay_on_the_public_cast_projection(client, llm_mock, mode):
-    """Compression is scene-wide narration: paying for every dossier — or
-    swapping in one arbitrary card — buys nothing on the app's longest call."""
+    """Compression is scene-wide narration: paying for every dossier -- or
+    swapping in one arbitrary card -- buys nothing on the app's longest call."""
     conv, members = await _two_card_group(client, context_mode=mode)
     parent = None
     for index, (role, content, speaker) in enumerate(
@@ -665,9 +665,9 @@ async def test_compression_prompts_stay_on_the_public_cast_projection(client, ll
     assert "## Character dossier" not in system
 
 
-# ── The scene-local sheet override ──────────────────────────────────────────
+# -- The scene-local sheet override ------------------------------------------
 # `public_profile_override` is what the rest of the cast sees; `card_sheet_override` is what the member reads about *itself*. A
-# card asserts turn one forever, so a long scene needs somewhere scene-local to say the coat burned — without writing the card,
+# card asserts turn one forever, so a long scene needs somewhere scene-local to say the coat burned -- without writing the card,
 # which stays a reusable shared asset.
 
 
@@ -692,7 +692,7 @@ def _member_spec(member: dict, **overrides) -> dict:
 async def test_an_empty_sheet_override_blanks_the_sheet_rather_than_restoring_the_card(client, llm_mock):
     """`""` is a deliberate blanking and `null` is absence; the two must not
     collapse. Manage cast coerces an empty box to `null`, so today only the API
-    reaches the blanking case — but the resolution rule is the server's, and
+    reaches the blanking case -- but the resolution rule is the server's, and
     collapsing them here would make the distinction unexpressible at all."""
     conv, members = await _two_card_group(client)
     updated = await _put_members(client, conv, [_member_spec(members[0], card_sheet_override=""), _member_spec(members[1])])
@@ -729,7 +729,7 @@ async def test_the_sheet_override_rides_checkpoint_and_compression_forks(client)
 
 async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(client, llm_mock):
     """Compression forces the public-cast projection, which carries no sheet at
-    all — neither the card's nor the override's. So a summary cannot re-assert
+    all -- neither the card's nor the override's. So a summary cannot re-assert
     pre-update appearance into a fork whose history no longer contradicts it,
     and the sheet needs no compression-side edit."""
     conv, members = await _two_card_group(client)
@@ -748,7 +748,7 @@ async def test_compression_never_re_asserts_a_members_sheet_into_the_summary(cli
     assert "### Aria" in system and "### Kael" in system
 
 
-# ── The post-exchange sheet-update pass ─────────────────────────────────────────
+# -- The post-exchange sheet-update pass -----------------------------------------
 # One call per member the exchange touched, staged pending, never applied. Routed through the mock's `workflow` queue for the
 # reason `_profile_call` states: the schema is deliberately absent from `prompting.tool_catalog.TOOLS`.
 
@@ -779,7 +779,7 @@ def _sheet_calls(llm_mock) -> list[str]:
 
 
 async def _proposals(client, conv, status: str | None = None) -> list[dict]:
-    """The scene's proposals. No status means the route's own default — the review
+    """The scene's proposals. No status means the route's own default -- the review
     set the client actually asks for, so the tests exercise the shipped call."""
     params = {"status": status} if status else {}
     response = await client.get_json(f"/api/conversations/{conv['id']}/sheet-proposals", params=params)
@@ -841,7 +841,7 @@ async def test_each_sheet_call_carries_only_its_own_members_sheet(client, llm_mo
 
 
 async def test_the_pass_runs_once_per_exchange_not_once_per_speaker(client, llm_mock):
-    """Two speakers, two members, two calls — not four. `run_exchange_final` is what
+    """Two speakers, two members, two calls -- not four. `run_exchange_final` is what
     makes the difference, and a regression here doubles the exchange's bill."""
     conv, _ = await _sheet_group(client)
     for _ in range(4):
@@ -876,7 +876,7 @@ async def test_applying_a_proposal_changes_the_tail_and_leaves_the_cached_body_a
 
 async def test_a_proposal_whose_sheet_moved_underneath_it_goes_stale_instead_of_clobbering(client, llm_mock):
     """The two-writer mitigation. `base_sheet` is to a proposal what
-    `content_revision` is to a changeset — there is no force-apply here either."""
+    `content_revision` is to a changeset -- there is no force-apply here either."""
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn and coatless.", summary="Cut her hair"))
     llm_mock.enqueue_workflow(_sheet_call(changed=False))
@@ -934,7 +934,7 @@ async def test_a_second_exchange_replaces_the_pending_proposal_instead_of_stacki
     # The second call reasoned from the first proposal, not from the stored sheet:
     # that is what makes replacing the row lossless.
     assert "ARIA, shorn." in _sheet_calls(llm_mock)[2]
-    # `base_sheet` still names what an apply must match — the *stored* sheet.
+    # `base_sheet` still names what an apply must match -- the *stored* sheet.
     assert pending[0]["base_sheet"] == "ARIA PRIVATE"
     assert (await client.post(f"/api/conversations/{conv['id']}/sheet-proposals/{pending[0]['id']}/apply")).status_code == 200
     reloaded = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
@@ -964,7 +964,7 @@ async def test_a_hand_edit_stops_the_carry_forward(client, llm_mock):
 
 async def test_removing_a_member_retires_its_undecided_proposals(client, llm_mock):
     """Manage cast renders rows only for the active roster, so a proposal left pending on a tombstoned member sat in the review
-    count forever with no row to dismiss it from — and the apply, which has no active sheet to write onto, could only refuse.
+    count forever with no row to dismiss it from -- and the apply, which has no active sheet to write onto, could only refuse.
     """
     conv, members = await _sheet_group(client)
     llm_mock.enqueue_workflow(_sheet_call(changed=True, sheet="ARIA, shorn.", summary="Cut her hair"))
@@ -979,8 +979,8 @@ async def test_removing_a_member_retires_its_undecided_proposals(client, llm_moc
 
 
 async def test_a_chip_click_reads_the_round_rather_than_its_own_request(client, llm_mock):
-    """An exchange is request-scoped, so under Manual — and for any cast-chip click on
-    a resting scene — one round is several requests. Judging "did this exchange change
+    """An exchange is request-scoped, so under Manual -- and for any cast-chip click on
+    a resting scene -- one round is several requests. Judging "did this exchange change
     Kael?" from Kael's reply alone leaves out the line that changed him, and on
     `/speak` leaves out the user's message entirely. The evidence is the round,
     which is what `image_gen`'s subject list already reads."""
@@ -1178,7 +1178,7 @@ async def test_group_fork_edit_runs_a_fresh_exchange_from_the_new_user_sibling(c
 async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
     """Queue one director response per step of the per-fragment loop.
 
-    That mode runs one forced call per interactive fragment, then one for the speaking plan, then one for moods — and each step
+    That mode runs one forced call per interactive fragment, then one for the speaking plan, then one for moods -- and each step
     keeps only its own target field, so handing every step the same arguments is safe and saves the test from counting the
     seeded fragments.
     """
@@ -1190,7 +1190,7 @@ async def _enqueue_per_fragment_director(llm_mock, **arguments) -> None:
 async def test_per_fragment_director_still_plans_a_group_exchange(client, llm_mock):
     """`director_individual_fragments` runs each direct_scene field in its own
     forced call. The speaking plan is one of those fields, so it has to survive
-    that loop — it used to take the whole group turn down with it."""
+    that loop -- it used to take the whole group turn down with it."""
     await update_settings({"director_individual_fragments": 1})
     conv, members = await _two_card_group(client)
     await _enqueue_per_fragment_director(llm_mock, speaking_plan=["kael — Answer first"])
@@ -1222,7 +1222,7 @@ async def test_an_intentional_rest_survives_both_director_shapes(client, llm_moc
 
 
 async def test_a_missing_plan_falls_back_rather_than_resting(client, llm_mock):
-    """The rest exception is for an explicit `[]` only — a Director that never
+    """The rest exception is for an explicit `[]` only -- a Director that never
     filled the field at all must still get the configured strategy."""
     await update_settings({"director_individual_fragments": 1})
     conv, members = await _two_card_group(client)
@@ -1275,7 +1275,7 @@ async def test_group_steering_excludes_the_reply_it_replaces_from_the_audit(clie
     )
 
 
-# ── Scene-profile drafting ──────────────────────────────────────────────────
+# -- Scene-profile drafting --------------------------------------------------
 # The generator behind Manage cast's Draft / Redraft buttons. One LLM call per member, never batched -- the leak that batching
 # would open is pinned below.
 
@@ -1300,7 +1300,7 @@ async def _draft(client, cid: str, **body):
 async def test_scene_profile_draft_renders_the_two_liner(client, llm_mock):
     """The same shape `_public_profile()` renders from a card, so an overridden
     member and a non-overridden one read identically in the assembled prompt.
-    Nothing is persisted — Save cast is still what writes it."""
+    Nothing is persisted -- Save cast is still what writes it."""
     conv, members = await _two_card_group(client)
     llm_mock.enqueue_workflow(_profile_call(appearance="Tall, in road-worn green.", role="Scout of the watch."))
 
@@ -1333,7 +1333,7 @@ async def test_scene_profile_draft_sends_only_the_target_card_and_other_names(cl
 
 
 async def test_scene_profile_draft_carries_the_scene_premise(client, llm_mock):
-    """The premise comes from the server, not the modal — it is durable scene
+    """The premise comes from the server, not the modal -- it is durable scene
     configuration, and the client never gets to say what the scene is."""
     conv, members = await _two_card_group(client)
     await client.put(f"/api/conversations/{conv['id']}", json={"character_scenario": "A cold night on the wall."})
@@ -1415,7 +1415,7 @@ async def test_a_checkpoint_carries_the_scenes_sheet_update_opt_in(client, llm_m
     """Every other scene setting rides `fork_conversation`; this one was dropped.
 
     Checkpoint, Compress History and "New scene in this group" all fork, so a user who turned the post-exchange pass on lost it
-    the first time they branched — and silently, since nothing reports a setting reverting to its default.
+    the first time they branched -- and silently, since nothing reports a setting reverting to its default.
     """
     conv, _ = await _sheet_group(client)
     response = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Checkpoint"})

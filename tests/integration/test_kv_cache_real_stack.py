@@ -10,10 +10,10 @@ import json
 from backend.database import get_messages
 from backend.inference.kv_tracker import _serialize_messages
 
-# ── A draft well over the length-guard ceiling so the editor pass always fires.
+# -- A draft well over the length-guard ceiling so the editor pass always fires.
 _LONG_DRAFT = "word " * 60
 
-# Smallest valid PNG (1×1, transparent). The /send attachment validator
+# Smallest valid PNG (1x1, transparent). The /send attachment validator
 # base64-decodes this, so it must be real base64 of a real image.
 _PNG_1X1_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
@@ -35,7 +35,7 @@ async def _configure_all_features(client) -> None:
             "model_name": "writer-model",
             "enable_agent": True,
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
-            "director_individual_fragments": True,  # → one director call per fragment + a moods call
+            "director_individual_fragments": True,  # -> one director call per fragment + a moods call
             "length_guard_enabled": True,
             "length_guard_max_words": 5,  # _LONG_DRAFT (60 words) always trips it
         },
@@ -66,10 +66,10 @@ async def _send(client, cid: str, content: str, attachments: list | None = None)
 
 def _enqueue_turn(llm_mock) -> None:
     llm_mock.enqueue_writer(_LONG_DRAFT)
-    llm_mock.enqueue_editor(None)  # no tool call → editor loop stops after recording iter 0
+    llm_mock.enqueue_editor(None)  # no tool call -> editor loop stops after recording iter 0
 
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
+# -- Tests ---------------------------------------------------------------------
 
 
 async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefix(client, llm_mock):
@@ -91,7 +91,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
     prefix_bytes = _serialize_messages(prefix)
     assert len(prefix) >= 1
 
-    # Inv-1/2 — every pass starts with that identical system+history prefix.
+    # Inv-1/2 -- every pass starts with that identical system+history prefix.
     for c in calls:
         head = _serialize_messages(c["messages"][: len(prefix)])
         assert head == prefix_bytes, (
@@ -99,7 +99,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
             "shared prefix — build_prefix or a pass rendered the system/history differently across passes."
         )
 
-    # The base's macro ``resolve`` hook must scrub every {{char}}/{{user}} from the bytes each pass actually shipped — including
+    # The base's macro ``resolve`` hook must scrub every {{char}}/{{user}} from the bytes each pass actually shipped -- including
     # the card text carried in the shared prefix. The recorded messages are post-resolution, so a raw placeholder surviving here
     # means the hook was dropped.
     for c in calls:
@@ -107,14 +107,14 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
         assert "{{char}}" not in sent and "{{user}}" not in sent, (
             f"MACRO LEAK: pass {c['pass']!r} shipped an unresolved placeholder to the model."
         )
-        assert "Aria" in prefix_bytes  # {{char}} → the card name, resolved in the shared prefix
+        assert "Aria" in prefix_bytes  # {{char}} -> the card name, resolved in the shared prefix
 
-    # Inv-3 — wire-faithful tools blob identical across every pass, non-empty.
+    # Inv-3 -- wire-faithful tools blob identical across every pass, non-empty.
     blobs = {_wire_tools(c["tools"]) for c in calls}
     assert len(blobs) == 1, f"CACHE BUST: tools blob differs across passes; distinct sizes {sorted(len(b) for b in blobs)}"
     assert next(iter(blobs)), "expected a non-empty tools blob in single-model mode"
 
-    # §3 — editor's prompt is a strict extension of the writer's full prompt.
+    # section 3 -- editor's prompt is a strict extension of the writer's full prompt.
     assert _serialize_messages(editor["messages"][: len(writer["messages"])]) == _serialize_messages(writer["messages"]), (
         "CACHE BUST: editor no longer extends the writer's prompt verbatim."
     )
@@ -122,7 +122,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
 
 async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_mock):
     """Two real turns: turn N+1's prefix, rebuilt from the DB, must be turn N's
-    prefix plus exactly the persisted (user, assistant) pair — byte-for-byte —
+    prefix plus exactly the persisted (user, assistant) pair -- byte-for-byte --
     and the director's dynamic schema must be byte-stable across turns."""
     await _configure_all_features(client)
     cid = await _make_conversation(client)
@@ -141,7 +141,7 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
     p1_bytes = _serialize_messages(w1["messages"][:-1])
     p2_bytes = _serialize_messages(w2["messages"][:-1])
 
-    # §6 — the heart of cross-turn cache reuse: turn 2's bottom literally begins
+    # section 6 -- the heart of cross-turn cache reuse: turn 2's bottom literally begins
     # with turn 1's bottom. This is what the unit test could only fake.
     assert p2_bytes.startswith(p1_bytes), (
         "CACHE BUST: turn 2's prefix is not an append-only extension of turn 1's. "
@@ -170,11 +170,11 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
 
 
 async def test_attachment_in_shared_history_is_byte_stable_across_passes_and_turns(client, llm_mock):
-    """Invariant 2 — an image in the carried-over history must be encoded with the SAME bytes on every reference: identical
+    """Invariant 2 -- an image in the carried-over history must be encoded with the SAME bytes on every reference: identical
     across all passes of a turn, and surviving the DB round-trip into the next turn's cached prefix.
 
     Turn 1 sends the image (it rides the trailing pancake, the cheap top). Turn 2 is plain text, so the image now lives in
-    history — inside the cached prefix — where any per-pass re-encode or a lossy persistence round-trip would bust the cache.
+    history -- inside the cached prefix -- where any per-pass re-encode or a lossy persistence round-trip would bust the cache.
     """
     await _configure_all_features(client)
     cid = await _make_conversation(client)
@@ -190,7 +190,7 @@ async def test_attachment_in_shared_history_is_byte_stable_across_passes_and_tur
     await _send(client, cid, "What do you make of it?")
     turn2 = llm_mock.captured[n:]
 
-    # Within turn 2: every pass ships the byte-identical prefix — which now
+    # Within turn 2: every pass ships the byte-identical prefix -- which now
     # contains the image. If any pass re-encoded the attachment, this rings.
     w2 = next(c for c in turn2 if c["pass"] == "writer")
     prefix2 = w2["messages"][:-1]

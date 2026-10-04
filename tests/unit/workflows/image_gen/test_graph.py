@@ -115,7 +115,7 @@ def test_a_graph_without_a_negative_slot_still_patches():
     assert "7" not in patched
 
 
-# ── the optional size slots ──────────────────────────────────────────────────
+# -- the optional size slots --------------------------------------------------
 #
 # Optional for the same reason `negative` is: an img2img graph takes its size from the reference or an aspect-ratio node, and
 # there is no width/height pair to write. A graph that maps neither must behave precisely as it did before the slot existed.
@@ -169,7 +169,7 @@ def test_size_slots_are_validated_when_present_and_ignored_when_not():
     validate_graph_structure(*_core(), OBJECT_INFO)
 
 
-# ── structural validation against a server's /object_info ────────────────────
+# -- structural validation against a server's /object_info --------------------
 # All render-free: `/prompt` has no dry-run, so a submission that validates executes, and preflighting by submitting would spend
 # a full render per save.
 
@@ -208,7 +208,7 @@ def test_validation_names_what_this_server_cannot_run(break_it, match):
         validate_graph_structure(graph, slots, OBJECT_INFO)
 
 
-# ── reference images ─────────────────────────────────────────────────────────
+# -- reference images ---------------------------------------------------------
 
 
 def _with_reference():

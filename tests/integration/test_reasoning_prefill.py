@@ -1,7 +1,7 @@
 """Turn-level integration tests for the per-pass reasoning prefill.
 
 The prefill is a text-mode prompt tail (see tests/unit/test_text_completion.py for the transport bytes); what matters here is
-that the setting round-trips and that each pass receives *its own* resolved string on the wire — including the editor's
+that the setting round-trips and that each pass receives *its own* resolved string on the wire -- including the editor's
 sub-steps (feedback and the after-reply state update, which ride the editor toggle and channel). The default-on
 ``verify_kv_prefix_invariants`` teardown proves the tail injection did not disturb the shared prefix.
 """
@@ -71,7 +71,7 @@ async def test_each_pass_gets_its_own_resolved_prefill(client, db, llm_mock):
 
     llm_mock.enqueue_director(_call("direct_scene", moods=["vivid"]))
     llm_mock.enqueue_writer(_LONG_DRAFT)
-    llm_mock.enqueue_editor(None)  # no tool call → the edit loop stops after iteration 0
+    llm_mock.enqueue_editor(None)  # no tool call -> the edit loop stops after iteration 0
     llm_mock.enqueue_feedback(_call("give_feedback", suggested_actions="Ask her name."))
     llm_mock.enqueue_state(_call("update_state", trajectory=["She warms to him."]))
 

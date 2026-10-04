@@ -59,7 +59,7 @@ def _levels_deepest_first(pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
 
 
 async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachments]:
-    """Walk parent_id chain from leaf to root, return ordered root→leaf."""
+    """Walk parent_id chain from leaf to root, return ordered root->leaf."""
     # One recursive walk rather than one round trip per message: a long chat's active path is thousands of rows deep and
     # every read of it paid for that chain. The recursive step stops on a parent that is missing or in another conversation,
     # which is where the old loop broke. ``depth`` counts up from the leaf, so ordering by it descending yields root->leaf
@@ -161,7 +161,7 @@ async def _attach_attachments(messages: list[MessageWithAttachments]) -> None:
 
 
 async def get_active_path(cid: str) -> list[MessageWithAttachments]:
-    """Get active path messages (root→leaf) without their attachments.
+    """Get active path messages (root->leaf) without their attachments.
 
     For readers that only need the messages themselves -- counting, scanning
     content, mapping ids -- and would otherwise load every attachment's bytes.
@@ -176,7 +176,7 @@ async def get_active_path(cid: str) -> list[MessageWithAttachments]:
 
 
 async def get_messages(cid: str) -> list[MessageWithAttachments]:
-    """Get active path messages (root→leaf) for LLM prompt construction."""
+    """Get active path messages (root->leaf) for LLM prompt construction."""
     messages = await get_active_path(cid)
     await _attach_attachments(messages)
     return messages
@@ -231,7 +231,7 @@ async def get_messages_with_branch_info(cid: str) -> list[MessageListing]:
             rows = await db.execute_fetchall(
                 # ORDER BY parent_id, id keeps each group contiguous and each group's ids ascending, which is the order the
                 # branch pager numbers swipes in.
-                f"SELECT id, parent_id FROM messages WHERE conversation_id = ? AND parent_id IN ({placeholders}) "  # nosec B608 — placeholders is only '?' chars, ids are parameterised
+                f"SELECT id, parent_id FROM messages WHERE conversation_id = ? AND parent_id IN ({placeholders}) "  # nosec B608 -- placeholders is only '?' chars, ids are parameterised
                 "ORDER BY parent_id ASC, id ASC",
                 (cid, *chunk),
             )
@@ -508,7 +508,7 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
             for chunk in _chunked(level_ids, _SQL_PARAM_CHUNK):
                 placeholders = ",".join("?" * len(chunk))
                 await db.execute(
-                    f"DELETE FROM messages WHERE id IN ({placeholders})",  # nosec B608 — placeholders is only '?' chars, ids are parameterised
+                    f"DELETE FROM messages WHERE id IN ({placeholders})",  # nosec B608 -- placeholders is only '?' chars, ids are parameterised
                     chunk,
                 )
 

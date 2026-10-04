@@ -10,7 +10,7 @@ from backend.workflows.tts.engine.edge_adapter import EdgeTTSAdapter, _format_pi
 
 
 class TestFormatRate:
-    """_format_rate: float → edge-tts rate string."""
+    """_format_rate: float -> edge-tts rate string."""
 
     def test_normal_speed(self):
         assert _format_rate(1.0) == "+0%"
@@ -23,7 +23,7 @@ class TestFormatRate:
 
 
 class TestFormatPitch:
-    """_format_pitch: float → edge-tts pitch string."""
+    """_format_pitch: float -> edge-tts pitch string."""
 
     def test_normal_pitch(self):
         assert _format_pitch(1.0) == "+0Hz"

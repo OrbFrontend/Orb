@@ -16,9 +16,9 @@ export const REASONING_PASSES = [
 
 export const REASONING_BOTTOM_THRESHOLD = 20;
 
-// ── Open states ──
+// -- Open states --
 
-// `data-inspect-section` key (also the saved `inspector_open_states` key) → its `S` flag.
+// `data-inspect-section` key (also the saved `inspector_open_states` key) -> its `S` flag.
 const OPEN_STATE_FIELDS = {
   inline: "inlineInspectorOpen",
   inline_reasoning: "inlineReasoningOpen",
@@ -81,7 +81,7 @@ function syncChatSections(toggled, key) {
   if (now) chat.scrollTop += now.getBoundingClientRect().top - before;
 }
 
-// ── Turn views ──
+// -- Turn views --
 
 /** Moods of a `director-log` payload or the streaming turn's director data. */
 export function moodsOf(data, resting) {
@@ -124,7 +124,7 @@ function liveTurnView() {
   });
 }
 
-// ── Sections ──
+// -- Sections --
 
 function moodTags({ known, activeIds, resting }) {
   if (!known) return [];
@@ -255,7 +255,7 @@ export function latencyHtml(latency) {
   });
 }
 
-// ── The in-chat blocks ──
+// -- The in-chat blocks --
 
 // The pass a saved reply's Reasoning block shows, by message id. Unset means its last pass.
 const selectedPassByMsg = new Map();
@@ -380,7 +380,7 @@ export function restoreBoxScrolls(root) {
   }
 }
 
-// ── Cache of saved replies' director logs ──
+// -- Cache of saved replies' director logs --
 
 // By message id, for one conversation. `null` marks a reply the server had no data for.
 const inspections = new Map();

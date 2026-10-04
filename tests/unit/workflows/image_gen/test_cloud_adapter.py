@@ -127,7 +127,7 @@ def _generation_handler(record: dict, *, image: bytes | None = None):
     return handler
 
 
-# ── the money guards ─────────────────────────────────────────────────────────
+# -- the money guards ---------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -147,7 +147,7 @@ async def test_validate_connection_never_posts_to_the_generations_path():
     assert result["ok"] is True
     assert result["models"] == ["grok-imagine-image"]
     # ComfyUI's shape, so `_test_connection` and the panel need no change. `devices`
-    # is simply absent, which degrades "Connected — <device>" to "Connected".
+    # is simply absent, which degrades "Connected -- <device>" to "Connected".
     assert set(result) == {"ok", "capabilities", "system", "models"}
     assert result["system"] == {"provider": "xAI (Grok)", "host": "api.x.ai"}
     assert "devices" not in result["system"]
@@ -188,7 +188,7 @@ async def test_a_rejected_key_fails_test_connection_even_though_the_list_would_p
     assert excinfo.value.kind == "auth"
 
 
-# ── targeting ────────────────────────────────────────────────────────────────
+# -- targeting ----------------------------------------------------------------
 
 
 def test_a_fresh_target_reads_the_configured_model_and_resolution():
@@ -357,7 +357,7 @@ async def test_a_seed_provider_records_the_seed_the_request_actually_sent():
     assert result.backend_info["seed_honored"] is True
 
 
-# ── readiness ────────────────────────────────────────────────────────────────
+# -- readiness ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -474,7 +474,7 @@ async def test_test_connection_still_works_before_a_model_is_chosen():
     assert (await _adapter(_config("aimlapi"), handler).validate_connection())["models"] == ["some/model"]
 
 
-# ── references ───────────────────────────────────────────────────────────────
+# -- references ---------------------------------------------------------------
 
 
 def _reference(data: bytes, mime: str) -> ResolvedReference:

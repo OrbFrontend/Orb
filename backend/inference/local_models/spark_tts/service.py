@@ -35,7 +35,7 @@ class SynthesisFailed(ValueError):
 
 
 def state() -> dict[str, str]:
-    """``{"state": idle|loading|ready|failed, "error": …}`` for status surfaces."""
+    """``{"state": idle|loading|ready|failed, "error": ...}`` for status surfaces."""
     return {"state": HOST.state, "error": HOST.error}
 
 

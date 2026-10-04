@@ -1,7 +1,7 @@
 """The backend layer stack, enforced rather than described.
 
 ``scripts/check_backend_layers.py`` is wired into ``scripts/lint.sh``; this runs it from the suite too, because a layering
-violation is the kind of thing that gets written and committed between two lint runs. The check parses imports — see the
+violation is the kind of thing that gets written and committed between two lint runs. The check parses imports -- see the
 script's docstring for why a grep is the wrong tool here.
 """
 
@@ -32,7 +32,7 @@ def test_the_shared_local_model_layer_stays_below_its_callers():
     """The edge this refactor exists to delete, asserted by name.
 
     ``inference/local_models/`` owns shared runtime infrastructure and local model execution. An import back up into
-    ``features/``, ``workflows/``, ``pipeline/``, or ``api/`` would restore a cycle, and it would still load fine — the
+    ``features/``, ``workflows/``, ``pipeline/``, or ``api/`` would restore a cycle, and it would still load fine -- the
     deferred-import trick that hid the last one is always available.
     """
     checker = _checker()

@@ -1,4 +1,4 @@
-"""0002_cleanup_orphaned_messages — delete messages and related rows that reference non‑existent conversations (foreign‑key
+"""0002_cleanup_orphaned_messages -- delete messages and related rows that reference non-existent conversations (foreign-key
 violations) and ensure foreign keys are enabled.
 """
 

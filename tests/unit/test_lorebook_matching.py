@@ -1,6 +1,6 @@
 """Keyword-scan matcher: V3 `use_regex` + `selective`/`secondary_keys`.
 
-The scan feeds the *trailing* block only — constant entries ride the cached system prefix, so this path must never change which
+The scan feeds the *trailing* block only -- constant entries ride the cached system prefix, so this path must never change which
 constants are selected (KV-cache prefix parity; see test_constant_lorebook_prefix.py for the seam).
 """
 

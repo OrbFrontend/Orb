@@ -105,7 +105,7 @@ async def test_proposal_stage_drops_only_the_world_that_opted_out(monkeypatch):
     assert [e["world_id"] for e in entries] == ["w3"]
 
 
-# ── projection ────────────────────────────────────────────────────────────────
+# -- projection ----------------------------------------------------------------
 
 
 class TestEffectiveProjection:
@@ -156,7 +156,7 @@ class TestEffectiveProjection:
         assert [e["id"] for e in select_effective_entries(rows)] == [9]
 
 
-# ── rendering ─────────────────────────────────────────────────────────────────
+# -- rendering -----------------------------------------------------------------
 
 
 class TestRendering:
@@ -213,7 +213,7 @@ class TestRendering:
         assert "stands" not in block
 
 
-# ── proposal validation ───────────────────────────────────────────────────────
+# -- proposal validation -------------------------------------------------------
 
 
 def _op(**kw) -> dict:
@@ -425,7 +425,7 @@ class TestParseProposalCall:
         assert parse_proposal_call(calls) == {"summary": "second"}
 
 
-# ── catalog ───────────────────────────────────────────────────────────────────
+# -- catalog -------------------------------------------------------------------
 
 
 class TestCatalog:
@@ -494,7 +494,7 @@ class TestCatalog:
         assert build_world_change_catalog([]) == ""
 
 
-# ── several worlds in one call ────────────────────────────────────────────────
+# -- several worlds in one call ------------------------------------------------
 
 
 def _world(world_id: str, name: str) -> dict:
@@ -604,7 +604,7 @@ class TestSplitByWorld:
         assert split_by_world([{"op": "create", "name": "A"}]) == {}
 
 
-# ── inverse operations ────────────────────────────────────────────────────────
+# -- inverse operations --------------------------------------------------------
 
 
 class TestInvertOperations:

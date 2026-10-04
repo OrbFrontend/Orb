@@ -144,7 +144,7 @@ async def writer_pass(
         client,
         label="writer",
         trailing=trailing,
-        # base.tools is empty in dual-model (Invariant 5) → no tools, no tool_choice; otherwise the writer ships the shared blob
+        # base.tools is empty in dual-model (Invariant 5) -> no tools, no tool_choice; otherwise the writer ships the shared blob
         # but is barred from calling anything.
         tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
@@ -173,7 +173,7 @@ async def writer_stage(
     """Input-prep + writer pass + event translation.
 
     Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
-    :func:`writer_pass` translating ``content``→``token`` and ``reasoning``→``reasoning`` events, and accumulates the writer's
+    :func:`writer_pass` translating ``content``->``token`` and ``reasoning``->``reasoning`` events, and accumulates the writer's
     wall time into ``state.latency``.
     """
     yield {"event": "step_start", "data": {"step": "writer"}}

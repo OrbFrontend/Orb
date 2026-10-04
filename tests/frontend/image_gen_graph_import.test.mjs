@@ -47,7 +47,7 @@ test("refuses a graph too large for the config slot", () => {
   assert.throws(() => graphFromApiJson(JSON.stringify(huge)), /too large/);
 });
 
-// The picker must weigh a graph exactly as the normalizer does — UTF-8 bytes, taken after `is_changed` is stripped.
+// The picker must weigh a graph exactly as the normalizer does -- UTF-8 bytes, taken after `is_changed` is stripped.
 // Measuring UTF-16 code units let a CJK graph through at a third of its real size and the save came back one workflow
 // short; measuring before the strip bounced graphs the backend would have stored.
 test("measures the size cap the way the backend does", () => {
@@ -62,7 +62,7 @@ test("measures the size cap the way the backend does", () => {
   const graph = { 1: { class_type: "CLIPTextEncode", inputs: { text: "" } }, 2: { class_type: "KSampler", inputs: { seed: 1 } } };
   for (let i = 3; i < 800; i++) graph[i] = { class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] };
   assert.ok(JSON.stringify(graph).length > 512_000, "precondition: over the cap only because of is_changed");
-  // Accepted, and the caller still gets the graph it passed in — the strip is for
+  // Accepted, and the caller still gets the graph it passed in -- the strip is for
   // measurement only, and the backend repeats it on arrival.
   assert.deepEqual(graphFromApiJson(JSON.stringify(graph))[3].is_changed, graph[3].is_changed);
 });
@@ -203,7 +203,7 @@ test("model-loader inputs are offered as model-override candidates", () => {
 
 test("upload widgets become reference candidates from server typing", () => {
   // Qwen-Image-Edit shape: LoadImage (#103) feeds a scale node, which feeds both encoders. The reference always enters
-  // through the LoadImage widget — the encoder's image1 is a link and has no widget to patch.
+  // through the LoadImage widget -- the encoder's image1 is a link and has no widget to patch.
   const edit = {
     103: { class_type: "LoadImage", inputs: { image: "woman-in-black.jpeg" }, _meta: { title: "Load Image" } },
     93: { class_type: "ImageScaleToTotalPixels", inputs: { image: ["103", 0], megapixels: 1 } },

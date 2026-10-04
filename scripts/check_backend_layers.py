@@ -48,7 +48,7 @@ def _exists(parts: list[str], *, root: Path = ROOT) -> bool:
 
 
 def _package_parts(path: Path, *, root: Path = ROOT) -> list[str]:
-    """The package a file lives in — the base a relative import counts up from.
+    """The package a file lives in -- the base a relative import counts up from.
 
     The same for ``cards/parsing.py`` and ``cards/__init__.py``: an
     ``__init__`` IS its package, so deriving this from the module path would
@@ -69,7 +69,7 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
     """Every backend module *node* imports, as absolute part lists.
 
     A ``from .. import database`` resolves to the package ``backend``, and the
-    thing actually imported is the name beside it — resolved here rather than
+    thing actually imported is the name beside it -- resolved here rather than
     left as a root edge, which would otherwise read as "imports all of
     backend" and report phantom violations.
     """
@@ -85,7 +85,7 @@ def _targets(node: ast.AST, package: list[str], *, root: Path = ROOT) -> list[li
     if not base:
         return out
     out.append(base)
-    for alias in node.names:  # `from .. import database` — the name is the module
+    for alias in node.names:  # `from .. import database` -- the name is the module
         candidate = [*base, alias.name]
         if _exists(candidate, root=root) and candidate not in out:
             out.append(candidate)

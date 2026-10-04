@@ -336,7 +336,7 @@ class _WorkflowAttachmentColumns(TypedDict):
 class WorkflowAttachmentRowBase(_WorkflowAttachmentColumns):
     """Common byte-reading attachment projection; WorkflowAttachmentRow adds message_id.
 
-    Message-scoped readers omit that redundant FK. data_b64 becomes EVICTED_MARKER after eviction; see secondary-workflow.md §9.
+    Message-scoped readers omit that redundant FK. data_b64 becomes EVICTED_MARKER after eviction; see secondary-workflow.md section 9.
     """
 
     data_b64: str
@@ -703,7 +703,7 @@ class DocumentListRow(TypedDict):
 class DocumentRow(DocumentListRow):
     """A full ``documents`` row as ``get_document`` returns it. Extends the list
     projection with the body and the decoded spans. ``generated_spans`` is the
-    JSON-*decoded* list (only ``get_document`` decodes it — the list query never
+    JSON-*decoded* list (only ``get_document`` decodes it -- the list query never
     selects the column)."""
 
     content: str

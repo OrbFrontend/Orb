@@ -101,8 +101,8 @@ class KVCacheTracker:
         self._entries: list[dict] = []
         self._conversation_id = conversation_id
         self._prev_entries: list[dict] = list(_prev_turn_entries.get(conversation_id, [])) if conversation_id else []
-        # How far ``log_summary`` has already printed. One tracker can be summarised several times per request — a group
-        # exchange runs one pipeline per speaker and each one summarises on its way out — and reprinting the whole list every
+        # How far ``log_summary`` has already printed. One tracker can be summarised several times per request -- a group
+        # exchange runs one pipeline per speaker and each one summarises on its way out -- and reprinting the whole list every
         # time made the report grow quadratically with cast size, burying the calls the reader opened the log for.
         self._reported = 0
 
@@ -163,7 +163,7 @@ class KVCacheTracker:
         """Print the calls recorded since the last summary, comparisons unchanged.
 
         Only *unreported* entries are rendered; ``_find_prev`` still ranges over the whole list, so a group exchange's second
-        speaker is still measured against the first speaker's calls — it just isn't reprinted alongside them.
+        speaker is still measured against the first speaker's calls -- it just isn't reprinted alongside them.
         """
         first = self._reported
         if first >= len(self._entries):
@@ -190,7 +190,7 @@ class KVCacheTracker:
             lane = _lane_of(e)
             prev, cross_turn = self._find_prev(i, lane, e["label"])
 
-            # ── Local view: messages prefix + tools identity, reported separately
+            # -- Local view: messages prefix + tools identity, reported separately
             if prev is None:
                 local_note = "local: baseline"
             else:
@@ -214,7 +214,7 @@ class KVCacheTracker:
                     f"vs {turn_tag}{prev['label']!r}; {tools_note}"
                 )
 
-            # ── Provider view: ground truth from usage
+            # -- Provider view: ground truth from usage
             stats = extract_cache_stats(e.get("usage"))
             if stats["source"] == "missing":
                 provider_note = "provider: N/A (no usage returned)"

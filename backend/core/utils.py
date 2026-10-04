@@ -9,8 +9,8 @@ from .domain_types import AgentLane
 from .llm_types import ContentPart
 
 #: Heuristic characters-per-token ratio used for rough context-size estimates.
-#: This is the one convention referenced throughout (see AGENTS.md → Context
-#: Management); keep all chars→token estimation going through ``estimate_tokens``
+#: This is the one convention referenced throughout (see AGENTS.md -> Context
+#: Management); keep all chars->token estimation going through ``estimate_tokens``
 #: rather than re-spelling the constant.
 CHARS_PER_TOKEN = 4
 

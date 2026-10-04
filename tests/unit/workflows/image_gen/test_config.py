@@ -18,7 +18,7 @@ from backend.workflows.image_gen.config import (
 )
 from backend.workflows.image_gen.hooks import fold_seed
 
-# ── styles ───────────────────────────────────────────────────────────────────
+# -- styles -------------------------------------------------------------------
 
 
 def test_style_prompt_format_is_explicit_and_limited_to_three_choices():
@@ -83,7 +83,7 @@ def test_styles_hoist_out_of_external_comfy_and_a_current_list_wins():
     assert [s["id"] for s in current["styles"]] == ["current"]
 
 
-# ── global fields ────────────────────────────────────────────────────────────
+# -- global fields ------------------------------------------------------------
 
 
 def test_config_rejects_credentials_in_url_and_bounds_timeout():
@@ -205,7 +205,7 @@ def test_seed_fold_round_trips_decimal_and_framework_hex():
     assert fold_seed("18446744073709551615") == fold_seed(fold_seed("18446744073709551615"))
 
 
-# ── imported graphs ──────────────────────────────────────────────────────────
+# -- imported graphs ----------------------------------------------------------
 
 _BASE_SLOTS = {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"]}
 
@@ -266,7 +266,7 @@ def test_is_changed_is_stripped_from_every_node_at_import():
     assert stored["graph"]["0"]["inputs"]["text"]  # only the machine-local key goes
 
 
-# ── reference slots ──────────────────────────────────────────────────────────
+# -- reference slots ----------------------------------------------------------
 
 
 def _references(*entries: dict) -> list:
@@ -306,7 +306,7 @@ def test_one_entry_per_widget_so_the_style_answers_a_stable_position():
     assert [r["label"] for r in stored] == ["first", "second"]
 
 
-# ── connections ──────────────────────────────────────────────────────────────
+# -- connections --------------------------------------------------------------
 #
 # A style names the connection it renders on, and `source` is derived from the style that will render next. The settings panel
 # deleted its global backend picker, so this derivation is the only thing left that decides which adapter `get_adapter` builds
@@ -350,7 +350,7 @@ def test_an_unlinked_style_leaves_the_stored_source_alone():
     assert [s["connection"] for s in normalize_config({})["styles"]] == ["", ""]
 
 
-# ── the cloud block ──────────────────────────────────────────────────────────
+# -- the cloud block ----------------------------------------------------------
 
 
 def _cloud(**raw) -> dict:
@@ -404,7 +404,7 @@ def test_a_cloud_base_url_override_rejects_credentials_and_plaintext(url, expect
     assert stored["providers"]["custom"]["base_url"] == expected
 
 
-# ── the render target, on the style ──────────────────────────────────────────
+# -- the render target, on the style ------------------------------------------
 #
 # A connection is how Orb reaches a backend; a style is what an image looks like. The four cloud render settings lived on the
 # connection, which made a connection a render preset that happened to hold a key -- and made "FLUX.1-kontext for realistic,
@@ -654,7 +654,7 @@ def test_the_cloud_block_is_connectivity_only():
     assert cloud["provider"] == "openai"
 
 
-# ── per-character reference image ────────────────────────────────────────────
+# -- per-character reference image --------------------------------------------
 
 
 def test_a_character_reference_image_survives_only_with_both_halves():

@@ -48,7 +48,7 @@ def _rejection(errors: list[str]) -> str:
     return errors[0]
 
 
-# ── The clone, in every markup the corpus can wear ────────────────────────────
+# -- The clone, in every markup the corpus can wear ----------------------------
 
 
 @pytest.mark.parametrize("markup", list(DRAFTS))
@@ -70,7 +70,7 @@ def test_the_rejection_quotes_the_draft_not_the_folded_key():
 
 def test_changing_the_wrapper_does_not_smuggle_a_copy_through():
     # Quoted in the draft, unquoted in the replacement. A guard keyed on quote
-    # syntax — the one the eval harness shipped with — misses exactly this.
+    # syntax -- the one the eval harness shipped with -- misses exactly this.
     out, errors = _apply(DRAFTS["straight"], [{"id": 1, "replace": "She repeated it: don't touch it."}])
     assert out == DRAFTS["straight"]
     assert _rejection(errors).startswith("Error: the patch for id 1 copies protected text")
@@ -84,7 +84,7 @@ def test_a_copy_from_after_the_span_names_the_right_side():
     assert "from after the flagged span" in _rejection(errors)
 
 
-# ── Rejection, not repair ─────────────────────────────────────────────────────
+# -- Rejection, not repair -----------------------------------------------------
 
 
 def test_an_interior_copy_is_rejected_rather_than_trimmed():
@@ -116,14 +116,14 @@ def test_healing_still_trims_an_end_aligned_copy():
 
 def test_the_guard_reads_the_healed_text_not_the_raw_replacement():
     # Healing trims the copied tail; what it leaves still contains an interior clone. Guarding the raw `replace` would have
-    # found the tail first and reported the wrong run — guarding the healed text finds the real one.
+    # found the tail first and reported the wrong run -- guarding the healed text finds the real one.
     draft = DRAFTS["straight"]
     out, errors = _apply(draft, [{"id": 1, "replace": "Don't touch it, she whispered. \"I wasn't going to,\" Ilya replied."}])
     assert out == draft
     assert "“Don't touch it”" in _rejection(errors)
 
 
-# ── What must still apply ─────────────────────────────────────────────────────
+# -- What must still apply -----------------------------------------------------
 
 
 def test_text_from_another_target_is_mutable_not_protected():
@@ -194,7 +194,7 @@ def test_a_two_token_name_near_the_target_is_not_a_false_positive():
 
 def test_a_three_token_name_is_a_known_false_positive():
     # Locality, uniqueness and the length floors reduce this risk but cannot remove it: a three-word name repeated beside its
-    # own mention reads exactly like a clone. Pinned as the measured cost of the conservative policy — the fallback keeps the
+    # own mention reads exactly like a clone. Pinned as the measured cost of the conservative policy -- the fallback keeps the
     # writer's text, which is the acceptable failure here.
     draft = "Captain Ilyra Venn crossed the deck. The night was dark and full of terrors. She waited below."
     span = "The night was dark and full of terrors."
@@ -205,7 +205,7 @@ def test_a_three_token_name_is_a_known_false_positive():
     assert "“Captain Ilyra Venn”" in _rejection(errors)
 
 
-# ── Offsets under back-to-front application ───────────────────────────────────
+# -- Offsets under back-to-front application -----------------------------------
 
 
 def test_protected_gaps_survive_a_reordered_multi_patch_call():
@@ -235,7 +235,7 @@ def test_a_gap_two_targets_away_is_not_inspected():
 
 
 def test_protected_bands_require_boundaries_that_bracket_the_target():
-    # The signature carries most of the invariant — there is no argument that names a gap further away — and the assertion
+    # The signature carries most of the invariant -- there is no argument that names a gap further away -- and the assertion
     # carries the rest: boundaries that do not bracket the target are not the text touching it.
     draft = DRAFTS["straight"]
     start = draft.index(NARRATION)
@@ -243,7 +243,7 @@ def test_protected_bands_require_boundaries_that_bracket_the_target():
         protected_bands(draft, previous_end=0, start=start, end=start + len(NARRATION), next_start=start)
 
 
-# ── The guard in isolation ────────────────────────────────────────────────────
+# -- The guard in isolation ----------------------------------------------------
 
 
 def test_bands_are_trimmed_to_the_local_window():
@@ -254,7 +254,7 @@ def test_bands_are_trimmed_to_the_local_window():
     bands = protected_bands(draft, 0, start, start + len(span), len(draft))
     assert len(bands[0].tokens) == 32  # BAND_TOKENS
     # The opening line is outside the window, so copying it is not the guard's
-    # business — that repeat is far enough away to read as the writer's own.
+    # business -- that repeat is far enough away to read as the writer's own.
     assert guard_protected_sequences("Keep this phrase entirely, she said.", bands, span) is None
 
 

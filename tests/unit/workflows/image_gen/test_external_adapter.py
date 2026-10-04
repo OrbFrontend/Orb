@@ -97,7 +97,7 @@ def _bound(config: dict, style_id: str) -> ExternalComfyAdapter:
     return ExternalComfyAdapter(config, resolve_style(config, style_id))
 
 
-# ── test connection ──────────────────────────────────────────────────────────
+# -- test connection ----------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_the_style_that_fails_validation_is_named(monkeypatch):
         await ExternalComfyAdapter(config).validate_connection()
 
 
-# ── slot typing for the importer ─────────────────────────────────────────────
+# -- slot typing for the importer ---------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_only_inputs_literally_named_width_and_height_type_as_a_size(monke
     assert roles["KSampler"]["dimension_inputs"] == []
 
 
-# ── per-graph resolution ─────────────────────────────────────────────────────
+# -- per-graph resolution -----------------------------------------------------
 
 SIZED_USER_GRAPH = {
     **USER_GRAPH,
@@ -294,7 +294,7 @@ def test_a_default_resolution_on_an_unmapped_graph_says_nothing():
     assert target.notes == ()
 
 
-# ── generation ───────────────────────────────────────────────────────────────
+# -- generation ---------------------------------------------------------------
 
 
 @pytest.mark.asyncio

@@ -18,8 +18,8 @@ N_FRAMES = CHUNK_SAMPLES // HOP_LENGTH
 
 
 def mel_filters(n_mels: int) -> np.ndarray:
-    """``(n_freqs, n_mels)`` Slaney-normalized filterbank spanning 0–8 kHz."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    """``(n_freqs, n_mels)`` Slaney-normalized filterbank spanning 0-8 kHz."""
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     n_freqs = N_FFT // 2 + 1
     fft_freqs = np.linspace(0, SAMPLE_RATE // 2, n_freqs, dtype=np.float64)
@@ -34,7 +34,7 @@ def mel_filters(n_mels: int) -> np.ndarray:
 
 def log_mel(wav: np.ndarray, n_mels: int) -> np.ndarray:
     """Return Whisper log-mel features for a fixed 30 s window."""
-    import numpy as np  # noqa: PLC0415 — deferred; see module docstring
+    import numpy as np  # noqa: PLC0415 -- deferred; see module docstring
 
     audio = np.zeros(CHUNK_SAMPLES, dtype=np.float64)
     source = np.asarray(wav, dtype=np.float64).reshape(-1)[:CHUNK_SAMPLES]

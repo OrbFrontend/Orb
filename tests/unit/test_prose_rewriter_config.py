@@ -2,7 +2,7 @@
 
 NOTHING REQUEST-DERIVED REACHES ARGV. A batch size is a key into a closed map and what comes back is a code-owned literal; a
 variant is re-resolved against the registry before its path is allowed anywhere near a subprocess. If either check were quietly
-dropped in a refactor, nothing would fail — the barrier would simply cease to exist — so both are asserted directly.
+dropped in a refactor, nothing would fail -- the barrier would simply cease to exist -- so both are asserted directly.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ async def test_gpu_placement_is_one_number_on_the_command_line(downloaded):
 
 async def test_a_selection_with_nothing_behind_it_is_a_profile_of_none(tmp_path, monkeypatch):
     """The settings paths need "the selection changed" to stay expressible when
-    the selection names nothing loadable — that is a stale host, not an error
+    the selection names nothing loadable -- that is a stale host, not an error
     to raise at whoever pressed Save."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
 
@@ -104,7 +104,7 @@ async def test_batch_size_selector_rejects_everything_outside_the_closed_allowli
     assert config.select_batch_size(raw) is None
 
 
-# ── the persisted blob → the turn's config ───────────────────────────────────
+# -- the persisted blob -> the turn's config -----------------------------------
 
 
 async def test_turn_config_resolves_the_persisted_batch_size(monkeypatch):

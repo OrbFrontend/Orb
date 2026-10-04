@@ -46,7 +46,7 @@ def test_editor_apply_patch_objects():
     ]
 
 
-# ── argument decoding: salvage, and the shapes that must not reach a pass ─────
+# -- argument decoding: salvage, and the shapes that must not reach a pass -----
 
 
 def test_arguments_salvaged_from_a_markup_wrapper():

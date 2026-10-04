@@ -17,7 +17,7 @@ from ...analysis.text.lexical import ngrams, tokenize
 from .matching import IDENTITY_FIELDS, SKETCH_SIZE, CardSignals
 
 # Bump when normalization, the shingle width, or the dHash construction changes in a way that makes a stored ``avatar_dhash``
-# mean something different. It salts the stamp, which is the invalidation seam — exactly as TAGGER_REVISION salts
+# mean something different. It salts the stamp, which is the invalidation seam -- exactly as TAGGER_REVISION salts
 # ``vocabulary_hash()``.
 DEDUPE_REVISION = 1
 
@@ -88,7 +88,7 @@ def shingles(card: Mapping[str, Any]) -> frozenset[int]:
     """Stably hashed token 5-grams over the card's narrative body.
 
     ``blake2b``, not the built-in ``hash()``: Python randomizes string and tuple hashing per process, which would make sketches
-    — and therefore any test that asserts on them — differ across restarts.
+    -- and therefore any test that asserts on them -- differ across restarts.
     """
     text = " ".join(normalize_field(card.get(name)) for name in SHINGLE_FIELDS)
     tokens = tokenize(text)
@@ -99,7 +99,7 @@ def shingles(card: Mapping[str, Any]) -> frozenset[int]:
 
 
 def shingle_sketch(values: frozenset[int], k: int = SKETCH_SIZE) -> tuple[int, ...]:
-    """The k smallest shingle hashes — a bottom-k sketch used only for blocking.
+    """The k smallest shingle hashes -- a bottom-k sketch used only for blocking.
 
     Two cards sharing any sketch member become candidates and are then scored on their *full* shingle sets, so the sketch costs
     recall on nothing it indexes and never decides a tier.
@@ -121,7 +121,7 @@ def dhash_from_image_bytes(data: bytes) -> str:
                 return ""
             small = im.convert("L").resize((_DHASH_WIDTH, _DHASH_HEIGHT), Image.Resampling.LANCZOS)
             # "L" mode raw bytes are row-major and unpadded, so this is the
-            # 9x8 grid flattened — and it is not the deprecated getdata().
+            # 9x8 grid flattened -- and it is not the deprecated getdata().
             pixels = small.tobytes()
     except (UnidentifiedImageError, OSError, ValueError, MemoryError):
         return ""

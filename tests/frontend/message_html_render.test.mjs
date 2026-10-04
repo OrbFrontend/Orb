@@ -216,7 +216,7 @@ it("an id reference follows the id it names", () => {
 
 it("a control that would paint outside the bubble does not survive", () => {
   // A popover renders in the top layer, where `.msg-css-scope` containment
-  // cannot reach it — the one way an input could cover the app.
+  // cannot reach it -- the one way an input could cover the app.
   const html = render('<div popover id="p">x</div><input type="button" popovertarget="p" commandfor="p">');
   assert.ok(!/popovertarget|commandfor/.test(html), html);
 });
@@ -438,8 +438,8 @@ it("fromMessageBody tells the app's dispatchers where model markup begins", () =
 });
 
 it("a message too large for the cache still renders, and renders the same way", () => {
-  // The cache is bounded by characters rather than by entries — 2,000 entries of 100k characters is hundreds of
-  // megabytes — and an entry past the per-entry ceiling is simply not stored. What must not change is the output.
+  // The cache is bounded by characters rather than by entries -- 2,000 entries of 100k characters is hundreds of
+  // megabytes -- and an entry past the per-entry ceiling is simply not stored. What must not change is the output.
   const big = `${"x".repeat(300 * 1024)} tail`;
   const first = render(big);
   for (let i = 0; i < 50; i++) render(`message number ${i}`);

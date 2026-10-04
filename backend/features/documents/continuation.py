@@ -40,12 +40,12 @@ DOC_ASSIST_INSTRUCTION = (
 DOC_ASSIST_CONTINUE = "Continue the text exactly from where it stops — no preamble."
 
 # Default user turn when the document carries no ``### USER:`` note (and as alternation filler before leading prose). The length
-# hint is load-bearing: probe-verified on Qwen that a bare "Continue the text." stops after 6–9 tokens while the hint stretches
-# it to 50–300.
+# hint is load-bearing: probe-verified on Qwen that a bare "Continue the text." stops after 6-9 tokens while the hint stretches
+# it to 50-300.
 _DEFAULT_USER = "Continue the text. Write several paragraphs."
 
 # Line-anchored role macro: ``### ROLE: inline content``. Case-insensitive; a single optional space after the colon is the
-# delimiter (further spaces are content). Only interpreted in assisted mode — in Raw mode these lines are literal prose.
+# delimiter (further spaces are content). Only interpreted in assisted mode -- in Raw mode these lines are literal prose.
 ROLE_MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
 
 # Per-token-alternatives counts, requested only when the client toggles probs on. Text mode (llama.cpp /completion) matches
@@ -82,20 +82,20 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
             macro_role = m.group(1).lower()
             content = m.group(2)
             if not content.strip():
-                continue  # empty macro content → ignored (line drops out)
+                continue  # empty macro content -> ignored (line drops out)
             if macro_role == "system":
                 system_parts.append(content)
             elif macro_role == "user":
                 _accumulate("user", content)
-            else:  # ### ASSISTANT: → inline content joins the surrounding prose
+            else:  # ### ASSISTANT: -> inline content joins the surrounding prose
                 _accumulate("assistant", content)
         else:
-            _accumulate("assistant", line)  # non-macro line → continuation prose
+            _accumulate("assistant", line)  # non-macro line -> continuation prose
 
     system_content = "\n".join(system_parts) if system_parts else DOC_ASSIST_INSTRUCTION
 
     # The final prose block is the open prefill; a whitespace-only prefill drops
-    # to None (→ fresh-turn generation under the last note).
+    # to None (-> fresh-turn generation under the last note).
     prefill: str | None = None
     if blocks and blocks[-1][0] == "assistant":
         prefill = "\n".join(blocks.pop()[1])
@@ -117,7 +117,7 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
             body.append([role, block_text])
 
     # Messages must open [system, user] and alternate. Insert the default user turn when the body opens with prose
-    # (leading-prose filler) or is empty (macro-free/no-USER docs → the validated 3-turn shape with whole-doc prefill).
+    # (leading-prose filler) or is empty (macro-free/no-USER docs -> the validated 3-turn shape with whole-doc prefill).
     if not body or body[0][0] == "assistant":
         body.insert(0, ["user", _DEFAULT_USER])
 
@@ -130,7 +130,7 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
 def uses_raw_transport(completion_mode: str, assisted: bool) -> bool:
     """True when generation rides the raw ``/completion`` transport (text mode,
     non-assisted): the document goes verbatim, no chat template. The single
-    definition of the raw-vs-messages split — shared by :meth:`DocumentContinuer.stream`
+    definition of the raw-vs-messages split -- shared by :meth:`DocumentContinuer.stream`
     and the Output Auditor's patch call (``audit.py``)."""
     return completion_mode == "text" and not assisted
 
@@ -175,10 +175,10 @@ class DocumentContinuer:
                     messages, model, prefill=prefill, **self.params, **probs_text, **reasoning_cfg(False)
                 )
             else:
-                # prefill is always None here; never sent — a chat body has no prefill concept.
+                # prefill is always None here; never sent -- a chat body has no prefill concept.
                 gen = self.client.complete(messages, model, **self.params, **probs_chat, **reasoning_cfg(False))
         # Yield content + token_probs chunks (drop reasoning), then surface the final chunk's finish_reason so the route can
-        # tell EOS ("stop") from a token-budget cutoff ("length") — the Output Auditor trims the dangling half-sentence on
+        # tell EOS ("stop") from a token-budget cutoff ("length") -- the Output Auditor trims the dangling half-sentence on
         # cutoffs. The route is this generator's only consumer.
         async for chunk in gen:
             if chunk["type"] == "content" or chunk["type"] == "token_probs":

@@ -32,7 +32,7 @@ def resolve_length_guard(settings: Mapping[str, Any], agent_on: bool) -> LengthG
     """Resolve the length-guard config from *settings*, or ``None`` when disabled.
 
     Agent-gated: returns ``None`` when the agent is off. The returned dict is the
-    on/off state downstream — ``cfg.length_guard is not None`` means enabled.
+    on/off state downstream -- ``cfg.length_guard is not None`` means enabled.
     """
     if not agent_on or not bool(settings.get("length_guard_enabled", 0)):
         return None

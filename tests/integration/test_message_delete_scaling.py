@@ -129,7 +129,7 @@ def test_levels_deepest_first_groups_by_descending_depth():
     there makes SQLite walk the subtree itself, once per level of the chat. Rows at equal depth are never ancestors of each
     other, so each level can go out in a single statement.
     """
-    # (depth, id) — deliberately unsorted, with several rows sharing a depth.
+    # (depth, id) -- deliberately unsorted, with several rows sharing a depth.
     pairs = [(0, 10), (2, 30), (1, 20), (2, 31), (0, 11), (1, 21)]
 
     levels = _levels_deepest_first(pairs)

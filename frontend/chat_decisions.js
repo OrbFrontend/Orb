@@ -17,7 +17,7 @@ const ANSWER_NUMBERS = [
   ["draw", "roll", 2],
 ];
 
-// Outcome kind → its status pill's modifier; a skip stays plain.
+// Outcome kind -> its status pill's modifier; a skip stays plain.
 const CHIP_KINDS = { resolved: " active", failed: " warn", skipped: "" };
 
 function _chip(text, kind) {

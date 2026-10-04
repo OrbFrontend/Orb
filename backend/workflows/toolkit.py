@@ -287,7 +287,7 @@ def spark_voice_clean_tokens(raw: object) -> list[int]:
     """A stored voice as 32 validated speaker tokens, or ``[]``.
 
     The shape rule (exactly 32 ints in ``[0, 4096)``) is a property of BiCodec's FSQ quantizer, so it is answered by the model
-    slice rather than restated in the workflow — a hand-rolled copy that drifts is a malformed voice reaching the codec, which
+    slice rather than restated in the workflow -- a hand-rolled copy that drifts is a malformed voice reaching the codec, which
     fails inside an einsum rather than at the boundary.
     """
     return _spark_tts_host.clean_tokens(raw)
@@ -392,7 +392,7 @@ async def build_offturn_prefix(conversation_id: str, history, settings, *, lane:
     card = await get_character_card(card_id) if card_id else None
     # A group names no single character: the scene's title is {{char}}, the cast section stands in for the card, and each
     # replayed reply is attributed to the member who wrote it. Resolved through the same reader the turn uses, against the
-    # *neutral* base (no speaker) — which is the base the Director runs on in every mode, Classic card swap included.
+    # *neutral* base (no speaker) -- which is the base the Director runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     dual_agent = lane == "agent" and _separate_agent_lane_configured(settings)

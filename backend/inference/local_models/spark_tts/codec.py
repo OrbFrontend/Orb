@@ -14,7 +14,7 @@ SAMPLE_RATE = 16000
 @onnx_runtime.using
 def decode(semantic: Sequence[int], speaker_tokens: Sequence[int], *, trim: bool = True) -> bytes:
     """Decode semantic and speaker tokens to 16-bit mono PCM."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     if not semantic:
         raise ValueError("Spark-TTS produced no audio tokens for this line.")
@@ -41,7 +41,7 @@ def decode(semantic: Sequence[int], speaker_tokens: Sequence[int], *, trim: bool
 
 def to_pcm16(audio) -> bytes:
     """Encode a float waveform as 16-bit little-endian PCM."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     samples = np.nan_to_num(np.asarray(audio, dtype=np.float32).reshape(-1), copy=False)
     if samples.size == 0:

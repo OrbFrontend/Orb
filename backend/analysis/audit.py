@@ -263,8 +263,8 @@ def negation_reason(finding: NegationFinding) -> str:
     return reason
 
 
-# Both renderings — sectioned here, numbered in ``targets.format_numbered_report``
-# — say the same thing when there is nothing to say.
+# Both renderings -- sectioned here, numbered in ``targets.format_numbered_report``
+# -- say the same thing when there is nothing to say.
 CLEAN_REPORT = "*** WRITING AUDIT REPORT ***\n\nAll checks passed — no issues found.\n\n*** END OF REPORT ***"
 
 
@@ -362,7 +362,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     """Return the report in the API's JSON shape."""
     # Imported here rather than at module scope: targets.py reads the report
     # shape this module defines, so a top-level import would cycle.
-    from .targets import build_targets, negation_target_ids, target_ids_for  # noqa: PLC0415 — import cycle
+    from .targets import build_targets, negation_target_ids, target_ids_for  # noqa: PLC0415 -- import cycle
 
     targets = build_targets(report, draft) if draft else []
 
@@ -387,7 +387,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
                 "count": fo.max_run,
                 "sentences": [strip_markers(s) for s in fo.sentences[:4]],
                 # sentences[0] is the anchor the rest are compared against, so it
-                # is never a target — the ids cover the flagged remainder only.
+                # is never a target -- the ids cover the flagged remainder only.
                 **({"ids": [i for s in fo.sentences[1:] for i in target_ids_for(targets, s)]} if draft else {}),
             }
             for fo in mr.flagged_openers
@@ -432,7 +432,7 @@ def report_to_dict(report: AuditReport, draft: str = "") -> dict:
             {
                 "message_count": len(sr.messages),
                 "skeleton": [strip_markers(part) for part in (sr.shared_skeleton or [])],
-                # No span to patch — this finding is only ever fixed by a rewrite.
+                # No span to patch -- this finding is only ever fixed by a rewrite.
                 **({"ids": []} if draft else {}),
             }
         ]

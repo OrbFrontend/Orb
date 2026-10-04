@@ -216,7 +216,7 @@ async def _finish_save(task: asyncio.Future[_Saved]) -> _Saved:
 async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | None):
     """Run the ``extra_on_result`` callback exactly once under ``asyncio.shield``.
 
-    The callback writes a ``conversation_logs`` row (a bare INSERT with no dedup guard). Cancellation is not retried — a partial
+    The callback writes a ``conversation_logs`` row (a bare INSERT with no dedup guard). Cancellation is not retried -- a partial
     write already committed the row, and re-running would create a duplicate. Non-cancel errors are swallowed so a log failure
     never crashes the turn.
     """

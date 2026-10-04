@@ -96,7 +96,7 @@ class EdgeTTSAdapter(TTSAdapter):
         """Return available Edge TTS voices, optionally filtered by language."""
         voices = await edge_tts.list_voices()
         if language:
-            lang_prefix = language.split("-")[0]  # "en-US" → "en"
+            lang_prefix = language.split("-")[0]  # "en-US" -> "en"
             voices = [v for v in voices if v["Locale"].startswith(lang_prefix)]
         return [
             {"id": v["ShortName"], "name": v["FriendlyName"], "language": v["Locale"], "gender": v["Gender"]} for v in voices

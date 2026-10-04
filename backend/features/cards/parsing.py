@@ -1,4 +1,4 @@
-"""Parse and serialize Tavern Card V1–V3 payloads."""
+"""Parse and serialize Tavern Card V1-V3 payloads."""
 
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ V3_ONLY_FIELDS = (
 
 
 class TavernCardV3Data(TavernCardV2Data):
-    """V3 card data. Purely additive over V2 — every V2 field keeps its type."""
+    """V3 card data. Purely additive over V2 -- every V2 field keeps its type."""
 
     nickname: str = ""
     creator_notes_multilingual: dict[str, str] | None = None
@@ -170,7 +170,7 @@ def first_text_chunk(image_path: str, key: str) -> str | None:
     """Return the first tEXt chunk of a PNG under *key*, or None.
 
     PIL's ``img.info`` is a plain dict, so a card carrying *several* chunks under one key (some editors append instead of
-    replacing) collapses to the **last** one — often a stale copy missing alternate_greetings. Other card readers take the first
+    replacing) collapses to the **last** one -- often a stale copy missing alternate_greetings. Other card readers take the first
     match, so we do too.
     """
     with open(image_path, "rb") as fh:
@@ -190,7 +190,7 @@ def first_text_chunk(image_path: str, key: str) -> str | None:
 
 
 def _decode_chunk(key: str, raw: str) -> dict[str, Any]:
-    """base64 → utf-8 → JSON for one card chunk. Raises ValueError on any step."""
+    """base64 -> utf-8 -> JSON for one card chunk. Raises ValueError on any step."""
     try:
         raw_json_string = base64.b64decode(raw).decode("utf-8")
         logger.info(f"Decoded '{key}' JSON string length: {len(raw_json_string)} chars")

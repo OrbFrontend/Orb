@@ -97,7 +97,7 @@ def _requests(llm_mock, pass_name: str) -> list[str]:
     return out
 
 
-# ── Transports ───────────────────────────────────────────────────────────────
+# -- Transports ---------------------------------------------------------------
 
 
 async def test_after_reply_entries_update_replays_the_reply_and_commits_with_it(client, db, llm_mock):
@@ -216,7 +216,7 @@ async def test_migrated_progressive_settings_add_no_model_call(client, db, llm_m
     assert [p for p, _ in llm_mock.calls] == ["director", "writer"]
 
 
-# ── Switches and gates ───────────────────────────────────────────────────────
+# -- Switches and gates -------------------------------------------------------
 
 
 async def test_manual_only_stops_automatic_updates_and_keeps_injection(client, db, llm_mock):
@@ -319,7 +319,7 @@ async def test_injection_targets_are_per_fragment(client, db, llm_mock):
     assert "- to_writer" not in director_request and "- to_none" not in director_request
 
 
-# ── Operations, validation, and keep ─────────────────────────────────────────
+# -- Operations, validation, and keep -----------------------------------------
 
 
 async def test_retire_by_alias_frees_a_slot_and_revision_is_retire_plus_add(client, db, llm_mock):
@@ -442,7 +442,7 @@ async def test_a_judge_outcome_is_context_for_the_updater_not_a_write(client, db
     assert await _active_state(cid) == {}
 
 
-# ── Modes ────────────────────────────────────────────────────────────────────
+# -- Modes --------------------------------------------------------------------
 
 
 # Editing a fragment's mode is a configuration change: it rebuilds the schema on
@@ -495,7 +495,7 @@ async def test_mode_switch_writes_nothing_and_keeps_entry_ids(client, db, llm_mo
     assert {h["text"] for h in history if h["op"] == "add"} >= {"The docks.", "The warehouse.", "The rooftop."}
 
 
-# ── Branches, regeneration, and carried corrections ─────────────────────────
+# -- Branches, regeneration, and carried corrections -------------------------
 
 
 async def test_regeneration_starts_from_the_parent_path_and_branches_keep_their_state(client, db, llm_mock):
@@ -587,7 +587,7 @@ async def test_regeneration_folds_state_anchored_on_its_parent_user_message(clie
     assert await _active_state(cid) == {"place": ["Harbor"]}
 
 
-# ── Group exchanges ──────────────────────────────────────────────────────────
+# -- Group exchanges ----------------------------------------------------------
 
 
 async def _group(client) -> str:
@@ -631,7 +631,7 @@ async def test_group_exchange_updates_state_once_and_anchors_each_placement(clie
     assert all("before-note" in json.dumps(c["messages"]) for c in writer_calls)
 
 
-# ── Partial saves ────────────────────────────────────────────────────────────
+# -- Partial saves ------------------------------------------------------------
 
 
 async def test_stopped_reply_keeps_its_before_writer_changes(client, db, llm_mock):
@@ -693,7 +693,7 @@ async def test_fallback_save_keeps_the_announced_before_writer_changes(client, d
     assert [r["text"] for r in await dbmod.get_state_events_for_message(reply["id"])] == ["wary"]
 
 
-# ── Checkpoint and Compress History ─────────────────────────────────────────
+# -- Checkpoint and Compress History -----------------------------------------
 
 
 async def test_compress_carries_state_and_regenerating_the_first_kept_reply_does_not_double_apply(client, db, llm_mock):
@@ -722,7 +722,7 @@ async def test_compress_carries_state_and_regenerating_the_first_kept_reply_does
     assert await _active_state(new_cid) == {"threads": ["one", "two", "three, again"]}
 
 
-# ── State tab routes ─────────────────────────────────────────────────────────
+# -- State tab routes ---------------------------------------------------------
 
 
 async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, db, llm_mock):
@@ -808,7 +808,7 @@ async def test_deleted_fragment_state_is_read_only_and_deletable(client, db, llm
     assert (await client.get(f"/api/conversations/{cid}/state")).json()["has_state"] is False
 
 
-# ── Cache invariants ─────────────────────────────────────────────────────────
+# -- Cache invariants ---------------------------------------------------------
 
 
 async def test_tools_blob_is_byte_identical_while_state_changes(client, db, llm_mock):

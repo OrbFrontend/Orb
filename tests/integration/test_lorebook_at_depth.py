@@ -91,7 +91,7 @@ async def test_at_depth_entry_rides_the_tail_with_fresh_dice_each_turn(client, l
         # Depth entries leave the prefix; plain constants stay in it.
         assert "<v20>" not in system
         assert "## Lorebook\n\nCanon: The moon is shattered." in system
-        # `disable: true` on import → never rendered anywhere.
+        # `disable: true` on import -> never rendered anywhere.
         assert "Append a health bar." not in tail and "Append a health bar." not in system
         # Author comments are stripped at render, and {{user}} resolved.
         assert "{{//" not in tail and "notes for the human" not in tail

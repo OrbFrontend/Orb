@@ -11,7 +11,7 @@ from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 
 logger = logging.getLogger(__name__)
 
-# OpenAI TTS voices — fixed set
+# OpenAI TTS voices -- fixed set
 OPENAI_VOICES = [
     {"id": "alloy", "name": "Alloy", "gender": "neutral"},
     {"id": "ash", "name": "Ash", "gender": "neutral"},
@@ -103,7 +103,7 @@ class OpenAISpeechAdapter(TTSAdapter):
         if _is_openai(api_url):
             return OPENAI_VOICES
 
-        # Compatible endpoint — return a minimal generic set; users can type a custom voice ID in the Voice tab.
+        # Compatible endpoint -- return a minimal generic set; users can type a custom voice ID in the Voice tab.
         return [{"id": "alloy", "name": "alloy (default)", "gender": "neutral"}]
 
     async def list_models(self, api_url: str = "", api_key: str | None = None, **kwargs) -> list[dict]:
@@ -132,7 +132,7 @@ class OpenAISpeechAdapter(TTSAdapter):
                 if filtered:
                     return filtered
             else:
-                # Compatible endpoint — return all models, let the user pick
+                # Compatible endpoint -- return all models, let the user pick
                 if models:
                     return [{"id": m["id"], "name": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
         except Exception as e:

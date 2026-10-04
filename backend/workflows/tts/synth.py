@@ -21,8 +21,8 @@ from .engine.router import get_adapter
 
 #: This workflow's registry id, and the key its per-character profile is stored
 #: under. Defined here rather than in ``hooks`` because the profile is this
-#: module's contract and a caller outside the workflow — the voice-enrollment
-#: route — needs the key without importing the hook surface.
+#: module's contract and a caller outside the workflow -- the voice-enrollment
+#: route -- needs the key without importing the hook surface.
 WORKFLOW_ID = "tts"
 
 # Field set of a per-character voice profile, stored in ``character_cards.workflow_state['tts']`` (read via

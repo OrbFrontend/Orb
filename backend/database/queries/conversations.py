@@ -196,7 +196,7 @@ async def group_family_ids(root_cid: str) -> list[str]:
 async def delete_group_family(root_cid: str) -> int:
     """Delete a whole group family -- the root and every fork taken from it.
 
-    What the sidebar's × means once one row stands for the whole group. Unlike a character card, a group has no existence apart
+    What the sidebar's delete button means once one row stands for the whole group. Unlike a character card, a group has no existence apart
     from its conversations, so there is nothing to keep behind after they go.
     """
     async with immediate_tx() as db:
@@ -205,7 +205,7 @@ async def delete_group_family(root_cid: str) -> int:
 
 
 async def touch_conversation(cid: str) -> bool:
-    """Mark a conversation accessed (opened/selected) — bumps last_accessed_at,
+    """Mark a conversation accessed (opened/selected) -- bumps last_accessed_at,
     not updated_at. updated_at means content changed; opening isn't an edit."""
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
@@ -235,7 +235,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
                 vals.append(datetime.now(UTC).isoformat())
             vals.append(cid)
             await db.execute(
-                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

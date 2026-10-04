@@ -85,7 +85,7 @@ class WorkflowEnabledUpdate(BaseModel):
 
 class EndpointCreate(BaseModel):
     """A saved connection. ``kind`` picks the lane that may select it: the Writer/Agent ``chat`` pool, or the decision
-    classifier's own ``judge`` rows. It is set once, at creation, and ``EndpointUpdate`` deliberately omits it — a row that
+    classifier's own ``judge`` rows. It is set once, at creation, and ``EndpointUpdate`` deliberately omits it -- a row that
     changed lanes would silently take its credentials somewhere the user never pointed them.
     """
 
@@ -486,7 +486,7 @@ class CheckpointRequest(BaseModel):
 
 
 class DocumentSpan(BaseModel):
-    # Offsets are JS/UTF-16-domain and opaque to the backend — only shape-validated. ge=0 only, deliberately NO coupling to
+    # Offsets are JS/UTF-16-domain and opaque to the backend -- only shape-validated. ge=0 only, deliberately NO coupling to
     # len(content): Python counts code points and JS counts UTF-16 units, so a valid JS offset can legitimately exceed Python's
     # string length on emoji-bearing docs (see plan design table).
     start: int = Field(ge=0)
@@ -518,7 +518,7 @@ class DocumentUpdate(BaseModel):
 class DocumentGenerateRequest(BaseModel):
     prompt: str
     # Assisted continuation: interpret ### SYSTEM/USER/ASSISTANT line macros and
-    # render through the model's chat template. Defaults false → Raw (verbatim).
+    # render through the model's chat template. Defaults false -> Raw (verbatim).
     assisted: bool = False
     # Capture per-token alternatives (mikupad-style token swapping). Off by default: logprobs cost generation speed on
     # llama.cpp, and providers that can't supply them degrade to no-popup. Emits `event: probs` SSE frames.
@@ -526,11 +526,11 @@ class DocumentGenerateRequest(BaseModel):
 
 
 class DocumentAuditRequest(BaseModel):
-    # The generated run to audit/patch. `context` is the FULL document text that preceded the run — i.e. the generation prompt.
+    # The generated run to audit/patch. `context` is the FULL document text that preceded the run -- i.e. the generation prompt.
     # /patch byte-extends it so the server's KV prefix survives; the scanners get a server-side cap.
     draft: str
     context: str = ""
-    # Same flag as DocumentGenerateRequest — drives the context-scrubbing
+    # Same flag as DocumentGenerateRequest -- drives the context-scrubbing
     # heuristic (assisted note macros vs raw template markers).
     assisted: bool = False
     # True when the run ended early (Stop, or finish == "length"); the server
@@ -540,7 +540,7 @@ class DocumentAuditRequest(BaseModel):
 
 class AuditReportPayload(BaseModel):
     # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per scanner with issues, keyed by its AUDIT_TYPES
-    # name. Every entry also carries `ids` — the numbered issues /patch addresses, empty when the finding has no patchable span
+    # name. Every entry also carries `ids` -- the numbered issues /patch addresses, empty when the finding has no patchable span
     # (structural repetition).
     total_issues: int
     is_clean: bool
@@ -640,7 +640,7 @@ class CharacterCardUpdate(BaseModel):
 
 # Attachment ceilings, mirroring what the composer enforces client-side (frontend/validate.js). They are re-checked here because
 # the composer is not the only thing that can reach this route, and because an attachment is stored base64 on the message row
-# and re-rendered as a `data:` URL on every read of the conversation — the cost of one oversized upload is paid on every
+# and re-rendered as a `data:` URL on every read of the conversation -- the cost of one oversized upload is paid on every
 # repaint, forever.
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_ATTACHMENTS_PER_MESSAGE = 10
@@ -679,7 +679,7 @@ class AttachmentIn(BaseModel):
     @model_validator(mode="after")
     def _payload_within_limits(self) -> AttachmentIn:
         # `size` is client-supplied and was previously the only thing checked, so a client could declare 1 KB and send 500 MB.
-        # What is stored is the decoded payload, so that is what is measured — and `size` is then overwritten with the truth
+        # What is stored is the decoded payload, so that is what is measured -- and `size` is then overwritten with the truth
         # rather than trusted.
         if len(self.b64) // 4 * 3 > MAX_ATTACHMENT_BYTES:
             # Cheap pre-check: refuse before allocating the decoded copy.

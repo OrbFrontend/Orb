@@ -117,7 +117,7 @@ async def _message_rows_for_client(messages: Sequence[Mapping[str, Any]]) -> lis
 @router.get("/api/conversations/{cid}/messages")
 async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     # Greetings with inline macros re-roll freely on every fetch until the first user message freezes them. The try-lock (never
-    # queued) makes the re-roll mutually exclusive with a whole pipeline stream — skipped when one is running — so a fetch can
+    # queued) makes the re-roll mutually exclusive with a whole pipeline stream -- skipped when one is running -- so a fetch can
     # never commit a re-roll between the stream's history read and its freeze, and the frozen bytes are always the ones the
     # model saw.
     async with stream_idle_lock(cid) as idle:
@@ -166,12 +166,12 @@ async def api_edit_message(
         # Plain edits bypass the pipeline's persist boundary, so inline macros
         # ({{roll}}/{{random}}) typed into an edit fire once here.
         await update_message_content(msg_id, resolve_inline(data.content))
-        # Editing an unfrozen greeting drops its stashed template — otherwise
+        # Editing an unfrozen greeting drops its stashed template -- otherwise
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
         # Same clobber, one surface over: the retained pre-rewriter draft describes the text this edit just replaced, and the
-        # on-demand prose rewriter prefers it over the saved content — so a rewrite after an edit would quietly restore the
+        # on-demand prose rewriter prefers it over the saved content -- so a rewrite after an edit would quietly restore the
         # pre-edit prose. Dropping it makes the rewriter fall back to what the user actually wrote, which is what they mean by
         # "rewrite this message".
         if original["role"] == "assistant":
@@ -207,7 +207,7 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
         if not await delete_message_with_descendants(cid, msg_id):
             raise HTTPException(status_code=404, detail="Message not found")
         # The cascade has already NULLed every changeset pointer into the deleted subtree, so orphanhood is what identifies the
-        # affected proposals — an id list read before the delete would match nothing after it. Applied history survives the same
+        # affected proposals -- an id list read before the delete would match nothing after it. Applied history survives the same
         # cascade with its denormalised labels intact.
         await mark_orphaned_changesets_stale()
         return await _message_rows_for_client(await get_messages_with_branch_info(cid))

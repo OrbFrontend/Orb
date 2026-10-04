@@ -200,7 +200,7 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
     assert resolved[0].digest == resolved[1].digest
 
 
-# ── whose likeness, and how many ─────────────────────────────────────────────
+# -- whose likeness, and how many ---------------------------------------------
 
 
 @pytest.fixture
@@ -399,7 +399,7 @@ async def test_a_render_with_no_subject_has_no_likeness_to_send(_avatars):
     assert "Load Image (#72)" in str(raised.value)
 
 
-# ── replay ───────────────────────────────────────────────────────────────────
+# -- replay -------------------------------------------------------------------
 
 RECORDED = [{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
 

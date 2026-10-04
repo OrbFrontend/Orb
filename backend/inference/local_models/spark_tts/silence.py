@@ -12,7 +12,7 @@ FRAME_SAMPLES = 320
 
 #: RMS below which a word's release has finished. Speech detection runs at a far
 #: higher threshold, and cutting a synthesized clip there severs the decay of
-#: the final word while it is still audible — which is what made generated lines
+#: the final word while it is still audible -- which is what made generated lines
 #: sound chopped off the moment the last word landed. Spark's decoder reaches
 #: this floor within about 80 ms of its last speech frame.
 RELEASE_THRESHOLD = 0.001
@@ -34,7 +34,7 @@ FADE_MS = 5
 
 def frame_rms(wav: np.ndarray, frame: int, hop: int) -> np.ndarray:
     """Return the RMS energy of each frame, including a partial final frame."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     if frame <= 0 or hop <= 0:
         raise ValueError("frame and hop must be positive")
@@ -77,7 +77,7 @@ def _release_bounds(rms: np.ndarray, first: int, last: int, threshold: float, li
 
 def _fade_edges(audio: np.ndarray, samples: int) -> np.ndarray:
     """Ramp both ends so a cut that lands on signal does not click."""
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     length = min(samples, audio.size // 2)
     if length <= 0:
@@ -102,7 +102,7 @@ def _trim(
     pad_ms: int = 0,
     fade_ms: int = 0,
 ) -> np.ndarray:
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     if min_silence_ms < 0 or keep_ms < 0 or min_keep_samples < 0:
         raise ValueError("silence durations and minimum length must not be negative")
@@ -175,7 +175,7 @@ def trim_silence_edges(
     *,
     threshold: float = 0.01,
     # No floor: a synthesized line is as long as it is, and "Wait." deserves the same edges as a sentence. The release-aware cut
-    # is conservative enough on its own — it only ever removes audio that sits below the decay floor.
+    # is conservative enough on its own -- it only ever removes audio that sits below the decay floor.
     min_keep_samples: int = 0,
     release_threshold: float = RELEASE_THRESHOLD,
     release_ms: int = RELEASE_MS,
@@ -208,7 +208,7 @@ def pad_tail(wav: np.ndarray, *, ms: int = RELEASE_PAD_MS, threshold: float = RE
     Spark's decoder normally renders its own trailing silence and the trim keeps it, leaving this a no-op. A short line is the
     exception: the decoder can stop on the last audible sample, which is heard as the voice being cut off mid-breath.
     """
-    import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
+    import numpy as np  # noqa: PLC0415 -- deferred; numpy arrives with onnxruntime
 
     if ms < 0 or threshold < 0:
         raise ValueError("tail length and threshold must not be negative")

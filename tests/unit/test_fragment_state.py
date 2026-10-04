@@ -35,7 +35,7 @@ def _add(fid: str, entry_id: str, text: str, **extra) -> dict:
     return {"fragment_id": fid, "entry_id": entry_id, "op": "add", "text": text, **extra}
 
 
-# ── The fold ─────────────────────────────────────────────────────────────────
+# -- The fold -----------------------------------------------------------------
 
 
 def test_fold_applies_explicit_events_in_order_and_ignores_missing_entries():
@@ -69,7 +69,7 @@ def test_value_text_renders_several_entries_as_a_list():
     assert value_text(view.active("place")) == "\n- docks\n- roof"
 
 
-# ── The operation contract ───────────────────────────────────────────────────
+# -- The operation contract ---------------------------------------------------
 
 
 def test_one_value_set_creates_then_retains_the_entry_id():
@@ -159,7 +159,7 @@ def test_carry_applies_adds_and_existing_entries_and_drops_the_rest():
     assert [e.text for e in parent.active("threads")] == ["earlier, fixed", "user fact"]
 
 
-# ── Configuration ────────────────────────────────────────────────────────────
+# -- Configuration ------------------------------------------------------------
 
 
 def test_state_fragment_row_parses_with_defaults():
@@ -227,7 +227,7 @@ def test_contract_routes_each_fragment_to_its_transport():
     assert [r["id"] for r in contract.direct_scene_rows([scene, *rows])] == ["pacing", "v_before"]
 
 
-# ── Model-facing shape ───────────────────────────────────────────────────────
+# -- Model-facing shape -------------------------------------------------------
 
 
 def test_state_tool_puts_retire_first_and_carries_no_volatile_state():

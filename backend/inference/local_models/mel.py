@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def hz_to_mel(freq):
     """Convert frequency in Hz to Slaney's mel scale."""
-    import numpy as np  # noqa: PLC0415 — numpy is an optional ML dependency
+    import numpy as np  # noqa: PLC0415 -- numpy is an optional ML dependency
 
     f_sp = 200.0 / 3
     min_log_hz = 1000.0
@@ -18,7 +18,7 @@ def hz_to_mel(freq):
 
 def mel_to_hz(mels):
     """Convert Slaney mel values to frequency in Hz."""
-    import numpy as np  # noqa: PLC0415 — numpy is an optional ML dependency
+    import numpy as np  # noqa: PLC0415 -- numpy is an optional ML dependency
 
     f_sp = 200.0 / 3
     min_log_hz = 1000.0

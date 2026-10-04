@@ -23,7 +23,7 @@ def _no_learned_demotions():
     ep_mod._STRUCTURED_OUTPUT_IGNORED.clear()
 
 
-# ── strictify_schema ──────────────────────────────────────────────────────────
+# -- strictify_schema ----------------------------------------------------------
 
 
 def test_strictify_requires_all_and_closes_object():
@@ -91,7 +91,7 @@ def test_strictify_leaves_original_untouched():
     assert schema["properties"]["a"] == {"type": "string"}
 
 
-# ── profile gating ────────────────────────────────────────────────────────────
+# -- profile gating ------------------------------------------------------------
 
 
 def test_gating_by_endpoint():
@@ -102,7 +102,7 @@ def test_gating_by_endpoint():
     assert not supports_structured_tool_calls("")
 
 
-# ── wire-level: the chat transport rewrite ────────────────────────────────────
+# -- wire-level: the chat transport rewrite ------------------------------------
 
 
 DIRECT_SCENE = {
@@ -202,7 +202,7 @@ async def test_unknown_endpoint_keeps_forced_tool_choice():
 
 
 async def test_tools_in_prompt_false_forces_structured_without_tools():
-    # No profile (localhost llama.cpp) — the flag alone triggers the rewrite, and the tools blob is dropped: the caller's
+    # No profile (localhost llama.cpp) -- the flag alone triggers the rewrite, and the tools blob is dropped: the caller's
     # conversation has no schemas in its cached prefix, so none may enter the server-rendered prompt.
     client = LLMClient("http://localhost:5000/v1")
     body, events = await _run(
@@ -293,7 +293,7 @@ async def test_unparseable_content_degrades_to_empty_args():
     assert calls == [{"name": "direct_scene", "arguments": {}}]
 
 
-# ── learned demotion: a route that accepts the schema and ignores it ──────────
+# -- learned demotion: a route that accepts the schema and ignores it ----------
 
 
 async def test_non_json_reply_demotes_the_pair_and_restores_tool_calling():
@@ -397,7 +397,7 @@ async def test_tools_in_prompt_false_never_gains_schemas_from_a_demotion():
     assert body["response_format"]["json_schema"]["name"] == "direct_scene"
 
 
-# ── sends_tool_schemas: the wire-level predicate used by model lanes ──────────
+# -- sends_tool_schemas: the wire-level predicate used by model lanes ----------
 
 
 async def test_sends_tool_schemas_agrees_with_the_wire():

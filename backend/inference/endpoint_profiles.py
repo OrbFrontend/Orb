@@ -21,7 +21,7 @@ Transform = Callable[[dict], str | None]
 def is_forced_tool_choice(tc: object) -> bool:
     """Return ``True`` if *tc* forces a specific tool call (a dict or ``"required"``).
 
-    Single source of truth for "forced" — used by profile coercion and the client's self-heal path.
+    Single source of truth for "forced" -- used by profile coercion and the client's self-heal path.
     """
     return isinstance(tc, dict) or tc == "required"
 
@@ -312,9 +312,9 @@ def auth_families(route: EndpointRoute, status: int | None = None, text: str = "
     return (primary, other)
 
 
-# (endpoint_url, model) pairs observed to answer a forced tool_choice with a different tool this session — either a profile
+# (endpoint_url, model) pairs observed to answer a forced tool_choice with a different tool this session -- either a profile
 # coerced the choice to "auto" or the provider ignored it silently (OpenRouter + a thinking-on model, llama.cpp's chat endpoint,
-# …). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
+# ...). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
 _FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
 
 
@@ -367,7 +367,7 @@ def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
 def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
 
-    A blank *model* falls through to the endpoint default. An unmatched URL returns ``None`` — the body is sent unchanged (local
+    A blank *model* falls through to the endpoint default. An unmatched URL returns ``None`` -- the body is sent unchanged (local
     / unknown backends).
 
     The ``/v1beta/openai`` dialect is resolved by :func:`is_gemini_openai_surface` rather than by a ``PROFILES`` substring, so
@@ -454,7 +454,7 @@ def _is_openrouter(endpoint_url: str) -> bool:
 def _is_tool_choice_unsupported(status: int, text: str) -> bool:
     """Return ``True`` when the body says no ``tool_choice`` value is routed.
 
-    Matches "No endpoints found that support the provided 'tool_choice' value." — meaning the routed provider rejects all
+    Matches "No endpoints found that support the provided 'tool_choice' value." -- meaning the routed provider rejects all
     ``tool_choice`` values. Kept narrow so genuine 404s (bad model id, etc.) don't match.
     """
     low = text.lower()

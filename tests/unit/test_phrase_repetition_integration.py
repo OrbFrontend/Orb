@@ -1,4 +1,4 @@
-"""test_phrase_repetition_integration.py — Regression test for exact phrase repetition detection through the
+"""test_phrase_repetition_integration.py -- Regression test for exact phrase repetition detection through the
 _run_contextual_audit integration path.
 
 The phrase_repetition detector is a cross-message check: it flags distinctive n-grams that the current draft echoes from

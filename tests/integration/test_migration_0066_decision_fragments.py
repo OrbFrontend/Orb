@@ -100,7 +100,7 @@ def test_migration_is_idempotent():
     assert conn.execute("SELECT count(*) FROM interactive_fragments WHERE id = 'outcome'").fetchone() == (1,)
 
 
-# ── judge endpoints ──────────────────────────────────────────────────────────
+# -- judge endpoints ----------------------------------------------------------
 
 
 def test_endpoints_gain_a_lane_and_existing_rows_are_chat():

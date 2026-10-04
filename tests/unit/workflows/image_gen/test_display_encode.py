@@ -24,7 +24,7 @@ def _png(w, h, fmt: str = "PNG") -> bytes:
     return buf.getvalue()
 
 
-# ── display ──────────────────────────────────────────────────────────────────
+# -- display ------------------------------------------------------------------
 
 
 def test_reencodes_to_webp_at_full_resolution():
@@ -40,7 +40,7 @@ def test_non_image_bytes_pass_through_untouched():
     assert shrink_for_display(b"not an image", "image/png") == (b"not an image", "image/png")
 
 
-# ── export ───────────────────────────────────────────────────────────────────
+# -- export -------------------------------------------------------------------
 
 
 def test_an_exported_png_is_the_source_itself():
@@ -63,7 +63,7 @@ def test_bytes_that_are_not_an_image_are_refused_rather_than_exported():
         lossless_png(b"not an image")
 
 
-# ── references, with nothing declared ────────────────────────────────────────
+# -- references, with nothing declared ----------------------------------------
 
 
 def test_a_normal_reference_is_uploaded_byte_for_byte():
@@ -84,7 +84,7 @@ def test_an_oversized_reference_is_bounded():
         assert abs(img.size[0] / img.size[1] - 4200 / 600) < 0.01  # aspect preserved
 
 
-# ── references, against a declared contract ──────────────────────────────────
+# -- references, against a declared contract ----------------------------------
 
 
 def test_a_stored_webp_reference_arrives_as_a_mime_the_provider_accepts():

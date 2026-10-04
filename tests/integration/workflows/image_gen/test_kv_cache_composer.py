@@ -134,8 +134,8 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     assert consumption["composition_skills"] == expected_skills
 
     # Vacuity guards: the forced calls really reached the client boundary, ship the workflow's own tools blob and force via
-    # tool_choice (the pipeline pattern — a chat model needs the real tool, not tools=None), and share the conversation identity
-    # the teardown invariant groups by — so system-prefix parity with the chat turn is enforced there for every off-turn call
+    # tool_choice (the pipeline pattern -- a chat model needs the real tool, not tools=None), and share the conversation identity
+    # the teardown invariant groups by -- so system-prefix parity with the chat turn is enforced there for every off-turn call
     # site.
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     assert len(wf) == 2, "composer must issue select + compose through the real forced-call stack"

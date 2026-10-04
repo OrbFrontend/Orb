@@ -50,13 +50,13 @@ def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> 
     """Build the ``give_feedback`` tool schema from *feedback_fragments*.
 
     Thin wrapper over ``build_feedback_tool`` so ``build_writer_tools_blob`` reaches the schema through the editor module rather
-    than importing the schema builder directly — symmetric to ``build_direct_scene_override``.
+    than importing the schema builder directly -- symmetric to ``build_direct_scene_override``.
     """
     return build_feedback_tool(feedback_fragments)
 
 
 def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
-    """Concatenate previous assistant messages (oldest→newest) with *draft*
+    """Concatenate previous assistant messages (oldest->newest) with *draft*
     so repetition detectors can see cross-message patterns."""
     if not previous_assistant_msgs:
         return draft
@@ -98,7 +98,7 @@ async def _run_contextual_audit(
     ``user_message`` is the user's immediately-preceding message; the anti-echo scanner uses it to flag the draft parroting it
     back as a question.
 
-    Returns ``(report, targets)``. The targets are the ids the model will be given, resolved against *this* draft — they go
+    Returns ``(report, targets)``. The targets are the ids the model will be given, resolved against *this* draft -- they go
     stale the moment the draft changes, so every re-audit rebuilds them and they travel with the report they were numbered for.
     """
     full_text = _build_audit_text(draft, previous_assistant_msgs)
@@ -232,7 +232,7 @@ async def editor_pass(
                 # KV-cached prefix instead of forking off the bare base.prefix.
                 writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
                 kv_tracker=kv_tracker,
-                # Feedback shares the editor's reasoning toggle — it is a sub-step, not a separately-configurable pass.
+                # Feedback shares the editor's reasoning toggle -- it is a sub-step, not a separately-configurable pass.
                 reasoning_on=reasoning_on,
                 reasoning_prefill=reasoning_prefill,
             ):
@@ -279,7 +279,7 @@ async def editor_stage(
     kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
-    """Gating + writer→editor boundary event + editor pass + event translation.
+    """Gating + writer->editor boundary event + editor pass + event translation.
 
     Decides whether the editor runs (``cfg.do_edit`` or feedback wanted, given a non-empty draft), emits the ``writer_done``
     boundary, then runs :func:`editor_pass` and folds the results back into *state* (``resp_text``, ``reasoning_editor``,
@@ -318,7 +318,7 @@ async def editor_stage(
                 settings,
                 phrase_bank or [],
                 # do_edit == (audit_enabled or length_guard is not None), so in the feedback-only path (do_edit False) both are
-                # already inert — pass them straight through and let the edit loop no-op.
+                # already inert -- pass them straight through and let the edit loop no-op.
                 cfg.audit_enabled,
                 cfg.length_guard,
                 kv_tracker=kv_tracker,
@@ -407,7 +407,7 @@ async def _run_edit_loop(
     # used, so that super-regenerate doesn't compare the new draft against the message it replaced.
     assistant_messages: list[str] = _baseline_window(base, audit_context_msgs) if audit_enabled else []
 
-    # ── Initial audit
+    # -- Initial audit
     if audit_enabled:
         logger.info(
             "Editor: audit on draft (%d chars), %d previous messages, %d phrase groups",
@@ -439,7 +439,7 @@ async def _run_edit_loop(
         targets = []
         logger.info("Editor: audit disabled, skipping scanners")
 
-    # ── Length guard
+    # -- Length guard
     #
     # The tools blob lives on the shared ``base`` (built once by the orchestrator from the same enabled-tool set as the director
     # and writer). The editor never rebuilds or narrows it: the schemas sit inside the cached prefix, so changing the list
@@ -475,7 +475,7 @@ async def _run_edit_loop(
         yield _editor_done_event(None, debug_parts, t0)
         return
 
-    # ── Build message context
+    # -- Build message context
     final_prompt, report_text, ruled = _build_editor_request(
         report,
         targets,
@@ -506,7 +506,7 @@ async def _run_edit_loop(
     # At most one extra iteration per pass is spent explaining a guard rejection; see where it is set.
     guard_retry_spent = False
 
-    # ── ReAct loop
+    # -- ReAct loop
     for iteration in range(MAX_EDITOR_ITERATIONS):
         if client.is_aborted:
             logger.info("Editor: abort signal detected at iteration %d, stopping", iteration + 1)
@@ -571,7 +571,7 @@ async def _run_edit_loop(
                 break
             all_calls.extend(parsed)
 
-            # ── Handle editor_rewrite
+            # -- Handle editor_rewrite
             rewrite_call = next((tc for tc in parsed if tc["name"] == "editor_rewrite"), None)
             if rewrite_call:
                 # An explicit ``"rewritten_text": null`` is the model declining the forced call, and reads the same as the empty
@@ -642,7 +642,7 @@ async def _run_edit_loop(
                     trailing[-1] = {"role": "user", "content": next_prompt}
                 continue
 
-            # ── Handle editor_apply_patch
+            # -- Handle editor_apply_patch
             patch_call = next((tc for tc in parsed if tc["name"] == "editor_apply_patch"), None)
             if not patch_call:
                 logger.info("Editor iteration %d: unrecognised tool call, stopping", iteration + 1)
@@ -851,7 +851,7 @@ def _append_iteration_context(
     reasoning/structured-replay path reaches this; non-reasoning modes re-send the updated draft in place instead.
 
     This is the one replay that shows the model its old ids next to a fresh report, so *renumbered* makes the id lifecycle
-    explicit rather than leaving it to be inferred — see EDITOR_RENUMBER_NOTICE.
+    explicit rather than leaving it to be inferred -- see EDITOR_RENUMBER_NOTICE.
     """
     tool_response = _tool_result_text(errors, report_text, renumbered=renumbered, rules=rules)
     tool_calls = resp.get("tool_calls", [])

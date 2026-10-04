@@ -14,7 +14,7 @@ const survivesAsText = [
   ["<thinking>", "&lt;thinking>"],
   ["a < b", "a &lt; b"],
   ["x<3", "x&lt;3"],
-  ["a <b else", "a &lt;b else"], // known name, but no `>` — not a tag
+  ["a <b else", "a &lt;b else"], // known name, but no `>` -- not a tag
   ["10 <= 20", "10 &lt;= 20"],
   // A comment the model never closed is not yet a comment.
   ["<!-- unfinished", "&lt;!-- unfinished"],

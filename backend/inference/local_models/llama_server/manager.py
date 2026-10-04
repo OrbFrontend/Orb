@@ -54,6 +54,6 @@ async def release_all() -> None:
 
 
 async def shutdown_all() -> None:
-    """Every child stopped. The app lifespan's teardown — without it an orphan
+    """Every child stopped. The app lifespan's teardown -- without it an orphan
     keeps the model resident and holds the GPU after Orb exits."""
     await _all("shutdown")

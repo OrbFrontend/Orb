@@ -112,7 +112,7 @@ def _section(label: str, text: str) -> list[str]:
 def build_card_message(card: Mapping[str, Any]) -> str:
     """The card editor's drafting context: the card's own text, nothing else.
 
-    There is no scene here — the card-level profile travels with the card, so the only material is the card.
+    There is no scene here -- the card-level profile travels with the card, so the only material is the card.
     """
     return (
         "\n\n".join(
@@ -169,7 +169,7 @@ def build_scene_message(
 async def _draft(client: LLMClient, model: str, system: str, user: str, settings: Mapping[str, Any]) -> PublicProfileDraft:
     """One forced ``draft_public_profile`` call, drained and contract-checked.
 
-    ``LLMCallError`` propagates untouched — it already carries the provider's own
+    ``LLMCallError`` propagates untouched -- it already carries the provider's own
     sentence, and the routes turn it into a 502 verbatim.
     """
     # Thinking pinned off, not left to the endpoint's default. The whole answer is two phrases under 30 words each, and

@@ -17,7 +17,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 #: The repo root. Four parents up from
-#: ``backend/inference/local_models/llama_server/`` — a wrong count does not
+#: ``backend/inference/local_models/llama_server/`` -- a wrong count does not
 #: raise, it silently points ``bin_dir()`` at a directory nothing ever put a
 #: binary in. Pinned by ``tests/unit/test_local_models_paths.py``.
 _ROOT = Path(__file__).resolve().parents[4]
@@ -57,7 +57,7 @@ def bin_dir() -> str:
 def flavour_dir(gpu: bool) -> str:
     """Where one build lives: ``llama-bin/gpu/`` or ``llama-bin/cpu/``.
 
-    Kept apart rather than swapped in place because swapping is what made the GPU setting a lie — the panel wrote
+    Kept apart rather than swapped in place because swapping is what made the GPU setting a lie -- the panel wrote
     ``--n-gpu-layers 999`` onto whichever single binary had last been unpacked, and a CPU build accepts that flag and ignores
     it, silently and with a zero exit status.
     """
@@ -120,7 +120,7 @@ def runtime_ok() -> bool:
 
     BOTH flavours have to resolve, because the GPU toggle switches between them with no download in the way: half a pair is a
     toggle that works in one direction and silently does nothing in the other. An install from before the split has a flat
-    ``llama-bin/`` and reads as missing here, which puts the Download button back on screen — one press installs the pair, and
+    ``llama-bin/`` and reads as missing here, which puts the Download button back on screen -- one press installs the pair, and
     that is the whole migration.
     """
     try:
@@ -139,7 +139,7 @@ def _help_text(binary: Path) -> str:
     key = str(binary)
     if key not in _HELP_CACHE:
         try:
-            done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
+            done = subprocess.run(  # noqa: S603 -- binary resolved by find_binary
                 [key, "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
             )
             _HELP_CACHE[key] = (done.stdout or "") + (done.stderr or "")
@@ -151,7 +151,7 @@ def _help_text(binary: Path) -> str:
 def supports_flag(binary: Path, flag: str) -> bool:
     """Whether this build accepts *flag*.
 
-    People bring their own llama-server — a distro package, a release tarball, a build from last year — and a flag the binary
+    People bring their own llama-server -- a distro package, a release tarball, a build from last year -- and a flag the binary
     has never heard of is not a warning, it is an immediate exit with a usage message.
     """
     return flag in _help_text(binary)
@@ -167,7 +167,7 @@ _DEVICES_HEADER = "available devices:"
 def _forget_probes() -> None:
     """Drop every cached probe. Called after a fetch.
 
-    A re-fetch writes the SAME path, so a cache keyed by path would keep answering for the build that was just replaced — the
+    A re-fetch writes the SAME path, so a cache keyed by path would keep answering for the build that was just replaced -- the
     CPU one, in the case somebody swapping to Vulkan is trying to get out of.
     """
     _HELP_CACHE.clear()
@@ -197,7 +197,7 @@ def _probe_devices(binary: Path) -> tuple[str, ...] | None:
     if not supports_flag(binary, "--list-devices"):
         return None
     try:
-        done = subprocess.run(  # noqa: S603 — binary resolved by find_binary
+        done = subprocess.run(  # noqa: S603 -- binary resolved by find_binary
             [str(binary), "--list-devices"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30
         )
     except Exception:  # a build that will not enumerate fails properly at boot
@@ -229,7 +229,7 @@ def gpu_capable(binary: Path) -> bool | None:
 
 
 def _arch() -> str:
-    import platform  # noqa: PLC0415 — only needed on the fetch path
+    import platform  # noqa: PLC0415 -- only needed on the fetch path
 
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
@@ -266,7 +266,7 @@ def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
 
 
 def _system() -> str:
-    import sys  # noqa: PLC0415 — fetch path only
+    import sys  # noqa: PLC0415 -- fetch path only
 
     if sys.platform == "darwin":
         return "darwin"
@@ -301,7 +301,7 @@ def _unpack(archive: Path, into: Path) -> None:
             # `filter="data"` refuses absolute paths, `..` escapes, links that point out of the tree, and device nodes. Asked
             # for explicitly rather than left to the default: it only becomes the default in 3.14, warns in between, and this is
             # unpacking something fetched over the network. Probed because the keyword arrived in 3.11.4 as a backport and the
-            # three 3.11 patch releases before it raise TypeError on it — the same reason `--no-webui` is probed on the binary
+            # three 3.11 patch releases before it raise TypeError on it -- the same reason `--no-webui` is probed on the binary
             # rather than simply sent.
             if hasattr(tarfile, "data_filter"):
                 tf.extractall(into, filter="data")  # nosec B202 -- data filter refuses escapes and links
@@ -320,7 +320,7 @@ def _unpack(archive: Path, into: Path) -> None:
 def _flatten(unpacked: Path, dest: Path) -> Path:
     """Move the directory that actually contains llama-server into *dest*.
 
-    The Windows zips are flat today and the Linux tarballs are not, and this project has to name one stable path either way —
+    The Windows zips are flat today and the Linux tarballs are not, and this project has to name one stable path either way --
     the same thing ``tar --strip-components=1`` does, but derived from where the binary landed rather than assumed.
     """
     matches = sorted(unpacked.rglob(BINARY_NAME))
@@ -352,10 +352,10 @@ def _download(release: dict, wanted: str, into: Path) -> Path:
 def _prove(binary: Path) -> None:
     """Run ``--version`` before calling a binary installed.
 
-    An archive for the wrong glibc, or a Vulkan build on a machine with no loader, fails here — which is a message — rather than
+    An archive for the wrong glibc, or a Vulkan build on a machine with no loader, fails here -- which is a message -- rather than
     at the first turn, which is a hang.
     """
-    proof = subprocess.run(  # noqa: S603 — path we just wrote, fixed argv
+    proof = subprocess.run(  # noqa: S603 -- path we just wrote, fixed argv
         [str(binary), "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
     )
     if proof.returncode != 0:

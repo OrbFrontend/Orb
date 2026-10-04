@@ -1,7 +1,7 @@
 """The HTTP body the client actually sends, over a mock transport.
 
 The stop sequence is the one part of a completion request that belongs to the CALLER'S WEIGHTS rather than to llama-server: a
-stop token is a property of a checkpoint's chat template. This pins both halves of that — what a caller with a stop token sends,
+stop token is a property of a checkpoint's chat template. This pins both halves of that -- what a caller with a stop token sends,
 and that a caller without one sends a body with no ``stop`` key at all rather than an empty list.
 """
 

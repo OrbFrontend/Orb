@@ -114,7 +114,7 @@ test("what keeping a copy costs is stated once for the list, not once per match"
   assert.match(duplicateResultsHtml({ groups: [], pairs: [pair()], cards }), /compare those first/);
 });
 
-// ── Telling identical names apart ───────────────────────────────────────────
+// -- Telling identical names apart -------------------------------------------
 
 test("a three-card group offers one keeper choice per member, not three pair reviews", () => {
   const pairs = [
@@ -208,7 +208,7 @@ test("comparison shows field diffs, activity, worlds and relink collisions", () 
   assert.match(html, /data-dupe-action="resolve"/);
 });
 
-// ── One unified diff per field ──────────────────────────────────────────────
+// -- One unified diff per field ----------------------------------------------
 
 const field = (over) => ({
   card: {

@@ -18,7 +18,7 @@ from backend.core.macros import (
     resolve_stored_random,
 )
 
-# ── grammar / resolve_inline ─────────────────────────────────────────────────
+# -- grammar / resolve_inline -------------------------------------------------
 
 
 def test_random_two_options_picks_a_member():
@@ -59,7 +59,7 @@ def test_resolve_inline_handles_empty_and_none():
     assert resolve_inline(None) == ""  # type: ignore[arg-type]
 
 
-# ── has_inline_macros ────────────────────────────────────────────────────────
+# -- has_inline_macros --------------------------------------------------------
 
 
 def test_has_inline_macros():
@@ -70,7 +70,7 @@ def test_has_inline_macros():
     assert not has_inline_macros("")
 
 
-# ── idempotency (the persist-boundary invariant) ─────────────────────────────
+# -- idempotency (the persist-boundary invariant) -----------------------------
 
 
 def test_resolve_message_idempotent_on_resolved_text():
@@ -80,7 +80,7 @@ def test_resolve_message_idempotent_on_resolved_text():
     assert resolve_message(once, "Alice", "Bot") == once
 
 
-# ── seeded determinism (per-turn-rebuilt prompt fields) ──────────────────────
+# -- seeded determinism (per-turn-rebuilt prompt fields) ----------------------
 
 
 def test_seeded_macros_are_deterministic():
@@ -122,7 +122,7 @@ def test_unseeded_roll_rolls_fresh():
     assert len({resolve_inline("{{roll::10d100}}") for _ in range(20)}) > 1
 
 
-# ── resolve_stored_random (per-conversation choice map) ──────────────────────
+# -- resolve_stored_random (per-conversation choice map) ----------------------
 
 
 def test_stored_random_records_and_reuses():
@@ -164,7 +164,7 @@ def test_stored_random_leaves_roll_and_plain_text_alone():
     assert choices == {}
 
 
-# ── backtick literals (macros in `…` spans never resolve) ────────────────────
+# -- backtick literals (macros in `...` spans never resolve) --------------------
 
 
 def test_backticked_macros_stay_literal_everywhere():
@@ -200,7 +200,7 @@ def test_unpaired_or_multiline_backticks_do_not_escape():
     assert resolve_inline("`no close\n{{random::a}}`") == "`no close\na`"
 
 
-# ── {{pick}} alias and {{time}} ──────────────────────────────────────────────
+# -- {{pick}} alias and {{time}} ----------------------------------------------
 
 
 def test_pick_is_random_alias():
@@ -224,7 +224,7 @@ def test_date_resolves_to_iso_date():
     assert resolve_inline("say `{{date}}`") == "say `{{date}}`"
 
 
-# ── {{// comment }} (the author-note macro) ──────────────────────────────────
+# -- {{// comment }} (the author-note macro) ----------------------------------
 
 
 def test_comment_stripped_with_its_line():
@@ -275,7 +275,7 @@ def test_comment_with_unclosed_braces_stays_linear():
 
 def test_comment_does_not_eat_the_prose_that_follows_it():
     # A line-opening comment takes itself, never the writing after it. The line branch used to backtrack past its own `}}`
-    # looking for one followed by a newline, so a trailing macro — the usual way a line ends — handed it the whole line to
+    # looking for one followed by a newline, so a trailing macro -- the usual way a line ends -- handed it the whole line to
     # delete.
     assert resolve_inline("{{// note }}Hello {{user}}\nBody") == "Hello {{user}}\nBody"
     assert resolve_inline("{{// note }}plain tail\nBody") == "plain tail\nBody"
@@ -294,13 +294,13 @@ def test_run_of_comments_owns_its_line():
 
 
 def test_comment_owns_its_line_in_a_crlf_card():
-    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n` never fired on CRLF text — every own-line
+    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n` never fired on CRLF text -- every own-line
     # comment left the blank line it is supposed to take with it.
     assert resolve_inline("a\r\n{{// note }}\r\nb") == "a\r\nb"
     assert resolve_inline("{{// a }}{{// b }}\r\nBody") == "Body"
 
 
-# ── {{trim}} (joins what the newlines around it separated) ───────────────────
+# -- {{trim}} (joins what the newlines around it separated) -------------------
 
 
 def test_trim_joins_across_newlines():
@@ -333,7 +333,7 @@ def test_trim_after_comment_is_the_card_idiom():
 
 
 def test_trim_leaves_horizontal_whitespace_alone():
-    # Newlines only — spaces and tabs around the macro survive.
+    # Newlines only -- spaces and tabs around the macro survive.
     assert resolve_inline("a \n{{trim}}\n b") == "a  b"
 
 
@@ -353,7 +353,7 @@ def test_trim_is_idempotent_and_resolves_in_messages():
     assert Macros("Alice", "Bot", seed="conv-t").resolve_message("a\n{{trim}}\nb") == "ab"
 
 
-# ── {{description}} (the one macro that substitutes prose, not a name) ───────
+# -- {{description}} (the one macro that substitutes prose, not a name) -------
 
 
 def test_description_expands_into_text():
@@ -446,7 +446,7 @@ def test_card_description_handles_a_missing_card_or_field():
     assert card_description({"description": "  padded  "}) == "padded"
 
 
-# ── hostile values ───────────────────────────────────────────────────────────
+# -- hostile values -----------------------------------------------------------
 
 
 def test_names_are_inserted_literally_not_as_regex_templates():

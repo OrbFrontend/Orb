@@ -86,7 +86,7 @@ async def test_offer_member_is_not_duplicated_when_forced(client):
 
 
 async def test_blob_carries_the_registry_schemas_verbatim(client):
-    """The array is the registry's bytes — not a copy that could drift."""
+    """The array is the registry's bytes -- not a copy that could drift."""
     await _run(client, "read_image_skills")
     sent = client.calls[0]["tools"]
     assert sent == [TOOLS[n]["schema"] for n in OFFER_TOOLS]
@@ -95,7 +95,7 @@ async def test_blob_carries_the_registry_schemas_verbatim(client):
 async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(client, monkeypatch):
     """Correctness outranks the cache: an unforced array is a coin flip.
 
-    Guards the branch that trades the shared prefix away — with compose forced
+    Guards the branch that trades the shared prefix away -- with compose forced
     but coerced, a model can answer with the selector instead.
     """
     monkeypatch.setattr("backend.workflows._forced_call.honors_forced_tool_choice", lambda *a, **k: False)

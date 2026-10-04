@@ -22,7 +22,7 @@ _MAX_ENTRIES = 200
 
 
 def extract_expressions_zip(zip_bytes: bytes) -> dict[str, tuple[str, str]]:
-    """Parse a zip of expression images → {label: (data_b64, mime)}.
+    """Parse a zip of expression images -> {label: (data_b64, mime)}.
 
     Flattens paths (basename), keeps files whose lowercase stem is a go-emotions label and whose extension is a known image
     type. Zip-bomb guards (trust boundary): reject > 200 entries or any declared entry > 5 MB before reading.

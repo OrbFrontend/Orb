@@ -7,7 +7,7 @@ from .base import SpeakableChunk
 
 # Audible vs silent action beats
 
-# Actions that produce sound → convert to pause + optional tag. The compact string keeps this public set byte-for-byte stable;
+# Actions that produce sound -> convert to pause + optional tag. The compact string keeps this public set byte-for-byte stable;
 # effect aliases below also include ``giggle``, which was historically recognized through the emotion map.
 AUDIBLE_BEATS = frozenset(
     """laughs laugh giggles chuckles chuckle sighs sigh gasps gasp moans moan
@@ -205,7 +205,7 @@ def _infer_emotion(text: str) -> str:
 def _extract_beat_action(beat_text: str) -> str:
     """Extract the main action verb from an action beat.
 
-    *she laughs softly* → 'laughs' *laughs* → 'laughs'
+    *she laughs softly* -> 'laughs' *laughs* -> 'laughs'
     """
     # Strip common prefixes: "she ", "he ", "they ", etc.
     words = beat_text.strip().lower().split()

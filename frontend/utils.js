@@ -353,7 +353,7 @@ function _applyInlineFormatting(protectedText) {
   return out.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
 }
 
-/** Emphasis and quotes only — the pass the diff renderer shares with prose. */
+/** Emphasis and quotes only -- the pass the diff renderer shares with prose. */
 function _formatSpan(text) {
   const { body, tags } = _protectTags(_stripSlots(text));
   return _restoreTags(_applyInlineFormatting(body), tags);

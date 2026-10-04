@@ -89,7 +89,7 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
     )
     async with get_db() as db:
         await db.execute(
-            f"INSERT INTO interactive_fragments ({', '.join(columns)}) "  # nosec B608 — columns from module literals
+            f"INSERT INTO interactive_fragments ({', '.join(columns)}) "  # nosec B608 -- columns from module literals
             f"VALUES ({', '.join('?' for _ in columns)})",
             values,
         )
@@ -103,7 +103,7 @@ async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragme
         if sets:
             vals.append(fid)
             await db.execute(
-                f"UPDATE interactive_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                f"UPDATE interactive_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

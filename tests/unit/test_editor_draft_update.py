@@ -1,6 +1,6 @@
 """The editor's ReAct loop over id-anchored patches.
 
-One draft mutation per iteration → one draft_update per iteration, on both transports (the text-mode per-finding prefill path is
+One draft mutation per iteration -> one draft_update per iteration, on both transports (the text-mode per-finding prefill path is
 gone; text endpoints grammar-constrain the same single call from the tool schema instead).
 
 Also pins the two things the id method made load-bearing: the ids the model answers with are the ones from the report it was
@@ -214,7 +214,7 @@ async def test_text_path_takes_the_same_single_call():
 
 
 async def test_ids_address_the_report_the_model_was_shown():
-    """Every id patches its own sentence — the second id must not be resolved against the post-first-patch text."""
+    """Every id patches its own sentence -- the second id must not be resolved against the post-first-patch text."""
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
@@ -239,7 +239,7 @@ async def test_structured_replay_tells_the_model_the_ids_moved():
 
     client.complete = fake_complete
 
-    # 3 issues → 2 issues → clean: two LLM calls, so the second one carries the replayed tool result.
+    # 3 issues -> 2 issues -> clean: two LLM calls, so the second one carries the replayed tool result.
     await _run(
         client,
         [
@@ -345,7 +345,7 @@ async def test_apply_errors_reach_the_model_in_id_vocabulary():
     assert "Valid ids: 1-3." in tool_msgs[0]["content"]
 
 
-# ── The protected-sequence guard, in the loop ─────────────────────────────────
+# -- The protected-sequence guard, in the loop ---------------------------------
 #
 # Two audit findings, so a patch rejected on one still leaves the loop a target -- a single-target fixture measures the patch
 # function, not the orchestration around it. What these pin is the guard's real user-visible effect: a rejected patch means the
@@ -361,7 +361,7 @@ GUARDED_CLOSER = "The silence was deafening."
 
 async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
     # Both replacements copy protected dialogue, so nothing applies, the issue count cannot move, and the no-progress stop
-    # fires. One bad patch per target abandons both repairs — defensible (intact writer text beats a corrupt splice) but worth
+    # fires. One bad patch per target abandons both repairs -- defensible (intact writer text beats a corrupt splice) but worth
     # seeing asserted before any retry policy lands.
     client = LLMClient("http://localhost:9999")
 

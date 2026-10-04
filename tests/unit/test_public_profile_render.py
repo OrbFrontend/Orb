@@ -38,7 +38,7 @@ def test_render_public_profile_shapes(profile, expected):
 
 
 def test_the_cast_projection_and_the_renderer_are_the_same_definition():
-    """A card-derived member profile is exactly what the renderer produces —
+    """A card-derived member profile is exactly what the renderer produces --
     so an LLM-drafted scene override written in that shape reads identically in
     the assembled prompt to a member who has no override at all."""
     assert _public_profile(CARD, None) == render_public_profile(CARD["extensions"]["orb"]["public_profile"])

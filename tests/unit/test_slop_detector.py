@@ -1,4 +1,4 @@
-"""Tests for slop_detector — detect_cliches and format_report integration.
+"""Tests for slop_detector -- detect_cliches and format_report integration.
 
 Regression: the report must show the exact matched phrase from the text, not a canonical/representative form from the variant
 group. E.g. if the phrase bank has ["a dance of", "dancing"] and the text contains "dancing", the report must say "dancing", not
@@ -12,9 +12,9 @@ import pytest
 from backend.analysis import format_report, run_audit
 from backend.analysis.detectors.slop_detector import detect_cliches
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ClicheHit.phrase — always reflects what was found in the text
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# ClicheHit.phrase -- always reflects what was found in the text
+# ===============================================================================
 
 
 class TestMatchedPhrase:
@@ -55,9 +55,9 @@ class TestMatchedPhrase:
         assert result.unique_cliches == ["dancing"]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# format_report — displays the matched phrase
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# format_report -- displays the matched phrase
+# ===============================================================================
 
 
 class TestFormatReportPhrase:
@@ -79,9 +79,9 @@ class TestFormatReportPhrase:
         assert '"a dance of"' in report_text
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Regex groups — {"kind": "regex", "pattern": ...}
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Regex groups -- {"kind": "regex", "pattern": ...}
+# ===============================================================================
 
 
 class TestRegexGroups:
@@ -135,9 +135,9 @@ class TestRegexGroups:
         assert '"The air is heavy"' in report_text
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Single-sentence containment — a match never spans a sentence boundary
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Single-sentence containment -- a match never spans a sentence boundary
+# ===============================================================================
 
 
 class TestSingleSentenceContainment:
@@ -167,9 +167,9 @@ class TestSingleSentenceContainment:
         assert result.flagged_count == 0
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Dialogue/narration separation — a flagged snippet never mixes the two
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# Dialogue/narration separation -- a flagged snippet never mixes the two
+# ===============================================================================
 
 
 class TestDialogueNarrationSeparation:
@@ -194,7 +194,7 @@ class TestDialogueNarrationSeparation:
         assert result.flagged_sentences[0].sentence == '"Don\'t you dare,"'
 
     def test_flagged_segment_is_substring_of_source(self):
-        """Reported snippets stay contiguous substrings of the draft — the
+        """Reported snippets stay contiguous substrings of the draft -- the
         editor's flagged-sentence filter and search/replace depend on it."""
         phrase_bank = [{"kind": "regex", "pattern": r"voice\W+(\w+\W+){0,2}dropping"}, ["barely a whisper"]]
         text = '"Stop right there," he warned, his voice dropping low.\n\nIt was barely a whisper. *He knew.* "Fine."'

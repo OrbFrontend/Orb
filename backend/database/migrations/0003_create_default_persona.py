@@ -1,4 +1,4 @@
-"""0003_create_default_persona — create a default user persona from existing settings.user_name and settings.user_description,
+"""0003_create_default_persona -- create a default user persona from existing settings.user_name and settings.user_description,
 and link it as active_persona_id.
 """
 

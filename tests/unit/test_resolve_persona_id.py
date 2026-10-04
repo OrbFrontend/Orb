@@ -1,6 +1,6 @@
 """resolve_persona_id: persona-lock resolution priority.
 
-Pins the priority chain a turn uses to pick its effective persona: conversation lock → character-card lock → global active
+Pins the priority chain a turn uses to pick its effective persona: conversation lock -> character-card lock -> global active
 persona. A locked persona overrides the global active one within its scope; an absent card is tolerated; and nothing-set
 resolves to None.
 """

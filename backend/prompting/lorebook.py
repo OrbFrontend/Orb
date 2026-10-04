@@ -28,7 +28,7 @@ def select_effective_entries(entries: Sequence[Mapping[str, Any]]) -> list[Mappi
 
     A disabled or archived row is inert, so disabling an overlay re-exposes the authored entry it was hiding. Returns entries in
     input order (authored and dynamic interleaved as they came); ordering into sections is :func:`render_lorebook_block`'s job.
-    Rows without the overlay columns — a hand-built dict in a test, a pre-migration row — read as authored, so this is a no-op
+    Rows without the overlay columns -- a hand-built dict in a test, a pre-migration row -- read as authored, so this is a no-op
     on a World that has never used the feature.
     """
     live = [e for e in entries if bool(e.get("enabled", 1)) and not e.get("archived")]
@@ -75,7 +75,7 @@ def _any_keyword_hit(keywords: Sequence[str], scan_text: str, lowered: str, *, u
     flags = re.IGNORECASE if case_insensitive else 0
     for kw in keywords:
         if use_regex:
-            # `re` caches compiled patterns internally — no manual cache for a ~55-entry scan. A literal key that happens to be
+            # `re` caches compiled patterns internally -- no manual cache for a ~55-entry scan. A literal key that happens to be
             # valid regex (`C++`, `(H)`) is *reinterpreted*, which is what a spec-compliant reader does; the except only nets
             # syntactically invalid patterns (`*star`), which degrade to the substring path below.
             try:
@@ -96,7 +96,7 @@ def select_keyword_entries(
 
     A pure keyword source: entries are selected when any keyword appears (substring match, or a regex match when the entry sets
     ``use_regex``) in the ``scan_depth`` most recent messages. A ``selective`` entry additionally requires one of its
-    ``secondary_keys`` to hit. Constant entries are not this source's concern — they ride the system prefix. Returns matched
+    ``secondary_keys`` to hit. Constant entries are not this source's concern -- they ride the system prefix. Returns matched
     entries in input order.
     """
     scan_parts = [m.get("content") or "" for m in messages[-scan_depth:] if m.get("content")]
@@ -133,7 +133,7 @@ def _unwrap_catalog_delimiters(text: str) -> str | None:
     """The inside of *text*'s outer ``[...]`` pair, or ``None`` when it has none.
 
     "Outer pair" is literal: the leading ``[`` must be closed by the *final* ``]``. ``[A] and [B]`` therefore unwraps to nothing
-    — its first bracket closes early, so the string is two delimited names rather than one wrapped one — while ``[Name [with]
+    -- its first bracket closes early, so the string is two delimited names rather than one wrapped one -- while ``[Name [with]
     brackets]`` unwraps to its inner text.
     """
     if len(text) < 2 or not (text.startswith("[") and text.endswith("]")):
@@ -250,7 +250,7 @@ def render_lorebook_block(
     The single rendering point for every activation path. Authored entries come first under *header*; Agent-managed ones follow
     under *dynamic_header*, so the model reads established lore before the state the roleplay has since produced. Within each
     section entries are sorted by priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so the block bytes
-    are stable across turns regardless of input order — KV cache); names and content are macro-resolved. Returns ``""`` when
+    are stable across turns regardless of input order -- KV cache); names and content are macro-resolved. Returns ``""`` when
     *entries* is empty.
     """
     if not entries:
@@ -284,7 +284,7 @@ def compute_lorebook_injection_block(
 ) -> str:
     """Substring path: build the trailing lorebook block by keyword scanning.
 
-    Entries are included when a keyword matches within the 6 most recent messages. Constant entries are excluded — they ride the
+    Entries are included when a keyword matches within the 6 most recent messages. Constant entries are excluded -- they ride the
     cached system prefix (:func:`compute_constant_lorebook_block`) or, with ``at_depth``, the depth block
     (:func:`compute_depth_lorebook_block`). Sorted by priority DESC. Returns ``""`` when nothing matches.
     """
@@ -301,7 +301,7 @@ def compute_agentic_lorebook_block(
 
     Includes entries whose ``name`` matches *selected_names* (case-insensitive, trimmed) + entries triggered by a keyword scan
     over the current turn (``AGENTIC_LOREBOOK_SCAN_DEPTH``), so keywords the Director overlooks still activate their entries.
-    Constant entries are excluded — they ride the cached system prefix (:func:`compute_constant_lorebook_block`) or, with
+    Constant entries are excluded -- they ride the cached system prefix (:func:`compute_constant_lorebook_block`) or, with
     ``at_depth``, the depth block (:func:`compute_depth_lorebook_block`). Returns ``""`` when nothing matches.
     """
     return compute_lorebook_block(

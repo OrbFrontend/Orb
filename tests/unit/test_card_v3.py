@@ -38,7 +38,7 @@ def _png(tmp_path, name="card.png", **chunks) -> str:
 _BOOK = {"name": "marvel", "entries": [{"keys": ["doom"], "content": "Victor von Doom.", "use_regex": True, "selective": True}]}
 
 
-# ── Ingest ────────────────────────────────────────────────────────────────────
+# -- Ingest --------------------------------------------------------------------
 
 
 def test_v3_card_keeps_everything_v1_used_to_drop(tmp_path):
@@ -87,13 +87,13 @@ def test_missing_both_chunks_raises(tmp_path):
 
 
 def test_odd_spec_version_does_not_degrade_to_v1(tmp_path):
-    """spec_version is not a Literal — a cosmetic mismatch must not lose the card."""
+    """spec_version is not a Literal -- a cosmetic mismatch must not lose the card."""
     payload = _v3(tags=["kept"])
     payload["spec_version"] = "3.0.0"
     assert card_to_dict(parse(_png(tmp_path, ccv3=_b64(payload))))["tags"] == ["kept"]
 
 
-# ── V3-only fields park at extensions.orb.v3 ─────────────────────────────────
+# -- V3-only fields park at extensions.orb.v3 ---------------------------------
 
 
 def test_v3_only_fields_park_and_round_trip(tmp_path):
@@ -137,12 +137,12 @@ def test_exported_chara_chunk_still_parses_as_v2(tmp_path):
     assert "nickname" not in chara["data"]
 
 
-# ── Lorebook normalisation ────────────────────────────────────────────────────
+# -- Lorebook normalisation ----------------------------------------------------
 
 
 def test_blanket_selective_without_secondary_keys_is_not_honoured():
     """The reported card sets selective+use_regex on all 55 entries with no
-    secondary_keys — taken literally the whole book would match nothing."""
+    secondary_keys -- taken literally the whole book would match nothing."""
     e = normalise_lorebook_entry({"keys": ["doom"], "content": "x", "use_regex": True, "selective": True})
     assert e["selective"] is False
     assert e["use_regex"] is True

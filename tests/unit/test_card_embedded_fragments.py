@@ -1,4 +1,4 @@
-"""Unit tests for card_embedded_fragments — the trust boundary that turns a
+"""Unit tests for card_embedded_fragments -- the trust boundary that turns a
 card's extensions.orb.fragments (arbitrary imported-PNG JSON) into fragment-row
 shapes the pipeline can consume."""
 

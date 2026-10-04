@@ -58,7 +58,7 @@ UPDATE_SHEET_TOOL = {
 }
 
 # An update is an edit, not a rewrite into something larger. The cap is relative to what came in rather than fixed, because a
-# sheet's natural length is the card's and cards differ by an order of magnitude — a fixed ceiling would either reject every
+# sheet's natural length is the card's and cards differ by an order of magnitude -- a fixed ceiling would either reject every
 # long card's update or wave through an essay on a short one.
 MAX_SHEET_GROWTH_CHARS = 600
 MIN_SHEET_CEILING_CHARS = 1200
@@ -107,7 +107,7 @@ def _clean_sheet(value: Any, base: str) -> str:
 def _clean_summary(value: Any) -> str:
     """The reviewer's one-line label. Absent is tolerable; an essay is not.
 
-    Softer than :func:`_clean_sheet` on purpose — the summary is a convenience on a review row that already shows both sheets in
+    Softer than :func:`_clean_sheet` on purpose -- the summary is a convenience on a review row that already shows both sheets in
     full, so a missing one costs a fallback label rather than the whole proposal.
     """
     text = normalize(value) if isinstance(value, str) else ""
@@ -118,7 +118,7 @@ def _clean_summary(value: Any) -> str:
 
 
 def build_exchange_transcript(lines: Sequence[tuple[str, str]]) -> str:
-    """The exchange as ``Speaker: text``, in order — the only evidence the call gets.
+    """The exchange as ``Speaker: text``, in order -- the only evidence the call gets.
 
     Shared material by construction: every member's call reads the same transcript, which is what makes it safe to include while
     the sheets stay one-per-call.

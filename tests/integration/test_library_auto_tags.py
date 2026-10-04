@@ -61,7 +61,7 @@ async def _vocab(client, names: list[str]) -> dict:
 
 
 async def _tags(client, card_id: str) -> list[str]:
-    """A card's tags as the rest of the app sees them — there is only one list."""
+    """A card's tags as the rest of the app sees them -- there is only one list."""
     return (await client.get(f"/api/characters/{card_id}")).json()["tags"]
 
 
@@ -77,7 +77,7 @@ def _auto_tag_calls(llm_mock) -> int:
     return sum(1 for name, _ in llm_mock.calls if name == "auto_tag")
 
 
-# ── The contract ─────────────────────────────────────────────────────────────
+# -- The contract -------------------------------------------------------------
 
 
 async def test_a_run_tags_every_card_and_a_second_run_costs_nothing(client, llm_mock):
@@ -91,7 +91,7 @@ async def test_a_run_tags_every_card_and_a_second_run_costs_nothing(client, llm_
     assert _auto_tag_calls(llm_mock) == 3
 
     assert (await client.get("/api/library/tags")).json()["pending"] == 0
-    # Newest card first, so the answers land in reverse creation order. The empty one was stored, not skipped — otherwise that
+    # Newest card first, so the answers land in reverse creation order. The empty one was stored, not skipped -- otherwise that
     # card is pending forever and re-billed on every run.
     assert [await _tags(client, cid) for cid in ids] == [[], ["Fantasy", "Romance"], ["Fantasy"]]
 
@@ -120,8 +120,8 @@ async def test_editing_a_card_makes_exactly_that_card_pending(client, llm_mock):
     await _vocab(client, ["Fantasy", "Romance"])
     await _run(client, llm_mock, [["Fantasy"], ["Fantasy"]])
 
-    # updated_at is the content fingerprint: only the PUT route writes it — a tagging run writes tags and its two stamps but
-    # deliberately leaves updated_at alone — so an edit is the one thing that can invalidate a card's tags. A run that bumped it
+    # updated_at is the content fingerprint: only the PUT route writes it -- a tagging run writes tags and its two stamps but
+    # deliberately leaves updated_at alone -- so an edit is the one thing that can invalidate a card's tags. A run that bumped it
     # would make every card it just tagged pending.
     await client.put(f"/api/characters/{lira}", json={"description": "Lira has taken up the sword."})
     assert (await client.get("/api/library/tags")).json()["pending"] == 1
@@ -244,7 +244,7 @@ async def test_recasing_a_tag_rewrites_owned_assignments_without_a_model_call(cl
     assert _auto_tag_calls(llm_mock) == 1
 
 
-# Reordering the vocabulary rewrites the system prompt, so the second run's prefix legitimately differs from the first's — the
+# Reordering the vocabulary rewrites the system prompt, so the second run's prefix legitimately differs from the first's -- the
 # same class as ``test_adding_a_tag_makes_every_card_pending`` below. Within each run the prefix is still constant.
 @pytest.mark.kv_divergence_expected
 async def test_a_reorder_does_not_mark_an_untagged_card_current(client, llm_mock):
@@ -265,7 +265,7 @@ async def test_a_reorder_does_not_mark_an_untagged_card_current(client, llm_mock
     assert await _tags(client, untagged) == ["Romance"]
 
 
-# Two runs against two different vocabularies, so the run's shared prefix legitimately differs between them — the same class as
+# Two runs against two different vocabularies, so the run's shared prefix legitimately differs between them -- the same class as
 # a persona switch mid-conversation, and the reason the opt-out exists. Within each run the prefix is still constant, which is
 # what ``test_a_multi_card_run_ships_one_prefix`` checks.
 @pytest.mark.kv_divergence_expected
@@ -384,7 +384,7 @@ async def test_force_retags_an_already_current_library(client, llm_mock):
     assert _auto_tag_calls(llm_mock) == 2
 
 
-# ── Storage ──────────────────────────────────────────────────────────────────
+# -- Storage ------------------------------------------------------------------
 
 
 async def test_a_run_writes_the_cards_own_tags_column(client, llm_mock, db):
@@ -423,7 +423,7 @@ async def test_a_stale_vocabulary_revision_cannot_replace_newer_changes(client):
     assert (await client.get("/api/library/tags")).json()["vocabulary"] == ["Fantasy"]
 
 
-# ── KV posture ───────────────────────────────────────────────────────────────
+# -- KV posture ---------------------------------------------------------------
 
 
 async def test_a_multi_card_run_ships_one_prefix(client, llm_mock):
@@ -444,7 +444,7 @@ async def test_a_multi_card_run_ships_one_prefix(client, llm_mock):
     assert len({json.dumps(c["messages"][1], sort_keys=True) for c in calls}) == 3
 
 
-# ── thinking ─────────────────────────────────────────────────────────────────
+# -- thinking -----------------------------------------------------------------
 
 
 async def test_a_run_pins_thinking_off_by_default(client, llm_mock):
@@ -467,7 +467,7 @@ async def test_the_run_body_can_turn_thinking_on(client, llm_mock):
     assert all(p["chat_template_kwargs"] == {"enable_thinking": True, "thinking": True} for p in params)
 
 
-# ── What a run costs ─────────────────────────────────────────────────────────
+# -- What a run costs ---------------------------------------------------------
 # The run rewrites a column that leaves this install: ``tags`` is what ``to_png`` writes into an exported card's V2/V3 chunk.
 # There is no second list and no way back, so these pin the loss as deliberate rather than letting it drift back in.
 
@@ -486,7 +486,7 @@ def _exported_tags(png: bytes) -> list[str]:
 async def test_an_export_carries_the_tags_the_run_wrote(client, llm_mock):
     """One tag list, all the way out: what the browser shows is what ships.
 
-    The creator's tags are gone — that is the trade the confirmation in front of the run buys. An export that quietly shipped a
+    The creator's tags are gone -- that is the trade the confirmation in front of the run buys. An export that quietly shipped a
     different list from the one on screen would be its own surprise, and would need a second store to hold it.
     """
     card_id = await client.create("/api/characters", json={"name": "Lira", "tags": ["anypov", "oc"]})
@@ -518,7 +518,7 @@ async def test_there_is_no_restore_route(client):
     assert (await client.post("/api/library/auto-tag/restore", json={})).status_code == 404
 
 
-# ── The panel's arithmetic ───────────────────────────────────────────────────
+# -- The panel's arithmetic ---------------------------------------------------
 
 
 async def test_an_empty_vocabulary_reports_no_work(client):
@@ -548,7 +548,7 @@ async def test_tagged_counts_the_cards_a_run_has_written(client, llm_mock):
     assert state["tagged"] == 2, "and leaves every one of them tagged"
 
 
-# ── Two writers, one tags column ─────────────────────────────────────────────
+# -- Two writers, one tags column ---------------------------------------------
 
 
 async def test_a_save_is_refused_while_a_run_holds_the_lock(client, llm_mock):
@@ -581,7 +581,7 @@ async def test_a_run_cannot_start_underneath_a_save(client, llm_mock):
     """The other direction of the same exclusion.
 
     A save that only *tested* the lock could be overtaken between the test and its first write, and the run would then put the
-    tag it deleted back onto every card it had just pruned — where no later diff would ever list it as removed again. The save
+    tag it deleted back onto every card it had just pruned -- where no later diff would ever list it as removed again. The save
     takes the lock instead, so the run is the one that gives way. Forced deterministically by parking the save at its first
     await.
     """

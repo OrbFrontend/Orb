@@ -130,7 +130,7 @@ def state_fragments_of(rows: Iterable[Mapping[str, Any]]) -> tuple[StateFragment
     return tuple(fragment for row in rows if (fragment := state_fragment_of(row)) is not None)
 
 
-# ── The fold ─────────────────────────────────────────────────────────────────
+# -- The fold -----------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,7 +200,7 @@ def value_text(entries: Sequence[StateEntry]) -> str:
     return "\n" + "\n".join(f"- {entry.text}" for entry in entries)
 
 
-# ── The operation contract ───────────────────────────────────────────────────
+# -- The operation contract ---------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)

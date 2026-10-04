@@ -235,8 +235,8 @@ class ComfyClient:
         """How many renders sit ahead of queue entry `number`, or None if unknown.
 
         A shared server may hold this job behind other clients' renders, and "queued behind 2" is the difference between
-        *broken* and *waiting*. Position is informational, so every failure mode — an unreachable server, a malformed body, an
-        older build without /queue — reports None and lets the render proceed rather than raising.
+        *broken* and *waiting*. Position is informational, so every failure mode -- an unreachable server, a malformed body, an
+        older build without /queue -- reports None and lets the render proceed rather than raising.
         """
         if not isinstance(number, int) or isinstance(number, bool):
             return None

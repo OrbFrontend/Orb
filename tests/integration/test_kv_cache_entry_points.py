@@ -58,7 +58,7 @@ async def _make_conversation(client) -> str:
 def _enqueue_turn(llm_mock) -> None:
     """Queue one writer draft + an editor stop for a single pipeline turn."""
     llm_mock.enqueue_writer(_LONG_DRAFT)
-    llm_mock.enqueue_editor(None)  # no tool call → editor loop stops after iter 0
+    llm_mock.enqueue_editor(None)  # no tool call -> editor loop stops after iter 0
 
 
 async def _send(client, cid: str, content: str) -> None:
@@ -104,7 +104,7 @@ async def _baseline_turn(client, llm_mock) -> _Baseline:
     )
 
 
-# ── Per-entry-point drivers: each enqueues its responses and hits its route ─────
+# -- Per-entry-point drivers: each enqueues its responses and hits its route -----
 
 
 async def _drive_regenerate(client, llm_mock, b: _Baseline) -> None:
@@ -143,14 +143,14 @@ _ENTRY_POINTS = [
 ]
 
 
-# ── Tests ───────────────────────────────────────────────────────────────────
+# -- Tests -------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("name,driver", _ENTRY_POINTS, ids=[e[0] for e in _ENTRY_POINTS])
 async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock, name, driver):
     """Every entry point that generates a message must, on every LLM call it issues, ship a NON-EMPTY tools blob (single-model),
     keep that blob byte-identical across its own calls, and start from the conversation's cached system prefix. This is the
-    invariant ``magic_rewrite`` violated by sending ``tools=None`` — caught here because we compare against the turn's cache,
+    invariant ``magic_rewrite`` violated by sending ``tools=None`` -- caught here because we compare against the turn's cache,
     not only the handler's own sibling calls.
     """
     b = await _baseline_turn(client, llm_mock)
@@ -216,7 +216,7 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
     """Dual-model counterpart: when the agent runs on a separate server, the
     writer lane carries NO tools (Invariant 5) because its KV cache lives on a
     different server than the agent's tool-bearing passes. magic_rewrite is a
-    writer-style call, so it must match the writer server's tool-less cache —
+    writer-style call, so it must match the writer server's tool-less cache --
     sending the agent's blob here would bust the writer cache instead of helping."""
     # A separate endpoint auto-provisions writer+agent model configs; pointing ``agent_endpoint_id`` at it (with
     # agent_same_as_writer=False) puts the director/editor on that server while the writer stays on the active one.
@@ -231,7 +231,7 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
     await _send(client, cid, "I draw my sword.")
     turn = llm_mock.captured[start:]
 
-    # Sanity: the dual turn really did put a non-empty tool blob on the agent passes — so an empty writer/rewrite blob below is
+    # Sanity: the dual turn really did put a non-empty tool blob on the agent passes -- so an empty writer/rewrite blob below is
     # a deliberate drop, not a "no tools configured" false pass.
     assert any(_wire_tools(c["tools"]) for c in turn), "expected the agent passes to carry a tools blob"
     writer = next(c for c in turn if c["pass"] == "writer")

@@ -22,7 +22,7 @@ from backend.workflows import prose_rewriter_host as integration
 
 @pytest.fixture(autouse=True)
 def _no_child_process(monkeypatch):
-    """No llama-server child, ever — the third leg of this file's house rule.
+    """No llama-server child, ever -- the third leg of this file's house rule.
 
     Selecting a variant pre-warms it, and a developer machine that has both a real ``llama-server`` on PATH and a fake GGUF
     written by these tests has everything the host needs to go and start one. Neutralised at the two seams the routes use: the
@@ -89,7 +89,7 @@ async def test_enable_toggle_roundtrips(client):
     assert st["features"]["autocomplete"]["enabled"] is False
 
 
-# ── prose rewriter: the variant-bearing shape ────────────────────────────────
+# -- prose rewriter: the variant-bearing shape --------------------------------
 
 
 async def test_status_enumerates_the_rewriter_variants(client):
@@ -150,7 +150,7 @@ async def test_config_404s_for_an_unknown_feature(client):
     assert (await client.post("/api/local-ml/nope/config", json={})).status_code == 404
 
 
-# ── Spark-TTS model: the GPU switch without variants ─────────────────────────
+# -- Spark-TTS model: the GPU switch without variants -------------------------
 
 
 async def test_spark_config_roundtrips_gpu(client):
@@ -220,7 +220,7 @@ async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(
 ):
     """Downloading a checkpoint selects it; the radio was the only thing that did.
 
-    Without this, the obvious path — download, switch on — left the feature enabled and silently inert, because the workflow
+    Without this, the obvious path -- download, switch on -- left the feature enabled and silently inert, because the workflow
     host reads the stored variant and there wasn't one.
     """
     variant = catalog.variants()[0]
@@ -284,7 +284,7 @@ async def test_enabling_repairs_a_selection_that_points_at_nothing(client, _empt
 async def test_status_payload_keys_are_unchanged(client):
     """The exact object the Settings panel reads, pinned.
 
-    The payload is assembled from two places now — what the shared catalog can answer, and what the feature adds — and a key
+    The payload is assembled from two places now -- what the shared catalog can answer, and what the feature adds -- and a key
     dropped in that split would not fail anything else: ``frontend/settings.js`` reads these with ``?.`` and would simply render
     an empty row.
     """

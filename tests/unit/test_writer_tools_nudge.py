@@ -1,6 +1,6 @@
 """The writer's no-tools nudge and the gate deciding whether it is emitted.
 
-The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three plain-text configurations send nothing —
+The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three plain-text configurations send nothing --
 dual-model (Invariant 5), text mode, and structured endpoints. Multimodal text mode intentionally takes the chat transport, so
 it is symmetric with chat mode instead. These tests pin both the frozen-base and transport halves of that decision.
 """
@@ -65,7 +65,7 @@ def _sends(cfg, content="hi") -> bool:
 _IMAGE_CONTENT = [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}]
 
 
-# ── the gate feeds the content builder ───────────────────────────────────────
+# -- the gate feeds the content builder ---------------------------------------
 
 
 def test_nudge_emitted_only_when_tools_are_sent():
@@ -73,7 +73,7 @@ def test_nudge_emitted_only_when_tools_are_sent():
     assert NUDGE not in build_writer_content("", "", False, "hi", None, None)
 
 
-# ── the derivation ───────────────────────────────────────────────────────────
+# -- the derivation -----------------------------------------------------------
 
 
 def test_ordinary_chat_endpoint_sends_tools():
@@ -84,7 +84,7 @@ def test_ordinary_chat_endpoint_sends_tools():
 
 def test_structured_endpoint_does_not_send_tools():
     # The blob is still built (it sources the response_format schema) but never
-    # reaches the body — so don't warn off tools the model cannot see.
+    # reaches the body -- so don't warn off tools the model cannot see.
     cfg = _resolve(LLMClient("https://nano-gpt.com/api/v1"))
     assert cfg.writer_lane.base.tools, "blob is still built on a structured endpoint"
     assert not _sends(cfg)

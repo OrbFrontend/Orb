@@ -33,7 +33,7 @@ def _fresh_schema_db(tmp_path, extra_sql: str = "") -> sqlite3.Connection:
     return conn
 
 
-# ── drift check ──────────────────────────────────────────────────────────────
+# -- drift check --------------------------------------------------------------
 
 
 def test_live_schema_is_fully_covered(tmp_path):
@@ -133,7 +133,7 @@ def test_domain_list_is_frozen():
     assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "fragments", "lorebooks", "phrase_bank"]
 
 
-# ── reverse policy validation (a stale/typo'd constant must be caught) ───────────
+# -- reverse policy validation (a stale/typo'd constant must be caught) -----------
 
 
 def test_coverage_flags_a_non_root_domain_key(tmp_path):
@@ -172,7 +172,7 @@ def test_coverage_flags_a_stale_secret_column(tmp_path):
         conn.close()
 
 
-# ── fresh-vs-migrated equivalence (the 0026 class of bug) ────────────────────────
+# -- fresh-vs-migrated equivalence (the 0026 class of bug) ------------------------
 
 
 def _strip_persona_lock_fk(conn: sqlite3.Connection, table: str) -> None:
@@ -271,7 +271,7 @@ def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
         conn.close()
 
 
-# ── merge regressions (PR #90 audit) ────────────────────────────────────────────
+# -- merge regressions (PR #90 audit) --------------------------------------------
 
 
 def _seed(path: str, sql_pairs: list[tuple[str, tuple]]) -> None:
@@ -402,7 +402,7 @@ def test_self_parented_message_is_healed_to_root(tmp_path):
     assert parents == [(None,)], parents
 
 
-# ── full round-trip across every domain ────────────────────────────────────────
+# -- full round-trip across every domain ----------------------------------------
 
 
 def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
@@ -479,7 +479,7 @@ SIGNATURE_ALLOWLIST = frozenset(
 def _signature(path: str) -> dict:
     """Canonical, surrogate-id-independent content of every data domain.
 
-    Surrogate ids (messages, personas, …) are never compared directly; references to them are resolved to the parent's portable
+    Surrogate ids (messages, personas, ...) are never compared directly; references to them are resolved to the parent's portable
     identity (a persona's name, a leaf message's content) so two databases that differ only by autoincrement renumbering produce
     the same signature. The tables read here are pinned by ``SIGNATURE_TABLES`` and checked against the live schema below.
     """
@@ -717,7 +717,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         conn.close()
 
 
-# ── excluded-table tripwires (data must never hide in EXCLUDED_TABLES) ────────────
+# -- excluded-table tripwires (data must never hide in EXCLUDED_TABLES) ------------
 
 
 def test_excluded_data_tables_are_empty_in_fresh_schema(tmp_path):
@@ -767,7 +767,7 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
     assert "message_attachments" in str(exc.value)
 
 
-# ── secrets hiding inside free-form JSON columns ─────────────────────────────────
+# -- secrets hiding inside free-form JSON columns ---------------------------------
 
 
 def _sensitive_leaves(node, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
@@ -910,7 +910,7 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
     assert stored["tts"] == {"auto_play": True}
 
 
-# ── secret-canary leak sentinel ──────────────────────────────────────────────────
+# -- secret-canary leak sentinel --------------------------------------------------
 
 
 def _nest(path: tuple[str, ...], value: str) -> dict:

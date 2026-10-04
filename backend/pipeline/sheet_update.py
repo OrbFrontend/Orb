@@ -72,7 +72,7 @@ async def sheet_update_stage(
         if client.is_aborted:
             break
         # The sheet this exchange reasons *from*: the member's undecided proposal when it still applies, otherwise what the
-        # member actually reads today. Only a proposal whose base still matches is carried — a mismatch means the user edited
+        # member actually reads today. Only a proposal whose base still matches is carried -- a mismatch means the user edited
         # the sheet by hand since, and their text wins.
         prior = pending.get(member.member_id)
         carried = (
@@ -119,8 +119,8 @@ async def sheet_update_stage(
                 "exchange_id": turn.exchange_id,
                 # The member's *stored* sheet, not the text the call reasoned from: this is the value the apply re-checks
                 # against, and by review time the member may have been hand-edited, which is exactly the case this has to
-                # detect. When a pending proposal was carried forward the two differ, and it is this one — the one an apply can
-                # actually match — that has to be recorded.
+                # detect. When a pending proposal was carried forward the two differ, and it is this one -- the one an apply can
+                # actually match -- that has to be recorded.
                 "base_sheet": member.private_sheet,
                 "proposed_sheet": update["sheet"],
                 "summary": update["summary"],

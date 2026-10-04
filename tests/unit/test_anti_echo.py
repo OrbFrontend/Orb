@@ -1,11 +1,11 @@
 """
-Tests for anti-echo detection — flagging the assistant parroting the user's last
+Tests for anti-echo detection -- flagging the assistant parroting the user's last
 message back as a question.
 
 Organised into:
-  - TRUE POSITIVES  – echoes we *want* to catch
-  - FALSE POSITIVES – legitimate questions/statements that must *not* trigger
-  - EDGE CASES      – boundary inputs
+  - TRUE POSITIVES  - echoes we *want* to catch
+  - FALSE POSITIVES - legitimate questions/statements that must *not* trigger
+  - EDGE CASES      - boundary inputs
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ import pytest
 
 from backend.analysis.detectors.anti_echo import detect_anti_echo
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # TRUE POSITIVES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestTruePositives:
@@ -30,14 +30,14 @@ class TestTruePositives:
 
     def test_quoted_echo_with_narration_leadin(self):
         """The quote is extracted from its narration lead-in, so only the
-        question ("Ice cream?") is flagged — not "He blinks" or the rest."""
+        question ("Ice cream?") is flagged -- not "He blinks" or the rest."""
         result = detect_anti_echo('He blinks, "Ice cream? You\'re a grown man."', '"I got some ice cream."')
         assert len(result.flagged_echoes) == 1
         assert result.flagged_echoes[0].echo == "Ice cream?"
         assert result.flagged_echoes[0].matched_phrase == "ice cream"
 
     def test_unquoted_assistant_question_still_caught(self):
-        """The *assistant's* echo need not be quoted — an unquoted narration
+        """The *assistant's* echo need not be quoted -- an unquoted narration
         question that copies the user's dialogue is still flagged."""
         result = detect_anti_echo("Ice cream? He blinks.", '"I got some ice cream."')
         assert len(result.flagged_echoes) == 1
@@ -56,9 +56,9 @@ class TestTruePositives:
         assert result.flagged_echoes[0].matched_phrase == "no money"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # FALSE POSITIVES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestFalsePositives:
@@ -74,7 +74,7 @@ class TestFalsePositives:
             ('"No money," he echoes, nodding.', '"I have no money."'),
             # Shares no contiguous run with the user.
             ('"Where are you going?" he asks.', '"I got some ice cream."'),
-            # Words in an [OOC: ...] aside are instructions, not in-character speech — reusing them is compliance. "use" leaked
+            # Words in an [OOC: ...] aside are instructions, not in-character speech -- reusing them is compliance. "use" leaked
             # only from "Use the phrase ...".
             ('"Do you use shells?" she asks.', '"I don\'t have money." [OOC: Use the phrase "a mix of"]'),
             # The pool is the user's dialogue only; their narration can't seed a flag.
@@ -103,9 +103,9 @@ class TestFalsePositives:
         assert all(fe.n_words < 2 for fe in result.flagged_echoes)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # EDGE CASES
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 
 class TestEdgeCases:

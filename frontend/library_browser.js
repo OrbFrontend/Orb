@@ -202,7 +202,7 @@ async function refreshAfterRun() {
 function setCharBrowserView(mode) {
   _browserViewMode = mode;
   // Only the two card views are sticky. Internet and Manager are somewhere you go on purpose, not where you want the
-  // library to open next time — which also settles the long-standing quirk of Internet persisting itself.
+  // library to open next time -- which also settles the long-standing quirk of Internet persisting itself.
   if (mode === "grid" || mode === "list") {
     S.characterBrowserView = mode;
     api.put("/settings", { character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));

@@ -61,8 +61,8 @@ async def arewrite(
         # has settled (whether it rewrote successfully or correctly passed through unchanged).
         next_progress = 0
         last_snapshot = draft
-        # Twice the slot count keeps the scheduler fed at all times — there is always a request waiting to fill a slot the
-        # moment one frees — without opening ninety-six connections for a ninety-six-paragraph draft.
+        # Twice the slot count keeps the scheduler fed at all times -- there is always a request waiting to fill a slot the
+        # moment one frees -- without opening ninety-six connections for a ninety-six-paragraph draft.
         admit = asyncio.Semaphore(max(2, server.slots * 2))
         lock = asyncio.Lock()
 
@@ -106,7 +106,7 @@ async def arewrite(
                         await on_progress(snapshot)
 
         # Cancel-on-failure, which a bare ``gather`` does not do: it propagates the first failure but leaves the others RUNNING,
-        # holding llama-server slots after this call released its in-flight count — which then lets a swap or the idle unload
+        # holding llama-server slots after this call released its in-flight count -- which then lets a swap or the idle unload
         # stop the child underneath them. A dead child fails every paragraph at once, so that is the ordinary case. A
         # ``TaskGroup`` would wrap the exception in an ``ExceptionGroup`` and cost the warning its message, so the tasks are
         # tracked by hand.
@@ -125,7 +125,7 @@ def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:
     """``(slot index, source)`` for every paragraph this run will actually rewrite.
 
     The caps clamp by declining to rewrite rather than by dropping text: a piece past either limit keeps the writer's words and
-    stays in the layout, so the reassembled draft is always the whole draft. The reference rejects the request instead — right
+    stays in the layout, so the reassembled draft is always the whole draft. The reference rejects the request instead -- right
     for a person pasting into a text box, wrong for a turn already in flight with nobody to ask.
     """
     jobs: list[tuple[int, str]] = []

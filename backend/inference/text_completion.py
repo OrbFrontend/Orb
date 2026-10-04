@@ -222,7 +222,7 @@ def build_completion_params(params: Mapping[str, Any]) -> dict:
 
     Renames ``max_tokens``->``n_predict`` and ``repetition_penalty``-> ``repeat_penalty``; passes temperature/top_p/top_k/min_p
     through; adds ``cache_prompt: true``. Everything else (reasoning/thinking/ chat_template_kwargs/stream_options/prefill/...)
-    is dropped by omission — this is an allowlist.
+    is dropped by omission -- this is an allowlist.
     """
     out: dict[str, Any] = {"cache_prompt": True}
     for k in _PASSTHROUGH:
@@ -235,7 +235,7 @@ def build_completion_params(params: Mapping[str, Any]) -> dict:
         out["repeat_penalty"] = params["repetition_penalty"]
     # Per-token alternatives (mikupad-style steering). ``post_sampling_probs`` asks for linear probabilities after sampling
     # (matches what a writer sees); old servers ignore both unknown fields. ``bool`` is an ``int`` subclass, so exclude it
-    # explicitly — ``n_probs=True`` is not a request for 1 alternative.
+    # explicitly -- ``n_probs=True`` is not a request for 1 alternative.
     n_probs = params.get("n_probs")
     if isinstance(n_probs, int) and not isinstance(n_probs, bool) and n_probs > 0:
         out["n_probs"] = n_probs
@@ -312,7 +312,7 @@ def has_image_parts(messages: Sequence[Mapping[str, Any]]) -> bool:
     """True if any message's content is a parts list containing an ``image_url``.
 
     Text mode can't render images (no multimodal /apply-template path yet), so such a call routes back through the chat
-    transport — same server + template, so the KV cache stays warm.
+    transport -- same server + template, so the KV cache stays warm.
     """
     for m in messages:
         content = m.get("content")

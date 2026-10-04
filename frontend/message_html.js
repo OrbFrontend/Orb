@@ -15,7 +15,7 @@ import {
 import { formatProse, formatProseWithDiff } from "./utils.js";
 import DOMPurify from "./vendor/purify.js";
 
-// ── Class vocabulary ────────────────────────────────────────────────────────
+// -- Class vocabulary --------------------------------------------------------
 // Classes emitted by formatProse. Other model classes are prefixed with `custom-`; classes added after sanitising are
 // intentionally not listed here.
 export const ORB_CLASSES = new Set([
@@ -42,7 +42,7 @@ export const ORB_CLASSES = new Set([
 /** Class-name prefixes `formatProse` builds at runtime (```lang fences). */
 export const ORB_CLASS_PREFIXES = ["language-"];
 
-// ── Block layout ────────────────────────────────────────────────────────────
+// -- Block layout ------------------------------------------------------------
 // Tags that already start a line, so adjacent newlines are redundant.
 export const BLOCK_TAGS = new Set([
   "ADDRESS",
@@ -94,7 +94,7 @@ export const BLOCK_TAGS = new Set([
 // Elements whose text is data, not prose: a `<br>` in here corrupts it.
 export const NON_PROSE_TAGS = new Set(["PRE", "CODE", "STYLE", "SCRIPT", "TEXTAREA", "TITLE", "SVG"]);
 
-// ── Unknown-tag escaping ────────────────────────────────────────────────────
+// -- Unknown-tag escaping ----------------------------------------------------
 // Leave fenced code and style/SVG bodies alone; their contents are handled as data by formatProse or the browser.
 const PASSTHROUGH_RE = /```[\s\S]*?```|```[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<svg\b[^>]*>[\s\S]*?<\/svg\s*>/gi;
 const TAG_START_RE = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/;
@@ -167,7 +167,7 @@ function isKnownTag(name) {
   return known;
 }
 
-// ── Streaming ───────────────────────────────────────────────────────────────
+// -- Streaming ---------------------------------------------------------------
 
 /**
  * Drop an unfinished tag or style block during streaming. Open fences stay in
@@ -191,7 +191,7 @@ export function trimIncompleteMarkup(text) {
   return out;
 }
 
-// ── Sanitiser ───────────────────────────────────────────────────────────────
+// -- Sanitiser ---------------------------------------------------------------
 // Keep DOMPurify's default tag set; narrow it with the forbids below.
 const SANITIZE_CONFIG = {
   ADD_TAGS: ["custom-style"],
@@ -309,7 +309,7 @@ function scopeClassAttr(token) {
   return scopeClassName(token);
 }
 
-// ── Card CSS ──────────────────────────────────────────────────────────────────
+// -- Card CSS ------------------------------------------------------------------
 // message_css.js owns the policy; this half only has to give it the message's scope and hand the same rename table to
 // the sheet and to the style attributes.
 
@@ -345,7 +345,7 @@ function applyCustomStyles(root, css) {
   }
 }
 
-// ── Orb's own chrome ────────────────────────────────────────────────────────
+// -- Orb's own chrome --------------------------------------------------------
 // Build the code-block toolbar after sanitising so its delegated actions are never model-controlled.
 
 function codeBlockButton(action, label, icon, pressed) {
@@ -371,7 +371,7 @@ function restoreCodeBlockChrome(root) {
   }
 }
 
-// ── Block layout ────────────────────────────────────────────────────────────
+// -- Block layout ------------------------------------------------------------
 
 function isBlockBoundary(sibling, parent) {
   if (sibling) return sibling.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.has(sibling.tagName.toUpperCase());
@@ -430,7 +430,7 @@ function applyBlockLayout(root) {
   }
 }
 
-// ── Render ──────────────────────────────────────────────────────────────────
+// -- Render ------------------------------------------------------------------
 
 // LRU cache bounded by total characters and per-entry size.
 const _renderCache = new Map();
@@ -532,7 +532,7 @@ export function renderMessageDiffHtml(ops) {
   return finish(formatProseWithDiff(escaped), cssScope(ops.map((op) => op.text).join("\0")));
 }
 
-// ── Delegated actions ───────────────────────────────────────────────────────
+// -- Delegated actions -------------------------------------------------------
 // Delegate actions because sanitising removes handlers and data attributes from model markup; Orb adds its own
 // code-block actions afterward.
 

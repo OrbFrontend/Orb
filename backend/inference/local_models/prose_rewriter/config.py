@@ -94,7 +94,7 @@ def launch_profile(config: ProseRewriteConfig) -> LaunchProfile:
 
 
 def launch_profile_for(variant: ModelVariantSpec, gpu: bool, batch_size: int) -> LaunchProfile:
-    """The one constructor of a prose ``LaunchProfile`` — and the trust barrier.
+    """The one constructor of a prose ``LaunchProfile`` -- and the trust barrier.
 
     Proves the variant it was handed is the registered record before its path is allowed onto a command line, rejects a batch
     size outside the closed allocation, and resolves the model path through the shared asset store. The generic client cannot do
@@ -129,7 +129,7 @@ def launch_profile_for(variant: ModelVariantSpec, gpu: bool, batch_size: int) ->
 def profile_for_selection(variant: ModelVariantSpec | None, gpu: bool, batch_size: int) -> LaunchProfile | None:
     """A profile for a selection that can actually be loaded, else ``None``.
 
-    The settings paths need "the selection changed" to be expressible even when the selection names nothing loadable — a variant
+    The settings paths need "the selection changed" to be expressible even when the selection names nothing loadable -- a variant
     with no file behind it is a stale host, not an error to raise at whoever pressed Save.
     """
     if variant is None or not catalog.on_disk(variant):

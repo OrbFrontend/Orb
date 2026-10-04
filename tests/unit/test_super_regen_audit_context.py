@@ -81,7 +81,7 @@ async def test_audit_context_msgs_overrides_prefix():
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            audit_context_msgs=[],  # explicitly empty — no prior context
+            audit_context_msgs=[],  # explicitly empty -- no prior context
         ):
             events.append(event)
 
@@ -120,7 +120,7 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            # audit_context_msgs omitted → derive from base.prefix
+            # audit_context_msgs omitted -> derive from base.prefix
         ):
             pass
 
@@ -219,7 +219,7 @@ async def test_super_regen_does_not_flag_replaced_message():
 
     done_events = [e for e in events if e.get("type") == "done"]
     assert len(done_events) == 1
-    # Clean audit → no LLM call needed → draft is returned as None (unchanged)
+    # Clean audit -> no LLM call needed -> draft is returned as None (unchanged)
     assert done_events[0]["draft"] is None, (
         "Editor should not attempt to rewrite when audit_context_msgs excludes the replaced message and the audit is clean"
     )

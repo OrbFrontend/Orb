@@ -14,7 +14,7 @@ _BANNED = "shivers down her spine"
 _BANK = [[_BANNED]]
 _SETTINGS = {"temperature": 0.5, "max_tokens": 256}
 
-# Complete final sentence → truncated=False keeps core == draft.
+# Complete final sentence -> truncated=False keeps core == draft.
 _DRAFT = f"She felt {_BANNED} in the dark. He kept walking."
 # Mid-sentence tail for the truncated case; core must stay a prefix.
 _DRAFT_CUT = f"She felt {_BANNED} in the dark. He kept wal"
@@ -117,7 +117,7 @@ async def test_text_assisted_patch_rerenders_exact_generation_inputs():
 
     gen = client.message_calls[0]
     # The patch re-render uses the IDENTICAL messages + prefill the generation
-    # call sent — template quirks then reproduce byte-for-byte.
+    # call sent -- template quirks then reproduce byte-for-byte.
     assert client.render_calls == [{"messages": gen["messages"], "prefill": gen["params"]["prefill"], "reasoning": False}]
     rendered = f"<render|{_serialize_messages(gen['messages'])}|{gen['params']['prefill']}>"
     assert client.raw_calls[0]["prompt"].startswith(rendered + draft)
@@ -137,5 +137,5 @@ async def test_chat_shapes_patch_messages_replay_generation():
         # rendered prompt; forcing rides response_format via this flag.
         assert gen["tools"] is None
         assert patch["params"]["tools_in_prompt"] is False
-        # Same reasoning kwargs on both calls — a mismatch would fork the template render (enable_thinking bytes).
+        # Same reasoning kwargs on both calls -- a mismatch would fork the template render (enable_thinking bytes).
         assert patch["params"]["chat_template_kwargs"] == gen["params"]["chat_template_kwargs"], (prompt, assisted)

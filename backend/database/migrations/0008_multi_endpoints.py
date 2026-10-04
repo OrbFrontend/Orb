@@ -1,4 +1,4 @@
-"""0008_multi_endpoints — create endpoints and model_configs tables, add active_endpoint_id / active_model_config_id columns to
+"""0008_multi_endpoints -- create endpoints and model_configs tables, add active_endpoint_id / active_model_config_id columns to
 settings, and seed one endpoint+model from the existing flat settings row.
 """
 

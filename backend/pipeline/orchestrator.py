@@ -155,7 +155,7 @@ async def run_pipeline(
     state_contract: StateContract | None = None,
     judge_config: JudgeConfig | None = None,
 ) -> AsyncIterator[dict]:
-    """Run the director → writer → editor passes for one turn.
+    """Run the director -> writer -> editor passes for one turn.
 
     Streams SSE events as each pass runs, retains the post-Editor draft, then runs the local prose rewriter and post-pipeline
     workflow hooks before emitting one ``_result`` event.

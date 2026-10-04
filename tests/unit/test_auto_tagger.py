@@ -1,6 +1,6 @@
 """The tagger's deterministic half: what the model says vs. what gets stored.
 
-The enum on the tool schema is the real constraint on most providers, but it is a request, not a guarantee — a provider
+The enum on the tool schema is the real constraint on most providers, but it is a request, not a guarantee -- a provider
 honouring neither strict JSON schema nor a GBNF grammar can return anything. ``clean_tags`` is what decides whether an answer is
 storable at all, so it is the piece that gets tested.
 """

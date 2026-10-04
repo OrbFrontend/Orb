@@ -35,7 +35,7 @@ async def _root_ids(client) -> dict[str, str | None]:
     return {row["id"]: row["group_root_id"] for row in rows}
 
 
-# ── forks join the family ────────────────────────────────────────────────────
+# -- forks join the family ----------------------------------------------------
 
 
 async def test_group_checkpoint_joins_the_family_instead_of_founding_one(client):
@@ -88,7 +88,7 @@ async def test_conversion_to_group_founds_a_family(client):
     assert checkpoint["group_root_id"] == conv["id"]
 
 
-# ── new conversation in an existing group ────────────────────────────────────
+# -- new conversation in an existing group ------------------------------------
 
 
 async def test_new_group_conversation_carries_the_cast_but_no_history(client):
@@ -118,7 +118,7 @@ async def test_group_only_routes_reject_a_solo_conversation(client):
     assert (await client.delete(f"/api/conversations/{conv['id']}/group")).status_code == 409
 
 
-# ── deletion ─────────────────────────────────────────────────────────────────
+# -- deletion -----------------------------------------------------------------
 
 
 async def test_deleting_the_root_promotes_the_oldest_survivor(client):

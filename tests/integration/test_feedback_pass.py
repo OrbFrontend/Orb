@@ -104,7 +104,7 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
     assert len(writer_calls) == 1
     wc = writer_calls[0]
 
-    # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in single-model mode the writer ships it too —
+    # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in single-model mode the writer ships it too --
     # byte-identical with the feedback call's blob. It is the *schema* that rides the blob, not the prompt.
     tool_names = [t["function"]["name"] for t in (wc["tools"] or [])]
     assert "give_feedback" in tool_names

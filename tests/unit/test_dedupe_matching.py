@@ -45,7 +45,7 @@ OTHER_BODY = (
     "letter arrives for him from the interior and he burns it unopened in the brazier by the gate."
 )
 
-# One phrase changed — the "user edited their copy" duplicate.
+# One phrase changed -- the "user edited their copy" duplicate.
 LIGHT_EDIT = BODY.replace("nine white hives", "eleven white hives")
 
 AVATAR = "18aa4618625518e7"
@@ -94,12 +94,12 @@ _VOICES = {
 
 
 def _unrelated(card_id: str, name: str, body: str, **overrides) -> CardSignals:
-    """A card that shares nothing with the others — not even a helper's phrasing."""
+    """A card that shares nothing with the others -- not even a helper's phrasing."""
     personality, first_mes = _VOICES[name]
     return _signals(card_id, name=name, description=body, personality=personality, first_mes=first_mes, **overrides)
 
 
-# ── What is never a duplicate ────────────────────────────────────────────────
+# -- What is never a duplicate ------------------------------------------------
 
 
 def test_a_shared_name_alone_is_not_a_duplicate():
@@ -124,7 +124,7 @@ def test_a_shared_name_and_creator_still_need_text_agreement():
 def test_two_cards_with_no_avatar_do_not_count_as_sharing_one():
     """The single largest false-positive source available to this feature.
 
-    An avatarless card stores "", and "" must be excluded from avatar blocking and from the "same avatar" predicate — otherwise
+    An avatarless card stores "", and "" must be excluded from avatar blocking and from the "same avatar" predicate -- otherwise
     every avatarless card in the library reads as sharing an avatar with every other one.
     """
     a = _unrelated("a", "Lira", BODY)
@@ -139,7 +139,7 @@ def test_two_cards_with_an_empty_system_prompt_are_not_matched_on_it():
     """A blank field shared by half the library is not evidence.
 
     If empty-valued hashes were indexed, every such card would land in one giant
-    block — an O(n^2) blow-up inside it and a flood of nonsense reasons.
+    block -- an O(n^2) blow-up inside it and a flood of nonsense reasons.
     """
     a = _unrelated("a", "Lira", BODY)
     b = _unrelated("b", "Toma", OTHER_BODY)
@@ -153,7 +153,7 @@ def test_a_blank_creator_never_forms_a_block():
     assert not any(key[0] == "creator+name" for key in build_blocks([_signals("a"), _signals("b")]))
 
 
-# ── Strong matches ───────────────────────────────────────────────────────────
+# -- Strong matches -----------------------------------------------------------
 
 
 def test_identical_content_is_a_strong_match_whatever_the_tags_are():
@@ -189,7 +189,7 @@ def test_high_text_overlap_with_a_different_avatar_says_so():
     assert "Same character with a different avatar" in pair.reasons
 
 
-# ── Possible matches ─────────────────────────────────────────────────────────
+# -- Possible matches ---------------------------------------------------------
 
 
 def test_the_same_avatar_with_different_text_is_only_possible():
@@ -218,13 +218,13 @@ def test_a_renamed_and_re_avatared_copy_stays_possible_rather_than_strong():
     assert pair.tier == POSSIBLE
 
 
-# ── Blocking ─────────────────────────────────────────────────────────────────
+# -- Blocking -----------------------------------------------------------------
 
 
 def test_a_renamed_near_copy_is_still_a_candidate_via_the_shingle_sketch():
     """The only route that catches a copy that was renamed *and* re-avatared.
 
-    No field hash matches, no name matches, and the avatars are far apart — the
+    No field hash matches, no name matches, and the avatars are far apart -- the
     bottom-k sketch is the sole reason these two are ever scored at all.
     """
     a = _signals("a", avatar=AVATAR)
@@ -250,7 +250,7 @@ def test_unrelated_cards_produce_no_candidate_pairs_at_all():
 def test_an_oversized_block_degrades_to_a_chain_instead_of_every_pair():
     """A block is a set of cards agreeing exactly, so the predicate is transitive.
 
-    Chaining still unions the whole group and still reports the shared value, at O(n) instead of O(n^2) — without it one
+    Chaining still unions the whole group and still reports the shared value, at O(n) instead of O(n^2) -- without it one
     copy-pasted system prompt across the library is a quadratic scoring bill.
     """
     members = [_signals(f"card-{i:03d}") for i in range(MAX_BLOCK + 5)]
@@ -262,7 +262,7 @@ def test_an_oversized_block_degrades_to_a_chain_instead_of_every_pair():
     assert group_strong_edges(scored) == [sorted(by_id)]
 
 
-# ── Grouping ─────────────────────────────────────────────────────────────────
+# -- Grouping -----------------------------------------------------------------
 
 
 def test_possible_edges_do_not_chain_unrelated_cards_into_one_group():
@@ -296,7 +296,7 @@ def test_jaccard_of_an_empty_shingle_set_is_zero_rather_than_undefined():
     assert jaccard(frozenset({1, 2}), frozenset()) == 0.0
 
 
-# ── Dismissals ───────────────────────────────────────────────────────────────
+# -- Dismissals ---------------------------------------------------------------
 
 
 def test_a_dismissed_pair_is_withheld_until_a_card_actually_changes():

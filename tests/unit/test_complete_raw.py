@@ -52,7 +52,7 @@ async def test_complete_raw_streams_content_deltas_no_think_split():
     client = _client()
 
     async def fake_stream(url, body):
-        # A literal <think> tag must arrive as CONTENT — raw mode has no channel.
+        # A literal <think> tag must arrive as CONTENT -- raw mode has no channel.
         for piece in ["<think>", "not reasoning", "</think> tail"]:
             yield {"content": piece, "stop": False}
         yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 3, "timings": {"prompt_n": 1}}
@@ -98,7 +98,7 @@ async def test_complete_raw_body_omits_n_probs_when_absent():
 
 
 async def test_complete_raw_body_carries_json_schema_when_passed():
-    # Doc-mode patch path: json_schema constrains decoding only — the prompt is
+    # Doc-mode patch path: json_schema constrains decoding only -- the prompt is
     # still the verbatim string, so the KV prefix survives.
     client = _client()
     captured: dict = {}
@@ -178,7 +178,7 @@ async def test_complete_raw_no_token_probs_when_server_omits_them():
     client = _client()
 
     async def fake_stream(url, body):
-        # Server ignored n_probs (old build) → no completion_probabilities field.
+        # Server ignored n_probs (old build) -> no completion_probabilities field.
         yield {"content": "hi", "stop": False}
         yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
 
