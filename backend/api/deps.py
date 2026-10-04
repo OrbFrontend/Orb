@@ -285,7 +285,7 @@ async def _safe_aclose(gen: AsyncIterator[Any]) -> None:
     """Close *gen*, shielding the close from cancellation so the generator's own
     finally blocks (e.g. the orchestrator's fallback persistence of incomplete
     messages) always run to completion. If the shield itself is cancelled, retry
-    the close once unshielded and swallow any error."""
+    the close once unshielded and log any error."""
     close = getattr(gen, "aclose", None)
     if close is None:
         return
@@ -295,7 +295,7 @@ async def _safe_aclose(gen: AsyncIterator[Any]) -> None:
         try:
             await close()
         except Exception:
-            pass
+            logger.warning("Stream generator failed to close after cancellation", exc_info=True)
 
 
 class CleanupStreamingResponse(StreamingResponse):

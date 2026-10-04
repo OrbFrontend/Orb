@@ -31,13 +31,13 @@ class TestSpokenText:
     """spoken_text carries the bare dialogue even when text gains a tag prefix."""
 
     def test_untagged_spoken_text_equals_text(self):
-        chunks = regex_extract('"Hello there."', backend_type="edge", supports_emotion_tags=False)
+        chunks = regex_extract('"Hello there."', supports_emotion_tags=False)
         assert len(chunks) == 1
         assert chunks[0].text == "Hello there."
         assert chunks[0].spoken_text == "Hello there."
 
     def test_tagged_text_keeps_spoken_text_bare(self):
-        chunks = regex_extract('*laughs* "That is funny."', backend_type="elevenlabs", supports_emotion_tags=True)
+        chunks = regex_extract('*laughs* "That is funny."', supports_emotion_tags=True)
         assert len(chunks) == 1
         assert chunks[0].text.startswith("[laugh]")
         assert chunks[0].spoken_text == "That is funny."
@@ -175,12 +175,12 @@ class TestBackendAwareness:
 
     def test_edge_no_tags(self):
         text = '*she laughs* "Funny."'
-        chunks = regex_extract(text, backend_type="edge", supports_emotion_tags=False)
+        chunks = regex_extract(text, supports_emotion_tags=False)
         assert "[laugh]" not in chunks[0].text
 
     def test_elevenlabs_with_tags(self):
         text = '*she laughs* "Funny."'
-        chunks = regex_extract(text, backend_type="elevenlabs", supports_emotion_tags=True)
+        chunks = regex_extract(text, supports_emotion_tags=True)
         assert "[laugh]" in chunks[0].text
 
 

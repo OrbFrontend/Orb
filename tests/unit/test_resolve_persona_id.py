@@ -7,7 +7,7 @@ resolves to None.
 
 from __future__ import annotations
 
-from backend.pipeline.predicates import resolve_persona_id
+from backend.prompting import resolve_persona_id
 
 
 def test_conversation_lock_wins_over_character_and_global():

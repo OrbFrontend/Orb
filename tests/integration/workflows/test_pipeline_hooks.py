@@ -378,16 +378,16 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
 # -- _stage_workflow_attachment ------------------------------------------
 
 
-def test_stage_attachment_happy_path_with_data_bytes():
+async def test_stage_attachment_happy_path_with_data_bytes():
     att = {"filename": "out.mp3", "mime": "audio/mpeg", "data": b"\xff\xfb", "source": "workflow:tts", "workflow_id": "tts"}
-    staged = _stage_workflow_attachment(att, "tts")
+    staged = await _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["data"] == b"\xff\xfb"
     assert staged["filename"] == "out.mp3"
     assert staged["source"] == "workflow:tts"
 
 
-def test_stage_attachment_rejects_impersonation_via_source():
+async def test_stage_attachment_rejects_impersonation_via_source():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -395,10 +395,10 @@ def test_stage_attachment_rejects_impersonation_via_source():
         "source": "workflow:other",
         "workflow_id": "other",
     }
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_rejects_impersonation_via_workflow_id():
+async def test_stage_attachment_rejects_impersonation_via_workflow_id():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -406,10 +406,10 @@ def test_stage_attachment_rejects_impersonation_via_workflow_id():
         "source": "workflow:tts",
         "workflow_id": "other",
     }
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_rejects_both_data_and_path():
+async def test_stage_attachment_rejects_both_data_and_path():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -418,20 +418,20 @@ def test_stage_attachment_rejects_both_data_and_path():
         "source": "workflow:tts",
         "workflow_id": "tts",
     }
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_rejects_neither_data_nor_path():
+async def test_stage_attachment_rejects_neither_data_nor_path():
     att = {"filename": "x.bin", "mime": "application/octet-stream", "source": "workflow:tts", "workflow_id": "tts"}
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_rejects_empty_data():
+async def test_stage_attachment_rejects_empty_data():
     att = {"filename": "x.bin", "mime": "application/octet-stream", "data": b"", "source": "workflow:tts", "workflow_id": "tts"}
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_normalizes_path_to_bytes(tmp_path):
+async def test_stage_attachment_normalizes_path_to_bytes(tmp_path):
     p = tmp_path / "blob.bin"
     p.write_bytes(b"on-disk-bytes")
     att = {
@@ -441,13 +441,24 @@ def test_stage_attachment_normalizes_path_to_bytes(tmp_path):
         "source": "workflow:tts",
         "workflow_id": "tts",
     }
-    staged = _stage_workflow_attachment(att, "tts")
+    staged = await _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert "path" not in staged
     assert staged["data"] == b"on-disk-bytes"
 
 
-def test_stage_attachment_path_read_failure_drops_entry(tmp_path):
+async def test_stage_attachment_path_outside_staging_root_drops_entry():
+    att = {
+        "filename": "passwd",
+        "mime": "text/plain",
+        "path": "/etc/passwd",
+        "source": "workflow:tts",
+        "workflow_id": "tts",
+    }
+    assert await _stage_workflow_attachment(att, "tts") is None
+
+
+async def test_stage_attachment_path_read_failure_drops_entry(tmp_path):
     missing = tmp_path / "ghost.bin"
     att = {
         "filename": "ghost.bin",
@@ -456,10 +467,10 @@ def test_stage_attachment_path_read_failure_drops_entry(tmp_path):
         "source": "workflow:tts",
         "workflow_id": "tts",
     }
-    assert _stage_workflow_attachment(att, "tts") is None
+    assert await _stage_workflow_attachment(att, "tts") is None
 
 
-def test_stage_attachment_whitespace_annotation_collapses_to_none():
+async def test_stage_attachment_whitespace_annotation_collapses_to_none():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -468,26 +479,26 @@ def test_stage_attachment_whitespace_annotation_collapses_to_none():
         "source": "workflow:tts",
         "workflow_id": "tts",
     }
-    staged = _stage_workflow_attachment(att, "tts")
+    staged = await _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["annotation"] is None
 
 
-def test_stage_attachment_non_dict_rejected():
-    assert _stage_workflow_attachment("not a dict", "tts") is None
-    assert _stage_workflow_attachment(None, "tts") is None
-    assert _stage_workflow_attachment(["list"], "tts") is None
+async def test_stage_attachment_non_dict_rejected():
+    assert await _stage_workflow_attachment("not a dict", "tts") is None
+    assert await _stage_workflow_attachment(None, "tts") is None
+    assert await _stage_workflow_attachment(["list"], "tts") is None
 
 
-def test_stage_attachment_bad_filename_or_mime_rejected():
+async def test_stage_attachment_bad_filename_or_mime_rejected():
     for bad in (
         {"filename": 123, "mime": "x", "data": b"x", "source": "workflow:tts", "workflow_id": "tts"},
         {"filename": "x", "mime": None, "data": b"x", "source": "workflow:tts", "workflow_id": "tts"},
     ):
-        assert _stage_workflow_attachment(bad, "tts") is None
+        assert await _stage_workflow_attachment(bad, "tts") is None
 
 
-def test_stage_attachment_dict_consumption_metadata_passes_through():
+async def test_stage_attachment_dict_consumption_metadata_passes_through():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -496,12 +507,12 @@ def test_stage_attachment_dict_consumption_metadata_passes_through():
         "workflow_id": "tts",
         "consumption_metadata": {"cues": [0.5, 1.0]},
     }
-    staged = _stage_workflow_attachment(att, "tts")
+    staged = await _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["consumption_metadata"] == {"cues": [0.5, 1.0]}
 
 
-def test_stage_attachment_null_consumption_metadata_passes_through():
+async def test_stage_attachment_null_consumption_metadata_passes_through():
     att = {
         "filename": "x.bin",
         "mime": "application/octet-stream",
@@ -510,12 +521,12 @@ def test_stage_attachment_null_consumption_metadata_passes_through():
         "workflow_id": "tts",
         "consumption_metadata": None,
     }
-    staged = _stage_workflow_attachment(att, "tts")
+    staged = await _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["consumption_metadata"] is None
 
 
-def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_rejecting():
+async def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_rejecting():
     for bad_cm in ("string", 42, [1, 2, 3], True):
         att = {
             "filename": "x.bin",
@@ -525,7 +536,7 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
             "workflow_id": "tts",
             "consumption_metadata": bad_cm,
         }
-        staged = _stage_workflow_attachment(att, "tts")
+        staged = await _stage_workflow_attachment(att, "tts")
         assert staged is not None, f"non-dict consumption_metadata {bad_cm!r} should not reject the attachment"
         assert staged["consumption_metadata"] is None
 

@@ -10,9 +10,10 @@ from .. import database as db
 from ..database.models import WorldRow
 from ..features.lorebook import dynamic_enabled, split_by_world
 from ..inference import CachedBase, agent_lane_from_settings, client_from_settings
+from ..prompting import conversation_macro_seed, macro_identity, persona_macros
 from ..prompting.tool_catalog import enabled_schemas
 from ..workflows.toolkit import build_offturn_prefix
-from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona
+from .context import resolve_card_and_persona
 from .events import CoreTurnEvent
 from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .passes.world_change import world_change_step
@@ -144,11 +145,8 @@ async def reevaluate_changeset(changeset: Mapping[str, Any]):
     card, persona = await resolve_card_and_persona(conv, settings)
     # Same three substitutions the turn made, so the replayed exchange resolves the way it did when it was written: a group's
     # {{char}} is the scene title (read live, so a rename follows) and {{cast}} is its roster.
-    turn_cast = await db.resolve_cast(conv)
-    macro_char = (conv.get("title") if turn_cast.grouped else conv.get("character_name")) or ""
-    macros, _ = persona_macros(settings, macro_char, persona, seed=conversation_macro_seed(conv), card=card)
-    if turn_cast.grouped:
-        macros = macros._replace(cast=", ".join(member.name for member in turn_cast.members))
+    macro_char, cast_names = macro_identity(conv, await db.resolve_cast(conv))
+    macros, _ = persona_macros(settings, macro_char, persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names)
     client = client_from_settings(settings)
     agent_client, model = agent_lane_from_settings(settings, writer_client=client)
     base = CachedBase(

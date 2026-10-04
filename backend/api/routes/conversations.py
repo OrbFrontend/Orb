@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import CardScripts, estimate_tokens, has_inline_macros, resolve_inline, scrub_log, state_fragments_of
+from ...core import has_inline_macros, resolve_inline, scrub_log
 from ...database import (
     PROPOSAL_STATUSES,
     REVIEW_STATUSES,
@@ -17,7 +17,6 @@ from ...database import (
     add_conversation_log,
     add_message,
     apply_sheet_proposal,
-    cast_embedded_fragments,
     convert_to_group,
     copy_state_events,
     create_conversation,
@@ -27,20 +26,15 @@ from ...database import (
     delete_group_family,
     fold_path_state,
     fork_conversation,
-    get_active_lorebook_entries,
-    get_active_path,
     get_character_card,
     get_conversation,
     get_conversation_logs,
     get_director_logs_for_messages,
     get_director_state,
     get_effective_world_ids,
-    get_group_member_scripts,
     get_group_members,
-    get_interactive_fragments,
     get_messages,
     get_messages_decisions,
-    get_mood_fragments,
     get_settings,
     get_sheet_proposals,
     get_speaker_names,
@@ -52,11 +46,9 @@ from ...database import (
     insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
-    merge_fragments_by_id,
     reject_sheet_proposal,
     render_public_profile,
     resolve_cast,
-    resolve_char_context,
     set_active_leaf,
     set_conversation_world,
     set_workflow_message_state,
@@ -68,18 +60,15 @@ from ...database import (
     user_attachment_payloads,
 )
 from ...database.models import ConversationRow
-from ...features import lorebook
 from ...features.cards import draft_scene_profile
 from ...features.summarization import ConversationSummarizer
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
-from ...pipeline import agent_enabled, conversation_macro_seed, persona_macros, remap_decision_anchors, resolve_card_and_persona
+from ...pipeline import estimate_context_size, remap_decision_anchors, resolve_card_and_persona
 from ...prompting import (
-    compute_style_injection_block,
-    group_context,
+    char_context,
+    conversation_macro_seed,
     macro_identity,
-    render_history,
-    render_state_block,
-    resolve_mood_fragment_randoms,
+    persona_macros,
 )
 from ...workflows.contracts import PublicEvent
 from ..deps import (
@@ -461,11 +450,10 @@ async def api_summarize_conversation(
     # Resolve the same effective persona the chat would use (conversation/character
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
+    system_prompt, char_persona, mes_example = char_context(settings, card)
     macros, user_description = persona_macros(
-        settings, char_name, active_persona, seed=conversation_macro_seed(conv), card=card
+        settings, char_name, active_persona, seed=conversation_macro_seed(conv), card=card, cast=cast_names
     )
-    macros = macros._replace(cast=cast_names)
     speaker_names = await get_speaker_names(cid) if summary_cast.grouped else {}
 
     abort_token = AbortToken()
@@ -680,120 +668,7 @@ async def api_stop_generation(cid: str, operation_id: str | None = None):
 
 @router.get("/api/conversations/{cid}/context-size")
 async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
-    settings = await get_settings()
-    # Only content is measured; the attachments' bytes would be megabytes of
-    # base64 read and discarded on every repaint's estimate.
-    messages = await get_active_path(cid)
-    director = await get_director_state(cid) or {}
-
-    # Resolve the same effective persona generation would use (conversation/ character lock overrides the global active persona)
-    # so the size breakdown matches the prompt that is actually sent.
-    card, active_persona = await resolve_card_and_persona(conv, settings)
-    turn_cast = await resolve_cast(conv)
-    # The same reader and the same merge the turn uses (globals win on id
-    # collision), so the estimate cannot bill a different fragment set.
-    card_moods, card_interactive, _card_sources = await cast_embedded_fragments(card, turn_cast)
-    director_frags = merge_fragments_by_id(
-        [f for f in await get_interactive_fragments() if f.get("enabled", True)], card_interactive
-    )
-    mood_frags = merge_fragments_by_id([f for f in await get_mood_fragments() if f.get("enabled", True)], card_moods)
-    lorebook_entries = await get_active_lorebook_entries(await get_effective_world_ids(cid))
-    macro_char, cast_names = macro_identity(conv, turn_cast)
-    macros, user_desc = persona_macros(settings, macro_char, active_persona, seed=conversation_macro_seed(conv), card=card)
-    macros = macros._replace(cast=cast_names)
-
-    # Resolve character context
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-
-    # Measure each component individually
-    sys_text = system_prompt or ""
-    persona_text = macros.resolve_message(char_persona or "")
-    scenario_text = macros.resolve_message(conv.get("character_scenario", "") or "")
-    mes_text = macros.resolve_message(mes_example or "")
-    post_text = macros.resolve_message(
-        "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
-    )
-    # The group breakdown is a *maximum* call, not a sum, and its shape follows the context mode: the shared body once, plus the
-    # largest single speaker's share of it. Rendered through the same projection the prompt uses, so the estimate cannot drift
-    # from what is actually sent.
-    group_components: list[tuple[str, str]] = []
-    if turn_cast.grouped:
-        # The card-derived halves are replaced by the group components below; `post_text` is the *scene's* directive, which
-        # `build_prefix` still renders into the shared body for a group, so it keeps being billed.
-        persona_text = ""
-        mes_text = ""
-        group_components = group_context.context_size_components(
-            turn_cast, macros, prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides"))
-        )
-    resolved_user_desc = macros.resolve_message(user_desc)
-    user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
-    # The active path omits attachment bytes. Project its text through the same
-    # macros, card scripts, and group labels used by the model-facing prefix.
-    history = render_history(
-        messages,
-        macros,
-        cast=turn_cast,
-        speaker_names=await get_speaker_names(cid) if turn_cast.grouped else None,
-        scripts=CardScripts.from_extensions(card.get("extensions") if card else None),
-        speaker_scripts=await get_group_member_scripts(cid) if turn_cast.grouped else None,
-    )
-    msg_chars = 0
-    for message in history:
-        content = message["content"]
-        if isinstance(content, str):
-            msg_chars += len(content)
-        else:
-            msg_chars += sum(len(part["text"]) for part in content if part["type"] == "text")
-
-    # Director injection -- fragment {{random}} resolves against a throwaway copy of the stored choice map so the estimate
-    # matches the prompt bytes a real turn would inject, without recording new picks.
-    active_moods = director.get("active_moods", []) if director else []
-    est_choices = dict(director.get("macro_choices", {}) if director else {})
-    est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
-    inj_block = compute_style_injection_block(
-        active_moods, active_moods, est_mood_frags, director_frags, agent_enabled(settings), {}
-    )
-    # The Writer's current-state block rides the same injection on every turn.
-    writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]
-    if writer_state:
-        state_block = render_state_block(writer_state, await fold_path_state(cid, [m["id"] for m in messages]))
-        if state_block:
-            inj_block = (inj_block + "\n\n" + macros.resolve_message(state_block)).strip()
-
-    # Lorebook: trailing keyword-scanned block + constant prefix section + @Depth tail
-    scan_depth = lorebook.LOREBOOK_SCAN_DEPTH
-    recent_messages = messages[-scan_depth:] if len(messages) >= scan_depth else messages
-    lorebook_block = lorebook.compute_lorebook_injection_block(recent_messages, lorebook_entries, macros)
-    constant_lorebook_block = lorebook.compute_constant_lorebook_block(lorebook_entries, macros)
-    depth_lorebook_block = lorebook.compute_depth_lorebook_block(lorebook_entries, macros)
-
-    components = [
-        ("system_prompt", len(sys_text)),
-        ("char_persona", len(persona_text)),
-        ("scenario", len(scenario_text)),
-        ("mes_example", len(mes_text)),
-        ("user_persona", len(user_persona_text)),
-        ("messages", msg_chars),
-        ("post_history", len(post_text)),
-        ("director_injection", len(inj_block)),
-        ("lorebook", len(lorebook_block)),
-        ("lorebook_constant", len(constant_lorebook_block)),
-        ("lorebook_depth", len(depth_lorebook_block)),
-    ]
-    if turn_cast.grouped:
-        components[2:2] = [(key, len(text)) for key, text in group_components]
-    breakdown = {}
-    for label, chars in components:
-        breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}
-
-    total_chars = sum(v["chars"] for v in breakdown.values())
-    return {
-        "total_chars": total_chars,
-        "total_tokens_est": estimate_tokens(total_chars),
-        "breakdown": breakdown,
-        "message_count": len(messages),
-        "estimate_kind": "maximum" if turn_cast.grouped else "single_call",
-    }
+    return await estimate_context_size(conv)
 
 
 # Inspector --

@@ -749,7 +749,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
         conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))  # nosec B608 -- schema-derived identifier, values parameterised
 
 
-def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> None:
+def _reconcile_crossref(conn, fk: _FK, idmaps, remap: bool) -> None:
     """Reconcile soft pointers after parent rows are remapped."""
     table, col = fk.table, fk.from_col
     pmap = idmaps.get(fk.parent)
@@ -824,7 +824,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
             ):
                 # Rows of a merged child domain were already FK-rewritten in phase
                 # C; only remap the parent map for child tables left untouched.
-                _reconcile_crossref(conn, schema, fk, idmaps, cache, remap=schema.domain_of(t.name) not in included)
+                _reconcile_crossref(conn, fk, idmaps, remap=schema.domain_of(t.name) not in included)
 
     # Row counts per merged domain (configs, anchored on its singleton, reports 1).
     summary: dict[str, int] = {}

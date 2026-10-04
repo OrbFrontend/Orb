@@ -28,7 +28,6 @@ from ..analysis.text.roleplay_segmentation import extract_block_spans, find_emph
 from ..core import (
     CardScripts,
     Macros,
-    card_description,
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
@@ -62,12 +61,15 @@ from ..database import (
     get_user_personas,
     get_workflow_attachment_by_id,
     resolve_cast,
-    resolve_char_context,
 )
 from ..inference import local_ml as _local_ml
 from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
 from ..prompting import build_prefix as _build_prefix
+from ..prompting import char_context as _char_context
+from ..prompting import conversation_macro_seed as _conversation_macro_seed
 from ..prompting import macro_identity as _macro_identity
+from ..prompting import persona_macros as _persona_macros
+from ..prompting import resolve_persona_id as _resolve_persona_id
 from ..prompting.lorebook import compute_constant_lorebook_block as _compute_constant_lorebook_block
 from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
@@ -351,23 +353,14 @@ async def _turn_macros(
     cast: TurnCast,
     *,
     seed: str | None = None,
-) -> tuple[Macros, Mapping[str, Any] | None]:
-    """Build identity macros and return the persona used for `{{user}}`."""
-    persona_id = (
-        conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
-    )
+) -> tuple[Macros, str]:
+    """Build the turn's identity macros and the user description it renders."""
+    persona_id = _resolve_persona_id(conv, card, settings)
     persona = await get_user_persona(persona_id) if persona_id else None
     macro_char, cast_names = _macro_identity(conv, cast)
-    conversation_seed = conv.get("macro_seed") or conv.get("id", "")
-    macros = Macros.from_settings(
-        settings,
-        macro_char,
-        persona,
-        seed=conversation_seed if seed is None else seed,
-        cast=cast_names,
-        description=card_description(card),
+    return _persona_macros(
+        settings, macro_char, persona, seed=_conversation_macro_seed(conv) if seed is None else seed, card=card, cast=cast_names
     )
-    return macros, persona
 
 
 async def conversation_macros(conversation_id: str, settings: Mapping[str, Any], *, seed: str | None = None) -> Macros:
@@ -394,14 +387,12 @@ async def build_offturn_prefix(conversation_id: str, history, settings, *, lane:
     # replayed reply is attributed to the member who wrote it. Resolved through the same reader the turn uses, against the
     # *neutral* base (no speaker) -- which is the base the Director runs on in every mode, Classic card swap included.
     turn_cast = await resolve_cast(conv)
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    dual_agent = lane == "agent" and _separate_agent_lane_configured(settings)
-    if dual_agent:
-        system_prompt, _, _ = await resolve_char_context(conv, settings, card=card, shared_key="agent_shared_system_prompt")
-    macros, persona = await _turn_macros(conv, settings, card, turn_cast)
+    system_prompt, char_persona, mes_example = _char_context(settings, card)
+    if lane == "agent" and _separate_agent_lane_configured(settings):
+        system_prompt, _, _ = _char_context(settings, card, shared_key="agent_shared_system_prompt")
+    macros, user_description = await _turn_macros(conv, settings, card, turn_cast)
     speaker_names = await get_speaker_names(conversation_id) if turn_cast.grouped else {}
     speaker_scripts = await get_group_member_scripts(conversation_id) if turn_cast.grouped else {}
-    user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return _build_prefix(
         system_prompt,
         char_persona,

@@ -1,6 +1,7 @@
 """Deterministic, provider-independent model-facing construction."""
 
 from .base import build_prefix, format_message_with_attachments, group_speaker_label, render_history
+from .conversation import char_context, conversation_macro_seed, persona_macros, resolve_persona_id
 from .fragment_state import STATE_BLOCK_HEADING, render_state_block
 from .group_context import (
     context_size_components,
@@ -16,16 +17,20 @@ __all__ = [
     "STATE_BLOCK_HEADING",
     "build_prefix",
     "build_style_injection",
+    "char_context",
     "compute_style_injection_block",
     "context_size_components",
+    "conversation_macro_seed",
     "format_message_with_attachments",
     "group_speaker_label",
     "render_history",
     "render_state_block",
     "macro_identity",
+    "persona_macros",
     "member_macros",
     "prefix_is_speaker_scoped",
     "render_cast_section",
+    "resolve_persona_id",
     "resolve_mood_fragment_randoms",
     "tail_carries_identity",
 ]

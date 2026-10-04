@@ -506,7 +506,7 @@ async def delete_character_card(card_id: str, delete_conversations: bool, *, idl
             await db.execute(f"DELETE {chats}", (card_id, card_id))  # nosec B608 -- constant fragment
         # When keeping conversations, character_card_id is intentionally left as-is. The dangling reference acts as a
         # pending-relink marker: re-importing the same card (which produces the same stable ID) restores the association
-        # automatically. resolve_char_context() handles a missing card gracefully.
+        # automatically. a missing card resolves to an empty character context.
         cur = await db.execute("DELETE FROM character_cards WHERE id = ?", (card_id,))
         await db.commit()
         return cur.rowcount > 0
@@ -575,39 +575,6 @@ async def get_card_activity(card_ids: Sequence[str]) -> dict[str, dict[str, int 
             "last_used_at": str(row["last_used_at"]) if row["last_used_at"] is not None else None,
         }
     return result
-
-
-async def resolve_char_context(
-    conv: Mapping[str, Any],
-    settings: Mapping[str, Any],
-    shared_key: str = "shared_system_prompt",
-    card: CharacterCardRow | None = None,
-) -> tuple[str, str, str]:
-    """Resolve the effective system prompt, persona, and example messages.
-
-    shared_system_prompt and the model-specific system_prompt are concatenated (shared first); a character card's own
-    system_prompt, when present and not disabled by the prevent_prompt_overrides setting, replaces that combined result entirely
-    rather than appending to it.
-    """
-    # Combine shared (global) + model-specific system prompts
-    shared = settings.get(shared_key, "")
-    model_specific = settings.get("system_prompt", "")
-
-    if shared and model_specific:
-        system_prompt = f"{shared}\n\n{model_specific}"
-    else:
-        system_prompt = shared or model_specific
-
-    char_persona, mes_example = "", ""
-    if card is None and (card_id := conv.get("character_card_id")):
-        card = await get_character_card(card_id)
-    if card:
-        char_persona = "\n\n".join(filter(None, [card.get("description", ""), card.get("personality", "")]))
-        mes_example = card.get("mes_example", "")
-        card_system_prompt = card.get("system_prompt")
-        if card_system_prompt and not settings.get("prevent_prompt_overrides"):
-            system_prompt = card_system_prompt
-    return system_prompt, char_persona, mes_example
 
 
 async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:

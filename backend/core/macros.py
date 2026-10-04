@@ -73,7 +73,7 @@ def _sub_description(text: str, description: str) -> str:
 def card_description(card: Mapping[str, Any] | None) -> str:
     """The ``{{description}}`` value for a solo conversation.
 
-    The card's own ``description`` field, alone -- not the ``description`` + ``personality`` join that ``resolve_char_context``
+    The card's own ``description`` field, alone -- not the ``description`` + ``personality`` join that ``char_context``
     builds for the persona block. The macro is named after the field, so it carries the field.
     """
     return str((card or {}).get("description") or "").strip()

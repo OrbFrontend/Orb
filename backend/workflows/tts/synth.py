@@ -353,7 +353,6 @@ async def synthesize_blocks(
         style = await markup_axes(prepared, settings) if settings is not None and not legacy else None
         chunks = regex_extract(
             text=prepared,
-            backend_type=backend,
             supports_emotion_tags=adapter.supports_emotion_tags,
             style=style,
             legacy=legacy,

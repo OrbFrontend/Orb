@@ -433,7 +433,7 @@ def test_from_settings_carries_the_description():
 
 
 def test_card_description_is_the_field_not_the_persona_join():
-    # resolve_char_context joins description + personality for the persona
+    # char_context joins description + personality for the persona
     # block; the macro is named after the field, so it carries the field alone.
     card = {"description": "A tall woman with a limp.", "personality": "Wry, guarded"}
     assert card_description(card) == "A tall woman with a limp."

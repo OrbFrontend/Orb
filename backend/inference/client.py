@@ -5,7 +5,7 @@ import contextlib
 import json
 import logging
 import re
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from typing import Any, TypeVar, cast
 
 import httpx
@@ -46,7 +46,7 @@ class AbortToken:
 _T = TypeVar("_T")
 
 
-async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncIterator[_T]:
+async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncGenerator[_T, None]:
     """Yield *events* until *token* fires, then interrupt the source.
 
     Each step is raced against the token. On a stop (or if the caller is cancelled) the pending step is cancelled and awaited,
@@ -742,32 +742,8 @@ class LLMClient:
         Exit the HTTP context normally to close the connection. Stop at [DONE],
         optionally yielding it so chat parsing can distinguish completion from EOF.
         """
-        aiter = resp.aiter_lines().__aiter__()
-        abort_wait = asyncio.create_task(self.abort_token.wait())
-        try:
-            while True:
-                line_task = asyncio.ensure_future(aiter.__anext__())
-                try:
-                    done, _ = await asyncio.wait({line_task, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
-                except BaseException:
-                    line_task.cancel()
-                    with contextlib.suppress(BaseException):
-                        await line_task
-                    raise
-
-                if abort_wait in done:
-                    line_task.cancel()
-                    try:
-                        await line_task
-                    except (asyncio.CancelledError, StopAsyncIteration):
-                        pass
-                    return  # stop iterating -> async-with closes connection cleanly
-
-                try:
-                    line = line_task.result()
-                except StopAsyncIteration:
-                    return
-
+        async with contextlib.aclosing(until_aborted(resp.aiter_lines(), self.abort_token)) as lines:
+            async for line in lines:
                 if not line.startswith("data: "):
                     continue
                 payload = line[6:].strip()
@@ -776,12 +752,6 @@ class LLMClient:
                         yield payload
                     return
                 yield payload
-        finally:
-            abort_wait.cancel()
-            try:
-                await abort_wait
-            except asyncio.CancelledError:
-                pass
 
     async def _apply_template(
         self, server_root: str, messages: Sequence[Mapping[str, Any]], chat_template_kwargs: Mapping[str, Any] | None = None

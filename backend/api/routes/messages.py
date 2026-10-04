@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
@@ -15,13 +14,10 @@ from ...database import (
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
-    get_conversation,
-    get_group_member,
     get_group_members,
     get_message_by_id,
     get_message_delete_preview,
     get_messages,
-    get_messages_before,
     get_messages_with_branch_info,
     get_settings,
     get_speaker_names,
@@ -38,7 +34,7 @@ from ...database import (
 from ...database.models import ConversationRow
 from ...database.queries.messages import get_message_subtree_ids
 from ...features import autocomplete
-from ...inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings, local_ml
+from ...inference import AbortToken, local_ml, until_aborted
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -46,11 +42,13 @@ from ...pipeline import (
     handle_speak,
     handle_super_regenerate,
     handle_turn,
+    prose_rewrite_source,
+    rerun_after_prose_rewrite,
+    retained_draft,
 )
-from ...pipeline.predicates import resolve_persona_id
-from ...pipeline.workflow_bridge import PostPipelineResult, run_post_pipeline
+from ...prompting import resolve_persona_id
 from ...workflows.contracts import PublicEvent
-from ...workflows.prose_rewriter_host import RERUN_AFTER_REWRITE, ProseRewriteConfig, resolve_config, rewrite_events
+from ...workflows.prose_rewriter_host import ProseRewriteConfig, resolve_config, rewrite_events
 from ..deps import (
     attachment_content_response,
     conversation_stream_lock,
@@ -65,29 +63,10 @@ from ..schemas import AutocompleteInput, EditMessage, MagicRewriteMsg, Regenerat
 router = APIRouter()
 
 
-def _retained_draft(message: Mapping[str, Any]) -> str | None:
-    """The row's retained pre-rewriter draft, when it carries real text.
-
-    Blank counts as absent: a draft of ``""`` is not a source, and letting it
-    through would have the client promise a rewrite of text that is not there.
-    """
-    draft = message.get("writer_draft")
-    return draft if isinstance(draft, str) and draft.strip() else None
-
-
-def _prose_rewrite_source(message: Mapping[str, Any]) -> str | None:
-    """Return the text an on-demand rewrite should use."""
-    draft = _retained_draft(message)
-    if draft is not None:
-        return draft
-    content = message.get("content") or ""
-    return content if content.strip() else None
-
-
 def _row_for_client(message: Mapping[str, Any]) -> dict:
     """Shape one message row for the API."""
     row = dict(message)
-    row["has_writer_draft"] = _retained_draft(row) is not None
+    row["has_writer_draft"] = retained_draft(row) is not None
     row.pop("writer_draft", None)
     # Fetch full decision records from the log route when the Inspector is opened.
     row.pop("decision_evaluations", None)
@@ -276,94 +255,33 @@ async def _stream_prose_rewrite_message(
     if not message or message["conversation_id"] != cid or message["role"] != "assistant":
         yield {"event": "error", "data": "Message changed or was deleted before the prose rewrite started"}
         return
-    source = _prose_rewrite_source(message)
+    source = prose_rewrite_source(message)
     if source is None:
         yield {"event": "error", "data": "This message has no text to rewrite"}
         return
     settings = settings or await get_settings()
     current_content = message["content"] or ""
+    aborted: PublicEvent = {
+        "event": "prose_rewrite_done",
+        "data": {"message_id": msg_id, "content": current_content, "changed": False, "warning": "", "aborted": True},
+    }
     rewritten = source
     warning = ""
-    events = rewrite_events(source, config)
-    try:
-        while True:
-            next_event = asyncio.create_task(anext(events))
-            abort_wait = asyncio.create_task(abort_token.wait())
-            done, _pending = await asyncio.wait({next_event, abort_wait}, return_when=asyncio.FIRST_COMPLETED)
-            if abort_wait in done:
-                if not next_event.done():
-                    next_event.cancel()
-                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
-                    await next_event
-                yield {
-                    "event": "prose_rewrite_done",
-                    "data": {
-                        "message_id": msg_id,
-                        "content": current_content,
-                        "changed": False,
-                        "warning": "",
-                        "aborted": True,
-                    },
-                }
-                return
-
-            abort_wait.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await abort_wait
-            try:
-                event = next_event.result()
-            except StopAsyncIteration:
-                break
+    async with contextlib.aclosing(until_aborted(rewrite_events(source, config), abort_token)) as events:
+        async for event in events:
             if event["type"] == "draft_update":
                 yield {"event": "prose_rewrite_update", "data": {"message_id": msg_id, "draft": event["draft"]}}
             elif event["type"] == "rewritten":
                 rewritten = event["draft"]
             elif event["type"] == "warning":
                 warning = event["reason"]
-    finally:
-        await events.aclose()
-
-    if not warning:
-        history = await get_messages_before(cid, msg_id)
-        conv = await get_conversation(cid)
-        character_id = conv.get("character_card_id") if conv else None
-        if conv and conv.get("kind", "solo") == "group":
-            member_id = message.get("speaker_member_id")
-            member = await get_group_member(str(member_id), conversation_id=cid) if member_id else None
-            character_id = member.get("character_card_id") if member else None
-        card = await get_character_card(character_id) if character_id else None
-        client = client_from_settings(settings, abort_token=abort_token)
-        agent_client, agent_model_name = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
-        post: PostPipelineResult | None = None
-        async for event in run_post_pipeline(
-            draft=rewritten,
-            conversation_id=cid,
-            character_id=character_id,
-            card=card,
-            history=history,
-            effective_msg=next((m["content"] for m in reversed(history) if m["role"] == "user"), ""),
-            director_output={},
-            settings=settings,
-            prefix=[],
-            enabled_tools={},
-            turn_scratch={},
-            client=client,
-            kv_tracker=KVCacheTracker(conversation_id=cid),
-            schema_overrides={},
-            agent_client=agent_client,
-            agent_model_name=agent_model_name,
-            post_workflow_ids=RERUN_AFTER_REWRITE,
-        ):
-            if isinstance(event, PostPipelineResult):
-                post = event
-        assert post is not None
-        rewritten = post.draft
-
     if abort_token.is_aborted:
-        yield {
-            "event": "prose_rewrite_done",
-            "data": {"message_id": msg_id, "content": current_content, "changed": False, "warning": "", "aborted": True},
-        }
+        yield aborted
+        return
+    if not warning:
+        rewritten = await rerun_after_prose_rewrite(cid, message, rewritten, settings, abort_token)
+    if abort_token.is_aborted:
+        yield aborted
         return
 
     changed = not warning and rewritten != current_content
@@ -394,7 +312,7 @@ async def api_prose_rewrite_message(
         raise HTTPException(status_code=404, detail="Message not found")
     if message["role"] != "assistant":
         raise HTTPException(status_code=400, detail="Only assistant messages can be rewritten")
-    if _prose_rewrite_source(message) is None:
+    if prose_rewrite_source(message) is None:
         raise HTTPException(status_code=409, detail="This message has no text to rewrite")
 
     settings = await get_settings()

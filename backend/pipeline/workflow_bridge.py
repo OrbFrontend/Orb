@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
+from ..database.queries.workflow_attachments import staging_root
 from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
 from ..prompting.tool_catalog import has_tool
 from ..workflows import (
@@ -181,7 +185,7 @@ async def run_post_pipeline(
                                 sub.workflow_id,
                             )
                             continue
-                        staged = _stage_workflow_attachment(
+                        staged = await _stage_workflow_attachment(
                             ev.get("attachment") if isinstance(ev, dict) else None, sub.workflow_id
                         )
                         if staged is not None:
@@ -221,7 +225,7 @@ async def run_post_pipeline(
     yield PostPipelineResult(draft, staged_attachments, staged_message_state)
 
 
-def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
+async def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     """Validate and normalize a workflow ``attach_artifact`` entry.
 
     Returns a bytes-only dict ready for ``add_message``, or ``None`` if validation fails (logged as a warning). Never raises --
@@ -278,9 +282,18 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
         out["consumption_metadata"] = None
 
     if has_path:
+        # Read now, before the hook's temp file can go away, but confined to the staging root (see staging_root) like every
+        # other path attachment, and off the event loop.
+        resolved = os.path.realpath(att["path"])
+        if not resolved.startswith(staging_root() + os.sep):
+            logger.warning(
+                "post_pipeline hook %r yielded attach_artifact with path=%r outside the workflow staging area; dropping entry",
+                workflow_id,
+                att["path"],
+            )
+            return None
         try:
-            with open(att["path"], "rb") as f:
-                data_bytes = f.read()
+            data_bytes = await asyncio.to_thread(Path(resolved).read_bytes)
         except OSError as e:
             logger.warning(
                 "post_pipeline hook %r yielded attach_artifact with path=%r that failed to read (%s); dropping entry",

@@ -14,7 +14,6 @@ from ..core import (
     ChatMessage,
     Macros,
     TurnCast,
-    card_description,
     is_decision_row,
     parse_decision_definition,
 )
@@ -39,7 +38,14 @@ from ..inference import (
     decisions_url,
     separate_agent_lane_configured,
 )
-from ..prompting import build_prefix, macro_identity
+from ..prompting import (
+    build_prefix,
+    char_context,
+    conversation_macro_seed,
+    macro_identity,
+    persona_macros,
+    resolve_persona_id,
+)
 from ..prompting.lorebook import (
     build_lorebook_catalog,
     compute_constant_lorebook_block,
@@ -50,7 +56,7 @@ from .config import build_writer_tools_blob, split_interactive_fragments
 from .events import PublicTurnEvent
 from .passes.judge import DecisionCandidate, InvalidDecision, JudgeConfig
 from .passes.state import StateContract
-from .predicates import agent_enabled, resolve_persona_id, world_proposal_active
+from .predicates import agent_enabled, world_proposal_active
 from .state import BranchBaseline, LorebookTurn, WorldProposalTurn
 from .workflow_bridge import iterate_pre_pipeline_hooks
 
@@ -135,15 +141,13 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
     worlds = [world for world in await db.get_worlds() if world["id"] in world_ids]
     client = client_from_settings(settings, abort_token=abort_token)
 
-    system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
+    system_prompt, char_persona, mes_example = char_context(settings, card)
 
     agent_client = None
     agent_system_prompt = None
     if separate_agent_lane_configured(settings):
         agent_client = agent_client_from_settings(settings, abort_token=abort_token)
-        agent_system_prompt, _, _ = await db.resolve_char_context(
-            conv, settings, shared_key="agent_shared_system_prompt", card=card
-        )
+        agent_system_prompt, _, _ = char_context(settings, card, shared_key="agent_shared_system_prompt")
 
     return PipelineContext(
         settings=settings,
@@ -239,33 +243,6 @@ async def resolve_card_and_persona(
     return card, persona
 
 
-def conversation_macro_seed(conv: Mapping[str, Any]) -> str:
-    """The {{random}} seed for *conv*: its own id, unless a carried
-    ``macro_seed`` (set by checkpoint/compress via ``fork_conversation``) pins
-    picks to the source conversation so they match the copied history."""
-    return conv.get("macro_seed") or conv["id"]
-
-
-def persona_macros(
-    settings: Mapping[str, Any],
-    char_name: str,
-    persona: Mapping[str, Any] | None,
-    seed: str = "",
-    card: Mapping[str, Any] | None = None,
-) -> tuple[Macros, str]:
-    """Build the turn :class:`Macros` plus the resolved user description.
-
-    The description falls back to the global ``user_description`` setting when no persona row is active. *seed*
-    (:func:`conversation_macro_seed`) keeps {{random}} in per-turn-resolved prompt fields byte-stable per conversation.
-
-    *card* is the character's, and feeds ``{{description}}``; the returned string is the *user's*. The two are unrelated despite
-    the shared word -- one names a card field, the other a persona row's.
-    """
-    macros = Macros.from_settings(settings, char_name, persona, seed=seed, description=card_description(card))
-    user_description = persona.get("description", "") if persona else settings.get("user_description", "")
-    return macros, user_description
-
-
 def _build_prefix_from_ctx(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
@@ -278,9 +255,8 @@ def _build_prefix_from_ctx(
     conv = ctx.conv
     macro_char, cast_names = macro_identity(conv, ctx.cast)
     macros, user_description = persona_macros(
-        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv), card=ctx.card
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(conv), card=ctx.card, cast=cast_names
     )
-    macros = macros._replace(cast=cast_names)
     cast = ctx.cast._replace(speaker=speaker) if ctx.cast.grouped else ctx.cast
 
     return build_prefix(
@@ -345,6 +321,30 @@ class TurnSetup:
     world_proposal: WorldProposalTurn | None = None
 
 
+def build_lorebook_turn(
+    settings: Mapping[str, Any],
+    entries: Sequence[Mapping[str, Any]],
+    messages: Sequence[Mapping[str, Any]],
+    macros: Macros,
+) -> LorebookTurn:
+    """Decide how this turn's lorebook reaches the Director and the Writer."""
+    # When agentic lorebook is active the keyword scan is skipped; the Director
+    # picks entries from a catalog instead and the writer block is built post-director.
+    agentic = agentic_lorebook_active(settings, entries, agent_on=agent_enabled(settings))
+    return LorebookTurn(
+        entries=entries,
+        messages=messages,
+        agentic=agentic,
+        # Director-facing context: the agentic catalog, or the keyword-scanned block
+        # (which the writer block reuses verbatim in substring mode).
+        catalog=build_lorebook_catalog(entries) if agentic else "",
+        block="" if agentic else compute_lorebook_injection_block(messages, entries, macros),
+        # Rolled once here, so the writer and the editor replaying its content
+        # agree on the dice (and a stopped/retried pass never re-rolls mid-turn).
+        depth_block=compute_depth_lorebook_block(entries, macros),
+    )
+
+
 async def prepare_turn(
     ctx: PipelineContext,
     conversation_id: str,
@@ -356,13 +356,8 @@ async def prepare_turn(
 ) -> AsyncIterator[PublicTurnEvent | TurnSetup]:
     """Load and freeze per-turn context."""
     macro_char, cast_names = macro_identity(ctx.conv, ctx.cast)
-    macros = Macros.from_settings(
-        ctx.settings,
-        macro_char,
-        ctx.active_persona,
-        seed=conversation_macro_seed(ctx.conv),
-        cast=cast_names,
-        description=card_description(ctx.card),
+    macros, _ = persona_macros(
+        ctx.settings, macro_char, ctx.active_persona, seed=conversation_macro_seed(ctx.conv), card=ctx.card, cast=cast_names
     )
 
     prefix_base, agent_prefix_base = build_prefixes(ctx, history)
@@ -376,21 +371,8 @@ async def prepare_turn(
     else:
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
 
-    # When agentic lorebook is active the keyword scan is skipped; the Director
-    # picks entries from a catalog instead and the writer block is built post-director.
-    agentic_active = agentic_lorebook_active(settings, ctx.lorebook_entries, agent_on=agent_enabled(settings))
-    lorebook = LorebookTurn(
-        entries=ctx.lorebook_entries,
-        messages=lorebook_messages,
-        agentic=agentic_active,
-        # Director-facing context: the agentic catalog, or the keyword-scanned block
-        # (which the writer block reuses verbatim in substring mode).
-        catalog=build_lorebook_catalog(ctx.lorebook_entries) if agentic_active else "",
-        block="" if agentic_active else compute_lorebook_injection_block(lorebook_messages, ctx.lorebook_entries, macros),
-        # Rolled once here, so the writer and the editor replaying its content
-        # agree on the dice (and a stopped/retried pass never re-rolls mid-turn).
-        depth_block=compute_depth_lorebook_block(ctx.lorebook_entries, macros),
-    )
+    lorebook = build_lorebook_turn(settings, ctx.lorebook_entries, lorebook_messages, macros)
+    agentic_active = lorebook.agentic
 
     # Resolved before the tools blob is built: enabling propose_world_changes is what emits its schema into the shared per-turn
     # blob, so the decision has to be made once, up front, and hold for every cached call in the turn.

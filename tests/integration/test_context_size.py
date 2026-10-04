@@ -1,3 +1,5 @@
+from backend.database import add_message, create_lorebook_entry, create_world, set_active_leaf, update_settings
+
 # Persona fields are flat top-level keys on CharacterCardCreate (main.py). An earlier version of this test nested them under
 # data={"spec":...,"data":{...}}, which Pydantic silently dropped -- the card was created name-only and the breakdown never saw
 # the persona. These constants are asserted against the breakdown below so a regression that drops them fails loudly.
@@ -72,7 +74,7 @@ async def test_context_size_returns_breakdown(client):
         assert isinstance(val["tokens_est"], int)
 
     # The persona fields must actually flow into the breakdown. char_persona is description and personality joined by a blank
-    # line (resolve_char_context); scenario and the seeded first_mes pass through verbatim.
+    # line (char_context); scenario and the seeded first_mes pass through verbatim.
     assert bd["char_persona"]["chars"] == len(f"{DESCRIPTION}\n\n{PERSONALITY}")
     assert bd["scenario"]["chars"] == len(SCENARIO)
     assert bd["messages"]["chars"] == len(FIRST_MES)
@@ -108,3 +110,22 @@ async def test_context_size_counts_prompt_rendered_message(client):
     response = await client.get_json(f"/api/conversations/{cid}/context-size")
 
     assert response["breakdown"]["messages"]["chars"] == len(replacement)
+
+
+async def test_agentic_lorebook_bills_only_what_the_writer_can_receive(client):
+    """With agentic lorebook on, the Writer's block comes from the Director's picks plus a shallow keyword scan, so a keyword
+    four messages back -- inside the substring scan, outside the agentic one -- must stop being billed."""
+    world = await create_world({"name": "Armory", "is_global": True})
+    await create_lorebook_entry(world["id"], {"name": "Sword", "content": "A legendary blade.", "keywords": ["sword"]})
+    cid = await client.create("/api/conversations", json={"title": "Armory"})
+    parent = None
+    for role, text in [("user", "Bring the sword."), ("assistant", "Done."), ("user", "Thanks."), ("assistant", "Sure.")]:
+        parent, _ = await add_message(cid, role, text, 0, parent_id=parent)
+    await set_active_leaf(cid, parent)
+
+    substring = await client.get_json(f"/api/conversations/{cid}/context-size")
+    await update_settings({"agentic_lorebook_enabled": 1, "enable_agent": 1})
+    agentic = await client.get_json(f"/api/conversations/{cid}/context-size")
+
+    assert substring["breakdown"]["lorebook"]["chars"] > 0
+    assert agentic["breakdown"]["lorebook"]["chars"] == 0

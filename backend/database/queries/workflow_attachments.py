@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -9,6 +10,7 @@ import os
 import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
 from ...core import scrub_log
@@ -134,8 +136,8 @@ async def insert_workflow_attachment_row(message_id: int, attachment: dict, *, d
         data_b64 = EVICTED_MARKER
     elif has_path:
         assert safe_path is not None
-        with open(safe_path, "rb") as f:
-            data_b64 = base64.b64encode(f.read()).decode("ascii")
+        # Read off the event loop: a large artifact would otherwise stall every live stream for the whole read.
+        data_b64 = base64.b64encode(await asyncio.to_thread(Path(safe_path).read_bytes)).decode("ascii")
     else:
         data_b64 = base64.b64encode(bytes(attachment["data"])).decode("ascii")
 

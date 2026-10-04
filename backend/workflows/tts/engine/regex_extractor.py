@@ -246,7 +246,6 @@ def _legacy_segments(text: str) -> list[tuple[str, str]]:
 
 def regex_extract(
     text: str,
-    backend_type: str = "edge",
     supports_emotion_tags: bool = False,
     *,
     style: AxisStyle | None = None,
