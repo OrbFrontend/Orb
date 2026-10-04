@@ -185,17 +185,17 @@ export function renderWorldsSidebar() {
   el.innerHTML = html;
 }
 
-export function onWorldSearch(value) {
+function onWorldSearch(value) {
   _worldSearch = value;
   renderWorldsSidebar();
 }
 
-export function expandWorlds() {
+function expandWorlds() {
   _worldsExpanded = true;
   renderWorldsSidebar();
 }
 
-export function collapseWorlds() {
+function collapseWorlds() {
   _worldsExpanded = false;
   renderWorldsSidebar();
 }
@@ -214,7 +214,7 @@ async function updateSceneWorlds(change) {
   if (S.activeConvId === cid && S.conversationViewToken === token) reflectConversationWorldActivation(world_ids);
 }
 
-export function showRenameWorldModal(worldId) {
+function showRenameWorldModal(worldId) {
   const world = _getWorld(worldId);
   if (!world) return;
   showModal(
@@ -239,7 +239,7 @@ export function showRenameWorldModal(worldId) {
   }, 50);
 }
 
-export async function renameWorld(worldId) {
+async function renameWorld(worldId) {
   const name = $("rename-world-inp")?.value?.trim();
   if (!name) {
     toast("Name is required", true);
@@ -255,7 +255,7 @@ export async function renameWorld(worldId) {
   }
 }
 
-export async function showCreateWorldModal() {
+async function showCreateWorldModal() {
   showModal(
     `
     <h2>New world</h2>
@@ -272,7 +272,7 @@ export async function showCreateWorldModal() {
   setTimeout(() => $("world-name-inp")?.focus(), 50);
 }
 
-export async function createWorld() {
+async function createWorld() {
   const input = $("world-name-inp");
   const name = input?.value?.trim();
   if (!name) {
@@ -293,7 +293,7 @@ export async function createWorld() {
   }
 }
 
-export async function toggleWorldEnabled(worldId, enabled) {
+async function toggleWorldEnabled(worldId, enabled) {
   try {
     await updateSceneWorlds((cid) => api.put(`/conversations/${cid}/worlds/${worldId}`, { enabled }));
   } catch (_e) {
@@ -302,7 +302,7 @@ export async function toggleWorldEnabled(worldId, enabled) {
   renderWorldsSidebar();
 }
 
-export async function deleteWorld(worldId) {
+async function deleteWorld(worldId) {
   const world = _worlds.find((w) => w.id === worldId);
   const count = _entries[worldId]?.length;
   const entries = count == null ? "all its entries" : `its ${plural(count, "entry", "entries")}`;
@@ -342,7 +342,7 @@ function _guardDirty(proceed, message, confirmText) {
   showConfirmModal({ title: "Unsaved changes", message, confirmText, confirmClass: "btn-danger" }, proceed);
 }
 
-export async function openLorebook(worldId) {
+async function openLorebook(worldId) {
   _guardDirty(
     () => _openDrawer(worldId),
     "Discard changes to this entry and open another lorebook?",
@@ -368,7 +368,7 @@ async function _openDrawer(worldId) {
   $("lorebook-drawer")?.classList.remove("hidden");
 }
 
-export function closeLorebook() {
+function closeLorebook() {
   _guardDirty(_closeDrawer, "Discard changes to this entry and close the lorebook?", "Discard & close");
 }
 
@@ -670,12 +670,12 @@ function _markDirty() {
   }
 }
 
-export function lbDraftChange(field, value) {
+function lbDraftChange(field, value) {
   _draft[field] = value;
   _markDirty();
 }
 
-export function lbToggleConstant(checked) {
+function lbToggleConstant(checked) {
   _draft.constant = checked;
   _markDirty();
   renderLorebookDrawer();
@@ -687,7 +687,7 @@ function lbToggleSelective(checked) {
   renderLorebookDrawer();
 }
 
-export function lbEntrySearch(value) {
+function lbEntrySearch(value) {
   _entrySearch = value;
   const inp = $("lb-entry-search-inp");
   const caret = inp?.selectionStart ?? value.length;
@@ -699,12 +699,12 @@ export function lbEntrySearch(value) {
   }
 }
 
-export function lbSelectEntry(entryId) {
+function lbSelectEntry(entryId) {
   if (_selectedEntryId === entryId) return;
   _guardDirty(() => _doSelectEntry(entryId), "Discard changes to this entry and continue?", "Discard & continue");
 }
 
-export function lbBackToList() {
+function lbBackToList() {
   _guardDirty(
     () => {
       _selectedEntryId = null;
@@ -724,7 +724,7 @@ function _doSelectEntry(entryId) {
   renderLorebookDrawer();
 }
 
-export async function lbToggleEntry(entryId, enabled) {
+async function lbToggleEntry(entryId, enabled) {
   const worldId = _focusWorldId;
   try {
     const updated = await api.put(`/worlds/${worldId}/entries/${entryId}`, { enabled });
@@ -750,7 +750,7 @@ function _syncEntryRow(worldId, entryId) {
   if (countEl) countEl.textContent = `${entries.filter((e) => boolFlag(e.enabled)).length} active`;
 }
 
-export async function lbSaveEntry() {
+async function lbSaveEntry() {
   if (!_selectedEntryId) return;
   const worldId = _focusWorldId;
   try {
@@ -777,14 +777,14 @@ export async function lbSaveEntry() {
   }
 }
 
-export function lbDiscardChanges() {
+function lbDiscardChanges() {
   const entry = _getEntry(_selectedEntryId);
   if (entry) _draft = _draftFromEntry(entry);
   _dirty = false;
   renderLorebookDrawer();
 }
 
-export function lbDeleteEntry() {
+function lbDeleteEntry() {
   if (!_selectedEntryId) return;
   const worldId = _focusWorldId;
   showConfirmModal(
@@ -808,7 +808,7 @@ export function lbDeleteEntry() {
   );
 }
 
-export async function lbAddEntry() {
+async function lbAddEntry() {
   const worldId = _focusWorldId;
   try {
     const entry = await api.post(`/worlds/${worldId}/entries`, {
@@ -886,7 +886,7 @@ async function _requireChangeset(worldId, id) {
   return _findChangeset(worldId, id);
 }
 
-export async function toggleWorldDynamic(worldId, enabled) {
+async function toggleWorldDynamic(worldId, enabled) {
   try {
     _mergeWorld(worldId, await api.put(`/worlds/${worldId}/dynamic`, { enabled }));
   } catch (_e) {
@@ -909,7 +909,7 @@ async function _worldMutation(worldId, request, said) {
 const _decideChangeset = (worldId, id, action, said, body = {}) =>
   _worldMutation(worldId, () => api.post(`/worlds/${worldId}/changesets/${id}/${action}`, body), said);
 
-export function resetWorldToAuthored(worldId) {
+function resetWorldToAuthored(worldId) {
   showConfirmModal(
     {
       title: "Reset to Authored World",
@@ -1030,7 +1030,7 @@ export function initWorldProposalActions() {
   });
 }
 
-export function lbSelectTab(tab) {
+function lbSelectTab(tab) {
   _drawerTab = tab;
   renderLorebookDrawer();
 }
@@ -1041,7 +1041,7 @@ function _changesetListHtml(worldId, statuses, emptyText) {
   return rows.map(changesetRowHtml).join("");
 }
 
-export function lbImportJson() {
+function lbImportJson() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".json,application/json";

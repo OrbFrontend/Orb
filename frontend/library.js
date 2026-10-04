@@ -29,21 +29,7 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-export {
-  deleteInteractiveFragment,
-  deleteMoodFragment,
-  loadInteractiveFragments,
-  loadMoodFragments,
-  renderInteractiveFragments,
-  renderMoodFragments,
-  saveInteractiveFragment,
-  saveMoodFragment,
-  showInteractiveFragmentModal,
-  showMoodFragmentModal,
-  toggleInteractiveFragmentEnabled,
-  toggleMoodFragmentEnabled,
-  updateInteractiveFragmentExample,
-} from "./library_fragments.js";
+export { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
 
 let _pendingAvatar = null;
 let _pendingImportId = null;
@@ -54,11 +40,11 @@ let _pendingExtensions = null;
 let _readCardScripts = null;
 // What the open editor last saved or loaded, so closing it asks before dropping edits.
 let _charEditBaseline = null;
-export function triggerImport() {
+function triggerImport() {
   $("import-file-input").click();
 }
 
-export async function handleImportFile(inp) {
+async function handleImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
@@ -112,7 +98,7 @@ async function performDeleteCharacter(id) {
   }
 }
 
-export function addAltGreeting(prefix) {
+function addAltGreeting(prefix) {
   const container = $(`${prefix}-ag-list`);
   if (!container) return;
   const row = document.createElement("div");
@@ -127,7 +113,7 @@ function _readAltGreetings(prefix) {
   return [...container.querySelectorAll("textarea")].map((t) => t.value.trim()).filter(Boolean);
 }
 
-export function triggerAvatarCrop(prefix, _cardId) {
+function triggerAvatarCrop(prefix, _cardId) {
   showCropModal(
     ({ b64, mime }) => {
       _pendingAvatar = { b64, mime };
@@ -139,11 +125,11 @@ export function triggerAvatarCrop(prefix, _cardId) {
   );
 }
 
-export function exportCharacter(id, name) {
+function exportCharacter(id, name) {
   downloadBlob(`${name || "character"}.png`, `/api/characters/${id}/export`);
 }
 
-export async function handleExpressionsZip(inp, id) {
+async function handleExpressionsZip(inp, id) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
@@ -157,7 +143,7 @@ export async function handleExpressionsZip(inp, id) {
   }
 }
 
-export async function clearExpressions(id) {
+async function clearExpressions(id) {
   try {
     await api.del(`/characters/${id}/expressions`);
     const status = document.querySelector('[id$="-expr-status"]');
@@ -273,7 +259,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     `;
 }
 
-export function showCharCreateModal() {
+function showCharCreateModal() {
   _pendingAvatar = null;
   showModal(
     `
@@ -363,7 +349,7 @@ function _readCharEditForm() {
   };
 }
 
-export async function createCharacter() {
+async function createCharacter() {
   const validation = _validateCharForm("cc");
   if (!validation.valid) {
     toast(validation.error, true);

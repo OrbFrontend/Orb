@@ -2,7 +2,7 @@ import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { renderMessages } from "./chat_core.js";
 import { EDIT_ICON } from "./icons.js";
-import { closeModal, confirmDelete, setModalDismiss, showCropModal, showModal } from "./modal.js";
+import { confirmDelete, setModalDismiss, showCropModal, showModal } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -27,7 +27,7 @@ export async function loadPersonas() {
 }
 
 /** Repaint the chat gutter when persona state changes. */
-export function repaintUserAvatars() {
+function repaintUserAvatars() {
   if (S.showChatAvatars) renderMessages();
 }
 
@@ -62,14 +62,14 @@ export function updateUserBtn() {
   if (mobileBtn) mobileBtn.textContent = label;
 }
 
-export function activeLockContext() {
+function activeLockContext() {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
   const card = conv?.character_card_id ? charactersView().find((c) => c.id === conv.character_card_id) : null;
   const charName = conv?.character_name || card?.name || "";
   return { conv, card, charName };
 }
 
-export function showUserModal() {
+function showUserModal() {
   const { conv, card, charName } = activeLockContext();
   const pinned = !!(conv?.persona_lock_id || card?.persona_lock_id);
   const personaItems = S.personas
@@ -155,25 +155,7 @@ function pinnedStatusText(conv, card, charName) {
   return `${scope}. Choosing another persona will move this chat pin.`;
 }
 
-export async function saveUserProfile() {
-  const name = $("user-name-input").value.trim();
-  const desc = $("user-desc-input").value.trim();
-  const validation = validate.validateUserProfile(name, desc);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
-  try {
-    S.settings = await api.put("/settings", { user_name: name || "User", user_description: desc });
-    updateUserBtn();
-    closeModal();
-    toast("User profile saved");
-  } catch (e) {
-    toast(`Failed: ${e.message}`, true);
-  }
-}
-
-export function showPersonaEditModal(personaId) {
+function showPersonaEditModal(personaId) {
   const persona = personaId ? S.personas.find((p) => p.id === personaId) : null;
   const isEdit = persona !== null;
   _pendingPersonaAvatar = null;
@@ -245,7 +227,7 @@ function wirePersonaAvatarControls(persona) {
   });
 }
 
-export async function savePersona(personaId) {
+async function savePersona(personaId) {
   const name = $("persona-name-input").value.trim();
   const description = $("persona-desc-input").value.trim();
   const setActive = $("persona-active-checkbox").checked;
@@ -286,7 +268,7 @@ export async function savePersona(personaId) {
   }
 }
 
-export async function deletePersona(personaId) {
+async function deletePersona(personaId) {
   const name = S.personas.find((p) => p.id === personaId)?.name;
   confirmDelete("persona", `Delete ${name ? `"${esc(name)}"` : "this persona"}? This cannot be undone.`, async () => {
     try {
@@ -305,7 +287,7 @@ export async function deletePersona(personaId) {
   });
 }
 
-export async function activatePersona(personaId) {
+async function activatePersona(personaId) {
   const { conv, card } = activeLockContext();
   const pinnedId = conv?.persona_lock_id || card?.persona_lock_id || null;
   const repin = !!conv && !!pinnedId && pinnedId !== personaId;
@@ -327,11 +309,11 @@ export async function activatePersona(personaId) {
   }
 }
 
-export async function editPersona(personaId) {
+async function editPersona(personaId) {
   showPersonaEditModal(personaId);
 }
 
-export async function setPersonaConversationLock(personaId, locked) {
+async function setPersonaConversationLock(personaId, locked) {
   const { conv } = activeLockContext();
   if (!conv) return;
   const replacing = locked && !!conv.persona_lock_id && conv.persona_lock_id !== personaId;
@@ -363,7 +345,7 @@ export async function ensurePersonaPinned() {
   }
 }
 
-export async function setPersonaCharacterLock(personaId, locked) {
+async function setPersonaCharacterLock(personaId, locked) {
   const { card } = activeLockContext();
   if (!card) return;
   const replacing = locked && !!card.persona_lock_id && card.persona_lock_id !== personaId;

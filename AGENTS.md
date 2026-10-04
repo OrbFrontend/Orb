@@ -39,6 +39,7 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 
 - Use vanilla ES modules and keep shared state in `state.js`.
 - Give each new top-level module a layer in `scripts/check_frontend_layers.py`. A module imports only its own layer or lower; invert the dependency rather than import upward.
+- Export only what another module or a frontend test imports; the layer check rejects every other export except the `workflow_api.js` facade.
 - Keep streaming behavior in the stream modules and route chat generation through the shared stream helper.
 - Markup reaches code through actions: an element names `data-wf-action="scope:name"` (plus `data-wf-on` for events other than click), and the module that owns the behavior registers it with `registerActions` from `actions.js`. Do not add inline `on*=` handlers or `window` globals; the layer check rejects both, and rejects action names nothing registers.
 - Workflow plug-ins under `frontend/workflows/<id>/` import only their own files and `/static/workflow_api.js`. A capability a plug-in needs from the app becomes a new facade export.

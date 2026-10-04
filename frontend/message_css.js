@@ -195,7 +195,7 @@ const SINGLES = {
 };
 
 /** Tokenize a sheet, a declaration list or a selector. Never throws. */
-export function tokenize(css) {
+function tokenize(css) {
   const out = [];
   const n = css.length;
   // Comments and whitespace both separate tokens, which is what keeps

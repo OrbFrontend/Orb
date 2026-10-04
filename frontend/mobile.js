@@ -96,11 +96,11 @@ function closeMobileSidebar() {
   setAppState(APP_STATE.sidebarOpen, false);
 }
 
-export function closeMobileHeaderActions() {
+function closeMobileHeaderActions() {
   setElementOpen(IDS.mobileActionsMenu, false);
 }
 
-export function toggleMobileHeaderActions() {
+function toggleMobileHeaderActions() {
   if (!isMobileSidebarViewport()) return;
   setElementOpen(IDS.mobileActionsMenu, !isElementOpen(IDS.mobileActionsMenu));
   _closeBurger();
@@ -176,7 +176,7 @@ function closeTopMobileOverlay() {
   return false;
 }
 
-export function toggleMobileSidebar() {
+function toggleMobileSidebar() {
   if (!isMobileSidebarViewport()) return;
   closeMobileUtilityPanels();
   closeMobileHeaderActions();

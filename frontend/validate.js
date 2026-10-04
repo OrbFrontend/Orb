@@ -12,8 +12,6 @@ const MAX_FRAGMENT_DESCRIPTION = 1000;
 const MAX_FRAGMENT_PROMPT = 10000;
 const MAX_FRAGMENT_NEGATIVE_PROMPT = 5000;
 const MAX_SETTINGS_PROMPT = 50000;
-const MAX_USER_PROFILE_NAME = 50;
-const MAX_USER_PROFILE_DESC = 1000;
 const MAX_PERSONA_NAME = 50;
 const MAX_PERSONA_DESC = 1000;
 const MAX_PHRASE_VARIANT = 100;
@@ -27,15 +25,7 @@ const ALLOWED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/gif
 const FRAGMENT_ID_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
 const VALID_URL_REGEX = /^https?:\/\/.+$/;
 
-export function required(value, fieldName = "Field") {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  if (!trimmed) {
-    return { valid: false, error: `${fieldName} is required` };
-  }
-  return { valid: true };
-}
-
-export function maxLength(value, max, fieldName = "Field") {
+function maxLength(value, max, fieldName = "Field") {
   if (typeof value !== "string") return { valid: true };
   if (value.length > max) {
     return { valid: false, error: `${fieldName} must be ${max} characters or less` };
@@ -43,15 +33,7 @@ export function maxLength(value, max, fieldName = "Field") {
   return { valid: true };
 }
 
-export function minLength(value, min, fieldName = "Field") {
-  if (typeof value !== "string") return { valid: true };
-  if (value.length < min) {
-    return { valid: false, error: `${fieldName} must be at least ${min} characters` };
-  }
-  return { valid: true };
-}
-
-export function isNumber(value, fieldName = "Field") {
+function isNumber(value, fieldName = "Field") {
   if (value === "" || value == null) return { valid: true };
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (Number.isNaN(num)) {
@@ -60,7 +42,7 @@ export function isNumber(value, fieldName = "Field") {
   return { valid: true, parsed: num };
 }
 
-export function numberRange(value, min, max, fieldName = "Field") {
+function numberRange(value, min, max, fieldName = "Field") {
   if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (value < min || value > max) {
     return { valid: false, error: `${fieldName} must be between ${min} and ${max}` };
@@ -68,7 +50,7 @@ export function numberRange(value, min, max, fieldName = "Field") {
   return { valid: true };
 }
 
-export function isInteger(value, fieldName = "Field") {
+function isInteger(value, fieldName = "Field") {
   if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (!Number.isInteger(value)) {
     return { valid: false, error: `${fieldName} must be a whole number` };
@@ -76,7 +58,7 @@ export function isInteger(value, fieldName = "Field") {
   return { valid: true };
 }
 
-export function formatMatch(value, _fieldName, format = "url") {
+function formatMatch(value, _fieldName, format = "url") {
   if (typeof value !== "string" || !value.trim()) return { valid: true };
   const regex = format === "url" ? VALID_URL_REGEX : /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!regex.test(value.trim())) {
@@ -85,7 +67,7 @@ export function formatMatch(value, _fieldName, format = "url") {
   return { valid: true };
 }
 
-export function patternMatch(value, regex, fieldName, hint) {
+function patternMatch(value, regex, fieldName, hint) {
   if (typeof value !== "string" || !value.trim()) return { valid: true };
   if (!regex.test(value.trim())) {
     return { valid: false, error: `${fieldName} must match format: ${hint}` };
@@ -93,7 +75,7 @@ export function patternMatch(value, regex, fieldName, hint) {
   return { valid: true };
 }
 
-export function validateImageFile(file, maxSize = MAX_IMAGE_SIZE, allowedMimes = ALLOWED_IMAGE_MIMES) {
+function validateImageFile(file, maxSize = MAX_IMAGE_SIZE, allowedMimes = ALLOWED_IMAGE_MIMES) {
   if (!file) {
     return { valid: false, error: "No file selected" };
   }
@@ -110,7 +92,7 @@ export function validateImageFile(file, maxSize = MAX_IMAGE_SIZE, allowedMimes =
   return { valid: true };
 }
 
-export function validateImageFiles(files, maxCount = 10, maxSize = MAX_IMAGE_SIZE, totalMaxSize = 20 * 1024 * 1024) {
+function validateImageFiles(files, maxCount = 10, maxSize = MAX_IMAGE_SIZE, totalMaxSize = 20 * 1024 * 1024) {
   const warnings = [];
 
   if (!files || files.length === 0) {
@@ -148,19 +130,19 @@ export function validateChatInput(value) {
   return boundedRequired(value, MAX_CHAT_INPUT, "Message", "Message cannot be empty");
 }
 
-export function validateCharacterName(value) {
+function validateCharacterName(value) {
   return boundedRequired(value, MAX_CHARACTER_NAME, "Character name", "Character name is required");
 }
 
-export function validateCharacterField(value, fieldName = "Field") {
+function validateCharacterField(value, fieldName = "Field") {
   return maxLength(value, MAX_CHARACTER_FIELD, fieldName);
 }
 
-export function validateCharacterAdvancedField(value, fieldName = "Field") {
+function validateCharacterAdvancedField(value, fieldName = "Field") {
   return maxLength(value, MAX_CHARACTER_ADVANCED, fieldName);
 }
 
-export function validateAlternateGreetings(greetings) {
+function validateAlternateGreetings(greetings) {
   if (!Array.isArray(greetings)) return { valid: true };
 
   const valid = greetings.filter((g) => typeof g === "string" && g.trim());
@@ -217,7 +199,7 @@ function integerRange(value, min, max, label) {
   return range.valid ? isInteger(value, label) : range;
 }
 
-export function validateMoodFragment(data) {
+function validateMoodFragment(data) {
   const text = fragmentText(
     data,
     ["id", "label", "description", "prompt_text", "negative_prompt"],
@@ -233,7 +215,7 @@ const STATE_SETTINGS = {
   state_inject: ["off", "director", "writer", "both"],
 };
 
-export function validateInteractiveFragment(data) {
+function validateInteractiveFragment(data) {
   const text = fragmentText(
     data,
     ["id", "label", "injection_label", "description"],
@@ -294,20 +276,12 @@ export function validateSetting(key, value) {
   return { valid: true };
 }
 
-function profile(name, description, maxName, maxDescription, emptyError) {
-  const required = boundedRequired(name, maxName, "Name", emptyError);
-  return required.valid ? maxLength(description, maxDescription, "Description") : required;
+function validatePersona(name, description) {
+  const named = boundedRequired(name, MAX_PERSONA_NAME, "Name", "Persona name is required");
+  return named.valid ? maxLength(description, MAX_PERSONA_DESC, "Description") : named;
 }
 
-export function validateUserProfile(name, description) {
-  return profile(name, description, MAX_USER_PROFILE_NAME, MAX_USER_PROFILE_DESC, "Name is required");
-}
-
-export function validatePersona(name, description) {
-  return profile(name, description, MAX_PERSONA_NAME, MAX_PERSONA_DESC, "Persona name is required");
-}
-
-export function validatePhraseVariants(variants) {
+function validatePhraseVariants(variants) {
   if (!Array.isArray(variants)) return { valid: true };
 
   const validVariants = variants.filter((v) => typeof v === "string" && v.trim());
@@ -328,7 +302,7 @@ export function validatePhraseVariants(variants) {
   return { valid: true };
 }
 
-export function validatePhraseRegex(pattern) {
+function validatePhraseRegex(pattern) {
   const src = (pattern || "").trim();
   if (!src) {
     return { valid: false, error: "A regex pattern is required" };
@@ -344,7 +318,7 @@ export function validatePhraseRegex(pattern) {
   }
 }
 
-export function validateBrowseSearch(query) {
+function validateBrowseSearch(query) {
   return maxLength(query, MAX_BROWSE_SEARCH, "Search query");
 }
 
@@ -355,14 +329,6 @@ export function validateConversationTitle(value) {
 export const validateEditMessage = validateChatInput;
 
 export const validate = {
-  required,
-  maxLength,
-  minLength,
-  isNumber,
-  numberRange,
-  isInteger,
-  formatMatch,
-  patternMatch,
   validateImageFile,
   validateImageFiles,
   validateChatInput,
@@ -373,7 +339,6 @@ export const validate = {
   validateMoodFragment,
   validateInteractiveFragment,
   validateSetting,
-  validateUserProfile,
   validatePersona,
   validatePhraseVariants,
   validatePhraseRegex,

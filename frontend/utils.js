@@ -140,7 +140,7 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar/thumb`;
 }
 
-export function personaAvatarUrl(personaId) {
+function personaAvatarUrl(personaId) {
   return `/api/user-personas/${personaId}/avatar`;
 }
 

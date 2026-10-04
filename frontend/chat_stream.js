@@ -264,7 +264,7 @@ export function setStreaming(active) {
   renderGroupCast();
 }
 
-export function stopGeneration() {
+function stopGeneration() {
   S.streamOp?.stop();
 }
 
@@ -896,7 +896,7 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
   }
 }
 
-export function agentPayload() {
+function agentPayload() {
   return { enable_agent: S.agentEnabled };
 }
 
@@ -987,7 +987,7 @@ export async function runStreamRequest(
   if (afterDone && isViewing(state)) await afterDone();
 }
 
-export async function continueFromUser() {
+async function continueFromUser() {
   if (!S.activeConvId || !canStartGeneration()) return;
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role !== "user") {
@@ -997,7 +997,7 @@ export async function continueFromUser() {
   await runStreamRequest(convUrl(S.activeConvId, "continue"), turnPayload());
 }
 
-export async function speakAsMember(memberId) {
+async function speakAsMember(memberId) {
   if (!S.activeConvId || !memberId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "speak"), { speaker_member_id: memberId });
 }
@@ -1060,7 +1060,7 @@ export async function sendMessage() {
 
 // Resolve the reply target now because it may have been deleted or swiped since paint.
 // With no reply left, continue from the user message.
-export async function regenerateFromUser(userMsgId) {
+async function regenerateFromUser(userMsgId) {
   const reply = S.messages.find((m) => m.role === "assistant" && m.id && m.parent_id === userMsgId);
   if (reply) {
     await regenerate(reply.id);
@@ -1069,21 +1069,21 @@ export async function regenerateFromUser(userMsgId) {
   await continueFromUser();
 }
 
-export async function regenerate(msgId) {
+async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
 }
 
-export async function superRegenerate(msgId) {
+async function superRegenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
 }
 
-export function toggleMagicInput(msgId) {
+function toggleMagicInput(msgId) {
   S.magicInputMsgId = S.magicInputMsgId === msgId ? null : msgId;
   renderMessages();
   if (S.magicInputMsgId !== msgId) return;
@@ -1109,7 +1109,7 @@ export function toggleMagicInput(msgId) {
   document.addEventListener("mousedown", onMouseDown);
 }
 
-export function handleMagicKey(event, msgId) {
+function handleMagicKey(event, msgId) {
   if (event.key === "Enter") {
     event.preventDefault();
     submitMagicRewrite(msgId);
@@ -1119,7 +1119,7 @@ export function handleMagicKey(event, msgId) {
   }
 }
 
-export async function submitMagicRewrite(msgId) {
+async function submitMagicRewrite(msgId) {
   const input = document.getElementById(`magic-input-${msgId}`);
   if (!input) return;
   const direction = input.value.trim();
@@ -1135,7 +1135,7 @@ export async function submitMagicRewrite(msgId) {
   );
 }
 
-export async function saveQueuedEdits(convId = S.activeConvId) {
+async function saveQueuedEdits(convId = S.activeConvId) {
   const state = conversationState(convId);
   for (const [id, content] of Object.entries(state.queuedEdits)) {
     const target = state.messages.find((m) => m.id === Number(id));
@@ -1170,7 +1170,7 @@ export function retryQueuedEdits() {
   return resolveQueuedEdit((cid) => saveQueuedEdits(cid));
 }
 
-export function discardQueuedEdit(button) {
+function discardQueuedEdit(button) {
   return resolveQueuedEdit(async (cid, state) => {
     const msgs = await api.get(convUrl(cid, "messages"));
     delete state.queuedEdits[button.dataset.msgId];

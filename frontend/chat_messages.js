@@ -37,7 +37,7 @@ import {
 } from "./utils.js";
 import { validate } from "./validate.js";
 
-export function startEdit(msgId) {
+function startEdit(msgId) {
   S.editingMsgId = msgId;
   S.forkEditMsgId = null;
   S.editingPendingUserMsg = false;
@@ -47,7 +47,7 @@ export function startEdit(msgId) {
   scrollToMessage(msgId);
 }
 
-export function cancelEdit() {
+function cancelEdit() {
   const msgId = S.editingMsgId;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -56,7 +56,7 @@ export function cancelEdit() {
   if (msgId != null) scrollToMessage(msgId);
 }
 
-export function startForkEdit(msgId) {
+function startForkEdit(msgId) {
   S.forkEditMsgId = msgId;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -69,7 +69,7 @@ export function startForkEdit(msgId) {
   if (childAssistant) inspectMessage(childAssistant.id);
 }
 
-export function cancelForkEdit() {
+function cancelForkEdit() {
   const msgId = S.forkEditMsgId;
   S.forkEditMsgId = null;
   renderMessages();
@@ -101,7 +101,7 @@ function focusEditTextarea(ta, onEscape) {
   if (messageEl) messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
 }
 
-export async function deleteMessage(msgId) {
+async function deleteMessage(msgId) {
   if (S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const cid = S.activeConvId;
@@ -141,7 +141,7 @@ export async function deleteMessage(msgId) {
 
 const PROSE_REWRITE_CHANNEL = "prose-rewrite";
 
-export async function rewriteMessageProse(msgId) {
+async function rewriteMessageProse(msgId) {
   if (!S.activeConvId || S.isStreaming || S.proseRewriteMsgId) return;
   if (!requestSendPermission()) return;
   const source = S.messages.find((m) => m.id === msgId)?.content || "";
@@ -237,7 +237,7 @@ function applyProseRewriteSnapshot(msgId, content) {
 // of order. Only the newest switch is allowed to touch the DOM.
 let _branchSwitchSeq = 0;
 
-export async function switchBranch(msgId) {
+async function switchBranch(msgId) {
   if (!msgId || S.isStreaming || S.proseRewriteMsgId || S.conversationLoading) return;
   if (!requestSendPermission()) return;
   const seq = ++_branchSwitchSeq;
@@ -310,7 +310,7 @@ function navigateLastBranch(dir) {
   return false;
 }
 
-export function handleChatKeyNav(e) {
+function handleChatKeyNav(e) {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const key = e.key;
   if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "ArrowUp" && key !== "ArrowDown") return;
@@ -414,7 +414,7 @@ function readEditDraft(textareaId) {
   return ta.value;
 }
 
-export async function saveEdit(msgId, _role) {
+async function saveEdit(msgId, _role) {
   if (!requestSendPermission()) return;
   const content = readEditDraft(`edit-textarea-${msgId}`);
   if (content === null) return;
@@ -441,7 +441,7 @@ export async function saveEdit(msgId, _role) {
   }
 }
 
-export async function saveForkEdit(msgId) {
+async function saveForkEdit(msgId) {
   const content = readEditDraft(`edit-textarea-${msgId}`);
   if (content === null) return;
   if (!S.activeConvId || !canStartGeneration()) return;
@@ -483,7 +483,7 @@ export async function saveForkEdit(msgId) {
   );
 }
 
-export function startEditPending() {
+function startEditPending() {
   S.editingPendingUserMsg = true;
   S.editingMsgId = null;
   replayAttachmentInvalidations();
@@ -492,7 +492,7 @@ export function startEditPending() {
   focusEditTextarea($("edit-textarea-pending"), cancelEditPending);
 }
 
-export async function saveEditPending() {
+async function saveEditPending() {
   const content = readEditDraft("edit-textarea-pending");
   if (content === null) return;
   const trimmed = content.trim();
@@ -513,7 +513,7 @@ export async function saveEditPending() {
   renderMessages();
 }
 
-export function cancelEditPending() {
+function cancelEditPending() {
   S.editingPendingUserMsg = false;
   renderMessages();
 }

@@ -7,7 +7,7 @@ import { conversationState, S } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
-export function triggerAttachImage() {
+function triggerAttachImage() {
   $("attach-image-input").click();
 }
 
@@ -52,7 +52,7 @@ function handleAttachmentSelect(e) {
   e.target.value = "";
 }
 
-export function updateAttachmentPreview() {
+function updateAttachmentPreview() {
   const container = $("attachment-preview");
   container.innerHTML = "";
   S.attachments.forEach((att, idx) => {

@@ -3,9 +3,9 @@
 
 Check that markup reaches code only through registered data-wf-action names (no
 inline handlers, no window globals, no unregistered names), cross-module private
-names and frozen workflow_api exports. Plugins may import only their own modules
-and workflow_api; computed dynamic imports are rejected. Exit non-zero on
-violations via lint.sh.
+names, frozen workflow_api exports, and that every other export has an importer.
+Plugins may import only their own modules and workflow_api; computed dynamic
+imports are rejected. Exit non-zero on violations via lint.sh.
 """
 
 from __future__ import annotations
@@ -234,6 +234,15 @@ _ACTION_NAME = re.compile(r'["\'`]([a-z][\w-]*):([A-Za-z]\w*)["\'`]')
 _ACTION_ATTRIBUTE = re.compile(r'\bdata-wf-action\s*=\s*["\'`]([^"\'`\s${}<>]+)["\'`]')
 # workflow_api.js exports: `export function X`, `export const X`, and re-export lists.
 _EXPORT_DECL = re.compile(r"export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z0-9_]+)")
+# Every module's exports and the imports that consume them, for the unused-export check.
+_EXPORTED_DECL = re.compile(r"^export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)", re.MULTILINE)
+_EXPORT_LIST = re.compile(r'^export\s*\{([^{}]*)\}\s*(?:from\s+["\']([^"\']+)["\'])?', re.MULTILINE)
+_IMPORT_NAMED = re.compile(r'\bimport\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s+["\']([^"\']+)["\']')
+_IMPORT_NAMESPACE = re.compile(r'\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["\']([^"\']+)["\']')
+# `const { a, b: c } = await import("x")` and `const ns = await import("x")`, the forms tests use.
+_DYNAMIC_DESTRUCTURE = re.compile(r'\{([^{}]*)\}\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
+_COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+_DYNAMIC_NAMESPACE = re.compile(r'\b([A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*["\']([^"\']+)["\']\s*\)')
 
 
 def rel_basename(importer: Path, spec: str) -> str | None:
@@ -317,6 +326,63 @@ def underscore_import_count(text: str) -> int:
     return n
 
 
+def resolve_spec(importer: Path, spec: str, frontend: Path = FE) -> Path | None:
+    """The file a relative or /static/ import specifier names, else None."""
+    if spec.startswith("/static/"):
+        return (frontend / spec.removeprefix("/static/")).resolve()
+    if spec.startswith(("./", "../")):
+        return (importer.parent / spec).resolve()
+    return None
+
+
+def module_exports(path: Path, text: str, frontend: Path = FE) -> dict[str, tuple[Path, str] | None]:
+    """Each exported name, mapped to the (module, name) it re-exports, or None when declared here."""
+    names: dict[str, tuple[Path, str] | None] = dict.fromkeys(_EXPORTED_DECL.findall(text))
+    for body, spec in _EXPORT_LIST.findall(text):
+        source = resolve_spec(path, spec, frontend) if spec else None
+        for raw in _COMMENT.sub("", body).split(","):
+            original, _, public = raw.strip().partition(" as ")
+            if original:
+                names[(public or original).strip()] = (source, original.strip()) if source else None
+    return names
+
+
+def imported_names(path: Path, text: str, frontend: Path = FE) -> set[tuple[Path, str]]:
+    """Every (module, name) *text* imports, statically, through a dynamic import, or as a namespace member."""
+    used: set[tuple[Path, str]] = set()
+    for body, spec in _IMPORT_NAMED.findall(text) + _DYNAMIC_DESTRUCTURE.findall(text):
+        if target := resolve_spec(path, spec, frontend):
+            names = (re.split(r"\s+as\s+|:", raw)[0].strip() for raw in _COMMENT.sub("", body).split(","))
+            used |= {(target, name) for name in names if name}
+    for namespace, spec in _IMPORT_NAMESPACE.findall(text) + _DYNAMIC_NAMESPACE.findall(text):
+        if target := resolve_spec(path, spec, frontend):
+            members = re.findall(rf"(?<![\w$.]){re.escape(namespace)}\.([A-Za-z_$][\w$]*)", text)
+            used |= {(target, name) for name in members}
+    return used
+
+
+def unused_exports(
+    modules: dict[Path, str], consumers: dict[Path, str], roots: set[Path], frontend: Path = FE
+) -> dict[Path, set[str]]:
+    """Exports nothing imports, per module. *roots* export a public surface and count as used.
+
+    A re-export counts as a use of its source only while something imports the re-export itself.
+    """
+    exports = {path: module_exports(path, text, frontend) for path, text in modules.items()}
+    used: set[tuple[Path, str]] = {(root, name) for root in roots for name in exports.get(root, {})}
+    for path, text in {**modules, **consumers}.items():
+        used |= imported_names(path, text, frontend)
+    pending = list(used)
+    while pending:
+        path, name = pending.pop()
+        source = exports.get(path, {}).get(name)
+        if source and source not in used:
+            used.add(source)
+            pending.append(source)
+    unused = {path: {name for name in names if (path, name) not in used} for path, names in exports.items()}
+    return {path: names for path, names in unused.items() if names}
+
+
 def unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
     """Unknown literal actions, including a plug-in's WORKFLOW_ID templates."""
     if workflow_id is not None:
@@ -366,7 +432,7 @@ def main() -> int:
         if n := len(_INLINE_ON.findall(text)):
             errors.append(f"[inline] {rel}: {n} inline on*= handler(s); use data-wf-action and registerAction")
         if n := len(_WINDOW_GLOBAL.findall(text)):
-            errors.append(f"[global] {rel}: {n} window global(s); export the name, or register an action")
+            errors.append(f"[global] {rel}: {n} window global(s); import the name, or register an action")
         if path.suffix == ".js":
             registered |= registered_actions(path, text)
     for path, text in texts.items():
@@ -415,6 +481,18 @@ def main() -> int:
     if added:
         errors.append(
             f"[abi] workflow_api.js has NEW exports not in FROZEN_ABI — add them there (additive-only): {sorted(added)}"
+        )
+
+    # 5. An export is a contract with an importer. workflow_api.js is exempt: plug-ins outside this tree import it.
+    modules = {path.resolve(): text for path, text in texts.items() if path.suffix == ".js"}
+    tests = ROOT / "tests" / "frontend"
+    consumers = {
+        path.resolve(): path.read_text(encoding="utf-8") for path in tests.rglob("*") if path.suffix in (".js", ".mjs")
+    }
+    unused = unused_exports(modules, consumers, {(FE / "workflow_api.js").resolve()})
+    for path, names in sorted(unused.items()):
+        errors.append(
+            f"[export] {path.relative_to(FE)}: nothing imports {', '.join(sorted(names))}; drop the export or the declaration"
         )
 
     # Report.

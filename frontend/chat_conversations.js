@@ -162,7 +162,7 @@ export async function selectChar(id, source = "recent") {
   }
 }
 
-export async function newConvForChar(id) {
+async function newConvForChar(id) {
   try {
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
@@ -174,7 +174,7 @@ export async function newConvForChar(id) {
   }
 }
 
-export async function newConversationHere() {
+async function newConversationHere() {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
   if (conv?.kind !== "group") {
     if (!S.activeCharId) {
@@ -362,7 +362,7 @@ async function _deleteGroupFamily(rootId) {
   );
 }
 
-export async function deleteConversationFromModal(id, rootId = "") {
+async function deleteConversationFromModal(id, rootId = "") {
   const conv = S.conversations.find((c) => c.id === id);
   confirmDeleteConversation(id, conv?.message_count ?? null, () =>
     showConvHistoryModal(rootId ? { groupRootId: rootId } : null),
@@ -375,7 +375,7 @@ function convHistoryScope() {
   return S.activeCharId ? { charId: S.activeCharId } : null;
 }
 
-export async function showConvHistoryModal(scope = null) {
+async function showConvHistoryModal(scope = null) {
   const target = scope || convHistoryScope();
   if (!target) {
     toast("Select a character first", true);
@@ -425,7 +425,7 @@ export async function showConvHistoryModal(scope = null) {
     <div class="modal-list">${items}</div>`);
 }
 
-export async function createCheckpoint() {
+async function createCheckpoint() {
   if (!S.activeConvId) {
     toast("No active conversation", true);
     return;
@@ -572,7 +572,7 @@ export async function generateCompressionSummary() {
   }
 }
 
-export async function applyCompression() {
+async function applyCompression() {
   if (_compressOperation) return;
   const cid = _compressConvId;
   const dialogToken = _compressDialogToken;
@@ -614,7 +614,7 @@ export async function applyCompression() {
 
 let _titleEditBackup = "";
 
-export function startEditTitle() {
+function startEditTitle() {
   if (!S.activeConvId) return;
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
   if (!conv) return;
@@ -635,7 +635,7 @@ export function startEditTitle() {
   input.select();
 }
 
-export function handleTitleEditKey(e) {
+function handleTitleEditKey(e) {
   if (e.key === "Enter") {
     e.preventDefault();
     saveTitleEdit();
@@ -646,7 +646,7 @@ export function handleTitleEditKey(e) {
   }
 }
 
-export async function saveTitleEdit() {
+async function saveTitleEdit() {
   const inp = $("chat-title-input");
   if (!inp) return;
   const newTitle = inp.value.trim();
@@ -681,7 +681,7 @@ export async function saveTitleEdit() {
   }
 }
 
-export function cancelTitleEdit() {
+function cancelTitleEdit() {
   const inp = $("chat-title-input");
   if (!inp) return;
   const div = document.createElement("div");

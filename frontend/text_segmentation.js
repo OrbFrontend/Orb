@@ -116,7 +116,7 @@ function _periodIsNonterminal(text, period, nextIndex) {
   return LOWERCASE_CONTINUATION.has(abbreviation) && next === next.toLowerCase() && LETTER.test(next);
 }
 
-export function sentenceBoundaryEnds(text) {
+function sentenceBoundaryEnds(text) {
   const ends = [];
   let i = 0;
   while (i < text.length) {

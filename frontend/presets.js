@@ -33,7 +33,7 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-export function showPresetsModal() {
+function showPresetsModal() {
   showModal(`
     <div class="modal-title-row">
       <div>
@@ -97,7 +97,7 @@ function presetTitle(name) {
   return libraryByName[name]?.label || name;
 }
 
-export function showSnapshotModal() {
+function showSnapshotModal() {
   const rows = DOMAINS.map(
     (d) => `
     <label class="modal-checkbox-label">
@@ -133,7 +133,7 @@ export function showSnapshotModal() {
   `);
 }
 
-export function onPresetDomainChange(cb) {
+function onPresetDomainChange(cb) {
   const domain = cb.dataset.domain;
   if (cb.dataset.requires && cb.checked) {
     const req = $(`exp-${cb.dataset.requires}`);
@@ -155,7 +155,7 @@ function selectedDomains() {
   return DOMAINS.filter((d) => $(`exp-${d.id}`)?.checked).map((d) => d.id);
 }
 
-export async function doCreateSnapshot() {
+async function doCreateSnapshot() {
   const domains = selectedDomains();
   if (!domains.length) {
     toast("Select at least one thing to save", true);
@@ -172,11 +172,11 @@ export async function doCreateSnapshot() {
   });
 }
 
-export function triggerPresetImport() {
+function triggerPresetImport() {
   $("preset-import-input").click();
 }
 
-export async function handlePresetImportFile(inp) {
+async function handlePresetImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
@@ -188,11 +188,11 @@ export async function handlePresetImportFile(inp) {
   });
 }
 
-export function downloadPreset(name) {
+function downloadPreset(name) {
   downloadBlob(name, `/api/presets/${encodeURIComponent(name)}/download`);
 }
 
-export function applyPreset(name) {
+function applyPreset(name) {
   showSubConfirmModal(
     {
       title: "Apply preset",
@@ -208,7 +208,7 @@ export function applyPreset(name) {
   );
 }
 
-export function restorePreset(name) {
+function restorePreset(name) {
   const domains = libraryByName[name]?.included_domains || [];
   const full = !domains.length || domains.length >= DOMAINS.length;
   const labels = domains.map((d) => DOMAINS.find((x) => x.id === d)?.label || d).join(", ");
@@ -231,7 +231,7 @@ export function restorePreset(name) {
   );
 }
 
-export function deletePreset(name) {
+function deletePreset(name) {
   showSubConfirmModal(
     { title: "Delete file", message: `Delete "${esc(name)}" from the library?`, confirmText: "Delete" },
     async () => {
@@ -253,7 +253,7 @@ function finishApply(r) {
   setTimeout(() => location.reload(), 800);
 }
 
-export async function refreshPresetLibrary() {
+async function refreshPresetLibrary() {
   const el = $("preset-library-list");
   if (!el) return;
   try {

@@ -286,4 +286,4 @@ function combinations(ids) {
   return pairs;
 }
 
-export { combinations, conversationCount, memberMeta };
+export { combinations, memberMeta };

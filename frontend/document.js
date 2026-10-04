@@ -130,7 +130,7 @@ function docRestore(snap) {
   updateUndoButton();
 }
 
-export function docUndo() {
+function docUndo() {
   if (S.docStreaming || !S.activeDocId) return;
   docCheckpoint();
   if (docHistoryIndex <= 0) return;
@@ -138,7 +138,7 @@ export function docUndo() {
   docRestore(docHistory[docHistoryIndex]);
 }
 
-export function docRedo() {
+function docRedo() {
   if (S.docStreaming || !S.activeDocId) return;
   docCheckpoint();
   if (docHistoryIndex >= docHistory.length - 1) return;
@@ -167,7 +167,7 @@ function setDocumentMode(on) {
   }
 }
 
-export function toggleDocumentMode() {
+function toggleDocumentMode() {
   if (S.docStreaming) {
     toast("Stop generation first", true);
     return;
@@ -193,7 +193,7 @@ function reflectAssistedToggle() {
   }
 }
 
-export function setDocAssisted(on) {
+function setDocAssisted(on) {
   docAssisted = !!on;
   localStorage.setItem(LS_ASSISTED, docAssisted ? "1" : "0");
   reflectAssistedToggle();
@@ -203,7 +203,7 @@ function reflectProbsToggle() {
   $("doc-probs-btn")?.classList.toggle("active", docProbsOn);
 }
 
-export function setDocProbs(on) {
+function setDocProbs(on) {
   docProbsOn = !!on;
   localStorage.setItem(LS_PROBS, docProbsOn ? "1" : "0");
   reflectProbsToggle();
@@ -222,7 +222,7 @@ const _docItemHtml = (
       </div>
     </div>`;
 
-export function renderDocuments() {
+function renderDocuments() {
   const list = $("documents-list");
   if (!list) return;
 
@@ -258,17 +258,17 @@ export function renderDocuments() {
   list.innerHTML = html;
 }
 
-export function onDocSearch(value) {
+function onDocSearch(value) {
   _docSearch = value;
   renderDocuments();
 }
 
-export function expandDocs() {
+function expandDocs() {
   _docsExpanded = true;
   renderDocuments();
 }
 
-export function collapseDocs() {
+function collapseDocs() {
   _docsExpanded = false;
   renderDocuments();
 }
@@ -292,7 +292,7 @@ export async function loadDocuments() {
   }
 }
 
-export async function createDocument() {
+async function createDocument() {
   try {
     const doc = await api.post("/documents", {});
     updateDocInList(doc);
@@ -402,7 +402,7 @@ function clearEditor() {
   updateTokenCount();
 }
 
-export function renameDocument(id) {
+function renameDocument(id) {
   const doc = S.documents.find((d) => d.id === id);
   if (!doc) return;
   showConfirmModal(
@@ -433,11 +433,11 @@ export function renameDocument(id) {
   );
 }
 
-export function renameActiveDocument() {
+function renameActiveDocument() {
   if (S.activeDocId) renameDocument(S.activeDocId);
 }
 
-export function deleteDocument(id) {
+function deleteDocument(id) {
   const doc = S.documents.find((d) => d.id === id);
   confirmDelete(
     "document",

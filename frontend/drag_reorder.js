@@ -12,7 +12,7 @@ const HOLD_SLOP_PX = 8; // travel during that hold that means scrolling, not dra
  * Index in `rects` that a pointer at `y` should insert before, or `rects.length`
  * to place last. `rects` are the other items' bounding boxes, in document order.
  */
-export function dropTargetIndex(rects, y) {
+function dropTargetIndex(rects, y) {
   for (let i = 0; i < rects.length; i++) {
     if (y < rects[i].top + rects[i].height / 2) return i;
   }

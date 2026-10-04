@@ -96,7 +96,7 @@ function _readMoodFragForm() {
   };
 }
 
-export function showMoodFragmentModal(fragId = null) {
+function showMoodFragmentModal(fragId = null) {
   const f = fragId ? S.moodFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
   const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "", cooldown_turns: 0 };
@@ -111,7 +111,7 @@ export function showMoodFragmentModal(fragId = null) {
     </div>`);
 }
 
-export async function saveMoodFragment(isEdit) {
+async function saveMoodFragment(isEdit) {
   const d = _readMoodFragForm();
   const validation = validate.validateMoodFragment(d);
   if (!validation.valid) {
@@ -129,7 +129,7 @@ export async function saveMoodFragment(isEdit) {
   }
 }
 
-export async function deleteMoodFragment(id) {
+async function deleteMoodFragment(id) {
   const label = S.moodFragments.find((f) => f.id === id)?.label;
   confirmDelete(
     "Mood Fragment",
@@ -146,7 +146,7 @@ export async function deleteMoodFragment(id) {
   );
 }
 
-export async function toggleMoodFragmentEnabled(id, newEnabled) {
+async function toggleMoodFragmentEnabled(id, newEnabled) {
   try {
     await api.put(`/fragments/${id}`, { enabled: newEnabled });
     const frag = S.moodFragments.find((f) => f.id === id);
@@ -646,7 +646,7 @@ function _showDecisionProblems(detail) {
   return true;
 }
 
-export async function deleteInteractiveFragment(id) {
+async function deleteInteractiveFragment(id) {
   const label = S.interactiveFragments.find((f) => f.id === id)?.label;
   const what = label ? `"${esc(label)}"` : "this interactive fragment";
   confirmDelete("Interactive Fragment", `Delete ${what}? This cannot be undone.`, async () => {
@@ -660,7 +660,7 @@ export async function deleteInteractiveFragment(id) {
   });
 }
 
-export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
+async function toggleInteractiveFragmentEnabled(id, newEnabled) {
   try {
     await api.put(`/interactive-fragments/${id}`, { enabled: newEnabled });
     const frag = S.interactiveFragments.find((f) => f.id === id);

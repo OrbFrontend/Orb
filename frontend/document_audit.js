@@ -19,7 +19,7 @@ function docAuditEnabled() {
   return Boolean(S.settings?.document_audit_enabled);
 }
 
-export function toggleDocWorkflowPanel() {
+function toggleDocWorkflowPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
     closeUtilityPanel("tools-panel", "tools-panel-btn");
     closeUtilityPanel("tools-panel", "doc-workflow-btn");
@@ -128,7 +128,7 @@ function sectionItemsHtml(key, items) {
   return items.map((it) => `<div class="doc-audit-item">${_ids(it.ids)}${esc(it.sentence)}</div>`).join("");
 }
 
-export function renderDocAuditResults() {
+function renderDocAuditResults() {
   const el = $("doc-audit-results");
   if (!el) return;
   if (!docAuditEnabled()) {

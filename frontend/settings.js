@@ -13,35 +13,11 @@ import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
-export {
-  loadAgentModelConfigs,
-  loadEndpoints,
-  loadModelConfigs,
-  onHybridInput,
-  renderEndpoints,
-  saveAgentSetting,
-  saveSetting,
-  toggleAgentSameAsWriter,
-} from "./settings_models.js";
-export {
-  activatePersona,
-  deletePersona,
-  editPersona,
-  loadPersonas,
-  savePersona,
-  saveUserProfile,
-  setPersonaCharacterLock,
-  setPersonaConversationLock,
-  showPersonaEditModal,
-  showUserModal,
-  updateUserBtn,
-} from "./settings_personas.js";
-
 let _themes = null;
 
 const DEFAULT_THEME = "camono";
 
-export function applyTheme(name) {
+function applyTheme(name) {
   if (_themes && !_themes.includes(name)) name = DEFAULT_THEME;
   $("theme-link").href = `/static/themes/${name}.css`;
   localStorage.setItem("ar-theme", name);
@@ -440,7 +416,7 @@ export async function persistSettings(payload) {
   }
 }
 
-export function toggleToolsPanel() {
+function toggleToolsPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
     closeUtilityPanel("tools-panel", "tools-panel-btn");
   } else {
@@ -448,7 +424,7 @@ export function toggleToolsPanel() {
   }
 }
 
-export async function setAgentEnabled(on) {
+async function setAgentEnabled(on) {
   S.agentEnabled = on;
   $("tools-panel-btn").style.opacity = on ? "1" : "0.5";
   renderToolsPanel();
@@ -456,7 +432,7 @@ export async function setAgentEnabled(on) {
   await persistSettings({ enable_agent: on });
 }
 
-export async function toggleToolEnabled(id, on) {
+async function toggleToolEnabled(id, on) {
   S.enabledTools[id] = on;
   renderToolsPanel();
   // Direction gates before-Writer state updates, which the fragment list notes.
@@ -464,58 +440,58 @@ export async function toggleToolEnabled(id, on) {
   await persistSettings({ enabled_tools: S.enabledTools });
 }
 
-export async function toggleLengthGuard(on) {
+async function toggleLengthGuard(on) {
   S.lengthGuardEnabled = on;
   renderToolsPanel();
   await persistSettings({ length_guard_enabled: on });
 }
 
-export async function toggleLengthGuardEnforce(on) {
+async function toggleLengthGuardEnforce(on) {
   S.lengthGuardEnforce = on;
   renderToolsPanel();
   await persistSettings({ length_guard_enforce: on });
 }
 
-export async function toggleAgenticLorebook(on) {
+async function toggleAgenticLorebook(on) {
   S.agenticLorebookEnabled = on;
   renderToolsPanel();
   await persistSettings({ agentic_lorebook_enabled: on });
 }
 
-export async function toggleDirectorIndividualFragments(on) {
+async function toggleDirectorIndividualFragments(on) {
   S.directorIndividualFragments = on;
   renderToolsPanel();
   await persistSettings({ director_individual_fragments: on });
 }
 
-export async function toggleShowEditorDiff(on) {
+async function toggleShowEditorDiff(on) {
   S.showEditorDiff = on;
   renderMessages();
   renderToolsPanel();
   await persistSettings({ show_editor_diff: on });
 }
 
-export async function toggleAuditType(type, on) {
+async function toggleAuditType(type, on) {
   S.editorAuditToggles = { ...S.editorAuditToggles, [type]: on };
   renderToolsPanel();
   await persistSettings({ editor_audit_toggles: S.editorAuditToggles });
 }
 
-export async function toggleHideUntilBaked(on) {
+async function toggleHideUntilBaked(on) {
   S.hideUntilBaked = on;
   renderMessages();
   renderSettings();
   await persistSettings({ hide_streaming_until_baked: on });
 }
 
-export async function toggleShowChatAvatars(on) {
+async function toggleShowChatAvatars(on) {
   S.showChatAvatars = on;
   renderMessages();
   renderSettings();
   await persistSettings({ show_chat_avatars: on });
 }
 
-export async function toggleInspectorInline(on) {
+async function toggleInspectorInline(on) {
   S.inspectorInline = on;
   renderMessages();
   renderInspector();
@@ -523,13 +499,13 @@ export async function toggleInspectorInline(on) {
   await persistSettings({ inspector_inline: on });
 }
 
-export async function togglePreventPromptOverrides(on) {
+async function togglePreventPromptOverrides(on) {
   S.preventPromptOverrides = on;
   renderSettings();
   await persistSettings({ prevent_prompt_overrides: on });
 }
 
-export async function saveLengthGuardConfig() {
+async function saveLengthGuardConfig() {
   const words = parseInt($("lg-max-words").value, 10);
   const paras = parseInt($("lg-max-paragraphs").value, 10);
   const wordsValidation = validate.validateSetting("length_guard_max_words", words);
@@ -552,14 +528,14 @@ export async function saveLengthGuardConfig() {
   }
 }
 
-export async function toggleWorkflowsGlobal(on) {
+async function toggleWorkflowsGlobal(on) {
   await persistSettings({ workflows_globally_enabled: on });
   renderToolsPanel();
   renderMessages();
   renderInspectorWorkflows();
 }
 
-export async function toggleWorkflowEnabled(wid, on) {
+async function toggleWorkflowEnabled(wid, on) {
   try {
     const res = await api.post(`/workflows/${wid}/enabled`, { enabled: on });
     if (res && typeof res.workflow_enabled === "object") S.settings.workflow_enabled = res.workflow_enabled;
@@ -806,12 +782,12 @@ async function _loadSuggestions() {
   if (data.refreshing) setTimeout(() => load === _suggestionLoad && _loadSuggestions(), SUGGESTION_POLL_MS);
 }
 
-export function addPhraseSuggestion(el) {
+function addPhraseSuggestion(el) {
   const suggestion = _suggestions.get(Number(el.dataset.suggestionId));
   if (suggestion) showAddPhraseGroupModal(null, { kind: "regex", pattern: suggestion.pattern }, suggestion);
 }
 
-export async function dismissPhraseSuggestion(el) {
+async function dismissPhraseSuggestion(el) {
   const id = Number(el.dataset.suggestionId);
   el.disabled = true;
   try {
@@ -828,7 +804,7 @@ export async function dismissPhraseSuggestion(el) {
   toast("Suggestion dismissed");
 }
 
-export function showAddPhraseGroupModal(editId = null, group = null, suggestion = null) {
+function showAddPhraseGroupModal(editId = null, group = null, suggestion = null) {
   const isEdit = editId !== null;
   const kind = group?.kind === "regex" ? "regex" : "literal";
   const variants = group?.variants || [];
@@ -1042,7 +1018,7 @@ async function saveAttachmentBudget(el) {
   await persistSettings({ attachment_cache_budget_bytes: mb * 1048576 });
 }
 
-export async function showCleanupModal() {
+async function showCleanupModal() {
   showModal(`
     <h2>Data Hygiene</h2>
     <div class="field">
@@ -1125,7 +1101,7 @@ export async function showCleanupModal() {
   await refresh();
 }
 
-export async function showResetConfirmModal() {
+async function showResetConfirmModal() {
   showSubConfirmModal(
     {
       title: "Reset to Defaults",

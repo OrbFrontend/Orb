@@ -78,7 +78,7 @@ export function closeModal() {
 }
 
 /** What the base modal's backdrop, Escape and mobile Back do: its dismissal, or close. */
-export function dismissModal() {
+function dismissModal() {
   if (_modalDismiss) _modalDismiss();
   else closeModal();
 }
@@ -360,7 +360,7 @@ function _confirmCrop() {
   onConfirm({ b64, mime: "image/png" });
 }
 
-export function closeCropModal() {
+function closeCropModal() {
   const root = $("modal-crop-root");
   if (root) root.innerHTML = "";
   _cs = null;

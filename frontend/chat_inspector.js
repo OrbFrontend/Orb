@@ -304,7 +304,7 @@ document.addEventListener("click", (e) => {
 // The State tab asks for Main when it has nothing left to show.
 document.addEventListener("inspector-tab-request", (e) => setInspectorTab(e.detail));
 
-export function setToolsTab(name) {
+function setToolsTab(name) {
   S.toolsTab = name === "secondary" ? "secondary" : "main";
   _applyToolsTab();
 }
@@ -387,13 +387,13 @@ export async function loadWorkflowManifest() {
   }
 }
 
-export async function toggleReasoningPass(passKey) {
+async function toggleReasoningPass(passKey) {
   S.reasoningEnabled[passKey] = !S.reasoningEnabled[passKey];
   _refreshReasoningSection();
   await api.put("/settings", { reasoning_enabled_passes: { ...S.reasoningEnabled } });
 }
 
-export function clearRefineDiff() {
+function clearRefineDiff() {
   S.pendingRefineDiff = null;
   renderMessages();
 }
@@ -415,7 +415,7 @@ export function renderInspector() {
   renderLiveInspector();
 }
 
-export function currentMoodsHtml() {
+function currentMoodsHtml() {
   const inspecting = S.inspectedMsgId != null;
   if (!inspecting && !S.isStreaming && !S.messages.some((message) => message.role === "assistant")) return "";
   const data = inspecting ? S.inspectedDirectorData : S.lastDirectorData;
@@ -525,7 +525,7 @@ const _EXPR_MIN_GROWTH_CHARS = 40; // don't classify a fragment like "She"
 let _exprTimer = null;
 let _exprLastCallAt = 0;
 
-export function expressionCharId() {
+function expressionCharId() {
   const cue = expressionPlaybackCue();
   if (cue?.charId) return cue.charId;
   if (!S.groupCast) return S.activeCharId;
@@ -639,7 +639,7 @@ export async function showAvatarPopup() {
   _exprTimer = setInterval(_expressionTick, 1000);
 }
 
-export function hideAvatarPopup() {
+function hideAvatarPopup() {
   const popup = document.getElementById("avatar-popup");
   if (popup) popup.classList.add("hidden");
   const img = document.getElementById("avatar-popup-image");

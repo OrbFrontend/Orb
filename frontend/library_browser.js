@@ -216,7 +216,7 @@ function setCharBrowserView(mode) {
   renderCharacterBrowser();
 }
 
-export function onCharBrowserSearch() {
+function onCharBrowserSearch() {
   const input = $("char-browser-search");
   const query = input.value.trim().toLowerCase();
   const validation = validate.validateBrowseSearch(query);
@@ -228,7 +228,7 @@ export function onCharBrowserSearch() {
   applyBrowserFilter();
 }
 
-export function setCharBrowserSort(sortBy) {
+function setCharBrowserSort(sortBy) {
   _browserSortBy = sortBy;
   S.characterBrowserSort = sortBy;
   api.put("/settings", { character_library_sort: sortBy }).catch((e) => console.error("Failed to save sort mode", e));
@@ -492,7 +492,7 @@ function refreshInternetResults() {
   if (el) el.innerHTML = renderInternetResultsBody();
 }
 
-export async function searchInternet(nextPage = false) {
+async function searchInternet(nextPage = false) {
   if (_internetLoading) return;
   const input = $("internet-search-input");
   if (input) _internetQuery = input.value.trim();
@@ -522,13 +522,13 @@ export async function searchInternet(nextPage = false) {
   }
 }
 
-export function loadMoreInternet() {
+function loadMoreInternet() {
   if (_internetLoading || !_internetHasMore) return;
   _internetPage += 1;
   searchInternet(true);
 }
 
-export async function randomizeInternet() {
+async function randomizeInternet() {
   if (_internetLoading) return;
   const input = $("internet-search-input");
   if (input) _internetQuery = input.value.trim();
@@ -553,7 +553,7 @@ export async function randomizeInternet() {
   }
 }
 
-export function setInternetSource(val) {
+function setInternetSource(val) {
   _internetSource = val;
   _internetQuery = "";
   _internetResults = [];
@@ -562,7 +562,7 @@ export function setInternetSource(val) {
   renderInternetPanel();
 }
 
-export async function importInternetChar(fullPath) {
+async function importInternetChar(fullPath) {
   try {
     toast("Fetching card…");
     const r = await api.post("/characters/import-url", { source: _internetSource, full_path: fullPath });

@@ -54,7 +54,7 @@ function paint(body, sentIndices, bySent, scores) {
   else msg?.appendChild(chip);
 }
 
-export async function scoreSlop(msgId, btn) {
+async function scoreSlop(msgId, btn) {
   const body = messageBody(msgId);
   if (!body) return;
   if (body.dataset.slopScored === "1") {

@@ -113,7 +113,7 @@ const AGENT_CTX = {
   hyperparamPrefix: "agent_",
 };
 
-export async function toggleAgentSameAsWriter(checked) {
+async function toggleAgentSameAsWriter(checked) {
   S.agentSameAsWriter = checked;
   try {
     await api.put("/settings", { agent_same_as_writer: checked });
@@ -480,7 +480,7 @@ function updateReasoningEffortFields() {
   }
 }
 
-export function updateEndpointsLabel() {
+function updateEndpointsLabel() {
   const el = document.getElementById("endpoints-label");
   if (!el) return;
   const input = document.querySelector('[data-key="model_name"]');
@@ -566,7 +566,7 @@ function highlightMatch(text, query) {
   );
 }
 
-export function initComboboxes() {
+function initComboboxes() {
   _comboboxCleanups.forEach((fn) => {
     fn();
   });
@@ -1251,7 +1251,7 @@ function populateModelDatalist() {
   dl.innerHTML = S.modelConfigs.map((m) => `<option value="${esc(m.model_name)}"></option>`).join("");
 }
 
-export async function loadModelConfigs(endpointId) {
+async function loadModelConfigs(endpointId) {
   await _loadConfigs(WRITER_CTX, endpointId);
   populateModelDatalist();
 }
@@ -1260,15 +1260,15 @@ export async function loadAgentModelConfigs(endpointId) {
   await _loadConfigs(AGENT_CTX, endpointId);
 }
 
-export async function saveSetting(el) {
+async function saveSetting(el) {
   await _saveEndpointSetting(WRITER_CTX, el);
 }
 
-export async function saveAgentSetting(el) {
+async function saveAgentSetting(el) {
   await _saveEndpointSetting(AGENT_CTX, el);
 }
 
-export async function onHybridInput(el) {
+async function onHybridInput(el) {
   const key = el.dataset.key;
   if (key === WRITER_CTX.urlField || key === WRITER_CTX.modelField) {
     await _onHybridInputCtx(WRITER_CTX, el);

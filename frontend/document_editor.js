@@ -169,7 +169,7 @@ function caretInGenText(pageEl) {
   return !!el?.closest?.(".gen-text");
 }
 
-export function insertPlainText(pageEl, text) {
+function insertPlainText(pageEl, text) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return;
   const range = sel.getRangeAt(0);
