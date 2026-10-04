@@ -736,18 +736,13 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     else if (!total)
       statusHtml = `<div class="cb-empty">${searchable ? (q ? "No matching models" : "No available models") : "No saved options"}</div>`;
     list.innerHTML = optionHtml + statusHtml;
-    list.querySelectorAll(".cb-option").forEach((el, i) => {
-      el.onmousedown = (e) => {
-        // Use closest() for SVG clicks so mousedown does not rebuild the list before delete fires.
-        if (e.target.closest(".cb-delete-btn")) return;
-        e.preventDefault();
-        selectVal(el.dataset.value);
-      };
-      el.onmouseenter = () => {
-        activeIdx = i;
-        render();
-      };
-    });
+  }
+
+  // Hover moves the highlight in place: rebuilding the list under the cursor makes Chromium re-fire
+  // mouseover on the new node (an endless re-render) and deliver the next mousedown to .cb-list.
+  function setActive(idx) {
+    activeIdx = idx;
+    list.querySelectorAll(".cb-option").forEach((el, i) => el.classList.toggle("active", i === idx));
   }
 
   async function openDropdown({ revertValue = input.value, query = "" } = {}) {
@@ -877,6 +872,19 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     }
     void selectVal(tap.option.dataset.value);
   };
+  const onListDown = (e) => {
+    const option = e.target.closest(".cb-option");
+    // closest() catches SVG targets: the delete button acts on click, which selecting here would preempt.
+    if (!option || e.target.closest(".cb-delete-btn")) return;
+    e.preventDefault();
+    void selectVal(option.dataset.value);
+  };
+  const onListOver = (e) => {
+    const option = e.target.closest(".cb-option");
+    if (!option) return;
+    const idx = [...list.querySelectorAll(".cb-option")].indexOf(option);
+    if (idx !== activeIdx) setActive(idx);
+  };
   const onDocDown = (e) => {
     if (!rootEl.contains(e.target)) closeDropdown();
   };
@@ -888,6 +896,8 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
   input.addEventListener("keydown", onKeydown);
   control.addEventListener("mousedown", onControlDown);
   control.addEventListener("touchstart", onControlTouch, { passive: false });
+  list.addEventListener("mousedown", onListDown);
+  list.addEventListener("mouseover", onListOver);
   list.addEventListener("touchstart", onListTouchStart, { passive: true });
   list.addEventListener("touchmove", onListTouchMove, { passive: true });
   list.addEventListener("touchcancel", onListTouchCancel, { passive: true });
@@ -901,6 +911,8 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
     input.removeEventListener("keydown", onKeydown);
     control.removeEventListener("mousedown", onControlDown);
     control.removeEventListener("touchstart", onControlTouch);
+    list.removeEventListener("mousedown", onListDown);
+    list.removeEventListener("mouseover", onListOver);
     list.removeEventListener("touchstart", onListTouchStart);
     list.removeEventListener("touchmove", onListTouchMove);
     list.removeEventListener("touchcancel", onListTouchCancel);
