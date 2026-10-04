@@ -1,6 +1,5 @@
-"""Check that reset retains attachment access counter and budget alongside cached rows,
-while resetting ordinary settings and fragments. Resetting the counter would
-invert eviction order across old and new artifacts.
+"""Check that reset retains attachment access counter and budget alongside cached rows, while resetting ordinary settings and
+fragments. Resetting the counter would invert eviction order across old and new artifacts.
 """
 
 from __future__ import annotations
@@ -9,12 +8,7 @@ import json
 
 import pytest
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    reset_to_defaults,
-    set_active_leaf,
-)
+from backend.database import add_message, insert_workflow_attachment_row, reset_to_defaults, set_active_leaf
 from backend.workflows.attachment_cache import record_access
 
 from ._fixtures import registered_artifact_workflow
@@ -27,9 +21,7 @@ def _register_wf_workflow():
 
 
 async def _seed_attachment(client) -> int:
-    resp = await client.post("/api/conversations", json={"title": "Reset test"})
-    assert resp.status_code == 200
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "Reset test"})
     mid, _ = await add_message(cid, "assistant", "scene", 0)
     await set_active_leaf(cid, mid)
     att = {"filename": "x", "mime": "application/octet-stream", "data": b"payload", "workflow_id": "wf"}
@@ -39,8 +31,7 @@ async def _seed_attachment(client) -> int:
 async def test_reset_preserves_access_counter_and_budget(client, db):
     att_id = await _seed_attachment(client)
 
-    # Tune the budget and advance the LRU clock so both diverge from the
-    # schema defaults reset would otherwise restore.
+    # Tune the budget and advance the LRU clock so both diverge from the schema defaults reset would otherwise restore.
     await db.execute("UPDATE settings SET attachment_cache_budget_bytes = ? WHERE id = 1", (12345,))
     await db.commit()
     for _ in range(5):

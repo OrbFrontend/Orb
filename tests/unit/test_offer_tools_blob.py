@@ -41,12 +41,7 @@ class _CapturingClient:
 
 async def _run(client, tool_name: str, offer=OFFER_TOOLS) -> None:
     async for _ in forced_tool_call(
-        client=client,
-        prefix=_PREFIX,
-        tail_messages=_TAIL,
-        tool_name=tool_name,
-        settings=_SETTINGS,
-        offer_tools=offer,
+        client=client, prefix=_PREFIX, tail_messages=_TAIL, tool_name=tool_name, settings=_SETTINGS, offer_tools=offer
     ):
         pass
 
@@ -103,10 +98,7 @@ async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(cli
     Guards the branch that trades the shared prefix away — with compose forced
     but coerced, a model can answer with the selector instead.
     """
-    monkeypatch.setattr(
-        "backend.workflows._forced_call.honors_forced_tool_choice",
-        lambda *a, **k: False,
-    )
+    monkeypatch.setattr("backend.workflows._forced_call.honors_forced_tool_choice", lambda *a, **k: False)
     await _run(client, "compose_image_prompt")
     names = [t["function"]["name"] for t in client.calls[0]["tools"]]
     assert names == ["compose_image_prompt"]

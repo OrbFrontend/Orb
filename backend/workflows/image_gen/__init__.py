@@ -10,11 +10,7 @@ from .prompts import COMPOSE_TOOL, READ_IMAGE_SKILLS_TOOL, REFINE_TOOL
 _CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
-        "source": {
-            "type": "string",
-            "enum": list(SOURCES),
-            "title": "Image backend",
-        },
+        "source": {"type": "string", "enum": list(SOURCES), "title": "Image backend"},
         "default_style": {"type": "string", "title": "Default style"},
         "styles": {"type": "array", "title": "Styles"},
         "pov_mode": {"type": "string", "enum": list(POV_MODES), "title": "Camera"},
@@ -23,12 +19,7 @@ _CONFIG_SCHEMA = {
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
         "prompter_reference": {"type": "boolean", "title": "Show the prompter the last image"},
         "refine_turns": {"type": "integer", "minimum": 0, "maximum": MAX_REFINE_TURNS, "title": "Review turns"},
-        "timeout_seconds": {
-            "type": "number",
-            "minimum": 10,
-            "maximum": 900,
-            "title": "Render timeout",
-        },
+        "timeout_seconds": {"type": "number", "minimum": 10, "maximum": 900, "title": "Render timeout"},
         "external_comfy": {"type": "object", "title": "External ComfyUI"},
         "cloud": {"type": "object", "title": "Cloud API"},
     },
@@ -41,8 +32,7 @@ image_gen_workflow = Workflow(
     tools=[READ_IMAGE_SKILLS_TOOL, COMPOSE_TOOL, REFINE_TOOL],
     config_schema=_CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
-    # The config carries user-authored graphs and style entries that
-    # `normalize_config` bounds and drops; without this the settings panel would
-    # keep listing a workflow the render path silently ignores.
+    # The config carries user-authored graphs and style entries that `normalize_config` bounds and drops; without this the
+    # settings panel would keep listing a workflow the render path silently ignores.
     config_normalizer=normalize_config,
 )

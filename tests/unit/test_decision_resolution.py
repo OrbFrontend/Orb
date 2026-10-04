@@ -23,10 +23,7 @@ from backend.pipeline.passes.judge import (
     resting_decisions,
     stored_evaluations,
 )
-from backend.pipeline.passes.judge.records import (
-    invalidated_anchor,
-    matching_replay,
-)
+from backend.pipeline.passes.judge.records import invalidated_anchor, matching_replay
 from backend.pipeline.passes.judge.resolve import draw_uniform
 
 

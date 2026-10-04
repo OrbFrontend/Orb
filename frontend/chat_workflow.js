@@ -461,9 +461,8 @@ async function _workflowGroupInFlight(convId, msgId, rootId) {
     const r = await api.get(convUrl(convId, "messages", msgId, "workflow-attachments", rootId, "in-flight"));
     return !!r?.in_flight;
   } catch (e) {
-    // A status means the server answered, just not with a state (404 once the
-    // row is gone, 5xx): nothing is running. Only a transport failure leaves
-    // the question open, and there waiting is still the right answer.
+    // A status means the server answered, just not with a state (404 once the row is gone, 5xx): nothing is running.
+    // Only a transport failure leaves the question open, and there waiting is still the right answer.
     return e?.status === undefined;
   }
 }
@@ -528,9 +527,8 @@ async function _recoverWorkflowSibling(convId, msgId, rootId, before, onSuccess,
 
 async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
   const deadline = Date.now() + 200_000;
-  // Same shape as _recoverWorkflowSibling: the row still being there is not a
-  // failure while some request holds the group, but two consecutive "nothing
-  // running" answers mean the delete is not coming.
+  // Same shape as _recoverWorkflowSibling: the row still being there is not a failure while some request holds the
+  // group, but two consecutive "nothing running" answers mean the delete is not coming.
   let idle = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));

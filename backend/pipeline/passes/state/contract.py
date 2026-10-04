@@ -6,12 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ....core import (
-    DECISION_FIELD_TYPE,
-    STATE_FIELD_TYPE,
-    StateFragment,
-    state_fragments_of,
-)
+from ....core import DECISION_FIELD_TYPE, STATE_FIELD_TYPE, StateFragment, state_fragments_of
 from ...predicates import agent_enabled
 
 # Fragment types that are not the Director's per-turn scene values.
@@ -36,9 +31,8 @@ class StateContract:
     def defined(cls, settings: Mapping[str, Any], state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
         """Every defined state fragment, enabled or not: what the shared tool schemas offer.
 
-        The tools blob precedes the conversation in the cached prefix, so it is
-        built from this contract and an enable toggle never rewrites it; the
-        turn's routing and validation read the enabled :meth:`capture` instead.
+        The tools blob precedes the conversation in the cached prefix, so it is built from this contract and an enable toggle
+        never rewrites it; the turn's routing and validation read the enabled :meth:`capture` instead.
         """
         return cls(fragments=tuple(state_fragments_of(state_rows)), updates_on=agent_enabled(settings))
 

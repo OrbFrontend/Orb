@@ -51,9 +51,8 @@ def resolve_path(feature: str) -> str:
 def present(feature: str) -> bool:
     """Is *feature* usable from disk?
 
-    For a variant-bearing spec that means ANY variant is downloaded — the
-    Settings card flips from "download something" to "pick one and enable" on
-    the first file, not on the default one.
+    For a variant-bearing spec that means ANY variant is downloaded — the Settings card flips from "download something" to "pick
+    one and enable" on the first file, not on the default one.
     """
     spec = MODELS.get(feature)
     if spec is None:
@@ -97,13 +96,11 @@ def missing_files(feature: str) -> list[str]:
 def prune_stale(root: str | None = None) -> None:
     """Prune unclaimed managed artifacts after downloads, preserving other extensions.
 
-    Compare basenames so legacy mirrored paths and case-insensitive directories
-    do not make current weights appear unclaimed.
+    Compare basenames so legacy mirrored paths and case-insensitive directories do not make current weights appear unclaimed.
     """
     root = root or model_dir()
-    # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A
-    # name the claim set forgets is wiped the next time any feature downloads —
-    # 4.7 GB gone because an unrelated button was pressed.
+    # Every basename a spec puts on disk, VARIANTS AND COMPANIONS INCLUDED. A name the claim set forgets is wiped the next time
+    # any feature downloads — 4.7 GB gone because an unrelated button was pressed.
     keep = {name for s in MODELS.values() for name in s.all_names()}
     walked: list[str] = []
     for dirpath, dirs, files in os.walk(root):
@@ -145,11 +142,9 @@ def file_sha256(path: str) -> str:
 def _verify(path: str, expected: str) -> None:
     """Reject a file whose bytes are not the ones that were verified.
 
-    A revision pin says WHICH commit; this says which BYTES, and the two are
-    not the same promise — a repo that is force-pushed, deleted and recreated,
-    or replaced by a namespace takeover can satisfy the first and fail this. A
-    mismatch deletes the download rather than leaving a file that `present()`
-    would then call ready.
+    A revision pin says WHICH commit; this says which BYTES, and the two are not the same promise — a repo that is force-pushed,
+    deleted and recreated, or replaced by a namespace takeover can satisfy the first and fail this. A mismatch deletes the
+    download rather than leaving a file that `present()` would then call ready.
     """
     if not expected:
         return
@@ -191,13 +186,12 @@ def download(feature: str, variant: str | None = None) -> None:
 def delete_model(feature: str, variant: str | None = None) -> bool:
     """Remove one downloaded artifact. Returns whether anything was deleted.
 
-    Exists because the three rewriter variants are 9.6 GB combined and "find
-    the folder yourself" is not an acceptable only exit at that size.
+    Exists because the three rewriter variants are 9.6 GB combined and "find the folder yourself" is not an acceptable only exit
+    at that size.
 
-    Deleting a spec's own file takes its companions with it: they are useless
-    alone, and leaving 23 MB behind that nothing claims is the shape of bug
-    ``prune_stale`` exists to prevent. Deleting one VARIANT leaves them, since
-    its siblings still need them.
+    Deleting a spec's own file takes its companions with it: they are useless alone, and leaving 23 MB behind that nothing
+    claims is the shape of bug ``prune_stale`` exists to prevent. Deleting one VARIANT leaves them, since its siblings still
+    need them.
     """
     spec = MODELS[feature]
     _repo, _path, _rev, local_name = variant_spec(feature, variant)

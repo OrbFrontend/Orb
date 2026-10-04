@@ -25,36 +25,24 @@ def estimate_tokens(chars: int) -> int:
 def scrub_log(value: object) -> str:
     """Sanitize a value for safe inclusion in a log message (CWE-117).
 
-    User-controlled values can carry newlines or carriage returns that would
-    otherwise let an attacker forge extra log lines. Coerce to text and strip
-    the line breaks so each value stays confined to a single log record.
+    User-controlled values can carry newlines or carriage returns that would otherwise let an attacker forge extra log lines.
+    Coerce to text and strip the line breaks so each value stays confined to a single log record.
     """
     return str(value).replace("\r", "").replace("\n", "")
 
 
 #: The sampler/budget fields a settings row carries for a lane, in the order the
 #: endpoint editor shows them.
-_HYPERPARAM_KEYS = (
-    "temperature",
-    "max_tokens",
-    "top_p",
-    "min_p",
-    "top_k",
-    "repetition_penalty",
-)
+_HYPERPARAM_KEYS = ("temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty")
 
 
 def extract_hyperparams(
-    settings: Mapping[str, Any],
-    *,
-    lane: AgentLane = "writer",
-    defaults: Mapping[str, Any] | None = None,
+    settings: Mapping[str, Any], *, lane: AgentLane = "writer", defaults: Mapping[str, Any] | None = None
 ) -> dict:
     """Extract hyperparameters for the calling lane.
 
-    Agent keys fall back per key to Writer values when absent. Explicit None
-    omits a parameter; defaults fill only absent keys. Send max_tokens exactly
-    as configured, without raising the budget for single-reply calls.
+    Agent keys fall back per key to Writer values when absent. Explicit None omits a parameter; defaults fill only absent keys.
+    Send max_tokens exactly as configured, without raising the budget for single-reply calls.
     """
     prefix = "agent_" if lane == "agent" else ""
     params: dict[str, Any] = {}
@@ -94,9 +82,8 @@ def agent_lane_max_tokens(settings: Mapping[str, Any]) -> int:
 def agent_lane_cut_off(settings: Mapping[str, Any]) -> str:
     """The sentence for an agent-lane reply that stopped at its budget.
 
-    It names the field the user edits: the ``agent_`` twin is present only when a
-    separate Agent lane resolves, and otherwise agent calls spend the Writer
-    model's own Max Tokens.
+    It names the field the user edits: the ``agent_`` twin is present only when a separate Agent lane resolves, and otherwise
+    agent calls spend the Writer model's own Max Tokens.
     """
     label = "Agent Max Tokens" if settings.get("agent_max_tokens") is not None else "Max Tokens"
     return f"The model's reply was cut off at the {label} limit of {agent_lane_max_tokens(settings)}."
@@ -105,8 +92,7 @@ def agent_lane_cut_off(settings: Mapping[str, Any]) -> str:
 def build_multimodal_content(text: str, attachments: Sequence[Mapping[str, Any]] | None = None) -> str | list[ContentPart]:
     """Wrap *text* (and optional image attachments) into a multimodal content list.
 
-    Returns a plain string when there are no attachments, or a list of content
-    parts suitable for vision-capable LLM endpoints.
+    Returns a plain string when there are no attachments, or a list of content parts suitable for vision-capable LLM endpoints.
     """
     if not attachments:
         return text

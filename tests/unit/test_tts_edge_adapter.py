@@ -6,11 +6,7 @@ Tests helper functions without hitting the Edge TTS API.
 from __future__ import annotations
 
 from backend.workflows.tts.engine.base import SpeakableChunk
-from backend.workflows.tts.engine.edge_adapter import (
-    EdgeTTSAdapter,
-    _format_pitch,
-    _format_rate,
-)
+from backend.workflows.tts.engine.edge_adapter import EdgeTTSAdapter, _format_pitch, _format_rate
 
 
 class TestFormatRate:

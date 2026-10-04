@@ -19,19 +19,12 @@ from backend.database import (
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from backend.workflows.errors import WorkflowUserFacingError
 
-from ._fixtures import (
-    make_workflow,
-    must_get_workflow_attachment,
-    new_conversation,
-    register_for_test,
-    seed_message,
-)
+from ._fixtures import make_workflow, must_get_workflow_attachment, new_conversation, register_for_test, seed_message
 
 
 async def _seed_workflow_attachment(mid: int, *, wid: str = "wf") -> int:
     return await insert_workflow_attachment_row(
-        mid,
-        {"filename": "x.bin", "mime": "application/octet-stream", "data": b"DATA", "workflow_id": wid},
+        mid, {"filename": "x.bin", "mime": "application/octet-stream", "data": b"DATA", "workflow_id": wid}
     )
 
 
@@ -39,11 +32,9 @@ async def test_attachment_message_mismatch_returns_404(client):
     cid, mid = await seed_message(client)
     other_mid, _ = await add_message(cid, "assistant", "other", 1, parent_id=mid)
     aid = await _seed_workflow_attachment(mid)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{other_mid}/workflow-attachments/{aid}/regenerate",
-        json={},
+    await client.post_checked(
+        f"/api/conversations/{cid}/messages/{other_mid}/workflow-attachments/{aid}/regenerate", json={}, expected_status=404
     )
-    assert resp.status_code == 404
 
 
 async def test_workflow_without_regenerate_hook_returns_404(client):
@@ -51,10 +42,7 @@ async def test_workflow_without_regenerate_hook_returns_404(client):
     aid = await _seed_workflow_attachment(mid, wid="inert")
     wf = make_workflow("inert")  # no regenerate hook
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 404
 
 
@@ -68,17 +56,9 @@ async def test_regenerate_inserts_returned_siblings(client):
             {"filename": "v2.png", "mime": "image/png", "data": b"V2"},
         ]
 
-    wf = make_workflow(
-        "img",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["attachments"]) == 2
@@ -98,17 +78,9 @@ async def test_regenerate_dispatcher_marks_active_sibling(client):
             {"filename": "v2.png", "mime": "image/png", "data": b"V2"},
         ]
 
-    wf = make_workflow(
-        "img",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     new_ids = resp.json()["attachments"]
     root = await must_get_workflow_attachment(aid)
     assert root["active_sibling_id"] == new_ids[-1], "last sibling wins"
@@ -128,17 +100,9 @@ async def test_regenerate_ctx_history_excludes_anchor_message(client):
         captured.append([m["id"] for m in ctx.history])
         return []
 
-    wf = make_workflow(
-        "hk",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("hk", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{m2}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{m2}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     assert captured == [[m1]]
 
@@ -152,17 +116,9 @@ async def test_regenerate_ctx_history_empty_when_anchor_is_root(client):
         captured.append(list(ctx.history))
         return []
 
-    wf = make_workflow(
-        "hk",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("hk", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert captured == [[]]
 
 
@@ -173,17 +129,9 @@ async def test_regenerate_hook_raise_returns_500_and_writes_nothing(client):
     async def regen(ctx, body):
         raise RuntimeError("boom")
 
-    wf = make_workflow(
-        "boom",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("boom", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 500
     from backend.database import get_workflow_attachments_for_message
 
@@ -198,17 +146,9 @@ async def test_regenerate_hook_non_list_return_treated_as_empty(client):
     async def regen(ctx, body):
         return "not a list"  # type: ignore[return-value]
 
-    wf = make_workflow(
-        "bad",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("bad", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     assert resp.json() == {"attachments": [], "rejected_workflow_atts": []}
 
@@ -225,23 +165,14 @@ async def test_regenerate_skips_bad_dict_entries_and_inserts_others(client):
             {"filename": "good2.png", "mime": "image/png", "data": b"OK2"},
         ]
 
-    wf = make_workflow(
-        "mix",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("mix", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["attachments"]) == 2, "two good entries land"
-    # Policy: non-dict entries are silently dropped pre-validator (no
-    # filename to attribute); dict-shape entries that fail validation
-    # surface with a reason.
+    # Policy: non-dict entries are silently dropped pre-validator (no filename to attribute); dict-shape entries that fail
+    # validation surface with a reason.
     assert len(body["rejected_workflow_atts"]) == 1
     rej = body["rejected_workflow_atts"][0]
     assert rej["filename"] == "broken.png"
@@ -262,26 +193,12 @@ async def test_regenerate_surfaces_rejected_atts_when_oversize_no_metadata(clien
             # No seed/metadata -> non-rehydratable, must be dropped.
             {"filename": "huge.png", "mime": "image/png", "data": b"H" * 100},
             # Rehydratable -> marker-inserted.
-            {
-                "filename": "rehydratable.png",
-                "mime": "image/png",
-                "data": b"R" * 100,
-                "seed": "s",
-                "generation_metadata": {},
-            },
+            {"filename": "rehydratable.png", "mime": "image/png", "data": b"R" * 100, "seed": "s", "generation_metadata": {}},
         ]
 
-    wf = make_workflow(
-        "drop",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("drop", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["attachments"]) == 1, "rehydratable lands as marker"
@@ -303,17 +220,9 @@ async def test_regenerate_per_entry_skip_on_empty_bytes_continues_with_valid_ent
             {"filename": "good2.png", "mime": "image/png", "data": b"OK2"},
         ]
 
-    wf = make_workflow(
-        "empty",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("empty", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["attachments"]) == 2
@@ -339,17 +248,9 @@ async def test_regenerate_per_entry_skip_on_unreadable_path_continues(client):
             {"filename": "missing.png", "mime": "image/png", "path": missing_path},
         ]
 
-    wf = make_workflow(
-        "badpath",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("badpath", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["attachments"]) == 1
@@ -369,16 +270,10 @@ async def test_regenerate_passes_body_to_hook(client):
         captured.append(body)
         return []
 
-    wf = make_workflow(
-        "echo",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("echo", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
         await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={"hello": "world"},
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={"hello": "world"}
         )
     assert captured == [{"hello": "world"}]
 
@@ -387,23 +282,16 @@ async def test_regenerate_on_sibling_uses_root_for_new_siblings(client):
     cid, mid = await seed_message(client)
     root_id = await _seed_workflow_attachment(mid, wid="flat")
     sibling_id = await insert_workflow_attachment_row(
-        mid,
-        {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "flat", "parent_attachment_id": root_id},
+        mid, {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "flat", "parent_attachment_id": root_id}
     )
 
     async def regen(ctx, body):
         return [{"filename": "n.png", "mime": "image/png", "data": b"N"}]
 
-    wf = make_workflow(
-        "flat",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("flat", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
         resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{sibling_id}/regenerate",
-            json={},
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{sibling_id}/regenerate", json={}
         )
     new_id = resp.json()["attachments"][0]
     row = await must_get_workflow_attachment(new_id)
@@ -415,29 +303,16 @@ async def test_regenerate_on_sibling_tags_rejection_with_root_id(client):
     cid, mid = await seed_message(client)
     root_id = await _seed_workflow_attachment(mid, wid="tagroot")
     sibling_id = await insert_workflow_attachment_row(
-        mid,
-        {
-            "filename": "sib",
-            "mime": "image/png",
-            "data": b"S",
-            "workflow_id": "tagroot",
-            "parent_attachment_id": root_id,
-        },
+        mid, {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "tagroot", "parent_attachment_id": root_id}
     )
 
     async def regen(ctx, body):
         return [{"filename": "broken.png", "mime": "image/png"}]  # missing data
 
-    wf = make_workflow(
-        "tagroot",
-        regenerate=regen,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("tagroot", regenerate=regen, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
         resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{sibling_id}/regenerate",
-            json={},
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{sibling_id}/regenerate", json={}
         )
     assert resp.status_code == 200
     body = resp.json()

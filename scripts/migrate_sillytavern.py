@@ -36,8 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Pure helpers, imported rather than copied, so the one real ST field mapping
-# cannot drift from the one the import routes use.
+# Pure helpers, imported rather than copied, so the one real ST field mapping cannot drift from the one the import routes use.
 from backend.database.queries.group_members import allocate_speaker_key  # noqa: E402
 from backend.features.cards.expressions import extract_expressions_zip  # noqa: E402
 from backend.features.cards.parsing import card_to_dict, read_orb_id  # noqa: E402
@@ -108,8 +107,7 @@ class Report:
 
 
 # --------------------------------------------------------------------------- #
-# Identity -- every id is derived, so a re-run is a no-op and an interrupted run
-# resumes where it stopped.
+# Identity -- every id is derived, so a re-run is a no-op and an interrupted run resumes where it stopped.
 # --------------------------------------------------------------------------- #
 
 
@@ -434,10 +432,7 @@ def insert_conversation(conn: sqlite3.Connection, row: dict) -> None:
                    :group_turn_mode, :group_max_speakers, :group_context_mode, 0, :group_root_id)""",
         row,
     )
-    conn.execute(
-        "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-        (row["id"],),
-    )
+    conn.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (row["id"],))
 
 
 def insert_message(
@@ -610,9 +605,8 @@ def import_worlds(conn: sqlite3.Connection, tx: Tx, paths: STPaths, report: Repo
             report.add("worlds", "failed", problem=f"{path.name}: {exc}")
             continue
         if not entries:
-            # Empty here does not mean empty everywhere: a card may carry a book
-            # of the same name with real content, and leaving the name free lets
-            # that one land instead of colliding with a hollow World.
+            # Empty here does not mean empty everywhere: a card may carry a book of the same name with real content, and leaving
+            # the name free lets that one land instead of colliding with a hollow World.
             report.add("worlds", "skipped", "no entries in the file")
             continue
         if find_world(conn, name):
@@ -885,8 +879,7 @@ def import_chats(
             continue
         if card_id and card_id not in card_rows:
             row = conn.execute(
-                "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?",
-                (card_id,),
+                "SELECT name, scenario, post_history_instructions FROM character_cards WHERE id = ?", (card_id,)
             ).fetchone()
             if row is None:
                 continue
@@ -973,12 +966,7 @@ def speaker_resolver(member_ids: dict[str, str], by_display: dict[str, str]) -> 
 
 
 def import_groups(
-    conn: sqlite3.Connection,
-    tx: Tx,
-    paths: STPaths,
-    cards: dict[str, str],
-    personas: dict[str, int],
-    report: Report,
+    conn: sqlite3.Connection, tx: Tx, paths: STPaths, cards: dict[str, str], personas: dict[str, int], report: Report
 ) -> None:
     if not paths.groups.is_dir():
         return
@@ -1150,9 +1138,8 @@ def run(options: Options) -> tuple[Report, list[str]]:
 
         if "worlds" in selected:
             import_worlds(conn, tx, paths, report)
-        # Chats and groups need the avatar-to-card and name-to-persona maps even
-        # when those datasets were not selected -- but they must only *read*
-        # then, or --only chats would quietly import the whole library too.
+        # Chats and groups need the avatar-to-card and name-to-persona maps even when those datasets were not selected -- but
+        # they must only *read* then, or --only chats would quietly import the whole library too.
         cards: dict[str, str] = {}
         if selected & {"characters", "chats", "groups"}:
             cards = import_characters(conn, tx, paths, report, create="characters" in selected)

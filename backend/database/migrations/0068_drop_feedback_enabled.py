@@ -1,8 +1,7 @@
 """Drop the ``feedback_enabled`` setting.
 
-Feedback fragments are now gated like post-processing fragments: the Agent and
-the fragment's own ``enabled`` flag. Fragments the old master toggle kept off
-are disabled first, so no feedback step starts running on upgrade.
+Feedback fragments are now gated like post-processing fragments: the Agent and the fragment's own ``enabled`` flag. Fragments
+the old master toggle kept off are disabled first, so no feedback step starts running on upgrade.
 """
 
 from __future__ import annotations

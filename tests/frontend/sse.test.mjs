@@ -1,15 +1,13 @@
-// SSE parser fixtures for frontend/sse.js — the app-wide single SSE path.
-// Zero deps (node --test, node v22+); no jsdom. Exercises the wire contract from
-// backend/api/deps.py `_sse_stream`: frame terminators, keepalive comments,
-// chunk-boundary splits, and the parser's must-NOT-unescape guarantee (token
-// escaping vs raw probs-JSON are opposite rules — un-escaping is consumer-side).
+// SSE parser fixtures for frontend/sse.js — the app-wide single SSE path. Zero deps (node --test, node v22+); no jsdom.
+// Exercises the wire contract from backend/api/deps.py `_sse_stream`: frame terminators, keepalive comments,
+// chunk-boundary splits, and the parser's must-NOT-unescape guarantee (token escaping vs raw probs-JSON are opposite
+// rules — un-escaping is consumer-side).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { sseEvents, unescapeSSE } from "../../frontend/sse.js";
 
-// A fake Response.body whose getReader() emits the given string chunks. `split`
-// lets a test deliver a payload one arbitrary byte-slice at a time to prove the
-// parser reassembles across read() boundaries.
+// A fake Response.body whose getReader() emits the given string chunks. `split` lets a test deliver a payload one
+// arbitrary byte-slice at a time to prove the parser reassembles across read() boundaries.
 function bodyFromChunks(chunks) {
   const enc = new TextEncoder();
   let i = 0;

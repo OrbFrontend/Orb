@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 from pydantic import ValidationError
 
-import backend.inference.client as llm_mod
 from backend.api.schemas import ModelConfigCreate, ModelConfigUpdate
 from backend.inference.client import (
     LLMClient,
@@ -16,9 +13,9 @@ from backend.inference.client import (
     parse_extra_body,
     parse_extra_headers,
 )
+from tests.http_stream import capture_wire_body as _wire_body
 
-# Built by codepoint so the file stays byte-ASCII and the invisible characters
-# are visible in source.
+# Built by codepoint so the file stays byte-ASCII and the invisible characters are visible in source.
 NBSP = chr(0xA0)
 ACCENT = chr(0xE9)
 
@@ -72,9 +69,8 @@ def test_headers_drop_control_character_in_value():
 
 
 def test_headers_accept_a_non_breaking_space_separator():
-    # Copying from an HTML docs page yields U+00A0 in place of the separator
-    # space. It is discarded with the rest of the separator whitespace, so the
-    # pair that reaches httpx is pure ASCII and must not be rejected.
+    # Copying from an HTML docs page yields U+00A0 in place of the separator space. It is discarded with the rest of the
+    # separator whitespace, so the pair that reaches httpx is pure ASCII and must not be rejected.
     assert parse_extra_headers(f"X-Provider:{NBSP}deepinfra") == {"X-Provider": "deepinfra"}
 
 
@@ -146,8 +142,7 @@ def test_headers_merge_over_authorization():
 
 
 def test_headers_may_replace_authorization():
-    # Deliberate: a gateway wanting a different auth scheme is exactly the kind
-    # of thing an escape hatch exists for.
+    # Deliberate: a gateway wanting a different auth scheme is exactly the kind of thing an escape hatch exists for.
     c = LLMClient("http://x", api_key="sk-1", extra_headers="Authorization: Custom xyz")
     assert c._headers() == {"Authorization": "Custom xyz"}
 
@@ -160,44 +155,6 @@ def test_headers_replace_authorization_case_insensitively():
 
 
 # --- wire-level body merge -------------------------------------------------
-
-
-class _FakeStream:
-    status_code = 200
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def aiter_lines(self):
-        yield 'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}'
-        yield "data: [DONE]"
-
-
-class _FakeAsyncClient:
-    def __init__(self, *a, **k):
-        self.bodies = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    def stream(self, method, url, json=None, headers=None):
-        self.bodies.append(dict(json or {}))
-        return _FakeStream()
-
-
-async def _wire_body(client: LLMClient, **params) -> dict:
-    fake = _FakeAsyncClient()
-    with patch.object(llm_mod.httpx, "AsyncClient", lambda *a, **k: fake):
-        async for _ in client.complete([], "m", **params):
-            pass
-    assert len(fake.bodies) == 1
-    return fake.bodies[0]
 
 
 async def test_wire_extra_body_reaches_the_request():

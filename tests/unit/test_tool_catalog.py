@@ -27,11 +27,7 @@ from backend.prompting.tool_catalog import (
 _TEST_TOOL_NAME = "ut_tool_catalog_test"
 _TEST_SCHEMA = {
     "type": "function",
-    "function": {
-        "name": _TEST_TOOL_NAME,
-        "description": "test",
-        "parameters": {"type": "object", "properties": {}},
-    },
+    "function": {"name": _TEST_TOOL_NAME, "description": "test", "parameters": {"type": "object", "properties": {}}},
 }
 _TEST_CHOICE = {"type": "function", "function": {"name": _TEST_TOOL_NAME}}
 _BUILTIN_BLOB_LENGTH = 5597
@@ -92,11 +88,7 @@ async def test_complete_builtin_blob_survives_cached_base_boundary():
             captured.append(_tool_blob(kwargs["tools"]))
             yield {"type": "done", "message": {"role": "assistant", "content": ""}}
 
-    base = CachedBase(
-        prefix=({"role": "system", "content": "system"},),
-        tools=tuple(enabled_schemas(None)),
-        model="model",
-    )
+    base = CachedBase(prefix=({"role": "system", "content": "system"},), tools=tuple(enabled_schemas(None)), model="model")
     async for _ in base.complete(_CapturingClient(), label="writer", trailing=[]):
         pass
 
@@ -105,11 +97,7 @@ async def test_complete_builtin_blob_survives_cached_base_boundary():
 
 
 def test_enabled_schemas_filters_without_caller_order():
-    gated = {
-        "editor_rewrite": True,
-        "editor_apply_patch": True,
-        "direct_scene": False,
-    }
+    gated = {"editor_rewrite": True, "editor_apply_patch": True, "direct_scene": False}
     names = [schema["function"]["name"] for schema in enabled_schemas(gated)]
     assert names == ["editor_apply_patch", "editor_rewrite"]
     assert enabled_schemas({}) == []
@@ -140,10 +128,7 @@ def test_standalone_registration_is_filtered(_restore_registry):
 def test_non_standalone_registration_appends(_restore_registry):
     before = [schema["function"]["name"] for schema in enabled_schemas(None)]
     register_tool(_TEST_TOOL_NAME, _TEST_SCHEMA, _TEST_CHOICE)
-    assert [schema["function"]["name"] for schema in enabled_schemas(None)] == [
-        *before,
-        _TEST_TOOL_NAME,
-    ]
+    assert [schema["function"]["name"] for schema in enabled_schemas(None)] == [*before, _TEST_TOOL_NAME]
 
 
 def test_reregistration_preserves_position_and_toggles_standalone(_restore_registry):

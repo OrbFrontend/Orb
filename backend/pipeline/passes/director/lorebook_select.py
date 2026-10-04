@@ -8,12 +8,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ....core import extract_hyperparams
-from ....inference import (
-    CachedBase,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.lorebook import director_pick_diagnostics
 from ....prompting.tool_schemas import SELECT_LOREBOOK_CHOICE
 from .prompts import build_lorebook_select_prompt
@@ -21,10 +16,7 @@ from .prompts import build_lorebook_select_prompt
 logger = logging.getLogger(__name__)
 
 
-def _log_director_pick_diagnostics(
-    entries: Sequence[Mapping[str, object]],
-    picks: Sequence[str],
-) -> None:
+def _log_director_pick_diagnostics(entries: Sequence[Mapping[str, object]], picks: Sequence[str]) -> None:
     recovered, unmatched = director_pick_diagnostics(entries, picks)
     if recovered:
         logger.warning(
@@ -34,9 +26,7 @@ def _log_director_pick_diagnostics(
         )
     if unmatched:
         logger.info(
-            "Lorebook: %d director pick(s) named no entry: %s",
-            len(unmatched),
-            ", ".join(repr(pick) for pick in unmatched),
+            "Lorebook: %d director pick(s) named no entry: %s", len(unmatched), ", ".join(repr(pick) for pick in unmatched)
         )
 
 
@@ -44,9 +34,8 @@ def _log_director_pick_diagnostics(
 class LorebookSelectResult:
     """Typed result of the lorebook-select step, yielded as the ``done`` payload.
 
-    ``selected`` is the list of chosen entry names (fed into the writer's lorebook
-    block); ``calls`` is the parsed ``select_lorebook`` call, appended to the turn's
-    tool calls so the picks stay visible in the conversation log / inspector.
+    ``selected`` is the list of chosen entry names (fed into the writer's lorebook block); ``calls`` is the parsed
+    ``select_lorebook`` call, appended to the turn's tool calls so the picks stay visible in the conversation log / inspector.
     """
 
     selected: list[str] = field(default_factory=list)

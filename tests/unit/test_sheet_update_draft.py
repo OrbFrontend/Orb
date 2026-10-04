@@ -1,10 +1,8 @@
 """The sheet updater's output contract and prompt.
 
-The sibling of ``test_public_profile_draft.py``, pinning the same three things:
-what the drafter accepts, what it refuses, and what its one call carries. The
-refusals are the interesting half — this call proposes a replacement for the
-text the model was handed, so "returned what it was given" and "returned an
-essay" are failures rather than merely poor answers.
+The sibling of ``test_public_profile_draft.py``, pinning the same three things: what the drafter accepts, what it refuses, and
+what its one call carries. The refusals are the interesting half — this call proposes a replacement for the text the model was
+handed, so "returned what it was given" and "returned an essay" are failures rather than merely poor answers.
 """
 
 from __future__ import annotations

@@ -10,14 +10,11 @@ from .group_context import render_cast_section
 
 
 def format_message_with_attachments(
-    message: Mapping[str, Any],
-    macros: Macros | None,
-    scripts: CardScripts | None = None,
+    message: Mapping[str, Any], macros: Macros | None, scripts: CardScripts | None = None
 ) -> ChatMessage:
     """Convert a message dict to chat format, embedding user attachments.
 
-    Workflow attachment bytes never enter the prefix; annotations from root
-    rows are appended as text.
+    Workflow attachment bytes never enter the prefix; annotations from root rows are appended as text.
     """
     role = message["role"]
     raw = message.get("content", "")
@@ -90,20 +87,14 @@ def render_history(
             if isinstance(content, str):
                 text = f"{label}: {content}"
                 if labelled and labelled[-1]["role"] == "assistant" and isinstance(labelled[-1]["content"], str):
-                    labelled[-1] = {
-                        "role": "assistant",
-                        "content": str(labelled[-1]["content"]) + "\n\n" + text,
-                    }
+                    labelled[-1] = {"role": "assistant", "content": str(labelled[-1]["content"]) + "\n\n" + text}
                 else:
                     labelled.append({"role": "assistant", "content": text})
             else:
                 content_parts = list(content)
                 if content_parts and content_parts[0]["type"] == "text":
                     first = content_parts[0]
-                    content_parts = [
-                        {"type": "text", "text": f"{label}: {first['text']}"},
-                        *content_parts[1:],
-                    ]
+                    content_parts = [{"type": "text", "text": f"{label}: {first['text']}"}, *content_parts[1:]]
                 else:
                     content_parts.insert(0, {"type": "text", "text": f"{label}:"})
                 labelled.append({"role": "assistant", "content": content_parts})
@@ -169,10 +160,5 @@ def build_prefix(
 
     system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
     return [system_message] + render_history(
-        messages or [],
-        macros,
-        cast=cast,
-        speaker_names=speaker_names,
-        scripts=scripts,
-        speaker_scripts=speaker_scripts,
+        messages or [], macros, cast=cast, speaker_names=speaker_names, scripts=scripts, speaker_scripts=speaker_scripts
     )

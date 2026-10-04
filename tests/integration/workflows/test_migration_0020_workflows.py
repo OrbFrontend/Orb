@@ -1,10 +1,8 @@
 """Tests for migration 0020_workflows (the squashed workflow migration).
 
-0020_workflows collapses the feature's seven development migrations
-into one net 0019 -> final-shape delta. These pin the squash's two contracts:
-the final schema it converges on, and the legacy data it ports on a real
-upgrade (user attachments copied, TTS config reshaped, voice profiles moved
-per-card with the vestigial endpoint_id dropped). They use sqlite3 directly --
+0020_workflows collapses the feature's seven development migrations into one net 0019 -> final-shape delta. These pin the
+squash's two contracts: the final schema it converges on, and the legacy data it ports on a real upgrade (user attachments
+copied, TTS config reshaped, voice profiles moved per-card with the vestigial endpoint_id dropped). They use sqlite3 directly --
 the runner is synchronous and takes a connection.
 """
 
@@ -149,8 +147,7 @@ def test_upgrade_ports_tts_to_final_shape(mig_db: Path):
 
 
 def test_tts_port_preserves_unrelated_workflow_config_keys(mig_db: Path):
-    """The port reassigns only workflow_config["tts"]; another workflow's slot
-    already present in the config must survive."""
+    """The port reassigns only workflow_config["tts"]; another workflow's slot already present in the config must survive."""
     conn = sqlite3.connect(str(mig_db))
     try:
         _stage_upgrade(conn)

@@ -32,19 +32,8 @@ from ...database import (
     replace_vocabulary,
     resolve_duplicate_cards,
 )
-from ...features.card_generator import (
-    CardGenerationUnavailable,
-    build_library_digest,
-    generate_card,
-    generate_deep_card,
-)
-from ...features.library_dedupe import (
-    DEDUPE_REVISION,
-    body_hash,
-    dhash_from_image_bytes,
-    find_duplicates,
-    signals_for_all,
-)
+from ...features.card_generator import CardGenerationUnavailable, build_library_digest, generate_card, generate_deep_card
+from ...features.library_dedupe import DEDUPE_REVISION, body_hash, dhash_from_image_bytes, find_duplicates, signals_for_all
 from ...features.library_tags import (
     AutoTagUnavailable,
     build_judge_questions,
@@ -67,12 +56,7 @@ from ...inference import (
     provider_sentence,
 )
 from ...pipeline import resolve_judge_config
-from ..deps import (
-    CleanupStreamingResponse,
-    idle_chats_guard,
-    sse_stream,
-    stop_active_stream,
-)
+from ..deps import CleanupStreamingResponse, idle_chats_guard, sse_stream, stop_active_stream
 from ..schemas import (
     AutoTagRunRequest,
     CardGeneratorRunRequest,
@@ -140,11 +124,7 @@ async def _tag_state() -> dict:
     """Return the vocabulary and counts used by the manager panel."""
     vocabulary = await get_vocabulary()
     counts = await get_auto_tag_counts(vocabulary_hash(vocabulary) if vocabulary else None)
-    return {
-        "vocabulary": vocabulary,
-        "revision": vocabulary_revision(vocabulary),
-        **counts,
-    }
+    return {"vocabulary": vocabulary, "revision": vocabulary_revision(vocabulary), **counts}
 
 
 @router.get("/api/library/tags")
@@ -179,10 +159,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
 
     async def _gen():
         if _run_lock.locked():
-            yield {
-                "event": "error",
-                "data": "The library is busy — a tagging run or a vocabulary save is already under way",
-            }
+            yield {"event": "error", "data": "The library is busy — a tagging run or a vocabulary save is already under way"}
             return
         async with _run_lock:
             vocabulary = await get_vocabulary()
@@ -303,8 +280,7 @@ async def api_run_auto_tag(data: AutoTagRunRequest, request: Request):
             yield {"event": "done", "data": {"tagged": tagged, "failed": failed}}
 
     return CleanupStreamingResponse(
-        sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"),
-        media_type="text/event-stream",
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:tagging"), media_type="text/event-stream"
     )
 
 
@@ -358,10 +334,7 @@ async def _judge_tag_events(pending, vocabulary, vocab_hash, config, abort_token
                     failed += 1
                     consecutive += 1
                     logger.warning("Judge auto-tag failed for card %s: %s", scrub_log(card_id), exc)
-                    yield {
-                        "event": "card_error",
-                        "data": {"done": completed, "total": total, "name": "", "error": str(exc)},
-                    }
+                    yield {"event": "card_error", "data": {"done": completed, "total": total, "name": "", "error": str(exc)}}
                     if consecutive >= _MAX_CONSECUTIVE_FAILURES:
                         yield {"event": "error", "data": "Stopped after five incomplete Judge answers in a row"}
                         return
@@ -440,11 +413,10 @@ async def api_scan_library_duplicates(request: Request):
                 if str(card["avatar_dhash_stamp"]) == f"{stamp_prefix}{card['updated_at']}"
             }
             report = find_duplicates(signals_for_all(cards, dhashes), dismissed=await get_dismissals())
-            # Card bodies never leave this endpoint; compare is the two-card body
-            # boundary. What does leave is the small identity strip the review UI
-            # needs to tell same-named copies apart -- avatar presence, use, and
-            # age -- for the cards that actually appear in a result. A name and an
-            # opaque id cannot distinguish three cards all called "Mallory".
+            # Card bodies never leave this endpoint; compare is the two-card body boundary. What does leave is the small
+            # identity strip the review UI needs to tell same-named copies apart -- avatar presence, use, and age -- for the
+            # cards that actually appear in a result. A name and an opaque id cannot distinguish three cards all called
+            # "Mallory".
             listed = {card_id for group in report["groups"] for card_id in group["cards"]}
             listed.update(card_id for pair in report["pairs"] for card_id in (pair["a"], pair["b"]))
             activity = await get_card_activity(sorted(listed))
@@ -464,8 +436,7 @@ async def api_scan_library_duplicates(request: Request):
             yield {"event": "done", "data": report}
 
     return CleanupStreamingResponse(
-        sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"),
-        media_type="text/event-stream",
+        sse_stream(_gen(), request, abort_token=abort_token, cid="library:duplicates"), media_type="text/event-stream"
     )
 
 
@@ -558,10 +529,9 @@ async def api_resolve_library_duplicate(data: DuplicateResolveRequest):
 async def api_resolve_library_duplicate_group(data: DuplicateResolveGroupRequest):
     """Keep one card from a cluster of three or more copies and delete the rest.
 
-    Reviewing a cluster pair by pair means N-1 confirmations for one decision the
-    reader already made, so the keeper choice is a single call. The whole cluster
-    is checked before anything is deleted: a refusal must leave the library
-    untouched rather than half-applied.
+    Reviewing a cluster pair by pair means N-1 confirmations for one decision the reader already made, so the keeper choice is a
+    single call. The whole cluster is checked before anything is deleted: a refusal must leave the library untouched rather than
+    half-applied.
     """
     if _run_lock.locked():
         raise HTTPException(status_code=409, detail="The library is busy; wait for the current run to finish")

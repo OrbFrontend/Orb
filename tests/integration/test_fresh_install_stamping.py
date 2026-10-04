@@ -1,8 +1,6 @@
-"""Fresh installs are *stamped* past the migration chain by ``init_db``, so
-``schema.py`` + ``bootstrap`` must always equal what the migrations would have
-produced. This is the gate that catches a migration whose schema/data change was
-not mirrored into ``schema.py``/``seeds.py`` -- without it, fresh installs would
-silently diverge from upgraded ones.
+"""Fresh installs are *stamped* past the migration chain by ``init_db``, so ``schema.py`` + ``bootstrap`` must always equal what
+the migrations would have produced. This is the gate that catches a migration whose schema/data change was not mirrored into
+``schema.py``/``seeds.py`` -- without it, fresh installs would silently diverge from upgraded ones.
 """
 
 from __future__ import annotations
@@ -91,10 +89,9 @@ async def test_stamped_fresh_db_equals_migrated_fresh_db(tmp_path: Path, monkeyp
             continue  # workflow_config handled below
         assert s_rows[t] == m_rows[t], f"seed rows diverge in {t!r}"
 
-    # settings: migration 0020 ports legacy TTS columns into workflow_config as
-    # {"tts": {auto_play: false, volume: 0.75}}; a stamped fresh install keeps the
-    # empty '{}' slot, which get_workflow_config resolves to the tts workflow's
-    # config_defaults carrying those same values. Everything else must match.
+    # settings: migration 0020 ports legacy TTS columns into workflow_config as {"tts": {auto_play: false, volume: 0.75}}; a
+    # stamped fresh install keeps the empty '{}' slot, which get_workflow_config resolves to the tts workflow's config_defaults
+    # carrying those same values. Everything else must match.
     def settings_row(path: Path) -> dict:
         conn = sqlite3.connect(path)
         try:

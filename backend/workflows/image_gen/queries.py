@@ -4,20 +4,8 @@ from __future__ import annotations
 
 from ..toolkit import get_workflow_config
 from . import pov as pov_mod
-from .config import (
-    MAX_REFERENCE_SLOTS,
-    WORKFLOW_ID,
-    active_style,
-    normalize_config,
-    style_source,
-)
-from .engine import (
-    ImageGenerationError,
-    comfy_adapter,
-    get_adapter,
-    health,
-    list_sources,
-)
+from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config, style_source
+from .engine import ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
 from .engine.providers import provider_catalogue
 
 MAX_INSPECTED_CLASS_TYPES = 200
@@ -26,8 +14,7 @@ MAX_INSPECTED_CLASS_TYPES = 200
 async def _config_from_query(body) -> dict:
     """The form's unsaved override if the body carries one, else the saved slot.
 
-    The settings form tests and inspects a config it has not saved yet; the
-    tools-panel card sends none.
+    The settings form tests and inspects a config it has not saved yet; the tools-panel card sends none.
     """
     if isinstance(body, dict) and isinstance(body.get("config"), dict):
         return normalize_config(body["config"])
@@ -37,10 +24,9 @@ async def _config_from_query(body) -> dict:
 def _default_adapter(config):
     """The adapter for the style that would render next.
 
-    Every action here answers about the default style, deliberately: this backs the
-    tools-panel card, whose question is "can the next Visualize render". The settings
-    form probes some *other* connection by pointing the default style at it in the
-    config it sends (`configForConnection`), so that needs no special case either.
+    Every action here answers about the default style, deliberately: this backs the tools-panel card, whose question is "can the
+    next Visualize render". The settings form probes some *other* connection by pointing the default style at it in the config
+    it sends (`configForConnection`), so that needs no special case either.
     """
     return get_adapter(config, active_style(config))
 
@@ -62,20 +48,13 @@ async def _status(body) -> dict:
         "style_count": len(config["styles"]),
         "user_graph_count": len(external["user_graphs"]),
         **adapter.readiness(),
-        "managed_local": {
-            "available": False,
-            "reason": "Managed local image generation is not included in this stage",
-        },
+        "managed_local": {"available": False, "reason": "Managed local image generation is not included in this stage"},
     }
 
 
 async def _styles(body) -> dict:
     config = await _config_from_query(body)
-    return {
-        "source": config["source"],
-        "default_style": config["default_style"],
-        "styles": config["styles"],
-    }
+    return {"source": config["source"], "default_style": config["default_style"], "styles": config["styles"]}
 
 
 def _style_by_id(config, style_id: str):
@@ -125,10 +104,9 @@ async def _external_models(body) -> dict:
 async def _node_types(body) -> dict:
     """Slot-role typing for the node classes in a graph the user is importing.
 
-    Takes class-type names, not the graph: the browser already parsed it. Dispatches
-    to the ComfyUI adapter **explicitly, never by active source** -- imported graphs
-    are global and the importer stays usable under cloud. A connection failure
-    degrades to no typing; the picker falls back to conventional input names.
+    Takes class-type names, not the graph: the browser already parsed it. Dispatches to the ComfyUI adapter **explicitly, never
+    by active source** -- imported graphs are global and the importer stays usable under cloud. A connection failure degrades to
+    no typing; the picker falls back to conventional input names.
     """
     raw = body.get("class_types") if isinstance(body, dict) else None
     if not isinstance(raw, list):

@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { escapeUnknownTags, trimIncompleteMarkup } from "../../frontend/message_html.js";
 
-// Production asks the platform (`document.createElement(name) instanceof
-// HTMLUnknownElement`); the predicate is injected so this suite can pin the
-// behaviour without a DOM.
+// Production asks the platform (`document.createElement(name) instanceof HTMLUnknownElement`); the predicate is
+// injected so this suite can pin the behaviour without a DOM.
 const KNOWN = new Set(["b", "i", "div", "span", "img", "style", "svg", "table", "tr", "td", "script", "p"]);
 const isKnownTag = (name) => KNOWN.has(name.toLowerCase());
 
@@ -44,8 +43,7 @@ test("svg, style and fenced code are pass-through regions", () => {
   // so the region carve-out is what keeps them from being escaped.
   const svg = '<svg viewBox="0 0 10 10"><circle cx="5" r="4"/></svg>';
   assert.equal(escapeUnknownTags(svg, isKnownTag), svg);
-  // `<` is legal CSS inside a media range, and formatProse still has to find
-  // the block whole in order to encode it.
+  // `<` is legal CSS inside a media range, and formatProse still has to find the block whole in order to encode it.
   const style = "<style>@media (400px < width) { .a { color: red } }</style>";
   assert.equal(escapeUnknownTags(style, isKnownTag), style);
   // formatProse escapes fenced code itself; escaping here too would double it.

@@ -1,22 +1,15 @@
 """Route-level gating for disabled workflows.
 
-Production routes (regenerate / reroll-gen / rehydrate run a hook) 404 when the
-owning workflow is off, and do so *before* taking the per-root lock the live
-activate/delete consumption routes share -- so a stale production request never
-contends with them. Consumption routes stay open. The tool-union strip removes a
-disabled workflow's standalone=False tool from the per-turn blob.
+Production routes (regenerate / reroll-gen / rehydrate run a hook) 404 when the owning workflow is off, and do so *before*
+taking the per-root lock the live activate/delete consumption routes share -- so a stale production request never contends with
+them. Consumption routes stay open. The tool-union strip removes a disabled workflow's standalone=False tool from the per-turn
+blob.
 """
 
 from __future__ import annotations
 
 from backend.api import deps
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-    set_workflow_enabled,
-    update_settings,
-)
+from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf, set_workflow_enabled, update_settings
 from backend.inference import LLMClient
 from backend.pipeline.config import resolve_pipeline_config
 from backend.workflows import ToolSpec
@@ -26,9 +19,7 @@ from ._fixtures import make_workflow, register_for_test
 
 
 async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "gating"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "gating"})
 
 
 async def _seed_conv_with_message(client) -> tuple[str, int]:

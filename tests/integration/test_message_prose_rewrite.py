@@ -19,12 +19,7 @@ pytestmark = pytest.mark.asyncio
 async def _assistant_message(cid: str, content: str, *, writer_draft: str | None = None) -> int:
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     message_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        content,
-        0,
-        writer_draft=content if writer_draft is None else writer_draft,
-        advance_leaf=True,
+        cid, "assistant", content, 0, writer_draft=content if writer_draft is None else writer_draft, advance_leaf=True
     )
     return message_id
 
@@ -35,9 +30,7 @@ async def _drain(agen) -> list[dict]:
 
 def _enable(monkeypatch) -> None:
     monkeypatch.setattr(
-        message_routes,
-        "resolve_config",
-        lambda _settings: {"variant_id": "test", "gpu": False, "batch_size": 4},
+        message_routes, "resolve_config", lambda _settings: {"variant_id": "test", "gpu": False, "batch_size": 4}
     )
 
 
@@ -52,10 +45,7 @@ async def _content(db, message_id: int) -> str:
 
 def _stream(cid: str, message_id: int, token):
     return message_routes._stream_prose_rewrite_message(
-        cid,
-        message_id,
-        {"variant_id": "test", "gpu": False, "batch_size": 4},
-        token,
+        cid, message_id, {"variant_id": "test", "gpu": False, "batch_size": 4}, token
     )
 
 
@@ -80,9 +70,8 @@ async def test_rewrites_saved_assistant_message_and_stales_its_proposals(client,
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
     monkeypatch.setattr(message_routes, "mark_changesets_stale_for_messages", mark_stale)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "event: prose_rewrite_update" in response.text
     assert "event: prose_rewrite_done" in response.text
@@ -104,9 +93,8 @@ async def test_manual_rewrite_remains_available_when_automatic_rewriting_is_off(
         yield {"type": "rewritten", "draft": "Manual rewrite."}
 
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     assert _done_event(response)["content"] == "Manual rewrite."
     assert await _content(db, message_id) == "Manual rewrite."
 
@@ -115,42 +103,21 @@ async def test_runs_format_consistency_after_the_saved_message_rewrite(client, d
     cid = "message-prose-format-consistency"
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     baseline_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        'She smiles. "Hello there," she says warmly.',
-        0,
-        advance_leaf=True,
+        cid, "assistant", 'She smiles. "Hello there," she says warmly.', 0, advance_leaf=True
     )
-    user_id, _ = await dbmod.add_message(
-        cid,
-        "user",
-        "And then?",
-        1,
-        parent_id=baseline_id,
-        advance_leaf=True,
-    )
+    user_id, _ = await dbmod.add_message(cid, "user", "And then?", 1, parent_id=baseline_id, advance_leaf=True)
     message_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        "Old visible reply.",
-        2,
-        parent_id=user_id,
-        writer_draft="Editor-final reply.",
-        advance_leaf=True,
+        cid, "assistant", "Old visible reply.", 2, parent_id=user_id, writer_draft="Editor-final reply.", advance_leaf=True
     )
     _enable(monkeypatch)
 
     async def fake_rewrite(_source, _config):
-        yield {
-            "type": "rewritten",
-            "draft": "*She steps closer, watching him carefully.* Are you sure about this?",
-        }
+        yield {"type": "rewritten", "draft": "*She steps closer, watching him carefully.* Are you sure about this?"}
 
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     expected = 'She steps closer, watching him carefully. "Are you sure about this?"'
     assert _done_event(response)["content"] == expected
     assert await _content(db, message_id) == expected
@@ -160,21 +127,11 @@ async def test_skips_format_consistency_when_the_workflow_is_disabled(client, db
     cid = "message-prose-format-disabled"
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     baseline_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        'She smiles. "Hello there," she says warmly.',
-        0,
-        advance_leaf=True,
+        cid, "assistant", 'She smiles. "Hello there," she says warmly.', 0, advance_leaf=True
     )
     user_id, _ = await dbmod.add_message(cid, "user", "And then?", 1, parent_id=baseline_id, advance_leaf=True)
     message_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        "Old visible reply.",
-        2,
-        parent_id=user_id,
-        writer_draft="Editor-final reply.",
-        advance_leaf=True,
+        cid, "assistant", "Old visible reply.", 2, parent_id=user_id, writer_draft="Editor-final reply.", advance_leaf=True
     )
     await dbmod.set_workflow_enabled("format_consistency", False)
     _enable(monkeypatch)
@@ -185,9 +142,8 @@ async def test_skips_format_consistency_when_the_workflow_is_disabled(client, db
 
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     assert _done_event(response)["content"] == rewritten
     assert await _content(db, message_id) == rewritten
 
@@ -209,9 +165,7 @@ async def test_streams_a_snapshot_before_persisting_the_rewrite(streaming_client
 
     try:
         async with streaming_client.stream(
-            "POST",
-            f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite",
-            json={},
+            "POST", f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={}
         ) as response:
             assert response.status_code == 200
             lines = response.aiter_lines()
@@ -269,9 +223,8 @@ async def test_stream_loads_the_current_message_after_acquiring_its_lock(client,
     token = AbortToken()
     stream = _stream(cid, message_id, token)
 
-    # Creating an async generator does not run it. This models an edit that
-    # wins the conversation lock after the request is validated but before the
-    # SSE layer starts the rewrite generator.
+    # Creating an async generator does not run it. This models an edit that wins the conversation lock after the request is
+    # validated but before the SSE layer starts the rewrite generator.
     await dbmod.update_message_content(message_id, "Edit that won the lock.")
     token.abort()
     done = await anext(stream)
@@ -285,10 +238,11 @@ async def test_rejects_a_user_message(client):
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     message_id, _ = await dbmod.add_message(cid, "user", "Do not rewrite me.", 0, advance_leaf=True)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_json(
+        f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={}, expected_status=400
+    )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Only assistant messages can be rewritten"
+    assert response["detail"] == "Only assistant messages can be rewritten"
 
 
 async def test_keeps_the_message_when_the_local_rewriter_warns(client, db, monkeypatch):
@@ -302,9 +256,8 @@ async def test_keeps_the_message_when_the_local_rewriter_warns(client, db, monke
 
     monkeypatch.setattr(message_routes, "rewrite_events", failed_rewrite)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     done = _done_event(response)
     assert done == {
         "message_id": message_id,
@@ -330,16 +283,14 @@ async def test_falls_back_to_the_saved_text_when_no_draft_was_retained(client, d
 
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     assert sources == ["Legacy reply."]
     done = _done_event(response)
     assert done["content"] == "Rewritten legacy reply."
     assert done["changed"] is True
     assert await _content(db, message_id) == "Rewritten legacy reply."
-    # The row says the rewrite started from the message itself, so the client
-    # can name the text it replaced.
+    # The row says the rewrite started from the message itself, so the client can name the text it replaced.
     messages = (await client.get(f"/api/conversations/{cid}/messages")).json()
     assert next(m for m in messages if m["id"] == message_id)["has_writer_draft"] is False
 
@@ -350,10 +301,11 @@ async def test_rejects_messages_with_no_text_to_rewrite(client):
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     message_id, _ = await dbmod.add_message(cid, "assistant", "   ", 0, advance_leaf=True)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    response = await client.post_json(
+        f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={}, expected_status=409
+    )
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "This message has no text to rewrite"
+    assert response["detail"] == "This message has no text to rewrite"
 
 
 async def test_pipeline_persists_post_editor_draft_before_prose_rewriter(client, db, llm_mock):
@@ -380,10 +332,7 @@ async def test_pipeline_persists_post_editor_draft_before_prose_rewriter(client,
     ):
         await _drain(handle_turn(cid, "hello"))
 
-    async with db.execute(
-        "SELECT content, writer_draft FROM messages WHERE conversation_id = ? AND role = 'assistant'", (cid,)
-    ) as cursor:
-        row = await cursor.fetchone()
+    row = await db.one("SELECT content, writer_draft FROM messages WHERE conversation_id = ? AND role = 'assistant'", (cid,))
     assert row is not None
     assert row["content"] == "Prose-rewritten reply."
     assert row["writer_draft"] == "Editor-final reply."
@@ -395,10 +344,9 @@ async def test_noop_rewrite_uses_the_macro_frozen_writer_draft(client, db, llm_m
     llm_mock.enqueue_writer("The sky turns {{random::gold::silver}} tonight.")
 
     await _drain(handle_turn(cid, "hello"))
-    async with db.execute(
+    row = await db.one(
         "SELECT id, content, writer_draft FROM messages WHERE conversation_id = ? AND role = 'assistant'", (cid,)
-    ) as cursor:
-        row = await cursor.fetchone()
+    )
     assert row is not None
     assert "{{random" not in row["content"]
     assert row["writer_draft"] == row["content"]
@@ -412,9 +360,8 @@ async def test_noop_rewrite_uses_the_macro_frozen_writer_draft(client, db, llm_m
     _enable(monkeypatch)
     monkeypatch.setattr(message_routes, "rewrite_events", no_op_rewrite)
 
-    response = await client.post(f"/api/conversations/{cid}/messages/{row['id']}/prose-rewrite", json={})
+    response = await client.post_checked(f"/api/conversations/{cid}/messages/{row['id']}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     done = _done_event(response)
     assert done == {"message_id": row["id"], "content": row["content"], "changed": False, "warning": ""}
     assert seen_sources == [row["content"]]
@@ -426,26 +373,19 @@ async def test_compression_preserves_retained_writer_drafts(client, db):
     await dbmod.create_conversation(cid, "Prose", "Bot", "")
     user_id, _ = await dbmod.add_message(cid, "user", "Prompt", 0, advance_leaf=True)
     assistant_id, _ = await dbmod.add_message(
-        cid,
-        "assistant",
-        "Editor-final reply.",
-        1,
-        parent_id=user_id,
-        writer_draft="Original Writer draft.",
-        advance_leaf=True,
+        cid, "assistant", "Editor-final reply.", 1, parent_id=user_id, writer_draft="Original Writer draft.", advance_leaf=True
     )
     assert assistant_id
 
-    response = await client.post(f"/api/conversations/{cid}/compress", json={"summary": "Earlier events.", "keep_count": 2})
+    response = await client.post_json(
+        f"/api/conversations/{cid}/compress", json={"summary": "Earlier events.", "keep_count": 2}
+    )
 
-    assert response.status_code == 200
-    new_cid = response.json()["new_conversation_id"]
-    # Read the column, not the wire: the list routes project it away (see
-    # ``_row_for_client``), and what this test is about is the fork carrying
-    # the text across, byte for byte.
+    new_cid = response["new_conversation_id"]
+    # Read the column, not the wire: the list routes project it away (see ``_row_for_client``), and what this test is about is
+    # the fork carrying the text across, byte for byte.
     async with db.execute(
-        "SELECT writer_draft FROM messages WHERE conversation_id = ? AND content = ?",
-        (new_cid, "Editor-final reply."),
+        "SELECT writer_draft FROM messages WHERE conversation_id = ? AND content = ?", (new_cid, "Editor-final reply.")
     ) as cursor:
         assert (await cursor.fetchone())["writer_draft"] == "Original Writer draft."
     # And the client still learns the button has a source, without being sent one.
@@ -458,19 +398,16 @@ async def test_compression_preserves_retained_writer_drafts(client, db):
 async def test_a_hand_edit_retires_the_retained_draft(client, db, monkeypatch):
     """Editing a reply must not leave a rewrite able to restore the old prose.
 
-    The retained draft describes the text the edit replaced. Preferring it
-    would let the rewriter put the pre-edit prose back and report a successful
-    rewrite; after the edit the reply itself is the only honest source.
+    The retained draft describes the text the edit replaced. Preferring it would let the rewriter put the pre-edit prose back
+    and report a successful rewrite; after the edit the reply itself is the only honest source.
     """
     cid = "message-prose-edited"
     message_id = await _assistant_message(cid, "Editor-final reply.", writer_draft="Original Writer draft.")
     _enable(monkeypatch)
 
-    edit = await client.post(
-        f"/api/conversations/{cid}/messages/{message_id}/edit",
-        json={"content": "What the user actually wants to keep."},
+    await client.post_checked(
+        f"/api/conversations/{cid}/messages/{message_id}/edit", json={"content": "What the user actually wants to keep."}
     )
-    assert edit.status_code == 200
 
     sources: list[str] = []
 
@@ -479,9 +416,8 @@ async def test_a_hand_edit_retires_the_retained_draft(client, db, monkeypatch):
         yield {"type": "rewritten", "draft": source.upper()}
 
     monkeypatch.setattr(message_routes, "rewrite_events", fake_rewrite)
-    response = await client.post(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
+    await client.post_checked(f"/api/conversations/{cid}/messages/{message_id}/prose-rewrite", json={})
 
-    assert response.status_code == 200
     assert sources == ["What the user actually wants to keep."]
     assert await _content(db, message_id) == "WHAT THE USER ACTUALLY WANTS TO KEEP."
     async with db.execute("SELECT writer_draft FROM messages WHERE id = ?", (message_id,)) as cursor:

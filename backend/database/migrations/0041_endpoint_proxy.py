@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
+from .helpers import column_migration
 
-
-def migrate(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(endpoints)").fetchall()}
-    if "proxy" not in cols:
-        conn.execute("ALTER TABLE endpoints ADD COLUMN proxy TEXT NOT NULL DEFAULT ''")
-        print("[migrations] 0041: added proxy column to endpoints")
+migrate = column_migration("endpoints", "proxy TEXT NOT NULL DEFAULT ''", migration="0041")

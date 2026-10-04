@@ -1,8 +1,6 @@
-// `data-wf-on` now names a LIST of events, because a drop target is three
-// events on one element. That makes a misspelled event a silent no-op rather
-// than an error -- the delegation simply never matches -- so this pins the
-// spelling against the dispatcher's own list instead of waiting for a user to
-// report a control that does nothing.
+// `data-wf-on` now names a LIST of events, because a drop target is three events on one element. That makes a
+// misspelled event a silent no-op rather than an error -- the delegation simply never matches -- so this pins the
+// spelling against the dispatcher's own list instead of waiting for a user to report a control that does nothing.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";

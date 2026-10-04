@@ -1,7 +1,6 @@
 """Migrate legacy progressive and direction-note data to state fragments.
 
-Preserves branch state on imported databases with partial domains. Migration
-0079 drops the legacy storage this reads.
+Preserves branch state on imported databases with partial domains. Migration 0079 drops the legacy storage this reads.
 """
 
 from __future__ import annotations
@@ -20,10 +19,7 @@ _FRAGMENT_COLUMNS: tuple[tuple[str, str], ...] = (
         "state_update",
         "TEXT DEFAULT NULL CHECK (state_update IS NULL OR state_update IN ('after_reply', 'before_writer', 'manual'))",
     ),
-    (
-        "state_inject",
-        "TEXT DEFAULT NULL CHECK (state_inject IS NULL OR state_inject IN ('off', 'director', 'writer', 'both'))",
-    ),
+    ("state_inject", "TEXT DEFAULT NULL CHECK (state_inject IS NULL OR state_inject IN ('off', 'director', 'writer', 'both'))"),
 )
 _SETTINGS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("state_updates", "INTEGER NOT NULL DEFAULT 1 CHECK (state_updates IN (0, 1))"),

@@ -1,11 +1,9 @@
-"""
-Regression test: editor_pass must accept an explicit audit_context_msgs list
-and use it instead of extracting previous assistant messages from prefix.
+"""Regression test: editor_pass must accept an explicit audit_context_msgs list and use it instead of extracting previous
+assistant messages from prefix.
 
-The bug this guards: during handle_super_regenerate, the prefix includes
-target["content"] (the message being replaced) as an assistant message.  Without
-the fix, the editor's repetition scanner picked up that message as "prior context"
-and flagged the new draft for repeating the message it was literally told to replace.
+The bug this guards: during handle_super_regenerate, the prefix includes target["content"] (the message being replaced) as an
+assistant message. Without the fix, the editor's repetition scanner picked up that message as "prior context" and flagged the
+new draft for repeating the message it was literally told to replace.
 """
 
 from __future__ import annotations
@@ -28,11 +26,7 @@ def _editor_base(prefix: list[dict]) -> CachedBase:
     """Build a CachedBase wrapping *prefix* with the patch tool enabled, as the
     super-regen path does. These tests only exercise audit-context derivation
     (which reads base.prefix), so the tool blob just needs to be non-empty."""
-    return CachedBase(
-        prefix=tuple(prefix),
-        tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
-        model="test-model",
-    )
+    return CachedBase(prefix=tuple(prefix), tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})), model="test-model")
 
 
 def _clean_report() -> AuditReport:
@@ -76,10 +70,7 @@ async def test_audit_context_msgs_overrides_prefix():
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
-    with patch(
-        "backend.pipeline.passes.editor.editor._run_contextual_audit",
-        new=fake_contextual_audit,
-    ):
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_contextual_audit):
         events = []
         async for event in editor_pass(
             client,
@@ -119,10 +110,7 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
-    with patch(
-        "backend.pipeline.passes.editor.editor._run_contextual_audit",
-        new=fake_contextual_audit,
-    ):
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_contextual_audit):
         async for _ in editor_pass(
             client,
             _editor_base(prefix),
@@ -138,10 +126,9 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
 
     assert len(captured_prev_msgs) == 1
     # Reversed prefix scan: most-recent assistant first
-    assert captured_prev_msgs[0] == [
-        "second assistant",
-        "first assistant",
-    ], f"Expected prefix-derived order but got {captured_prev_msgs[0]!r}"
+    assert captured_prev_msgs[0] == ["second assistant", "first assistant"], (
+        f"Expected prefix-derived order but got {captured_prev_msgs[0]!r}"
+    )
 
 
 @pytest.mark.asyncio
@@ -172,10 +159,7 @@ async def test_super_regen_prior_history_still_scanned():
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
-    with patch(
-        "backend.pipeline.passes.editor.editor._run_contextual_audit",
-        new=fake_contextual_audit,
-    ):
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_contextual_audit):
         async for _ in editor_pass(
             client,
             _editor_base(prefix),
@@ -218,10 +202,7 @@ async def test_super_regen_does_not_flag_replaced_message():
             return _repetitive_report(), "structural repetition detected"
         return _clean_report(), ""
 
-    with patch(
-        "backend.pipeline.passes.editor.editor._run_contextual_audit",
-        new=fake_contextual_audit,
-    ):
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_contextual_audit):
         events = []
         async for event in editor_pass(
             client,

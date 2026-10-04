@@ -1,9 +1,8 @@
 """Keep the stored suggestions current without ever blocking generation.
 
-A run takes about a minute of CPU on a large library, so it happens in a
-spawned child process: nothing in the server's event loop or GIL waits on it,
-and a chat streams normally while it runs. One run at a time; a failed or
-skipped run keeps the previous suggestions.
+A run takes about a minute of CPU on a large library, so it happens in a spawned child process: nothing in the server's event
+loop or GIL waits on it, and a chat streams normally while it runs. One run at a time; a failed or skipped run keeps the
+previous suggestions.
 """
 
 from __future__ import annotations
@@ -104,11 +103,7 @@ async def _run(replies: int) -> None:
             logger.info("Discarding slop suggestions mined from a replaced dataset")
             return
         await replace_slop_suggestions(
-            result["suggestions"],
-            replies_at_run=replies,
-            status=result["status"],
-            mined_at=ran_at,
-            keys_at_start=keys_at_start,
+            result["suggestions"], replies_at_run=replies, status=result["status"], mined_at=ran_at, keys_at_start=keys_at_start
         )
         logger.info("Slop suggestions: %s", result["status"])
     except Exception as exc:
@@ -122,8 +117,7 @@ async def _run(replies: int) -> None:
 
 
 async def shutdown() -> None:
-    """Cancel a run in progress; the run stops its own worker. Nothing is recorded,
-    so the next startup check runs it again."""
+    """Cancel a run in progress; the run stops its own worker. Nothing is recorded, so the next startup check runs it again."""
     global _task
     task, _task = _task, None
     if task is not None and not task.done():

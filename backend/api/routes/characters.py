@@ -43,19 +43,8 @@ from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
 from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...inference import agent_lane_from_settings, client_from_settings
-from ..deps import (
-    cached_image_response,
-    idle_chats_guard,
-    image_not_modified,
-    profile_draft_failures,
-    rows_response,
-)
-from ..schemas import (
-    CharacterCardCreate,
-    CharacterCardUpdate,
-    ImportUrlRequest,
-    PublicProfilePayload,
-)
+from ..deps import cached_image_response, idle_chats_guard, image_not_modified, profile_draft_failures, rows_response
+from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest, PublicProfilePayload
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +72,8 @@ async def api_create_character(data: CharacterCardCreate):
             entries = list(entries.values())
         book_ext = character_book.get("extensions")
         orb_ext = book_ext.get("orb") if isinstance(book_ext, dict) else None
-        # An `orb` block marks a book Orb exported, so materialize it even with
-        # no entries: an empty Dynamic World is a real link whose lore the Agent
-        # writes during play. A foreign card's vestigial `entries: []` still
-        # imports nothing.
+        # An `orb` block marks a book Orb exported, so materialize it even with no entries: an empty Dynamic World is a real
+        # link whose lore the Agent writes during play. A foreign card's vestigial `entries: []` still imports nothing.
         if entries or isinstance(orb_ext, dict):
             book_name = character_book.get("name") or card_data["name"]
             embedded_world = {
@@ -100,9 +87,8 @@ async def api_create_character(data: CharacterCardCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    # Auto-import an embedded expression pack (chub extension) so cards imported
-    # from the internet — or from a PNG that carries one — arrive with their
-    # sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
+    # Auto-import an embedded expression pack (chub extension) so cards imported from the internet — or from a PNG that carries
+    # one — arrive with their sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
     imgs = await card_expressions.fetch_embedded_expressions(card_data)
     if imgs:
         await set_character_expressions(card_data["id"], imgs)
@@ -185,9 +171,8 @@ async def api_get_character(card_id: str):
 async def api_generate_public_profile(card_id: str):
     """Return an editable draft; generation never overwrites the card.
 
-    Raises rather than degrading: a plausible-looking profile built from the
-    card's description under a "Draft ready" toast is worse than an error,
-    because it is indistinguishable from a real answer.
+    Raises rather than degrading: a plausible-looking profile built from the card's description under a "Draft ready" toast is
+    worse than an error, because it is indistinguishable from a real answer.
     """
     card = await get_character_card(card_id)
     if not card:
@@ -281,18 +266,16 @@ async def api_get_avatar_thumb(card_id: str, request: Request):
 async def api_export_character(card_id: str, world_view: Literal["authored", "effective"] = "authored"):
     """Export a character card as a V2-compatible card PNG.
 
-    The embedded ``character_book`` is the *authored* lorebook by default, so a
-    card shared with someone else carries the lore its author wrote rather than
-    whatever a particular playthrough's Agent proposed and its owner accepted.
+    The embedded ``character_book`` is the *authored* lorebook by default, so a card shared with someone else carries the lore
+    its author wrote rather than whatever a particular playthrough's Agent proposed and its owner accepted.
     ``world_view=effective`` opts into exporting the projection instead.
     """
     card = await get_character_card(card_id, include_avatar=True)
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    # Materialize a mutable working copy: the export augments the row with fields
-    # that are not card columns (a forced ``id`` and an embedded ``character_book``),
-    # so it is a free-form dict here rather than a CharacterCardRow.
+    # Materialize a mutable working copy: the export augments the row with fields that are not card columns (a forced ``id`` and
+    # an embedded ``character_book``), so it is a free-form dict here rather than a CharacterCardRow.
     export_card: dict[str, Any] = dict(card)
 
     avatar_bytes: bytes | None = None
@@ -314,18 +297,14 @@ async def api_export_character(card_id: str, world_view: Literal["authored", "ef
         world = await get_world(world_id)
         entries = project_lorebook_view(await get_lorebook_entries(world_id), world_view)
         export_card["character_book"] = lorebook_to_book(
-            world["name"] if world else "",
-            entries,
-            dynamic_enabled=bool(world and world["dynamic_enabled"]),
+            world["name"] if world else "", entries, dynamic_enabled=bool(world and world["dynamic_enabled"])
         )
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
     safe_name = "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
     return Response(
-        content=png_bytes,
-        media_type="image/png",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
+        content=png_bytes, media_type="image/png", headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'}
     )
 
 

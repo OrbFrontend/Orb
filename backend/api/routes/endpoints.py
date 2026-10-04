@@ -20,12 +20,7 @@ from ...database import (
 from ...inference import LLMClient, provider_sentence, redact
 from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
 from ...inference.claude_code import ClaudeCodeError, cli_status
-from ..schemas import (
-    EndpointCreate,
-    EndpointUpdate,
-    ModelConfigCreate,
-    ModelConfigUpdate,
-)
+from ..schemas import EndpointCreate, EndpointUpdate, ModelConfigCreate, ModelConfigUpdate
 
 router = APIRouter()
 
@@ -105,19 +100,14 @@ async def api_get_available_models(endpoint_id: int):
         check_claude_endpoint(endpoint["url"], endpoint["api_key"], endpoint["kind"])
         return {"models": []}
 
-    client = LLMClient(
-        endpoint["url"],
-        endpoint["api_key"],
-        proxy=endpoint.get("proxy"),
-    )
+    client = LLMClient(endpoint["url"], endpoint["api_key"], proxy=endpoint.get("proxy"))
     try:
         models = await client.list_models()
     except httpx.HTTPStatusError as exc:
         sentence = redact(provider_sentence(exc.response.text), endpoint["api_key"])
         suffix = f": {sentence}" if sentence else ""
         raise HTTPException(
-            status_code=502,
-            detail=f"Model discovery failed (provider HTTP {exc.response.status_code}){suffix}",
+            status_code=502, detail=f"Model discovery failed (provider HTTP {exc.response.status_code}){suffix}"
         ) from None
     except httpx.RequestError:
         raise HTTPException(status_code=502, detail="Model discovery could not reach the endpoint") from None

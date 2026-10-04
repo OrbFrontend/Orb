@@ -93,10 +93,7 @@ async def test_anthropic_models_use_sibling_resource_and_native_auth(monkeypatch
 
     assert models == ["claude-opus-5"]
     assert _CatalogClient.seen["url"] == "https://api.anthropic.com/v1/models"
-    assert _CatalogClient.seen["headers"] == {
-        "x-api-key": "secret-key",
-        "anthropic-version": "2023-06-01",
-    }
+    assert _CatalogClient.seen["headers"] == {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"}
 
 
 @pytest.mark.asyncio
@@ -114,9 +111,8 @@ async def test_gemini_models_use_normalized_surface_and_strip_models_prefix(monk
 
 @pytest.mark.asyncio
 async def test_gemini_proxy_catalogue_is_normalized_like_googles_own(monkeypatch):
-    # The prefix is a property of the dialect, not of Google's hostname: a proxy
-    # mirroring /v1beta/openai relays the same ``models/``-prefixed ids, and
-    # leaving them in put an unusable-looking id in the picker.
+    # The prefix is a property of the dialect, not of Google's hostname: a proxy mirroring /v1beta/openai relays the same
+    # ``models/``-prefixed ids, and leaving them in put an unusable-looking id in the picker.
     _CatalogClient.payload = {"data": [{"id": "models/gemini-3-pro"}]}
     _CatalogClient.seen = {}
     monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
@@ -156,15 +152,9 @@ async def test_ambiguous_catalogue_detection_uses_no_provider_or_model_names(mon
     assert models == ["model-7"]
     assert _ProbingCatalogClient.requests == [
         {"url": "https://opaque.test/models", "headers": {"Authorization": "Bearer secret-key"}},
-        {
-            "url": "https://opaque.test/models",
-            "headers": {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"},
-        },
+        {"url": "https://opaque.test/models", "headers": {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"}},
         {"url": "https://opaque.test/v1/models", "headers": {"Authorization": "Bearer secret-key"}},
-        {
-            "url": "https://opaque.test/v1/models",
-            "headers": {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"},
-        },
+        {"url": "https://opaque.test/v1/models", "headers": {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"}},
     ]
     assert endpoint_profiles.resolve_endpoint(client.base_url, "model-7").protocol == "anthropic"
     assert endpoint_profiles.endpoint_candidates(client.base_url, "model-7") == [

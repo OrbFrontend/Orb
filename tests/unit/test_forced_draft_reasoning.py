@@ -33,8 +33,7 @@ class _CapturingClient:
 
 
 def test_reasoning_on_has_no_default():
-    """No 'leave it alone' value: a new call site cannot inherit the bug by
-    simply not mentioning reasoning."""
+    """No 'leave it alone' value: a new call site cannot inherit the bug by simply not mentioning reasoning."""
     param = inspect.signature(forced_draft).parameters["reasoning_on"]
     assert param.default is inspect.Parameter.empty
     assert param.kind is inspect.Parameter.KEYWORD_ONLY

@@ -8,12 +8,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
-from ..core import (
-    AssistantToolMessage,
-    ReasoningChannel,
-    agent_lane_max_tokens,
-    mark_call_start,
-)
+from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_max_tokens, mark_call_start
 from ..inference import (
     honors_forced_tool_choice,
     note_forced_tool_choice_ignored,
@@ -48,10 +43,9 @@ def _plain(obj: Any) -> Any:
 def _replay(resp: Mapping[str, Any], tool_name: str, args: Mapping[str, Any], call_id: str) -> AssistantToolMessage:
     """The reply as a structured assistant turn, for a caller that continues the thread.
 
-    The id is assigned here because structured forced calls tend to come back as
-    ``call_0``: a thread of several must answer each call exactly once. Content is
-    kept only beside native ``tool_calls``; a call parsed out of the content body
-    would otherwise appear twice.
+    The id is assigned here because structured forced calls tend to come back as ``call_0``: a thread of several must answer
+    each call exactly once. Content is kept only beside native ``tool_calls``; a call parsed out of the content body would
+    otherwise appear twice.
     """
     return {
         "role": "assistant",
@@ -87,40 +81,34 @@ async def forced_tool_call(
     call_id: str | None = None,
     raise_errors: bool = False,
 ) -> AsyncIterator[dict]:
-    """Run a forced call, yielding parsed arguments with the Agent token budget
-    and caller-defined temperature.
+    """Run a forced call, yielding parsed arguments with the Agent token budget and caller-defined temperature.
 
-    Standalone prompt families require cache_shape; conversation extensions leave
-    it empty. call_id includes a replayable assistant turn when arguments exist.
-    Failures default to empty arguments; raise_errors preserves provider errors
-    after transient retries.
+    Standalone prompt families require cache_shape; conversation extensions leave it empty. call_id includes a replayable
+    assistant turn when arguments exist. Failures default to empty arguments; raise_errors preserves provider errors after
+    transient retries.
     """
     tool = require_tool(tool_name)
     schema = tool["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)
     base_url = getattr(client, "base_url", "")
-    # Only an offer_tools array may be collapsed to the forced tool: it exists
-    # for cache reuse, not for the model to choose from. The enabled_tools array
-    # is the pipeline's byte-identical blob -- shrinking that would break the
-    # cross-pass KV prefix, which outranks any single call's tool selection.
+    # Only an offer_tools array may be collapsed to the forced tool: it exists for cache reuse, not for the model to choose
+    # from. The enabled_tools array is the pipeline's byte-identical blob -- shrinking that would break the cross-pass KV
+    # prefix, which outranks any single call's tool selection.
     collapsible = offer_tools is not None
     if offer_tools is not None:
-        # Share an order-stable tool array across sibling forced calls; only tool_choice varies.
-        # Standalone tools stay out of enabled_schemas. Prefix reuse depends on provider
-        # rendering: some serialize only the forced tool, sharing the conversation body
-        # but not the blob. A working forced call does not prove sibling cache reuse
-        # (see docs/architecture/kv-cache.md, Invariant 3).
+        # Share an order-stable tool array across sibling forced calls; only tool_choice varies. Standalone tools stay out of
+        # enabled_schemas. Prefix reuse depends on provider rendering: some serialize only the forced tool, sharing the
+        # conversation body but not the blob. A working forced call does not prove sibling cache reuse (see
+        # docs/architecture/kv-cache.md, Invariant 3).
         tools = [require_tool(name)["schema"] for name in offer_tools]
         if schema not in tools:
             tools.append(schema)
-        # ...unless the wire won't carry the forcing. Then a rival schema in the
-        # array is a lottery the caller never asked for: with compose_image_prompt
-        # forced but coerced, a model can answer with the selector instead --
-        # no arguments for the tool that was asked for. Ship only the forced tool
-        # in that case: the shared blob is a cache optimization, calling the right
-        # tool is the point of the call. Providers that ignore the field silently
-        # are learned from the reply below rather than listed here.
+        # ...unless the wire won't carry the forcing. Then a rival schema in the array is a lottery the caller never asked for:
+        # with compose_image_prompt forced but coerced, a model can answer with the selector instead -- no arguments for the
+        # tool that was asked for. Ship only the forced tool in that case: the shared blob is a cache optimization, calling the
+        # right tool is the point of the call. Providers that ignore the field silently are learned from the reply below rather
+        # than listed here.
         if not honors_forced_tool_choice(base_url, resolved_model, reasoning_params):
             tools = [schema]
     elif enabled_tools is None:
@@ -136,14 +124,7 @@ async def forced_tool_call(
 
     kv_label = pass_id or f"forced:{tool_name}"
     if kv_tracker is not None:
-        kv_tracker.record(
-            kv_label,
-            messages,
-            tools,
-            model=resolved_model,
-            endpoint=base_url,
-            shape=cache_shape,
-        )
+        kv_tracker.record(kv_label, messages, tools, model=resolved_model, endpoint=base_url, shape=cache_shape)
 
     resp: dict = {}
     # Keep retries in the same workflow buffer so their reasoning is separated.
@@ -167,10 +148,7 @@ async def forced_tool_call(
             etype = event.get("type")
             if etype == "reasoning":
                 if pass_id is not None:
-                    yield {
-                        "event": "reasoning",
-                        "data": {"pass": pass_id, "delta": reasoning.push(event)},
-                    }
+                    yield {"event": "reasoning", "data": {"pass": pass_id, "delta": reasoning.push(event)}}
             elif etype == "done":
                 resp = event.get("message", {}) or {}
                 if kv_tracker is not None:
@@ -179,11 +157,9 @@ async def forced_tool_call(
     def _parse() -> tuple[dict, bool]:
         """(the forced tool's arguments, whether some *other* tool was called).
 
-        The second flag is the only sound evidence that tool selection was left
-        to the model: a reply with no call at all proves nothing (truncated at
-        the token budget mid-reasoning, a content-only answer, a provider-side
-        finish_reason=error), and treating it as evidence would drop the shared
-        blob for the whole session over one flaky reply.
+        The second flag is the only sound evidence that tool selection was left to the model: a reply with no call at all proves
+        nothing (truncated at the token budget mid-reasoning, a content-only answer, a provider-side finish_reason=error), and
+        treating it as evidence would drop the shared blob for the whole session over one flaky reply.
         """
         try:
             calls = parse_tool_calls(resp)
@@ -198,14 +174,11 @@ async def forced_tool_call(
             yield event
         args, wrong_tool = _parse()
         if wrong_tool and collapsible and len(tools) > 1:
-            # A different tool came back: the forced tool_choice did not take.
-            # Some providers ignore the field instead of rejecting it (OpenRouter
-            # routing a thinking-on model, llama.cpp's chat endpoint), so nothing
-            # up front can predict it -- the reply is the only evidence. Remember
-            # the pair so the rest of the session skips the lottery, and retry now
-            # with the forced tool alone: that rules out the wrong tool, though a
-            # provider free to call nothing at all can still answer without a call
-            # (the empty-args degrade below covers that).
+            # A different tool came back: the forced tool_choice did not take. Some providers ignore the field instead of
+            # rejecting it (OpenRouter routing a thinking-on model, llama.cpp's chat endpoint), so nothing up front can predict
+            # it -- the reply is the only evidence. Remember the pair so the rest of the session skips the lottery, and retry
+            # now with the forced tool alone: that rules out the wrong tool, though a provider free to call nothing at all can
+            # still answer without a call (the empty-args degrade below covers that).
             note_forced_tool_choice_ignored(base_url, resolved_model)
             logger.info(
                 "forced_tool_call %s: %s ignored the forced tool_choice; retrying with that tool alone",
@@ -214,14 +187,7 @@ async def forced_tool_call(
             )
             tools = [schema]
             if kv_tracker is not None:
-                kv_tracker.record(
-                    kv_label,
-                    messages,
-                    tools,
-                    model=resolved_model,
-                    endpoint=base_url,
-                    shape=cache_shape,
-                )
+                kv_tracker.record(kv_label, messages, tools, model=resolved_model, endpoint=base_url, shape=cache_shape)
             async for event in _attempt(tools):
                 yield event
             args, _ = _parse()

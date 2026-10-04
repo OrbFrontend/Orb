@@ -68,9 +68,8 @@ def test_default_style_falls_back_when_it_no_longer_resolves():
 def test_styles_hoist_out_of_external_comfy_and_a_current_list_wins():
     """Styles are shared across sources now, so they live at the top level.
 
-    The normalizer runs on GET, on PUT, and on the value read back, so a legacy
-    config hoists on first read and persists hoisted on first write -- there is no
-    DB migration to write, and this is the only thing that makes that true.
+    The normalizer runs on GET, on PUT, and on the value read back, so a legacy config hoists on first read and persists hoisted
+    on first write -- there is no DB migration to write, and this is the only thing that makes that true.
     """
     legacy = {"external_comfy": {"api_key": "k", "styles": [{"id": "legacy", "label": "Legacy", "prompt": "p"}]}}
     cfg = normalize_config(legacy)
@@ -126,9 +125,8 @@ def test_scene_skills_migrate_legacy_flag_and_current_flag_wins():
 def test_shipped_scene_skills_survive_normalization_and_reach_the_composer():
     """Every shipped row must clear the persistence and selection gates as authored.
 
-    Asserting the gates rather than the prose: the wording is tuned often, but a
-    default that normalization silently truncates, re-IDs, or that
-    ``enabled_scene_skills`` drops would ship a skill the selector can never pick.
+    Asserting the gates rather than the prose: the wording is tuned often, but a default that normalization silently truncates,
+    re-IDs, or that ``enabled_scene_skills`` drops would ship a skill the selector can never pick.
     """
     seeded = normalize_config({})["scene_skills"]
     assert seeded == DEFAULT_SCENE_SKILLS
@@ -190,13 +188,7 @@ def test_scene_skills_are_bounded_unique_and_normalize_to_a_fixed_point():
 
 def test_scene_skill_enabled_is_boolean_with_opt_out_default():
     skills = normalize_config(
-        {
-            "scene_skills": [
-                {"id": "missing"},
-                {"id": "false", "enabled": False},
-                {"id": "junk", "enabled": "false"},
-            ]
-        }
+        {"scene_skills": [{"id": "missing"}, {"id": "false", "enabled": False}, {"id": "junk", "enabled": "false"}]}
     )["scene_skills"]
     assert [skill["enabled"] for skill in skills] == [True, False, True]
 
@@ -248,9 +240,8 @@ def test_user_graphs_are_bounded_by_size_and_count():
 
 
 def test_a_user_graph_needs_positive_seed_and_output_but_not_negative_or_checkpoint():
-    # A one-encoder prose graph has nothing to map negative to, and a self-contained
-    # graph keeps its own model rather than exposing a checkpoint slot. Exact
-    # equality: normalization introduces no empty `references` key either.
+    # A one-encoder prose graph has nothing to map negative to, and a self-contained graph keeps its own model rather than
+    # exposing a checkpoint slot. Exact equality: normalization introduces no empty `references` key either.
     stored = _stored(_user_graph(slots=dict(_BASE_SLOTS)))
     assert stored["slots"] == _BASE_SLOTS
 
@@ -283,11 +274,10 @@ def _references(*entries: dict) -> list:
 
 
 def test_a_graph_stores_which_inputs_load_an_image_and_never_where_from():
-    """The split this whole feature turns on. Which node inputs load an image is
-    structural -- discovered at import against `/object_info`, unchangeable without
-    re-importing -- so the graph keeps it. Where each one draws from is a *style's*
-    answer, so no `source` survives here; two styles on one workflow can differ and
-    either can switch a slot off."""
+    """The split this whole feature turns on. Which node inputs load an image is structural -- discovered at import against
+    `/object_info`, unchangeable without re-importing -- so the graph keeps it. Where each one draws from is a *style's*
+    answer, so no `source` survives here; two styles on one workflow can differ and either can switch a slot off.
+    """
     stored = _references(
         {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"},
         {"slot": [90, "image"]},
@@ -318,28 +308,21 @@ def test_one_entry_per_widget_so_the_style_answers_a_stable_position():
 
 # ── connections ──────────────────────────────────────────────────────────────
 #
-# A style names the connection it renders on, and `source` is derived from the
-# style that will render next. The settings panel deleted its global backend
-# picker, so this derivation is the only thing left that decides which adapter
-# `get_adapter` builds -- both directions of it are worth pinning.
+# A style names the connection it renders on, and `source` is derived from the style that will render next. The settings panel
+# deleted its global backend picker, so this derivation is the only thing left that decides which adapter `get_adapter` builds
+# -- both directions of it are worth pinning.
 
 
 def _linked(connection: str, *, source: str = "external_comfy", cloud: dict | None = None) -> dict:
     return normalize_config(
-        {
-            "source": source,
-            "default_style": "s",
-            "styles": [{"id": "s", "connection": connection}],
-            "cloud": cloud or {},
-        }
+        {"source": source, "default_style": "s", "styles": [{"id": "s", "connection": connection}], "cloud": cloud or {}}
     )
 
 
 def test_a_style_connection_is_an_id_or_nothing():
     assert _linked("comfy")["styles"][0]["connection"] == "comfy"
     assert _linked("xai")["styles"][0]["connection"] == "xai"
-    # Same shape as every other id here; anything else reads as unlinked rather
-    # than as a connection nothing will ever resolve.
+    # Same shape as every other id here; anything else reads as unlinked rather than as a connection nothing will ever resolve.
     assert _linked("../etc/passwd")["styles"][0]["connection"] == ""
 
 
@@ -351,13 +334,9 @@ def test_the_default_styles_connection_decides_which_backend_routes():
     # And which provider inside it: the panel has no provider dropdown any more.
     assert cloud["cloud"]["provider"] == "openai"
 
-    # Only the style that renders next decides: a second style pointing elsewhere
-    # must not drag the whole config with it.
+    # Only the style that renders next decides: a second style pointing elsewhere must not drag the whole config with it.
     two = normalize_config(
-        {
-            "default_style": "local",
-            "styles": [{"id": "local", "connection": "comfy"}, {"id": "remote", "connection": "xai"}],
-        }
+        {"default_style": "local", "styles": [{"id": "local", "connection": "comfy"}, {"id": "remote", "connection": "xai"}]}
     )
     assert two["source"] == "external_comfy"
 
@@ -396,9 +375,8 @@ def test_an_unknown_provider_id_is_retained_with_its_key():
     cloud = _cloud(provider="renamed_in_v2", providers={"renamed_in_v2": {"api_key": "still-mine", "model": "m"}})
 
     assert cloud["provider"] == "renamed_in_v2"
-    # A connection is an address and a credential, exactly as wide as the ComfyUI
-    # one's {api_url, api_key}. `model` was here and belongs to the style now, so it
-    # is read on the way past and not written back -- which is the migration.
+    # A connection is an address and a credential, exactly as wide as the ComfyUI one's {api_url, api_key}. `model` was here and
+    # belongs to the style now, so it is read on the way past and not written back -- which is the migration.
     assert cloud["providers"]["renamed_in_v2"] == {"api_key": "still-mine", "base_url": ""}
 
 
@@ -428,11 +406,10 @@ def test_a_cloud_base_url_override_rejects_credentials_and_plaintext(url, expect
 
 # ── the render target, on the style ──────────────────────────────────────────
 #
-# A connection is how Orb reaches a backend; a style is what an image looks like.
-# The four cloud render settings lived on the connection, which made a connection a
-# render preset that happened to hold a key -- and made "FLUX.1-kontext for realistic,
-# SDXL for anime, both on Together AI" unreachable, since the credential map is keyed
-# by provider id and allows one connection per provider.
+# A connection is how Orb reaches a backend; a style is what an image looks like. The four cloud render settings lived on the
+# connection, which made a connection a render preset that happened to hold a key -- and made "FLUX.1-kontext for realistic,
+# SDXL for anime, both on Together AI" unreachable, since the credential map is keyed by provider id and allows one connection
+# per provider.
 
 
 def _style(**raw) -> dict:
@@ -447,8 +424,7 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     assert _style(quality="HIGH")["quality"] == "high"
     assert _style(quality="ultra")["quality"] == ""
     assert _style()["quality"] == ""
-    # Compatibility controls are opt-outs so an existing configuration keeps its
-    # request shape until the user changes it.
+    # Compatibility controls are opt-outs so an existing configuration keeps its request shape until the user changes it.
     assert _style()["send_seed"] is True
     assert _style()["seed_max"] == ""
     assert _style()["send_negative_prompt"] is True
@@ -469,9 +445,8 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     assert _style(reference_source="previous")["reference_source"] == "previous"
     assert _style(reference_source="whatever")["reference_source"] == ""
     assert _style(reference_source=["previous"])["reference_source"] == ""
-    # The retired cast sources asked for a likeness of somebody in the scene; the one
-    # that survives is the character's own, so a stored row keeps sending a picture
-    # rather than silently reading as prompt-only.
+    # The retired cast sources asked for a likeness of somebody in the scene; the one that survives is the character's own, so a
+    # stored row keeps sending a picture rather than silently reading as prompt-only.
     assert _style(reference_source="cast")["reference_source"] == "character"
     assert _style(reference_source="cast_or_character")["reference_source"] == "character"
     # The combining choice targets can honour positionally: every character, then the
@@ -650,10 +625,7 @@ def test_a_config_that_never_stored_a_style_still_inherits_its_cloud_settings():
     from, and an install that configured cloud before styles were ever written would
     silently reset to 1024x1024 on the read that migrates it."""
     config = normalize_config(
-        {
-            "source": "cloud",
-            "cloud": {"provider": "xai", "width": 1536, "height": 1024, "providers": {"xai": {"api_key": "k"}}},
-        }
+        {"source": "cloud", "cloud": {"provider": "xai", "width": 1536, "height": 1024, "providers": {"xai": {"api_key": "k"}}}}
     )
     assert [s["id"] for s in config["styles"]] == ["realistic", "anime"]
     assert all((s["width"], s["height"]) == (1536, 1024) for s in config["styles"])
@@ -677,8 +649,7 @@ def test_the_cloud_block_is_connectivity_only():
             "cloud": {"provider": "xai", "providers": {"openai": {"api_key": "b"}}},
         }
     )["cloud"]
-    # `provider` survives as the legacy fallback for an unlinked style, and still
-    # records which connection routes.
+    # `provider` survives as the legacy fallback for an unlinked style, and still records which connection routes.
     assert set(cloud) == {"provider", "providers"}
     assert cloud["provider"] == "openai"
 

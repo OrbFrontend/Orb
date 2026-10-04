@@ -7,24 +7,13 @@ from typing import Any
 
 from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
 from ..database.models import PhraseGroup
-from ..inference import (
-    CachedBase,
-    LLMClient,
-)
+from ..inference import CachedBase, LLMClient
 from ..prompting.tool_catalog import enabled_schemas
 from ..prompting.tool_schemas import build_state_tool
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
-from .passes.editor import (
-    build_feedback_override,
-    feedback_active,
-    post_processing_active,
-)
-from .passes.editor.length_guard import (
-    LengthGuard,
-    apply_length_guard_tools,
-    resolve_length_guard,
-)
+from .passes.editor import build_feedback_override, feedback_active, post_processing_active
+from .passes.editor.length_guard import LengthGuard, apply_length_guard_tools, resolve_length_guard
 from .passes.state import StateContract
 from .passes.state.contract import NON_SCENE_FIELD_TYPES
 from .predicates import agent_enabled, is_dual_model
@@ -45,13 +34,11 @@ def resolve_pipeline_config(
 ) -> PipelineConfig:
     """Build the immutable per-turn config.
 
-    Resolves feature flags (audit, length guard, per-pass reasoning), builds the
-    writer and agent lanes, and returns a :class:`PipelineConfig`. Called once
-    per turn by ``run_pipeline``.
+    Resolves feature flags (audit, length guard, per-pass reasoning), builds the writer and agent lanes, and returns a
+    :class:`PipelineConfig`. Called once per turn by ``run_pipeline``.
     """
-    # Drop a disabled workflow's tools from the per-turn blob at the single
-    # chokepoint that builds it, covering both the standing enabled_tools map and
-    # any per-turn enable. Empty no-op when no disabled workflow owns tools.
+    # Drop a disabled workflow's tools from the per-turn blob at the single chokepoint that builds it, covering both the
+    # standing enabled_tools map and any per-turn enable. Empty no-op when no disabled workflow owns tools.
     enabled_tools = {k: v for k, v in enabled_tools.items() if k not in disabled_workflow_tool_names(settings)}
 
     agent_on = agent_enabled(settings)
@@ -59,9 +46,8 @@ def resolve_pipeline_config(
     prefills = settings.get("reasoning_prefill_passes") or {}
 
     def _prefill(key: str) -> str:
-        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin
-        # per conversation exactly like fragment text — the tail stays byte-stable
-        # turn over turn.
+        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin per conversation exactly like fragment text —
+        # the tail stays byte-stable turn over turn.
         raw = str(prefills.get(key) or "")
         return macros.resolve_message(raw) if raw else ""
 
@@ -118,17 +104,11 @@ def resolve_pipeline_config(
 
 def split_interactive_fragments(
     fragments: Sequence[Mapping[str, Any]],
-) -> tuple[
-    list[Mapping[str, Any]],
-    list[Mapping[str, Any]],
-    list[Mapping[str, Any]],
-    list[Mapping[str, Any]],
-]:
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]]]:
     """Split fragments by pipeline stage; decisions run before the Director.
 
-    Returns ``(scene, feedback, state, post_processing)``. Scene fragments are
-    the Director's per-turn values. State fragments are routed by their own
-    settings (see :class:`StateContract`).
+    Returns ``(scene, feedback, state, post_processing)``. Scene fragments are the Director's per-turn values. State fragments
+    are routed by their own settings (see :class:`StateContract`).
     """
     scene = [df for df in fragments if df.get("field_type") not in NON_SCENE_FIELD_TYPES]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
@@ -150,11 +130,9 @@ def _without_required(schema: dict) -> dict:
 def _names_only(schema: dict, fragment_ids: Collection[str]) -> dict:
     """Drop the description from each fragment-built property on the shared blob.
 
-    Every defined fragment rides the blob, enabled or not, so its description
-    would reach every call on the lane -- the Writer's included in single-model
-    mode. Each fragment property keeps its name and type; the pass that fills a
-    live field states its description in the trailing request and the per-call
-    ``json_schema``. Fixed, code-authored properties keep theirs.
+    Every defined fragment rides the blob, enabled or not, so its description would reach every call on the lane -- the Writer's
+    included in single-model mode. Each fragment property keeps its name and type; the pass that fills a live field states its
+    description in the trailing request and the per-call ``json_schema``. Fixed, code-authored properties keep theirs.
     """
     for key, prop in schema["function"]["parameters"]["properties"].items():
         if key in fragment_ids:
@@ -173,9 +151,8 @@ def build_writer_tools_blob(
 ) -> tuple[dict, dict[str, bool]]:
     """Build shared schemas and return (overrides, enabled_tools copy).
 
-    Include all defined fragments so enablement never changes the cached blob.
-    Properties expose names/types only; trailing requests supply enabled fragment
-    text and narrow the live call.
+    Include all defined fragments so enablement never changes the cached blob. Properties expose names/types only; trailing
+    requests supply enabled fragment text and narrow the live call.
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)
@@ -195,9 +172,8 @@ def build_writer_tools_blob(
         enabled_tools["give_feedback"] = True
     if post_processing_active(post_processing_fragments, agent_on=agent_on):
         enabled_tools["editor_search_replace"] = True
-    # The union of every fragment the state tool may carry, before or after the
-    # Writer, so both steps share one byte-stable blob. The schema depends only
-    # on configuration; state writes never rebuild it.
+    # The union of every fragment the state tool may carry, before or after the Writer, so both steps share one byte-stable
+    # blob. The schema depends only on configuration; state writes never rebuild it.
     if tool_fragments := contract.tool_fragments():
         overrides["update_state"] = _names_only(build_state_tool(tool_fragments), {fragment.id for fragment in tool_fragments})
         enabled_tools["update_state"] = True

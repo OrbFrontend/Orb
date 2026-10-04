@@ -1,8 +1,6 @@
-// A running workflow render's button is its Stop button, and a repaint mid-render
-// rebuilds only rows whose markup changed. So a button can exist twice over a
-// render's life: the one `show` turned over in place, and one a renderer drew
-// from `stopButtonState`. `end` has to put both back, or a Stop that stops
-// nothing is left on screen.
+// A running workflow render's button is its Stop button, and a repaint mid-render rebuilds only rows whose markup
+// changed. So a button can exist twice over a render's life: the one `show` turned over in place, and one a renderer
+// drew from `stopButtonState`. `end` has to put both back, or a Stop that stops nothing is left on screen.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";

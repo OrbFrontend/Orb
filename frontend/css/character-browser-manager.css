@@ -1,266 +1,92 @@
 /* Character Library maintenance cards. Flex gaps supply spacing for added cards and rows. */
 
-.lib-manager {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.lib-manager > .modal-heading {
-  margin: 0;
-}
-
-.lib-tool {
-  padding: 14px 16px 16px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.lib-tool-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
+.lib-manager { display: flex; flex-direction: column; gap: 12px; }
+.lib-manager > .modal-heading { margin: 0; }
+.lib-tool { padding: 14px 16px 16px; background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: var(--radius); }
+.lib-tool-head { display: flex; align-items: flex-start; gap: 10px; }
 
 /* A drawn icon, not a glyph: see icons.js. The box is a fixed square and the
    SVG is centred in it by geometry, so the badge lands the same whatever the
    theme's --font-ui is and whatever the host has to substitute for it. */
-.lib-tool-icon {
-  --ui-icon-size: 14px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  color: var(--accent);
-  background: var(--accent-glow);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius);
-}
-
-.lib-tool-heading {
-  min-width: 0;
-}
+.lib-tool-icon { --ui-icon-size: 14px; flex: 0 0 auto; display: grid; place-items: center; width: 26px; height: 26px;
+  color: var(--accent); background: var(--accent-glow); border: 1px solid var(--border-light);
+  border-radius: var(--radius); }
+.lib-tool-heading { min-width: 0; }
 
 /* The tool's own name is the one non-uppercase heading here: the eyebrow and the
    field labels are chrome, this is content. */
-.lib-tool-name {
-  margin: 3px 0 0;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-primary);
-}
-
-.lib-tool-heading .lib-manager-note {
-  margin-top: 5px;
-}
-
-.lib-tool-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.lib-manager-note {
-  margin: 0;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--text-muted);
-}
+.lib-tool-name { margin: 3px 0 0; font-family: var(--font-ui); font-size: 13px; font-weight: 500; letter-spacing: 0;
+  text-transform: none; color: var(--text-primary); }
+.lib-tool-heading .lib-manager-note { margin-top: 5px; }
+.lib-tool-body { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+.lib-manager-note { margin: 0; font-family: var(--font-ui); font-size: 11px; line-height: 1.55;
+  color: var(--text-muted); }
 
 /* A tool whose markup carries no ids wraps its control in the label instead.
    The wrapper sheds the global label's margin; its caption span takes the look. */
-label.lib-manager-field {
-  margin: 0;
-}
-
-.lib-manager-field > label,
-.lib-manager-field-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: 10px;
-  letter-spacing: .08em;
-  color: var(--text-secondary);
+label.lib-manager-field { margin: 0; }
+.lib-manager-field > label, .lib-manager-field-label {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 10px;
+  letter-spacing: .08em; color: var(--text-secondary);
 }
 
 /* Numbers are mono everywhere in this panel; prose never is. */
-.lib-manager-count {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--text-muted);
-}
+.lib-manager-count { font-family: var(--font-mono); font-size: 10px; text-transform: none; letter-spacing: 0;
+  color: var(--text-muted); }
 
 /* 64 chips is several rows tall inside a 600px modal, so the editor scrolls
    rather than pushing the run controls off the bottom. */
-.lib-vocab-chips {
-  max-height: 132px;
-  overflow-y: auto;
-}
-
-.lib-manager-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
+.lib-vocab-chips { max-height: 132px; overflow-y: auto; }
+.lib-manager-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
 /* Directly in a tool body the flex column already spaces the row. */
-.lib-tool-body > .lib-manager-actions {
-  margin-top: 0;
-}
-
-.lib-manager-run {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
+.lib-tool-body > .lib-manager-actions { margin-top: 0; }
+.lib-manager-run { display: flex; flex-direction: column; gap: 12px; padding-top: 16px;
+  border-top: 1px solid var(--border); }
 
 /* Inside the run block every gap comes from the flex column. */
-.lib-manager-run .lib-manager-actions {
-  margin-top: 0;
-}
-
-.lib-manager-status {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
+.lib-manager-run .lib-manager-actions { margin-top: 0; }
+.lib-manager-status { font-size: 12px; line-height: 1.4; color: var(--text-secondary); }
 
 /* A status line on the action row reports on the button beside it. It takes
    the free width, so a progress label or an error never grows the card. */
-.lib-manager-actions > .lib-manager-status {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.lib-manager-status.is-error {
-  color: var(--red);
-}
+.lib-manager-actions > .lib-manager-status { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lib-manager-status.is-error { color: var(--red); }
 
 /* A `label` element, so the global uppercase label rule has to be undone — and
    it would otherwise inherit into the hint text as well. */
-.lib-manager-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0;
-  font-size: 12px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  cursor: pointer;
-}
-
-.lib-manager-toggle[hidden] {
-  display: none;
-}
-
-.lib-manager-toggle input {
-  width: 13px;
-  height: 13px;
-  margin: 2px 0 0;
-  flex-shrink: 0;
-}
-
-.lib-manager-toggle-text {
-  min-width: 0;
-}
-
-.lib-manager-toggle-label {
-  display: block;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--text-primary);
-}
-
-.lib-manager-toggle .lib-manager-note {
-  display: block;
-  margin-top: 3px;
-}
+.lib-manager-toggle { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 12px; font-weight: 400;
+  text-transform: none; letter-spacing: 0; cursor: pointer; }
+.lib-manager-toggle[hidden] { display: none; }
+.lib-manager-toggle input { width: 13px; height: 13px; margin: 2px 0 0; flex-shrink: 0; }
+.lib-manager-toggle-text { min-width: 0; }
+.lib-manager-toggle-label { display: block; font-size: 12px; line-height: 1.3; color: var(--text-primary); }
+.lib-manager-toggle .lib-manager-note { display: block; margin-top: 3px; }
 
 /* Whatever a running tool locks has to look locked. Several themes force their
    button hover with !important, so a disabled button takes no pointer at all
    rather than trying to restate every theme's resting colours. */
-.lib-tool .btn:disabled {
-  opacity: .5;
-  pointer-events: none;
-}
+.lib-tool .btn:disabled { opacity: .5; pointer-events: none; }
 
 /* Inside a label wrapper the hint would inherit the caption's uppercase. */
-.lib-manager-field > .lib-manager-note {
-  display: block;
-  margin-top: 6px;
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
+.lib-manager-field > .lib-manager-note { display: block; margin-top: 6px; font-weight: 400; text-transform: none;
+  letter-spacing: 0; }
 
 /* A warning the user can read and still proceed past. */
-.lib-manager-note.is-warning {
-  color: var(--accent);
-}
-
-.lib-tool select:disabled,
-.lib-tool textarea:disabled {
-  opacity: .6;
-  cursor: default;
-  box-shadow: none;
-}
-
-.lib-manager-toggle:has(input:disabled) {
-  opacity: .6;
-  cursor: default;
-}
-
-.lib-manager-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.lib-progress-track {
-  height: 6px;
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.lib-progress-fill {
-  height: 100%;
-  width: 0;
-  background: var(--accent-dim);
-  transition: width .2s;
-}
-
+.lib-manager-note.is-warning { color: var(--accent); }
+.lib-tool select:disabled, .lib-tool textarea:disabled { opacity: .6; cursor: default; box-shadow: none; }
+.lib-manager-toggle:has(input:disabled) { opacity: .6; cursor: default; }
+.lib-manager-progress { display: flex; flex-direction: column; gap: 6px; }
+.lib-progress-track { height: 6px; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 3px;
+  overflow: hidden; }
+.lib-progress-fill { height: 100%; width: 0; background: var(--accent-dim); transition: width .2s; }
 .lib-progress-line {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
   /* One card's name and tags on one line — a long name must not reflow the panel. */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* The library's own chip row sources the curated vocabulary now, so it has the
    same ceiling and needs the same treatment. */
-.char-browser-tags-row .char-tags {
-  max-height: 96px;
-  overflow-y: auto;
-}
+.char-browser-tags-row .char-tags { max-height: 96px; overflow-y: auto; }

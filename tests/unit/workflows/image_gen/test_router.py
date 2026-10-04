@@ -4,12 +4,8 @@ from __future__ import annotations
 
 from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import comfy_adapter, get_adapter, list_sources
-from backend.workflows.image_gen.engine.adapters.external_comfy import (
-    ExternalComfyAdapter,
-)
-from backend.workflows.image_gen.engine.adapters.openai_image import (
-    OpenAICompatibleImageAdapter,
-)
+from backend.workflows.image_gen.engine.adapters.external_comfy import ExternalComfyAdapter
+from backend.workflows.image_gen.engine.adapters.openai_image import OpenAICompatibleImageAdapter
 
 
 def _routed(config: dict, style_id: str):
@@ -32,11 +28,10 @@ def test_an_unlinked_style_still_follows_the_stored_global_source():
 
 
 def test_routing_follows_the_style_being_rendered_not_the_default_one():
-    """The rehydrate bug this fixes. `normalize_config` derives `source` from the
-    *default* style, and `/rehydrate` calls the hook with the attachment's stored
-    `style_id` -- so a ComfyUI-linked style replayed while the default style is
-    cloud-linked went to the cloud adapter. It survived only because that adapter
-    ignored the style it was handed, which is no longer true.
+    """The rehydrate bug this fixes. `normalize_config` derives `source` from the *default* style, and `/rehydrate` calls the
+    hook with the attachment's stored `style_id` -- so a ComfyUI-linked style replayed while the default style is
+    cloud-linked went to the cloud adapter. It survived only because that adapter ignored the style it was handed, which is
+    no longer true.
     """
     config = normalize_config(
         {

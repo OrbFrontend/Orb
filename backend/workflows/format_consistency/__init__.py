@@ -44,10 +44,7 @@ CONFIG_DEFAULTS: dict[str, Any] = {"voice_consistency": False}
 CONFIG_SCHEMA = {
     "type": "object",
     "properties": {
-        "voice_consistency": {
-            "type": "boolean",
-            "title": "Keep POV and tense to recent messages (needs the POV/tense model)",
-        }
+        "voice_consistency": {"type": "boolean", "title": "Keep POV and tense to recent messages (needs the POV/tense model)"}
     },
 }
 

@@ -1,20 +1,15 @@
 """Unit tests for the negated-narration detector (analysis/detectors/negated_narration.py).
 
-Shape fixtures run ungated (``min_hits=0``) so each asserts one rule; the gate,
-run construction, and exact offsets have their own sections. Rejected
-split-contrast inputs come from the measured corpus review: they assert the
-rejected *shape*, since a valid null reaction may remain.
+Shape fixtures run ungated (``min_hits=0``) so each asserts one rule; the gate, run construction, and exact offsets have their
+own sections. Rejected split-contrast inputs come from the measured corpus review: they assert the rejected *shape*, since a
+valid null reaction may remain.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from backend.analysis.detectors.negated_narration import (
-    NegationResult,
-    detect_negated_narration,
-    evaluate_negated_narration,
-)
+from backend.analysis.detectors.negated_narration import NegationResult, detect_negated_narration, evaluate_negated_narration
 
 
 def _ungated(text: str) -> NegationResult:
@@ -310,11 +305,7 @@ def test_mixed_chain_keeps_constituent_counts():
     )
     (finding,) = result.findings
     assert finding.kinds == ["stacked", "cascade", "pivot"]
-    assert [(c.kind, c.sentence_count) for c in finding.constituents] == [
-        ("stacked", 1),
-        ("cascade", 2),
-        ("pivot", 1),
-    ]
+    assert [(c.kind, c.sentence_count) for c in finding.constituents] == [("stacked", 1), ("cascade", 2), ("pivot", 1)]
     assert finding.denial_count == 3
     assert result.raw_hits == 2
 
@@ -424,8 +415,7 @@ def test_fenced_content_is_excluded_even_when_unclosed():
 
 def test_html_comment_and_ooc_blocks_are_excluded():
     text = (
-        "<div class='status'>He didn't answer. Nobody moved.</div>\n\n"
-        "<!-- It doesn't work. It can't. -->\n\n"
+        "<div class='status'>He didn't answer. Nobody moved.</div>\n\n<!-- It doesn't work. It can't. -->\n\n"
         "[OOC: I don't know. I can't say.] She sat."
     )
     result = _ungated(text)

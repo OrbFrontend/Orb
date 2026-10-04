@@ -1,7 +1,6 @@
 """Unit tests for the regex-based dialogue extractor.
 
-Tests regex_extract() which extracts speakable dialogue from RP text
-using pure heuristics — zero LLM calls.
+Tests regex_extract() which extracts speakable dialogue from RP text using pure heuristics — zero LLM calls.
 """
 
 from __future__ import annotations
@@ -203,8 +202,7 @@ class TestEdgeCases:
 
     def test_mixed_beats_and_dialogue_complex(self):
         text = (
-            '*The door creaks open.* "Hey." *she smiles warmly* '
-            '"I was just thinking about you." (God, he looks tired.) '
+            '*The door creaks open.* "Hey." *she smiles warmly* "I was just thinking about you." (God, he looks tired.) '
             '"You okay?" *she reaches out*'
         )
         chunks = regex_extract(text)
@@ -308,9 +306,8 @@ class TestEmptyDialogueSkipped:
     """Empty quoted strings produce no chunks (continue, not break)."""
 
     def test_whitespace_only_quote_skipped_not_break(self):
-        # A quoted string that's only whitespace after strip() → skipped.
-        # The next real line must still appear.
-        # Using text that doesn't trigger the "" adjacent-match issue:
+        # A quoted string that's only whitespace after strip() → skipped. The next real line must still appear. Using text that
+        # doesn't trigger the "" adjacent-match issue:
         text = 'Some text. "   " and then "Real dialogue here."'
         chunks = regex_extract(text)
         # The whitespace-only quote is skipped, real dialogue survives
@@ -382,8 +379,7 @@ class TestNarrationPacing:
         medium = self.gaps("She looked away, then crossed to the window and stood there a while.")
         long = self.gaps(
             "She looked away, then crossed to the window and stood there a while, "
-            "watching the street below fill with people she would never meet, "
-            "before finally turning back to face him again."
+            "watching the street below fill with people she would never meet, before finally turning back to face him again."
         )
         assert GAP_MIN_MS < short < medium < long
 

@@ -25,9 +25,7 @@ from .contracts import (
     readonly_view,
 )
 from .format_consistency import format_consistency_workflow
-from .format_consistency.hooks import (
-    post_pipeline as _fc_post_pipeline,
-)
+from .format_consistency.hooks import post_pipeline as _fc_post_pipeline
 from .image_gen import image_gen_workflow
 from .image_gen.export import export as _image_gen_export
 from .image_gen.hooks import on_demand as _image_gen_on_demand
@@ -61,25 +59,13 @@ from .registry import (
     workflow_has_hook,
 )
 from .tts import tts_workflow
-from .tts.hooks import (
-    on_demand as _tts_on_demand,
-)
-from .tts.hooks import (
-    post_pipeline as _tts_post_pipeline,
-)
+from .tts.hooks import on_demand as _tts_on_demand
+from .tts.hooks import post_pipeline as _tts_post_pipeline
 from .tts.hooks import pre_pipeline as _tts_pre_pipeline
-from .tts.hooks import (
-    query as _tts_query,
-)
-from .tts.hooks import (
-    regenerate as _tts_regenerate,
-)
-from .tts.hooks import (
-    reroll_gen as _tts_reroll_gen,
-)
-from .tts.hooks import (
-    upload as _tts_upload,
-)
+from .tts.hooks import query as _tts_query
+from .tts.hooks import regenerate as _tts_regenerate
+from .tts.hooks import reroll_gen as _tts_reroll_gen
+from .tts.hooks import upload as _tts_upload
 
 __all__ = [
     "EV_ATTACH_ARTIFACT",
@@ -148,9 +134,8 @@ subscribe(image_gen_workflow.id, HookType.EXPORT, _image_gen_export)
 register_workflow(prose_rewriter_workflow)
 subscribe(prose_rewriter_workflow.id, HookType.POST_PIPELINE, _prose_rewriter_post_pipeline, priority=-20)
 
-# Negative priority makes the deterministic markup normalizer run before TTS's
-# post hook (priority 0), so TTS — and any future artifact hook — synthesizes
-# from the normalized text rather than the raw draft.
+# Negative priority makes the deterministic markup normalizer run before TTS's post hook (priority 0), so TTS — and any future
+# artifact hook — synthesizes from the normalized text rather than the raw draft.
 register_workflow(format_consistency_workflow)
 subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipeline, priority=-10)
 

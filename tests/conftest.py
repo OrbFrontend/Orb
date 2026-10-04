@@ -1,8 +1,6 @@
-"""
-Shared pytest fixtures for the Orb test suite.
+"""Shared pytest fixtures for the Orb test suite.
 
-Fixtures here are available to all test modules automatically.
-Module-specific fixtures should live in the test file itself.
+Fixtures here are available to all test modules automatically. Module-specific fixtures should live in the test file itself.
 """
 
 from __future__ import annotations
@@ -48,10 +46,7 @@ def base_settings() -> dict:
         "endpoint_url": "http://localhost:8080",
         "api_key": "",
         "enable_agent": 1,
-        "enabled_tools": {
-            "direct_scene": True,
-            "editor_apply_patch": False,
-        },
+        "enabled_tools": {"direct_scene": True, "editor_apply_patch": False},
         "user_name": "Tester",
         "user_description": "",
     }

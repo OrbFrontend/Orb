@@ -60,11 +60,7 @@ def _checked_decision_write(payload: dict, existing: dict[str, Any] | None = Non
     return payload
 
 
-_STATE_DEFAULTS = {
-    "state_mode": DEFAULT_STATE_MODE,
-    "state_update": DEFAULT_STATE_UPDATE,
-    "state_inject": DEFAULT_STATE_INJECT,
-}
+_STATE_DEFAULTS = {"state_mode": DEFAULT_STATE_MODE, "state_update": DEFAULT_STATE_UPDATE, "state_inject": DEFAULT_STATE_INJECT}
 
 
 def _checked_state_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
@@ -92,8 +88,7 @@ def _checked_state_write(payload: dict, existing: dict[str, Any] | None = None) 
 def _checked_gate_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
     """Keep a Judge gate on post-processing fragments only.
 
-    A type change away from post-processing clears it, and a partial write to
-    another type discards an incoming one.
+    A type change away from post-processing clears it, and a partial write to another type discards an incoming one.
     """
     field_type = payload.get("field_type", (existing or {}).get("field_type"))
     if field_type != "post_processing":

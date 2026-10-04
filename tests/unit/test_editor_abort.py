@@ -1,7 +1,5 @@
-"""
-Regression test: when an Editor ReAct iteration fails, the loop stops with no
-further LLM calls, reports the failure, and its 'done' keeps the draft the
-finished iterations produced. The failure does not escape editor_pass.
+"""Regression test: when an Editor ReAct iteration fails, the loop stops with no further LLM calls, reports the failure, and its
+'done' keeps the draft the finished iterations produced. The failure does not escape editor_pass.
 """
 
 from __future__ import annotations
@@ -13,11 +11,7 @@ import pytest
 
 from backend.analysis import AuditReport, build_targets
 from backend.analysis.detectors.opening_monotony import MonotonyResult
-from backend.analysis.detectors.slop_detector import (
-    ClicheHit,
-    DetectionResult,
-    FlaggedSentence,
-)
+from backend.analysis.detectors.slop_detector import ClicheHit, DetectionResult, FlaggedSentence
 from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
@@ -29,10 +23,7 @@ def _make_client() -> LLMClient:
 
 
 def _flagged_sentence(text: str, phrase: str):
-    return FlaggedSentence(
-        sentence=text,
-        cliches=[ClicheHit(phrase=phrase, score=1.0)],
-    )
+    return FlaggedSentence(sentence=text, cliches=[ClicheHit(phrase=phrase, score=1.0)])
 
 
 def _make_report(issue_count: int) -> AuditReport:
@@ -109,10 +100,7 @@ async def test_editor_iteration_failure_stops_the_loop_and_keeps_the_draft():
         # Any further calls mean the loop kept running after the LLM failure
         pytest.fail(f"_run_contextual_audit called {audit_call_count} times; iteration should have aborted after LLM failure")
 
-    with patch(
-        "backend.pipeline.passes.editor.editor._run_contextual_audit",
-        new=fake_run_contextual_audit,
-    ):
+    with patch("backend.pipeline.passes.editor.editor._run_contextual_audit", new=fake_run_contextual_audit):
         base = CachedBase(
             prefix=({"role": "system", "content": "sys"},),
             tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
@@ -132,13 +120,11 @@ async def test_editor_iteration_failure_stops_the_loop_and_keeps_the_draft():
             )
         ]
 
-    # The first iteration succeeded, so we called the LLM twice:
-    # once for iteration 1, once for iteration 2 (which exploded).
+    # The first iteration succeeded, so we called the LLM twice: once for iteration 1, once for iteration 2 (which exploded).
     assert llm_call_count == 2
 
-    # Iteration 1's successful patch surfaces as a draft_update, the failure is
-    # reported, and "done" hands the patch back as the pass's draft along with
-    # the call that produced it (fake_complete produced no reasoning).
+    # Iteration 1's successful patch surfaces as a draft_update, the failure is reported, and "done" hands the patch back as the
+    # pass's draft along with the call that produced it (fake_complete produced no reasoning).
     assert [e["type"] for e in events] == ["step", "draft_update", "failure", "done"]
     assert events[1]["draft"] == "Fixed 0. Sentence 1."
     assert events[2]["during"] == "output_auditor"
@@ -149,10 +135,9 @@ async def test_editor_iteration_failure_stops_the_loop_and_keeps_the_draft():
 
 @pytest.mark.asyncio
 async def test_a_stop_mid_call_keeps_finished_patches_and_discards_the_cut_short_output():
-    """Iteration 1's patch is finished work and stays. Stop lands during
-    iteration 2, whose response is whatever had streamed by then: a rewrite
-    built from it is not an edit, so the draft stays iteration 1's and nothing
-    further runs."""
+    """Iteration 1's patch is finished work and stays. Stop lands during iteration 2, whose response is whatever had streamed by
+    then: a rewrite built from it is not an edit, so the draft stays iteration 1's and nothing further runs.
+    """
     client = _make_client()
     llm_call_count = 0
 

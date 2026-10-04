@@ -31,10 +31,9 @@ def _rebuild(conn: sqlite3.Connection, table: str) -> None:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # PRAGMA foreign_keys is a no-op inside a transaction, and DROP/RENAME under
-    # FK enforcement could cascade or fail; the runner has committed before this
-    # call, so close any stray transaction, flip FKs off for the rebuild, then
-    # restore the prior state.
+    # PRAGMA foreign_keys is a no-op inside a transaction, and DROP/RENAME under FK enforcement could cascade or fail; the
+    # runner has committed before this call, so close any stray transaction, flip FKs off for the rebuild, then restore the
+    # prior state.
     conn.commit()
     had_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
     conn.execute("PRAGMA foreign_keys=OFF")

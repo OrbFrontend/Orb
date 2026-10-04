@@ -38,10 +38,7 @@ async def test_elevenlabs_uses_profile_model_alias(monkeypatch):
     monkeypatch.setattr(adapter_module.httpx, "AsyncClient", FakeAsyncClient)
 
     result = await ElevenLabsAdapter().synthesize(
-        chunks=[SpeakableChunk(text="Hello.")],
-        voice_id="voice-1",
-        api_key="test-key",
-        model_id="eleven_turbo_v2_5",
+        chunks=[SpeakableChunk(text="Hello.")], voice_id="voice-1", api_key="test-key", model_id="eleven_turbo_v2_5"
     )
 
     assert result.audio_bytes == b"mp3"

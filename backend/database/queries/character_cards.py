@@ -28,47 +28,37 @@ from ...core import (
     upgrade_legacy_fragment,
 )
 from ...core.card_scripts import card_render_options, is_display_script
-from ..connection import (
-    build_set_clause,
-    get_db,
-    get_workflow_slot,
-    immediate_tx,
-    set_workflow_slot,
-)
+from ..connection import build_set_clause, get_db, get_workflow_slot, immediate_tx, select_rows, set_workflow_slot
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 from .worlds import bump_revision, insert_entry, insert_world
 
 
 async def list_character_cards() -> list[CharacterCardRow]:
-    # Project sidebar metadata without heavy card bodies; the editor loads them on demand.
-    # def_chars measures description, personality and mes_example for group-mode
-    # recommendations. Exclude post_history_instructions, shared by all modes.
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT c.extensions, c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
-                "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
-                "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
-                "FROM character_cards c ORDER BY c.updated_at DESC"
-            )
-        )
-        result: list[CharacterCardRow] = []
-        for r in rows:
-            d = dict(r)
-            extensions = json.loads(d.pop("extensions") or "{}")
-            scripts, css = card_render_options(extensions)
-            d["display_scripts"] = [
-                {key: script[key] for key in ("findRegex", "replaceString", "placement") if key in script}
-                for script in scripts
-                if is_display_script(script)
-            ]
-            d["display_css"] = css
-            d["tags"] = json.loads(d["tags"]) if d["tags"] else []
-            d["has_avatar"] = d["avatar_mime"] is not None
-            del d["avatar_mime"]
-            d["has_expressions"] = bool(d["has_expressions"])
-            result.append(cast(CharacterCardRow, d))
-        return result
+    # Project sidebar metadata without heavy card bodies; the editor loads them on demand. def_chars measures description,
+    # personality and mes_example for group-mode recommendations. Exclude post_history_instructions, shared by all modes.
+    rows = await select_rows(
+        "SELECT c.extensions, c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+        "LENGTH(COALESCE(c.description, '')) + LENGTH(COALESCE(c.personality, '')) + LENGTH(COALESCE(c.mes_example, '')) AS def_chars, "
+        "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
+        "FROM character_cards c ORDER BY c.updated_at DESC"
+    )
+    result: list[CharacterCardRow] = []
+    for r in rows:
+        d = dict(r)
+        extensions = json.loads(d.pop("extensions") or "{}")
+        scripts, css = card_render_options(extensions)
+        d["display_scripts"] = [
+            {key: script[key] for key in ("findRegex", "replaceString", "placement") if key in script}
+            for script in scripts
+            if is_display_script(script)
+        ]
+        d["display_css"] = css
+        d["tags"] = json.loads(d["tags"]) if d["tags"] else []
+        d["has_avatar"] = d["avatar_mime"] is not None
+        del d["avatar_mime"]
+        d["has_expressions"] = bool(d["has_expressions"])
+        result.append(cast(CharacterCardRow, d))
+    return result
 
 
 async def get_character_card(card_id: str, include_avatar: bool = False) -> CharacterCardRow | None:
@@ -99,18 +89,10 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
         return cast(CharacterCardRow, d)
 
 
-# Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card
-# fragment ids become LLM tool-schema property names, and some backends
-# enforce a strict charset/length on those.
+# Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card fragment ids become LLM tool-schema property names,
+# and some backends enforce a strict charset/length on those.
 _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_INTERACTIVE_FIELD_TYPES = {
-    "string",
-    "array",
-    STATE_FIELD_TYPE,
-    "feedback",
-    "post_processing",
-    DECISION_FIELD_TYPE,
-}
+_INTERACTIVE_FIELD_TYPES = {"string", "array", STATE_FIELD_TYPE, "feedback", "post_processing", DECISION_FIELD_TYPE}
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -151,9 +133,7 @@ def _int(entry: Mapping[str, Any], key: str, default: int, lo: int, hi: int) -> 
     return max(lo, min(hi, value))
 
 
-def card_embedded_fragments(
-    card: Mapping[str, Any] | None,
-) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+def card_embedded_fragments(card: Mapping[str, Any] | None) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
     """Decode imported extensions.orb.fragments at the trust boundary.
 
     Validate nesting, ids and enums; skip malformed, disabled or duplicate entries
@@ -224,9 +204,8 @@ def card_embedded_fragments(
 def upgrade_card_fragment_types(extensions: Any) -> Any:
     """Return card *extensions* with legacy state fragment types written explicitly.
 
-    Card export writes the new type with its settings spelled out, so the file
-    means the same thing to every reader; an older Orb reads the unknown type as
-    a plain string field. Everything else is returned untouched.
+    Card export writes the new type with its settings spelled out, so the file means the same thing to every reader; an older
+    Orb reads the unknown type as a plain string field. Everything else is returned untouched.
     """
     if not isinstance(extensions, dict):
         return extensions
@@ -253,8 +232,7 @@ def _card_decision_columns(entry: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def cast_embedded_fragments(
-    card: Mapping[str, Any] | None,
-    cast_: TurnCast | None = None,
+    card: Mapping[str, Any] | None, cast_: TurnCast | None = None
 ) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow], dict[str, str]]:
     """Load solo-card or cast fragments in roster order, visiting each card once.
 
@@ -283,9 +261,8 @@ async def cast_embedded_fragments(
 def merge_fragments_by_id(base: list, extra: Sequence[Mapping[str, Any]]) -> list:
     """Append *extra* to *base*, skipping ids already present. Globals win.
 
-    The rule ``card_embedded_fragments`` states and every caller has to apply:
-    a card can never hijack a user-configured fragment, and two cards naming the
-    same id contribute it once.
+    The rule ``card_embedded_fragments`` states and every caller has to apply: a card can never hijack a user-configured
+    fragment, and two cards naming the same id contribute it once.
     """
     seen = {fragment["id"] for fragment in base}
     for fragment in extra:
@@ -360,8 +337,7 @@ async def create_character_card(data: dict, *, embedded_world: Mapping[str, Any]
 async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[str]) -> int:
     """Insert alternate greetings as sibling roots; return the inserted count.
 
-    Store resolved content and raw inline-macro templates for rerolling until
-    the first user message.
+    Store resolved content and raw inline-macro templates for rerolling until the first user message.
     """
     if not alternate_greetings:
         return 0
@@ -402,10 +378,7 @@ async def reroll_unfrozen_greetings(cid: str) -> None:
             )
         )
         for row in greetings:
-            await db.execute(
-                "UPDATE messages SET content = ? WHERE id = ?",
-                (resolve_inline(row["template"]), row["id"]),
-            )
+            await db.execute("UPDATE messages SET content = ? WHERE id = ?", (resolve_inline(row["template"]), row["id"]))
         if greetings:
             await db.commit()
 
@@ -431,10 +404,9 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         # JSON fields
         if "tags" in data:
             encoded_tags = json.dumps(data["tags"])
-            # The edit form submits the current tag list even when only another
-            # field changed. SQLite evaluates every SET expression against the
-            # pre-update row, so these CASEs revoke ownership only for a real tag
-            # change, not for that routine round-trip.
+            # The edit form submits the current tag list even when only another field changed. SQLite evaluates every SET
+            # expression against the pre-update row, so these CASEs revoke ownership only for a real tag change, not for that
+            # routine round-trip.
             sets.extend(
                 [
                     "auto_tag_vocab_hash = CASE WHEN tags = ? THEN auto_tag_vocab_hash ELSE '' END",
@@ -469,10 +441,8 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         return await get_character_card(card_id)
 
 
-# The stored profile's fields, in render order. One tuple so the writer below and
-# every reader agree on the key set: a field added here without a matching writer
-# key would render nothing, and a writer key missing here would be stored and
-# never shown.
+# The stored profile's fields, in render order. One tuple so the writer below and every reader agree on the key set: a field
+# added here without a matching writer key would render nothing, and a writer key missing here would be stored and never shown.
 _PROFILE_FIELDS = (("Appearance", "appearance"), ("Role", "role"))
 
 
@@ -503,12 +473,11 @@ async def set_public_profile(card_id: str, appearance: str, role: str) -> Charac
 async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
-    Only syncs fields that are denormalised onto the conversation row and
-    affect prompt-building at runtime. first_mes is excluded because it has
-    already been materialised as a message in the conversation tree.
+    Only syncs fields that are denormalised onto the conversation row and affect prompt-building at runtime. first_mes is
+    excluded because it has already been materialised as a message in the conversation tree.
 
-    If ``old_name`` is provided, conversation titles that still match the old
-    name are updated to the new name so they don't become stale.
+    If ``old_name`` is provided, conversation titles that still match the old name are updated to the new name so they don't
+    become stale.
     """
     async with get_db() as db:
         await db.execute(
@@ -517,12 +486,7 @@ async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old
                    character_scenario = ?,
                    post_history_instructions = ?
                WHERE character_card_id = ?""",
-            (
-                card.get("name", ""),
-                card.get("scenario", ""),
-                card.get("post_history_instructions", ""),
-                card_id,
-            ),
+            (card.get("name", ""), card.get("scenario", ""), card.get("post_history_instructions", ""), card_id),
         )
         if old_name is not None:
             await db.execute(
@@ -543,9 +507,8 @@ async def delete_character_card(card_id: str, delete_conversations: bool, *, idl
         fence.enter_context(idle_guard([dict(row) for row in rows]))
         if delete_conversations:
             await db.execute(f"DELETE {chats}", (card_id, card_id))  # nosec B608 -- constant fragment
-        # When keeping conversations, character_card_id is intentionally left as-is.
-        # The dangling reference acts as a pending-relink marker: re-importing the
-        # same card (which produces the same stable ID) restores the association
+        # When keeping conversations, character_card_id is intentionally left as-is. The dangling reference acts as a
+        # pending-relink marker: re-importing the same card (which produces the same stable ID) restores the association
         # automatically. resolve_char_context() handles a missing card gracefully.
         cur = await db.execute("DELETE FROM character_cards WHERE id = ?", (card_id,))
         await db.commit()
@@ -554,18 +517,15 @@ async def delete_character_card(card_id: str, delete_conversations: bool, *, idl
 
 async def get_character_usage(card_id: str) -> dict[str, int]:
     """Return solo and active/historical group conversation usage counts."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                """SELECT
+    rows = await select_rows(
+        """SELECT
                      (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
                      (SELECT COUNT(DISTINCT conversation_id) FROM group_members
                       WHERE character_card_id = ? AND active = 1) AS active_groups,
                      (SELECT COUNT(DISTINCT conversation_id) FROM group_members
                       WHERE character_card_id = ? AND active = 0) AS historical_groups""",
-                (card_id, card_id, card_id),
-            )
-        )
+        (card_id, card_id, card_id),
+    )
     row = rows[0]
     return {"solo": int(row[0]), "active_groups": int(row[1]), "historical_groups": int(row[2])}
 
@@ -573,20 +533,16 @@ async def get_character_usage(card_id: str) -> dict[str, int]:
 async def get_card_activity(card_ids: Sequence[str]) -> dict[str, dict[str, int | str | None]]:
     """Return conversation counts and most-recent use for a set of cards.
 
-    This is a general card query rather than duplicate-finder plumbing: the
-    compare surface needs it today, and a future field-level merge will need the
-    same keeper-selection evidence.  Group participation includes historical
-    slots because a card can matter to old conversation context even after it
-    stopped being active in a group.
+    This is a general card query rather than duplicate-finder plumbing: the compare surface needs it today, and a future
+    field-level merge will need the same keeper-selection evidence. Group participation includes historical slots because a card
+    can matter to old conversation context even after it stopped being active in a group.
     """
     ids = list(dict.fromkeys(card_id for card_id in card_ids if card_id))
     if not ids:
         return {}
     placeholders = ", ".join("?" for _ in ids)
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"""SELECT c.id,
+    rows = await select_rows(
+        f"""SELECT c.id,
                            (SELECT COUNT(*) FROM conversations AS solo
                             WHERE solo.character_card_id = c.id) AS solo,
                            (SELECT COUNT(DISTINCT gm.conversation_id) FROM group_members AS gm
@@ -606,9 +562,8 @@ async def get_card_activity(card_ids: Sequence[str]) -> dict[str, dict[str, int 
                             )) AS last_used_at
                     FROM character_cards AS c
                     WHERE c.id IN ({placeholders})""",  # nosec B608 -- placeholders arise only from a local id list
-                ids,
-            )
-        )
+        ids,
+    )
     result: dict[str, dict[str, int | str | None]] = {}
     for row in rows:
         solo = int(row["solo"])
@@ -633,10 +588,9 @@ async def resolve_char_context(
 ) -> tuple[str, str, str]:
     """Resolve the effective system prompt, persona, and example messages.
 
-    shared_system_prompt and the model-specific system_prompt are concatenated
-    (shared first); a character card's own system_prompt, when present and not
-    disabled by the prevent_prompt_overrides setting, replaces that combined
-    result entirely rather than appending to it.
+    shared_system_prompt and the model-specific system_prompt are concatenated (shared first); a character card's own
+    system_prompt, when present and not disabled by the prevent_prompt_overrides setting, replaces that combined result entirely
+    rather than appending to it.
     """
     # Combine shared (global) + model-specific system prompts
     shared = settings.get(shared_key, "")
@@ -661,33 +615,20 @@ async def resolve_char_context(
 
 async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
     """Returns (image_bytes, mime_type) or None."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT avatar_b64, avatar_mime FROM character_cards WHERE id = ?",
-                (card_id,),
-            )
-        )
-        if not rows or not rows[0]["avatar_b64"]:
-            return None
-        return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
+    rows = await select_rows("SELECT avatar_b64, avatar_mime FROM character_cards WHERE id = ?", (card_id,))
+    if not rows or not rows[0]["avatar_b64"]:
+        return None
+    return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
 
 
 async def get_character_avatar_stamp(card_id: str) -> str | None:
     """The avatar's version, or None when the card has no avatar.
 
-    The version is the card's ``updated_at``, which every avatar write bumps.
-    The NULL test reads only the record header, so a caller can revalidate a
-    cached image without loading the avatar's overflow pages.
+    The version is the card's ``updated_at``, which every avatar write bumps. The NULL test reads only the record header, so a
+    caller can revalidate a cached image without loading the avatar's overflow pages.
     """
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT updated_at FROM character_cards WHERE id = ? AND avatar_b64 IS NOT NULL",
-                (card_id,),
-            )
-        )
-        return str(rows[0]["updated_at"]) if rows else None
+    rows = await select_rows("SELECT updated_at FROM character_cards WHERE id = ? AND avatar_b64 IS NOT NULL", (card_id,))
+    return str(rows[0]["updated_at"]) if rows else None
 
 
 async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:

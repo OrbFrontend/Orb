@@ -6,22 +6,12 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-from ..text.lexical import (
-    count_content_words,
-    is_contiguous_subsequence,
-    ngrams,
-    tokenize,
-)
+from ..text.lexical import count_content_words, is_contiguous_subsequence, ngrams, tokenize
 from ..text.roleplay_segmentation import split_narration_sentences
 
 DEBUG = "DEBUG_PHRASE_REPETITION" in os.environ
 
-__all__ = [
-    "detect_phrase_repetition",
-    "deduplicate_phrases",
-    "PhraseResult",
-    "FlaggedPhrase",
-]
+__all__ = ["detect_phrase_repetition", "deduplicate_phrases", "PhraseResult", "FlaggedPhrase"]
 
 
 @dataclass(slots=True)
@@ -127,10 +117,7 @@ def detect_phrase_repetition(
         ordered = sorted(docs.keys())
         flagged.append(
             FlaggedPhrase(
-                phrase=" ".join(gram),
-                count=len(docs),
-                message_indices=ordered,
-                example_sentences=[docs[i] for i in ordered],
+                phrase=" ".join(gram), count=len(docs), message_indices=ordered, example_sentences=[docs[i] for i in ordered]
             )
         )
 

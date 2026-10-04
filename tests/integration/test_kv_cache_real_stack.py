@@ -1,8 +1,6 @@
-"""Check KV invariants across two real HTTP send turns, including prefix construction,
-fragment-schema ordering and persistence.
+"""Check KV invariants across two real HTTP send turns, including prefix construction, fragment-schema ordering and persistence.
 
-FakeLLMClient captures messages/tools; profile serialization and provider
-template/cache behavior remain outside this test.
+FakeLLMClient captures messages/tools; profile serialization and provider template/cache behavior remain outside this test.
 """
 
 from __future__ import annotations
@@ -31,27 +29,23 @@ async def _configure_all_features(client) -> None:
     """Enable agent + every cache-relevant tool, with per-fragment director calls
     and a tight length guard so director (multiple calls), writer, and editor all
     fire in one turn."""
-    resp = await client.put(
+    await client.put_checked(
         "/api/settings",
         json={
             "model_name": "writer-model",
             "enable_agent": True,
-            "enabled_tools": {
-                "direct_scene": True,
-                "editor_apply_patch": True,
-            },
+            "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
             "director_individual_fragments": True,  # → one director call per fragment + a moods call
             "length_guard_enabled": True,
             "length_guard_max_words": 5,  # _LONG_DRAFT (60 words) always trips it
         },
     )
-    assert resp.status_code == 200
 
 
 async def _make_conversation(client) -> str:
     # Macros in the card text exercise the cached base's macro ``resolve`` hook;
     # they must resolve identically on every pass and every turn.
-    card = await client.post(
+    card = await client.post_json(
         "/api/characters",
         json={
             "name": "Aria",
@@ -60,18 +54,13 @@ async def _make_conversation(client) -> str:
             "scenario": "Deep woods at dusk.",
         },
     )
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
-    return conv.json()["id"]
+    return await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
 
 async def _send(client, cid: str, content: str, attachments: list | None = None) -> None:
-    resp = await client.post(
-        f"/api/conversations/{cid}/send",
-        json={"content": content, "attachments": attachments or []},
+    resp = await client.post_checked(
+        f"/api/conversations/{cid}/send", json={"content": content, "attachments": attachments or []}
     )
-    assert resp.status_code == 200
     _ = resp.text  # drain the buffered SSE stream so the turn fully completes
 
 
@@ -97,8 +86,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
     writer = next(c for c in calls if c["pass"] == "writer")
     editor = next(c for c in calls if c["pass"] == "editor")
 
-    # The writer appends exactly one trailing message, so everything before it
-    # is the shared prefix the cache depends on.
+    # The writer appends exactly one trailing message, so everything before it is the shared prefix the cache depends on.
     prefix = writer["messages"][:-1]
     prefix_bytes = _serialize_messages(prefix)
     assert len(prefix) >= 1
@@ -111,10 +99,9 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
             "shared prefix — build_prefix or a pass rendered the system/history differently across passes."
         )
 
-    # The base's macro ``resolve`` hook must scrub every {{char}}/{{user}} from
-    # the bytes each pass actually shipped — including the card text carried in
-    # the shared prefix. The recorded messages are post-resolution, so a raw
-    # placeholder surviving here means the hook was dropped.
+    # The base's macro ``resolve`` hook must scrub every {{char}}/{{user}} from the bytes each pass actually shipped — including
+    # the card text carried in the shared prefix. The recorded messages are post-resolution, so a raw placeholder surviving here
+    # means the hook was dropped.
     for c in calls:
         sent = _serialize_messages(c["messages"])
         assert "{{char}}" not in sent and "{{user}}" not in sent, (
@@ -170,15 +157,10 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
 
     # Sanity: the DB really did persist the turn-1 exchange.
     roles = [m["role"] for m in await get_messages(cid)]
-    assert roles[:3] == [
-        "assistant",
-        "user",
-        "assistant",
-    ], f"unexpected persisted history: {roles}"
+    assert roles[:3] == ["assistant", "user", "assistant"], f"unexpected persisted history: {roles}"
 
-    # Director's dynamic schema, rebuilt from get_interactive_fragments() each turn,
-    # must be byte-identical across turns (this is the ONLY place a DB row-order
-    # instability in the fragment query would show up).
+    # Director's dynamic schema, rebuilt from get_interactive_fragments() each turn, must be byte-identical across turns (this
+    # is the ONLY place a DB row-order instability in the fragment query would show up).
     tools1 = {_wire_tools(c["tools"]) for c in turn1 if c["tools"]}
     tools2 = {_wire_tools(c["tools"]) for c in turn2 if c["tools"]}
     assert tools1 == tools2 and len(tools1) == 1, (
@@ -188,23 +170,18 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
 
 
 async def test_attachment_in_shared_history_is_byte_stable_across_passes_and_turns(client, llm_mock):
-    """Invariant 2 — an image in the carried-over history must be encoded with
-    the SAME bytes on every reference: identical across all passes of a turn,
-    and surviving the DB round-trip into the next turn's cached prefix.
+    """Invariant 2 — an image in the carried-over history must be encoded with the SAME bytes on every reference: identical
+    across all passes of a turn, and surviving the DB round-trip into the next turn's cached prefix.
 
-    Turn 1 sends the image (it rides the trailing pancake, the cheap top). Turn 2
-    is plain text, so the image now lives in history — inside the cached prefix —
-    where any per-pass re-encode or a lossy persistence round-trip would bust the
-    cache."""
+    Turn 1 sends the image (it rides the trailing pancake, the cheap top). Turn 2 is plain text, so the image now lives in
+    history — inside the cached prefix — where any per-pass re-encode or a lossy persistence round-trip would bust the cache.
+    """
     await _configure_all_features(client)
     cid = await _make_conversation(client)
 
     _enqueue_turn(llm_mock)
     await _send(
-        client,
-        cid,
-        "Look at this sketch.",
-        attachments=[{"b64": _PNG_1X1_B64, "mime": "image/png", "filename": "sketch.png"}],
+        client, cid, "Look at this sketch.", attachments=[{"b64": _PNG_1X1_B64, "mime": "image/png", "filename": "sketch.png"}]
     )
     n = len(llm_mock.captured)
     turn1 = list(llm_mock.captured)

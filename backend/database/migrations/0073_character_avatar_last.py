@@ -21,16 +21,14 @@ def migrate(conn: sqlite3.Connection) -> None:
     old_cols = _columns(conn, _TABLE)
     if not old_cols or old_cols[-1] == "avatar_b64":
         return
-    # PRAGMA foreign_keys is a no-op inside a transaction, and dropping a parent
-    # table under enforcement would cascade into character_expressions. Close
-    # any stray transaction, turn FKs off for the rebuild, then restore them.
+    # PRAGMA foreign_keys is a no-op inside a transaction, and dropping a parent table under enforcement would cascade into
+    # character_expressions. Close any stray transaction, turn FKs off for the rebuild, then restore them.
     conn.commit()
     had_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
     conn.execute("PRAGMA foreign_keys=OFF")
     try:
-        # One explicit transaction: sqlite3 opens none for CREATE TABLE, so a
-        # failed copy would otherwise leave character_cards_new behind and every
-        # later attempt would stop at "table already exists".
+        # One explicit transaction: sqlite3 opens none for CREATE TABLE, so a failed copy would otherwise leave
+        # character_cards_new behind and every later attempt would stop at "table already exists".
         conn.execute("BEGIN")
         try:
             block = schema.table_create_sql(_TABLE)

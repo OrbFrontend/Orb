@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import build_set_clause, get_db, immediate_tx
+from ..connection import build_set_clause, get_db, immediate_tx, select_rows
 from ..models import DocumentListRow, DocumentRow
 
 
@@ -19,11 +19,8 @@ class DocumentConflict(Exception):
 
 async def get_documents() -> list[DocumentListRow]:
     """List projection — never selects the full ``content`` (see DocumentListRow)."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT id, title, created_at, updated_at FROM documents ORDER BY updated_at DESC")
-        )
-        return [cast(DocumentListRow, dict(r)) for r in rows]
+    rows = await select_rows("SELECT id, title, created_at, updated_at FROM documents ORDER BY updated_at DESC")
+    return [cast(DocumentListRow, dict(r)) for r in rows]
 
 
 async def _document_on(db, document_id: str) -> DocumentRow | None:

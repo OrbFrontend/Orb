@@ -50,8 +50,7 @@ class TestTruePositives:
         assert result.flagged_echoes[0].matched_phrase == "money"
 
     def test_echo_of_dialogue_ignores_trailing_ooc(self):
-        """An [OOC: ...] aside is dropped, but a genuine echo of the spoken
-        line in the same message is still caught."""
+        """An [OOC: ...] aside is dropped, but a genuine echo of the spoken line in the same message is still caught."""
         result = detect_anti_echo('"No money?" she repeats.', '"I have absolutely no money." [OOC: keep it tense]')
         assert len(result.flagged_echoes) == 1
         assert result.flagged_echoes[0].matched_phrase == "no money"
@@ -69,23 +68,15 @@ class TestFalsePositives:
             # A copied word that is a stopword carries no content.
             ('"You?" she says.', '"I think you should leave."'),
             ('"What?" he blinks.', '"What time is it?"'),
-            # A long question merely reusing one of the user's nouns is below
-            # the coverage threshold.
-            (
-                '"Should we restock the store room together later?" she wonders.',
-                '"I went to the store yesterday."',
-            ),
+            # A long question merely reusing one of the user's nouns is below the coverage threshold.
+            ('"Should we restock the store room together later?" she wonders.', '"I went to the store yesterday."'),
             # Question-gated: a declarative parrot has no '?'.
             ('"No money," he echoes, nodding.', '"I have no money."'),
             # Shares no contiguous run with the user.
             ('"Where are you going?" he asks.', '"I got some ice cream."'),
-            # Words in an [OOC: ...] aside are instructions, not in-character
-            # speech — reusing them is compliance. "use" leaked only from
-            # "Use the phrase ...".
-            (
-                '"Do you use shells?" she asks.',
-                '"I don\'t have money." [OOC: Use the phrase "a mix of"]',
-            ),
+            # Words in an [OOC: ...] aside are instructions, not in-character speech — reusing them is compliance. "use" leaked
+            # only from "Use the phrase ...".
+            ('"Do you use shells?" she asks.', '"I don\'t have money." [OOC: Use the phrase "a mix of"]'),
             # The pool is the user's dialogue only; their narration can't seed a flag.
             ('"Broke?" he asks.', 'I trudge in, broke and tired. "Hey there."'),
             # An all-narration user message has no dialogue to echo.

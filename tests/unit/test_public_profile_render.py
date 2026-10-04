@@ -1,10 +1,8 @@
 """The public-profile join: one renderer, one key set, one meaning for ``""``.
 
-``render_public_profile`` lives beside ``set_public_profile`` (its only writer)
-in ``database/queries/character_cards.py``, and the group cast projection
-delegates to it. These pins exist because the two halves failing to agree on the
-key set is silent: a field would be stored and never rendered, or rendered from
-a key nothing writes.
+``render_public_profile`` lives beside ``set_public_profile`` (its only writer) in ``database/queries/character_cards.py``, and
+the group cast projection delegates to it. These pins exist because the two halves failing to agree on the key set is silent: a
+field would be stored and never rendered, or rendered from a key nothing writes.
 """
 
 from __future__ import annotations

@@ -2,18 +2,6 @@
 
 from __future__ import annotations
 
-from .service import (
-    StateWriteError,
-    apply_manual_op,
-    delete_orphaned_state,
-    state_history,
-    state_panel,
-)
+from .service import StateWriteError, apply_manual_op, delete_orphaned_state, state_history, state_panel
 
-__all__ = [
-    "StateWriteError",
-    "apply_manual_op",
-    "delete_orphaned_state",
-    "state_history",
-    "state_panel",
-]
+__all__ = ["StateWriteError", "apply_manual_op", "delete_orphaned_state", "state_history", "state_panel"]

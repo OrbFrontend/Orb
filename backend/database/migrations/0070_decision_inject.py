@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .helpers import add_columns
+
 _DDL = "TEXT DEFAULT NULL CHECK (decision_inject IS NULL OR decision_inject IN ('director', 'writer', 'both'))"
 
 
@@ -14,9 +16,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(interactive_fragments)").fetchall()}
     if not cols:
         return
-    if "decision_inject" not in cols:
-        conn.execute(f"ALTER TABLE interactive_fragments ADD COLUMN decision_inject {_DDL}")  # nosec B608 -- module literal
-        print("[migrations] 0070: added decision_inject column to interactive_fragments")
+    add_columns(conn, "interactive_fragments", f"decision_inject {_DDL}", migration="0070")
     conn.execute(
         "UPDATE interactive_fragments SET decision_inject = 'both' WHERE field_type = 'decision' AND decision_inject IS NULL"
     )

@@ -1,8 +1,7 @@
 """Orchestrator-level coverage of the workflow pre/post-pipeline hooks.
 
-Tests target the pre-pipeline iteration helper, the attachment staging
-helper, and a full ``run_pipeline`` run with patched LLM passes to
-verify the post-pipeline draft-replacement and attachment-staging path.
+Tests target the pre-pipeline iteration helper, the attachment staging helper, and a full ``run_pipeline`` run with patched LLM
+passes to verify the post-pipeline draft-replacement and attachment-staging path.
 """
 
 from __future__ import annotations
@@ -34,12 +33,7 @@ from ._fixtures import make_workflow, register_for_test
 
 _DIRECTOR_STATE = {"active_moods": []}
 _PREFIX = [{"role": "system", "content": "You are an assistant."}]
-_SETTINGS = {
-    "model_name": "test",
-    "enable_agent": 1,
-    "enabled_tools": {},
-    "reasoning_enabled_passes": {},
-}
+_SETTINGS = {"model_name": "test", "enable_agent": 1, "enabled_tools": {}, "reasoning_enabled_passes": {}}
 
 
 def _make_client() -> LLMClient:
@@ -100,14 +94,7 @@ async def _run_with_writer(
     with patch("backend.pipeline.passes.writer.writer_pass", new=writer):
         return await _drain(
             run_pipeline(
-                client or _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                last_user_message,
-                history=history or [],
-                **kwargs,
+                client or _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], last_user_message, history=history or [], **kwargs
             )
         )
 
@@ -390,13 +377,7 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
 
 
 def test_stage_attachment_happy_path_with_data_bytes():
-    att = {
-        "filename": "out.mp3",
-        "mime": "audio/mpeg",
-        "data": b"\xff\xfb",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "out.mp3", "mime": "audio/mpeg", "data": b"\xff\xfb", "source": "workflow:tts", "workflow_id": "tts"}
     staged = _stage_workflow_attachment(att, "tts")
     assert staged is not None
     assert staged["data"] == b"\xff\xfb"
@@ -439,23 +420,12 @@ def test_stage_attachment_rejects_both_data_and_path():
 
 
 def test_stage_attachment_rejects_neither_data_nor_path():
-    att = {
-        "filename": "x.bin",
-        "mime": "application/octet-stream",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "x.bin", "mime": "application/octet-stream", "source": "workflow:tts", "workflow_id": "tts"}
     assert _stage_workflow_attachment(att, "tts") is None
 
 
 def test_stage_attachment_rejects_empty_data():
-    att = {
-        "filename": "x.bin",
-        "mime": "application/octet-stream",
-        "data": b"",
-        "source": "workflow:tts",
-        "workflow_id": "tts",
-    }
+    att = {"filename": "x.bin", "mime": "application/octet-stream", "data": b"", "source": "workflow:tts", "workflow_id": "tts"}
     assert _stage_workflow_attachment(att, "tts") is None
 
 
@@ -710,10 +680,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
             mock_writer,
             client=client,
             last_user_message="hi",
-            pipeline_kwargs={
-                "enabled_tools": accumulators["merged_enabled_tools"],
-                "turn_scratch": turn_scratch,
-            },
+            pipeline_kwargs={"enabled_tools": accumulators["merged_enabled_tools"], "turn_scratch": turn_scratch},
         )
 
     assert captured["pre_id"] == captured["post_id"]
@@ -914,14 +881,7 @@ async def test_post_pipeline_set_message_state_persists_to_assistant_row(client)
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
             pipeline = run_pipeline(
-                _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                "hi",
-                conversation_id="cms",
-                **_pipeline_kwargs(),
+                _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], "hi", conversation_id="cms", **_pipeline_kwargs()
             )
             await _drain(consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
 
@@ -946,14 +906,7 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
     with register_for_test(w):
         with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
             pipeline = run_pipeline(
-                _make_client(),
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                "hi",
-                conversation_id="cms_empty",
-                **_pipeline_kwargs(),
+                _make_client(), _SETTINGS, _DIRECTOR_STATE, [], [], "hi", conversation_id="cms_empty", **_pipeline_kwargs()
             )
             await _drain(consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
 
@@ -962,11 +915,10 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
 
 
 async def test_stop_interrupts_the_running_hook_keeps_its_finished_artifact_and_starts_no_other():
-    """A render hook hands over a finished artifact, then blocks on more work.
-    Stop tears that work down rather than waiting for it, keeps the artifact
-    (and reports it as accepted while the hook is still running, so a turn
-    cancelled mid-hook saves it too), drops what the hook would publish after
-    the stop, and starts no later hook."""
+    """A render hook hands over a finished artifact, then blocks on more work. Stop tears that work down rather than waiting for
+    it, keeps the artifact (and reports it as accepted while the hook is still running, so a turn cancelled mid-hook saves it
+    too), drops what the hook would publish after the stop, and starts no later hook.
+    """
     client = _make_client()
     rendering = asyncio.Event()
     log: list[str] = []

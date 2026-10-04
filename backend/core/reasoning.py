@@ -5,13 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
-__all__ = [
-    "CALL_BREAK",
-    "ReasoningChannel",
-    "joined_delta",
-    "mark_call_start",
-    "reasoning_delta_event",
-]
+__all__ = ["CALL_BREAK", "ReasoningChannel", "joined_delta", "mark_call_start", "reasoning_delta_event"]
 
 # Two newlines render as one blank line in the reasoning box.
 CALL_BREAK = "\n\n"

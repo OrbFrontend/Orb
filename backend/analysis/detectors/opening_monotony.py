@@ -19,9 +19,8 @@ class FlaggedOpener:
     max_run: int
     fraction: float
     sentences: list[str] = field(default_factory=list)
-    # Whether sentences[0] is the run's first member -- the original the rest
-    # repeat. Filtering to a draft drops it when it lives in the earlier
-    # context, leaving every listed sentence a repeat.
+    # Whether sentences[0] is the run's first member -- the original the rest repeat. Filtering to a draft drops it when it
+    # lives in the earlier context, leaving every listed sentence a repeat.
     original_listed: bool = True
 
 
@@ -46,11 +45,7 @@ def _get_opener(sentence: str, n_words: int) -> str | None:
     return " ".join(normalized)
 
 
-def detect_opening_monotony(
-    text: str,
-    n_words: int = 1,
-    min_consecutive: int = 4,
-) -> MonotonyResult:
+def detect_opening_monotony(text: str, n_words: int = 1, min_consecutive: int = 4) -> MonotonyResult:
     sentences = _split_sentences(text)
     if DEBUG:
         sys.stderr.write(f"[opening_monotony] sentences: {sentences}\n")
@@ -104,9 +99,4 @@ def detect_opening_monotony(
     repeated_count = sum(c for c in counts.values() if c >= 2)
     monotony_score = round(repeated_count / total, 4) if total else 0.0
 
-    return MonotonyResult(
-        flagged_openers=flagged,
-        all_openers=counts,
-        total_sentences=total,
-        monotony_score=monotony_score,
-    )
+    return MonotonyResult(flagged_openers=flagged, all_openers=counts, total_sentences=total, monotony_score=monotony_score)

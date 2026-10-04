@@ -44,22 +44,17 @@ _ST_PAYLOAD = {
 
 async def _import_v20(client) -> str:
     world = (await client.post("/api/worlds", json={"is_global": True, "name": "V20"})).json()
-    imp = await client.post(f"/api/worlds/{world['id']}/import", json=_ST_PAYLOAD)
-    assert imp.status_code == 200
+    await client.post_checked(f"/api/worlds/{world['id']}/import", json=_ST_PAYLOAD)
     return world["id"]
 
 
 async def _make_conversation(client) -> str:
-    card = await client.post("/api/characters", json={"is_global": True, "name": "Aria", "description": "An elf ranger."})
-    assert card.status_code == 200
-    conv = await client.post("/api/conversations", json={"character_card_id": card.json()["id"]})
-    assert conv.status_code == 200
-    return conv.json()["id"]
+    card = await client.post_json("/api/characters", json={"is_global": True, "name": "Aria", "description": "An elf ranger."})
+    return await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
 
 async def _send(client, cid: str, content: str) -> None:
-    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": content})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": content})
     _ = resp.text  # drain the buffered SSE stream so the turn fully completes
 
 

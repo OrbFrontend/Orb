@@ -11,9 +11,8 @@ from ._fixtures import make_workflow, register_for_test
 
 @pytest.fixture(autouse=True)
 def _empty_registry():
-    # These tests assert the manifest's exact list contents, so clear the
-    # first-party workflows registered at import time and restore them on
-    # teardown; each test then controls the whole registry itself.
+    # These tests assert the manifest's exact list contents, so clear the first-party workflows registered at import time and
+    # restore them on teardown; each test then controls the whole registry itself.
     snapshot = {k: deepcopy(v) for k, v in registry_module._WORKFLOWS_BY_ID.items()}
     registry_module._WORKFLOWS_BY_ID.clear()
     yield
@@ -22,9 +21,8 @@ def _empty_registry():
 
 
 async def test_empty_registry_returns_empty_list(client):
-    resp = await client.get("/api/workflows")
-    assert resp.status_code == 200
-    assert resp.json() == []
+    resp = await client.get_json("/api/workflows")
+    assert resp == []
 
 
 async def test_registered_workflow_appears_with_all_fields(client):

@@ -5,13 +5,12 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
-from ..connection import build_set_clause, get_db, immediate_tx
+from ..connection import build_set_clause, get_db, immediate_tx, select_rows
 from ..models import InteractiveFragmentRow
 
 _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
 
-# Decode decision JSON at the read boundary; malformed values remain invalid
-# definitions instead of failing the fragment list.
+# Decode decision JSON at the read boundary; malformed values remain invalid definitions instead of failing the fragment list.
 _DECISION_JSON_COLUMNS = ("decision_criteria", "decision_outputs")
 
 # Authoring columns a create or update may write, besides the decision ones.
@@ -49,9 +48,8 @@ def _decoded(row: Any) -> InteractiveFragmentRow:
 def _encoded_decision_values(data: Mapping[str, Any]) -> dict[str, Any]:
     """Serialize the JSON-valued decision fields present in *data*.
 
-    Callers pass the in-memory shape (a mapping); the column holds text. Absent
-    keys stay absent so a partial update does not blank a field it never
-    mentioned.
+    Callers pass the in-memory shape (a mapping); the column holds text. Absent keys stay absent so a partial update does not
+    blank a field it never mentioned.
     """
     out = dict(data)
     for column in _DECISION_JSON_COLUMNS:
@@ -61,15 +59,13 @@ def _encoded_decision_values(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def get_interactive_fragments() -> list[InteractiveFragmentRow]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM interactive_fragments ORDER BY sort_order ASC, label ASC"))
-        return [_decoded(r) for r in rows]
+    rows = await select_rows("SELECT * FROM interactive_fragments ORDER BY sort_order ASC, label ASC")
+    return [_decoded(r) for r in rows]
 
 
 async def get_interactive_fragment(fid: str) -> InteractiveFragmentRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM interactive_fragments WHERE id = ?", (fid,)))
-        return _decoded(rows[0]) if rows else None
+    rows = await select_rows("SELECT * FROM interactive_fragments WHERE id = ?", (fid,))
+    return _decoded(rows[0]) if rows else None
 
 
 async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | None:
@@ -117,9 +113,8 @@ async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragme
 async def reorder_interactive_fragments(items: list[tuple[str, int]]) -> bool:
     """Atomically update a lane's existing fragment-priority slots.
 
-    Callers send only the fragments in the reordered lane. All ids are checked
-    while holding SQLite's write lock, so a stale, mixed-lane, or malformed
-    batch cannot partly update priorities.
+    Callers send only the fragments in the reordered lane. All ids are checked while holding SQLite's write lock, so a stale,
+    mixed-lane, or malformed batch cannot partly update priorities.
     """
     if not items:
         return True

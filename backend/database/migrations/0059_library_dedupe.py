@@ -1,7 +1,6 @@
 """Add duplicate dismissals stamped with both body hashes, plus cached avatar hashes.
 
-Use canonical table DDL. Only avatar decoding is cached; its stamp combines
-DEDUPE_REVISION and updated_at.
+Use canonical table DDL. Only avatar decoding is cached; its stamp combines DEDUPE_REVISION and updated_at.
 """
 
 from __future__ import annotations

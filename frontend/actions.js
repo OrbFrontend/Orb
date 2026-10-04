@@ -1,11 +1,9 @@
 import { fromMessageBody } from "./utils.js";
 
-// Delegated UI actions for markup rendered from HTML strings. An element names its
-// action with data-wf-action="<scope>:<name>", and the module that renders that
-// markup registers the handler, which receives (element, event). Click is the
-// default event; data-wf-on lists others, space-separated. Only the innermost
-// element naming an action is considered, and model markup inside .msg-body
-// never names one.
+// Delegated UI actions for markup rendered from HTML strings. An element names its action with
+// data-wf-action="<scope>:<name>", and the module that renders that markup registers the handler, which receives
+// (element, event). Click is the default event; data-wf-on lists others, space-separated. Only the innermost element
+// naming an action is considered, and model markup inside .msg-body never names one.
 
 const _actions = new Map();
 let _wired = false;

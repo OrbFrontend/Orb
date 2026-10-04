@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 
-from ..connection import get_db
+from ..connection import get_db, select_rows
 
 
 async def set_character_expressions(card_id: str, images: dict[str, tuple[str, str]]) -> None:
@@ -19,28 +19,18 @@ async def set_character_expressions(card_id: str, images: dict[str, tuple[str, s
 
 
 async def list_expression_labels(card_id: str) -> list[str]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT label FROM character_expressions WHERE character_card_id = ? ORDER BY label",
-                (card_id,),
-            )
-        )
-        return [r["label"] for r in rows]
+    rows = await select_rows("SELECT label FROM character_expressions WHERE character_card_id = ? ORDER BY label", (card_id,))
+    return [r["label"] for r in rows]
 
 
 async def get_character_expression(card_id: str, label: str) -> tuple[bytes, str] | None:
     """Returns (image_bytes, mime) or None."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT data_b64, mime FROM character_expressions WHERE character_card_id = ? AND label = ?",
-                (card_id, label),
-            )
-        )
-        if not rows:
-            return None
-        return base64.b64decode(rows[0]["data_b64"]), rows[0]["mime"]
+    rows = await select_rows(
+        "SELECT data_b64, mime FROM character_expressions WHERE character_card_id = ? AND label = ?", (card_id, label)
+    )
+    if not rows:
+        return None
+    return base64.b64decode(rows[0]["data_b64"]), rows[0]["mime"]
 
 
 async def delete_character_expressions(card_id: str) -> None:

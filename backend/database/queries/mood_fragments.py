@@ -2,20 +2,18 @@ from __future__ import annotations
 
 from typing import cast
 
-from ..connection import build_set_clause, get_db
+from ..connection import build_set_clause, get_db, select_rows
 from ..models import MoodFragmentRow
 
 
 async def get_mood_fragments() -> list[MoodFragmentRow]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM mood_fragments ORDER BY label ASC"))
-        return [cast(MoodFragmentRow, dict(r)) for r in rows]
+    rows = await select_rows("SELECT * FROM mood_fragments ORDER BY label ASC")
+    return [cast(MoodFragmentRow, dict(r)) for r in rows]
 
 
 async def get_mood_fragment(fid: str) -> MoodFragmentRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM mood_fragments WHERE id = ?", (fid,)))
-        return cast(MoodFragmentRow, dict(rows[0])) if rows else None
+    rows = await select_rows("SELECT * FROM mood_fragments WHERE id = ?", (fid,))
+    return cast(MoodFragmentRow, dict(rows[0])) if rows else None
 
 
 async def create_mood_fragment(data: dict) -> MoodFragmentRow:

@@ -121,10 +121,7 @@ def _workflow_plugin_slice(path: Path, backend: Path) -> str:
     return parts[1] if len(parts) >= 3 and parts[0] == "workflows" else ""
 
 
-def _forbidden_workflow_plugin_targets(
-    targets: list[list[str]],
-    plugin: str,
-) -> set[str]:
+def _forbidden_workflow_plugin_targets(targets: list[list[str]], plugin: str) -> set[str]:
     """Backend imports outside a workflow plug-in's supported host surface."""
     forbidden: set[str] = set()
     for target in targets:
@@ -163,11 +160,7 @@ def _literal_all(path: Path) -> frozenset[str] | None:
     return None
 
 
-def _nonpublic_toolkit_imports(
-    node: ast.AST,
-    package: list[str],
-    public_names: frozenset[str],
-) -> set[str]:
+def _nonpublic_toolkit_imports(node: ast.AST, package: list[str], public_names: frozenset[str]) -> set[str]:
     if not isinstance(node, ast.ImportFrom):
         return set()
     if _import_from_base(node, package) != ["backend", "workflows", "toolkit"]:
@@ -223,9 +216,8 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
             for name in sorted(_private_names(node)):
                 problems.append(f"{where}: imports private name {name!r} from another module (give it a public name)")
             targets = _targets(node, package, root=root)
-            # One import statement resolves to both the package and the name
-            # beside it (`from ..features import cards`), which is the same
-            # edge said twice; report each layer and each peer slice once.
+            # One import statement resolves to both the package and the name beside it (`from ..features import cards`), which
+            # is the same edge said twice; report each layer and each peer slice once.
             edges = {edge for target in targets if (edge := _slice_of(target)) and edge[0] in {*ALLOWED_EDGES, ROOT_LAYER}}
             for layer in sorted({layer for layer, _ in edges if layer != own_layer and layer not in allowed}):
                 problems.append(f"{where}: {own_layer or 'backend'} may not import {layer}")

@@ -16,32 +16,22 @@ from ._fixtures import make_workflow, register_for_test
 
 
 async def _make_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "On-demand test"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "On-demand test"})
 
 
 async def test_unregistered_workflow_returns_404(client):
     cid = await _make_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/workflows/no-such-workflow/trigger",
-        json={},
-    )
-    assert resp.status_code == 404
-    assert resp.json() == {"detail": "Workflow 'no-such-workflow' is not registered"}
+    resp = await client.post_json(f"/api/conversations/{cid}/workflows/no-such-workflow/trigger", json={}, expected_status=404)
+    assert resp == {"detail": "Workflow 'no-such-workflow' is not registered"}
 
 
 async def test_workflow_without_on_demand_hook_returns_404(client):
-    # The workflow IS registered -- it simply lacks an on_demand hook. The 404
-    # must say so, not claim the workflow is unregistered (which would be a lie
-    # and indistinguishable from the genuinely-missing case above).
+    # The workflow IS registered -- it simply lacks an on_demand hook. The 404 must say so, not claim the workflow is
+    # unregistered (which would be a lie and indistinguishable from the genuinely-missing case above).
     cid = await _make_conversation(client)
     wf = make_workflow("inert", display_name="Inert")
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/workflows/inert/trigger",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/workflows/inert/trigger", json={})
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Workflow 'inert' has no on_demand handler"}
 
@@ -52,10 +42,7 @@ async def test_missing_conversation_returns_404(client):
 
     wf = make_workflow("registered", display_name="Registered", on_demand=on_demand)
     with register_for_test(wf):
-        resp = await client.post(
-            "/api/conversations/no-such-conv/workflows/registered/trigger",
-            json={},
-        )
+        resp = await client.post("/api/conversations/no-such-conv/workflows/registered/trigger", json={})
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Conversation not found"}
 
@@ -68,10 +55,7 @@ async def test_happy_path_returns_hook_payload(client):
 
     wf = make_workflow("echo", display_name="Echo", on_demand=on_demand)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/workflows/echo/trigger",
-            json={"hello": "world"},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/workflows/echo/trigger", json={"hello": "world"})
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "echo": {"hello": "world"}, "cid": cid}
 
@@ -103,12 +87,10 @@ async def test_hook_raise_returns_500_and_isolated(client):
 
     wf = make_workflow("flaky", display_name="Flaky", on_demand=on_demand)
     with register_for_test(wf):
-        bad = await client.post(f"/api/conversations/{cid}/workflows/flaky/trigger", json={})
-        assert bad.status_code == 500
+        bad = await client.post_checked(f"/api/conversations/{cid}/workflows/flaky/trigger", json={}, expected_status=500)
         assert bad.json() == {"detail": "On-demand handler raised; see server logs"}
 
-        good = await client.post(f"/api/conversations/{cid}/workflows/flaky/trigger", json={})
-        assert good.status_code == 200
+        good = await client.post_checked(f"/api/conversations/{cid}/workflows/flaky/trigger", json={})
         assert good.json() == {"recovered": True}
 
 

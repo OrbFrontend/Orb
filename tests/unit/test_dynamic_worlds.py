@@ -44,13 +44,7 @@ def _authored(entry_id: int, name: str, content: str = "body", **kw) -> dict:
 
 def _dynamic(entry_id: int, name: str, action: str, target: int | None = None, **kw) -> dict:
     row = _authored(entry_id, name, kw.pop("content", "body"), **kw)
-    row.update(
-        {
-            "entry_layer": "dynamic",
-            "overlay_action": action,
-            "supersedes_entry_id": target,
-        }
-    )
+    row.update({"entry_layer": "dynamic", "overlay_action": action, "supersedes_entry_id": target})
     return row
 
 
@@ -117,10 +111,7 @@ class TestEffectiveProjection:
 
     def test_rows_without_overlay_columns_read_as_authored(self):
         """Pre-migration rows and hand-built test dicts must pass straight through."""
-        rows = [
-            {"id": 1, "name": "A", "content": "x"},
-            {"id": 2, "name": "B", "content": "y"},
-        ]
+        rows = [{"id": 1, "name": "A", "content": "x"}, {"id": 2, "name": "B", "content": "y"}]
         assert select_effective_entries(rows) == rows
 
     def test_addition_is_simply_included(self):
@@ -128,19 +119,13 @@ class TestEffectiveProjection:
         assert [e["id"] for e in select_effective_entries(rows)] == [1, 9]
 
     def test_replacement_hides_its_target_and_injects_itself(self):
-        rows = [
-            _authored(1, "Bridge", "stands"),
-            _dynamic(9, "Bridge", "replace", 1, content="collapsed"),
-        ]
+        rows = [_authored(1, "Bridge", "stands"), _dynamic(9, "Bridge", "replace", 1, content="collapsed")]
         got = select_effective_entries(rows)
         assert [e["id"] for e in got] == [9]
         assert got[0]["content"] == "collapsed"
 
     def test_suppression_hides_its_target_and_injects_nothing(self):
-        rows = [
-            _authored(1, "Bridge"),
-            _dynamic(9, "Bridge", "suppress", 1, content=""),
-        ]
+        rows = [_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")]
         assert select_effective_entries(rows) == []
 
     def test_archiving_the_overlay_re_exposes_the_authored_entry(self):
@@ -155,17 +140,7 @@ class TestEffectiveProjection:
 
     def test_disabling_the_overlay_re_exposes_the_authored_entry(self):
         """Every effective-view caller must agree with the prompt's enabled pool."""
-        rows = [
-            _authored(1, "Bridge", "stands"),
-            _dynamic(
-                9,
-                "Bridge",
-                "replace",
-                1,
-                content="collapsed",
-                enabled=0,
-            ),
-        ]
+        rows = [_authored(1, "Bridge", "stands"), _dynamic(9, "Bridge", "replace", 1, content="collapsed", enabled=0)]
         assert [(e["id"], e["content"]) for e in select_effective_entries(rows)] == [(1, "stands")]
 
     def test_disabled_authored_entries_are_not_effective(self):
@@ -194,18 +169,12 @@ class TestRendering:
 
     def test_priority_sorting_applies_within_a_section_not_across_them(self):
         """A high-priority dynamic entry still renders after every authored one."""
-        rows = [
-            _dynamic(9, "Hot", "add", content="d", priority=999),
-            _authored(1, "Cold", "a", priority=1),
-        ]
+        rows = [_dynamic(9, "Hot", "add", content="d", priority=999), _authored(1, "Cold", "a", priority=1)]
         block = render_lorebook_block(rows)
         assert block.index("Cold") < block.index("Hot")
 
     def test_constant_block_splits_sections_at_the_prefix_register(self):
-        rows = [
-            _authored(1, "Law", "gravity", constant=True),
-            _dynamic(9, "Now", "add", content="raining", constant=True),
-        ]
+        rows = [_authored(1, "Law", "gravity", constant=True), _dynamic(9, "Now", "add", content="raining", constant=True)]
         block = compute_constant_lorebook_block(rows)
         assert block == "## Lorebook\n\nLaw: gravity\n\n## Dynamic World State\n\nNow: raining"
 
@@ -219,10 +188,7 @@ class TestRendering:
         assert "**Dynamic World State (Depth)**" in block
 
     def test_a_suppressed_constant_entry_leaves_the_prefix(self):
-        rows = [
-            _authored(1, "Law", "gravity", constant=True),
-            _dynamic(9, "Law", "suppress", 1, content=""),
-        ]
+        rows = [_authored(1, "Law", "gravity", constant=True), _dynamic(9, "Law", "suppress", 1, content="")]
         assert compute_constant_lorebook_block(rows) == ""
 
     def test_keyword_activation_works_for_a_dynamic_entry(self):
@@ -236,14 +202,7 @@ class TestRendering:
     def test_a_replaced_entrys_keywords_no_longer_activate_it(self):
         rows = [
             _authored(1, "Bridge", "The bridge stands.", keywords=["bridge"]),
-            _dynamic(
-                9,
-                "Bridge",
-                "replace",
-                1,
-                content="The bridge collapsed.",
-                keywords=["bridge"],
-            ),
+            _dynamic(9, "Bridge", "replace", 1, content="The bridge collapsed.", keywords=["bridge"]),
         ]
         block = compute_lorebook_injection_block([{"role": "user", "content": "the bridge"}], rows)
         assert "collapsed" in block
@@ -254,13 +213,7 @@ class TestRendering:
 
 
 def _op(**kw) -> dict:
-    base = {
-        "op": "create",
-        "name": "N",
-        "content": "C",
-        "activation": "constant",
-        "rationale": "r",
-    }
+    base = {"op": "create", "name": "N", "content": "C", "activation": "constant", "rationale": "r"}
     base.update(kw)
     return base
 
@@ -274,22 +227,12 @@ class TestValidateProposal:
         result = validate_proposal({"summary": "s", "operations": [_op()]}, [])
         assert result.summary == "s"
         assert result.operations == [
-            {
-                "op": "create",
-                "rationale": "r",
-                "name": "N",
-                "content": "C",
-                "activation": "constant",
-                "keywords": [],
-            }
+            {"op": "create", "rationale": "r", "name": "N", "content": "C", "activation": "constant", "keywords": []}
         ]
 
     def test_keyword_activation_without_keywords_falls_back_to_the_name(self):
         """A repair, not a rejection: the name is what the entry is about."""
-        (op,) = validate_proposal(
-            {"operations": [_op(name="The Bridge", activation="keywords", keywords=[])]},
-            [],
-        ).operations
+        (op,) = validate_proposal({"operations": [_op(name="The Bridge", activation="keywords", keywords=[])]}, []).operations
         assert op["activation"] == "keywords" and op["keywords"] == ["The Bridge"]
 
     def test_constant_activation_discards_keywords(self):
@@ -342,9 +285,8 @@ class TestValidateProposal:
     def test_a_suppression_marker_may_only_be_retracted_never_revised(self):
         """Rewriting a marker would apply cleanly and publish nothing.
 
-        The projection drops a `suppress` row whatever it says, so an accepted
-        revise of one would bump the revision, leave the authored target hidden
-        and show the user no change at all.
+        The projection drops a `suppress` row whatever it says, so an accepted revise of one would bump the revision, leave the
+        authored target hidden and show the user no change at all.
         """
         entries = [_authored(1, "A"), _dynamic(9, "A", "suppress", 1, content="")]
         result = validate_proposal({"operations": [_op(op="revise", target_entry_id=9)]}, entries)
@@ -360,13 +302,7 @@ class TestValidateProposal:
     def test_two_operations_on_one_target_drop_the_second(self):
         entries = [_authored(1, "A"), _authored(2, "B")]
         result = validate_proposal(
-            {
-                "operations": [
-                    _op(op="replace", target_entry_id=1),
-                    _op(op="suppress", target_entry_id=1),
-                ]
-            },
-            entries,
+            {"operations": [_op(op="replace", target_entry_id=1), _op(op="suppress", target_entry_id=1)]}, entries
         )
         assert [o["op"] for o in result.operations] == ["replace"]
         assert "already targeted" in result.rejected[0][1]
@@ -382,68 +318,33 @@ class TestValidateProposal:
 
     def test_a_dynamic_entry_may_share_a_name_with_the_authored_one_it_replaces(self):
         entries = [_authored(1, "Bridge")]
-        result = validate_proposal(
-            {"operations": [_op(op="replace", target_entry_id=1, name="Bridge")]},
-            entries,
-        )
+        result = validate_proposal({"operations": [_op(op="replace", target_entry_id=1, name="Bridge")]}, entries)
         assert len(result.operations) == 1
 
     def test_an_update_may_keep_its_own_name(self):
         entries = [_dynamic(9, "Mara", "add", content="old")]
-        result = validate_proposal(
-            {"operations": [_op(op="update", target_entry_id=9, name="Mara", content="new")]},
-            entries,
-        )
+        result = validate_proposal({"operations": [_op(op="update", target_entry_id=9, name="Mara", content="new")]}, entries)
         assert result.operations[0]["content"] == "new"
 
     def test_an_update_that_omits_a_field_inherits_the_current_value(self):
         entries = [_dynamic(9, "Mara", "add", content="old body")]
         (op,) = validate_proposal(
-            {"operations": [_op(op="update", target_entry_id=9, name="", content="new body")]},
-            entries,
+            {"operations": [_op(op="update", target_entry_id=9, name="", content="new body")]}, entries
         ).operations
         assert op["name"] == "Mara" and op["content"] == "new body"
 
     def test_an_update_inherits_constant_activation_when_omitted(self):
         entries = [_dynamic(9, "Bridge", "add", content="stands", constant=True)]
         (op,) = validate_proposal(
-            {
-                "operations": [
-                    {
-                        "op": "update",
-                        "target_entry_id": 9,
-                        "content": "collapsed",
-                        "rationale": "r",
-                    }
-                ]
-            },
-            entries,
+            {"operations": [{"op": "update", "target_entry_id": 9, "content": "collapsed", "rationale": "r"}]}, entries
         ).operations
         assert op["activation"] == "constant"
         assert op["keywords"] == []
 
     def test_an_update_inherits_keyword_activation_and_keywords_when_omitted(self):
-        entries = [
-            _dynamic(
-                9,
-                "Bridge",
-                "add",
-                content="stands",
-                keywords=["bridge"],
-            )
-        ]
+        entries = [_dynamic(9, "Bridge", "add", content="stands", keywords=["bridge"])]
         (op,) = validate_proposal(
-            {
-                "operations": [
-                    {
-                        "op": "update",
-                        "target_entry_id": 9,
-                        "content": "collapsed",
-                        "rationale": "r",
-                    }
-                ]
-            },
-            entries,
+            {"operations": [{"op": "update", "target_entry_id": 9, "content": "collapsed", "rationale": "r"}]}, entries
         ).operations
         assert op["activation"] == "keywords"
         assert op["keywords"] == ["bridge"]
@@ -456,15 +357,11 @@ class TestValidateProposal:
     def test_a_replace_inherits_its_authored_targets_activation_and_keywords(self):
         """One `revise` verb, one answer to silence, whichever layer it lands in.
 
-        A replacement stands in for the entry it hides, so correcting what that
-        entry *says* must not quietly change *when* it shows: a constant fact
-        would become conditional, and a keyworded one would stop answering to
-        the words that used to summon it.
+        A replacement stands in for the entry it hides, so correcting what that entry *says* must not quietly change *when* it
+        shows: a constant fact would become conditional, and a keyworded one would stop answering to the words that used to
+        summon it.
         """
-        entries = [
-            _authored(1, "Bridge", "stands", constant=True),
-            _authored(2, "Gorge", "deep", keywords=["gorge", "chasm"]),
-        ]
+        entries = [_authored(1, "Bridge", "stands", constant=True), _authored(2, "Gorge", "deep", keywords=["gorge", "chasm"])]
         constant_op, keyword_op = validate_proposal(
             {
                 "operations": [
@@ -501,24 +398,12 @@ class TestValidateProposal:
     def test_suppress_inherits_its_targets_name(self):
         entries = [_authored(1, "Bridge")]
         (op,) = validate_proposal(
-            {
-                "operations": [
-                    {
-                        "op": "suppress",
-                        "target_entry_id": 1,
-                        "rationale": "gone",
-                    }
-                ]
-            },
-            entries,
+            {"operations": [{"op": "suppress", "target_entry_id": 1, "rationale": "gone"}]}, entries
         ).operations
         assert op["name"] == "Bridge"
 
     def test_a_valid_operation_survives_alongside_a_rejected_one(self):
-        result = validate_proposal(
-            {"operations": [_op(op="update", target_entry_id=404), _op(name="Fine")]},
-            [],
-        )
+        result = validate_proposal({"operations": [_op(op="update", target_entry_id=404), _op(name="Fine")]}, [])
         assert [o["name"] for o in result.operations] == ["Fine"]
         assert len(result.rejected) == 1
 
@@ -580,10 +465,7 @@ class TestCatalog:
         assert kept and all(len(w) == 8 for w in kept)
 
     def test_suppressed_lore_is_hidden_but_its_marker_remains_targetable(self):
-        entries = [
-            _authored(1, "Bridge"),
-            _dynamic(9, "Bridge", "suppress", 1, content=""),
-        ]
+        entries = [_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")]
         catalog = build_world_change_catalog(entries)
         assert "- [1]" not in catalog
         assert "- [9] Bridge" in catalog
@@ -592,9 +474,8 @@ class TestCatalog:
     def test_a_marker_whose_target_was_deleted_is_not_listed(self):
         """Deleting the authored row SET-NULLs the pointer, leaving nothing to retire.
 
-        The marker is listed only so the Agent can archive one when its target
-        becomes true again. An orphan hides nothing, and its line cannot even say
-        what it suppresses, so listing it would be tokens spent on noise.
+        The marker is listed only so the Agent can archive one when its target becomes true again. An orphan hides nothing, and
+        its line cannot even say what it suppresses, so listing it would be tokens spent on noise.
         """
         catalog = build_world_change_catalog([_dynamic(9, "Bridge", "suppress", None, content="")])
         assert catalog == ""
@@ -618,10 +499,7 @@ def _world(world_id: str, name: str) -> dict:
 
 class TestMultiWorldCatalog:
     def test_each_world_is_named_so_a_create_can_address_it(self):
-        entries = [
-            _authored(1, "Bridge", world_id="w1"),
-            _authored(2, "Ledger", world_id="w2"),
-        ]
+        entries = [_authored(1, "Bridge", world_id="w1"), _authored(2, "Ledger", world_id="w2")]
         catalog = build_world_change_catalog(entries, worlds=[_world("w1", "Gorge"), _world("w2", "Guild")])
         assert "## Gorge [world_id: w1]" in catalog
         assert "## Guild [world_id: w2]" in catalog
@@ -631,8 +509,7 @@ class TestMultiWorldCatalog:
     def test_a_world_with_nothing_in_it_is_still_listed(self):
         """It is a legal `target_world` for a create, so it has to be visible."""
         catalog = build_world_change_catalog(
-            [_authored(1, "Bridge", world_id="w1")],
-            worlds=[_world("w1", "Gorge"), _world("w2", "Guild")],
+            [_authored(1, "Bridge", world_id="w1")], worlds=[_world("w1", "Gorge"), _world("w2", "Guild")]
         )
         assert "## Guild" in catalog and "(no entries yet)" in catalog
 
@@ -666,11 +543,7 @@ class TestMultiWorldValidation:
         catalog = build_world_change_catalog([], worlds=worlds)
         assert "## Twin [world_id: w1]" in catalog
         assert "## Twin [world_id: w2]" in catalog
-        result = validate_proposal(
-            {"operations": [_op(target_world="w2")]},
-            [],
-            worlds=worlds,
-        )
+        result = validate_proposal({"operations": [_op(target_world="w2")]}, [], worlds=worlds)
         assert result.operations[0]["world_id"] == "w2"
 
     def test_the_only_world_needs_no_naming(self):
@@ -680,19 +553,12 @@ class TestMultiWorldValidation:
     def test_the_only_world_absorbs_a_create_that_names_the_wrong_one(self):
         """With one destination `target_world` says nothing, so it cannot be wrong --
         only unverifiable. Reading it anyway would drop a create with nowhere else to go."""
-        (op,) = validate_proposal(
-            {"operations": [_op(target_world="Atlantis")]},
-            [],
-            worlds=[_world("w1", "Gorge")],
-        ).operations
+        (op,) = validate_proposal({"operations": [_op(target_world="Atlantis")]}, [], worlds=[_world("w1", "Gorge")]).operations
         assert op["world_id"] == "w1"
 
     def test_a_targeted_operation_takes_the_world_of_the_row_it_names(self):
         """Entry ids are globally unique, so this cannot be misdirected."""
-        entries = [
-            _authored(1, "Bridge", world_id="w1"),
-            _authored(2, "Ledger", world_id="w2"),
-        ]
+        entries = [_authored(1, "Bridge", world_id="w1"), _authored(2, "Ledger", world_id="w2")]
         (op,) = validate_proposal(
             # The wrong world named outright: the row still decides.
             {"operations": [_op(op="replace", target_entry_id=2, target_world="Gorge")]},
@@ -704,12 +570,7 @@ class TestMultiWorldValidation:
     def test_the_same_name_may_exist_in_two_worlds(self):
         entries = [_dynamic(9, "Ledger", "add", world_id="w1")]
         ops = validate_proposal(
-            {
-                "operations": [
-                    _op(name="Ledger", target_world="Guild"),
-                    _op(name="Ledger", target_world="Gorge"),
-                ]
-            },
+            {"operations": [_op(name="Ledger", target_world="Guild"), _op(name="Ledger", target_world="Gorge")]},
             entries,
             worlds=self._WORLDS,
         )
@@ -733,10 +594,7 @@ class TestSplitByWorld:
             ]
         )
         assert list(grouped) == ["w2", "w1"]
-        assert grouped["w2"] == [
-            {"op": "create", "name": "B"},
-            {"op": "create", "name": "C"},
-        ]
+        assert grouped["w2"] == [{"op": "create", "name": "B"}, {"op": "create", "name": "C"}]
 
     def test_an_unstamped_operation_has_no_world_to_be_filed_under(self):
         assert split_by_world([{"op": "create", "name": "A"}]) == {}
@@ -753,15 +611,7 @@ class TestInvertOperations:
         assert required == [after]
 
     def test_an_update_is_undone_by_restoring_the_before_values(self):
-        before = {
-            "id": 9,
-            "name": "Old",
-            "content": "old",
-            "keywords": ["k"],
-            "constant": 0,
-            "priority": 100,
-            "enabled": 1,
-        }
+        before = {"id": 9, "name": "Old", "content": "old", "keywords": ["k"], "constant": 0, "priority": 100, "enabled": 1}
         after = {"id": 9, "name": "New", "content": "new", "entry_revision": 1}
         (inverse,), (state,) = invert_operations([{"op": "update", "target_entry_id": 9}], [before], [after])
         assert inverse["name"] == "Old" and inverse["content"] == "old" and inverse["activation"] == "keywords"

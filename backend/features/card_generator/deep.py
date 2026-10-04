@@ -171,10 +171,9 @@ def _purpose_label(purpose: str) -> str:
 def _end_research(messages: list[WireMessage]) -> None:
     """Add the draft note when research stops without a finishing call.
 
-    The note joins the last query result when there is one. A new user turn
-    would make Qwen3-style templates, which keep reasoning only after the last
-    user message, drop every step's reasoning and re-render the whole
-    transcript. Joining it re-renders just that one result instead.
+    The note joins the last query result when there is one. A new user turn would make Qwen3-style templates, which keep
+    reasoning only after the last user message, drop every step's reasoning and re-render the whole transcript. Joining it
+    re-renders just that one result instead.
     """
     last = messages[-1]
     if last["role"] == "tool":
@@ -199,9 +198,8 @@ def _step_args(arguments: Mapping[str, Any]) -> dict[str, Any]:
 def _broken_step(response: Mapping[str, Any], query: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> str:
     """Why a research reply is unusable, as a sentence, or ``""`` when it is a real choice.
 
-    A reply cut at the budget, or a query whose arguments did not decode (the
-    client degrades those to ``{}``), says nothing about whether the model meant
-    to stop, so neither may pass for a finishing call.
+    A reply cut at the budget, or a query whose arguments did not decode (the client degrades those to ``{}``), says nothing
+    about whether the model meant to stop, so neither may pass for a finishing call.
     """
     if response.get("finish_reason") == "length":
         return agent_lane_cut_off(settings)
@@ -223,12 +221,7 @@ def _stopped(step: int, reason: str, queries_run: int) -> str:
 
 
 async def generate_deep_card(
-    client: LLMClient,
-    model: str,
-    idea: str,
-    *,
-    settings: Mapping[str, Any],
-    digest: str,
+    client: LLMClient, model: str, idea: str, *, settings: Mapping[str, Any], digest: str
 ) -> AsyncIterator[DeepProgress | DeepDone]:
     """Research the library and draft a card, yielding progress and one done event."""
     messages: list[WireMessage] = [
@@ -242,13 +235,7 @@ async def generate_deep_card(
     async def call(forced: str, transcript: list[WireMessage]) -> dict[str, Any]:
         tools = TOOLS if shared_tools else [QUERY_TOOL if forced == _QUERY else GENERATE_CARD_TOOL]
         return await forced_turn(
-            client,
-            model,
-            messages=transcript,
-            tools=tools,
-            forced=forced,
-            max_tokens=max_tokens,
-            reasoning_on=True,
+            client, model, messages=transcript, tools=tools, forced=forced, max_tokens=max_tokens, reasoning_on=True
         )
 
     findings: list[str] = []

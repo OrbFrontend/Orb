@@ -23,11 +23,9 @@ def _filename(ctx) -> str:
 async def export(ctx) -> ExportedFile | None:
     """The render as a PNG, from the best copy that still exists.
 
-    Orb stores renders re-encoded for display and never keeps a second, larger copy.
-    The full-quality file lives where it was made: ComfyUI keeps what it saved, so
-    that is fetched on demand. A cloud render leaves no such file, and neither does
-    one ComfyUI has since dropped; those fall back to the stored copy, and the note
-    says so.
+    Orb stores renders re-encoded for display and never keeps a second, larger copy. The full-quality file lives where it was
+    made: ComfyUI keeps what it saved, so that is fetched on demand. A cloud render leaves no such file, and neither does one
+    ComfyUI has since dropped; those fall back to the stored copy, and the note says so.
     """
     output = (ctx.consumption_metadata or {}).get("comfy_output")
     note = _STORED_ONLY

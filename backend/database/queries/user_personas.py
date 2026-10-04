@@ -4,7 +4,7 @@ import base64
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import build_set_clause, get_db
+from ..connection import build_set_clause, get_db, select_rows
 from ..models import UserPersonaRow
 
 _PERSONA_SELECT = "SELECT id, name, description, avatar_color, avatar_mime, created_at, updated_at FROM user_personas"
@@ -17,56 +17,39 @@ def _project(row: Any) -> UserPersonaRow:
 
 
 async def get_user_personas() -> list[UserPersonaRow]:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall(_PERSONA_SELECT + " ORDER BY name ASC"))
-        return [_project(r) for r in rows]
+    rows = await select_rows(_PERSONA_SELECT + " ORDER BY name ASC")
+    return [_project(r) for r in rows]
 
 
 async def get_persona_conversation_counts() -> dict[int, int]:
     """Count conversations by the persona each one speaks as today.
 
-    Mirrors ``resolve_persona_id``: conversation pin, then the conversation's
-    card pin, then the global active persona. No history of past active
-    personas exists, so unpinned conversations count toward the current one.
+    Mirrors ``resolve_persona_id``: conversation pin, then the conversation's card pin, then the global active persona. No
+    history of past active personas exists, so unpinned conversations count toward the current one.
     """
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                """SELECT COALESCE(c.persona_lock_id, card.persona_lock_id,
+    rows = await select_rows(
+        """SELECT COALESCE(c.persona_lock_id, card.persona_lock_id,
                                    (SELECT active_persona_id FROM settings WHERE id = 1)) AS persona_id,
                           COUNT(*) AS conversations
                    FROM conversations AS c
                    LEFT JOIN character_cards AS card ON card.id = c.character_card_id
                    GROUP BY persona_id
                    HAVING persona_id IS NOT NULL"""
-            )
-        )
+    )
     return {int(row["persona_id"]): int(row["conversations"]) for row in rows}
 
 
 async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                _PERSONA_SELECT + " WHERE id = ?",
-                (persona_id,),
-            )
-        )
-        return _project(rows[0]) if rows else None
+    rows = await select_rows(_PERSONA_SELECT + " WHERE id = ?", (persona_id,))
+    return _project(rows[0]) if rows else None
 
 
 async def get_persona_avatar(persona_id: int) -> tuple[bytes, str] | None:
     """Return decoded avatar bytes and MIME type, if present."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT avatar_b64, avatar_mime FROM user_personas WHERE id = ?",
-                (persona_id,),
-            )
-        )
-        if not rows or not rows[0]["avatar_b64"]:
-            return None
-        return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
+    rows = await select_rows("SELECT avatar_b64, avatar_mime FROM user_personas WHERE id = ?", (persona_id,))
+    if not rows or not rows[0]["avatar_b64"]:
+        return None
+    return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
 
 
 async def create_user_persona(data: dict) -> UserPersonaRow:

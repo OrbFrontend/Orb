@@ -18,9 +18,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     settings_cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
     to_drop = [c for c in _VESTIGIAL_SETTINGS_COLUMNS if c in settings_cols]
     if to_drop:
-        # PRAGMA foreign_keys is a no-op inside a transaction; the runner has
-        # committed before this call. Flip FKs off for the column drops (several
-        # carry a REFERENCES clause), then restore prior state.
+        # PRAGMA foreign_keys is a no-op inside a transaction; the runner has committed before this call. Flip FKs off for the
+        # column drops (several carry a REFERENCES clause), then restore prior state.
         conn.commit()
         had_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
         conn.execute("PRAGMA foreign_keys=OFF")

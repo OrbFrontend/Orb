@@ -22,13 +22,7 @@ class _RecordingTracker:
         self.lanes: list[tuple[str, str, str]] = []
 
     def record(
-        self,
-        label: str,
-        messages: list,
-        tools: list | None,
-        model: str = "",
-        endpoint: str = "",
-        shape: str = "",
+        self, label: str, messages: list, tools: list | None, model: str = "", endpoint: str = "", shape: str = ""
     ) -> None:
         self.calls.append((label, messages, tools, model))
         self.lanes.append((endpoint, model, shape))
@@ -67,14 +61,7 @@ class _ReplayClient:
 
 
 def _done_event_with_tool_call(name: str, args: dict) -> dict:
-    return {
-        "type": "done",
-        "message": {
-            "tool_calls": [
-                {"function": {"name": name, "arguments": args}},
-            ]
-        },
-    }
+    return {"type": "done", "message": {"tool_calls": [{"function": {"name": name, "arguments": args}}]}}
 
 
 async def _collect(gen: AsyncIterator[dict]) -> list[dict]:
@@ -86,12 +73,7 @@ class TestKVTracker:
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
         out = await _collect(
             forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                kv_tracker=None,
+                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=None
             )
         )
         assert out == [{"type": "result", "args": {"rewritten_text": "x"}}]
@@ -118,21 +100,15 @@ class TestKVTracker:
         assert tools[0]["function"]["name"] == _TOOL_NAME
 
     async def test_kv_tracker_records_the_endpoint_the_call_went_to(self):
-        # Half the lane key. In dual-model mode a workflow's forced call runs on the
-        # agent server while the writer runs on another, and the two can answer to
-        # the same model name -- without the endpoint the tracker measures one
-        # lane's calls against the other's and reports a bust for neither.
+        # Half the lane key. In dual-model mode a workflow's forced call runs on the agent server while the writer runs on
+        # another, and the two can answer to the same model name -- without the endpoint the tracker measures one lane's calls
+        # against the other's and reports a bust for neither.
         tracker = _RecordingTracker()
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
         client.base_url = "https://api.example.com/v1"
         await _collect(
             forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                kv_tracker=tracker,
+                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=tracker
             )
         )
         assert tracker.lanes == [("https://api.example.com/v1", "test-model", "")]
@@ -158,12 +134,7 @@ class TestKVTracker:
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
         await _collect(
             forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                kv_tracker=tracker,
+                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=tracker
             )
         )
         assert tracker.calls[0][0] == f"forced:{_TOOL_NAME}"
@@ -180,12 +151,7 @@ class TestReasoningForwarding:
         )
         out = await _collect(
             forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                pass_id="wf:p1",
+                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, pass_id="wf:p1"
             )
         )
         assert out[:2] == [
@@ -196,20 +162,10 @@ class TestReasoningForwarding:
 
     async def test_pass_id_none_suppresses_reasoning_deltas(self):
         client = _FakeClient(
-            [
-                {"type": "reasoning", "delta": "thinking..."},
-                _done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"}),
-            ]
+            [{"type": "reasoning", "delta": "thinking..."}, _done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})]
         )
         out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                pass_id=None,
-            )
+            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, pass_id=None)
         )
         assert out == [{"type": "result", "args": {"rewritten_text": "x"}}]
 
@@ -219,15 +175,7 @@ class TestTokenBudget:
 
     async def _sent_budget(self, settings: dict) -> int:
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=settings,
-            )
-        )
+        await _collect(forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=settings))
         assert client.complete_kwargs is not None
         return client.complete_kwargs["max_tokens"]
 
@@ -249,12 +197,7 @@ class TestToolsAssembly:
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
         await _collect(
             forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                enabled_tools=None,
+                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, enabled_tools=None
             )
         )
         tools = client.complete_kwargs["tools"]
@@ -269,11 +212,7 @@ class TestToolsAssembly:
                 tail_messages=[],
                 tool_name=_TOOL_NAME,
                 settings=_SETTINGS,
-                enabled_tools={
-                    "editor_rewrite": True,
-                    "editor_apply_patch": True,
-                    "direct_scene": False,
-                },
+                enabled_tools={"editor_rewrite": True, "editor_apply_patch": True, "direct_scene": False},
             )
         )
         names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
@@ -390,11 +329,9 @@ class TestToolsAssembly:
     async def test_no_tool_call_at_all_does_not_brand_the_endpoint(self):
         """A reply with no tool call is not evidence that forcing was ignored.
 
-        Truncation at max_tokens mid-reasoning, a content-only answer, or a
-        provider-side finish_reason=error all land here; branding the endpoint on
-        one of those would drop the shared two-tool blob -- and with it the
-        analyze/compose prefix -- for the rest of the session on a provider that
-        does honor forcing. Degrade to empty args, no retry, nothing learned.
+        Truncation at max_tokens mid-reasoning, a content-only answer, or a provider-side finish_reason=error all land here;
+        branding the endpoint on one of those would drop the shared two-tool blob -- and with it the analyze/compose prefix --
+        for the rest of the session on a provider that does honor forcing. Degrade to empty args, no retry, nothing learned.
         """
         from backend.inference import endpoint_profiles as ep
 
@@ -468,10 +405,7 @@ class TestToolsAssembly:
         for m in messages:
             assert type(m) is dict
             json.dumps(m)  # raises if any wrapper leaked through
-        assert messages == [
-            {"role": "system", "content": "x"},
-            {"role": "user", "content": "y"},
-        ]
+        assert messages == [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}]
         # KV tracker also receives plain dicts.
         recorded_messages = tracker.calls[0][1]
         for m in recorded_messages:
@@ -482,30 +416,13 @@ class TestToolsAssembly:
         prefix = ({"role": "system", "content": "s"},)
         tail = ({"role": "user", "content": "u"},)
         await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=prefix,
-                tail_messages=tail,
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
+            forced_tool_call(client=client, prefix=prefix, tail_messages=tail, tool_name=_TOOL_NAME, settings=_SETTINGS)
         )
-        assert client.complete_kwargs["messages"] == [
-            {"role": "system", "content": "s"},
-            {"role": "user", "content": "u"},
-        ]
+        assert client.complete_kwargs["messages"] == [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
 
     async def test_tool_choice_forwarded(self):
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
-        )
+        await _collect(forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS))
         assert client.complete_kwargs["tool_choice"] == TOOLS[_TOOL_NAME]["choice"]
 
     async def test_tools_in_prompt_forwarded(self):
@@ -515,12 +432,7 @@ class TestToolsAssembly:
             client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
             await _collect(
                 forced_tool_call(
-                    client=client,
-                    prefix=[],
-                    tail_messages=[],
-                    tool_name=_TOOL_NAME,
-                    settings=_SETTINGS,
-                    tools_in_prompt=flag,
+                    client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, tools_in_prompt=flag
                 )
             )
             assert client.complete_kwargs["tools_in_prompt"] is flag
@@ -530,43 +442,21 @@ class TestGracefulDegradation:
     async def test_tool_call_missing_yields_empty_args(self):
         client = _FakeClient([{"type": "done", "message": {"content": "no calls"}}])
         out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
+            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
         )
         assert out == [{"type": "result", "args": {}}]
 
     async def test_wrong_tool_name_in_response_falls_back_to_empty(self):
-        client = _FakeClient(
-            [
-                _done_event_with_tool_call("not_the_one", {"x": 1}),
-            ]
-        )
+        client = _FakeClient([_done_event_with_tool_call("not_the_one", {"x": 1})])
         out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
+            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
         )
         assert out == [{"type": "result", "args": {}}]
 
     async def test_client_complete_raises_yields_empty_args(self):
         client = _FakeClient([], raise_on_stream=RuntimeError("network broke"))
         out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
+            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
         )
         assert out == [{"type": "result", "args": {}}]
 
@@ -575,12 +465,7 @@ class TestGracefulDegradation:
         with pytest.raises(RuntimeError, match="image input not supported"):
             await _collect(
                 forced_tool_call(
-                    client=client,
-                    prefix=[],
-                    tail_messages=[],
-                    tool_name=_TOOL_NAME,
-                    settings=_SETTINGS,
-                    raise_errors=True,
+                    client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, raise_errors=True
                 )
             )
 
@@ -591,12 +476,6 @@ class TestGracefulDegradation:
         monkeypatch.setattr("backend.workflows._forced_call.parse_tool_calls", _raises)
         client = _FakeClient([{"type": "done", "message": {"tool_calls": []}}])
         out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-            )
+            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
         )
         assert out == [{"type": "result", "args": {}}]

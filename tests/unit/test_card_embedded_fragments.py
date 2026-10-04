@@ -7,9 +7,8 @@ from __future__ import annotations
 from backend.core import DECISION_COLUMNS, STATE_COLUMNS
 from backend.database import card_embedded_fragments
 
-# Every interactive row carries the decision columns, null for the types that do
-# not use them, so one reader can ask any fragment whether it is a decision
-# without first asking what kind of fragment it is.
+# Every interactive row carries the decision columns, null for the types that do not use them, so one reader can ask any
+# fragment whether it is a decision without first asking what kind of fragment it is.
 NO_DECISION = {column: None for column in DECISION_COLUMNS}
 NO_STATE = {column: None for column in STATE_COLUMNS}
 
@@ -267,10 +266,7 @@ def test_cooldown_defaults_and_clamps():
     moods, interactive = card_embedded_fragments(
         _card(
             {
-                "mood": [
-                    {"id": "a", "label": "A", "cooldown_turns": -2},
-                    {"id": "b", "label": "B", "cooldown_turns": "9"},
-                ],
+                "mood": [{"id": "a", "label": "A", "cooldown_turns": -2}, {"id": "b", "label": "B", "cooldown_turns": "9"}],
                 "interactive": [{"id": "c", "label": "C", "cooldown_turns": 99}],
             }
         )

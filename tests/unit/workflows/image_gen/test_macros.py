@@ -76,11 +76,7 @@ def test_skill_prose_resolves_while_id_and_label_stay_addressable():
 
 def test_each_subject_sheet_resolves_to_its_own_name():
     subjects = (
-        _subject(
-            "Mara",
-            "{{char}} has short black hair for {{user}} in {{cast}}",
-            "{{char}} smiling",
-        ),
+        _subject("Mara", "{{char}} has short black hair for {{user}} in {{cast}}", "{{char}} smiling"),
         _subject("Ren", "{{char}} wears a blue jacket"),
     )
     mara, ren = macros_mod.expand_subjects(subjects, _macros(char="A quiet room", cast="Mara, Ren"))

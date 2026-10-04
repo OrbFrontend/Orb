@@ -21,30 +21,24 @@ POSSIBLE_JACCARD = 0.6
 # agreement than a bare Jaccard match — but still some.
 NAME_CREATOR_JACCARD = 0.4
 
-# Hamming distance between two 64-bit dHashes that still counts as "same art".
-# Measured on deliberately high-frequency synthetic card art (512x768): a JPEG
-# q82 re-encode costs 1, WebP q80 costs 2, a 3x downscale costs 1, and a plain
-# 2x downscale — exactly what a different download site does — already costs 5.
-# So the threshold is 8, not the textbook 4; real card art is smoother and
-# should score lower, which leaves headroom without being loose.
+# Hamming distance between two 64-bit dHashes that still counts as "same art". Measured on deliberately high-frequency synthetic
+# card art (512x768): a JPEG q82 re-encode costs 1, WebP q80 costs 2, a 3x downscale costs 1, and a plain 2x downscale — exactly
+# what a different download site does — already costs 5. So the threshold is 8, not the textbook 4; real card art is smoother
+# and should score lower, which leaves headroom without being loose.
 AVATAR_MAX_DISTANCE = 8
 
-# Bottom-k shingle sketch size. Two cards sharing any of their 64 smallest
-# shingle hashes become candidates, which is the only route that catches a
-# near-copy that was also renamed *and* re-avatared.
+# Bottom-k shingle sketch size. Two cards sharing any of their 64 smallest shingle hashes become candidates, which is the only
+# route that catches a near-copy that was also renamed *and* re-avatared.
 SKETCH_SIZE = 64
 
-# Above this many members a block stops emitting every pair and emits a chain
-# instead. A block is a set of cards agreeing exactly on one value, so the
-# predicate that formed it is transitive across the whole block: chaining still
-# unions the group and still reports the shared value, at O(n) instead of
-# O(n^2). Without it one popular copy-pasted system prompt across 500 cards is
-# 124k pairs to score.
+# Above this many members a block stops emitting every pair and emits a chain instead. A block is a set of cards agreeing
+# exactly on one value, so the predicate that formed it is transitive across the whole block: chaining still unions the group
+# and still reports the shared value, at O(n) instead of O(n^2). Without it one popular copy-pasted system prompt across 500
+# cards is 124k pairs to score.
 MAX_BLOCK = 32
 
-# Fields that feed the signature. Organizational fields (tags, public profiles,
-# world_id, creator_notes, timestamps, auto-tag stamps) are excluded on purpose:
-# they must never block a match, though they still appear in the comparison.
+# Fields that feed the signature. Organizational fields (tags, public profiles, world_id, creator_notes, timestamps, auto-tag
+# stamps) are excluded on purpose: they must never block a match, though they still appear in the comparison.
 IDENTITY_FIELDS = (
     "name",
     "description",
@@ -106,10 +100,9 @@ class Pair:
 def build_blocks(signals: Sequence[CardSignals]) -> dict[tuple[str, str], list[str]]:
     """Inverted indexes over every signal worth blocking on.
 
-    2000 cards is 2M pairs and pure-Python Jaccard over all of them is minutes,
-    so only cards that land in a shared bucket are ever scored. Empty values are
-    skipped everywhere — a blank field is not evidence of anything, and indexing
-    it is both a quadratic blow-up and a false-positive factory.
+    2000 cards is 2M pairs and pure-Python Jaccard over all of them is minutes, so only cards that land in a shared bucket are
+    ever scored. Empty values are skipped everywhere — a blank field is not evidence of anything, and indexing it is both a
+    quadratic blow-up and a false-positive factory.
     """
     blocks: dict[tuple[str, str], list[str]] = defaultdict(list)
     for s in signals:
@@ -122,11 +115,9 @@ def build_blocks(signals: Sequence[CardSignals]) -> dict[tuple[str, str], list[s
             blocks[("name", s.name)].append(s.card_id)
             if s.creator:
                 blocks[("creator+name", f"{s.creator}\x00{s.name}")].append(s.card_id)
-        # Pigeonhole over 8 bands of 8 bits: two hashes within Hamming 7 must
-        # agree on at least one band, and at 8 the recall loss is negligible.
-        # A card with no usable avatar stores "" and is excluded here and from
-        # the "same avatar" predicate — otherwise every avatarless card reads as
-        # sharing an avatar with every other, which is the single largest
+        # Pigeonhole over 8 bands of 8 bits: two hashes within Hamming 7 must agree on at least one band, and at 8 the recall
+        # loss is negligible. A card with no usable avatar stores "" and is excluded here and from the "same avatar" predicate —
+        # otherwise every avatarless card reads as sharing an avatar with every other, which is the single largest
         # false-positive source this feature has available to it.
         if s.avatar_dhash:
             for i in range(8):
@@ -188,10 +179,9 @@ def _same_creator(a: CardSignals, b: CardSignals) -> bool:
 def reasons_for(a: CardSignals, b: CardSignals, *, overlap: float, distance: int | None) -> tuple[str, ...]:
     """Plain-language reasons, most specific first.
 
-    Generated from which predicates fired rather than from the tier, so a reader
-    is told what the scan actually saw. Only ever called for a pair that already
-    matched on something, so "Same name" can appear here as corroboration
-    without a bare name ever producing a match on its own.
+    Generated from which predicates fired rather than from the tier, so a reader is told what the scan actually saw. Only ever
+    called for a pair that already matched on something, so "Same name" can appear here as corroboration without a bare name
+    ever producing a match on its own.
     """
     same_avatar = distance is not None and distance <= AVATAR_MAX_DISTANCE
     reasons: list[str] = []
@@ -260,9 +250,8 @@ def score_pair(a: CardSignals, b: CardSignals) -> Pair:
 def group_strong_edges(pairs: Iterable[Pair]) -> list[list[str]]:
     """Union-find over strong edges only, newest-independent and stable.
 
-    Possible edges are deliberately *not* unioned. A weak edge chained through a
-    third card turns two unrelated near-misses into one blob nobody can review,
-    so they stay standalone pairs.
+    Possible edges are deliberately *not* unioned. A weak edge chained through a third card turns two unrelated near-misses into
+    one blob nobody can review, so they stay standalone pairs.
     """
     parent: dict[str, str] = {}
 
@@ -289,14 +278,11 @@ def group_strong_edges(pairs: Iterable[Pair]) -> list[list[str]]:
 
 
 def find_duplicates(
-    signals: Sequence[CardSignals],
-    *,
-    dismissed: Mapping[tuple[str, str], tuple[str, str]] | None = None,
+    signals: Sequence[CardSignals], *, dismissed: Mapping[tuple[str, str], tuple[str, str]] | None = None
 ) -> dict:
     """Score candidate pairs into strong groups and possible pairs.
 
-    Dismissals store both body_hash values and lapse on content changes;
-    tags and public profiles do not affect body_hash.
+    Dismissals store both body_hash values and lapse on content changes; tags and public profiles do not affect body_hash.
     """
     by_id = {s.card_id: s for s in signals}
     dismissed = dismissed or {}
@@ -327,10 +313,7 @@ def find_duplicates(
     for members in groups:
         member_set = set(members)
         grouped.append(
-            {
-                "cards": members,
-                "pairs": [p.as_dict() for m in members for p in edges_by_card[m] if p.b in member_set],
-            }
+            {"cards": members, "pairs": [p.as_dict() for m in members for p in edges_by_card[m] if p.b in member_set]}
         )
 
     return {

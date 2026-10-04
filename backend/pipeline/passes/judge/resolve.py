@@ -69,8 +69,7 @@ def gate_holds(probabilities: Mapping[str, float], keys: Sequence[str]) -> bool:
 def resolve_gated(probabilities: Mapping[str, float], keys: Sequence[str], draw: float) -> str:
     """Draw among every option but the gate, on odds rescaled to exclude it.
 
-    Only for a gate that did not hold, so some later option outweighs it and the
-    rescaling total is positive.
+    Only for a gate that did not hold, so some later option outweighs it and the rescaling total is positive.
     """
     rest = keys[1:]
     total = sum(probabilities[key] for key in rest)

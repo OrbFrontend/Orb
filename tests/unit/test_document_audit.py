@@ -1,11 +1,8 @@
-"""Unit tests for the Document-mode Output Auditor slice
-(features/documents/audit.py) and the report_to_dict serializer.
+"""Unit tests for the Document-mode Output Auditor slice (features/documents/audit.py) and the report_to_dict serializer.
 
-Covers the trim/clean/toggle pure helpers, the audit orchestrator's
-draft-scoping + truncation semantics, the KV-friendly patch-prompt builders
-(patch byte-extends the generation prompt), and the per-shape patch dispatch
-against a stub client (forced JSON call, tail reattachment, patch-error
-surfacing).
+Covers the trim/clean/toggle pure helpers, the audit orchestrator's draft-scoping + truncation semantics, the KV-friendly
+patch-prompt builders (patch byte-extends the generation prompt), and the per-shape patch dispatch against a stub client (forced
+JSON call, tail reattachment, patch-error surfacing).
 """
 
 from __future__ import annotations
@@ -24,11 +21,7 @@ from backend.features.documents.audit import (
     patch_document,
     trim_incomplete_tail,
 )
-from backend.features.documents.continuation import (
-    DOC_ASSIST_CONTINUE,
-    DOC_CHAT_INSTRUCTION,
-    build_generation_messages,
-)
+from backend.features.documents.continuation import DOC_ASSIST_CONTINUE, DOC_CHAT_INSTRUCTION, build_generation_messages
 from backend.prompting.tool_catalog import TOOLS
 
 _BANNED = "shivers down her spine"
@@ -150,8 +143,7 @@ def test_report_to_dict_with_draft_carries_the_patch_ids():
     # The banned sentence is the first finding in document order.
     assert [1] in [item["ids"] for item in hits]
     openers = d["sections"]["repetitive_openers"]
-    # sentences[0] anchors the run and is never flagged, so the opener entry's
-    # ids cover the remainder only.
+    # sentences[0] anchors the run and is never flagged, so the opener entry's ids cover the remainder only.
     assert openers[0]["ids"] and len(openers[0]["ids"]) == len(openers[0]["sentences"]) - 1
 
 
@@ -216,12 +208,10 @@ async def test_audit_scanner_toggle_off():
 class _StubPatchClient:
     """Stub LLMClient: records the forced call, returns canned patches.
 
-    ``completion_mode`` steers patch_document's dispatch like the real client.
-    complete() answers with a tool_calls message (the shape both real chat
-    forcing paths re-synthesize); complete_raw() answers with bare JSON content
-    (the grammar-forced ``/completion`` shape), or literal ``raw_content`` when
-    given. render_prompt() returns a deterministic fake render so tests can
-    assert the raw patch prompt byte-extends it.
+    ``completion_mode`` steers patch_document's dispatch like the real client. complete() answers with a tool_calls message (the
+    shape both real chat forcing paths re-synthesize); complete_raw() answers with bare JSON content (the grammar-forced
+    ``/completion`` shape), or literal ``raw_content`` when given. render_prompt() returns a deterministic fake render so tests
+    can assert the raw patch prompt byte-extends it.
     """
 
     def __init__(self, patches: list[dict], completion_mode: str = "chat", raw_content: str | None = None):
@@ -245,10 +235,7 @@ class _StubPatchClient:
                     {
                         "id": "1",
                         "type": "function",
-                        "function": {
-                            "name": "editor_apply_patch",
-                            "arguments": json.dumps({"patches": self._patches}),
-                        },
+                        "function": {"name": "editor_apply_patch", "arguments": json.dumps({"patches": self._patches})},
                     }
                 ]
             },
@@ -351,8 +338,7 @@ async def test_patch_chat_assisted_replays_prefill_close_turns():
     await patch_document(client, "m", flagged, ctx, _BANK, None, _SETTINGS, assisted=True, truncated=False)
     msgs = client.calls[0]["messages"]
     gen_messages, _ = build_generation_messages(ctx, assisted=True, completion_mode="chat")
-    # Generation replayed verbatim (incl. the closed prefill + re-anchor turn),
-    # then draft + fix as a pure suffix.
+    # Generation replayed verbatim (incl. the closed prefill + re-anchor turn), then draft + fix as a pure suffix.
     assert msgs[: len(gen_messages)] == gen_messages
     assert {"role": "assistant", "content": "The last prose line"} in msgs
     assert {"role": "user", "content": DOC_ASSIST_CONTINUE} in msgs
@@ -394,8 +380,7 @@ def test_fix_instruction_describes_json_shape_without_tool_name():
     fix = build_fix_instruction("*** REPORT ***")
     assert fix.startswith("*** REPORT ***")
     assert '"patches"' in fix and '"id"' in fix and "[brackets]" in fix
-    # The old search/replace contract is gone: nothing asks the model to copy
-    # draft text back out.
+    # The old search/replace contract is gone: nothing asks the model to copy draft text back out.
     assert '"search"' not in fix
     # No tool-call phrasing: neither transport shows the model a tool schema.
     assert "editor_apply_patch" not in fix

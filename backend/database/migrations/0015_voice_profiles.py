@@ -1,6 +1,4 @@
-"""
-0015_voice_profiles -- add TTS voice profiles and playback settings.
-"""
+"""0015_voice_profiles -- add TTS voice profiles and playback settings."""
 
 from __future__ import annotations
 
@@ -49,7 +47,4 @@ def migrate(conn: sqlite3.Connection) -> None:
                 passes = {}
             if "scripter" in passes:
                 passes.pop("scripter", None)
-                conn.execute(
-                    "UPDATE settings SET reasoning_enabled_passes = ? WHERE id = 1",
-                    (json.dumps(passes),),
-                )
+                conn.execute("UPDATE settings SET reasoning_enabled_passes = ? WHERE id = 1", (json.dumps(passes),))

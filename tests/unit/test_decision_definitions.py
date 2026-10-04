@@ -176,9 +176,8 @@ def test_a_valid_card_decision_decodes_with_its_columns():
 
 
 def test_an_invalid_card_variant_stays_a_decision_not_a_string_field():
-    # A card naming a shape Orb cannot run must never silently mean something
-    # else and join the Director's tool schema. It stays a decision that does not
-    # parse, which the judge stage reports as an invalid definition.
+    # A card naming a shape Orb cannot run must never silently mean something else and join the Director's tool schema. It stays
+    # a decision that does not parse, which the judge stage reports as an invalid definition.
     _, interactive = card_embedded_fragments(_card([_card_entry(decision_type="score")]))
     assert interactive[0]["field_type"] == "decision"
     assert parse_decision_definition(interactive[0]) is None

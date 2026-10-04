@@ -31,11 +31,9 @@ def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
 def migrate(conn: sqlite3.Connection) -> None:
     created = []
     for name, table, column in _INDEXES:
-        # A database can be old enough to predate the table *or* the column --
-        # the chain runs in order, but a partially-seeded upgrade fixture only
-        # has what its own era created. Either way the missing piece arrives
-        # with the migration that introduces it, whose DDL comes from schema.py
-        # and already carries the index.
+        # A database can be old enough to predate the table *or* the column -- the chain runs in order, but a partially-seeded
+        # upgrade fixture only has what its own era created. Either way the missing piece arrives with the migration that
+        # introduces it, whose DDL comes from schema.py and already carries the index.
         if not _has_column(conn, table, column):
             continue
         conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}({column})")  # nosec B608 -- module-literal identifiers

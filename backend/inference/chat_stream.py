@@ -1,9 +1,8 @@
 """Accumulate a streamed OpenAI-compatible chat completion.
 
-The parsers here read already-framed SSE ``data:`` payloads, so they can be
-driven from a list in tests; the HTTP, abort race and retry policy stay in
-:mod:`client`. The Anthropic Messages parser lives with its request translation
-in :mod:`anthropic` and fills the same :class:`ChatStream`.
+The parsers here read already-framed SSE ``data:`` payloads, so they can be driven from a list in tests; the HTTP, abort race
+and retry policy stay in :mod:`client`. The Anthropic Messages parser lives with its request translation in :mod:`anthropic` and
+fills the same :class:`ChatStream`.
 """
 
 from __future__ import annotations
@@ -33,21 +32,15 @@ class ChatStream:
     def tool_entry(self, index: int) -> dict:
         """The accumulator slot for tool call *index*, opened on first use."""
         if index not in self.tool_calls:
-            self.tool_calls[index] = {
-                "id": "",
-                "type": "function",
-                "function": {"name": "", "arguments": ""},
-            }
+            self.tool_calls[index] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
         return self.tool_calls[index]
 
 
 def merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
     """Fold one delta's ``reasoning_details`` fragments into whole blocks.
 
-    OpenRouter streams a block as pieces that share an ``index``: text and
-    summary arrive in slices, while signature, data and id arrive once. Replaying
-    the pieces as separate blocks is rejected, so they are joined back into one
-    block per index.
+    OpenRouter streams a block as pieces that share an ``index``: text and summary arrive in slices, while signature, data and
+    id arrive once. Replaying the pieces as separate blocks is rejected, so they are joined back into one block per index.
     """
     if not isinstance(fragments, list):
         return
@@ -69,10 +62,9 @@ def merge_reasoning_details(blocks: list[dict], fragments: object) -> None:
 def parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
-    Thin wrapper over :func:`text_completion.normalize_prob_records`: the
-    ``logprobs.content`` records carry the same fields as llama.cpp's
-    OpenAI-style ``completion_probabilities`` variant, so one normalizer
-    serves both transports and the route frames both the same way.
+    Thin wrapper over :func:`text_completion.normalize_prob_records`: the ``logprobs.content`` records carry the same fields as
+    llama.cpp's OpenAI-style ``completion_probabilities`` variant, so one normalizer serves both transports and the route frames
+    both the same way.
     """
     logprobs = choice.get("logprobs")
     if not isinstance(logprobs, dict):
@@ -92,9 +84,8 @@ async def consume_openai(
 ) -> AsyncIterator[dict]:
     """Fold ``/chat/completions`` stream payloads into *acc*, yielding live deltas.
 
-    A *forced* call buffers its content as the tool-arguments payload instead of
-    streaming it, so the caller never sees a half-built JSON body. An in-band
-    error or a stream without a finish reason or ``[DONE]`` is a provider failure.
+    A *forced* call buffers its content as the tool-arguments payload instead of streaming it, so the caller never sees a
+    half-built JSON body. An in-band error or a stream without a finish reason or ``[DONE]`` is a provider failure.
     """
     # Slot last handed to an index-less delta; -1 before the first.
     unindexed = -1

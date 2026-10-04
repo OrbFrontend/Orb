@@ -18,17 +18,15 @@ from .state import TurnState
 
 logger = logging.getLogger(__name__)
 
-# What ``_persist_result`` returns: the assistant row id, rejected attachments, and
-# the staged World proposals.
+# What ``_persist_result`` returns: the assistant row id, rejected attachments, and the staged World proposals.
 _Saved = tuple[int | None, list[dict], list[dict]]
 
 
 def conversation_log_writer(conversation_id: str, log_turn_index: int):
     """Return an async callback that writes the ``conversation_logs`` row for this turn.
 
-    The callback runs right after the assistant message is saved. Normal turns
-    log at the user turn index; branch-creating paths (fork-edit, regenerate)
-    log at the assistant turn index so their log rows stay distinguishable.
+    The callback runs right after the assistant message is saved. Normal turns log at the user turn index; branch-creating paths
+    (fork-edit, regenerate) log at the assistant turn index so their log rows stay distinguishable.
     """
 
     async def _on_result(res: TurnState, asst_id):
@@ -51,25 +49,19 @@ def conversation_log_writer(conversation_id: str, log_turn_index: int):
 
 
 async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_id: int) -> list[dict]:
-    """Stage validated proposals after assistant persistence, returning event payloads
-    in World order.
+    """Stage validated proposals after assistant persistence, returning event payloads in World order.
 
-    Log failures per World without failing the already committed reply or
-    dropping other proposals.
+    Log failures per World without failing the already committed reply or dropping other proposals.
     """
     payloads: list[dict] = []
     for proposal in res.world_proposals:
         try:
             changeset = await lorebook.stage_proposal(
-                proposal,
-                source_user_message_id=user_msg_id,
-                source_assistant_message_id=asst_id,
+                proposal, source_user_message_id=user_msg_id, source_assistant_message_id=asst_id
             )
         except Exception:
             logger.exception(
-                "Failed to stage world change proposal for world %s on assistant message %s",
-                proposal.get("world_id"),
-                asst_id,
+                "Failed to stage world change proposal for world %s on assistant message %s", proposal.get("world_id"), asst_id
             )
             continue
         payloads.append({"message_id": asst_id, "changeset": changeset})
@@ -88,22 +80,16 @@ async def _persist_result(
 ) -> _Saved:
     """Persist the assistant message and turn side effects.
 
-    A turn with no reply text commits nothing, the Director's moods included: a
-    regeneration starts from the branch's earlier moods, and an empty attempt
-    (stopped before any prose) must not write those over the committed ones.
+    A turn with no reply text commits nothing, the Director's moods included: a regeneration starts from the branch's earlier
+    moods, and an empty attempt (stopped before any prose) must not write those over the committed ones.
     """
-    # Skip empty drafts. Inline macros normally freeze after Writer streaming;
-    # this is a backstop for other paths. Update res so speaker_done and the DB
-    # share settled text, avoiding rerolls and cross-turn prefix drift.
+    # Skip empty drafts. Inline macros normally freeze after Writer streaming; this is a backstop for other paths. Update res so
+    # speaker_done and the DB share settled text, avoiding rerolls and cross-turn prefix drift.
     res.resp_text = resolve_inline(res.resp_text)
     resp_text = res.resp_text
     if resp_text.strip():
         if agent_enabled(settings):
-            await db.update_director_state(
-                conversation_id,
-                res.active_moods,
-                macro_choices=res.macro_choices,
-            )
+            await db.update_director_state(conversation_id, res.active_moods, macro_choices=res.macro_choices)
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
         asst_id, rejected = await db.add_message(
@@ -117,8 +103,7 @@ async def _persist_result(
             # Commit decisions and cooldowns with the reply so partial output remains replayable.
             decision_evaluations=res.decision_evaluations,
             decision_cooldowns=res.decision_cooldowns,
-            # The state the reply produced commits in the same transaction, so a
-            # saved reply and its state cannot diverge.
+            # The state the reply produced commits in the same transaction, so a saved reply and its state cannot diverge.
             state_events=res.state_events,
             speaker_member_id=speaker_member_id,
             exchange_id=exchange_id,
@@ -203,9 +188,8 @@ async def _fallback_persist(
 async def _shielded_fallback(*args: Any, **kwargs: Any) -> Exception | None:
     """Run :func:`_fallback_persist` to completion even if the request is cancelled.
 
-    ``asyncio.shield`` keeps the save running when the awaiting task is
-    cancelled, so a cancellation waits on that same task once more instead of
-    starting a second save -- a second run would insert the reply twice.
+    ``asyncio.shield`` keeps the save running when the awaiting task is cancelled, so a cancellation waits on that same task
+    once more instead of starting a second save -- a second run would insert the reply twice.
     """
     task = asyncio.ensure_future(_fallback_persist(*args, **kwargs))
     try:
@@ -217,10 +201,8 @@ async def _shielded_fallback(*args: Any, **kwargs: Any) -> Exception | None:
 async def _finish_save(task: asyncio.Future[_Saved]) -> _Saved:
     """Await the reply's one save through a cancellation of the caller.
 
-    The save runs past the INSERT's commit (message state, counters, World
-    proposals), so a cancellation there must not abandon it half-way or let a
-    fallback insert the reply again. The caller waits for the same task, then
-    its cancellation continues.
+    The save runs past the INSERT's commit (message state, counters, World proposals), so a cancellation there must not abandon
+    it half-way or let a fallback insert the reply again. The caller waits for the same task, then its cancellation continues.
     """
     try:
         return await asyncio.shield(task)
@@ -234,10 +216,9 @@ async def _finish_save(task: asyncio.Future[_Saved]) -> _Saved:
 async def _shielded_log_save(extra_on_result, res: TurnState, asst_id: int | None):
     """Run the ``extra_on_result`` callback exactly once under ``asyncio.shield``.
 
-    The callback writes a ``conversation_logs`` row (a bare INSERT with no dedup
-    guard). Cancellation is not retried — a partial write already committed the
-    row, and re-running would create a duplicate. Non-cancel errors are swallowed
-    so a log failure never crashes the turn.
+    The callback writes a ``conversation_logs`` row (a bare INSERT with no dedup guard). Cancellation is not retried — a partial
+    write already committed the row, and re-running would create a duplicate. Non-cancel errors are swallowed so a log failure
+    never crashes the turn.
     """
 
     async def _run():
@@ -268,9 +249,8 @@ async def consume_pipeline(
 ) -> AsyncIterator[dict]:
     """Forward pipeline events, persist _result, then emit done.
 
-    After saving, call extra_on_result(res, asst_id) if supplied. Finally saves
-    live state on abort/error before _result. Save at most once; mark and raise
-    save failures as STAGE_SAVE even on stopped turns.
+    After saving, call extra_on_result(res, asst_id) if supplied. Finally saves live state on abort/error before _result. Save
+    at most once; mark and raise save failures as STAGE_SAVE even on stopped turns.
     """
     res = TurnState()
     asst_id = None
@@ -313,18 +293,14 @@ async def consume_pipeline(
                     raise
                 persisted = True
                 for proposal in proposals:
-                    # Ordered before `done` on purpose: the frontend paints the
-                    # proposal cards from the same repaint that finalises the reply.
-                    # One event per World -- the payload names a single changeset.
+                    # Ordered before `done` on purpose: the frontend paints the proposal cards from the same repaint that
+                    # finalises the reply. One event per World -- the payload names a single changeset.
                     yield {"event": "world_change_proposed", "data": proposal}
                 if rejected and asst_id is not None:
                     # originating_attachment_id is None (first-write rejection, no DB row).
                     yield {
                         "event": "workflow_attachments_rejected",
-                        "data": {
-                            "message_id": asst_id,
-                            "rejected": [project_rejected_attachment(a, None) for a in rejected],
-                        },
+                        "data": {"message_id": asst_id, "rejected": [project_rejected_attachment(a, None) for a in rejected]},
                     }
             else:
                 yield event
@@ -368,11 +344,10 @@ async def consume_pipeline(
                 "member_id": speaker_member_id,
                 "card_id": card_id,
                 "name": speaker_name,
-                # Post-persist ``res.resp_text``: ``_persist_result`` resolved the
-                # inline macros in place, so this is the text the row holds and the
-                # text the exchange driver replays to the next speaker. The fallback
-                # branch persisted nothing (``message_id`` is None), which ends the
-                # exchange, so its text never reaches another speaker's history.
+                # Post-persist ``res.resp_text``: ``_persist_result`` resolved the inline macros in place, so this is the text
+                # the row holds and the text the exchange driver replays to the next speaker. The fallback branch persisted
+                # nothing (``message_id`` is None), which ends the exchange, so its text never reaches another speaker's
+                # history.
                 "content": res.resp_text if persisted else accumulated_text,
             },
         }

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-# Strip unsupported narrowing validation keywords for strict structured output.
-# This may widen accepted values but preserves parsed shape. Do not strip
-# composition keywords; they are never emitted here. Supported constraints
-# include enum/const, bounds, pattern and format.
+# Strip unsupported narrowing validation keywords for strict structured output. This may widen accepted values but preserves
+# parsed shape. Do not strip composition keywords; they are never emitted here. Supported constraints include enum/const,
+# bounds, pattern and format.
 _NON_STRICT_KEYWORDS = frozenset(
     {
         "contains",

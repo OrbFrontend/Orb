@@ -364,8 +364,7 @@ export async function afterStream(op, { settled = true } = {}) {
   const wasGroupExchange = state.currentExchangeId != null;
   const groupExchangeId = state.currentExchangeId;
   const inFlightSpeaker = state.currentSpeaker;
-  // The text the turn last made authoritative (Writer tokens or an announced
-  // rewrite), never a cosmetic preview.
+  // The text the turn last made authoritative (Writer tokens or an announced rewrite), never a cosmetic preview.
   const preservedContent = state.streamingContent;
   const pendingUserMsg = state.pendingUserMsg || null;
   const lastCompletedId = state.completedExchangeMessageIds.at(-1) ?? null;
@@ -1152,8 +1151,7 @@ export async function saveQueuedEdits(convId = S.activeConvId) {
   if (S.activeConvId === convId) syncSendButton(state);
 }
 
-// "Edit not saved" controls: Retry saves every pending edit in order; Discard
-// drops one and shows the saved text again.
+// "Edit not saved" controls: Retry saves every pending edit in order; Discard drops one and shows the saved text again.
 async function resolveQueuedEdit(change) {
   const cid = S.activeConvId;
   const token = S.conversationViewToken;

@@ -1,8 +1,7 @@
 // The Inspector's State tab inline editor, driven through the real DOM against a stubbed API.
 //
-// The panel re-renders whenever the branch's state is re-read (a finished turn,
-// a fragment toggle, a history load), so these pin what a re-render must not
-// do to an edit in progress, and what a write must not race.
+// The panel re-renders whenever the branch's state is re-read (a finished turn, a fragment toggle, a history load), so
+// these pin what a re-render must not do to an edit in progress, and what a write must not race.
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { JSDOM } from "jsdom";

@@ -142,48 +142,25 @@ export async function loadSettings() {
 const divider = (label) =>
   `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
 
+function toggleCard(on, name, inputAttrs, body, cardAttrs = "", labelAttrs = "") {
+  return `<div class="tool-card ${on ? "tool-on" : ""}"${cardAttrs}>
+    <div class="tool-card-header">
+      <span class="tool-card-name">${name}</span>
+      <label class="tog"${labelAttrs}>
+        <input type="checkbox" ${on ? "checked" : ""} ${inputAttrs}>
+        <span class="tog-slider"></span>
+      </label>
+    </div>
+    ${body}
+  </div>`;
+}
+
 export function renderSettings() {
   $("settings-form").innerHTML = `
-    <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Hide until baked</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} data-setting-toggle="hideUntilBaked">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>
-    </div>
-    <div class="tool-card ${S.preventPromptOverrides ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Prevent prompt overrides</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.preventPromptOverrides ? "checked" : ""} data-setting-toggle="preventPromptOverrides">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
-    </div>
-    <div class="tool-card ${S.showChatAvatars ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Show avatars in chat</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.showChatAvatars ? "checked" : ""} data-setting-toggle="showChatAvatars">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Show the speaker's portrait beside each message.</div>
-    </div>
-    <div class="tool-card ${S.inspectorInline ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Show Inspector in chat</span>
-        <label class="tog" data-setting-stop>
-          <input type="checkbox" ${S.inspectorInline ? "checked" : ""} data-setting-toggle="inspectorInline">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>
-    </div>
+    ${toggleCard(S.hideUntilBaked, "Hide until baked", 'data-setting-toggle="hideUntilBaked"', '<div class="tool-card-desc" data-hide-until-baked-desc>Hide replies until completion.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.preventPromptOverrides, "Prevent prompt overrides", 'data-setting-toggle="preventPromptOverrides"', '<div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.showChatAvatars, "Show avatars in chat", 'data-setting-toggle="showChatAvatars"', '<div class="tool-card-desc">Show the speaker\'s portrait beside each message.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.inspectorInline, "Show Inspector in chat", 'data-setting-toggle="inspectorInline"', '<div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>', "", " data-setting-stop")}
     ${divider("Expression Playback")}
     <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
@@ -250,9 +227,8 @@ const LOCAL_ML_DESCS = {
   markup_classifier: "For more accurate format consistency.",
 };
 
-// Models with a single consumer are managed by it: Spark-TTS and the speech
-// recognizer in the TTS cloned-voice control, the Prose Rewriter in its
-// workflow card.
+// Models with a single consumer are managed by it: Spark-TTS and the speech recognizer in the TTS cloned-voice control,
+// the Prose Rewriter in its workflow card.
 const LOCAL_ML_MANAGED_ELSEWHERE = new Set([
   "spark_tts_llm",
   "spark_tts_codec",
@@ -600,16 +576,12 @@ function buildWorkflowToggleRows() {
   const g = S.settings?.workflows_globally_enabled;
   const globalOn = g === undefined ? true : Boolean(g);
 
-  const masterRow = `<div class="tool-card ${globalOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Secondary Workflows</span>
-      <label class="tog">
-        <input type="checkbox" ${globalOn ? "checked" : ""} data-wf-action="settings:workflowsGlobal" data-wf-on="change">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Toggle everything below.</div>
-  </div>`;
+  const masterRow = toggleCard(
+    globalOn,
+    "Secondary Workflows",
+    'data-wf-action="settings:workflowsGlobal" data-wf-on="change"',
+    '<div class="tool-card-desc">Toggle everything below.</div>',
+  );
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
 
@@ -627,16 +599,13 @@ function buildWorkflowToggleRows() {
           console.error("workflow tools-panel renderer threw:", e);
         }
       }
-      return `<div class="tool-card ${effOn ? "tool-on" : ""}"${globalOn ? "" : ' style="opacity:0.5"'}>
-    <div class="tool-card-header">
-      <span class="tool-card-name">${esc(w.display_name || w.id)}</span>
-      <label class="tog">
-        <input type="checkbox" ${effOn ? "checked" : ""} ${globalOn ? "" : "disabled"} data-wf-action="settings:workflowEnabled" data-wf-on="change" data-workflow-id="${w.id}">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    ${body}
-  </div>`;
+      return toggleCard(
+        effOn,
+        esc(w.display_name || w.id),
+        `${globalOn ? "" : "disabled"} data-wf-action="settings:workflowEnabled" data-wf-on="change" data-workflow-id="${w.id}"`,
+        body,
+        globalOn ? "" : ' style="opacity:0.5"',
+      );
     })
     .join("");
 
@@ -649,16 +618,12 @@ export function renderToolsPanel() {
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
 
   const alOn = S.agenticLorebookEnabled;
-  const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Agentic Lorebook</span>
-      <label class="tog">
-        <input type="checkbox" ${alOn ? "checked" : ""} data-wf-action="settings:agenticLorebook" data-wf-on="change">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>
-  </div>`;
+  const agenticLorebookCard = toggleCard(
+    alOn,
+    "Agentic Lorebook",
+    'data-wf-action="settings:agenticLorebook" data-wf-on="change"',
+    '<div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>',
+  );
 
   const cardById = {};
   for (const t of TOOL_DEFS) {
@@ -685,17 +650,12 @@ export function renderToolsPanel() {
                Individual fragment processing
              </label>
            </div>`;
-    cardById[t.id] = `<div class="tool-card ${on ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">${t.name}</span>
-        <label class="tog">
-          <input type="checkbox" ${on ? "checked" : ""} data-wf-action="settings:toolEnabled" data-wf-on="change" data-tool-id="${t.id}">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">${t.desc}</div>
-      ${extras}
-    </div>`;
+    cardById[t.id] = toggleCard(
+      on,
+      t.name,
+      `data-wf-action="settings:toolEnabled" data-wf-on="change" data-tool-id="${t.id}"`,
+      `<div class="tool-card-desc">${t.desc}</div>${extras}`,
+    );
   }
 
   const lgOn = S.lengthGuardEnabled;
@@ -720,17 +680,12 @@ export function renderToolsPanel() {
     </div>`
     : "";
 
-  const lengthGuardCard = `<div class="tool-card ${lgOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Length Guard</span>
-      <label class="tog">
-        <input type="checkbox" ${lgOn ? "checked" : ""} data-wf-action="settings:lengthGuard" data-wf-on="change">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>
-    ${lgConfig}
-  </div>`;
+  const lengthGuardCard = toggleCard(
+    lgOn,
+    "Length Guard",
+    'data-wf-action="settings:lengthGuard" data-wf-on="change"',
+    `<div class="tool-card-desc">Reigns the final response length by word count. MAX PARAGRAPHS is suggested to the Writer in rewrite pass.</div>${lgConfig}`,
+  );
 
   const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
   $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);

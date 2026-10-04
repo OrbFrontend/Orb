@@ -340,8 +340,7 @@ export function msgNumHtml(n) {
   return `<span class="msg-num">#${n}</span>`;
 }
 
-// Card metadata above the greeting, shown only at the conversation start.
-// These blocks have no message id or toolbar.
+// Card metadata above the greeting, shown only at the conversation start. These blocks have no message id or toolbar.
 const SCENE_INTRO_BLOCKS = [
   ["notes", "Creator's Note", "creatorNotes"],
   ["scenario", "Scenario", "scenario"],
@@ -475,9 +474,8 @@ export function renderMessages(forceBottom = false) {
         // Expression playback holds back group replies the reader has not reached.
         const playback = activeExpressionPlayback();
         const unrevealed = new Set(playback?.rows.slice(playback.rowIndex + 1).map((row) => row.id));
-        // Reuse the bubbles whose markup did not change. A branch swipe or a
-        // mid-stream repaint then rebuilds only the rows that actually differ,
-        // instead of replaying the whole list's entrance animation and layout.
+        // Reuse the bubbles whose markup did not change. A branch swipe or a mid-stream repaint then rebuilds only the
+        // rows that actually differ, instead of replaying the whole list's entrance animation and layout.
         const fresh = reconcileChildren(
           ct,
           [
@@ -492,13 +490,11 @@ export function renderMessages(forceBottom = false) {
           ],
           "msg-swap",
         );
-        // Rescue desktop-width card layouts first: it changes a collapsed
-        // bubble's height by thousands of pixels, so it has to settle before
-        // anything records that height.
+        // Rescue desktop-width card layouts first: it changes a collapsed bubble's height by thousands of pixels, so it
+        // has to settle before anything records that height.
         fitMessageCards(fresh);
-        // Seed the new bubbles' intrinsic sizes before the scroll math below
-        // reads scrollHeight, or a node that has never been rendered still
-        // counts as the 300px placeholder and the restore lands short.
+        // Seed the new bubbles' intrinsic sizes before the scroll math below reads scrollHeight, or a node that has
+        // never been rendered still counts as the 300px placeholder and the restore lands short.
         _measureIntrinsicSizes(fresh);
         for (const el of fresh) restoreBoxScrolls(el);
       }

@@ -17,10 +17,7 @@ from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
 MODEL_NOT_FOUND = "model_not_found"
 
-_UNKNOWN_MODEL_CODES = (
-    "invalid_model",
-    "model_not_found",
-)
+_UNKNOWN_MODEL_CODES = ("invalid_model", "model_not_found")
 
 _URL_RE = re.compile(r"https?://\S+")
 _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
@@ -31,9 +28,8 @@ _EXCERPT_LIMIT = 600
 class CloudImageError(ImageGenerationError):
     """A provider failure, already sanitized, tagged with what kind it was.
 
-    `kind` is a hint, never a substitute for the message: only `MODEL_NOT_FOUND` is
-    branched on, and the rest exist so a later caller can act without the funnel
-    having to hide anything to make room.
+    `kind` is a hint, never a substitute for the message: only `MODEL_NOT_FOUND` is branched on, and the rest exist so a later
+    caller can act without the funnel having to hide anything to make room.
     """
 
     def __init__(self, message: str, kind: str = "") -> None:
@@ -51,9 +47,8 @@ class CloudImage:
 def _scrub(text: str, secret: str = "") -> str:
     """A provider message with URLs, paths and the key removed, capped hard.
 
-    Less opaque than ComfyUI's funnel, because provider 400s like *"Argument not
-    supported: size"* are genuinely actionable. What must never survive is anything
-    naming the server's internals -- or the credential.
+    Less opaque than ComfyUI's funnel, because provider 400s like *"Argument not supported: size"* are genuinely actionable.
+    What must never survive is anything naming the server's internals -- or the credential.
     """
     if secret:
         text = text.replace(secret, "")
@@ -65,12 +60,10 @@ def _scrub(text: str, secret: str = "") -> str:
 def _string_leaves(payload: Any, *, limit: int = 6, budget: int = 200) -> str:
     """Every human-looking string in a body, outermost first.
 
-    The fallback for a shape nobody enumerated, and the reason the well-known keys
-    below can stay a short list instead of growing a row per provider. Breadth
-    first, because the outer strings are the summary and the inner ones the
-    particulars: OpenRouter buries its reason in `error.metadata.raw` and anything
-    FastAPI-shaped puts it in a `detail` *list*, both of which used to reach the
-    user as a bare "rejected the request" with nothing else in it.
+    The fallback for a shape nobody enumerated, and the reason the well-known keys below can stay a short list instead of
+    growing a row per provider. Breadth first, because the outer strings are the summary and the inner ones the particulars:
+    OpenRouter buries its reason in `error.metadata.raw` and anything FastAPI-shaped puts it in a `detail` *list*, both of which
+    used to reach the user as a bare "rejected the request" with nothing else in it.
     """
     found: list[str] = []
     queue: list[Any] = [payload]
@@ -92,9 +85,8 @@ def _string_leaves(payload: Any, *, limit: int = 6, budget: int = 200) -> str:
 def _body_text(payload: Any) -> str:
     """The human half of an error body, whatever shape the provider chose.
 
-    The well-known keys first, because they yield the clean single sentence; the
-    generic walk only when they find nothing, because a walk over a body that *has*
-    an `error.message` drags its sibling codes along with it.
+    The well-known keys first, because they yield the clean single sentence; the generic walk only when they find nothing,
+    because a walk over a body that *has* an `error.message` drags its sibling codes along with it.
     """
     if isinstance(payload, str):
         return payload
@@ -117,10 +109,9 @@ def _body_text(payload: Any) -> str:
 def _body_codes(payload: Any) -> set[str]:
     """Every machine-readable code in an error body, lowercased.
 
-    Separate from `_body_text` because the two answer different questions: the text
-    is what the user is shown, the codes are what the funnel branches on. NanoGPT
-    puts `invalid_model` in both `error.code` and a sibling top-level `code`, and
-    reading only the human message would leave the branch resting on prose.
+    Separate from `_body_text` because the two answer different questions: the text is what the user is shown, the codes are
+    what the funnel branches on. NanoGPT puts `invalid_model` in both `error.code` and a sibling top-level `code`, and reading
+    only the human message would leave the branch resting on prose.
     """
     if not isinstance(payload, Mapping):
         return set()
@@ -161,9 +152,8 @@ class OpenAIImageClient:
     def _bad(self, said: str, kind: str = "malformed") -> CloudImageError:
         """Every failure that is not a provider rejection, named with the provider.
 
-        "the backend returned junk" is not actionable without knowing which backend,
-        and there are a dozen of these -- one constructor keeps them from drifting
-        into a dozen spellings of the same sentence.
+        "the backend returned junk" is not actionable without knowing which backend, and there are a dozen of these -- one
+        constructor keeps them from drifting into a dozen spellings of the same sentence.
         """
         return CloudImageError(f"{self.label} {said}", kind)
 
@@ -184,14 +174,7 @@ class OpenAIImageClient:
             return CloudImageError(message, "server")
         return CloudImageError(message, "rate_limit" if status == 429 else "request")
 
-    async def _send(
-        self,
-        method: str,
-        path: str,
-        *,
-        timeout: float,
-        body: Mapping[str, Any] | None = None,
-    ) -> Any:
+    async def _send(self, method: str, path: str, *, timeout: float, body: Mapping[str, Any] | None = None) -> Any:
         """One request, decoded, with every failure routed through `_failure`."""
         try:
             async with self._http(timeout) as client:
@@ -239,21 +222,13 @@ class OpenAIImageClient:
     async def verify_key(self, path: str) -> None:
         """Prove the key is accepted, on a free endpoint, or raise.
 
-        Only called where the preset declares one, because for most providers the
-        model list already answers it. NanoGPT serves its catalogue to anonymous
-        callers, so without this a Test connection reports "Connected" for a key
-        that will 401 on the first render the user pays to discover.
+        Only called where the preset declares one, because for most providers the model list already answers it. NanoGPT serves
+        its catalogue to anonymous callers, so without this a Test connection reports "Connected" for a key that will 401 on the
+        first render the user pays to discover.
         """
         await self._send("GET", path, timeout=min(30.0, self.timeout))
 
-    async def create_image(
-        self,
-        path: str,
-        body: Mapping[str, Any],
-        *,
-        provider_id: str,
-        timeout: float,
-    ) -> CloudImage:
+    async def create_image(self, path: str, body: Mapping[str, Any], *, provider_id: str, timeout: float) -> CloudImage:
         """One synchronous generation call. No polling loop -- these APIs answer on
         the same request, so the adapter emits a single progress event at submit."""
         payload = await self._send("POST", path, timeout=timeout, body=body)
@@ -289,10 +264,9 @@ class OpenAIImageClient:
     async def _fetch(self, url: str, *, timeout: float) -> bytes:
         """Download a hosted result, bounded by a *running* byte count.
 
-        `b64_json` is preferred wherever supported -- one fewer hop, and nothing
-        fetches an attacker-influenceable URL. When this path is taken: https only,
-        and the cap is enforced while streaming rather than by trusting
-        `content-length`, which the server is free to lie about.
+        `b64_json` is preferred wherever supported -- one fewer hop, and nothing fetches an attacker-influenceable URL. When
+        this path is taken: https only, and the cap is enforced while streaming rather than by trusting `content-length`, which
+        the server is free to lie about.
         """
         if not url.lower().startswith("https://"):
             raise self._bad("returned an image over an insecure URL", "insecure_url")
@@ -327,9 +301,8 @@ def _declares_image_type(entry: Mapping[str, Any]) -> bool:
 def _outputs_an_image(entry: Mapping[str, Any]) -> bool:
     """OpenRouter: no `type` anywhere, but each entry declares its modalities.
 
-    Read from `output_modalities`, never `modality` or `input_modalities` -- an
-    image model's inputs say what it can be *shown*, and every text model that can
-    read a picture matches on those.
+    Read from `output_modalities`, never `modality` or `input_modalities` -- an image model's inputs say what it can be *shown*,
+    and every text model that can read a picture matches on those.
     """
     architecture = entry.get("architecture")
     modalities = architecture.get("output_modalities") if isinstance(architecture, Mapping) else None
@@ -339,9 +312,8 @@ def _outputs_an_image(entry: Mapping[str, Any]) -> bool:
 def _is_an_openai_image_id(entry: Mapping[str, Any]) -> bool:
     """OpenAI: no modality field of any kind, so the id is all there is to read.
 
-    The weakest rule here, and the only one this catalogue admits. Safe because it
-    fails *closed*: `list_models` falls back to the whole list when a filter matches
-    nothing, so a future family named outside this vocabulary costs a longer picker.
+    The weakest rule here, and the only one this catalogue admits. Safe because it fails *closed*: `list_models` falls back to
+    the whole list when a filter matches nothing, so a future family named outside this vocabulary costs a longer picker.
     """
     ident = entry.get("id")
     return isinstance(ident, str) and ("image" in ident or ident.startswith("dall-e"))
@@ -370,8 +342,7 @@ def _model_ids(entries: list[Any], model_filter: str) -> list[str]:
 def _cost(payload: Mapping[str, Any], provider_id: str) -> dict | None:
     """Read reported cost with the provider's unit, searching usage before top level.
 
-    Keep xAI USD ticks labelled as ticks until their conversion is verified;
-    NanoGPT top-level cost is USD.
+    Keep xAI USD ticks labelled as ticks until their conversion is verified; NanoGPT top-level cost is USD.
     """
     reported = payload.get("usage")
     usage: Mapping[str, Any] = reported if isinstance(reported, Mapping) else {}

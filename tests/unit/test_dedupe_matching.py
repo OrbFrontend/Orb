@@ -1,13 +1,11 @@
 """Blocking, tiers, reasons, and grouping for the duplicate finder.
 
-The subject is what the scan is allowed to claim. Each test names one rule from
-the brief and the failure it prevents: a name alone is never a duplicate, an
-empty field is never evidence, a missing avatar is never a shared avatar, and a
-weak edge never chains two unrelated cards into one group.
+The subject is what the scan is allowed to claim. Each test names one rule from the brief and the failure it prevents: a name
+alone is never a duplicate, an empty field is never evidence, a missing avatar is never a shared avatar, and a weak edge never
+chains two unrelated cards into one group.
 
-The bodies below are card-sized on purpose. The Jaccard thresholds are
-calibrated against real card prose, and a two-sentence stand-in would make a
-one-word edit look like a rewrite.
+The bodies below are card-sized on purpose. The Jaccard thresholds are calibrated against real card prose, and a two-sentence
+stand-in would make a one-word edit look like a rewrite.
 """
 
 from __future__ import annotations
@@ -77,13 +75,9 @@ def _signals(card_id: str, *, avatar: str = "", **overrides) -> CardSignals:
     return signals_for(_card(card_id, **overrides), avatar)
 
 
-# A distinct voice per name, so a helper's own boilerplate can never be the
-# thing two "unrelated" cards turn out to share.
+# A distinct voice per name, so a helper's own boilerplate can never be the thing two "unrelated" cards turn out to share.
 _VOICES = {
-    "Lira": (
-        "Dry, patient, unwilling to explain herself twice.",
-        "*She does not look up from the hive.* You are late.",
-    ),
+    "Lira": ("Dry, patient, unwilling to explain herself twice.", "*She does not look up from the hive.* You are late."),
     "Toma": (
         "Blunt past the point of rudeness, and generous only with strangers.",
         "*He drops the sack and rolls one shoulder.* Mind the rope, it whips.",
@@ -120,9 +114,8 @@ def test_a_shared_name_alone_is_not_a_duplicate():
 
 
 def test_a_shared_name_and_creator_still_need_text_agreement():
-    # Creator + name is corroboration, not proof: one prolific creator's whole
-    # catalogue would otherwise pair with itself on the two cards that happen to
-    # share a protagonist name.
+    # Creator + name is corroboration, not proof: one prolific creator's whole catalogue would otherwise pair with itself on the
+    # two cards that happen to share a protagonist name.
     a = _unrelated("a", "Lira", BODY, creator="mothwood")
     b = _unrelated("b", "Lira", OTHER_BODY, creator="mothwood")
     assert score_pair(a, b).tier == ""
@@ -131,9 +124,8 @@ def test_a_shared_name_and_creator_still_need_text_agreement():
 def test_two_cards_with_no_avatar_do_not_count_as_sharing_one():
     """The single largest false-positive source available to this feature.
 
-    An avatarless card stores "", and "" must be excluded from avatar blocking
-    and from the "same avatar" predicate — otherwise every avatarless card in the
-    library reads as sharing an avatar with every other one.
+    An avatarless card stores "", and "" must be excluded from avatar blocking and from the "same avatar" predicate — otherwise
+    every avatarless card in the library reads as sharing an avatar with every other one.
     """
     a = _unrelated("a", "Lira", BODY)
     b = _unrelated("b", "Toma", OTHER_BODY)
@@ -157,8 +149,7 @@ def test_two_cards_with_an_empty_system_prompt_are_not_matched_on_it():
 
 
 def test_a_blank_creator_never_forms_a_block():
-    # The same rule for the block that pairs creator with name: nearly every
-    # imported card leaves creator empty.
+    # The same rule for the block that pairs creator with name: nearly every imported card leaves creator empty.
     assert not any(key[0] == "creator+name" for key in build_blocks([_signals("a"), _signals("b")]))
 
 
@@ -166,8 +157,7 @@ def test_a_blank_creator_never_forms_a_block():
 
 
 def test_identical_content_is_a_strong_match_whatever_the_tags_are():
-    # The headline case: the same card imported twice from two sites, differing
-    # only in the tags one of them attached.
+    # The headline case: the same card imported twice from two sites, differing only in the tags one of them attached.
     pair = score_pair(_signals("a", tags=["Fantasy"]), _signals("b", tags=[]))
     assert pair.tier == STRONG
     assert pair.reasons[0] == "Identical content"
@@ -191,8 +181,7 @@ def test_a_lightly_edited_copy_with_the_same_avatar_is_strong():
 
 
 def test_high_text_overlap_with_a_different_avatar_says_so():
-    # "Same character with a different avatar" is a reason the brief asks for by
-    # name: the text agrees, the art does not.
+    # "Same character with a different avatar" is a reason the brief asks for by name: the text agrees, the art does not.
     a = _signals("a", avatar=AVATAR)
     b = _signals("b", avatar=FAR_AVATAR, description=LIGHT_EDIT)
     pair = score_pair(a, b)
@@ -221,8 +210,7 @@ def test_moderate_text_overlap_is_possible_and_reports_the_percentage():
 
 
 def test_a_renamed_and_re_avatared_copy_stays_possible_rather_than_strong():
-    # Nothing corroborates the text: not the name, not the art, not a whole
-    # field. High overlap alone is a lead, not a verdict.
+    # Nothing corroborates the text: not the name, not the art, not a whole field. High overlap alone is a lead, not a verdict.
     a = _signals("a", avatar=AVATAR)
     b = _signals("b", name="Wrenna", avatar=FAR_AVATAR, description=LIGHT_EDIT)
     pair = score_pair(a, b)
@@ -249,9 +237,8 @@ def test_a_renamed_near_copy_is_still_a_candidate_via_the_shingle_sketch():
 
 
 def test_unrelated_cards_produce_no_candidate_pairs_at_all():
-    # The blocking has to be quiet as well as cheap: over 2000 cards of unrelated
-    # text it produced zero pairs, which is what makes recomputing every text
-    # signal on each scan affordable.
+    # The blocking has to be quiet as well as cheap: over 2000 cards of unrelated text it produced zero pairs, which is what
+    # makes recomputing every text signal on each scan affordable.
     cards = [
         _unrelated("a", "Lira", BODY),
         _unrelated("b", "Toma", OTHER_BODY),
@@ -263,9 +250,8 @@ def test_unrelated_cards_produce_no_candidate_pairs_at_all():
 def test_an_oversized_block_degrades_to_a_chain_instead_of_every_pair():
     """A block is a set of cards agreeing exactly, so the predicate is transitive.
 
-    Chaining still unions the whole group and still reports the shared value, at
-    O(n) instead of O(n^2) — without it one copy-pasted system prompt across the
-    library is a quadratic scoring bill.
+    Chaining still unions the whole group and still reports the shared value, at O(n) instead of O(n^2) — without it one
+    copy-pasted system prompt across the library is a quadratic scoring bill.
     """
     members = [_signals(f"card-{i:03d}") for i in range(MAX_BLOCK + 5)]
     by_id = {m.card_id: m for m in members}
@@ -320,8 +306,7 @@ def test_a_dismissed_pair_is_withheld_until_a_card_actually_changes():
     held = find_duplicates([a, b], dismissed=dismissed)
     assert held["groups"] == [] and held["stats"]["dismissed"] == 1
 
-    # "Revisit only after meaningful changes": the stamp is the body hash, so an
-    # edit lapses the dismissal and a re-tag cannot.
+    # "Revisit only after meaningful changes": the stamp is the body hash, so an edit lapses the dismissal and a re-tag cannot.
     back = find_duplicates([a, _signals("b", description=LIGHT_EDIT)], dismissed=dismissed)
     assert [g["cards"] for g in back["groups"]] == [["a", "b"]]
     assert back["stats"]["reopened"] == 1

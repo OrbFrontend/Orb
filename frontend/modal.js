@@ -157,9 +157,8 @@ export function showSubConfirmModal(opts, onConfirm) {
   mountConfirm("modal-sub-root", showSubModal, closeSubModal, opts, onConfirm);
 }
 
-// The ratio last picked for each kind of avatar, so someone who always wants
-// square chooses it once. Storage can be unavailable (private window, blocked
-// site data); the caller's default applies then.
+// The ratio last picked for each kind of avatar, so someone who always wants square chooses it once. Storage can be
+// unavailable (private window, blocked site data); the caller's default applies then.
 const cropRatioKey = (kind) => `orb-crop-ratio-${kind}`;
 
 function _rememberedRatio(kind, fallback) {

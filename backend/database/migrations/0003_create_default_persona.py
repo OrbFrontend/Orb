@@ -1,6 +1,5 @@
-"""
-0003_create_default_persona — create a default user persona from existing settings.user_name
-and settings.user_description, and link it as active_persona_id.
+"""0003_create_default_persona — create a default user persona from existing settings.user_name and settings.user_description,
+and link it as active_persona_id.
 """
 
 from __future__ import annotations
@@ -41,8 +40,5 @@ def migrate(conn: sqlite3.Connection) -> None:
     print(f"[migrations] 0003: created default persona id={new_id} name={user_name or 'User'}")
 
     # Link it as active persona
-    conn.execute(
-        "UPDATE settings SET active_persona_id = ? WHERE id = 1",
-        (new_id,),
-    )
+    conn.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (new_id,))
     print(f"[migrations] 0003: set active_persona_id to {new_id}")

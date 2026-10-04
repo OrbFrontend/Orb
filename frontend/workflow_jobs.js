@@ -3,9 +3,8 @@ import { begin, finish } from "./operations.js";
 import { S } from "./state.js";
 import { convUrl, escAttr } from "./utils.js";
 
-// Render jobs turn their initiating button into Stop, using a job id or AbortController.
-// Use `show` for live buttons and `stopButtonState` during repaint; `end` restores
-// every button carrying the job id.
+// Render jobs turn their initiating button into Stop, using a job id or AbortController. Use `show` for live buttons
+// and `stopButtonState` during repaint; `end` restores every button carrying the job id.
 //
 // A double click's second press is not Stop.
 const STOP_ARM_MS = 400;

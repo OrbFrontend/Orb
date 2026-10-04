@@ -29,9 +29,7 @@ from ..database.models import (
     UserPersonaRow,
     WorldRow,
 )
-from ..features.lorebook import (
-    agentic_lorebook_active,
-)
+from ..features.lorebook import agentic_lorebook_active
 from ..inference import (
     AbortToken,
     KVCacheTracker,
@@ -60,17 +58,15 @@ from .workflow_bridge import iterate_pre_pipeline_hooks
 class PipelineContext:
     """Per-conversation data loaded once for all entry points.
 
-    Frozen field bindings still permit in-place director resets to branch state.
-    Agent fields are None without a separate endpoint. state_contract snapshots
-    fragment config so concurrent settings edits cannot change the running turn.
+    Frozen field bindings still permit in-place director resets to branch state. Agent fields are None without a separate
+    endpoint. state_contract snapshots fragment config so concurrent settings edits cannot change the running turn.
     """
 
     settings: SettingsRow
     conv: ConversationRow
     card: CharacterCardRow | None
-    # Seeded from director_state, then carried as mutable per-turn director state
-    # (active moods, cooldowns, the branch's folded state fragments); not all keys
-    # are columns.
+    # Seeded from director_state, then carried as mutable per-turn director state (active moods, cooldowns, the branch's folded
+    # state fragments); not all keys are columns.
     director: BranchBaseline
     mood_fragments: list[MoodFragmentRow]
     interactive_fragments: list[InteractiveFragmentRow]
@@ -83,9 +79,8 @@ class PipelineContext:
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
     agent_system_prompt: str | None
-    # Every World row, unfiltered. Read by the Dynamic Worlds stage, which
-    # narrows it to its mutation targets through ``world_proposal_active`` --
-    # the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
+    # Every World row, unfiltered. Read by the Dynamic Worlds stage, which narrows it to its mutation targets through
+    # ``world_proposal_active`` -- the enabled Worlds that opted in, i.e. the ones whose lore fed this turn.
     worlds: list[WorldRow] = field(default_factory=list)
     cast: TurnCast = field(default_factory=lambda: TurnCast(False, ()))
     speaker_names: Mapping[str, str] = field(default_factory=dict)
@@ -96,19 +91,16 @@ class PipelineContext:
     invalid_decisions: tuple[InvalidDecision, ...] = ()
     judge_config: JudgeConfig = field(default_factory=JudgeConfig)
     state_contract: StateContract = field(default_factory=StateContract)
-    # Every defined fragment, enabled or not, for the shared tool schemas (see
-    # ``_defined_fragments``). None -- a context built by hand -- offers exactly
-    # ``interactive_fragments``.
+    # Every defined fragment, enabled or not, for the shared tool schemas (see ``_defined_fragments``). None -- a context built
+    # by hand -- offers exactly ``interactive_fragments``.
     defined_fragments: list[InteractiveFragmentRow] | None = None
 
 
 async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
     """Load all per-conversation data needed by the pipeline.
 
-    Fetches settings, conversation, card, director state, fragments, phrase bank,
-    lorebook entries, and builds LLM clients. Both clients share the same
-    *abort_token* so a single stop cancels every pass; a private token is created
-    when none is supplied.
+    Fetches settings, conversation, card, director state, fragments, phrase bank, lorebook entries, and builds LLM clients. Both
+    clients share the same *abort_token* so a single stop cancels every pass; a private token is created when none is supplied.
 
     Returns a :class:`PipelineContext`, or ``None`` if the conversation is missing.
     """
@@ -132,9 +124,8 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
     defined_fragments = _defined_fragments(await db.get_interactive_fragments(), card_interactive)
-    # The enabled rows in blob order, so every pass lists its live fields in the
-    # order the shared schemas offer them. Card rows are always enabled, so this
-    # is the enabled globals plus every card row whose id they do not claim.
+    # The enabled rows in blob order, so every pass lists its live fields in the order the shared schemas offer them. Card rows
+    # are always enabled, so this is the enabled globals plus every card row whose id they do not claim.
     interactive_fragments = [row for row in defined_fragments if row.get("enabled", True)]
     decision_candidates, invalid_decisions = _decision_candidates(interactive_fragments, card_fragment_sources)
     phrase_bank = await db.get_phrase_bank()
@@ -184,16 +175,13 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
 
 
 def _defined_fragments(
-    global_rows: Sequence[InteractiveFragmentRow],
-    card_rows: Sequence[InteractiveFragmentRow],
+    global_rows: Sequence[InteractiveFragmentRow], card_rows: Sequence[InteractiveFragmentRow]
 ) -> list[InteractiveFragmentRow]:
     """Every fragment the turn's tool schemas offer, in an order no toggle moves.
 
-    Globals keep their sort order whether enabled or not, and cards follow, so
-    enabling a fragment never reorders the blob. A disabled global yields its
-    slot to the card row sharing its id -- the row the turn actually runs, since
-    globals win only while enabled. The turn's enabled list is this list
-    filtered, so every pass's live view keeps the blob's order.
+    Globals keep their sort order whether enabled or not, and cards follow, so enabling a fragment never reorders the blob. A
+    disabled global yields its slot to the card row sharing its id -- the row the turn actually runs, since globals win only
+    while enabled. The turn's enabled list is this list filtered, so every pass's live view keeps the blob's order.
     """
     card_by_id = {row["id"]: row for row in card_rows}
     rows = [row if row.get("enabled", True) or row["id"] not in card_by_id else card_by_id[row["id"]] for row in global_rows]
@@ -201,8 +189,7 @@ def _defined_fragments(
 
 
 def _decision_candidates(
-    fragments: Sequence[Mapping[str, Any]],
-    card_fragment_sources: Mapping[str, str],
+    fragments: Sequence[Mapping[str, Any]], card_fragment_sources: Mapping[str, str]
 ) -> tuple[tuple[DecisionCandidate, ...], tuple[InvalidDecision, ...]]:
     """Split decision rows into runnable definitions and rows to report as invalid."""
     candidates: list[DecisionCandidate] = []
@@ -241,9 +228,8 @@ async def resolve_card_and_persona(
 ) -> tuple[CharacterCardRow | None, UserPersonaRow | None]:
     """Fetch the conversation's card and resolve the effective persona row.
 
-    Applies the same conversation-pin → card-pin → global precedence as
-    generation (:func:`resolve_persona_id`), so callers estimating or
-    summarizing stay consistent with the prompt that is actually sent.
+    Applies the same conversation-pin → card-pin → global precedence as generation (:func:`resolve_persona_id`), so callers
+    estimating or summarizing stay consistent with the prompt that is actually sent.
     """
     card_id = conv.get("character_card_id")
     card = await db.get_character_card(card_id) if card_id else None
@@ -268,13 +254,11 @@ def persona_macros(
 ) -> tuple[Macros, str]:
     """Build the turn :class:`Macros` plus the resolved user description.
 
-    The description falls back to the global ``user_description`` setting when
-    no persona row is active. *seed* (:func:`conversation_macro_seed`) keeps
-    {{random}} in per-turn-resolved prompt fields byte-stable per conversation.
+    The description falls back to the global ``user_description`` setting when no persona row is active. *seed*
+    (:func:`conversation_macro_seed`) keeps {{random}} in per-turn-resolved prompt fields byte-stable per conversation.
 
-    *card* is the character's, and feeds ``{{description}}``; the returned
-    string is the *user's*. The two are unrelated despite the shared word --
-    one names a card field, the other a persona row's.
+    *card* is the character's, and feeds ``{{description}}``; the returned string is the *user's*. The two are unrelated despite
+    the shared word -- one names a card field, the other a persona row's.
     """
     macros = Macros.from_settings(settings, char_name, persona, seed=seed, description=card_description(card))
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
@@ -325,22 +309,14 @@ def build_prefixes(
 ) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
     """Build the writer prefix and optional agent prefix for a turn.
 
-    Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in
-    single-model mode. *extra_system_blocks* from pre-pipeline hooks are applied
-    to both so the system body stays identical across all passes — and so is
-    *speaker*, or the Editor's agent lane would see a different cast than the
-    Writer it is auditing.
+    Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` in single-model mode. *extra_system_blocks* from
+    pre-pipeline hooks are applied to both so the system body stays identical across all passes — and so is *speaker*, or the
+    Editor's agent lane would see a different cast than the Writer it is auditing.
     """
     prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks, speaker=speaker)
     agent_sp = ctx.agent_system_prompt
     agent_prefix = (
-        _build_prefix_from_ctx(
-            ctx,
-            history,
-            system_prompt=agent_sp,
-            extra_system_blocks=extra_system_blocks,
-            speaker=speaker,
-        )
+        _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp, extra_system_blocks=extra_system_blocks, speaker=speaker)
         if agent_sp is not None
         else None
     )
@@ -351,9 +327,8 @@ def build_prefixes(
 class TurnSetup:
     """Per-turn inputs produced by :func:`prepare_turn`, ready for ``run_pipeline``.
 
-    Holds the (writer, agent) prefixes with any pre-pipeline system blocks
-    already applied, the merged tool-enable map, macros, lorebook block, scratch
-    dict, KV tracker, and dynamic-schema map.
+    Holds the (writer, agent) prefixes with any pre-pipeline system blocks already applied, the merged tool-enable map, macros,
+    lorebook block, scratch dict, KV tracker, and dynamic-schema map.
     """
 
     prefix: list[ChatMessage]
@@ -365,8 +340,7 @@ class TurnSetup:
     kv_tracker: KVCacheTracker
     schema_overrides: Mapping[str, dict]
     extra_system_blocks: tuple[str, ...]
-    # Identity of the Worlds this turn may propose changes to; None when no
-    # enabled World has opted in to Dynamic Worlds.
+    # Identity of the Worlds this turn may propose changes to; None when no enabled World has opted in to Dynamic Worlds.
     world_proposal: WorldProposalTurn | None = None
 
 
@@ -417,9 +391,8 @@ async def prepare_turn(
         depth_block=compute_depth_lorebook_block(ctx.lorebook_entries, macros),
     )
 
-    # Resolved before the tools blob is built: enabling propose_world_changes is
-    # what emits its schema into the shared per-turn blob, so the decision has to
-    # be made once, up front, and hold for every cached call in the turn.
+    # Resolved before the tools blob is built: enabling propose_world_changes is what emits its schema into the shared per-turn
+    # blob, so the decision has to be made once, up front, and hold for every cached call in the turn.
     proposal_world_ids = tuple(str(w["id"]) for w in ctx.worlds if world_proposal_active(w, agent_on=agent_enabled(settings)))
     world_proposal = (
         WorldProposalTurn(
@@ -433,9 +406,8 @@ async def prepare_turn(
         else None
     )
 
-    # Builds direct_scene plus the fragment-driven Editor and state tools from
-    # every defined fragment; must be called once so all passes get
-    # byte-identical tool blobs (KV cache Invariants 3 & 5).
+    # Builds direct_scene plus the fragment-driven Editor and state tools from every defined fragment; must be called once so
+    # all passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
     overrides, enabled_tools_pre_merge = build_writer_tools_blob(
         settings,
         ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
@@ -445,10 +417,7 @@ async def prepare_turn(
         grouped=ctx.cast.grouped,
     )
     schema_overrides = MappingProxyType(overrides)
-    accumulators = {
-        "merged_enabled_tools": dict(enabled_tools_pre_merge),
-        "extras": [],
-    }
+    accumulators = {"merged_enabled_tools": dict(enabled_tools_pre_merge), "extras": []}
 
     # Pre-pipeline hooks may extend the tool map or append system blocks.
     async for ev in iterate_pre_pipeline_hooks(

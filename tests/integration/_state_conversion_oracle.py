@@ -1,8 +1,7 @@
 """Read-only oracle for migration 0067 state at each historical branch tip.
 
-Compare folded events with the latest non-empty progressive snapshot and
-ordered direction notes, retaining user labels. Report lists above the cap.
-Exclude messages/events added after migration because they have no legacy source.
+Compare folded events with the latest non-empty progressive snapshot and ordered direction notes, retaining user labels. Report
+lists above the cap. Exclude messages/events added after migration because they have no legacy source.
 """
 
 from __future__ import annotations

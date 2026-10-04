@@ -1,28 +1,18 @@
+import { loadDom } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// After a stopped turn settles, the chat must show exactly what the server
-// saved: this operation's own reply with its real id, never an earlier branch,
-// never a cosmetic preview, and never an ID-less row claiming to be saved.
+// After a stopped turn settles, the chat must show exactly what the server saved: this operation's own reply with its
+// real id, never an earlier branch, never a cosmetic preview, and never an ID-less row claiming to be saved.
 
-let dom = null;
-let failure = "";
-try {
-  const { JSDOM } = await import("jsdom");
-  dom = new JSDOM(
-    `<!doctype html><html><body>
+const { dom, failure } = await loadDom({ html: `<!doctype html><html><body>
       <div id="chat-messages"></div><div id="char-list"></div>
       <button id="send-btn"></button><button id="stop-btn"></button>
       <div id="generation-status"><span class="gen-text"></span></div>
       <div id="inspector-content"></div><div id="inspector-workflow-content"></div>
       <div id="state-panel-content"></div>
       <div id="avatar-popup" class="hidden"><img id="avatar-popup-image"></div>
-    </body></html>`,
-    { url: "https://orb.invalid/" },
-  );
-} catch (e) {
-  failure = e?.message || String(e);
-}
+    </body></html>` });
 
 // The server the reconciliation reads back from.
 let saved = [];
@@ -34,10 +24,6 @@ let settle = null;
 let S = null;
 if (dom) {
   const w = dom.window;
-  globalThis.window = w;
-  for (const name of ["document", "Node", "NodeFilter", "Element", "DocumentFragment", "HTMLElement", "DOMParser"]) {
-    if (w[name] !== undefined) globalThis[name] = w[name];
-  }
   // Layout APIs jsdom does not implement; scrolling is not under test.
   w.Element.prototype.scrollTo = () => {};
   w.Element.prototype.scrollIntoView = () => {};

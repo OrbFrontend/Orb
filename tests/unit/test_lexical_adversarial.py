@@ -4,13 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.analysis.text.lexical import (
-    count_content_words,
-    is_contiguous_subsequence,
-    ngrams,
-    normalize_word,
-    tokenize,
-)
+from backend.analysis.text.lexical import count_content_words, is_contiguous_subsequence, ngrams, normalize_word, tokenize
 
 
 def test_tokenize_keeps_unicode_words_instead_of_clipping_them():

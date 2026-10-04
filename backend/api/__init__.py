@@ -38,11 +38,10 @@ async def lifespan(app: FastAPI):
             vac.execute("VACUUM")
         finally:
             vac.close()
-    # Schema safety check for the preset/backup engine. Non-fatal at startup: it
-    # guards backup integrity, not normal queries, so a developer schema change that
-    # left the live schema uncovered or unlike a fresh install must warn loudly
-    # (naming the constant/migration to fix) rather than block boot. The preset ops
-    # themselves still call assert_schema_safe and fail hard on the same problems.
+    # Schema safety check for the preset/backup engine. Non-fatal at startup: it guards backup integrity, not normal queries, so
+    # a developer schema change that left the live schema uncovered or unlike a fresh install must warn loudly (naming the
+    # constant/migration to fix) rather than block boot. The preset ops themselves still call assert_schema_safe and fail hard
+    # on the same problems.
     conn = sqlite3.connect(db_path)
     try:
         problems = preset_schema_safety_problems(conn)
@@ -54,11 +53,9 @@ async def lifespan(app: FastAPI):
             "will be refused until this is fixed:\n  - " + "\n  - ".join(problems)
         )
     logger.info("Database initialized")
-    # One idle connection held for the life of the process, so the transient
-    # per-query connections are never the last WAL connection and stop paying
-    # 32 KiB of wal-index teardown each (see open_wal_anchor). Opened last:
-    # migrations, init_db and the VACUUM above all want the file to themselves,
-    # and the anchor is only useful once requests start.
+    # One idle connection held for the life of the process, so the transient per-query connections are never the last WAL
+    # connection and stop paying 32 KiB of wal-index teardown each (see open_wal_anchor). Opened last: migrations, init_db and
+    # the VACUUM above all want the file to themselves, and the anchor is only useful once requests start.
     await open_wal_anchor()
     # The Phrase Bank's suggestion miner checks for staleness once the server has
     # settled. A run happens in a child process, so it never competes with a turn.
@@ -69,14 +66,12 @@ async def lifespan(app: FastAPI):
         suggestion_check.cancel()
         try:
             await slop_suggestions.shutdown()
-            # Every supervised llama-server child. Without this teardown an orphan
-            # keeps its model resident and holds the GPU after Orb exits. A process
-            # that never imported a workflow or feature that owns one has an empty
-            # registry and nothing to do.
+            # Every supervised llama-server child. Without this teardown an orphan keeps its model resident and holds the GPU
+            # after Orb exits. A process that never imported a workflow or feature that owns one has an empty registry and
+            # nothing to do.
             await manager.shutdown_all()
-            # ONNX sessions are not subprocesses, but a 385 MB graph held past
-            # shutdown is the same class of leak as an orphaned child, and the
-            # release is what lets a model file be replaced on the next start.
+            # ONNX sessions are not subprocesses, but a 385 MB graph held past shutdown is the same class of leak as an orphaned
+            # child, and the release is what lets a model file be replaced on the next start.
             onnx_runtime.release()
         finally:
             # Nested so a child that refuses to die still releases the anchor,
@@ -88,8 +83,7 @@ def build_app() -> FastAPI:
     """Construct and return the configured FastAPI application."""
     app = FastAPI(title="Orb", lifespan=lifespan)
 
-    # Level 6 rather than Starlette's 9: on a 900 KB conversation list, 9 costs
-    # ~20% more CPU for a body about 1% smaller.
+    # Level 6 rather than Starlette's 9: on a 900 KB conversation list, 9 costs ~20% more CPU for a body about 1% smaller.
     app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
     app.add_middleware(CacheControlMiddleware)
     app.add_middleware(DatasetAdmissionMiddleware)

@@ -6,13 +6,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..toolkit import (
-    classify_pov,
-    get_settings,
-    local_feature_ready,
-    markup_axes,
-    narration_only,
-)
+from ..toolkit import classify_pov, get_settings, local_feature_ready, markup_axes, narration_only
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +60,8 @@ def _assistant_texts(history: Sequence[Mapping[str, Any]]) -> list[str]:
 async def _classify(history: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> str | None:
     """Walk back over recent assistant messages until one is not ambiguous.
 
-    None when every candidate is ambiguous, there is nothing to read, or the model
-    fails to load -- the caller falls through rather than treating a local-ML
-    problem as a generation failure.
+    None when every candidate is ambiguous, there is nothing to read, or the model fails to load -- the caller falls through
+    rather than treating a local-ML problem as a generation failure.
     """
     for text in _assistant_texts(history):
         try:
@@ -85,15 +78,10 @@ async def _classify(history: Sequence[Mapping[str, Any]], settings: Mapping[str,
     return None
 
 
-async def resolve(
-    *,
-    mode: str = DEFAULT_MODE,
-    history: Sequence[Mapping[str, Any]] = (),
-) -> tuple[str, str]:
+async def resolve(*, mode: str = DEFAULT_MODE, history: Sequence[Mapping[str, Any]] = ()) -> tuple[str, str]:
     """The camera for one generation, as ``(viewpoint, source)``.
 
-    *source* is recorded on the attachment so a wrong camera can be traced to the
-    lever that chose it rather than guessed at.
+    *source* is recorded on the attachment so a wrong camera can be traced to the lever that chose it rather than guessed at.
     """
     manual = _MANUAL.get(normalize_mode(mode))
     if manual is not None:

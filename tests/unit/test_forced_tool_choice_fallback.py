@@ -19,12 +19,9 @@ import pytest
 from backend.inference import LLMClient
 from backend.inference import client as llm_mod
 from backend.inference import endpoint_profiles as ep_mod
-from backend.inference.endpoint_profiles import (
-    ModelProfile,
-    _is_tool_choice_unsupported,
-    is_forced_tool_choice,
-    profile_for,
-)
+from backend.inference.endpoint_profiles import ModelProfile, _is_tool_choice_unsupported, is_forced_tool_choice, profile_for
+from tests.http_stream import ScriptedClient as _FakeAsyncClient
+from tests.http_stream import StreamResponse as _FakeStreamResponse
 
 # ---- Layer 1: ModelProfile / PROFILES -------------------------------------
 
@@ -83,56 +80,7 @@ def test_is_forced_tool_choice():
 # ---- Layer 2: LLMClient retry ---------------------------------------------
 
 
-class _FakeStreamResponse:
-    """Async-context-manager mimicking httpx's streaming response."""
-
-    def __init__(self, status_code, err_text="", lines=()):
-        self.status_code = status_code
-        self._err_text = err_text
-        self._lines = lines
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def aread(self):
-        return self._err_text.encode("utf-8")
-
-    async def aiter_lines(self):
-        for ln in self._lines:
-            yield ln
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            # response=self so the retry policy can read .status_code off the error,
-            # as it can from a real httpx response.
-            raise httpx.HTTPStatusError(f"HTTP {self.status_code}", request=None, response=self)
-
-
-class _FakeAsyncClient:
-    """Replaces httpx.AsyncClient; serves a queued response per stream() call."""
-
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self.bodies = []  # captured request bodies per attempt
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    def stream(self, method, url, json=None, headers=None):
-        self.bodies.append(dict(json))
-        return self._responses.pop(0)
-
-
-_DONE_LINES = [
-    'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}',
-    "data: [DONE]",
-]
+_DONE_LINES = ['data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}', "data: [DONE]"]
 
 _OR_404 = "No endpoints found that support the provided 'tool_choice' value."
 
@@ -160,12 +108,7 @@ def _clear_session_cache():
 async def test_openrouter_404_retries_by_dropping_tool_choice(tc):
     # The 404 is value-agnostic: any tool_choice the routed provider can't honor
     # (forced dict, "required", or even "none") recovers by dropping the param.
-    fake, p = _client_factory(
-        [
-            _FakeStreamResponse(404, err_text=_OR_404),
-            _FakeStreamResponse(200, lines=_DONE_LINES),
-        ]
-    )
+    fake, p = _client_factory([_FakeStreamResponse(404, error=_OR_404), _FakeStreamResponse(200, lines=_DONE_LINES)])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p:
         events = await _drain(client.complete([], "any/model", tool_choice=tc))
@@ -190,7 +133,7 @@ async def test_session_cache_drops_up_front():
 
 
 async def test_unrelated_404_raises_immediately():
-    fake, p = _client_factory([_FakeStreamResponse(404, err_text="model not found")])
+    fake, p = _client_factory([_FakeStreamResponse(404, error="model not found")])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p, pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "bad/model", tool_choice=_FORCED_TC))
@@ -198,7 +141,7 @@ async def test_unrelated_404_raises_immediately():
 
 
 async def test_non_openrouter_404_not_retried():
-    fake, p = _client_factory([_FakeStreamResponse(404, err_text=_OR_404)])
+    fake, p = _client_factory([_FakeStreamResponse(404, error=_OR_404)])
     client = LLMClient("http://localhost:8080/v1")
     with p, pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "llama", tool_choice=_FORCED_TC))
@@ -206,7 +149,7 @@ async def test_non_openrouter_404_not_retried():
 
 
 async def test_no_retry_when_no_tool_choice_sent():
-    fake, p = _client_factory([_FakeStreamResponse(404, err_text=_OR_404)])
+    fake, p = _client_factory([_FakeStreamResponse(404, error=_OR_404)])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p, pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "any/model"))

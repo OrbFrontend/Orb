@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// Minimal element stub: enough of the child/sibling API for the reconciler.
-// innerHTML "parsing" wraps the string in one child, which is all the caller
-// ever feeds it (one root element per row).
+// Minimal element stub: enough of the child/sibling API for the reconciler. innerHTML "parsing" wraps the string in one
+// child, which is all the caller ever feeds it (one root element per row).
 class FakeEl {
   constructor(html = "") {
     this.html = html;

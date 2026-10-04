@@ -33,11 +33,9 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
     """
     rows = list(
         await db.execute_fetchall(
-            # ``active = 1``: a tombstoned member still has a row (old messages keep
-            # their names through it), but it is no longer in the scene and has no
-            # sheet any turn will read. Without this the apply happily wrote onto a
-            # member the user had removed, and the 409 this function exists to raise
-            # was unreachable.
+            # ``active = 1``: a tombstoned member still has a row (old messages keep their names through it), but it is no
+            # longer in the scene and has no sheet any turn will read. Without this the apply happily wrote onto a member the
+            # user had removed, and the 409 this function exists to raise was unreachable.
             "SELECT character_card_id, card_sheet_override FROM group_members "
             "WHERE id = ? AND conversation_id = ? AND active = 1",
             (member_id, conversation_id),
@@ -53,8 +51,7 @@ async def _effective_sheet(db, conversation_id: str, member_id: str) -> str | No
 async def get_pending_sheet_proposals(conversation_id: str) -> dict[str, MemberSheetProposalRow]:
     """The scene's pending proposals keyed by member — at most one each.
 
-    Read by the staging pass so a fresh exchange can carry an undecided proposal
-    forward rather than competing with it.
+    Read by the staging pass so a fresh exchange can carry an undecided proposal forward rather than competing with it.
     """
     async with get_db() as db:
         rows = await db.execute_fetchall(
@@ -92,9 +89,8 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
                 )
             )
             if existing:
-                # Keep the oldest row's id and retire any duplicates a build
-                # before this rule left behind, so the invariant holds from here
-                # on without a migration to repair history.
+                # Keep the oldest row's id and retire any duplicates a build before this rule left behind, so the invariant
+                # holds from here on without a migration to repair history.
                 keep = int(existing[0]["id"])
                 await db.execute(
                     """UPDATE member_sheet_proposals
@@ -132,9 +128,7 @@ async def create_sheet_proposals(proposals: Sequence[Mapping[str, Any]]) -> list
 async def get_sheet_proposals(
     conversation_id: str, *, statuses: Sequence[str] | None = REVIEW_STATUSES
 ) -> list[MemberSheetProposalRow]:
-    """List proposals newest first. Default to pending and stale review rows;
-    statuses=None returns all.
-    """
+    """List proposals newest first. Default to pending and stale review rows; statuses=None returns all."""
     sql = "SELECT * FROM member_sheet_proposals WHERE conversation_id = ?"
     args: tuple[Any, ...] = (conversation_id,)
     if statuses is not None:
@@ -158,8 +152,7 @@ async def apply_sheet_proposal(proposal_id: int, *, conversation_id: str) -> Mem
     async with immediate_tx() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT * FROM member_sheet_proposals WHERE id = ? AND conversation_id = ?",
-                (proposal_id, conversation_id),
+                "SELECT * FROM member_sheet_proposals WHERE id = ? AND conversation_id = ?", (proposal_id, conversation_id)
             )
         )
         if not rows:
@@ -175,8 +168,7 @@ async def apply_sheet_proposal(proposal_id: int, *, conversation_id: str) -> Mem
             elif current != proposal["base_sheet"]:
                 conflict = "That sheet has changed since this update was proposed."
                 await db.execute(
-                    "UPDATE member_sheet_proposals SET status = 'stale', decided_at = ? WHERE id = ?",
-                    (now, proposal_id),
+                    "UPDATE member_sheet_proposals SET status = 'stale', decided_at = ? WHERE id = ?", (now, proposal_id)
                 )
             else:
                 await db.execute(
@@ -184,8 +176,7 @@ async def apply_sheet_proposal(proposal_id: int, *, conversation_id: str) -> Mem
                     (proposal["proposed_sheet"], proposal["member_id"], conversation_id),
                 )
                 await db.execute(
-                    "UPDATE member_sheet_proposals SET status = 'applied', decided_at = ? WHERE id = ?",
-                    (now, proposal_id),
+                    "UPDATE member_sheet_proposals SET status = 'applied', decided_at = ? WHERE id = ?", (now, proposal_id)
                 )
                 proposal.update(status="applied", decided_at=now)
     if conflict:
@@ -204,8 +195,7 @@ async def reject_sheet_proposal(proposal_id: int, *, conversation_id: str) -> Me
     async with immediate_tx() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT * FROM member_sheet_proposals WHERE id = ? AND conversation_id = ?",
-                (proposal_id, conversation_id),
+                "SELECT * FROM member_sheet_proposals WHERE id = ? AND conversation_id = ?", (proposal_id, conversation_id)
             )
         )
         if not rows:
@@ -217,8 +207,7 @@ async def reject_sheet_proposal(proposal_id: int, *, conversation_id: str) -> Me
             else:
                 now = datetime.now(UTC).isoformat()
                 await db.execute(
-                    "UPDATE member_sheet_proposals SET status = 'rejected', decided_at = ? WHERE id = ?",
-                    (now, proposal_id),
+                    "UPDATE member_sheet_proposals SET status = 'rejected', decided_at = ? WHERE id = ?", (now, proposal_id)
                 )
                 proposal.update(status="rejected", decided_at=now)
     if conflict:

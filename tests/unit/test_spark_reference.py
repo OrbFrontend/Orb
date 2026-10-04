@@ -83,13 +83,7 @@ def test_the_excerpt_opens_and_closes_at_a_break_rather_than_mid_clause():
 def test_a_break_is_not_worth_most_of_the_excerpt():
     """Prefer a longer run when break alignment would lose too much speech."""
     clip = _clip(
-        ("speech", 2.0),
-        ("pause", 0.25),
-        ("speech", 4.5),
-        ("pause", 0.25),
-        ("speech", 4.5),
-        ("pause", 1.0),
-        ("speech", 2.0),
+        ("speech", 2.0), ("pause", 0.25), ("speech", 4.5), ("pause", 0.25), ("speech", 4.5), ("pause", 1.0), ("speech", 2.0)
     )
     ranges = reference.excerpt_ranges(clip)
     assert ranges[0][0] / RATE == pytest.approx(2.25 - reference.EDGE_MS / 1000, abs=0.03)

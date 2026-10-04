@@ -478,8 +478,7 @@ export async function showCharEditModal(idOrData) {
       toast(error.message, true);
     }
   });
-  // The editor stays open after a save, so a stale "Saved" must not outlive the
-  // edits it described.
+  // The editor stays open after a save, so a stale "Saved" must not outlive the edits it described.
   const modalEl = $("modal-root").querySelector(".modal");
   for (const event of ["input", "change"]) modalEl?.addEventListener(event, clearCharEditStatus);
   markCharEditClean();
@@ -505,8 +504,7 @@ function setCharEditStatus(message, { error = false } = {}) {
   // a discard. The next edit clears the status and puts "Cancel" back.
   const cancel = $("ce-cancel-btn");
   if (cancel) cancel.textContent = message && !error ? "Close" : "Cancel";
-  // On a phone the status takes a line under the buttons, which can land below
-  // the fold of a scrolled editor.
+  // On a phone the status takes a line under the buttons, which can land below the fold of a scrolled editor.
   if (message) el.scrollIntoView({ block: "nearest" });
 }
 

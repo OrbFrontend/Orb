@@ -7,14 +7,8 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from ...core.domain_types import MessageRole
-from ..connection import get_db, get_workflow_slot, set_workflow_slot
-from ..models import (
-    MessageListing,
-    MessageRow,
-    MessageWithAttachments,
-    UserAttachmentRow,
-    WorkflowAttachmentRowBase,
-)
+from ..connection import get_db, get_workflow_slot, select_rows, set_workflow_slot
+from ..models import MessageListing, MessageRow, MessageWithAttachments, UserAttachmentRow, WorkflowAttachmentRowBase
 from .conversations import get_conversation
 from .fragment_state import insert_state_events
 from .workflow_attachments import EVICTED_MARKER
@@ -30,9 +24,8 @@ class _WorkflowAttachmentPersister(Protocol):
     async def __call__(self, message_id: int, attachments: list[dict], *, db: Any = None) -> tuple[list[int], list[dict]]: ...
 
 
-# Workflow persistence callback avoids importing workflows into database.
-# Insert attachments in the message transaction, sharing its write lock.
-# Unset is valid for DB-only use; receiving attachments then is a wiring error.
+# Workflow persistence callback avoids importing workflows into database. Insert attachments in the message transaction, sharing
+# its write lock. Unset is valid for DB-only use; receiving attachments then is a wiring error.
 _workflow_attachment_persister: _WorkflowAttachmentPersister | None = None
 
 
@@ -45,9 +38,8 @@ def register_workflow_attachment_persister(fn: _WorkflowAttachmentPersister) -> 
     _workflow_attachment_persister = fn
 
 
-# Use SQLite unary + to keep the recursive conversation guard unindexed.
-# This forces parent_id seeks rather than full-conversation scans at every
-# subtree step; the conversation check still runs as a filter.
+# Use SQLite unary + to keep the recursive conversation guard unindexed. This forces parent_id seeks rather than
+# full-conversation scans at every subtree step; the conversation check still runs as a filter.
 _SAME_CONVERSATION = "+m.conversation_id = ?"
 
 #: SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is 999 on older builds.
@@ -68,16 +60,12 @@ def _levels_deepest_first(pairs: Sequence[tuple[int, int]]) -> list[list[int]]:
 
 async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachments]:
     """Walk parent_id chain from leaf to root, return ordered root→leaf."""
-    async with get_db() as db:
-        # One recursive walk rather than one round trip per message: a long
-        # chat's active path is thousands of rows deep and every read of it
-        # paid for that chain. The recursive step stops on a parent that is
-        # missing or in another conversation, which is where the old loop
-        # broke. ``depth`` counts up from the leaf, so ordering by it
-        # descending yields root->leaf without a reverse.
-        rows = list(
-            await db.execute_fetchall(
-                f"""
+    # One recursive walk rather than one round trip per message: a long chat's active path is thousands of rows deep and
+    # every read of it paid for that chain. The recursive step stops on a parent that is missing or in another conversation,
+    # which is where the old loop broke. ``depth`` counts up from the leaf, so ordering by it descending yields root->leaf
+    # without a reverse.
+    rows = await select_rows(
+        f"""
                 WITH RECURSIVE ancestors(depth, id, parent_id) AS (
                     SELECT 0, id, parent_id FROM messages WHERE id = ? AND conversation_id = ?
                     UNION ALL
@@ -89,28 +77,25 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachment
                 JOIN messages m ON m.id = a.id
                 ORDER BY a.depth DESC
                 """,
-                (leaf_id, cid, cid),
-            )
-        )
-        path: list[MessageWithAttachments] = []
-        for row in rows:
-            # Decode message snapshots before labeling the dict a
-            # MessageWithAttachments, whose fields are typed as dicts.
-            msg = dict(row)
-            raw_fc = msg.get("fragment_cooldowns")
-            msg["fragment_cooldowns"] = json.loads(raw_fc) if raw_fc else {}
-            msg["decision_cooldowns"] = _decoded_json_object(msg.get("decision_cooldowns"))
-            msg["decision_evaluations"] = _decoded_json_object(msg.get("decision_evaluations"))
-            path.append(cast(MessageWithAttachments, msg))
-        return path
+        (leaf_id, cid, cid),
+    )
+    path: list[MessageWithAttachments] = []
+    for row in rows:
+        # Decode message snapshots before labeling the dict a MessageWithAttachments, whose fields are typed as dicts.
+        msg = dict(row)
+        raw_fc = msg.get("fragment_cooldowns")
+        msg["fragment_cooldowns"] = json.loads(raw_fc) if raw_fc else {}
+        msg["decision_cooldowns"] = _decoded_json_object(msg.get("decision_cooldowns"))
+        msg["decision_evaluations"] = _decoded_json_object(msg.get("decision_evaluations"))
+        path.append(cast(MessageWithAttachments, msg))
+    return path
 
 
 def _decoded_json_object(raw: object) -> dict:
     """A JSON object column as a dict; ``{}`` for empty, missing, or malformed.
 
-    Malformed decodes to empty rather than raising: these columns are snapshots
-    and diagnostics, and one unreadable row must not make a whole conversation
-    unopenable.
+    Malformed decodes to empty rather than raising: these columns are snapshots and diagnostics, and one unreadable row must not
+    make a whole conversation unopenable.
     """
     if isinstance(raw, Mapping):
         return dict(raw)
@@ -135,11 +120,9 @@ _WORKFLOW_ATTACHMENT_COLUMNS = (
     "consumption_metadata, active_sibling_id, recent_accesses"
 )
 
-# The listing's projections: every column but the bytes. A chat's attachments
-# are megabytes of base64 -- a 289-message chat with spoken replies carried
-# 24 MB of it -- and serialising that into the one response that opens the chat
-# was most of the time the open took. Whether a workflow row is evicted is the
-# only fact about its bytes the client needs up front; the comparison runs
+# The listing's projections: every column but the bytes. A chat's attachments are megabytes of base64 -- a 289-message chat with
+# spoken replies carried 24 MB of it -- and serialising that into the one response that opens the chat was most of the time the
+# open took. Whether a workflow row is evicted is the only fact about its bytes the client needs up front; the comparison runs
 # inside SQLite, so the bytes never become Python strings.
 _USER_ATTACHMENT_SUMMARY_COLUMNS = "id, message_id, mime_type, filename, size, created_at"
 assert "'" not in EVICTED_MARKER  # interpolated as a SQL literal below
@@ -153,18 +136,14 @@ _WORKFLOW_ATTACHMENT_SUMMARY_COLUMNS = (
 async def _child_rows_by_message(messages: Sequence[MessageRow], *, table: str, columns: str) -> dict[int, list]:
     """Fetch per-message child rows from *table* grouped by ``message_id``.
 
-    Every message id gets an entry (empty list when it has no children), so
-    callers can assign unconditionally.
+    Every message id gets an entry (empty list when it has no children), so callers can assign unconditionally.
     """
     ids = [m["id"] for m in messages]
     placeholders = ",".join("?" * len(ids))
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT {columns} FROM {table} WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608 -- table/columns are module literals; values parameterised
-                ids,
-            )
-        )
+    rows = await select_rows(
+        f"SELECT {columns} FROM {table} WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608 -- table/columns are module literals; values parameterised
+        ids,
+    )
     by_msg: dict[int, list] = {m["id"]: [] for m in messages}
     for r in rows:
         by_msg[r["message_id"]].append(dict(r))
@@ -208,13 +187,7 @@ async def get_messages_before(cid: str, message_id: int) -> list[MessageWithAtta
 
     Missing, foreign-conversation and root anchors return [].
     """
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?",
-                (message_id, cid),
-            )
-        )
+    rows = await select_rows("SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?", (message_id, cid))
     if not rows:
         return []
     parent_id = rows[0]["parent_id"]
@@ -240,28 +213,24 @@ async def get_messages_with_branch_info(cid: str) -> list[MessageListing]:
     for m in messages:
         m["user_attachments"] = user_by_msg[m["id"]]
         m["workflow_attachments"] = wf_by_msg[m["id"]]
-    # One query for every sibling set on the path, not one per message: the
-    # parents are exactly the path's own ids shifted by one, so a single
-    # ``parent_id IN (...)`` covers them all and the grouping happens here.
+    # One query for every sibling set on the path, not one per message: the parents are exactly the path's own ids shifted by
+    # one, so a single ``parent_id IN (...)`` covers them all and the grouping happens here.
     parent_ids = sorted({int(p) for m in messages if (p := m.get("parent_id")) is not None})
     siblings_by_parent: dict[int | None, list[int]] = {}
     async with get_db() as db:
-        # Root messages are their own sibling set, and no ``IN`` list can hold
-        # NULL, so they need the one extra query.
+        # Root messages are their own sibling set, and no ``IN`` list can hold NULL, so they need the one extra query.
         if any(m.get("parent_id") is None for m in messages):
             siblings_by_parent[None] = [
                 r["id"]
                 for r in await db.execute_fetchall(
-                    "SELECT id FROM messages WHERE conversation_id = ? AND parent_id IS NULL ORDER BY id ASC",
-                    (cid,),
+                    "SELECT id FROM messages WHERE conversation_id = ? AND parent_id IS NULL ORDER BY id ASC", (cid,)
                 )
             ]
         for chunk in _chunked(parent_ids, _SQL_PARAM_CHUNK):
             placeholders = ",".join("?" * len(chunk))
             rows = await db.execute_fetchall(
-                # ORDER BY parent_id, id keeps each group contiguous and each
-                # group's ids ascending, which is the order the branch pager
-                # numbers swipes in.
+                # ORDER BY parent_id, id keeps each group contiguous and each group's ids ascending, which is the order the
+                # branch pager numbers swipes in.
                 f"SELECT id, parent_id FROM messages WHERE conversation_id = ? AND parent_id IN ({placeholders}) "  # nosec B608 — placeholders is only '?' chars, ids are parameterised
                 "ORDER BY parent_id ASC, id ASC",
                 (cid, *chunk),
@@ -287,12 +256,7 @@ def user_attachment_payloads(msg: Mapping[str, Any]) -> list[dict] | None:
     if not atts:
         return None
     return [
-        {
-            "mime_type": a.get("mime_type"),
-            "data_b64": a.get("data_b64"),
-            "filename": a.get("filename"),
-            "size": a.get("size"),
-        }
+        {"mime_type": a.get("mime_type"), "data_b64": a.get("data_b64"), "filename": a.get("filename"), "size": a.get("size")}
         for a in atts
     ]
 
@@ -315,13 +279,11 @@ async def add_message(
 ) -> tuple[int, list[dict]]:
     """Insert a message and return its id and rejected attachments.
 
-    *state_events* are the state-fragment changes the reply produced, in apply
-    order. They are anchored on the new row inside the same transaction, so a
-    saved reply and its state cannot diverge.
+    *state_events* are the state-fragment changes the reply produced, in apply order. They are anchored on the new row inside
+    the same transaction, so a saved reply and its state cannot diverge.
     """
-    # workflow atts are materialized into a fresh list[dict] the cache writer
-    # owns and mutates (it tags rejects with a 'reason' and shallow-copies); the
-    # read-only user atts stay as the caller's mappings.
+    # workflow atts are materialized into a fresh list[dict] the cache writer owns and mutates (it tags rejects with a 'reason'
+    # and shallow-copies); the read-only user atts stay as the caller's mappings.
     workflow_atts: list[dict] = []
     user_atts: list[Mapping[str, Any]] = []
     for att in attachments or []:
@@ -334,10 +296,8 @@ async def add_message(
     rejected_workflow_atts: list[dict] = []
 
     async with get_db() as db:
-        # BEGIN IMMEDIATE so the workflow batch's read-then-evict-then-
-        # insert sequence executes under the write lock alongside the
-        # message INSERT. The cache helper enforces this -- it raises
-        # if its conn is not already in a transaction.
+        # BEGIN IMMEDIATE so the workflow batch's read-then-evict-then- insert sequence executes under the write lock alongside
+        # the message INSERT. The cache helper enforces this -- it raises if its conn is not already in a transaction.
         await db.execute("BEGIN IMMEDIATE")
         now = datetime.now(UTC).isoformat()
         try:
@@ -366,18 +326,10 @@ async def add_message(
             await db.execute(
                 "INSERT INTO user_attachments (message_id, mime_type, data_b64, filename, size, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    message_id,
-                    att["mime_type"],
-                    att["data_b64"],
-                    att.get("filename"),
-                    att.get("size"),
-                    now,
-                ),
+                (message_id, att["mime_type"], att["data_b64"], att.get("filename"), att.get("size"), now),
             )
-        # Persist workflow attachments through the registered persister
-        # (see register_workflow_attachment_persister) so the database layer
-        # never imports up into backend.workflows.
+        # Persist workflow attachments through the registered persister (see register_workflow_attachment_persister) so the
+        # database layer never imports up into backend.workflows.
         if workflow_atts:
             if _workflow_attachment_persister is None:
                 raise RuntimeError(
@@ -387,10 +339,7 @@ async def add_message(
             _, rejected_workflow_atts = await _workflow_attachment_persister(message_id, workflow_atts, db=db)
         await insert_state_events(db, cid, message_id, state_events or (), now)
         if advance_leaf:
-            await db.execute(
-                "UPDATE conversations SET updated_at = ?, active_leaf_id = ? WHERE id = ?",
-                (now, message_id, cid),
-            )
+            await db.execute("UPDATE conversations SET updated_at = ?, active_leaf_id = ? WHERE id = ?", (now, message_id, cid))
         else:
             await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid))
         await db.commit()
@@ -399,40 +348,30 @@ async def add_message(
 
 
 async def get_user_attachments_for_message(message_id: int) -> list[UserAttachmentRow]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, mime_type, data_b64, filename, size, created_at "
-                "FROM user_attachments WHERE message_id = ? ORDER BY id",
-                (message_id,),
-            )
-        )
-        return [cast(UserAttachmentRow, dict(r)) for r in rows]
+    rows = await select_rows(
+        "SELECT id, mime_type, data_b64, filename, size, created_at FROM user_attachments WHERE message_id = ? ORDER BY id",
+        (message_id,),
+    )
+    return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
 async def get_user_attachment_by_id(attachment_id: int) -> UserAttachmentRow | None:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT {_USER_ATTACHMENT_COLUMNS} FROM user_attachments WHERE id = ?",  # nosec B608 -- module literal
-                (attachment_id,),
-            )
-        )
-        return cast(UserAttachmentRow, dict(rows[0])) if rows else None
+    rows = await select_rows(
+        f"SELECT {_USER_ATTACHMENT_COLUMNS} FROM user_attachments WHERE id = ?",  # nosec B608 -- module literal
+        (attachment_id,),
+    )
+    return cast(UserAttachmentRow, dict(rows[0])) if rows else None
 
 
 async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, mime_type, data_b64, filename, created_at, "
-                "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
-                "consumption_metadata, active_sibling_id, recent_accesses "
-                "FROM workflow_attachments WHERE message_id = ? ORDER BY id",
-                (message_id,),
-            )
-        )
-        return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
+    rows = await select_rows(
+        "SELECT id, mime_type, data_b64, filename, created_at, "
+        "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+        "consumption_metadata, active_sibling_id, recent_accesses "
+        "FROM workflow_attachments WHERE message_id = ? ORDER BY id",
+        (message_id,),
+    )
+    return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
 
 
 async def update_message_content(msg_id: int, content: str) -> None:
@@ -454,13 +393,11 @@ async def clear_writer_draft(msg_id: int) -> None:
 async def get_message_by_id(msg_id: int) -> MessageRow | None:
     """Fetch a single message by its primary key.
 
-    NOTE: unlike get_path_to_leaf(), this does not JSON-decode
-    ``fragment_cooldowns``; it stays the raw string at runtime even though
-    ``MessageRow`` types it as the decoded dict. See MessageRow's docstring.
+    NOTE: unlike get_path_to_leaf(), this does not JSON-decode ``fragment_cooldowns``; it stays the raw string at runtime even
+    though ``MessageRow`` types it as the decoded dict. See MessageRow's docstring.
     """
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM messages WHERE id = ?", (msg_id,)))
-        return cast(MessageRow, dict(rows[0])) if rows else None
+    rows = await select_rows("SELECT * FROM messages WHERE id = ?", (msg_id,))
+    return cast(MessageRow, dict(rows[0])) if rows else None
 
 
 async def get_messages_decisions(cid: str, message_ids: Sequence[int]) -> dict[int, dict]:
@@ -479,10 +416,7 @@ async def set_active_leaf(cid: str, leaf_id: int | None):
     async with get_db() as db:
         if leaf_id is not None:
             rows = list(
-                await db.execute_fetchall(
-                    "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
-                    (leaf_id, cid),
-                )
+                await db.execute_fetchall("SELECT id FROM messages WHERE id = ? AND conversation_id = ?", (leaf_id, cid))
             )
             if not rows:
                 raise ValueError(f"Message {leaf_id} does not exist in conversation {cid}")
@@ -550,10 +484,7 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
     """Delete a message, all its siblings, and all their descendants. Updates active_leaf_id if the active branch is affected."""
     async with get_db() as db:
         rows = list(
-            await db.execute_fetchall(
-                "SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?",
-                (msg_id, cid),
-            )
+            await db.execute_fetchall("SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, cid))
         )
         if not rows:
             return False
@@ -570,10 +501,7 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
         if conv_rows and conv_rows[0]["active_leaf_id"] in deleted_ids:
             new_leaf = parent_id  # parent_id is None for root messages, which is valid
 
-            await db.execute(
-                "UPDATE conversations SET active_leaf_id = ? WHERE id = ?",
-                (new_leaf, cid),
-            )
+            await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (new_leaf, cid))
 
         # Delete deepest levels first so parent cascades find no remaining children.
         # Rows at one depth can share a statement; indexed parent lookups avoid scans.
@@ -600,15 +528,11 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
                 )
                 restored = json.loads(log_row[0]["active_moods_after"]) if log_row and log_row[0]["active_moods_after"] else []
                 await db.execute(
-                    "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?",
-                    (json.dumps(restored), cid),
+                    "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?", (json.dumps(restored), cid)
                 )
         else:
             # No messages left; reset styles
-            await db.execute(
-                "UPDATE director_state SET active_moods = '[]' WHERE conversation_id = ?",
-                (cid,),
-            )
+            await db.execute("UPDATE director_state SET active_moods = '[]' WHERE conversation_id = ?", (cid,))
 
         await db.commit()
         return True
@@ -618,10 +542,7 @@ async def get_message_delete_preview(cid: str, msg_id: int) -> dict[str, int] | 
     """Count the sibling subtrees removed by ``delete_message_with_descendants``."""
     async with get_db() as db:
         rows = list(
-            await db.execute_fetchall(
-                "SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?",
-                (msg_id, cid),
-            )
+            await db.execute_fetchall("SELECT parent_id FROM messages WHERE id = ? AND conversation_id = ?", (msg_id, cid))
         )
         if not rows:
             return None

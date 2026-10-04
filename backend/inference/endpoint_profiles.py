@@ -11,11 +11,10 @@ from urllib.parse import urlsplit, urlunsplit
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
 
-# Assistant-message fields that carry a model's reasoning back to it. The chat
-# transport stores reasoning under the names the provider streamed, and a replay
-# echoes them unchanged, because servers disagree about what they read:
-# llama.cpp reads only ``reasoning_content``, vLLM only ``reasoning``, and
-# OpenRouter also needs ``reasoning_details`` to keep signed reasoning valid.
+# Assistant-message fields that carry a model's reasoning back to it. The chat transport stores reasoning under the names the
+# provider streamed, and a replay echoes them unchanged, because servers disagree about what they read: llama.cpp reads only
+# ``reasoning_content``, vLLM only ``reasoning``, and OpenRouter also needs ``reasoning_details`` to keep signed reasoning
+# valid.
 REASONING_REPLAY_FIELDS: tuple[str, ...] = ("reasoning_content", "reasoning", "reasoning_details")
 
 # Mutates body in place. Returns a log line to surface the action, or None.
@@ -25,8 +24,7 @@ Transform = Callable[[dict], str | None]
 def is_forced_tool_choice(tc: object) -> bool:
     """Return ``True`` if *tc* forces a specific tool call (a dict or ``"required"``).
 
-    Single source of truth for "forced" — used by profile coercion and the
-    client's self-heal path.
+    Single source of truth for "forced" — used by profile coercion and the client's self-heal path.
     """
     return isinstance(tc, dict) or tc == "required"
 
@@ -39,29 +37,24 @@ class ModelProfile:
     one-off transforms that don't yet warrant a named field.
     """
 
-    # Extra body keys allowed past ALWAYS_ALLOWED. Anything else is dropped.
-    # None disables the drop step entirely (no allowlist filtering) -- use for
-    # lenient backends (e.g. OpenRouter) where enumerating params risks
-    # dropping ones the model actually wants.
+    # Extra body keys allowed past ALWAYS_ALLOWED. Anything else is dropped. None disables the drop step entirely (no allowlist
+    # filtering) -- use for lenient backends (e.g. OpenRouter) where enumerating params risks dropping ones the model actually
+    # wants.
     allow_extra: frozenset[str] | None
 
     # If False, coerce forced-function tool_choice dicts and "required" to
     # "auto". True means the caller's value passes through unchanged.
     allow_forced_tool_choice: bool = True
 
-    # If True, the chat transport rewrites forced-function tool calls as
-    # strict ``response_format`` structured-output requests (the chat analogue
-    # of text mode's forced grammar), guaranteeing byte-exact argument keys.
-    # Setting it also withholds ``tools`` and ``tool_choice`` from every chat
-    # request to the endpoint -- a model that can still see ``tools`` may
-    # answer with a native tool call that bypasses the schema.
-    # Opt-in per provider: only set after verifying the endpoint honors
+    # If True, the chat transport rewrites forced-function tool calls as strict ``response_format`` structured-output requests
+    # (the chat analogue of text mode's forced grammar), guaranteeing byte-exact argument keys. Setting it also withholds
+    # ``tools`` and ``tool_choice`` from every chat request to the endpoint -- a model that can still see ``tools`` may answer
+    # with a native tool call that bypasses the schema. Opt-in per provider: only set after verifying the endpoint honors
     # ``response_format: {"type": "json_schema", "strict": true}``.
     structured_tool_calls: bool = False
 
-    # If True, every value except ``"auto"`` is rewritten to ``"auto"``.
-    # Some routed providers reject not only forced choices but also ``"none"``;
-    # this is deliberately separate from allow_forced_tool_choice.
+    # If True, every value except ``"auto"`` is rewritten to ``"auto"``. Some routed providers reject not only forced choices
+    # but also ``"none"``; this is deliberately separate from allow_forced_tool_choice.
     auto_tool_choice_only: bool = False
 
     # Bespoke transforms applied after typed knobs, in order. Each callable
@@ -117,22 +110,17 @@ _DEEPSEEK_DEFAULT_EXTRA: frozenset[str] = frozenset(
     }
 )
 
-# deepseek-reasoner rejects logprobs/top_logprobs with HTTP 400. Other
-# "unsupported" params (temperature/top_p/presence_penalty/frequency_penalty)
-# are silently ignored per DeepSeek docs, so keeping them in is harmless.
-_DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {
-    "logprobs",
-    "top_logprobs",
-}
+# deepseek-reasoner rejects logprobs/top_logprobs with HTTP 400. Other "unsupported" params
+# (temperature/top_p/presence_penalty/frequency_penalty) are silently ignored per DeepSeek docs, so keeping them in is harmless.
+_DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {"logprobs", "top_logprobs"}
 
 
 def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
     """Coerce forced ``tool_choice`` to ``"auto"`` when thinking is enabled.
 
-    DeepSeek routes any thinking-on request through reasoner semantics, which
-    reject forced-function ``tool_choice`` (and ``"required"``) even when
-    ``model=deepseek-chat``. Coercing to ``"auto"`` lets the director/editor
-    graceful-skip paths handle any unselected tool calls.
+    DeepSeek routes any thinking-on request through reasoner semantics, which reject forced-function ``tool_choice`` (and
+    ``"required"``) even when ``model=deepseek-chat``. Coercing to ``"auto"`` lets the director/editor graceful-skip paths
+    handle any unselected tool calls.
     """
     thinking = body.get("thinking")
     if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
@@ -144,53 +132,40 @@ def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
     return None
 
 
-# Outer key: URL-substring (case-insensitive match; first insertion wins, so
-# order matters if adding more specific URL prefixes like "api.deepseek.com/beta"
-# -- the more specific one must come first).
-# Inner None key: endpoint default profile. Inner str keys: exact-match
-# per-model overrides (replace, not merge).
+# Outer key: URL-substring (case-insensitive match; first insertion wins, so order matters if adding more specific URL prefixes
+# like "api.deepseek.com/beta" -- the more specific one must come first). Inner None key: endpoint default profile. Inner str
+# keys: exact-match per-model overrides (replace, not merge).
 PROFILES: dict[str, dict[str | None, ModelProfile]] = {
     "api.deepseek.com": {
-        # deepseek-chat supports forced-function tool_choice in chat mode but
-        # rejects it whenever the request also carries thinking=enabled (the
-        # API silently routes thinking-on requests through reasoner semantics).
-        # The custom transform handles that conditional case.
+        # deepseek-chat supports forced-function tool_choice in chat mode but rejects it whenever the request also carries
+        # thinking=enabled (the API silently routes thinking-on requests through reasoner semantics). The custom transform
+        # handles that conditional case.
         None: ModelProfile(
             allow_extra=_DEEPSEEK_DEFAULT_EXTRA,
             allow_forced_tool_choice=True,
             custom=(_deepseek_coerce_tool_choice_when_thinking,),
         ),
-        # deepseek-reasoner is unconditionally thinking-on, so coerce statically.
-        # Equivalent to the conditional above for this model; kept as a static
-        # knob for clarity. Graceful-skip paths in Director/Editor handle any
-        # unselected tool calls.
-        "deepseek-reasoner": ModelProfile(
-            allow_extra=_DEEPSEEK_REASONER_EXTRA,
-            allow_forced_tool_choice=False,
-        ),
+        # deepseek-reasoner is unconditionally thinking-on, so coerce statically. Equivalent to the conditional above for this
+        # model; kept as a static knob for clarity. Graceful-skip paths in Director/Editor handle any unselected tool calls.
+        "deepseek-reasoner": ModelProfile(allow_extra=_DEEPSEEK_REASONER_EXTRA, allow_forced_tool_choice=False),
     },
-    # NanoGPT is a *proxy*: each model id it fronts sits behind a different
-    # upstream engine with its own config, so no endpoint-wide statement about
-    # decoding is true of every model. Its own tool-argument decoding is
-    # unconstrained (observed: GLM-5.2 TEE mangles hyphenated argument keys
-    # under a forced call) while its documented response_format json_schema
-    # strict mode is honored by the routes that implement it -- so the opt-in
-    # here is the *optimistic default*, not a claim about the whole catalogue.
-    # An upstream that quietly ignores the schema is demoted per model on the
-    # first reply that proves it (``note_structured_output_ignored``), which is
-    # why this stays one endpoint-wide knob instead of a hand-kept model list.
+    # NanoGPT is a *proxy*: each model id it fronts sits behind a different upstream engine with its own config, so no
+    # endpoint-wide statement about decoding is true of every model. Its own tool-argument decoding is unconstrained (observed:
+    # GLM-5.2 TEE mangles hyphenated argument keys under a forced call) while its documented response_format json_schema strict
+    # mode is honored by the routes that implement it -- so the opt-in here is the *optimistic default*, not a claim about the
+    # whole catalogue. An upstream that quietly ignores the schema is demoted per model on the first reply that proves it
+    # (``note_structured_output_ignored``), which is why this stays one endpoint-wide knob instead of a hand-kept model list.
     "nano-gpt.com": {
         None: ModelProfile(
             allow_extra=None,  # lenient passthrough; drop nothing
             structured_tool_calls=True,
-        ),
+        )
     },
 }
 
 
-# This OpenAI compatibility dialect is identified by its resource shape, not a
-# provider hostname or a model id. Any proxy exposing the same path therefore
-# receives the same request policy and catalogue normalization.
+# This OpenAI compatibility dialect is identified by its resource shape, not a provider hostname or a model id. Any proxy
+# exposing the same path therefore receives the same request policy and catalogue normalization.
 _GEMINI_OPENAI_PATH = "/v1beta/openai"
 
 
@@ -224,11 +199,7 @@ def _gemini_reasoning_off(body: dict) -> str | None:
 
 # Google's OpenAI compatibility API accepts ordinary OpenAI request fields
 # (unknown additions are ignored) and honors strict json_schema output.
-_GEMINI_PROFILE = ModelProfile(
-    allow_extra=None,
-    structured_tool_calls=True,
-    custom=(_gemini_reasoning_off,),
-)
+_GEMINI_PROFILE = ModelProfile(allow_extra=None, structured_tool_calls=True, custom=(_gemini_reasoning_off,))
 
 
 Protocol = Literal["openai", "anthropic"]
@@ -327,9 +298,8 @@ def resolve_endpoint(endpoint_url: str, model: str = "") -> EndpointRoute:
 def endpoint_candidates(endpoint_url: str, model: str = "") -> list[EndpointRoute]:
     """Return bounded same-host routes in request order.
 
-    Explicit resource URLs win; ambiguous URLs try the configured chat route,
-    Messages sibling and conventional host-root routes, then /v1beta/openai.
-    Probe alternatives only for recognized route-mismatch responses.
+    Explicit resource URLs win; ambiguous URLs try the configured chat route, Messages sibling and conventional host-root
+    routes, then /v1beta/openai. Probe alternatives only for recognized route-mismatch responses.
     """
     primary = resolve_endpoint(endpoint_url, model)
     if primary.authoritative or (endpoint_url, model) in _RESOLVED_ROUTES or (endpoint_url, "") in _RESOLVED_ROUTES:
@@ -380,20 +350,18 @@ def auth_families(route: EndpointRoute, status: int | None = None, text: str = "
     primary = route.auth_family
     if status not in {401, 403}:
         return (primary,)
-    # A Messages route defines its auth default. Ambiguous routes may need the
-    # other family before the server will reveal that the resource is wrong;
-    # an explicit OpenAI route only retries when the response names the native
-    # API-key header. None of these signals depends on provider or model names.
+    # A Messages route defines its auth default. Ambiguous routes may need the other family before the server will reveal that
+    # the resource is wrong; an explicit OpenAI route only retries when the response names the native API-key header. None of
+    # these signals depends on provider or model names.
     if route.protocol != "anthropic" and route.authoritative and "x-api-key" not in text.lower():
         return (primary,)
     other: AuthFamily = "bearer" if primary == "anthropic" else "anthropic"
     return (primary, other)
 
 
-# (endpoint_url, model) pairs observed to answer a forced tool_choice with a
-# different tool this session — either a profile coerced the choice to "auto"
-# or the provider ignored it silently (OpenRouter + a thinking-on model,
-# llama.cpp's chat endpoint, …). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
+# (endpoint_url, model) pairs observed to answer a forced tool_choice with a different tool this session — either a profile
+# coerced the choice to "auto" or the provider ignored it silently (OpenRouter + a thinking-on model, llama.cpp's chat endpoint,
+# …). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
 _FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
 
 
@@ -402,22 +370,20 @@ def note_forced_tool_choice_ignored(endpoint_url: str, model: str) -> None:
     _FORCED_CHOICE_IGNORED.add((endpoint_url, model))
 
 
-# (endpoint_url, model) pairs whose reply proved the endpoint did not actually
-# constrain decoding to the strict ``response_format`` schema it was sent. A
-# provider that *rejects* the field answers 4xx and is handled by
-# recover_from_error; one that accepts and ignores it can only be caught by
-# reading the reply. In-memory only, like ``_FORCED_CHOICE_IGNORED`` above.
+# (endpoint_url, model) pairs whose reply proved the endpoint did not actually constrain decoding to the strict
+# ``response_format`` schema it was sent. A provider that *rejects* the field answers 4xx and is handled by recover_from_error;
+# one that accepts and ignores it can only be caught by reading the reply. In-memory only, like ``_FORCED_CHOICE_IGNORED``
+# above.
 _STRUCTURED_OUTPUT_IGNORED: set[tuple[str, str]] = set()
 
 
 def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
     """Record that *model* ignored a strict ``response_format`` schema.
 
-    Callers must only report a reply that *proves* the constraint was absent --
-    a completed, non-empty answer that is not the JSON the schema demanded.
-    A truncated or empty reply proves nothing (same standard as
-    :func:`note_forced_tool_choice_ignored`), and demoting on one would cost
-    the endpoint its best-caching call shape over a flaky turn.
+    Callers must only report a reply that *proves* the constraint was absent -- a completed, non-empty answer that is not the
+    JSON the schema demanded. A truncated or empty reply proves nothing (same standard as
+    :func:`note_forced_tool_choice_ignored`), and demoting on one would cost the endpoint its best-caching call shape over a
+    flaky turn.
     """
     _STRUCTURED_OUTPUT_IGNORED.add((endpoint_url, model))
 
@@ -434,12 +400,10 @@ def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mappin
 def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
     """True when the (endpoint, model) profile opts into structured forced calls.
 
-    The profile knob is an *opt-in that evidence can revoke*. A proxy endpoint
-    fronts many upstream engines, so honoring strict ``response_format`` is a
-    per-model fact the URL cannot settle; a model that answers a schema-forced
-    call with something the schema forbids has proven its route decodes
-    unconstrained, and :func:`note_structured_output_ignored` demotes just that
-    pair for the rest of the session.
+    The profile knob is an *opt-in that evidence can revoke*. A proxy endpoint fronts many upstream engines, so honoring strict
+    ``response_format`` is a per-model fact the URL cannot settle; a model that answers a schema-forced call with something the
+    schema forbids has proven its route decodes unconstrained, and :func:`note_structured_output_ignored` demotes just that pair
+    for the rest of the session.
     """
     if (endpoint_url, model) in _STRUCTURED_OUTPUT_IGNORED:
         return False
@@ -450,12 +414,11 @@ def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
 def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
 
-    A blank *model* falls through to the endpoint default. An unmatched URL
-    returns ``None`` — the body is sent unchanged (local / unknown backends).
+    A blank *model* falls through to the endpoint default. An unmatched URL returns ``None`` — the body is sent unchanged (local
+    / unknown backends).
 
-    The ``/v1beta/openai`` dialect is resolved by
-    :func:`is_gemini_openai_surface` rather than by a ``PROFILES`` substring,
-    so every proxy mirroring the resource gets the same request policy.
+    The ``/v1beta/openai`` dialect is resolved by :func:`is_gemini_openai_surface` rather than by a ``PROFILES`` substring, so
+    every proxy mirroring the resource gets the same request policy.
     """
     if not endpoint_url:
         return None
@@ -473,43 +436,33 @@ def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
 
 # Request preparation + error recovery (the provider seam LLMClient calls)
 #
-# These two module-level functions are the *entire* provider-specific surface
-# LLMClient depends on. The client stays transport-only: it builds the body,
-# sends it, and on a >=400 asks here whether the failure is a recognised quirk
-# worth one retry. Everything that knows about a provider -- URL matching,
-# error-text sniffing, the session memory of what a model rejects -- lives
-# here, not in llm_client.
+# These two module-level functions are the *entire* provider-specific surface LLMClient depends on. The client stays
+# transport-only: it builds the body, sends it, and on a >=400 asks here whether the failure is a recognised quirk worth one
+# retry. Everything that knows about a provider -- URL matching, error-text sniffing, the session memory of what a model rejects
+# -- lives here, not in llm_client.
 
-# (endpoint_url, model) pairs seen to reject the tool_choice param this
-# session. In-memory only (cleared on restart); lets later calls drop it up
-# front instead of paying the round-trip + retry again.
+# (endpoint_url, model) pairs seen to reject the tool_choice param this session. In-memory only (cleared on restart); lets later
+# calls drop it up front instead of paying the round-trip + retry again.
 _TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
 
-# Pairs observed to accept only the literal ``"auto"`` value. Unlike
-# _TOOL_CHOICE_UNSUPPORTED, these endpoints still need the field so forced and
-# writer ``"none"`` requests are coerced rather than dropped.
+# Pairs observed to accept only the literal ``"auto"`` value. Unlike _TOOL_CHOICE_UNSUPPORTED, these endpoints still need the
+# field so forced and writer ``"none"`` requests are coerced rather than dropped.
 _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 
-# Pairs whose reply rejected the ``reasoning_effort`` VALUE Orb sent. Orb offers
-# a superset of levels (``xhigh`` is an Anthropic/OpenAI-ism; Gemini's set is
-# high/low/medium/none) and a provider that validates the field answers 400 to
-# anything outside its own. Learning the rejection rather than hard-coding each
-# provider's accepted set is deliberate: those sets move under us, and a static
-# list rots into wrongly clamping a level the provider has since added.
+# Pairs whose reply rejected the ``reasoning_effort`` VALUE Orb sent. Orb offers a superset of levels (``xhigh`` is an
+# Anthropic/OpenAI-ism; Gemini's set is high/low/medium/none) and a provider that validates the field answers 400 to anything
+# outside its own. Learning the rejection rather than hard-coding each provider's accepted set is deliberate: those sets move
+# under us, and a static list rots into wrongly clamping a level the provider has since added.
 _REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
 
-# Replay fields each pair refused on an assistant message this session. Some
-# providers stream reasoning and then reject it on the way back (Groq refuses
-# both ``reasoning_content`` and ``reasoning``), so the refusal is learned
-# instead of listed. Dropping the field on every later call keeps the rendered
-# prefix the same from call to call.
+# Replay fields each pair refused on an assistant message this session. Some providers stream reasoning and then reject it on
+# the way back (Groq refuses both ``reasoning_content`` and ``reasoning``), so the refusal is learned instead of listed.
+# Dropping the field on every later call keeps the rendered prefix the same from call to call.
 _REASONING_REPLAY_UNSUPPORTED: dict[tuple[str, str], set[str]] = {}
 
-# Pairs that refused the prompt-cache markers this session. The markers turn a
-# message's string content into a one-part text list, which a strict schema can
-# refuse without ever naming ``cache_control`` (DeepSeek documents system and
-# assistant content as string-only), so the refusal is recognized by the
-# unmarked retry succeeding, not by the error text.
+# Pairs that refused the prompt-cache markers this session. The markers turn a message's string content into a one-part text
+# list, which a strict schema can refuse without ever naming ``cache_control`` (DeepSeek documents system and assistant content
+# as string-only), so the refusal is recognized by the unmarked retry succeeding, not by the error text.
 _CACHE_MARKERS_REFUSED: set[tuple[str, str]] = set()
 
 _FIELD_REFUSAL_MARKERS = (
@@ -532,9 +485,8 @@ def _is_openrouter(endpoint_url: str) -> bool:
 def _is_tool_choice_unsupported(status: int, text: str) -> bool:
     """Return ``True`` when the body says no ``tool_choice`` value is routed.
 
-    Matches "No endpoints found that support the provided 'tool_choice'
-    value." — meaning the routed provider rejects all ``tool_choice`` values.
-    Kept narrow so genuine 404s (bad model id, etc.) don't match.
+    Matches "No endpoints found that support the provided 'tool_choice' value." — meaning the routed provider rejects all
+    ``tool_choice`` values. Kept narrow so genuine 404s (bad model id, etc.) don't match.
     """
     low = text.lower()
     return status in {400, 404} and "tool_choice" in low and "no endpoints found" in low
@@ -549,10 +501,9 @@ def _is_tool_choice_auto_only(status: int, text: str) -> bool:
 def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
     """Return True when the body names ``reasoning_effort`` as the bad field.
 
-    Matches Google's "Invalid reasoning_effort: xhigh. Valid values are: high,
-    low, medium, none" and the equivalent from any provider that validates the
-    field. Kept to bodies that name the field so a generic 400 (bad model,
-    oversized prompt) never costs a reasoning setting the endpoint accepts.
+    Matches Google's "Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, none" and the equivalent from any
+    provider that validates the field. Kept to bodies that name the field so a generic 400 (bad model, oversized prompt) never
+    costs a reasoning setting the endpoint accepts.
     """
     low = text.lower()
     if status != 400 or "reasoning_effort" not in low:
@@ -563,8 +514,7 @@ def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
 def _drop_replay_fields(body: dict, fields: set[str]) -> list[str]:
     """Remove *fields* from the body's messages and return the ones that were present.
 
-    Changed messages are copied, because the outbound body shares its message
-    dicts with the caller's transcript.
+    Changed messages are copied, because the outbound body shares its message dicts with the caller's transcript.
     """
     messages = body.get("messages")
     if not isinstance(messages, list):
@@ -585,9 +535,8 @@ def _drop_replay_fields(body: dict, fields: set[str]) -> list[str]:
 def _refused_replay_fields(body: dict, status: int, text: str) -> set[str]:
     """Return the replayed reasoning fields that a rejection names.
 
-    Only fields the body actually carries can match, and the body must point at
-    ``messages``. That way a refused top-level ``reasoning`` param, or a generic
-    400, never costs a replay the endpoint accepts.
+    Only fields the body actually carries can match, and the body must point at ``messages``. That way a refused top-level
+    ``reasoning`` param, or a generic 400, never costs a replay the endpoint accepts.
     """
     low = text.lower()
     if status not in {400, 422} or "messages" not in low:
@@ -636,8 +585,7 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
         if dropped:
             actions.append(f"replayed reasoning {dropped} dropped (session-learned unsupported)")
 
-    # A model we already learned rejects tool_choice this session: drop it up
-    # front so we skip the failing round-trip entirely.
+    # A model we already learned rejects tool_choice this session: drop it up front so we skip the failing round-trip entirely.
     if "tool_choice" in body and (endpoint_url, model) in _TOOL_CHOICE_UNSUPPORTED:
         tc = body.pop("tool_choice")
         actions.append(f"tool_choice {tc!r} dropped (session-learned unsupported)")
@@ -652,15 +600,12 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
 
 
 def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> str | None:
-    """Handle a >=400 response. If a known provider quirk explains it, mutate
-    *body* in place, record the quirk for the session, and return a log line
-    (triggering one retry). Returns ``None`` to propagate the error.
+    """Handle a >=400 response. If a known provider quirk explains it, mutate *body* in place, record the quirk for the session,
+    and return a log line (triggering one retry). Returns ``None`` to propagate the error.
 
-    Currently handles one quirk: an OpenRouter model whose routed provider
-    rejects ``tool_choice`` entirely. Recovery is to drop the param and retry;
-    the 404 lands before any SSE event so the retry is clean. Model catalog ids
-    are deliberately never recorded here; learned capability facts expire with
-    the backend process.
+    Currently handles one quirk: an OpenRouter model whose routed provider rejects ``tool_choice`` entirely. Recovery is to drop
+    the param and retry; the 404 lands before any SSE event so the retry is clean. Model catalog ids are deliberately never
+    recorded here; learned capability facts expire with the backend process.
     """
     tc = body.get("tool_choice")
     low = text.lower()

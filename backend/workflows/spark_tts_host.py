@@ -10,16 +10,7 @@ from typing import Any
 
 from ..database import get_settings, set_local_ml_config
 from ..inference.local_models import whisper
-from ..inference.local_models.spark_tts import (
-    audio_in,
-    catalog,
-    codec,
-    config,
-    enroll,
-    reference,
-    service,
-    tokens,
-)
+from ..inference.local_models.spark_tts import audio_in, catalog, codec, config, enroll, reference, service, tokens
 from .errors import WorkflowInputError, WorkflowUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -148,9 +139,8 @@ async def enroll_upload(data: bytes, *, filename: str = "", with_reference: bool
 async def enroll_voice(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> Enrollment:
     """Enroll a clip for the TTS workflow, with the advanced reference when it can be prepared.
 
-    An unreadable file raises ``WorkflowInputError`` and a voice model that is not
-    set up raises ``WorkflowUnavailableError``, both with a message for the user.
-    When the reference cannot be prepared, ``reference_note`` says why.
+    An unreadable file raises ``WorkflowInputError`` and a voice model that is not set up raises ``WorkflowUnavailableError``,
+    both with a message for the user. When the reference cannot be prepared, ``reference_note`` says why.
     """
     ok, reason = enrollment_ready(settings)
     if not ok:

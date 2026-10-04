@@ -11,19 +11,16 @@ from ..inference import LLMCallError, provider_sentence
 from ..inference.claude_code import ClaudeCodeError
 from ..workflows.errors import WorkflowUserFacingError
 
-# Cap on an unclassified exception's repr. The full traceback is in the log; this
-# is the line that reaches a chat bubble.
+# Cap on an unclassified exception's repr. The full traceback is in the log; this is the line that reaches a chat bubble.
 INTERNAL_SENTENCE_LIMIT = 300
 
 # Same cap the transport applies, for the branch that reads a body itself.
 BODY_LIMIT = 20_000
 
-# Which pass raised, written onto the exception by ``staged``. An attribute
-# rather than a parameter because the failure travels from inside a pass generator
-# to ``entrypoints._run_turn_handler`` with no shared object between them, and the
-# alternatives are worse: ``turn_scratch`` is part of the public workflow-hook
-# surface (``workflows/contracts.py``), and ``PipelineContext`` is frozen and not
-# passed to ``run_pipeline`` at all.
+# Which pass raised, written onto the exception by ``staged``. An attribute rather than a parameter because the failure travels
+# from inside a pass generator to ``entrypoints._run_turn_handler`` with no shared object between them, and the alternatives are
+# worse: ``turn_scratch`` is part of the public workflow-hook surface (``workflows/contracts.py``), and ``PipelineContext`` is
+# frozen and not passed to ``run_pipeline`` at all.
 _STAGE_ATTR = "_orb_stage"
 
 STAGE_JUDGE = "judge pass"
@@ -39,16 +36,14 @@ STAGE_SAVE = "saving the reply"
 def mark_stage(exc: BaseException, stage: str) -> None:
     """Record that *exc* escaped *stage*, unless an inner stage already claimed it.
 
-    First writer wins, and unwinding runs innermost-first, so a nested stage keeps
-    the more specific label.
+    First writer wins, and unwinding runs innermost-first, so a nested stage keeps the more specific label.
     """
     try:
         if not getattr(exc, _STAGE_ATTR, ""):
             setattr(exc, _STAGE_ATTR, stage)
     except AttributeError:
-        # Every exception carries a __dict__ (BaseException grants one even under
-        # __slots__), so this only covers an exotic type with a __setattr__ that
-        # refuses. The stage is a nicety; never let labelling mask the failure.
+        # Every exception carries a __dict__ (BaseException grants one even under __slots__), so this only covers an exotic type
+        # with a __setattr__ that refuses. The stage is a nicety; never let labelling mask the failure.
         pass
 
 
@@ -103,9 +98,8 @@ def _internal_sentence(exc: BaseException) -> str:
 def _host_of(exc: httpx.HTTPError) -> str:
     """The ``host:port`` the request was aimed at, or ``""``.
 
-    ``HTTPError.request`` raises ``RuntimeError`` when the exception was built
-    without one -- which a hand-rolled transport error in a test is -- so this is
-    never read bare.
+    ``HTTPError.request`` raises ``RuntimeError`` when the exception was built without one -- which a hand-rolled transport
+    error in a test is -- so this is never read bare.
     """
     try:
         return exc.request.url.netloc.decode("ascii", "replace")
@@ -128,11 +122,9 @@ def _body_of(exc: httpx.HTTPStatusError) -> str:
 def describe_failure(exc: BaseException) -> dict[str, Any]:
     """Turn *exc* into the ``error`` event's data payload.
 
-    Keys: ``headline`` (always), ``sentence`` (always, possibly empty), ``kind``
-    (always), ``stage`` (always, ``""`` when no pass claimed it), and
-    ``status``/``host``/``model``/``body`` when the failure is one the transport
-    could attribute. A consumer renders ``headline`` big, ``sentence`` small, and
-    hides ``body`` behind a disclosure.
+    Keys: ``headline`` (always), ``sentence`` (always, possibly empty), ``kind`` (always), ``stage`` (always, ``""`` when no
+    pass claimed it), and ``status``/``host``/``model``/``body`` when the failure is one the transport could attribute. A
+    consumer renders ``headline`` big, ``sentence`` small, and hides ``body`` behind a disclosure.
     """
     stage = stage_of(exc)
 
@@ -157,9 +149,8 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
         }
 
     if isinstance(exc, httpx.HTTPStatusError):
-        # Read response details for bare status failures; fall back to repr if empty.
-        # This branch has no credential to redact and is for internal calls only:
-        # never route a credential-bearing provider error through bare raise_for_status.
+        # Read response details for bare status failures; fall back to repr if empty. This branch has no credential to redact
+        # and is for internal calls only: never route a credential-bearing provider error through bare raise_for_status.
         body = _body_of(exc)
         payload = {
             "headline": headline_for_status(exc.response.status_code),
@@ -177,9 +168,8 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
         return payload
 
     if isinstance(exc, httpx.TransportError):
-        # Left unwrapped at the transport seam on purpose so RetryPolicy's
-        # isinstance check over RETRYABLE_TRANSPORT_ERRORS still fires; this is
-        # where the classification it skipped happens instead.
+        # Left unwrapped at the transport seam on purpose so RetryPolicy's isinstance check over RETRYABLE_TRANSPORT_ERRORS
+        # still fires; this is where the classification it skipped happens instead.
         return {
             "headline": TRANSPORT_HEADLINE,
             "sentence": _internal_sentence(exc),
@@ -197,9 +187,4 @@ def describe_failure(exc: BaseException) -> dict[str, Any]:
             "stage": stage,
         }
 
-    return {
-        "headline": INTERNAL_HEADLINE,
-        "sentence": _internal_sentence(exc),
-        "kind": "internal",
-        "stage": stage,
-    }
+    return {"headline": INTERNAL_HEADLINE, "sentence": _internal_sentence(exc), "kind": "internal", "stage": stage}

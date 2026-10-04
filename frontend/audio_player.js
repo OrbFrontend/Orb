@@ -85,9 +85,8 @@ function _b64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
-// One request per clip however many spans of it a plan decodes at once. The
-// entry lives only while the request is pending; later plays go back through
-// the browser's HTTP cache.
+// One request per clip however many spans of it a plan decodes at once. The entry lives only while the request is
+// pending; later plays go back through the browser's HTTP cache.
 const _rowFetches = new Map(); // url -> Promise<ArrayBuffer>
 
 function _fetchRowBytes(url) {
@@ -532,9 +531,8 @@ export function setBarChangeHook(fn) {
   _barChangeHook = typeof fn === "function" ? fn : null;
 }
 
-// iOS files bare Web Audio as ambient sound, which the silent switch mutes. The
-// playback type plays through it but pauses other apps' audio, so it is held only
-// while something is audible.
+// iOS files bare Web Audio as ambient sound, which the silent switch mutes. The playback type plays through it but
+// pauses other apps' audio, so it is held only while something is audible.
 function _syncAudioSession() {
   const session = navigator.audioSession;
   if (!session) return;

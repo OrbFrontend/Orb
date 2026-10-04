@@ -7,22 +7,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from ...prompting.lorebook import (
-    DYNAMIC_SECTION_TITLE,
-    is_dynamic,
-    select_effective_entries,
-    select_keyword_entries,
-)
+from ...prompting.lorebook import DYNAMIC_SECTION_TITLE, is_dynamic, select_effective_entries, select_keyword_entries
 
 ACTIVATIONS = ("constant", "keywords")
 
-# What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs,
-# where `revise` and `retract` each cover two of the five operations the table
-# stores (create/replace/suppress/update/archive — the vocabulary the applier and
-# the undo builder dispatch on). Which one an operation becomes is decided by the
-# layer of the row it targets, so the model is never asked to tell authored lore
-# from the overlay. Stored names are accepted as synonyms too, since a changeset
-# re-validated on accept comes back in the table's vocabulary.
+# What the model is asked for (see ``PROPOSE_WORLD_CHANGES_TOOL``): three verbs, where `revise` and `retract` each cover two of
+# the five operations the table stores (create/replace/suppress/update/archive — the vocabulary the applier and the undo builder
+# dispatch on). Which one an operation becomes is decided by the layer of the row it targets, so the model is never asked to
+# tell authored lore from the overlay. Stored names are accepted as synonyms too, since a changeset re-validated on accept comes
+# back in the table's vocabulary.
 _REVISE_OPS = ("revise", "replace", "update")
 _RETRACT_OPS = ("retract", "suppress", "archive")
 _TARGETING_OPS = frozenset(_REVISE_OPS + _RETRACT_OPS)
@@ -30,10 +23,9 @@ _TARGETING_OPS = frozenset(_REVISE_OPS + _RETRACT_OPS)
 # How much of an entry's body the compact catalog line shows before eliding.
 _COMPACT_CONTENT_CHARS = 90
 
-# How much of an authored body the *full* rendering keeps, at each end, before
-# dropping what is between them. Imported lore runs to thousands of characters
-# and every constant entry is rendered full on every turn, so the middles of a
-# few long entries are most of what a large World costs this step.
+# How much of an authored body the *full* rendering keeps, at each end, before dropping what is between them. Imported lore runs
+# to thousands of characters and every constant entry is rendered full on every turn, so the middles of a few long entries are
+# most of what a large World costs this step.
 _FULL_HEAD_CHARS = 400
 _FULL_TAIL_CHARS = 200
 
@@ -42,10 +34,9 @@ _FULL_TAIL_CHARS = 200
 class ValidatedProposal:
     """The result of vetting one ``propose_world_changes`` call.
 
-    ``operations`` is what may be applied. ``rejected`` holds ``(index, reason)``
-    for every operation dropped — logged, never silently swallowed, so a model
-    that keeps proposing something invalid is diagnosable. An empty
-    ``operations`` list means "no proposal", which is a normal, common outcome.
+    ``operations`` is what may be applied. ``rejected`` holds ``(index, reason)`` for every operation dropped — logged, never
+    silently swallowed, so a model that keeps proposing something invalid is diagnosable. An empty ``operations`` list means "no
+    proposal", which is a normal, common outcome.
     """
 
     summary: str = ""
@@ -70,8 +61,7 @@ def _compact(text: str) -> str:
 def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
     """Trim the middle beyond head + tail characters, cutting at whitespace.
 
-    Mark the omitted character count so truncation is explicit. Leave text intact
-    when the gap would be smaller than its marker.
+    Mark the omitted character count so truncation is explicit. Leave text intact when the gap would be smaller than its marker.
     """
     if len(text) <= head_chars + tail_chars:
         return text
@@ -89,8 +79,7 @@ def _elide_middle(text: str, head_chars: int, tail_chars: int) -> str:
 def _is_live_suppressor(entry: Mapping[str, Any]) -> bool:
     """Whether a live suppress marker still hides an authored target.
 
-    Include these management-only rows so the Agent can archive them; detached
-    markers have nothing to restore and are excluded.
+    Include these management-only rows so the Agent can archive them; detached markers have nothing to restore and are excluded.
     """
     return (
         is_dynamic(entry)
@@ -121,26 +110,19 @@ def _entry_line(entry: Mapping[str, Any], *, full: bool) -> str:
     if not full:
         body = _compact(body)
     elif not is_dynamic(entry):
-        # An authored body is only ever read here — no operation rewrites one —
-        # so a long one can afford to lose its middle. A dynamic body cannot:
-        # `update` rewrites content whole, and a middle the step never saw would
-        # be written out of the World.
+        # An authored body is only ever read here — no operation rewrites one — so a long one can afford to lose its middle. A
+        # dynamic body cannot: `update` rewrites content whole, and a middle the step never saw would be written out of the
+        # World.
         body = _elide_middle(body, _FULL_HEAD_CHARS, _FULL_TAIL_CHARS)
     return f"{head}\n  {body}"
 
 
-def _world_section(
-    entries: Sequence[Mapping[str, Any]],
-    relevant_ids: set[int],
-    *,
-    title: str = "",
-) -> list[str]:
+def _world_section(entries: Sequence[Mapping[str, Any]], relevant_ids: set[int], *, title: str = "") -> list[str]:
     """One World's catalog lines, split into its authored and dynamic sections.
 
-    A titled section is always emitted, even with nothing in it: an empty World
-    is still a legal ``target_world`` for a ``create``, so the step has to be
-    told it exists. An untitled one (the single-World shape) renders nothing when
-    it has no entries.
+    A titled section is always emitted, even with nothing in it: an empty World is still a legal ``target_world`` for a
+    ``create``, so the step has to be told it exists. An untitled one (the single-World shape) renders nothing when it has no
+    entries.
     """
     authored = [e for e in entries if not is_dynamic(e)]
     dynamic = [e for e in entries if is_dynamic(e)]
@@ -158,10 +140,7 @@ def _world_section(
 
 
 def build_world_change_catalog(
-    entries: Sequence[Mapping[str, Any]],
-    *,
-    worlds: Sequence[Mapping[str, Any]] = (),
-    exchange_text: str = "",
+    entries: Sequence[Mapping[str, Any]], *, worlds: Sequence[Mapping[str, Any]] = (), exchange_text: str = ""
 ) -> str:
     """Build the proposal catalog for one or more Worlds."""
     effective = select_effective_entries(entries)
@@ -236,8 +215,7 @@ class _WorldScope:
         else:
             seen = {_world_key(e.get("world_id")) for e in entries}
             self.ids = [seen.pop()] if len(seen) == 1 else [""]
-        # A name shared by two Worlds names neither: resolving it would silently
-        # write to whichever happened to sort first.
+        # A name shared by two Worlds names neither: resolving it would silently write to whichever happened to sort first.
         counts = Counter(_clean_str(w.get("name")).casefold() for w in worlds)
         self._by_name = {
             _clean_str(w.get("name")).casefold(): _world_key(w.get("id"))
@@ -248,10 +226,9 @@ class _WorldScope:
     def resolve_create(self, raw: Mapping[str, Any]) -> tuple[str | None, str]:
         """``(world_id, reason)`` for a ``create``; *reason* is set only on failure."""
         if len(self.ids) == 1:
-            # One possible destination, so `target_world` carries no information
-            # and cannot be wrong -- only unverifiable. Reading it anyway would
-            # let a hallucinated name drop a create that had nowhere else to go.
-            # (An unstamped scope is always this case, by construction.)
+            # One possible destination, so `target_world` carries no information and cannot be wrong -- only unverifiable.
+            # Reading it anyway would let a hallucinated name drop a create that had nowhere else to go. (An unstamped scope is
+            # always this case, by construction.)
             return self.ids[0], ""
         named = _clean_str(raw.get("target_world"))
         if not named:
@@ -304,11 +281,9 @@ def _resolve_operation(
     row = live_by_id.get(target)
     if row is None:
         return f"target entry {target} is not a live entry of any world here"
-    # The layer of the row decides which stored operation this becomes, so a
-    # proposal never has to name the layer and can never name it wrongly. An
-    # authored target must additionally still be *in effect*: one already hidden
-    # by a live replace or suppress has nothing left to revise or retract. (A
-    # dynamic row is legal while it is live, including a suppression marker,
+    # The layer of the row decides which stored operation this becomes, so a proposal never has to name the layer and can never
+    # name it wrongly. An authored target must additionally still be *in effect*: one already hidden by a live replace or
+    # suppress has nothing left to revise or retract. (A dynamic row is legal while it is live, including a suppression marker,
     # which is not in effect by design.)
     dynamic_target = is_dynamic(row)
     if not dynamic_target and target not in by_id:
@@ -316,27 +291,20 @@ def _resolve_operation(
     if target in claimed_targets:
         return f"entry {target} is already targeted by an earlier operation"
     if op in _REVISE_OPS:
-        # A suppression marker injects nothing *by construction* -- the
-        # projection drops it whatever it says -- so rewriting one would bump the
-        # revision, retire nothing and publish nothing, while leaving its
-        # authored target hidden. The catalog lists live markers so the Agent can
-        # *retract* one, which is what brings the authored entry back; a revise
-        # of one is always a no-op.
+        # A suppression marker injects nothing *by construction* -- the projection drops it whatever it says -- so rewriting one
+        # would bump the revision, retire nothing and publish nothing, while leaving its authored target hidden. The catalog
+        # lists live markers so the Agent can *retract* one, which is what brings the authored entry back; a revise of one is
+        # always a no-op.
         if row.get("overlay_action") == "suppress":
             return f"entry {target} is a suppression marker; it can only be retracted"
         op = "update" if dynamic_target else "replace"
     else:
         op = "archive" if dynamic_target else "suppress"
-    # A targeted operation lands wherever its row already lives: entry ids are
-    # globally unique, so this cannot be misdirected.
+    # A targeted operation lands wherever its row already lives: entry ids are globally unique, so this cannot be misdirected.
     return _Resolved(op, target, _world_key(row.get("world_id")), row)
 
 
-def _operation_body(
-    resolved: _Resolved,
-    raw: Mapping[str, Any],
-    taken_names: dict[str, set[str]],
-) -> dict | str:
+def _operation_body(resolved: _Resolved, raw: Mapping[str, Any], taken_names: dict[str, set[str]]) -> dict | str:
     """Build the lore-carrying fields of a create/revise operation.
 
     Returns the fields to merge into the stored operation, or a human-readable
@@ -363,9 +331,8 @@ def _operation_body(
         activation = "constant" if fallback.get("constant") else "keywords"
     keywords = _clean_keywords(raw["keywords"] if "keywords" in raw else fallback.get("keywords"))
     if activation == "keywords" and not keywords:
-        # An entry that can never trigger is dead weight -- but the name is almost
-        # always the thing the entry is *about*, so it is a usable key and a
-        # better answer than dropping a reviewed proposal on the floor.
+        # An entry that can never trigger is dead weight -- but the name is almost always the thing the entry is *about*, so it
+        # is a usable key and a better answer than dropping a reviewed proposal on the floor.
         keywords = [name]
     if activation == "constant":
         keywords = []
@@ -402,18 +369,15 @@ def _validate_operation(
         item["world_id"] = resolved.world_id
     if resolved.target is not None:
         item["target_entry_id"] = resolved.target
-        # Snapshot what the target says *now*, so the review card can show a
-        # before/after without a second query — and so applied history still reads
-        # correctly once the live row has moved on. A proposal whose World changed
-        # underneath it goes stale before it can be applied, so the snapshot can
-        # never silently misrepresent what will happen.
+        # Snapshot what the target says *now*, so the review card can show a before/after without a second query — and so
+        # applied history still reads correctly once the live row has moved on. A proposal whose World changed underneath it
+        # goes stale before it can be applied, so the snapshot can never silently misrepresent what will happen.
         item["target_name"] = _clean_str(resolved.target_row.get("name"))
         item["target_content"] = _clean_str(resolved.target_row.get("content"))
 
-    # `suppress` and `archive` carry no body: one hides an authored entry and
-    # injects nothing, the other retires an overlay row it does not rewrite. Both
-    # read their target's name off the row, which is why the schema tells the
-    # model to omit `name` and `content` for a retract.
+    # `suppress` and `archive` carry no body: one hides an authored entry and injects nothing, the other retires an overlay row
+    # it does not rewrite. Both read their target's name off the row, which is why the schema tells the model to omit `name` and
+    # `content` for a retract.
     if resolved.op in ("suppress", "archive"):
         if resolved.op == "suppress":
             # The marker inherits its target's name so the drawer and the review
@@ -429,10 +393,7 @@ def _validate_operation(
 
 
 def validate_proposal(
-    arguments: Mapping[str, Any] | None,
-    entries: Sequence[Mapping[str, Any]],
-    *,
-    worlds: Sequence[Mapping[str, Any]] = (),
+    arguments: Mapping[str, Any] | None, entries: Sequence[Mapping[str, Any]], *, worlds: Sequence[Mapping[str, Any]] = ()
 ) -> ValidatedProposal:
     """Validate raw Dynamic Worlds operations."""
     result = ValidatedProposal()
@@ -446,20 +407,16 @@ def validate_proposal(
 
     scope = _WorldScope(worlds, entries)
     effective = select_effective_entries(entries)
-    # Two lookups, because the two layers of target mean different things.
-    # `live_by_id` resolves the row an operation names — every enabled,
-    # unarchived row, including suppression markers, since retiring one is how
-    # the Agent brings a suppressed authored entry back. `by_id` is the narrower
-    # test an *authored* target then has to pass: lore already hidden by an
-    # overlay is not something a further operation can act on.
+    # Two lookups, because the two layers of target mean different things. `live_by_id` resolves the row an operation names —
+    # every enabled, unarchived row, including suppression markers, since retiring one is how the Agent brings a suppressed
+    # authored entry back. `by_id` is the narrower test an *authored* target then has to pass: lore already hidden by an overlay
+    # is not something a further operation can act on.
     by_id = {int(e["id"]): e for e in effective if e.get("id") is not None}
     live_by_id = {
         int(e["id"]): e for e in entries if e.get("id") is not None and bool(e.get("enabled", 1)) and not e.get("archived")
     }
-    # Names that would collide, bucketed per World — two Worlds may each hold an
-    # entry of the same name without ambiguity. Only *live* dynamic entries
-    # count: an authored entry may legitimately share a name with the dynamic
-    # row replacing it.
+    # Names that would collide, bucketed per World — two Worlds may each hold an entry of the same name without ambiguity. Only
+    # *live* dynamic entries count: an authored entry may legitimately share a name with the dynamic row replacing it.
     taken_names: dict[str, set[str]] = {}
     for e in effective:
         if is_dynamic(e) and _clean_str(e.get("name")):

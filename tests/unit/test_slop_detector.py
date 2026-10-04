@@ -1,10 +1,8 @@
-"""
-Tests for slop_detector — detect_cliches and format_report integration.
+"""Tests for slop_detector — detect_cliches and format_report integration.
 
-Regression: the report must show the exact matched phrase from the text, not a
-canonical/representative form from the variant group.  E.g. if the phrase bank
-has ["a dance of", "dancing"] and the text contains "dancing", the report must
-say "dancing", not "a dance of".
+Regression: the report must show the exact matched phrase from the text, not a canonical/representative form from the variant
+group. E.g. if the phrase bank has ["a dance of", "dancing"] and the text contains "dancing", the report must say "dancing", not
+"a dance of".
 """
 
 from __future__ import annotations
@@ -30,18 +28,9 @@ class TestMatchedPhrase:
             # 2-token non-first variant.
             ([["heart racing", "pulse quickening"]], "Her pulse quickening, she reached for the door.", "pulse quickening"),
             # A literal group in dict form behaves like the legacy list form.
-            (
-                [{"kind": "literal", "variants": ["a mix of", "a mixture of"]}],
-                "It was a mixture of styles.",
-                "a mixture of",
-            ),
+            ([{"kind": "literal", "variants": ["a mix of", "a mixture of"]}], "It was a mixture of styles.", "a mixture of"),
         ],
-        ids=[
-            "single_word_non_first_variant",
-            "first_variant_matched",
-            "two_token_non_first_variant",
-            "literal_dict_shape",
-        ],
+        ids=["single_word_non_first_variant", "first_variant_matched", "two_token_non_first_variant", "literal_dict_shape"],
     )
     def test_phrase_reflects_the_matched_variant(self, phrase_bank, text, phrase):
         result = detect_cliches(text, phrase_bank)
@@ -130,10 +119,7 @@ class TestRegexGroups:
 
     def test_invalid_pattern_is_skipped_not_raised(self):
         """A malformed pattern must not abort the audit; it is silently skipped."""
-        phrase_bank = [
-            {"kind": "regex", "pattern": r"(unclosed"},
-            ["a mix of"],
-        ]
+        phrase_bank = [{"kind": "regex", "pattern": r"(unclosed"}, ["a mix of"]]
         text = "It was a mix of things."
         result = detect_cliches(text, phrase_bank)
 

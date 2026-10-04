@@ -1,6 +1,5 @@
-// Handle-based reordering with pointer and arrow-key support.
-// Touch and pen require a stationary HOLD_MS press; mouse starts immediately.
-// `touch-action: pan-y` permits scrolling until an armed drag cancels touchmove.
+// Handle-based reordering with pointer and arrow-key support. Touch and pen require a stationary HOLD_MS press; mouse
+// starts immediately. `touch-action: pan-y` permits scrolling until an armed drag cancels touchmove.
 
 const AUTOSCROLL_EDGE_PX = 44; // proximity to the scrollport edge that starts a scroll
 const AUTOSCROLL_STEP_PX = 10; // per-frame scroll while the pointer is held at the edge
@@ -141,8 +140,7 @@ export function initDragReorder(
     try {
       handleEl.releasePointerCapture(pointerId);
     } catch {
-      // Never captured (the hold never elapsed), or the capture is already
-      // gone (pointercancel, or a detached handle).
+      // Never captured (the hold never elapsed), or the capture is already gone (pointercancel, or a detached handle).
     }
     document.removeEventListener("pointermove", onPointerMove);
     document.removeEventListener("pointerup", onPointerUp);

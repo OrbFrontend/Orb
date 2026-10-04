@@ -57,9 +57,8 @@ export function initWidget(sharedConfig) {
     else if (menuCaret === el) closeMenu();
     else openMenu(el);
   });
-  // Menu items live on <body>, so the in-flight button handed to the shared
-  // handlers is the caret back in the toolbar: it is the render's Stop button
-  // while it runs, and its chip is where a failure caption lands.
+  // Menu items live on <body>, so the in-flight button handed to the shared handlers is the caret back in the toolbar:
+  // it is the render's Stop button while it runs, and its chip is where a failure caption lands.
   registerAction(WORKFLOW_ID, "regenerate", (el) => {
     regenerateWorkflowAttachment(Number(el.dataset.msgId), Number(el.dataset.att), takeMenuAnchor(el));
   });
@@ -459,8 +458,7 @@ async function create(msgId, btn) {
     clearWorkflowPhase(ch, convId);
     job.end();
   }
-  // A stopped synthesis answers 409 unless its speech was already being saved,
-  // so the saved rows decide.
+  // A stopped synthesis answers 409 unless its speech was already being saved, so the saved rows decide.
   if (job.stopping) {
     await refreshConversationMessages(msgId, convId);
   } else if (created) {

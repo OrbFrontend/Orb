@@ -1,7 +1,6 @@
-// The failure half of frontend/api.js. `_req` throws with the *body* as the
-// message, so every `toast(e.message, true)` in the app showed a raw
-// `{"detail":"..."}` — a backend that took care to word a provider's rejection
-// well, read through a JSON wrapper. Unwrapped once, in the client.
+// The failure half of frontend/api.js. `_req` throws with the *body* as the message, so every `toast(e.message, true)`
+// in the app showed a raw `{"detail":"..."}` — a backend that took care to word a provider's rejection well, read
+// through a JSON wrapper. Unwrapped once, in the client.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

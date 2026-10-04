@@ -40,11 +40,7 @@ def state() -> dict[str, str]:
 
 
 async def synthesize(
-    text: str,
-    speaker_tokens: Sequence[int],
-    *,
-    reference: Reference | None = None,
-    gpu: bool = True,
+    text: str, speaker_tokens: Sequence[int], *, reference: Reference | None = None, gpu: bool = True
 ) -> tuple[bytes, int]:
     """Speak text in an enrolled voice and return ``(pcm16, sample_rate)``."""
     spoken = " ".join(text.split())
@@ -69,21 +65,12 @@ async def synthesize(
         if excerpt:
             # Prevent a continuation from ending before it produces audio.
             generated, _ = await server.generate_tokens(
-                prompt,
-                n_predict=1,
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                top_k=TOP_K,
-                banned=STOP_TOKENS,
+                prompt, n_predict=1, temperature=TEMPERATURE, top_p=TOP_P, top_k=TOP_K, banned=STOP_TOKENS
             )
         stopped = False
         if budget > len(generated):
             rest, stopped = await server.generate_tokens(
-                prompt + generated,
-                n_predict=budget - len(generated),
-                temperature=TEMPERATURE,
-                top_p=TOP_P,
-                top_k=TOP_K,
+                prompt + generated, n_predict=budget - len(generated), temperature=TEMPERATURE, top_p=TOP_P, top_k=TOP_K
             )
             generated += rest
     semantic = semantic_indices(generated)

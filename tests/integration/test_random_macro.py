@@ -1,12 +1,9 @@
 """Turn-level integration tests for {{random}} / inline-macro fixing.
 
-The design under test: message rows resolve inline macros once at the persist
-boundary (user send, assistant persist, plain edit), greetings re-roll from a
-stashed raw template on every fetch until the first user message freezes them,
-mood fragment text resolves against the per-conversation
-``director_state.macro_choices`` map so a pick is made once and reused every
-later turn (and carried by checkpoint), and director-authored interactive
-values roll fresh on every emission.
+The design under test: message rows resolve inline macros once at the persist boundary (user send, assistant persist, plain
+edit), greetings re-roll from a stashed raw template on every fetch until the first user message freezes them, mood fragment
+text resolves against the per-conversation ``director_state.macro_choices`` map so a pick is made once and reused every later
+turn (and carried by checkpoint), and director-authored interactive values roll fresh on every emission.
 """
 
 from __future__ import annotations
@@ -29,9 +26,8 @@ def _injection_block(events: list[dict]) -> str:
 
 
 async def _greeting_contents(client, cid: str) -> list[str]:
-    resp = await client.get(f"/api/conversations/{cid}/messages")
-    assert resp.status_code == 200
-    return [m["content"] for m in resp.json() if m["turn_index"] == 0]
+    resp = await client.get_json(f"/api/conversations/{cid}/messages")
+    return [m["content"] for m in resp if m["turn_index"] == 0]
 
 
 # ── persist boundary: user + assistant + edit ────────────────────────────────
@@ -49,8 +45,7 @@ async def test_send_persists_user_message_resolved(client, db, llm_mock):
     assert len(created) == 1
     assert created[0]["data"]["content"] == "I rolled 2 and go north"
 
-    async with db.execute("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user'", (cid,)) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user'", (cid,))
     assert row["content"] == "I rolled 2 and go north"
 
 
@@ -61,8 +56,7 @@ async def test_assistant_reply_macros_fixed_at_persist(client, db, llm_mock):
 
     await _drain(handle_turn(cid, "hello"))
 
-    async with db.execute("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant'", (cid,)) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant'", (cid,))
     assert "{{random" not in row["content"]
     assert row["content"] in {f"The sky turns {w} tonight." for w in ("gold", "silver")}
 
@@ -75,14 +69,9 @@ async def test_plain_edit_resolves_inline_macros(client, db, llm_mock):
     msgs = await dbmod.get_messages(cid)
     user_id = next(m["id"] for m in msgs if m["role"] == "user")
 
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/{user_id}/edit",
-        json={"content": "changed to {{roll::3d1}}"},
-    )
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/conversations/{cid}/messages/{user_id}/edit", json={"content": "changed to {{roll::3d1}}"})
 
-    async with db.execute("SELECT content FROM messages WHERE id = ?", (user_id,)) as cur:
-        row = await cur.fetchone()
+    row = await db.one("SELECT content FROM messages WHERE id = ?", (user_id,))
     assert row["content"] == "changed to 3"
 
 
@@ -90,18 +79,15 @@ async def test_plain_edit_resolves_inline_macros(client, db, llm_mock):
 
 
 async def test_greeting_rerolls_until_first_user_message(client, db, llm_mock):
-    resp = await client.post(
-        "/api/conversations",
-        json={"title": "g", "character_name": "Bot", "first_mes": "{{random::Ahoy::Wotcher}}, {{user}}!"},
+    cid = await client.create(
+        "/api/conversations", json={"title": "g", "character_name": "Bot", "first_mes": "{{random::Ahoy::Wotcher}}, {{user}}!"}
     )
-    cid = resp.json()["id"]
 
     # Template stashed raw; content resolved.
-    async with db.execute(
+    row = await db.one(
         "SELECT content, json_extract(workflow_state, '$.macros.template') AS template FROM messages WHERE conversation_id = ?",
         (cid,),
-    ) as cur:
-        row = await cur.fetchone()
+    )
     assert row["template"] == "{{random::Ahoy::Wotcher}}, {{user}}!"
     assert row["content"].split(",")[0] in _GREETING_OPTIONS
 
@@ -132,11 +118,9 @@ async def test_alternate_greetings_resolved_with_templates(client, db):
             "alternate_greetings": ["Alt {{random::C::D}}", "Alt plain"],
         }
     )
-    resp = await client.post("/api/conversations", json={"title": "g", "character_card_id": "card-rm"})
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "g", "character_card_id": "card-rm"})
 
-    async with db.execute("SELECT content, workflow_state FROM messages WHERE conversation_id = ? ORDER BY id", (cid,)) as cur:
-        rows = await cur.fetchall()
+    rows = await db.all("SELECT content, workflow_state FROM messages WHERE conversation_id = ? ORDER BY id", (cid,))
     by_content = {r["content"]: r["workflow_state"] for r in rows}
     assert len(rows) == 3
     assert all("{{random" not in c for c in by_content)
@@ -147,16 +131,13 @@ async def test_alternate_greetings_resolved_with_templates(client, db):
 
 
 async def test_editing_greeting_drops_template_and_stops_reroll(client, db):
-    resp = await client.post(
-        "/api/conversations",
-        json={"title": "g", "character_name": "Bot", "first_mes": "Hi {{random::X::Y}}"},
+    cid = await client.create(
+        "/api/conversations", json={"title": "g", "character_name": "Bot", "first_mes": "Hi {{random::X::Y}}"}
     )
-    cid = resp.json()["id"]
     msgs = await dbmod.get_messages(cid)
     greeting_id = msgs[0]["id"]
 
-    resp = await client.post(f"/api/conversations/{cid}/messages/{greeting_id}/edit", json={"content": "Hand-written opening"})
-    assert resp.status_code == 200
+    await client.post_checked(f"/api/conversations/{cid}/messages/{greeting_id}/edit", json={"content": "Hand-written opening"})
 
     # No template left, so fetches (still unfrozen — no user message) keep the edit.
     for _ in range(5):
@@ -243,20 +224,16 @@ async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
     source = await dbmod.get_director_state(cid)
     assert source["macro_choices"]
 
-    resp = await client.post(f"/api/conversations/{cid}/checkpoint", json={"title": "cp"})
-    assert resp.status_code == 200
-    new_cid = resp.json()["id"]
+    new_cid = await client.create(f"/api/conversations/{cid}/checkpoint", json={"title": "cp"})
 
     copied = await dbmod.get_director_state(new_cid)
     assert copied["macro_choices"] == source["macro_choices"]
 
-    # Seeded {{random}} (persona/scenario fields) must not re-roll under the
-    # copy's new id: the copy pins the source's seed, transitively (a
-    # checkpoint of a checkpoint keeps the original seed).
+    # Seeded {{random}} (persona/scenario fields) must not re-roll under the copy's new id: the copy pins the source's seed,
+    # transitively (a checkpoint of a checkpoint keeps the original seed).
     copy = await dbmod.get_conversation(new_cid)
     assert copy is not None and copy["macro_seed"] == cid
 
-    resp = await client.post(f"/api/conversations/{new_cid}/checkpoint", json={"title": "cp2"})
-    assert resp.status_code == 200
-    grandchild = await dbmod.get_conversation(resp.json()["id"])
+    resp = await client.post_json(f"/api/conversations/{new_cid}/checkpoint", json={"title": "cp2"})
+    grandchild = await dbmod.get_conversation(resp["id"])
     assert grandchild is not None and grandchild["macro_seed"] == cid

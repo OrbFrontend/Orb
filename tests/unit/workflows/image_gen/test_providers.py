@@ -1,9 +1,8 @@
 """The preset table and the pure request builders that read it.
 
-xAI *silently ignores* unknown fields, so the API never tells you a parameter was
-wrong: sending everything and letting the server sort it out is the difference
-between a working negative prompt and one the user watches have no effect. Hence
-the allowlist, and hence most of the assertions below being about what is absent.
+xAI *silently ignores* unknown fields, so the API never tells you a parameter was wrong: sending everything and letting the
+server sort it out is the difference between a working negative prompt and one the user watches have no effect. Hence the
+allowlist, and hence most of the assertions below being about what is absent.
 """
 
 from __future__ import annotations
@@ -44,8 +43,7 @@ assert OPENAI is not None
 def test_every_preset_endpoint_is_https():
     for preset in PRESETS:
         if not preset.base_url:
-            # `custom` has none by design; the config normalizer is what refuses a
-            # plaintext or credentialed URL for it.
+            # `custom` has none by design; the config normalizer is what refuses a plaintext or credentialed URL for it.
             assert preset.id == "custom"
             continue
         parsed = urlsplit(preset.base_url)
@@ -53,13 +51,7 @@ def test_every_preset_endpoint_is_https():
         assert not parsed.username and not parsed.password, preset.id
     # An unverified row is a guess from vendor docs, and saying so in the table is
     # what keeps the next person from trusting it as measured fact.
-    assert [preset.id for preset in PRESETS if preset.verified] == [
-        "xai",
-        "togetherai",
-        "openrouter",
-        "openai",
-        "nanogpt",
-    ]
+    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai", "openrouter", "openai", "nanogpt"]
 
 
 def test_a_width_height_preset_declares_the_grid_it_snaps_to():
@@ -111,15 +103,12 @@ def test_xai_never_receives_size_even_though_it_is_the_openai_spelling():
 
 
 def test_openai_declares_no_response_format_because_it_rejects_the_field():
-    """The row's inertness, pinned. Where OpenRouter's allowlist buys *honesty* --
-    fields it omits would be silently ignored -- OpenAI's buys the render: every
-    undeclared field is answered with HTTP 400 `unknown_parameter`.
+    """The row's inertness, pinned. Where OpenRouter's allowlist buys *honesty* -- fields it omits would be silently ignored --
+    OpenAI's buys the render: every undeclared field is answered with HTTP 400 `unknown_parameter`.
 
-    `response_format` is the one that mattered, because it was sent by *preset
-    default* rather than by this row, so nothing here looked wrong. `b64_json` comes
-    back regardless and `_image_bytes` reads it first, so declaring none loses
-    nothing. The absence itself is asserted for every preset in
-    `test_no_preset_emits_a_field_it_does_not_declare`.
+    `response_format` is the one that mattered, because it was sent by *preset default* rather than by this row, so nothing here
+    looked wrong. `b64_json` comes back regardless and `_image_bytes` reads it first, so declaring none loses nothing. The
+    absence itself is asserted for every preset in `test_no_preset_emits_a_field_it_does_not_declare`.
     """
     assert OPENAI.response_formats == ()
     built = build_generation_body(OPENAI, model="gpt-image-1", prompt="p", quality="high", width=1024, height=1024)
@@ -143,14 +132,7 @@ def test_openai_takes_a_reference_under_its_own_element_key():
 @pytest.mark.parametrize("preset", PRESETS, ids=[preset.id for preset in PRESETS])
 def test_no_preset_emits_a_field_it_does_not_declare(preset):
     body = build_generation_body(
-        preset,
-        model="m",
-        prompt="p",
-        negative_prompt="blurry, extra fingers",
-        seed=42,
-        quality="high",
-        width=1024,
-        height=1536,
+        preset, model="m", prompt="p", negative_prompt="blurry, extra fingers", seed=42, quality="high", width=1024, height=1536
     ).body
     if not preset.supports_negative_prompt:
         assert "negative_prompt" not in body
@@ -168,9 +150,8 @@ def test_no_preset_emits_a_field_it_does_not_declare(preset):
         assert "aspect_ratio" not in body
     if preset.dimension_mode != "width_height":
         assert "width" not in body and "height" not in body
-    # Never, on any provider: moderation is team-gated on xAI and hard-fails the
-    # call; `user` is a stable identifier shipped to a third party for no benefit;
-    # `style` would double-apply, since Orb styles already inject prompt text.
+    # Never, on any provider: moderation is team-gated on xAI and hard-fails the call; `user` is a stable identifier shipped to
+    # a third party for no benefit; `style` would double-apply, since Orb styles already inject prompt text.
     assert "moderation" not in body
     assert "user" not in body
     assert "style" not in body
@@ -186,9 +167,8 @@ def test_a_declaring_provider_does_receive_the_optional_fields():
     ).body
     assert body["negative_prompt"] == "blurry"
     assert body["seed"] == 7
-    # Integers, not `size`: the live API accepts `size`, ignores it, and renders the
-    # model default -- so the declared-from-docs spelling produced a request that
-    # succeeded, disclosed a resolution, and returned a different one.
+    # Integers, not `size`: the live API accepts `size`, ignores it, and renders the model default -- so the declared-from-docs
+    # spelling produced a request that succeeded, disclosed a resolution, and returned a different one.
     assert (body["width"], body["height"]) == (1024, 1024)
     assert "size" not in body
 
@@ -230,9 +210,8 @@ def test_a_tiny_request_is_floored_at_the_minimum():
 @pytest.mark.parametrize(
     "model, negative, sent, disclosed",
     [
-        # Support is a provider fact, so the field keeps being sent -- a model that
-        # ignores it today is one the provider may teach it tomorrow. What the user
-        # gets is the disclosure, at the render that discarded it.
+        # Support is a provider fact, so the field keeps being sent -- a model that ignores it today is one the provider may
+        # teach it tomorrow. What the user gets is the disclosure, at the render that discarded it.
         ("black-forest-labs/FLUX.1-schnell", "blurry", True, True),
         # A note that fires on every render is one users learn to skip.
         ("stabilityai/stable-diffusion-xl-base-1.0", "blurry", True, False),
@@ -248,15 +227,13 @@ def test_a_negative_prompt_is_sent_and_disclosed_per_model(model, negative, sent
 
 @pytest.mark.parametrize("preset", [XAI, NANOGPT, OPENAI], ids=["xai 8000", "nanogpt 3000", "openai 32000"])
 def test_an_overlong_prompt_is_truncated_to_the_providers_own_limit(preset):
-    """NanoGPT is why this is per preset rather than a constant: 3000, verified live,
-    and it 400s a longer prompt rather than truncating it. A composed scene plus a
-    style prompt clears the default 4000 easily, so truncating here is what keeps
-    that from being a failed render.
+    """NanoGPT is why this is per preset rather than a constant: 3000, verified live, and it 400s a longer prompt rather than
+    truncating it. A composed scene plus a style prompt clears the default 4000 easily, so truncating here is what keeps that
+    from being a failed render.
 
-    OpenAI is the same fact from the other end -- 31,992 characters accepted and
-    39,996 rejected, so the 4,000 it inherited from the shared default was dall-e-3's
-    limit truncating 28,000 characters this API takes. No dall-e model is in the
-    catalogue any more.
+    OpenAI is the same fact from the other end -- 31,992 characters accepted and 39,996 rejected, so the 4,000 it inherited from
+    the shared default was dall-e-3's limit truncating 28,000 characters this API takes. No dall-e model is in the catalogue any
+    more.
     """
     assert (NANOGPT.max_prompt, OPENAI.max_prompt) == (3_000, 32_000)
     built = build_generation_body(preset, model="m", prompt="x" * (preset.max_prompt + 50))
@@ -328,14 +305,12 @@ def test_a_singular_reference_field_discloses_the_ones_it_dropped():
 
 
 def test_capacity_is_derived_from_the_encoding_and_nobody_maintains_a_count():
-    """Capacity used to be a hand-measured integer per provider, which meant it was
-    permanently unfinished and defaulted to withholding. It now falls out of the one
-    thing that genuinely constrains it -- can the field hold a list.
+    """Capacity used to be a hand-measured integer per provider, which meant it was permanently unfinished and defaulted to
+    withholding. It now falls out of the one thing that genuinely constrains it -- can the field hold a list.
 
-    Whether the *model* reads every element is deliberately not answered here. A model
-    that will not take what it was sent says so in its refusal, which Orb surfaces for
-    the user to act on. Guessing low used to cost the user a capability with nothing on
-    screen to say so.
+    Whether the *model* reads every element is deliberately not answered here. A model that will not take what it was sent says
+    so in its refusal, which Orb surfaces for the user to act on. Guessing low used to cost the user a capability with nothing
+    on screen to say so.
     """
     for preset in PRESETS:
         capacity = reference_capacity(preset, 4)
@@ -387,9 +362,8 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     if isinstance(carried, str):
         uri = carried
     elif isinstance(carried, list):
-        # The element is the encoding's, not the field's: OpenAI's `images` array wants
-        # `{"image_url": ...}` where xAI's wants `{"url": ...}` and rejects the other by
-        # name, while NanoGPT's `imageDataUrls` wants the bare string.
+        # The element is the encoding's, not the field's: OpenAI's `images` array wants `{"image_url": ...}` where xAI's wants
+        # `{"url": ...}` and rejects the other by name, while NanoGPT's `imageDataUrls` wants the bare string.
         first = carried[0]
         uri = first if isinstance(first, str) else next(iter(first.values()))
     else:
@@ -402,11 +376,10 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
 def test_reference_support_is_asked_of_the_provider_and_never_of_the_model():
     """The per-model allowlist is gone, and its absence is the point.
 
-    It was a hand-kept table over catalogues that grow without us, so it was always
-    behind, and being behind is invisible: the user configured a likeness, paid for the
-    render, and got neither the picture nor a word about it. Every model on a provider
-    with a reference field now gets one, and a model that will not take it refuses --
-    free, and one rung down rather than a failed render.
+    It was a hand-kept table over catalogues that grow without us, so it was always behind, and being behind is invisible: the
+    user configured a likeness, paid for the render, and got neither the picture nor a word about it. Every model on a provider
+    with a reference field now gets one, and a model that will not take it refuses -- free, and one rung down rather than a
+    failed render.
     """
     assert takes_references(TOGETHER) is True
     assert takes_references(XAI) is True
@@ -420,12 +393,7 @@ def test_a_reference_render_discloses_that_it_overrode_the_resolution():
     1024x1024. The picker still shows a resolution that no longer applies, so the
     render says so rather than leaving it to be noticed."""
     built = build_edit_body(
-        TOGETHER,
-        model="black-forest-labs/FLUX.1-kontext-pro",
-        prompt="p",
-        references=[_reference()],
-        width=1024,
-        height=576,
+        TOGETHER, model="black-forest-labs/FLUX.1-kontext-pro", prompt="p", references=[_reference()], width=1024, height=576
     )
     assert any("set the output size" in note for note in built.notes)
 
@@ -469,13 +437,12 @@ def test_a_provider_without_reference_support_never_takes_them():
 
 
 def test_openrouter_sends_neither_a_seed_nor_a_negative_prompt():
-    """Both were measured inert, not read off the catalogue -- which advertises
-    `seed` on every image model because the images path is a shim over the chat
-    schema. Two calls at one seed disagreed on two different model families, so
-    emitting the field would make `seed_honored` a claim the user cannot check.
+    """Both were measured inert, not read off the catalogue -- which advertises `seed` on every image model because the images
+    path is a shim over the chat schema. Two calls at one seed disagreed on two different model families, so emitting the
+    field would make `seed_honored` a claim the user cannot check.
 
-    Unknown fields are accepted silently here, so the allowlist is the only thing
-    standing between a dropped field and a user who thinks it applied.
+    Unknown fields are accepted silently here, so the allowlist is the only thing standing between a dropped field and a user
+    who thinks it applied.
     """
     body = build_generation_body(
         OPENROUTER,

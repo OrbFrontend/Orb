@@ -1,5 +1,4 @@
-"""Add direction-note storage and settings, defaulting recording/injection off
-and fragment timing to post_turn.
+"""Add direction-note storage and settings, defaulting recording/injection off and fragment timing to post_turn.
 
 Freeze historical DDL here: 0067 converts notes and 0079 drops the table.
 """
@@ -7,6 +6,8 @@ Freeze historical DDL here: 0067 converts notes and 0079 drops the table.
 from __future__ import annotations
 
 import sqlite3
+
+from .helpers import add_columns
 
 _DIRECTION_NOTES_SQL = """
 CREATE TABLE IF NOT EXISTS direction_notes (
@@ -26,18 +27,15 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id)")
 
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
-    if "direction_notes_record" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN direction_notes_record INTEGER NOT NULL DEFAULT 0")
-        print("[migrations] 0035: added direction_notes_record column to settings")
-    if "direction_notes_inject" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN direction_notes_inject TEXT NOT NULL DEFAULT 'off'")
-        print("[migrations] 0035: added direction_notes_inject column to settings")
+    add_columns(
+        conn,
+        "settings",
+        "direction_notes_record INTEGER NOT NULL DEFAULT 0",
+        "direction_notes_inject TEXT NOT NULL DEFAULT 'off'",
+        migration="0035",
+    )
 
-    frag_cols = {row[1] for row in conn.execute("PRAGMA table_info(interactive_fragments)").fetchall()}
-    if "direction_note_timing" not in frag_cols:
-        conn.execute("ALTER TABLE interactive_fragments ADD COLUMN direction_note_timing TEXT NOT NULL DEFAULT 'post_turn'")
-        print("[migrations] 0035: added direction_note_timing column to interactive_fragments")
+    add_columns(conn, "interactive_fragments", "direction_note_timing TEXT NOT NULL DEFAULT 'post_turn'", migration="0035")
 
     # Ship the default direction_note fragment to existing installs; the guard makes this a
     # no-op on fresh ones, which seeded it before migrations ran. Keep this description in sync

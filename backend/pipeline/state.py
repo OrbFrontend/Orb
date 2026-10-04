@@ -9,18 +9,15 @@ from typing import Any
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
 from ..database.models import DirectorStateRow
 from ..inference import CachedBase, LLMClient
-from ..prompting.lorebook import (
-    compute_agentic_lorebook_block,
-)
+from ..prompting.lorebook import compute_agentic_lorebook_block
 from .passes.editor.length_guard import LengthGuard
 
 
 class BranchBaseline(DirectorStateRow, total=False):
     """The Director state a turn starts from, rebased onto the branch it extends.
 
-    ``get_director_state`` supplies the row; the turn handlers fill the rest from
-    the branch's own history, so a regeneration starts where the reply it
-    replaces did rather than where the conversation's latest turn left off.
+    ``get_director_state`` supplies the row; the turn handlers fill the rest from the branch's own history, so a regeneration
+    starts where the reply it replaces did rather than where the conversation's latest turn left off.
     """
 
     # Resting counters for mood/interactive fragments and for decisions.
@@ -28,8 +25,7 @@ class BranchBaseline(DirectorStateRow, total=False):
     decision_cooldowns: dict[str, int]
     # The replaced reply's stored Judge evaluations, replayed on a regeneration.
     decision_replay: list[dict[str, Any]]
-    # The branch's folded state fragments, and the user corrections carried onto
-    # it from the reply a regeneration replaces.
+    # The branch's folded state fragments, and the user corrections carried onto it from the reply a regeneration replaces.
     fragment_state: StateView
     state_carried: list[dict[str, Any]]
 
@@ -58,17 +54,15 @@ class PipelineConfig:
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
-    # Macro-resolved reasoning prefill per pass (text mode only; ignored when
-    # that pass's reasoning is off — see reasoning_cfg).
+    # Macro-resolved reasoning prefill per pass (text mode only; ignored when that pass's reasoning is off — see reasoning_cfg).
     director_reasoning_prefill: str
     writer_reasoning_prefill: str
     editor_reasoning_prefill: str
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
-    # ``agent_lane`` runs director + editor. In single-model mode they are the
-    # same object by construction (see :class:`ModelLane`).
+    # The two call surfaces for the turn. ``writer_lane`` runs the writer pass; ``agent_lane`` runs director + editor. In
+    # single-model mode they are the same object by construction (see :class:`ModelLane`).
     writer_lane: ModelLane
     agent_lane: ModelLane
 
@@ -119,9 +113,8 @@ _DIRECTOR_SEED_FIELDS = (
     "scene_direction",
     "writer_lorebook_block",
     "reasoning_director",
-    # The exchange's before-Writer state changes and the working state they
-    # produced. The driver clears the events and report once the first reply
-    # has anchored them; the view stays, so later speakers read the same state.
+    # The exchange's before-Writer state changes and the working state they produced. The driver clears the events and report
+    # once the first reply has anchored them; the view stays, so later speakers read the same state.
     "state_events",
     "state_report",
     "state_view",
@@ -130,13 +123,7 @@ _DIRECTOR_SEED_FIELDS = (
 
 
 # Fields exposed as the read-only Director output to post-pipeline workflows.
-_DIRECTOR_OUTPUT_FIELDS = (
-    "active_moods",
-    "agent_raw",
-    "calls",
-    "latency",
-    "extra_fields",
-)
+_DIRECTOR_OUTPUT_FIELDS = ("active_moods", "agent_raw", "calls", "latency", "extra_fields")
 
 
 def empty_state_report() -> dict[str, list[dict]]:

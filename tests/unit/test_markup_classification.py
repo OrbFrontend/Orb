@@ -37,8 +37,7 @@ def test_pure_dialogue_has_unknown_narration():
 
 def test_embedded_thought_does_not_flip_narration_axis():
     text = (
-        "She paused at the door, one hand on the frame. "
-        "*Was he really serious about this?* "
+        "She paused at the door, one hand on the frame. *Was he really serious about this?* "
         '"Tell me the truth," she said quietly.'
     )
     assert classify_axes(text).narration != Narration.ASTERISK
@@ -75,8 +74,7 @@ def test_emphasis_in_dialogue_not_misread_as_narration_axis():
 
 HALF_ASTERISKED_DRAFT = (
     "Amaryllis blinked, caught off guard by how serious the question was.\n\n"
-    "Her fingers tightened around the spine of the book.\n\n"
-    "*She let out a short, breathy laugh, the first in weeks.*\n\n"
+    "Her fingers tightened around the spine of the book.\n\n*She let out a short, breathy laugh, the first in weeks.*\n\n"
     '"Battle scenes?" *she asked, her accent lilting.* "Aye, there\'s a few."\n\n'
     '*She cleared her throat and looked away.* "There\'s a siege in the third act."'
 )

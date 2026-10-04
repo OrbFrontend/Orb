@@ -1,7 +1,6 @@
 """Add per-model extra_headers and extra_body, defaulting to empty.
 
-Headers apply to both transports; extra body fields apply to chat only.
-Validation stays in the API.
+Headers apply to both transports; extra body fields apply to chat only. Validation stays in the API.
 """
 
 from __future__ import annotations

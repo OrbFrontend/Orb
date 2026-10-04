@@ -20,12 +20,7 @@ def _mock_http(monkeypatch, handler) -> None:
 
 @pytest.mark.parametrize(
     ("mode", "blocked_path"),
-    [
-        ("chat", "/v1/chat/completions"),
-        ("raw", "/completion"),
-        ("text", "/props"),
-        ("text", "/apply-template"),
-    ],
+    [("chat", "/v1/chat/completions"), ("raw", "/completion"), ("text", "/props"), ("text", "/apply-template")],
 )
 async def test_stop_interrupts_setup_without_waiting_for_the_server(monkeypatch, mode, blocked_path):
     reached, cancelled = asyncio.Event(), asyncio.Event()

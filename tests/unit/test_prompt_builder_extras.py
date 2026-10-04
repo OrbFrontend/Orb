@@ -1,8 +1,7 @@
 """Coverage for the prefix-extras kwarg and the attachment source-branch.
 
-Empty-input parity is the load-bearing property: when no workflow yields
-a system_prompt or stages an attachment, prefix bytes must match the
-shape produced when neither extension exists.
+Empty-input parity is the load-bearing property: when no workflow yields a system_prompt or stages an attachment, prefix bytes
+must match the shape produced when neither extension exists.
 """
 
 from __future__ import annotations
@@ -12,9 +11,7 @@ import pytest
 from backend.prompting import build_prefix, format_message_with_attachments
 
 _BASE_KWARGS = dict(
-    system_prompt="You are an assistant.",
-    char_persona="A test character.",
-    char_scenario="In a test scenario.",
+    system_prompt="You are an assistant.", char_persona="A test character.", char_scenario="In a test scenario."
 )
 
 
@@ -108,27 +105,19 @@ def test_build_prefix_omits_user_section_when_description_whitespace_only():
 
 def test_format_no_attachments_returns_string_content():
     msg = {"role": "user", "content": "hello"}
-    assert format_message_with_attachments(msg, macros=None) == {
-        "role": "user",
-        "content": "hello",
-    }
+    assert format_message_with_attachments(msg, macros=None) == {"role": "user", "content": "hello"}
 
 
 def test_format_no_attachments_empty_content_returns_empty_string():
     msg = {"role": "user", "content": ""}
-    assert format_message_with_attachments(msg, macros=None) == {
-        "role": "user",
-        "content": "",
-    }
+    assert format_message_with_attachments(msg, macros=None) == {"role": "user", "content": ""}
 
 
 def test_format_user_attachment_only_produces_multimodal_parts():
     msg = {
         "role": "user",
         "content": "look",
-        "user_attachments": [
-            {"mime_type": "image/png", "data_b64": "ZmFrZQ=="},
-        ],
+        "user_attachments": [{"mime_type": "image/png", "data_b64": "ZmFrZQ=="}],
         "workflow_attachments": [],
     }
     out = format_message_with_attachments(msg, macros=None)
@@ -151,7 +140,7 @@ def test_format_workflow_root_with_annotation_appends_to_text():
                 "annotation": "[audio: 4 second clip]",
                 "mime_type": "audio/mpeg",
                 "data_b64": "QUJDRA==",
-            },
+            }
         ],
     }
     out = format_message_with_attachments(msg, macros=None)
@@ -188,7 +177,7 @@ def test_format_workflow_annotation_prefix(content, parent_id, annotation, expec
                 "annotation": annotation,
                 "mime_type": "audio/mpeg",
                 "data_b64": "QQ==",
-            },
+            }
         ],
     }
     assert format_message_with_attachments(msg, macros=None) == {"role": "assistant", "content": expected}
@@ -198,9 +187,7 @@ def test_format_mixed_user_image_and_workflow_annotation():
     msg = {
         "role": "user",
         "content": "describe",
-        "user_attachments": [
-            {"mime_type": "image/png", "data_b64": "WA=="},
-        ],
+        "user_attachments": [{"mime_type": "image/png", "data_b64": "WA=="}],
         "workflow_attachments": [
             {
                 "workflow_id": "scenebot",
@@ -208,7 +195,7 @@ def test_format_mixed_user_image_and_workflow_annotation():
                 "annotation": "scene tag",
                 "mime_type": "image/png",
                 "data_b64": "ZZ==",
-            },
+            }
         ],
     }
     out = format_message_with_attachments(msg, macros=None)
@@ -224,9 +211,7 @@ def test_format_attachment_with_only_user_list_treated_as_user():
     msg = {
         "role": "user",
         "content": "legacy",
-        "user_attachments": [
-            {"mime_type": "image/png", "data_b64": "WA=="},
-        ],
+        "user_attachments": [{"mime_type": "image/png", "data_b64": "WA=="}],
         "workflow_attachments": [],
     }
     out = format_message_with_attachments(msg, macros=None)

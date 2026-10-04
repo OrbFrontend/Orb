@@ -9,15 +9,9 @@ from backend.database import schema
 
 _CONVERSATION_COLUMNS = (
     ("kind", "TEXT NOT NULL DEFAULT 'solo' CHECK (kind IN ('solo', 'group'))"),
-    (
-        "group_turn_mode",
-        "TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director'))",
-    ),
+    ("group_turn_mode", "TEXT NOT NULL DEFAULT 'director' CHECK (group_turn_mode IN ('manual', 'round_robin', 'director'))"),
     ("group_max_speakers", "INTEGER NOT NULL DEFAULT 3 CHECK (group_max_speakers BETWEEN 1 AND 8)"),
-    (
-        "group_context_mode",
-        "TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap'))",
-    ),
+    ("group_context_mode", "TEXT NOT NULL DEFAULT 'private' CHECK (group_context_mode IN ('private', 'shared', 'swap'))"),
     ("group_sheet_updates", "INTEGER NOT NULL DEFAULT 0 CHECK (group_sheet_updates IN (0, 1))"),
     ("group_root_id", "TEXT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL"),
 )
@@ -54,9 +48,8 @@ def _add_columns(conn: sqlite3.Connection, table: str, additions: Sequence[tuple
 def migrate(conn: sqlite3.Connection) -> None:
     _add_columns(conn, "conversations", _CONVERSATION_COLUMNS)
 
-    # Both tables come from the canonical fresh-install DDL rather than a pasted
-    # copy: group_members carries a UNIQUE constraint and two CHECKs,
-    # member_sheet_proposals a status CHECK and two cascading edges.
+    # Both tables come from the canonical fresh-install DDL rather than a pasted copy: group_members carries a UNIQUE constraint
+    # and two CHECKs, member_sheet_proposals a status CHECK and two cascading edges.
     conn.execute(schema.table_create_sql("group_members"))
     conn.execute(schema.table_create_sql("member_sheet_proposals"))
 

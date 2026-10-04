@@ -1,8 +1,7 @@
 """The duplicate finder's signals: normalization, hashing, and avatar hashing.
 
-Pure functions, no app stack. These decide what "the same card" means, so each
-test states the rule it protects and why the rule exists — a threshold that
-drifts here silently changes what the scan reports.
+Pure functions, no app stack. These decide what "the same card" means, so each test states the rule it protects and why the rule
+exists — a threshold that drifts here silently changes what the scan reports.
 """
 
 from __future__ import annotations
@@ -49,21 +48,18 @@ def _card(**overrides) -> dict:
 
 
 def test_normalization_folds_case_and_collapses_whitespace():
-    # The same prose re-wrapped by an editor, or re-cased by a site, is the same
-    # prose — a duplicate that survives a reflow is exactly the case this feature
-    # exists for.
+    # The same prose re-wrapped by an editor, or re-cased by a site, is the same prose — a duplicate that survives a reflow is
+    # exactly the case this feature exists for.
     assert normalize_field("  A  Hedge-Witch\n\tkeeps   bees. ") == "a hedge-witch keeps bees."
 
 
 def test_alternate_greetings_are_sorted_and_deduplicated():
-    # Order is presentation, and the same greeting listed twice is not a
-    # different card, so neither may change the signature.
+    # Order is presentation, and the same greeting listed twice is not a different card, so neither may change the signature.
     assert normalize_field(["Two", "One", "one"]) == normalize_field(["ONE", "Two"])
 
 
 def test_a_non_string_field_normalizes_to_nothing_rather_than_raising():
-    # Cards come from arbitrary imported PNGs; a field holding a number or None
-    # must not fail a library-wide scan.
+    # Cards come from arbitrary imported PNGs; a field holding a number or None must not fail a library-wide scan.
     assert normalize_field(None) == "" and normalize_field(7) == ""
 
 
@@ -71,8 +67,7 @@ def test_a_non_string_field_normalizes_to_nothing_rather_than_raising():
 
 
 def test_retagging_a_card_does_not_change_its_body_hash():
-    # Tags are organizational. If they fed the signature, one auto-tagging run
-    # would lapse every dismissal in the library.
+    # Tags are organizational. If they fed the signature, one auto-tagging run would lapse every dismissal in the library.
     assert body_hash(_card(tags=["Fantasy"])) == body_hash(_card(tags=["Romance", "Slow burn"]))
 
 
@@ -91,8 +86,7 @@ def test_moving_text_between_two_fields_changes_the_body_hash():
 
 
 def test_a_card_with_no_content_at_all_has_no_body_hash():
-    # "" is the skip signal everywhere downstream. Two blank cards must not
-    # block together on the emptiness they share.
+    # "" is the skip signal everywhere downstream. Two blank cards must not block together on the emptiness they share.
     blank = {key: "" for key in _card()}
     assert body_hash(blank) == ""
 
@@ -101,9 +95,8 @@ def test_a_card_with_no_content_at_all_has_no_body_hash():
 
 
 def test_empty_fields_are_omitted_from_the_field_hashes():
-    # Most cards ship a blank system_prompt, scenario and mes_example. Hashing ""
-    # would drop the whole library into one block and produce a flood of
-    # "same system prompt" reasons for cards that each merely left it empty.
+    # Most cards ship a blank system_prompt, scenario and mes_example. Hashing "" would drop the whole library into one block
+    # and produce a flood of "same system prompt" reasons for cards that each merely left it empty.
     hashes = field_hashes(_card())
     assert "system_prompt" not in hashes and "scenario" not in hashes
     assert {"name", "description", "personality", "first_mes"} <= set(hashes)
@@ -117,9 +110,8 @@ def test_two_cards_agreeing_on_a_field_share_its_hash():
 
 
 def test_shingle_hashes_are_stable_across_processes():
-    # blake2b, not the built-in hash(): Python randomizes string and tuple
-    # hashing per process, so sketches built with hash() would differ between
-    # a scan and the next scan after a restart.
+    # blake2b, not the built-in hash(): Python randomizes string and tuple hashing per process, so sketches built with hash()
+    # would differ between a scan and the next scan after a restart.
     import subprocess  # nosec B404
     import sys
 
@@ -142,8 +134,7 @@ def test_the_sketch_is_the_smallest_hashes_and_is_capped():
 
 
 def test_a_card_shorter_than_the_shingle_width_produces_no_shingles():
-    # Four tokens cannot form a 5-gram. It must yield an empty set rather than
-    # raise, because a one-line card is a real card.
+    # Four tokens cannot form a 5-gram. It must yield an empty set rather than raise, because a one-line card is a real card.
     assert shingles({"description": "she keeps the bees"}) == frozenset()
 
 
@@ -180,9 +171,8 @@ def test_the_same_art_re_encoded_as_jpeg_keeps_its_dhash(art):
 
 
 def test_the_same_art_downscaled_by_half_stays_within_the_avatar_threshold(art):
-    # This is why the threshold is 8 and not the textbook 4: on art this
-    # high-frequency a plain 2x resize — what a different download site does —
-    # already costs several bits on its own.
+    # This is why the threshold is 8 and not the textbook 4: on art this high-frequency a plain 2x resize — what a different
+    # download site does — already costs several bits on its own.
     original = dhash_from_image_bytes(_encode(art, "PNG"))
     half = art.resize((art.width // 2, art.height // 2), Image.Resampling.LANCZOS)
     third = art.resize((art.width // 3, art.height // 3), Image.Resampling.LANCZOS)
@@ -211,10 +201,8 @@ def test_an_undecodable_avatar_yields_no_hash_rather_than_raising():
 def test_an_oversized_image_is_refused_from_its_header_alone(monkeypatch):
     """The decompression-bomb guard is local, not PIL's global MAX_IMAGE_PIXELS.
 
-    Raising or lowering that global from here would silently change behaviour
-    for card parsing and the image-gen workflow, so the size check reads
-    ``Image.open``'s lazily-parsed header and bails before ``convert("L")``
-    decodes a single row.
+    Raising or lowering that global from here would silently change behaviour for card parsing and the image-gen workflow, so
+    the size check reads ``Image.open``'s lazily-parsed header and bails before ``convert("L")`` decodes a single row.
     """
     import backend.features.library_dedupe.fingerprint as fingerprint
 

@@ -1,6 +1,5 @@
-"""Check that Document audit calls byte-extend generation for each transport: raw
-text prompt, assisted template/prefill, or replayed chat messages. Keep chat
-patch schemas outside the prompt and reasoning kwargs unchanged.
+"""Check that Document audit calls byte-extend generation for each transport: raw text prompt, assisted template/prefill, or
+replayed chat messages. Keep chat patch schemas outside the prompt and reasoning kwargs unchanged.
 """
 
 from __future__ import annotations
@@ -138,6 +137,5 @@ async def test_chat_shapes_patch_messages_replay_generation():
         # rendered prompt; forcing rides response_format via this flag.
         assert gen["tools"] is None
         assert patch["params"]["tools_in_prompt"] is False
-        # Same reasoning kwargs on both calls — a mismatch would fork the
-        # template render (enable_thinking bytes).
+        # Same reasoning kwargs on both calls — a mismatch would fork the template render (enable_thinking bytes).
         assert patch["params"]["chat_template_kwargs"] == gen["params"]["chat_template_kwargs"], (prompt, assisted)

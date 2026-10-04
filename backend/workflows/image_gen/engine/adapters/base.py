@@ -33,9 +33,8 @@ class ImageAdapter(ABC):
     def label(self) -> str:
         """What this *configured* adapter calls itself to the user.
 
-        `display_name` names the backend for the source picker ("Cloud API");
-        `label` names what is actually rendering ("xAI (Grok)"), which belongs on a
-        stored attachment and in a progress line.
+        `display_name` names the backend for the source picker ("Cloud API"); `label` names what is actually rendering ("xAI
+        (Grok)"), which belongs on a stored attachment and in a progress line.
         """
         return self.display_name
 
@@ -43,21 +42,16 @@ class ImageAdapter(ABC):
     def resolve_target(self, replay: Mapping[str, Any] | None) -> RenderTarget:
         """Pick what will execute, for a fresh render or a replay of a stored one.
 
-        A fresh render follows the bound style; a replay follows what the stored
-        image recorded, because reroll and rehydrate promise the *same* parameters.
+        A fresh render follows the bound style; a replay follows what the stored image recorded, because reroll and rehydrate
+        promise the *same* parameters.
 
-        Deliberately takes no style: the adapter is bound to one, and a second way
-        to supply it is a second thing that can disagree with the router's choice --
-        which is the bug that made a rehydrate render on the wrong backend.
+        Deliberately takes no style: the adapter is bound to one, and a second way to supply it is a second thing that can
+        disagree with the router's choice -- which is the bug that made a rehydrate render on the wrong backend.
         """
 
     @abstractmethod
     async def generate(
-        self,
-        request: ImageRequest,
-        *,
-        target: RenderTarget,
-        progress: ProgressCallback | None = None,
+        self, request: ImageRequest, *, target: RenderTarget, progress: ProgressCallback | None = None
     ) -> ImageResult: ...
 
     @abstractmethod
@@ -70,12 +64,11 @@ class ImageAdapter(ABC):
     def readiness(self, model: str = "") -> dict:
         """``{"ready", "reason", "detail"}`` about the bound style, no I/O.
 
-        Deliberately not a health probe: the tools-panel card renders on every open,
-        and making that wait on a remote server trades a fast answer for a slow one.
+        Deliberately not a health probe: the tools-panel card renders on every open, and making that wait on a remote server
+        trades a fast answer for a slow one.
 
-        `model` asks the question about a specific model rather than the configured
-        one, so a replay is judged on what the stored image recorded. An adapter that
-        does not pick models per render may ignore it.
+        `model` asks the question about a specific model rather than the configured one, so a replay is judged on what the
+        stored image recorded. An adapter that does not pick models per render may ignore it.
         """
 
     async def list_models(self) -> list[str]:
@@ -98,21 +91,17 @@ def replayed_target(replay: Mapping[str, Any] | None, *, model: str, width: int,
 def replayed_text(replay: Mapping[str, Any] | None, key: str, current: str) -> str:
     """One recorded string setting, falling back to what the bound style says now.
 
-    Membership is not the test and truthiness is not either: `""` is a real recorded
-    value for both settings this serves -- "the provider's default quality", "no
-    reference" -- while a *typed* absence is what an attachment made on a backend
-    with no such setting records, and what every attachment predating the record has.
-    So the rule is "a string wins, anything else falls through".
+    Membership is not the test and truthiness is not either: `""` is a real recorded value for both settings this serves -- "the
+    provider's default quality", "no reference" -- while a *typed* absence is what an attachment made on a backend with no such
+    setting records, and what every attachment predating the record has. So the rule is "a string wins, anything else falls
+    through".
     """
     stored = (replay or {}).get(key)
     return stored if isinstance(stored, str) else current
 
 
 def replayed_reference_source(
-    replay: Mapping[str, Any] | None,
-    current: str,
-    *,
-    slots: Sequence[Mapping[str, Any]] | None = None,
+    replay: Mapping[str, Any] | None, current: str, *, slots: Sequence[Mapping[str, Any]] | None = None
 ) -> str:
     """Return the stored reference source or current defaults."""
     if not replay:

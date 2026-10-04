@@ -25,15 +25,11 @@ DEFAULT_STATE_INJECT = "both"
 MAX_STATE_TEXT_CHARS = 800
 MAX_ACTIVE_ENTRIES = 12
 
-# Fixed tool parameters that interactive fragment ids would overwrite:
-# ``direct_scene``'s ``moods`` and group speaking plan, and ``update_state``'s
-# ``retire``.
+# Fixed tool parameters that interactive fragment ids would overwrite: ``direct_scene``'s ``moods`` and group speaking plan, and
+# ``update_state``'s ``retire``.
 RESERVED_FRAGMENT_IDS = frozenset({"moods", "speaking_plan", "retire"})
 
-AGENT_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
-    "value": frozenset({"set"}),
-    "entries": frozenset({"add", "retire"}),
-}
+AGENT_OPS_BY_MODE: Mapping[str, frozenset[str]] = {"value": frozenset({"set"}), "entries": frozenset({"add", "retire"})}
 USER_OPS_BY_MODE: Mapping[str, frozenset[str]] = {
     "value": frozenset({"set", "clear", "revise", "retire"}),
     "entries": frozenset({"add", "revise", "retire"}),

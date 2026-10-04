@@ -25,11 +25,9 @@ CARD_SYSTEM_PROMPT = (
     f"Create a minimal public cast profile for one roleplay character. {PROFILE_FLOOR} Call the requested tool."
 )
 
-# The extra sentence is what buys mode-independence. A scene profile is read by
-# every other member of the cast, so it must not be written from any one
-# member's vantage point -- otherwise a later Character-context switch, or
-# simply a different speaker, would invalidate a profile the user has already
-# reviewed and saved.
+# The extra sentence is what buys mode-independence. A scene profile is read by every other member of the cast, so it must not
+# be written from any one member's vantage point -- otherwise a later Character-context switch, or simply a different speaker,
+# would invalidate a profile the user has already reviewed and saved.
 SCENE_SYSTEM_PROMPT = (
     "Create a minimal public profile for one member of a group roleplay scene: what the rest of the cast "
     f"openly knows about them here. {PROFILE_FLOOR} It must read the same no matter which member is currently "
@@ -61,9 +59,8 @@ DRAFT_PROFILE_TOOL = {
     },
 }
 
-# The rendered profile is two short lines inside a prefix every member reads, so
-# the cap is a prompt-budget rule as much as a style one. Stated in
-# PROFILE_FLOOR and enforced below: a system prompt is a request, not a contract.
+# The rendered profile is two short lines inside a prefix every member reads, so the cap is a prompt-budget rule as much as a
+# style one. Stated in PROFILE_FLOOR and enforced below: a system prompt is a request, not a contract.
 MAX_FIELD_WORDS = 30
 
 
@@ -75,10 +72,9 @@ class PublicProfileDraft(TypedDict):
 class ProfileDraftUnavailable(RuntimeError):
     """The endpoint answered, but not with a profile this may hand back.
 
-    Raised for an absent or unnamed tool call and for a parsed draft that fails
-    the output contract. Distinct from ``LLMCallError``, which the transport
-    raises and this module never catches: both become a 502, but only this one
-    means the call itself succeeded. The routes own that mapping.
+    Raised for an absent or unnamed tool call and for a parsed draft that fails the output contract. Distinct from
+    ``LLMCallError``, which the transport raises and this module never catches: both become a 502, but only this one means the
+    call itself succeeded. The routes own that mapping.
     """
 
 
@@ -102,9 +98,8 @@ def _clean_field(value: Any, label: str) -> str:
 def _quote(text: str) -> str:
     """Variable text as an explicitly delimited block.
 
-    Labels make the message legible; the fence makes the data boundary
-    structural, so card prose or a locally edited display name cannot read as a
-    continuation of the drafting instruction.
+    Labels make the message legible; the fence makes the data boundary structural, so card prose or a locally edited display
+    name cannot read as a continuation of the drafting instruction.
     """
     return f'"""\n{text.strip()}\n"""'
 
@@ -117,8 +112,7 @@ def _section(label: str, text: str) -> list[str]:
 def build_card_message(card: Mapping[str, Any]) -> str:
     """The card editor's drafting context: the card's own text, nothing else.
 
-    There is no scene here — the card-level profile travels with the card, so
-    the only material is the card.
+    There is no scene here — the card-level profile travels with the card, so the only material is the card.
     """
     return (
         "\n\n".join(
@@ -156,17 +150,13 @@ def build_scene_message(
     parts += _section("Their character card — description", str(card.get("description") or ""))
     parts += _section("Their character card — personality", str(card.get("personality") or ""))
     parts += _section(
-        "Their example dialogue (voice reference only — never restate it in the profile)",
-        str(card.get("mes_example") or ""),
+        "Their example dialogue (voice reference only — never restate it in the profile)", str(card.get("mes_example") or "")
     )
     parts += _section(
         "The author's private directives for this character (never restate these in the profile)",
         str(card.get("post_history_instructions") or ""),
     )
-    parts += _section(
-        "Their current card-level public profile — the default this scene's profile replaces",
-        card_profile,
-    )
+    parts += _section("Their current card-level public profile — the default this scene's profile replaces", card_profile)
     closing = (
         "Adjust that default for this scene rather than restating it."
         if card_profile.strip()
@@ -182,9 +172,8 @@ async def _draft(client: LLMClient, model: str, system: str, user: str, settings
     ``LLMCallError`` propagates untouched — it already carries the provider's own
     sentence, and the routes turn it into a 502 verbatim.
     """
-    # Thinking pinned off, not left to the endpoint's default. The whole answer
-    # is two phrases under 30 words each, and reasoning is spent from the same
-    # budget, so a thinking model left unpinned only adds latency and cost.
+    # Thinking pinned off, not left to the endpoint's default. The whole answer is two phrases under 30 words each, and
+    # reasoning is spent from the same budget, so a thinking model left unpinned only adds latency and cost.
     try:
         args = await forced_draft(
             client,
@@ -200,8 +189,7 @@ async def _draft(client: LLMClient, model: str, system: str, user: str, settings
     if args is None:
         raise ProfileDraftUnavailable("The model did not return a usable profile.")
     return PublicProfileDraft(
-        appearance=_clean_field(args.get("appearance"), "appearance"),
-        role=_clean_field(args.get("role"), "role"),
+        appearance=_clean_field(args.get("appearance"), "appearance"), role=_clean_field(args.get("role"), "role")
     )
 
 

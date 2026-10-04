@@ -26,16 +26,13 @@ def _call(search: str, replace: str, *, call_id: str) -> list[dict]:
         {
             "id": call_id,
             "type": "function",
-            "function": {
-                "name": "editor_search_replace",
-                "arguments": {"patches": [{"search": search, "replace": replace}]},
-            },
+            "function": {"name": "editor_search_replace", "arguments": {"patches": [{"search": search, "replace": replace}]}},
         }
     ]
 
 
 async def _create_fragment(client, fid: str, instruction: str, sort_order: int, gate: str = "") -> None:
-    response = await client.post(
+    await client.post_checked(
         "/api/interactive-fragments",
         json={
             "id": fid,
@@ -49,7 +46,6 @@ async def _create_fragment(client, fid: str, instruction: str, sort_order: int, 
             "post_processing_gate": gate,
         },
     )
-    assert response.status_code == 200, response.text
 
 
 async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(client, llm_mock):
@@ -57,10 +53,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     await dbmod.create_conversation(cid, "post", "Bot", "a scenario")
     await client.put(
         "/api/settings",
-        json={
-            "enable_agent": True,
-            "reasoning_enabled_passes": {"director": False, "writer": False, "editor": True},
-        },
+        json={"enable_agent": True, "reasoning_enabled_passes": {"director": False, "writer": False, "editor": True}},
     )
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
     await _create_fragment(client, "second_edit", "Make the greeting warmer.", 9)
@@ -83,10 +76,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
             {
                 "id": "fb1",
                 "type": "function",
-                "function": {
-                    "name": "give_feedback",
-                    "arguments": {"suggested_actions": "Reply to the friendly greeting."},
-                },
+                "function": {"name": "give_feedback", "arguments": {"suggested_actions": "Reply to the friendly greeting."}},
             }
         ]
     )
@@ -128,10 +118,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     ]
     assert [event["data"]["refined_text"] for event in events if event.get("event") == "writer_rewrite"] == ["Hey, friend."]
     [editor_done] = [event for event in events if event.get("event") == "editor_done"]
-    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == [
-        "editor_search_replace",
-        "editor_search_replace",
-    ]
+    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["editor_search_replace", "editor_search_replace"]
     assert "first edit reasoning" in "".join(
         event["data"]["delta"] for event in events if event.get("event") == "reasoning" and event["data"]["pass"] == "editor"
     )
@@ -162,11 +149,7 @@ async def test_post_processing_receives_output_auditors_edited_draft(client, llm
     cid = "conv-post-processing-audited"
     await dbmod.create_conversation(cid, "post audited", "Bot", "a scenario")
     await client.put(
-        "/api/settings",
-        json={
-            "enable_agent": True,
-            "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
-        },
+        "/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True, "editor_apply_patch": True}}
     )
     await _create_fragment(client, "after_audit", "Soften the first line.", 8)
 
@@ -182,10 +165,7 @@ async def test_post_processing_receives_output_auditors_edited_draft(client, llm
                     "function": {
                         "name": "editor_apply_patch",
                         "arguments": {
-                            "patches": [
-                                {"id": 1, "replace": "She whispered."},
-                                {"id": 2, "replace": "He whispered back."},
-                            ]
+                            "patches": [{"id": 1, "replace": "She whispered."}, {"id": 2, "replace": "He whispered back."}]
                         },
                     },
                 }
@@ -281,16 +261,14 @@ class _Judge:
 async def _configure_judge(client) -> None:
     endpoint = (await client.post("/api/endpoints", json={"url": "https://judge.test/api/v1", "kind": "judge"})).json()
     response = await client.put(
-        "/api/decisions/config",
-        json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"},
+        "/api/decisions/config", json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"}
     )
     assert response.json()["configured"] is True
 
 
 async def _director_log(client, cid: str, message_id: int) -> dict:
-    response = await client.get(f"/api/conversations/{cid}/messages/{message_id}/director-log")
-    assert response.status_code == 200
-    return response.json()
+    response = await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
+    return response
 
 
 def _gate_records(calls: list[dict]) -> list[dict]:
@@ -422,7 +400,7 @@ def _sse_events(body: str) -> list[tuple[str, object]]:
 
 
 async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monkeypatch):
-    cards = [(await client.post("/api/characters", json={"name": name})).json()["id"] for name in ("Aria", "Kael")]
+    cards = [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
     conv = (
         await client.post(
             "/api/conversations",
@@ -447,9 +425,8 @@ async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monk
     llm_mock.enqueue_writer("I found tracks.")
     llm_mock.enqueue_writer("The ward is broken.")
 
-    response = await client.post(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
+    response = await client.post_checked(f"/api/conversations/{conv['id']}/send", json={"content": "What happened?"})
 
-    assert response.status_code == 200
     assert not any(name == "post_processing" for name, _ in llm_mock.calls)
     assert [state.rsplit("Reply:\n", 1)[1] for state in judge.states] == ["I found tracks.", "The ward is broken."]
     done = [data for name, data in _sse_events(response.text) if name == "editor_done"]

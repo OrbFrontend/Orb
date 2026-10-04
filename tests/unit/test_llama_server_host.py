@@ -1,8 +1,7 @@
 """The host's lifecycle: what a swap waits for, and what a release lets go of.
 
-Every assertion here is about the *generic* host. What may be in a profile —
-lane counts, model paths — is the owning feature's business and is tested in
-``test_prose_rewriter_config.py``.
+Every assertion here is about the *generic* host. What may be in a profile — lane counts, model paths — is the owning feature's
+business and is tested in ``test_prose_rewriter_config.py``.
 """
 
 from __future__ import annotations
@@ -61,9 +60,8 @@ class _StoppableServer:
 async def test_a_changed_profile_marks_the_loaded_host_stale(host):
     """The settings write that has to reach a running child — eventually.
 
-    ``mark_stale`` records and returns; the restart happens on the next
-    ``ensure``, because a turn may be mid-generation and a settings write has
-    no business blocking on it or killing it.
+    ``mark_stale`` records and returns; the restart happens on the next ``ensure``, because a turn may be mid-generation and a
+    settings write has no business blocking on it or killing it.
     """
     host.server = _StoppableServer()
     host.profile = _profile(parallel=4, ctx_size=5120, http_threads=12)
@@ -77,8 +75,7 @@ async def test_a_changed_profile_marks_the_loaded_host_stale(host):
 
 
 async def test_an_identical_profile_does_not_mark_the_host_stale(host):
-    """The branch that stops a settings write that changed nothing from
-    restarting a healthy child."""
+    """The branch that stops a settings write that changed nothing from restarting a healthy child."""
     host.server = _StoppableServer()
     host.profile = _profile()
     host._stale = False
@@ -177,9 +174,8 @@ async def test_a_cancelled_load_stops_its_child(host, slow_boot):
 async def test_the_gpu_setting_selects_which_build_is_launched(host, monkeypatch):
     """The switch, at the seam that performs it.
 
-    ``--n-gpu-layers`` alone was never the switch: every build parses it and a
-    CPU-only one then offloads nothing, silently and with a zero exit status.
-    The host asks for the build that can honour the number it is about to send.
+    ``--n-gpu-layers`` alone was never the switch: every build parses it and a CPU-only one then offloads nothing, silently and
+    with a zero exit status. The host asks for the build that can honour the number it is about to send.
     """
     from backend.inference.local_models.llama_server import host as H
 

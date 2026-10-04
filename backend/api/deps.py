@@ -11,15 +11,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import (
-    AsyncGenerator,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Iterator,
-    Mapping,
-    Sequence,
-)
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
@@ -29,13 +21,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..analysis.detectors.slop_detector import MAX_PHRASE_REGEX
-from ..database import (
-    get_conversation,
-    get_lorebook_entry,
-    get_workflow_attachment_by_id,
-    get_world,
-    get_world_changeset,
-)
+from ..database import get_conversation, get_lorebook_entry, get_workflow_attachment_by_id, get_world, get_world_changeset
 from ..database.models import ConversationRow
 from ..features.cards import ProfileDraftUnavailable
 from ..inference import AbortToken, LLMCallError, provider_sentence
@@ -71,10 +57,9 @@ def workflow_group_in_flight(root_id: int) -> bool:
     return lock is not None and lock.locked()
 
 
-# Workflow renders Stop can cancel, by conversation. Regenerate and reroll-gen
-# deliberately outlive a dropped connection, so closing it cannot stop them;
-# they run as tasks here instead, each under the job id its client named (or
-# None), so the button that started one can stop that render alone.
+# Workflow renders Stop can cancel, by conversation. Regenerate and reroll-gen deliberately outlive a dropped connection, so
+# closing it cannot stop them; they run as tasks here instead, each under the job id its client named (or None), so the button
+# that started one can stop that render alone.
 _workflow_jobs: dict[str, dict[asyncio.Task[Any], str | None]] = {}
 _workflow_sources: dict[asyncio.Task[Any], int | None] = {}
 _deleting_resources: set[str] = set()
@@ -143,8 +128,7 @@ async def deleting_resources(keys: Sequence[str]):
 # a cancelled await does not stop SQLite's worker thread from committing.
 _committing_jobs: set[asyncio.Task[Any]] = set()
 
-# How long a workflow Stop waits for its jobs to wind down; long enough for a
-# render to withdraw its queued remote job.
+# How long a workflow Stop waits for its jobs to wind down; long enough for a render to withdraw its queued remote job.
 WORKFLOW_STOP_SECS = 10.0
 
 
@@ -188,11 +172,9 @@ def committing_workflow_job() -> Iterator[None]:
 async def stop_workflow_jobs(
     cid: str, *, job: str | None = None, message_ids: set[int] | None = None, timeout: float = WORKFLOW_STOP_SECS
 ) -> dict[str, Any]:
-    """Cancel the conversation's workflow jobs, or only those filed under *job*,
-    and wait, bounded, for them to end.
+    """Cancel the conversation's workflow jobs, or only those filed under *job*, and wait, bounded, for them to end.
 
-    A job already writing its result is waited for, not cancelled: its
-    sibling lands, and the client's refetch shows it.
+    A job already writing its result is waited for, not cancelled: its sibling lands, and the client's refetch shows it.
     """
     jobs = [
         task
@@ -222,18 +204,15 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
                 raise HTTPException(status_code=404, detail="Attachment not found on this message")
             current_root = current["parent_attachment_id"] or current["id"]
             if current_root != candidate_root:
-                # A concurrent delete promoted the group's root between the
-                # snapshot and this acquire; the lock we hold is for a stale
-                # root. Release (exiting this `async with`) and retry on the
-                # now-canonical root.
+                # A concurrent delete promoted the group's root between the snapshot and this acquire; the lock we hold is for a
+                # stale root. Release (exiting this `async with`) and retry on the now-canonical root.
                 continue
             yield current, current_root
             return
 
 
-# Serialize streams and mutations per conversation. Streaming routes reject
-# a second stream via SSE; edit, delete and branch-switch wait for settlement
-# to avoid changing the history or active leaf while a turn writes.
+# Serialize streams and mutations per conversation. Streaming routes reject a second stream via SSE; edit, delete and
+# branch-switch wait for settlement to avoid changing the history or active leaf while a turn writes.
 _conversation_stream_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -262,9 +241,8 @@ async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
 class _ActiveStream:
     """The stream that currently owns a conversation's lock.
 
-    One token covers every client in the turn (writer + optional agent), so
-    /stop signals them all at once. ``settled`` is set only after the generator
-    has finished, including its persistence, and the lock has been released.
+    One token covers every client in the turn (writer + optional agent), so /stop signals them all at once. ``settled`` is set
+    only after the generator has finished, including its persistence, and the lock has been released.
     """
 
     abort_token: AbortToken
@@ -272,17 +250,14 @@ class _ActiveStream:
     operation_id: str | None = None
 
 
-# Keyed like the stream lock. Set when streaming starts; removed when the stream
-# has settled.
+# Keyed like the stream lock. Set when streaming starts; removed when the stream has settled.
 _active_streams: dict[str, _ActiveStream] = {}
 
-# How long a stopped stream whose client has gone away may take to wind down on
-# its own before it is cancelled. Every stage checks the abort token, so this is
-# a bound for a misbehaving one, not the expected wait.
+# How long a stopped stream whose client has gone away may take to wind down on its own before it is cancelled. Every stage
+# checks the abort token, so this is a bound for a misbehaving one, not the expected wait.
 _STOP_DRAIN_SECS = 10.0
 
-# How long POST /stop waits for the stopped stream to settle. Longer than the
-# drain, so a disconnected stream settles inside it.
+# How long POST /stop waits for the stopped stream to settle. Longer than the drain, so a disconnected stream settles inside it.
 STOP_SETTLE_SECS = 15.0
 
 
@@ -291,9 +266,8 @@ async def stop_active_stream(
 ) -> dict[str, bool]:
     """Abort the currently registered stream and wait boundedly for settlement.
 
-    ``active`` records initial registration; ``settled`` confirms save and lock
-    release. Later registrations are not awaited. Inactive does not rule out
-    a request still in flight, so the client may need to disconnect.
+    ``active`` records initial registration; ``settled`` confirms save and lock release. Later registrations are not awaited.
+    Inactive does not rule out a request still in flight, so the client may need to disconnect.
     """
     active = _active_streams.get(key)
     if active is None or (operation_id is not None and active.operation_id != operation_id):
@@ -330,16 +304,14 @@ class CleanupStreamingResponse(StreamingResponse):
         try:
             await super().__call__(scope, receive, send)
         finally:
-            # Always close the body generator, even if send() raised
-            # (e.g. client disconnected). This ensures the orchestrator's
+            # Always close the body generator, even if send() raised (e.g. client disconnected). This ensures the orchestrator's
             # finally block runs and saves any incomplete message.
             if hasattr(self.body_iterator, "aclose"):
                 await _safe_aclose(cast(AsyncGenerator[Any, None], self.body_iterator))
 
 
-# Emit keepalives every 3s during token-free passes. Firefox network-change
-# verification can close connections silent for 5s, including loopback;
-# this also stays below common proxy idle timeouts.
+# Emit keepalives every 3s during token-free passes. Firefox network-change verification can close connections silent for 5s,
+# including loopback; this also stays below common proxy idle timeouts.
 _SSE_KEEPALIVE_SECS = 3
 
 
@@ -383,10 +355,9 @@ async def _settle_stream(
 ) -> None:
     """Finish a stream's generator, then give up its registration and lock.
 
-    Runs as its own task: when the request is cancelled (client gone) its
-    awaits would be cancelled too, and the lock must not be released while the
-    turn can still write. A queued /edit, /delete or next turn therefore starts
-    only once this reply's save has finished.
+    Runs as its own task: when the request is cancelled (client gone) its awaits would be cancelled too, and the lock must not
+    be released while the turn can still write. A queued /edit, /delete or next turn therefore starts only once this reply's
+    save has finished.
     """
     try:
         if not finished and gen_iter is not None:
@@ -413,13 +384,7 @@ async def _settle_stream(
 _SETTLING: set[asyncio.Task] = set()
 
 
-async def sse_stream(
-    gen,
-    request: Request,
-    *,
-    abort_token: AbortToken | None = None,
-    cid: str | None = None,
-):
+async def sse_stream(gen, request: Request, *, abort_token: AbortToken | None = None, cid: str | None = None):
     """Encode async events as SSE; a disconnect stops the turn, which still saves."""
 
     async def _watch_disconnect() -> None:
@@ -445,20 +410,16 @@ async def sse_stream(
             if cid in _deleting_resources:
                 yield "event: error\ndata: This resource is being deleted\n\n"
                 return
-            # locked()/acquire() are atomic across coroutines (no await between)
-            # so a held-lock loser deterministically takes the error branch and
-            # does not queue, while an open-lock winner acquires without ever
-            # suspending. Lock is set only after acquire() returns so the
-            # finally's release guard skips both the error branch and any
-            # acquire-cancelled path.
+            # locked()/acquire() are atomic across coroutines (no await between) so a held-lock loser deterministically takes
+            # the error branch and does not queue, while an open-lock winner acquires without ever suspending. Lock is set only
+            # after acquire() returns so the finally's release guard skips both the error branch and any acquire-cancelled path.
             candidate = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
             if candidate.locked():
                 yield "event: error\ndata: Another generation is already running\n\n"
                 return
             await candidate.acquire()
             lock = candidate
-            # Register only after winning the lock, so a rejected loser never
-            # clobbers the winner's entry.
+            # Register only after winning the lock, so a rejected loser never clobbers the winner's entry.
             if abort_token is not None:
                 active = _ActiveStream(abort_token, operation_id=getattr(request, "query_params", {}).get("operation_id"))
                 _active_streams[cid] = active
@@ -470,9 +431,8 @@ async def sse_stream(
         gen_iter = it = gen.__aiter__()
         while True:
             pending = nxt = asyncio.ensure_future(it.__anext__())
-            # Race the next event against the keepalive interval: a silent gap
-            # emits a comment frame and keeps waiting on the same task. A
-            # cancelled request leaves the task running for the settle task.
+            # Race the next event against the keepalive interval: a silent gap emits a comment frame and keeps waiting on the
+            # same task. A cancelled request leaves the task running for the settle task.
             while True:
                 done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
                 if nxt in done_set:
@@ -499,14 +459,7 @@ async def sse_stream(
             watcher.cancel()
         settle = asyncio.ensure_future(
             _settle_stream(
-                gen,
-                gen_iter,
-                pending,
-                finished=finished,
-                abort_token=abort_token,
-                cid=cid,
-                active=active,
-                lock=lock,
+                gen, gen_iter, pending, finished=finished, abort_token=abort_token, cid=cid, active=active, lock=lock
             )
         )
         _SETTLING.add(settle)
@@ -521,11 +474,9 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
         while True:
             nxt = asyncio.ensure_future(it.__anext__())
             try:
-                # Same keepalive race as sse_stream: a long silent ComfyUI
-                # render yields no labels for stretches, so emit comment frames
-                # to keep an idle-timeout proxy/browser from dropping the stream
-                # (which surfaced as a frontend "Error in input stream" while the
-                # backend rendered on and persisted the image unseen).
+                # Same keepalive race as sse_stream: a long silent ComfyUI render yields no labels for stretches, so emit
+                # comment frames to keep an idle-timeout proxy/browser from dropping the stream (which surfaced as a frontend
+                # "Error in input stream" while the backend rendered on and persisted the image unseen).
                 while True:
                     done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
                     if nxt in done_set:
@@ -562,8 +513,7 @@ def workflow_event_stream_response(
 ) -> CleanupStreamingResponse:
     """Keep lazy on-demand renders registered until their generator settles.
 
-    Without *cid* the caller already runs the work as a job, so the frames are
-    encoded straight through.
+    Without *cid* the caller already runs the work as a job, so the frames are encoded straight through.
     """
     if cid is None:
         return CleanupStreamingResponse(_encode_workflow_event_stream(stream.events), media_type="text/event-stream")
@@ -591,20 +541,16 @@ def workflow_event_stream_response(
 
 
 def pipeline_sse_response(
-    make_gen: Callable[[AbortToken], AsyncIterator[Any]],
-    request: Request,
-    cid: str,
+    make_gen: Callable[[AbortToken], AsyncIterator[Any]], request: Request, cid: str
 ) -> CleanupStreamingResponse:
     """Standard SSE response for a turn-lifecycle event generator.
 
-    *make_gen* receives a fresh :class:`AbortToken` and returns the event
-    generator; the same token is registered with the stream so POST /stop can
-    signal it.
+    *make_gen* receives a fresh :class:`AbortToken` and returns the event generator; the same token is registered with the
+    stream so POST /stop can signal it.
     """
     abort_token = AbortToken()
     return CleanupStreamingResponse(
-        sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid),
-        media_type="text/event-stream",
+        sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid), media_type="text/event-stream"
     )
 
 
@@ -630,9 +576,8 @@ def image_not_modified(etag: str, request: Request) -> Response | None:
 def cached_image_response(image_bytes: bytes, mime: str | None, request: Request, etag: str | None = None) -> Response:
     """Return a privately cacheable image response with ETag support.
 
-    Without *etag* the tag is a hash of the bytes. A caller that can version the
-    image more cheaply passes its own tag, and can check it with
-    :func:`image_not_modified` before loading the bytes at all.
+    Without *etag* the tag is a hash of the bytes. A caller that can version the image more cheaply passes its own tag, and can
+    check it with :func:`image_not_modified` before loading the bytes at all.
     """
     etag = etag or '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
     not_modified = image_not_modified(etag, request)
@@ -650,9 +595,8 @@ _BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 def attachment_content_response(data_b64: str, mime: str | None, request: Request) -> Response:
     """Serve attachment bytes with ETag revalidation and byte ranges.
 
-    Use no-cache because rehydration can change bytes under the same id. Ranges
-    support media seeking. Invalid MIME types become opaque bytes; nosniff and
-    a sandbox CSP keep stored HTML inert when opened directly.
+    Use no-cache because rehydration can change bytes under the same id. Ranges support media seeking. Invalid MIME types become
+    opaque bytes; nosniff and a sandbox CSP keep stored HTML inert when opened directly.
     """
     try:
         data = base64.b64decode(data_b64)
@@ -671,9 +615,8 @@ def attachment_content_response(data_b64: str, mime: str | None, request: Reques
     declared = (mime or "").strip()
     media_type = declared.lower() if _ATTACHMENT_MIME_RE.fullmatch(declared) else "application/octet-stream"
     size = len(data)
-    # A Range this does not understand (several ranges, another unit, a
-    # reversed span) is ignored and answered with the whole body, as RFC 9110
-    # allows. If-Range with a stale validator means the same.
+    # A Range this does not understand (several ranges, another unit, a reversed span) is ignored and answered with the whole
+    # body, as RFC 9110 allows. If-Range with a stale validator means the same.
     match = _BYTE_RANGE_RE.fullmatch((request.headers.get("range") or "").strip())
     fresh = request.headers.get("if-range") in (None, etag)
     if match and fresh and (match[1] or match[2]):
@@ -743,8 +686,7 @@ async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_wo
 async def require_changeset(changeset_id: int, world: dict = Depends(require_world)) -> Mapping[str, Any]:  # noqa: B008
     """Load a world changeset, scoped to the World in the path.
 
-    Scoped rather than looked up by bare id so a changeset id from one World can
-    never be decided through another World's route.
+    Scoped rather than looked up by bare id so a changeset id from one World can never be decided through another World's route.
     """
     changeset = await get_world_changeset(changeset_id)
     if not changeset or changeset.get("world_id") != world["id"]:

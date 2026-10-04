@@ -35,12 +35,10 @@ _FALLBACK = "external_comfy"
 def get_adapter(config: Mapping[str, Any], style: Mapping[str, Any]) -> ImageAdapter:
     """The adapter that renders `style`, bound to both.
 
-    `style` is required and positional, so no render path can quietly fall back to
-    the default style. Routing on `config["source"]` -- which `normalize_config`
-    derives from the *default* style -- was wrong for every path that names another:
-    a rehydrate replays the style the stored image recorded, so a ComfyUI-linked
-    style rehydrated while the default style is cloud-linked went to the cloud
-    adapter. It survived only because that adapter ignored the style it was handed.
+    `style` is required and positional, so no render path can quietly fall back to the default style. Routing on
+    `config["source"]` -- which `normalize_config` derives from the *default* style -- was wrong for every path that names
+    another: a rehydrate replays the style the stored image recorded, so a ComfyUI-linked style rehydrated while the default
+    style is cloud-linked went to the cloud adapter. It survived only because that adapter ignored the style it was handed.
     """
     source, _ = style_source(config, style)
     cls = _REGISTRY.get(source) or _REGISTRY.get(_FALLBACK)

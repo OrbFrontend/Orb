@@ -1,11 +1,8 @@
 """Test helpers for workflow hook coverage and workflow_attachments rows.
 
-``register_for_test`` snapshots ``_registry._WORKFLOWS_BY_ID`` and the tool
-catalog on enter and restores them through catalog-owned operations on
-exit, so a failed assertion inside the ``with`` block cannot leak
-registry mutations into adjacent tests. The same ``Workflow`` instance is
-held by both the test and the registry (see clear at end of
-``register_for_test``).
+``register_for_test`` snapshots ``_registry._WORKFLOWS_BY_ID`` and the tool catalog on enter and restores them through
+catalog-owned operations on exit, so a failed assertion inside the ``with`` block cannot leak registry mutations into adjacent
+tests. The same ``Workflow`` instance is held by both the test and the registry (see clear at end of ``register_for_test``).
 """
 
 from __future__ import annotations
@@ -19,23 +16,10 @@ from typing import Any
 import pytest
 
 from backend.database import add_message, set_active_leaf
-from backend.database.queries.conversations import (
-    get_workflow_state,
-    set_workflow_state,
-)
+from backend.database.queries.conversations import get_workflow_state, set_workflow_state
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
-from backend.prompting.tool_catalog import (
-    restore_catalog,
-    snapshot_catalog,
-)
-from backend.workflows import (
-    HookType,
-    ToolSpec,
-    Workflow,
-    finalize_registry,
-    register_workflow,
-    subscribe,
-)
+from backend.prompting.tool_catalog import restore_catalog, snapshot_catalog
+from backend.workflows import HookType, ToolSpec, Workflow, finalize_registry, register_workflow, subscribe
 from backend.workflows import registry as _registry
 
 
@@ -46,11 +30,7 @@ async def new_conversation(client, title: str = "Workflow test") -> str:
 
 
 async def seed_message(
-    client,
-    *,
-    title: str = "Workflow test",
-    role: str = "assistant",
-    content: str = "scene",
+    client, *, title: str = "Workflow test", role: str = "assistant", content: str = "scene"
 ) -> tuple[str, int]:
     cid = await new_conversation(client, title)
     mid, _ = await add_message(cid, role, content, 0)
@@ -61,10 +41,8 @@ async def seed_message(
 async def must_get_workflow_attachment(att_id: int) -> dict:
     """Fetch a workflow_attachments row and assert it exists.
 
-    Use only when the row's existence is guaranteed by test setup
-    (just-seeded or freshly-inserted). Tests that exercise the "row
-    is absent" path must call ``get_workflow_attachment_by_id``
-    directly and check for ``None``.
+    Use only when the row's existence is guaranteed by test setup (just-seeded or freshly-inserted). Tests that exercise the
+    "row is absent" path must call ``get_workflow_attachment_by_id`` directly and check for ``None``.
     """
     row = await get_workflow_attachment_by_id(att_id)
     assert row is not None, f"workflow_attachment {att_id} should exist after seeding"
@@ -75,11 +53,9 @@ async def must_get_workflow_attachment(att_id: int) -> dict:
 def _restore_registry():
     """Snapshot the global workflow registry and tool tables, restore on exit.
 
-    Tests in these modules call ``register_workflow`` / ``set_workflow_config``
-    directly (not through ``register_for_test``'s ``with`` block), so without
-    this autouse guard their registrations leak into adjacent tests. Imported
-    by name into each such module -- pytest honours an imported fixture's
-    ``autouse`` flag within the importing module's scope, so the import alone
+    Tests in these modules call ``register_workflow`` / ``set_workflow_config`` directly (not through ``register_for_test``'s
+    ``with`` block), so without this autouse guard their registrations leak into adjacent tests. Imported by name into each such
+    module -- pytest honours an imported fixture's ``autouse`` flag within the importing module's scope, so the import alone
     activates it.
     """
     by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
@@ -107,10 +83,9 @@ def make_workflow(
 ) -> Workflow:
     """Construct a ``Workflow`` with test-friendly defaults.
 
-    Hook kwargs are staged onto a ``_pending_hooks`` attribute that
-    ``register_for_test`` consumes via ``subscribe`` after registration --
-    direct construction of ``Workflow`` cannot bind subscriptions because
-    that requires the record to be in the registry first.
+    Hook kwargs are staged onto a ``_pending_hooks`` attribute that ``register_for_test`` consumes via ``subscribe`` after
+    registration -- direct construction of ``Workflow`` cannot bind subscriptions because that requires the record to be in the
+    registry first.
     """
     meta = Workflow(
         id=workflow_id,
@@ -155,13 +130,10 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
         _registry._WORKFLOWS_BY_ID.clear()
         _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
         restore_catalog(catalog_snapshot)
-        # register_workflow stores the same Workflow instance the test holds,
-        # so workflow.subscriptions is identity-shared with the registry's
-        # record. Restoring the dict to the deepcopied snapshot above does
-        # not touch the original list. Clearing it here lets the same
-        # Workflow object be re-used in a subsequent register_for_test block
-        # without subscribe() tripping its duplicate-(workflow_id, hook_type)
-        # guard.
+        # register_workflow stores the same Workflow instance the test holds, so workflow.subscriptions is identity-shared with
+        # the registry's record. Restoring the dict to the deepcopied snapshot above does not touch the original list. Clearing
+        # it here lets the same Workflow object be re-used in a subsequent register_for_test block without subscribe() tripping
+        # its duplicate-(workflow_id, hook_type) guard.
         workflow.subscriptions.clear()
 
 
@@ -169,22 +141,16 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
 def registered_artifact_workflow(workflow_id: str = "wf") -> Iterator[Workflow]:
     """Register the minimal artifact-producing workflow used by cache tests."""
     workflow = make_workflow(
-        workflow_id,
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
+        workflow_id, produces_artifacts=True, regenerate=lambda ctx, body: [], reroll_gen=lambda ctx, params, seed: b""
     )
     with register_for_test(workflow):
         yield workflow
 
 
-# Each factory below returns ``(hook, gate, release)``: the hook awaits
-# ``gate`` before its body and sets ``release`` once past it, so tests can
-# both block a hook mid-execution and observe when it has actually
-# entered. Per-hook signatures match the kind's contract in
-# backend/workflows/contracts.py: pre/post are async generators
-# taking ``(ctx)``, on_demand and regenerate are coroutines taking
-# ``(ctx, body)``, reroll_gen takes ``(ctx, params, seed)``.
+# Each factory below returns ``(hook, gate, release)``: the hook awaits ``gate`` before its body and sets ``release`` once past
+# it, so tests can both block a hook mid-execution and observe when it has actually entered. Per-hook signatures match the
+# kind's contract in backend/workflows/contracts.py: pre/post are async generators taking ``(ctx)``, on_demand and regenerate
+# are coroutines taking ``(ctx, body)``, reroll_gen takes ``(ctx, params, seed)``.
 
 
 def _gated_async_generator(gate: asyncio.Event, release: asyncio.Event):
@@ -241,9 +207,8 @@ def gated_reroll_gen_hook(bytes_to_return: bytes) -> tuple[Any, asyncio.Event, a
 
 
 def counter_on_demand_hook(wid: str, key: str):
-    """Returns an on_demand callable that does RMW counter increment on the
-    conversation's workflow_state slot. Caller serialization is expected to
-    come from ``api_trigger_workflow`` holding ``workflow_state_lock``.
+    """Returns an on_demand callable that does RMW counter increment on the conversation's workflow_state slot. Caller
+    serialization is expected to come from ``api_trigger_workflow`` holding ``workflow_state_lock``.
     """
 
     async def hook(ctx, _body):
@@ -256,10 +221,8 @@ def counter_on_demand_hook(wid: str, key: str):
 
 
 def counter_post_pipeline_hook(wid: str, key: str):
-    """Returns a post_pipeline async-generator hook that does RMW counter
-    increment on the conversation's workflow_state slot. Caller
-    serialization is expected to come from the orchestrator's per-iteration
-    ``workflow_state_lock`` acquisition.
+    """Returns a post_pipeline async-generator hook that does RMW counter increment on the conversation's workflow_state slot.
+    Caller serialization is expected to come from the orchestrator's per-iteration ``workflow_state_lock`` acquisition.
     """
 
     async def hook(ctx):

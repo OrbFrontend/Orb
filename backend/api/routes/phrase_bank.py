@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from ...database import (
-    add_phrase_group,
-    delete_phrase_group,
-    get_phrase_bank_rows,
-    update_phrase_group,
-)
+from ...database import add_phrase_group, delete_phrase_group, get_phrase_bank_rows, update_phrase_group
 from ..deps import validate_phrase_group
 from ..schemas import PhraseGroupCreate, PhraseGroupUpdate
 

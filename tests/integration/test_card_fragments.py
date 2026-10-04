@@ -1,9 +1,8 @@
 """Card-embedded fragments (extensions.orb.fragments) merging into the pipeline.
 
-The merge happens once, in load_pipeline_context: enabled card fragments join
-the global lists for the turn (globals win on id collision), before the
-active_moods prune so an active card mood survives. api_get_context_size
-applies the same rule for its estimate.
+The merge happens once, in load_pipeline_context: enabled card fragments join the global lists for the turn (globals win on id
+collision), before the active_moods prune so an active card mood survives. api_get_context_size applies the same rule for its
+estimate.
 """
 
 from __future__ import annotations
@@ -40,11 +39,9 @@ async def _make_card_conv(client, ext=EXT):
 
 
 async def test_card_fragments_merge_into_pipeline_context(client, db):
-    resp = await client.post(
-        "/api/fragments",
-        json={"id": "collide_mood", "label": "Global Mood", "description": "d", "prompt_text": "g"},
+    await client.post_checked(
+        "/api/fragments", json={"id": "collide_mood", "label": "Global Mood", "description": "d", "prompt_text": "g"}
     )
-    assert resp.status_code == 200
     _, cid = await _make_card_conv(client)
 
     ctx = await load_pipeline_context(cid)
@@ -107,5 +104,4 @@ async def test_active_card_mood_survives_prune(client, db):
 
 async def test_context_size_endpoint_handles_card_fragments(client, db):
     _, cid = await _make_card_conv(client)
-    resp = await client.get(f"/api/conversations/{cid}/context-size")
-    assert resp.status_code == 200
+    await client.get_checked(f"/api/conversations/{cid}/context-size")

@@ -13,8 +13,7 @@ EXCERPT = [1, 2, 3]
 
 
 @pytest.mark.parametrize(
-    ("feature", "label"),
-    [("spark_tts_reference", "reference reader"), ("speech_recognizer", "speech recognizer")],
+    ("feature", "label"), [("spark_tts_reference", "reference reader"), ("speech_recognizer", "speech recognizer")]
 )
 def test_reference_readiness_names_the_switch_that_is_off(monkeypatch, feature, label):
     monkeypatch.setattr(host, "enrollment_ready", lambda settings: (True, ""))
@@ -91,8 +90,7 @@ async def test_enroll_upload_prepares_the_reference_only_when_asked(stubbed, mon
 
 
 @pytest.mark.parametrize(
-    ("tokens", "text", "sent"),
-    [(EXCERPT, "One must know it.", True), (EXCERPT, "  ", False), ([], "One must know it.", False)],
+    ("tokens", "text", "sent"), [(EXCERPT, "One must know it.", True), (EXCERPT, "  ", False), ([], "One must know it.", False)]
 )
 async def test_synthesis_sends_a_reference_only_with_both_halves(monkeypatch, tokens, text, sent):
     seen = {}

@@ -10,11 +10,7 @@ from typing import Any
 from ..database import get_settings, set_local_ml_config
 from ..inference.local_models.llama_server import LaunchProfile
 from ..inference.local_models.prose_rewriter import catalog, config
-from ..inference.local_models.prose_rewriter.config import (
-    ProseRewriteConfig,
-    UnknownVariant,
-    UnsupportedBatchSize,
-)
+from ..inference.local_models.prose_rewriter.config import ProseRewriteConfig, UnknownVariant, UnsupportedBatchSize
 from ..inference.local_models.prose_rewriter.service import HOST, rewrite_events, state
 from .contracts import EV_DRAFT_REPLACED
 from .enablement import effective_workflow_enabled
@@ -25,14 +21,12 @@ logger = logging.getLogger(__name__)
 
 FEATURE = catalog.FEATURE
 
-# Post-pipeline hooks that rerun on a manually rewritten reply: the markup
-# normalizer, so the rewrite keeps the chat's formatting. Named by id rather
-# than imported, so a rewrite still works where that workflow is not installed.
+# Post-pipeline hooks that rerun on a manually rewritten reply: the markup normalizer, so the rewrite keeps the chat's
+# formatting. Named by id rather than imported, so a rewrite still works where that workflow is not installed.
 RERUN_AFTER_REWRITE: frozenset[str] = frozenset({"format_consistency"})
 
-# Strong references to fire-and-forget host tasks. Without this the only
-# reference is the event loop's weak one and the task can be collected
-# mid-load, which shows up as a model that silently never finishes warming.
+# Strong references to fire-and-forget host tasks. Without this the only reference is the event loop's weak one and the task can
+# be collected mid-load, which shows up as a model that silently never finishes warming.
 _BACKGROUND: set[asyncio.Task] = set()
 # The pre-warms among them, which switching the rewriter off abandons.
 _WARMING: set[asyncio.Task] = set()
@@ -70,11 +64,7 @@ async def post_pipeline(ctx):
     cfg = resolve_config(ctx.settings)
     if cfg is None:
         return
-    logger.info(
-        "Prose rewriter starting after Editor (draft=%d chars, variant=%s)",
-        len(draft),
-        cfg["variant_id"],
-    )
+    logger.info("Prose rewriter starting after Editor (draft=%d chars, variant=%s)", len(draft), cfg["variant_id"])
     channel = f"workflow:{FEATURE}"
     yield {"event": "phase_status", "data": {"channel": channel, "label": "Rewriting prose…"}}
     async for event in rewrite_events(draft, cfg):
@@ -83,11 +73,7 @@ async def post_pipeline(ctx):
         elif event["type"] == "warning":
             yield {
                 "event": "warning",
-                "data": {
-                    "headline": "Prose rewriter didn't run",
-                    "sentence": event["reason"],
-                    "kind": "local_ml",
-                },
+                "data": {"headline": "Prose rewriter didn't run", "sentence": event["reason"], "kind": "local_ml"},
             }
         elif event["type"] == "rewritten" and event["draft"] != draft:
             yield {"type": EV_DRAFT_REPLACED, "draft": event["draft"]}
@@ -144,10 +130,7 @@ async def sync_selection(*, prefer: str | None = None) -> dict:
     picked = next((variant for variant in present if variant.id == prefer), None) or (present[0] if present else None)
     gpu = bool(stored.get("gpu", True))
     batch_size = config.resolve_batch_size(stored.get("batch_size"))
-    await set_local_ml_config(
-        FEATURE,
-        {"variant": picked.id if picked else None, "gpu": gpu, "batch_size": batch_size},
-    )
+    await set_local_ml_config(FEATURE, {"variant": picked.id if picked else None, "gpu": gpu, "batch_size": batch_size})
     _apply(config.profile_for_selection(picked, gpu, batch_size))
     settings = await get_settings()
     return settings.get("local_ml_config", {})
@@ -163,10 +146,7 @@ async def apply_config(body: Mapping[str, Any]) -> dict:
     if batch_size is None:
         supported = ", ".join(str(size) for size in config.SLOT_ALLOCATION)
         raise UnsupportedBatchSize(f"batch_size must be one of {supported}")
-    await set_local_ml_config(
-        FEATURE,
-        {"variant": variant_id, "gpu": gpu, "batch_size": batch_size},
-    )
+    await set_local_ml_config(FEATURE, {"variant": variant_id, "gpu": gpu, "batch_size": batch_size})
     _apply(config.profile_for_selection(catalog.resolve(variant_id), gpu, batch_size))
     settings = await get_settings()
     return settings.get("local_ml_config", {})
@@ -184,10 +164,8 @@ async def _stored_profile(settings: Mapping[str, Any]) -> LaunchProfile | None:
 async def on_enabled(enabled: bool) -> None:
     """Warm the engine when enabled and release its memory when disabled."""
     if not enabled:
-        # The toggle must not wait on the model: a pre-warm still loading holds
-        # the host lock for the whole load, so it is abandoned rather than
-        # waited out, and the release (which lets a running rewrite finish
-        # first) goes to the background.
+        # The toggle must not wait on the model: a pre-warm still loading holds the host lock for the whole load, so it is
+        # abandoned rather than waited out, and the release (which lets a running rewrite finish first) goes to the background.
         for task in list(_WARMING):
             task.cancel()
         _spawn(HOST.release())

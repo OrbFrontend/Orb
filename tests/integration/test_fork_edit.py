@@ -1,11 +1,9 @@
 """User-message branching via the Edit & Fork route.
 
-``POST /messages/{id}/fork-edit`` forks the conversation at a user message:
-it persists an edited copy as a new sibling (same ``parent_id`` and
-``turn_index``) and streams a fresh reply, leaving the original branch intact.
-``get-messages`` then reports the user row as a two-branch node and
-``switch-branch`` flips between the two prompts -- the regenerate sibling model
-applied on the user side.
+``POST /messages/{id}/fork-edit`` forks the conversation at a user message: it persists an edited copy as a new sibling (same
+``parent_id`` and ``turn_index``) and streams a fresh reply, leaving the original branch intact. ``get-messages`` then reports
+the user row as a two-branch node and ``switch-branch`` flips between the two prompts -- the regenerate sibling model applied on
+the user side.
 """
 
 from __future__ import annotations
@@ -107,8 +105,7 @@ async def test_fork_edit_forks_user_message(streaming_client, llm_mock):
 
 
 async def test_fork_edit_rejects_assistant_target(streaming_client, llm_mock):
-    """fork-edit is a user-message operation; an assistant target must error
-    in-band rather than fork."""
+    """fork-edit is a user-message operation; an assistant target must error in-band rather than fork."""
     cid = await _new_conversation(streaming_client)
 
     llm_mock.enqueue_writer("a reply")

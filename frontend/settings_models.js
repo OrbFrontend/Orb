@@ -71,51 +71,15 @@ const FIELD_GROUPS = [
   { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
 ];
 
-const AGENT_MODEL_HYPERPARAM_KEYS = [
-  "agent_shared_system_prompt",
-  "agent_temperature",
-  "agent_max_tokens",
-  "agent_top_p",
-  "agent_min_p",
-  "agent_top_k",
-  "agent_repetition_penalty",
-  "agent_reasoning_effort",
-  "agent_reasoning_effort_param",
-  "agent_reasoning_effort_value",
-  "agent_extra_headers",
-  "agent_extra_body",
-];
+const AGENT_MODEL_HYPERPARAM_KEYS = MODEL_HYPERPARAM_KEYS.filter((key) => key !== "system_prompt").map(
+  (key) => `agent_${key}`,
+);
 
-const AGENT_SETTING_FIELDS = [
-  { k: "agent_endpoint_url", l: "Agent Endpoint URL", t: "text" },
-  { k: "agent_api_key", l: "Agent API Key", t: "api_key" },
-  { k: "agent_model_name", l: "Agent Model Name", t: "text" },
-  {
-    k: "agent_completion_mode",
-    l: "Agent API Mode",
-    t: "select",
-    opts: [
-      ["chat", "Chat Completions"],
-      ["text", "Text Completion (llama.cpp)"],
-    ],
-  },
-  { k: "agent_proxy", l: "Agent Proxy", t: "text", ph: "socks5://127.0.0.1:1080" },
-  { k: "agent_shared_system_prompt", l: "Agent System Prompt (global)", t: "textarea" },
-  { k: "agent_temperature", l: "Agent Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
-  { k: "agent_max_tokens", l: "Agent Max Tokens", t: "number", s: "64", mn: "64", mx: "32768" },
-  { k: "agent_top_p", l: "Agent Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
-  { k: "agent_min_p", l: "Agent Min P", t: "number", s: "0.01", mn: "0", mx: "1" },
-  { k: "agent_top_k", l: "Agent Top K", t: "number", s: "1", mn: "0", mx: "200" },
-  { k: "agent_repetition_penalty", l: "Agent Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
-  { k: "agent_reasoning_effort", l: "Agent Reasoning Effort", t: "reasoning_effort" },
-  { k: "agent_extra_headers", l: "Agent Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
-  {
-    k: "agent_extra_body",
-    l: "Agent Extra Request Body (JSON, chat mode only)",
-    t: "textarea",
-    ph: '{"provider": {"only": ["deepinfra"]}}',
-  },
-];
+const AGENT_SETTING_FIELDS = SETTING_FIELDS.filter((field) => field.k !== "system_prompt").map((field) => ({
+  ...field,
+  k: `agent_${field.k}`,
+  l: `Agent ${field.l}`,
+}));
 
 const WRITER_CTX = {
   role: "writer",
@@ -316,9 +280,8 @@ export function renderEndpoints() {
   updateEndpointsLabel();
 }
 
-// ── Judge lane ───────────────────────────────────────────────────────────────
-// The classifier has its own endpoint and model, with no chat sampling options.
-// Its route is derived from the URL, which may already include `/decisions`.
+// ── Judge lane ─────────────────────────────────────────────────────────────── The classifier has its own endpoint and
+// model, with no chat sampling options. Its route is derived from the URL, which may already include `/decisions`.
 
 const EYE_TOGGLE_ICON = `<svg class="eye-show" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><svg class="eye-hide" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
 

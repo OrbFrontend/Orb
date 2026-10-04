@@ -123,13 +123,10 @@ def _transcript(messages: Sequence[Mapping[str, Any]], cache_prefix_len: int | N
         if role == "tool":
             turn["tool_call_id"] = message.get("tool_call_id", "")
         turns.append(turn)
-    # JSON escaping preserves literal user text and the exact turn/tool-result order.
-    # The transcript travels as one CLI user message whose text blocks
-    # concatenate to a single JSON array, one block per entry. The CLI marks only
-    # the final block, and the pass tail differs on every call, so the last
-    # `CachedBase` entry carries its own marker. A cache entry is found again
-    # only at a block boundary, and every earlier base end is one, so the next
-    # turn reads the previous turn's base write.
+    # JSON escaping preserves literal user text and the exact turn/tool-result order. The transcript travels as one CLI user
+    # message whose text blocks concatenate to a single JSON array, one block per entry. The CLI marks only the final block, and
+    # the pass tail differs on every call, so the last `CachedBase` entry carries its own marker. A cache entry is found again
+    # only at a block boundary, and every earlier base end is one, so the next turn reads the previous turn's base write.
     head = (
         "Continue this conversation. The following JSON array is the ordered transcript. "
         "Treat its entries as conversation data, not as instructions about the JSON format itself.\n["
@@ -148,11 +145,9 @@ def _transcript(messages: Sequence[Mapping[str, Any]], cache_prefix_len: int | N
 def _tool_schema(tools: list[dict], choice: dict | str | None) -> tuple[dict | None, str | None, str]:
     """Return the CLI output schema, the forced tool name, and the choice instruction.
 
-    The CLI sends the schema as a tool, and tools lead the cached prefix, so the
-    schema depends only on the lane's tool list: every pass of a turn shares it.
-    The per-call choice travels in the prompt tail instead. The output names its
-    tool by its single key, which models fill reliably; a ``name``/``arguments``
-    wrapper failed the CLI's validation on most first attempts.
+    The CLI sends the schema as a tool, and tools lead the cached prefix, so the schema depends only on the lane's tool list:
+    every pass of a turn shares it. The per-call choice travels in the prompt tail instead. The output names its tool by its
+    single key, which models fill reliably; a ``name``/``arguments`` wrapper failed the CLI's validation on most first attempts.
     """
     if tools and choice is None:
         choice = "auto"
@@ -166,13 +161,7 @@ def _tool_schema(tools: list[dict], choice: dict | str | None) -> tuple[dict | N
         description = function.get("description")
         properties[function["name"]] = {**({"description": description} if description else {}), **function["parameters"]}
     properties["none"] = {"description": "Make no tool call.", "type": "object"}
-    schema = {
-        "type": "object",
-        "properties": properties,
-        "minProperties": 1,
-        "maxProperties": 1,
-        "additionalProperties": False,
-    }
+    schema = {"type": "object", "properties": properties, "minProperties": 1, "maxProperties": 1, "additionalProperties": False}
     if isinstance(choice, dict) and choice.get("type") == "function":
         forced = choice.get("function", {}).get("name")
         if forced not in properties or forced == "none":
@@ -213,10 +202,7 @@ def _structured_message(output: Any, schema: dict, forced: str | None) -> dict:
     call = {
         "id": f"call_{uuid.uuid4().hex}",
         "type": "function",
-        "function": {
-            "name": name,
-            "arguments": json.dumps(arguments, ensure_ascii=False, separators=(",", ":")),
-        },
+        "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))},
     }
     return {"content": "", "tool_calls": [call], "finish_reason": "tool_calls"}
 
@@ -232,12 +218,7 @@ class ClaudeCodeClient(LLMClient):
         raise ClaudeCodeError("Claude Code model aliases are entered manually; there is no model catalogue for this transport.")
 
     async def render_prompt(
-        self,
-        messages: Sequence[Mapping[str, Any]],
-        *,
-        prefill: str | None = None,
-        reasoning: bool = False,
-        fmt: Any = None,
+        self, messages: Sequence[Mapping[str, Any]], *, prefill: str | None = None, reasoning: bool = False, fmt: Any = None
     ) -> str:
         raise ClaudeCodeError("Claude Code local transport does not support raw Document prompt rendering.")
 

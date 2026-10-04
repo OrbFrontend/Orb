@@ -17,12 +17,7 @@ from backend.core import (
     upgrade_legacy_fragment,
     value_text,
 )
-from backend.pipeline.passes.state import (
-    StateContract,
-    build_state_request,
-    entry_aliases,
-    parse_state_call,
-)
+from backend.pipeline.passes.state import StateContract, build_state_request, entry_aliases, parse_state_call
 from backend.prompting import render_state_block
 from backend.prompting.tool_schemas import build_state_tool
 
@@ -277,11 +272,7 @@ def test_request_shares_value_instruction_across_fields():
     for fragments in ([VALUE, other], [VALUE, ENTRIES, other], [ENTRIES]):
         for placement in ("before_writer", "after_reply"):
             request = build_state_request(
-                fragments,
-                view,
-                entry_aliases(fragments, view),
-                placement=placement,
-                tool_schema=build_state_tool(fragments),
+                fragments, view, entry_aliases(fragments, view), placement=placement, tool_schema=build_state_tool(fragments)
             )
             expected = 0 if fragments == [ENTRIES] else 1
             assert request.lower().count("write the complete new value only if it changed.") == expected

@@ -1,6 +1,5 @@
-// Restore card blocks that have text and height but collapse to zero width.
-// Run after layout: return the width their margins require inside a pannable
-// wrapper, preserving surrounding prose width. Trigger on collapse at any viewport.
+// Restore card blocks that have text and height but collapse to zero width. Run after layout: return the width their
+// margins require inside a pannable wrapper, preserving surrounding prose width. Trigger on collapse at any viewport.
 
 /** Characters of text before a zero-width box is worth rescuing. */
 const MIN_TEXT = 20;

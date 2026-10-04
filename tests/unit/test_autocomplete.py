@@ -16,10 +16,7 @@ def test_build_prompt_ends_at_draft_and_excludes_injection():
         "Aria",
         "Sam",
         "Aria is a wry tavern keeper.",
-        [
-            {"role": "assistant", "content": "You look lost."},
-            {"role": "user", "content": "Maybe I am."},
-        ],
+        [{"role": "assistant", "content": "You look lost."}, {"role": "user", "content": "Maybe I am."}],
         "I walk into the",
     )
     assert p.endswith("Sam: I walk into the")  # model continues this exact line
@@ -52,14 +49,12 @@ def test_complete_reconciles_trailing_space(monkeypatch):
 
     monkeypatch.setattr("backend.inference.local_ml.acomplete", fake_acomplete)
 
-    # Trailing space: prompt trimmed before generation, leading space dropped
-    # (the user already typed the separator).
+    # Trailing space: prompt trimmed before generation, leading space dropped (the user already typed the separator).
     out = asyncio.run(lc.complete("Sam: I hold up both "))
     assert seen["prompt"] == "Sam: I hold up both"  # no trailing space reaches the model
     assert out == "hands"
 
-    # No trailing space: completion passes through untouched — its leading space
-    # is the separator the user hasn't typed yet.
+    # No trailing space: completion passes through untouched — its leading space is the separator the user hasn't typed yet.
     out = asyncio.run(lc.complete("Sam: I hold up both"))
     assert seen["prompt"] == "Sam: I hold up both"
     assert out == " hands"

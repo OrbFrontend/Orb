@@ -35,11 +35,9 @@ def hosts() -> tuple[ManagedLlamaServerHost, ...]:
 async def _all(action: str) -> None:
     """Run *action* on every host, concurrently, and never skip one.
 
-    CONCURRENTLY IS NOT PREMATURE: ``release`` drains with a 120 s ceiling, and
-    serialising N of those would put N x 120 s between the user pressing Fetch
-    and the binary being replaced, or between SIGINT and the process exiting.
-    One host's failure must not leave another's child running, so exceptions
-    are gathered and logged rather than raised.
+    CONCURRENTLY IS NOT PREMATURE: ``release`` drains with a 120 s ceiling, and serialising N of those would put N x 120 s
+    between the user pressing Fetch and the binary being replaced, or between SIGINT and the process exiting. One host's failure
+    must not leave another's child running, so exceptions are gathered and logged rather than raised.
     """
     targets = hosts()
     if not targets:

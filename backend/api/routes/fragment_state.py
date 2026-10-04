@@ -6,13 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ...core import StateOp
 from ...database.models import ConversationRow
-from ...features.fragment_state import (
-    StateWriteError,
-    apply_manual_op,
-    delete_orphaned_state,
-    state_history,
-    state_panel,
-)
+from ...features.fragment_state import StateWriteError, apply_manual_op, delete_orphaned_state, state_history, state_panel
 from ..deps import require_conversation, stream_idle_lock
 from ..schemas import StateOperation
 

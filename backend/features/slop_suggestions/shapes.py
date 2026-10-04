@@ -1,8 +1,7 @@
 """Build narration (n) and speech (d) sentence keys.
 
-Skeletons retain function words/punctuation, replace pronouns with P and
-content-word runs with X. Yield skeleton n-grams and literal keys for
-sentences of at most six words; tags keep speech/narration corpora separate.
+Skeletons retain function words/punctuation, replace pronouns with P and content-word runs with X. Yield skeleton n-grams and
+literal keys for sentences of at most six words; tags keep speech/narration corpora separate.
 """
 
 from __future__ import annotations
@@ -104,10 +103,9 @@ def sentences(text: str) -> Iterator[Sentence]:
 def shape_bodies(tokens: Sequence[str]) -> list[str]:
     """The shape keys of one skeleton, without their tag.
 
-    A key is a 3-8 token n-gram holding at least one ``X``. It starts with
-    neither ``,`` nor ``.``, does not end with ``,``, and has two words or
-    spans the whole sentence with one. Prefix counts keep this linear in the
-    number of grams; it runs for every sentence of every reply, twice.
+    A key is a 3-8 token n-gram holding at least one ``X``. It starts with neither ``,`` nor ``.``, does not end with ``,``, and
+    has two words or spans the whole sentence with one. Prefix counts keep this linear in the number of grams; it runs for every
+    sentence of every reply, twice.
     """
     length = len(tokens)
     slots = [0]
@@ -156,9 +154,8 @@ _MACRO_RE = re.compile(r"\{\{(?:char|user)\}\}", re.IGNORECASE)
 def card_baseline_text(first_mes: str, alternate_greetings: Iterable[str], mes_example: str) -> str:
     """A card's authored roleplay prose: greetings plus cleaned dialogue examples.
 
-    ``mes_example`` loses its ``<START>`` separators and leading ``Name:``
-    labels, and macros become a placeholder name. Each part is its own
-    paragraph so no sentence runs across two of them.
+    ``mes_example`` loses its ``<START>`` separators and leading ``Name:`` labels, and macros become a placeholder name. Each
+    part is its own paragraph so no sentence runs across two of them.
     """
     example = _EXAMPLE_LABEL_RE.sub("", _START_RE.sub("\n\n", mes_example or ""))
     parts = [first_mes or "", *(greeting for greeting in alternate_greetings if isinstance(greeting, str)), example]
@@ -171,10 +168,9 @@ def card_baseline_text(first_mes: str, alternate_greetings: Iterable[str], mes_e
 def build_names(names: Iterable[str], descriptions: Iterable[str], card_texts: Iterable[str]) -> frozenset[str]:
     """Lowercased name tokens that keep a short sentence out of the literal keys.
 
-    Explicit *names* (characters, personas, cards, group members) are joined by
-    tokens capitalized mid-sentence in card *descriptions* that never appear
-    lowercase in the descriptions or *card_texts*. Stopwords and tokens of two
-    letters or fewer are dropped: "Oscar" belongs here, "He" and "Al" do not.
+    Explicit *names* (characters, personas, cards, group members) are joined by tokens capitalized mid-sentence in card
+    *descriptions* that never appear lowercase in the descriptions or *card_texts*. Stopwords and tokens of two letters or fewer
+    are dropped: "Oscar" belongs here, "He" and "Al" do not.
     """
     found = {word.lower() for name in names for word in WORD_RE.findall(name.replace("’", "'"))}
     found.add(PLACEHOLDER_NAME.lower())

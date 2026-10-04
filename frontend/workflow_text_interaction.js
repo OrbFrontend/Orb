@@ -47,9 +47,8 @@ function _ctxFromSpan(span) {
 
 export function markClickable(bodyEl, msg) {
   if (!bodyEl) return;
-  // A re-render can hand back a body that is still marked from the last pass, so
-  // clear before claiming: a span no handler wants any more (its workflow was
-  // switched off) has to lose the affordance, not just fail to gain it.
+  // A re-render can hand back a body that is still marked from the last pass, so clear before claiming: a span no
+  // handler wants any more (its workflow was switched off) has to lose the affordance, not just fail to gain it.
   for (const span of bodyEl.querySelectorAll(".seg")) {
     span.classList.remove("seg-clickable", "seg-multi");
     if (!S.workflowClickHandlers.length) continue;

@@ -1,12 +1,10 @@
-// Escaping + button-state fixtures for the image_gen message button and
-// attachment details. Zero deps (node --test); no jsdom — render.js is DOM-free
-// and takes its escapers as arguments precisely so it loads here.
+// Escaping + button-state fixtures for the image_gen message button and attachment details. Zero deps (node --test); no
+// jsdom — render.js is DOM-free and takes its escapers as arguments precisely so it loads here.
 //
-// The escaping tests inject MARKERS rather than the real esc()/escAttr(): the
-// assertion is that no interpolated value reaches the HTML unescaped, which is
-// the property that actually matters and which entity-comparison would only
-// check one character class of. A field added later without an escaper fails
-// these tests instead of silently shipping an injection.
+// The escaping tests inject MARKERS rather than the real esc()/escAttr(): the assertion is that no interpolated value
+// reaches the HTML unescaped, which is the property that actually matters and which entity-comparison would only check
+// one character class of. A field added later without an escaper fails these tests instead of silently shipping an
+// injection.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -158,9 +156,8 @@ test("replay disclosure notes are shown and escaped", () => {
 });
 
 test("the camera row names the viewpoint and the lever that chose it", () => {
-  // A wrong camera is fixed in a different place depending on which lever chose it,
-  // so the lever is named -- in one word, since the levers themselves are settings
-  // the user set.
+  // A wrong camera is fixed in a different place depending on which lever chose it, so the lever is named -- in one
+  // word, since the levers themselves are settings the user set.
   const cam = (metadata) => attachmentDetailsHtml({ consumption_metadata: metadata }, MARKERS);
 
   const classified = cam({ pov: "first_person", pov_source: "classifier" });
@@ -179,15 +176,13 @@ test("the camera row names the viewpoint and the lever that chose it", () => {
   assert.ok(hostile.includes(`«${HOSTILE}»`));
   assert.ok(!hostile.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — ${HOSTILE}»`, "").includes("<script>"));
 
-  // Absent on images generated before the camera was recorded: the row is omitted
-  // rather than shown empty.
+  // Absent on images generated before the camera was recorded: the row is omitted rather than shown empty.
   assert.ok(!cam({ style_id: "anime" }).includes("<dt>Camera</dt>"));
 });
 
 test("a reference row names which kind of image was fed in", () => {
-  // A wrong reference is the failure a user needs traced, and the useful half of
-  // the origin is which *kind* of thing was fed in. The configured source policy
-  // is not echoed back: that one is a setting the user picked.
+  // A wrong reference is the failure a user needs traced, and the useful half of the origin is which *kind* of thing
+  // was fed in. The configured source policy is not echoed back: that one is a setting the user picked.
   const html = attachmentDetailsHtml(
     {
       consumption_metadata: {

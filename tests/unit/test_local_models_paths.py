@@ -1,14 +1,11 @@
 """Where the weights and the llama-server binary actually live.
 
-THE FAILURE THIS EXISTS FOR DOES NOT RAISE. Both directories are derived by
-counting ``__file__`` up to the repo root, and a module that moves one level
-deeper without its count moving with it resolves to
-``backend/inference/data/models/`` instead: ``model_dir()`` creates it happily,
-every model then reports as missing, and the next Download button pulls 9.6 GB
-into the wrong place. Nothing anywhere says so.
+THE FAILURE THIS EXISTS FOR DOES NOT RAISE. Both directories are derived by counting ``__file__`` up to the repo root, and a
+module that moves one level deeper without its count moving with it resolves to ``backend/inference/data/models/`` instead:
+``model_dir()`` creates it happily, every model then reports as missing, and the next Download button pulls 9.6 GB into the
+wrong place. Nothing anywhere says so.
 
-Pinned against the repo root computed from *this* file, which sits at a known
-depth of its own.
+Pinned against the repo root computed from *this* file, which sits at a known depth of its own.
 """
 
 from __future__ import annotations
@@ -23,9 +20,8 @@ from backend.inference.local_models.llama_server import binary
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Every test here asserts on the resolved directory itself, either against the
-# real repo root or against a patched ``_ROOT``. The suite-wide fixture that
-# stubs ``model_dir`` out to an empty directory would answer for all of them.
+# Every test here asserts on the resolved directory itself, either against the real repo root or against a patched ``_ROOT``.
+# The suite-wide fixture that stubs ``model_dir`` out to an empty directory would answer for all of them.
 pytestmark = pytest.mark.real_model_dir
 
 

@@ -12,9 +12,7 @@ in the draft.
 import pytest
 
 from backend.analysis.audit import format_report, run_audit
-from backend.analysis.detectors.contrastive_negation import (
-    _split_sentences as neg_split,
-)
+from backend.analysis.detectors.contrastive_negation import _split_sentences as neg_split
 from backend.analysis.detectors.slop_detector import _split_sentences as slop_split
 from backend.analysis.detectors.slop_detector import detect_cliches
 
@@ -122,9 +120,8 @@ class TestContrastiveNegationSplitterDialogueQuotes:
 
 class TestReportStripsDanglingQuotes:
     def test_banned_phrase_in_dialogue_reported_without_dangling_quote(self):
-        # The splitter keeps the opening `"` but eats the closing one, so the raw
-        # snippet is `"…vulnerability.` — the report must strip the outer quote so
-        # the model copies a search string it can locate in the draft.
+        # The splitter keeps the opening `"` but eats the closing one, so the raw snippet is `"…vulnerability.` — the report
+        # must strip the outer quote so the model copies a search string it can locate in the draft.
         draft = '"Do not mistake my compliance for vulnerability." She remains still.'
         report = format_report(run_audit(draft, [["vulnerability"]]))
         assert "Do not mistake my compliance for vulnerability." in report

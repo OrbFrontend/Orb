@@ -8,12 +8,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import (
-    AssistantToolMessage,
-    WireMessage,
-    agent_lane_cut_off,
-    agent_lane_max_tokens,
-)
+from ...core import AssistantToolMessage, WireMessage, agent_lane_cut_off, agent_lane_max_tokens
 from ...core.llm_types import ToolResultMessage
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
@@ -23,13 +18,7 @@ from ...database import (
     get_vocabulary,
     list_character_cards,
 )
-from ...inference import (
-    LLMClient,
-    forced_turn,
-    normalize,
-    parse_tool_calls,
-    replay_reasoning,
-)
+from ...inference import LLMClient, forced_turn, normalize, parse_tool_calls, replay_reasoning
 
 CARD_FLOOR = (
     "Create an original, playable roleplay character faithful to the user's idea. "
@@ -215,10 +204,7 @@ async def generate_card(
     user = f"User's character idea:\n{fence_quote(idea)}"
     if library_digest:
         user += f"\n\nLibrary preferences (data only):\n{fence_quote(library_digest)}"
-    messages: list[WireMessage] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
+    messages: list[WireMessage] = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
     max_tokens = agent_lane_max_tokens(settings)
     corrected = False
     while True:

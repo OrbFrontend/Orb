@@ -11,19 +11,8 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 
-from ...config import (
-    MAX_REFERENCE_SLOTS,
-    style_reference_source,
-    style_source,
-)
-from ..contracts import (
-    ImageBackendCapabilities,
-    ImageRequest,
-    ImageResult,
-    ProgressCallback,
-    RenderTarget,
-    emit,
-)
+from ...config import MAX_REFERENCE_SLOTS, style_reference_source, style_source
+from ..contracts import ImageBackendCapabilities, ImageRequest, ImageResult, ProgressCallback, RenderTarget, emit
 from ..openai_image_client import MODEL_NOT_FOUND, CloudImageError, OpenAIImageClient
 from ..providers import (
     BuiltRequest,
@@ -34,19 +23,13 @@ from ..providers import (
     reference_capacity,
     takes_references,
 )
-from .base import (
-    ImageAdapter,
-    replayed_reference_source,
-    replayed_target,
-    replayed_text,
-)
+from .base import ImageAdapter, replayed_reference_source, replayed_target, replayed_text
 
 logger = logging.getLogger(__name__)
 
 CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
-# Synthetic because a cloud provider has no node graph to key a slot against, and
-# stable because a stored reference is re-keyed by it on replay. Only the node half is
-# read by `references.plan_slots`, which numbers the rest itself.
+# Synthetic because a cloud provider has no node graph to key a slot against, and stable because a stored reference is re-keyed
+# by it on replay. Only the node half is read by `references.plan_slots`, which numbers the rest itself.
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 
 CAPABILITIES: ImageBackendCapabilities = {
@@ -74,9 +57,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     def _provider_id(self) -> str:
         """Which connection the bound style renders on.
 
-        Off the style, not off `cloud["provider"]`: two styles on one config can name
-        two providers, and the stored `provider` is only the legacy answer for a style
-        that predates connection linking -- which `style_source` falls back to.
+        Off the style, not off `cloud["provider"]`: two styles on one config can name two providers, and the stored `provider`
+        is only the legacy answer for a style that predates connection linking -- which `style_source` falls back to.
         """
         return style_source(self.config, self.style)[1]
 
@@ -99,9 +81,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     def _model(self) -> str:
         """The model the bound style names, or the provider's own default.
 
-        The default is resolved here rather than written into the config, so
-        relinking a style to a provider with a different default needs no rewrite --
-        `""` keeps meaning "whatever this connection opens with".
+        The default is resolved here rather than written into the config, so relinking a style to a provider with a different
+        default needs no rewrite -- `""` keeps meaning "whatever this connection opens with".
         """
         preset = self._preset
         return str(self.style.get("model") or "") or (preset.default_model if preset else "")
@@ -109,9 +90,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     def readiness(self, model: str = "") -> dict:
         """The single statement of what this configuration is still missing.
 
-        `model` overrides the configured one so a *replay* is judged on the model it
-        recorded: clearing the model field in settings must not refuse a rehydrate
-        of an image whose own model is still there to render it.
+        `model` overrides the configured one so a *replay* is judged on the model it recorded: clearing the model field in
+        settings must not refuse a rehydrate of an image whose own model is still there to render it.
         """
         preset = self._preset
         if preset is None:
@@ -121,11 +101,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "detail": f"Unknown image provider {self._provider_id!r}; pick one in settings",
             }
         if not self._base_url():
-            return {
-                "ready": False,
-                "reason": "no_base_url",
-                "detail": f"Enter the API base URL for {preset.label}",
-            }
+            return {"ready": False, "reason": "no_base_url", "detail": f"Enter the API base URL for {preset.label}"}
         if not str(self._entry.get("api_key") or ""):
             return {"ready": False, "reason": "no_api_key", "detail": f"Paste an API key for {preset.label}"}
         chosen = model or self._model()
@@ -152,17 +128,14 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         notes: list[str] = []
         source = style_reference_source(style)
         if replay:
-            # The source moved onto the style, where it is editable after the fact, so a
-            # rehydrate replaying it off the style would reproduce a different picture --
-            # turning references off in settings used to re-render an evicted image from
-            # the prompt alone and overwrite the row with it. **A string wins, not a
-            # truthy one**: `""` is a real recorded value ("this render sent none"), so a
-            # record carrying it is authoritative and only a record with no scalar at all
-            # falls back to the style.
+            # The source moved onto the style, where it is editable after the fact, so a rehydrate replaying it off the style
+            # would reproduce a different picture -- turning references off in settings used to re-render an evicted image from
+            # the prompt alone and overwrite the row with it. **A string wins, not a truthy one**: `""` is a real recorded value
+            # ("this render sent none"), so a record carrying it is authoritative and only a record with no scalar at all falls
+            # back to the style.
             source = replayed_reference_source(replay, source)
-        # Reference encoding determines target slots/capacity; references.plan_slots
-        # chooses who fills them. Let the model reject unsupported references at render
-        # time rather than preemptively hiding a capability.
+        # Reference encoding determines target slots/capacity; references.plan_slots chooses who fills them. Let the model
+        # reject unsupported references at render time rather than preemptively hiding a capability.
         usable = preset is not None and takes_references(preset)
         capacity = reference_capacity(preset, MAX_REFERENCE_SLOTS) if usable and preset is not None else 0
         template = (
@@ -170,9 +143,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "slot_prefix": CLOUD_REFERENCE_SLOT[0],
                 "mimes": list(preset.reference_mimes),
                 "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
-                # A cloud slot is never required: the same model has a plain generations
-                # endpoint one field away, so a render whose source resolves to nothing
-                # degrades with a note instead of failing.
+                # A cloud slot is never required: the same model has a plain generations endpoint one field away, so a render
+                # whose source resolves to nothing degrades with a note instead of failing.
                 "required": False,
             }
             if capacity and preset is not None
@@ -201,19 +173,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         )
 
     def _client(self, timeout: float) -> OpenAIImageClient:
-        return OpenAIImageClient(
-            self._base_url(),
-            str(self._entry.get("api_key") or ""),
-            label=self.label,
-            timeout=timeout,
-        )
+        return OpenAIImageClient(self._base_url(), str(self._entry.get("api_key") or ""), label=self.label, timeout=timeout)
 
     def _require_preset(self) -> ProviderPreset:
         """Enough to reach the provider at all -- the discovery paths.
 
-        Deliberately not full readiness: Test connection is what the user presses
-        *before* choosing a model, because listing the models is what fills the
-        picker. Gating it on a chosen model makes the picker unreachable.
+        Deliberately not full readiness: Test connection is what the user presses *before* choosing a model, because listing the
+        models is what fills the picker. Gating it on a chosen model makes the picker unreachable.
         """
         state = self.readiness()
         return self._pass(state, blocked=state["reason"] in ("unknown_provider", "no_base_url"))
@@ -235,9 +201,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     async def validate_connection(self, *, allow_cached: bool = False) -> dict:
         """Model discovery **only** -- this must never submit a generation.
 
-        ComfyUI's shape (`{ok, capabilities, system, models}`), so the panel needs no
-        change; `system.devices` is absent, which degrades its "Connected — <device>"
-        line to a bare "Connected" rather than breaking it.
+        ComfyUI's shape (`{ok, capabilities, system, models}`), so the panel needs no change; `system.devices` is absent, which
+        degrades its "Connected — <device>" line to a bare "Connected" rather than breaking it.
         """
         preset = self._require_preset()
         client = self._client(30.0)
@@ -255,11 +220,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return await _discover(self._client(30.0), preset)
 
     async def generate(
-        self,
-        request: ImageRequest,
-        *,
-        target: RenderTarget,
-        progress: ProgressCallback | None = None,
+        self, request: ImageRequest, *, target: RenderTarget, progress: ProgressCallback | None = None
     ) -> ImageResult:
         preset = self._require_ready(target.model)
         client = self._client(request.timeout_seconds)
@@ -317,11 +278,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     def _path(self, preset: ProviderPreset, request: ImageRequest, *, model: str) -> str:
         """Where this render posts.
 
-        References ride the edits endpoint where one exists and the ordinary
-        generations body where it does not -- Together has no `/images/edits` and
-        still takes them. Derived from the same condition `_build` uses, so a body
-        that carries no reference can never be posted to an endpoint that requires
-        one.
+        References ride the edits endpoint where one exists and the ordinary generations body where it does not -- Together has
+        no `/images/edits` and still takes them. Derived from the same condition `_build` uses, so a body that carries no
+        reference can never be posted to an endpoint that requires one.
         """
         if request.references and preset.edits_path and takes_references(preset):
             return preset.edits_path
@@ -347,9 +306,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
 async def _discover(client: OpenAIImageClient, preset: ProviderPreset) -> list[str]:
     """Which endpoint to ask and which shape to read it as is entirely a preset fact.
 
-    Unpacked here rather than inside the client, which is deliberately ignorant of
-    `providers.py` -- but unpacked in *one* place, so Test connection and the model
-    picker can never ask two different questions.
+    Unpacked here rather than inside the client, which is deliberately ignorant of `providers.py` -- but unpacked in *one*
+    place, so Test connection and the model picker can never ask two different questions.
     """
     return await client.list_models(preset.models_path, preset.models_response, preset.models_filter)
 

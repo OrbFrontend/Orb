@@ -7,9 +7,8 @@ from .base import SpeakableChunk
 
 # Audible vs silent action beats
 
-# Actions that produce sound → convert to pause + optional tag. The compact
-# string keeps this public set byte-for-byte stable; effect aliases below also
-# include ``giggle``, which was historically recognized through the emotion map.
+# Actions that produce sound → convert to pause + optional tag. The compact string keeps this public set byte-for-byte stable;
+# effect aliases below also include ``giggle``, which was historically recognized through the emotion map.
 AUDIBLE_BEATS = frozenset(
     """laughs laugh giggles chuckles chuckle sighs sigh gasps gasp moans moan
     groans groan sniffles sniffle coughs cough cries cry sobs sob whimpers whimper
@@ -49,16 +48,7 @@ AUDIBLE_EMOTION_MAP = {alias: emotion for aliases, _, emotion in _BEAT_EFFECTS i
 
 # Frozen for legacy attachment replay and its frontend extraction fallback.
 # New speech uses the host analysis exposed through the workflow toolkit.
-_QUOTE_PAIRS = {
-    "“": "”",
-    "‘": "’",
-    "«": "»",
-    "‹": "›",
-    "「": "」",
-    "『": "』",
-    "„": "“",
-    "‚": "‘",
-}
+_QUOTE_PAIRS = {"“": "”", "‘": "’", "«": "»", "‹": "›", "「": "」", "『": "』", "„": "“", "‚": "‘"}
 _OPEN_QUOTES = frozenset(_QUOTE_PAIRS)
 _CLOSE_QUOTES = frozenset(_QUOTE_PAIRS.values())
 _HARD_BREAKS = frozenset("\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029")
@@ -169,9 +159,8 @@ def _spoken_text(text: str) -> str:
 
 # Narration pacing
 
-# Narration is never read aloud, so the gap before the next line stands in for
-# it. Hyperbolic in its length, so GAP_MAX_MS is an asymptote rather than a
-# plateau every long beat flattens onto.
+# Narration is never read aloud, so the gap before the next line stands in for it. Hyperbolic in its length, so GAP_MAX_MS is an
+# asymptote rather than a plateau every long beat flattens onto.
 GAP_MIN_MS = 300
 GAP_MAX_MS = 3000
 GAP_HALF_WORDS = 10  # narration length spending half the range above the floor
@@ -216,8 +205,7 @@ def _infer_emotion(text: str) -> str:
 def _extract_beat_action(beat_text: str) -> str:
     """Extract the main action verb from an action beat.
 
-    *she laughs softly* → 'laughs'
-    *laughs* → 'laughs'
+    *she laughs softly* → 'laughs' *laughs* → 'laughs'
     """
     # Strip common prefixes: "she ", "he ", "they ", etc.
     words = beat_text.strip().lower().split()
@@ -322,11 +310,7 @@ def regex_extract(
         final_text = f"{beat_tag} {dialogue_text}" if beat_tag else dialogue_text
         chunks.append(
             SpeakableChunk(
-                text=final_text,
-                spoken_text=dialogue_text,
-                emotion=emotion,
-                pause_before_ms=pause_before,
-                pause_after_ms=0,
+                text=final_text, spoken_text=dialogue_text, emotion=emotion, pause_before_ms=pause_before, pause_after_ms=0
             )
         )
 

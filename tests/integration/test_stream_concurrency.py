@@ -36,9 +36,8 @@ async def _drain_until_error_or_done(response) -> tuple[bool, str | None]:
 
 
 async def test_second_concurrent_send_yields_inline_error_event(streaming_client, llm_mock):
-    """Two concurrent ``/send`` POSTs on the same conversation: the first
-    holds the lock through writer; the second receives the in-band SSE
-    error event immediately and returns.
+    """Two concurrent ``/send`` POSTs on the same conversation: the first holds the lock through writer; the second receives the
+    in-band SSE error event immediately and returns.
     """
     cid = await _new_conversation(streaming_client)
 
@@ -67,9 +66,7 @@ async def test_second_concurrent_send_yields_inline_error_event(streaming_client
 
 
 async def test_edit_blocks_during_stream(streaming_client, llm_mock):
-    """``/edit`` waits for an in-flight ``/send`` to complete instead of
-    racing the pipeline's view of conversation state.
-    """
+    """``/edit`` waits for an in-flight ``/send`` to complete instead of racing the pipeline's view of conversation state."""
     cid = await _new_conversation(streaming_client)
     writer_gate = llm_mock.gate("writer")
     llm_mock.enqueue_writer("hi")
@@ -85,10 +82,7 @@ async def test_edit_blocks_during_stream(streaming_client, llm_mock):
 
     async def fire_edit():
         edit_started.set()
-        resp = await streaming_client.post(
-            f"/api/conversations/{cid}/messages/{msg_id}/edit",
-            json={"content": "edited"},
-        )
+        resp = await streaming_client.post(f"/api/conversations/{cid}/messages/{msg_id}/edit", json={"content": "edited"})
         edit_completed.set()
         return resp
 
@@ -108,9 +102,7 @@ async def test_edit_blocks_during_stream(streaming_client, llm_mock):
 
 
 async def test_stop_releases_lock(streaming_client, llm_mock):
-    """``/stop`` aborts the in-flight LLM client and answers once the stream
-    has settled; a subsequent ``/send`` succeeds.
-    """
+    """``/stop`` aborts the in-flight LLM client and answers once the stream has settled; a subsequent ``/send`` succeeds."""
     cid = await _new_conversation(streaming_client)
     writer_gate = llm_mock.gate("writer")
     llm_mock.enqueue_writer("first")
@@ -119,9 +111,8 @@ async def test_stop_releases_lock(streaming_client, llm_mock):
     async with await _send_streaming(streaming_client, cid) as first_resp:
         assert first_resp.status_code == 200
         await writer_gate.reached.wait()
-        # After the gate releases, FakeLLMClient.complete checks the abort
-        # flag and returns without yielding any payload, so the SSE generator
-        # finishes -- which is what /stop waits for.
+        # After the gate releases, FakeLLMClient.complete checks the abort flag and returns without yielding any payload, so the
+        # SSE generator finishes -- which is what /stop waits for.
         stop = asyncio.create_task(streaming_client.post(f"/api/conversations/{cid}/stop"))
         await asyncio.sleep(0.05)
         writer_gate.release.set()
@@ -138,10 +129,8 @@ async def test_stop_releases_lock(streaming_client, llm_mock):
 
 
 async def test_disconnect_releases_lock(streaming_client, llm_mock):
-    """A streaming caller that disconnects mid-pipeline still releases
-    the lock: CleanupStreamingResponse.__call__'s finally aclose()s the
-    body iterator, which runs the sse_stream finally and releases the
-    lock so the next caller succeeds.
+    """A streaming caller that disconnects mid-pipeline still releases the lock: CleanupStreamingResponse.__call__'s finally
+    aclose()s the body iterator, which runs the sse_stream finally and releases the lock so the next caller succeeds.
     """
     cid = await _new_conversation(streaming_client)
     writer_gate = llm_mock.gate("writer")
@@ -152,8 +141,7 @@ async def test_disconnect_releases_lock(streaming_client, llm_mock):
         async with await _send_streaming(streaming_client, cid) as resp:
             assert resp.status_code == 200
             await writer_gate.reached.wait()
-            # Exit the ``async with`` without draining -- httpx closes
-            # the connection, FastAPI sees the disconnect and triggers
+            # Exit the ``async with`` without draining -- httpx closes the connection, FastAPI sees the disconnect and triggers
             # cleanup.
 
     task = asyncio.create_task(quick_disconnect())
@@ -161,10 +149,8 @@ async def test_disconnect_releases_lock(streaming_client, llm_mock):
     writer_gate.release.set()
     await task
 
-    # The disconnect-driven cleanup path is async and runs after the
-    # client-side ``async with`` exits, so the lock release races the
-    # next /send. Poll the actual lock until cleanup releases it instead
-    # of guessing a fixed sleep, which flakes under load.
+    # The disconnect-driven cleanup path is async and runs after the client-side ``async with`` exits, so the lock release races
+    # the next /send. Poll the actual lock until cleanup releases it instead of guessing a fixed sleep, which flakes under load.
     from backend.api import deps
 
     async def _lock_released() -> bool:

@@ -3,14 +3,7 @@
 from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
-from .connection import (
-    checkpoint_wal,
-    close_wal_anchor,
-    current_db_path,
-    get_db,
-    immediate_tx,
-    open_wal_anchor,
-)
+from .connection import checkpoint_wal, close_wal_anchor, current_db_path, get_db, immediate_tx, open_wal_anchor
 from .queries.character_cards import (
     card_embedded_fragments,
     cast_embedded_fragments,
@@ -64,13 +57,7 @@ from .queries.conversations import (
     update_conversation,
 )
 from .queries.director_state import get_director_state, update_director_state
-from .queries.documents import (
-    create_document,
-    delete_document,
-    get_document,
-    get_documents,
-    update_document,
-)
+from .queries.documents import create_document, delete_document, get_document, get_documents, update_document
 from .queries.endpoints import (
     create_endpoint,
     create_model_config,

@@ -47,26 +47,11 @@ _tools: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
         "schema": deepcopy(EDITOR_REWRITE_TOOL),
     },
-    "editor_search_replace": {
-        "choice": deepcopy(EDITOR_SEARCH_REPLACE_CHOICE),
-        "schema": deepcopy(EDITOR_SEARCH_REPLACE_TOOL),
-    },
-    "give_feedback": {
-        "choice": deepcopy(GIVE_FEEDBACK_CHOICE),
-        "schema": build_feedback_tool([]),
-    },
-    "update_state": {
-        "choice": deepcopy(UPDATE_STATE_CHOICE),
-        "schema": build_state_tool([]),
-    },
-    "select_lorebook": {
-        "choice": deepcopy(SELECT_LOREBOOK_CHOICE),
-        "schema": deepcopy(SELECT_LOREBOOK_TOOL),
-    },
-    "propose_world_changes": {
-        "choice": deepcopy(PROPOSE_WORLD_CHANGES_CHOICE),
-        "schema": deepcopy(PROPOSE_WORLD_CHANGES_TOOL),
-    },
+    "editor_search_replace": {"choice": deepcopy(EDITOR_SEARCH_REPLACE_CHOICE), "schema": deepcopy(EDITOR_SEARCH_REPLACE_TOOL)},
+    "give_feedback": {"choice": deepcopy(GIVE_FEEDBACK_CHOICE), "schema": build_feedback_tool([])},
+    "update_state": {"choice": deepcopy(UPDATE_STATE_CHOICE), "schema": build_state_tool([])},
+    "select_lorebook": {"choice": deepcopy(SELECT_LOREBOOK_CHOICE), "schema": deepcopy(SELECT_LOREBOOK_TOOL)},
+    "propose_world_changes": {"choice": deepcopy(PROPOSE_WORLD_CHANGES_CHOICE), "schema": deepcopy(PROPOSE_WORLD_CHANGES_TOOL)},
 }
 assert tuple(_tools) == BUILTIN_TOOL_ORDER
 
@@ -148,10 +133,7 @@ def remove_tool(name: str) -> None:
 
 
 def snapshot_catalog() -> CatalogSnapshot:
-    return CatalogSnapshot(
-        tuple((name, deepcopy(tool)) for name, tool in _tools.items()),
-        frozenset(_standalone_tools),
-    )
+    return CatalogSnapshot(tuple((name, deepcopy(tool)) for name, tool in _tools.items()), frozenset(_standalone_tools))
 
 
 def restore_catalog(snapshot: CatalogSnapshot) -> None:
@@ -162,10 +144,7 @@ def restore_catalog(snapshot: CatalogSnapshot) -> None:
     _standalone_tools.update(snapshot.standalone_tools)
 
 
-def enabled_schemas(
-    enabled_tools: Mapping[str, bool] | None,
-    overrides: Mapping[str, dict] | None = None,
-) -> list[dict]:
+def enabled_schemas(enabled_tools: Mapping[str, bool] | None, overrides: Mapping[str, dict] | None = None) -> list[dict]:
     """Return enabled, non-standalone schemas in catalog order."""
     overrides = overrides or {}
     eligible = [name for name in _tools if name not in _standalone_tools]

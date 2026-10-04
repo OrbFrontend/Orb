@@ -1,6 +1,5 @@
-// DOM-free Character Library search, tag matching and chip derivation.
-// Chips and predicates share case folding. Delimited attributes support more
-// tags than a 31-bit mask.
+// DOM-free Character Library search, tag matching and chip derivation. Chips and predicates share case folding.
+// Delimited attributes support more tags than a 31-bit mask.
 
 const DELIM = "|";
 

@@ -130,8 +130,7 @@ async def test_a_reply_cut_at_the_budget_names_the_setting(settings, limit):
 
 
 async def test_both_prompts_quote_the_same_no_secrets_floor():
-    """One definition of "public", so the card editor and Manage cast cannot
-    drift on what a profile is allowed to say."""
+    """One definition of "public", so the card editor and Manage cast cannot drift on what a profile is allowed to say."""
     systems = []
     for drafter in (draft_card_profile, draft_scene_profile):
         client = _FakeClient(_call(appearance="Tall.", role="Bard."))

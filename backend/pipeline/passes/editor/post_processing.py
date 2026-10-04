@@ -10,13 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
-from ....inference import (
-    CachedBase,
-    DecisionCancelled,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
@@ -25,11 +19,7 @@ from .prompts import build_post_processing_prompt
 logger = logging.getLogger(__name__)
 
 
-def post_processing_active(
-    post_processing_fragments: Sequence[Mapping[str, Any]],
-    *,
-    agent_on: bool,
-) -> bool:
+def post_processing_active(post_processing_fragments: Sequence[Mapping[str, Any]], *, agent_on: bool) -> bool:
     """Return whether fragment-defined Editor work should run this turn."""
     return agent_on and bool(post_processing_fragments)
 
@@ -37,10 +27,9 @@ def post_processing_active(
 def apply_search_replace_patches(draft: str, patches: object) -> str:
     """Apply valid exact patches sequentially, skipping every unsafe entry.
 
-    A patch is safe only when it has string ``search`` and ``replace`` values,
-    the search is non-empty and differs from the replacement, and the evolving
-    draft contains exactly one case-sensitive match. Invalid entries do not
-    prevent later valid patches from being considered.
+    A patch is safe only when it has string ``search`` and ``replace`` values, the search is non-empty and differs from the
+    replacement, and the evolving draft contains exactly one case-sensitive match. Invalid entries do not prevent later valid
+    patches from being considered.
     """
     if not isinstance(patches, list):
         return draft
@@ -87,13 +76,12 @@ async def post_processing_step(
 ) -> AsyncIterator[dict]:
     """Run one forced exact-edit call per fragment in ``sort_order``.
 
-    A fragment with a gate question first asks the Judge about the draft as the
-    earlier fragments left it, and is skipped on a no. The gate may also show
-    the Judge some of *recent_replies* (newest first). Every gate in the step
-    shares one ``GATE_BUDGET_SECONDS`` of Judge waiting.
+    A fragment with a gate question first asks the Judge about the draft as the earlier fragments left it, and is skipped on a
+    no. The gate may also show the Judge some of *recent_replies* (newest first). Every gate in the step shares one
+    ``GATE_BUDGET_SECONDS`` of Judge waiting.
 
-    A fragment whose call fails is reported as a ``failure`` event and skipped;
-    the draft keeps the earlier fragments' edits and the later ones still run.
+    A fragment whose call fails is reported as a ``failure`` event and skipped; the draft keeps the earlier fragments' edits and
+    the later ones still run.
     """
     current = draft
     all_calls: list[dict] = []

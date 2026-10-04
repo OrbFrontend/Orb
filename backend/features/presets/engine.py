@@ -35,11 +35,9 @@ class PresetError(Exception):
 
 
 #
-# Everything the merge engine needs -- table classification, the FK graph, a
-# safe insert order, which edges to defer -- is read from the live database with
-# PRAGMA. Adding a table or an FK column therefore requires no edit here: the
-# model simply grows. The only hand-declared inputs are the product/security
-# policy in backend/database/preset_schema.py.
+# Everything the merge engine needs -- table classification, the FK graph, a safe insert order, which edges to defer -- is read
+# from the live database with PRAGMA. Adding a table or an FK column therefore requires no edit here: the model simply grows.
+# The only hand-declared inputs are the product/security policy in backend/database/preset_schema.py.
 
 
 @dataclasses.dataclass
@@ -143,9 +141,8 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
         )
         tables[name] = _Table(name, cols, pk, kind, fks, owner)
 
-    # Second pass: resolve implicit FK targets now that every PK is known, so the
-    # fallback never depends on sqlite_master order (a child read before its parent
-    # used to silently get "id" instead of the parent's real PK).
+    # Second pass: resolve implicit FK targets now that every PK is known, so the fallback never depends on sqlite_master order
+    # (a child read before its parent used to silently get "id" instead of the parent's real PK).
     for t in tables.values():
         for f in t.fks:
             if f.to_col is None:
@@ -158,8 +155,7 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
 def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, str]]]:
     """Topologically order tables, deferring self-links and cyclic crossrefs.
 
-    Never defer ownership edges. Insert deferred columns as NULL, then fix them
-    once every id map exists.
+    Never defer ownership edges. Insert deferred columns as NULL, then fix them once every id map exists.
     """
     deferred: set[tuple[str, str]] = set()
     for t in tables.values():
@@ -167,12 +163,10 @@ def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, st
             if f.is_self:
                 deferred.add((t.name, f.from_col))
 
-    # Iterate tables in a fixed (alphabetical) order, never sqlite_master's physical
-    # order. Both the emitted insert order and the cycle-break choice are then a pure
-    # function of the schema's *shape*, independent of the order tables were created
-    # in -- so a table rebuilt by a migration (which moves it to the end of
-    # sqlite_master) yields the identical model to a fresh install. The
-    # schema-equivalence gate relies on this determinism.
+    # Iterate tables in a fixed (alphabetical) order, never sqlite_master's physical order. Both the emitted insert order and
+    # the cycle-break choice are then a pure function of the schema's *shape*, independent of the order tables were created in
+    # -- so a table rebuilt by a migration (which moves it to the end of sqlite_master) yields the identical model to a fresh
+    # install. The schema-equivalence gate relies on this determinism.
     names = sorted(tables)
     placed: set[str] = set()
     order: list[str] = []
@@ -192,8 +186,7 @@ def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, st
                 progressed = True
         if progressed:
             continue
-        # Stalled: a cycle remains. Break it by deferring one crossref edge whose
-        # parent is still unplaced.
+        # Stalled: a cycle remains. Break it by deferring one crossref edge whose parent is still unplaced.
         broke = False
         for name in names:
             if name in placed:
@@ -237,10 +230,9 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 problems.append(
                     f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; add it (with its scrub value) or rename it"
                 )
-    # Every deferred edge is inserted NULL and fixed up afterwards (FK checks are
-    # off during the merge, but a NOT NULL constraint still fires on insert). A
-    # future NOT NULL self-FK, or a NOT NULL crossref caught inside a broken cycle,
-    # would therefore raise IntegrityError on every merge -- surface it here.
+    # Every deferred edge is inserted NULL and fixed up afterwards (FK checks are off during the merge, but a NOT NULL
+    # constraint still fires on insert). A future NOT NULL self-FK, or a NOT NULL crossref caught inside a broken cycle, would
+    # therefore raise IntegrityError on every merge -- surface it here.
     for table, col in schema.deferred:
         fk = schema.tables[table].fk(col)
         if fk is not None and fk.notnull:
@@ -249,9 +241,8 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 f"but is declared NOT NULL; a merge would fail its constraint. Make it nullable."
             )
 
-    # Reverse direction: every hand-declared policy entry must still match the live
-    # schema. A stale entry (column dropped, table renamed) would otherwise surface
-    # only as a raw OperationalError mid-export, or be silently ignored.
+    # Reverse direction: every hand-declared policy entry must still match the live schema. A stale entry (column dropped, table
+    # renamed) would otherwise surface only as a raw OperationalError mid-export, or be silently ignored.
     known_domains = set(ps.DOMAIN_ROOTS.values())
     for root in ps.DOMAIN_ROOTS:
         if root not in schema.tables:
@@ -290,8 +281,7 @@ def _edge_set(t: _Table) -> set[tuple]:
 def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
     """Compare live schema with a fresh install; return divergence reasons.
 
-    Check columns, primary keys, classification, FK edges and deferred edges
-    so upgraded databases use the same merge semantics.
+    Check columns, primary keys, classification, FK edges and deferred edges so upgraded databases use the same merge semantics.
     """
     live = _build_schema_model(conn)
     ref = sqlite3.connect(":memory:")
@@ -310,10 +300,9 @@ def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
 
     for name in sorted(live_names & canon_names):
         lt, ct = live.tables[name], canon.tables[name]
-        # Compare column *sets*, not ordered lists: the merge engine names every
-        # column explicitly (never relies on position), and an ALTER-added column
-        # legitimately lands at a different ordinal on an old install than on a fresh
-        # one. A missing or extra column, by contrast, is a real merge hazard.
+        # Compare column *sets*, not ordered lists: the merge engine names every column explicitly (never relies on position),
+        # and an ALTER-added column legitimately lands at a different ordinal on an old install than on a fresh one. A missing
+        # or extra column, by contrast, is a real merge hazard.
         missing = set(ct.cols) - set(lt.cols)
         extra = set(lt.cols) - set(ct.cols)
         if missing:
@@ -417,9 +406,8 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
 def _stamp_migrations(conn: sqlite3.Connection) -> None:
     """Mark every current migration as applied.
 
-    A preset we build is always cloned from the live DB, whose schema is current
-    by definition, so the preset's schema is current too. Stamping the full set
-    makes that explicit and keeps ``check_and_upgrade`` a no-op on our own files
+    A preset we build is always cloned from the live DB, whose schema is current by definition, so the preset's schema is
+    current too. Stamping the full set makes that explicit and keeps ``check_and_upgrade`` a no-op on our own files
     (``run_pending`` is not safe to re-run against an already-current schema).
     """
     conn.execute(
@@ -456,10 +444,9 @@ def read_meta(path: str) -> dict | None:
 def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
     """Raise ``PresetError`` unless ``PRAGMA integrity_check`` reports ``ok``.
 
-    Run on a file we just produced (VACUUM INTO) or are about to trust (a restore
-    target). A truncated or torn disk write yields a structurally broken database
-    that opens fine but is silently corrupt; this is the trip that stops such a
-    file from becoming the backup the user relies on.
+    Run on a file we just produced (VACUUM INTO) or are about to trust (a restore target). A truncated or torn disk write yields
+    a structurally broken database that opens fine but is silently corrupt; this is the trip that stops such a file from
+    becoming the backup the user relies on.
     """
     row = conn.execute("PRAGMA integrity_check").fetchone()
     if not row or row[0] != "ok":
@@ -474,10 +461,9 @@ _EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrati
 def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:
     """Blank the leaf `path` names inside `node`. Returns whether anything changed.
 
-    ``"*"`` matches every key at that level, which is what a provider map keyed by
-    provider id needs: ``cloud.providers.<any id>.api_key``. Everything not on a
-    declared path is left byte-identical -- an imported ComfyUI graph's node inputs
-    sit in the same column and must survive untouched.
+    ``"*"`` matches every key at that level, which is what a provider map keyed by provider id needs: ``cloud.providers.<any
+    id>.api_key``. Everything not on a declared path is left byte-identical -- an imported ComfyUI graph's node inputs sit in
+    the same column and must survive untouched.
     """
     if not isinstance(node, dict) or not path:
         return False
@@ -515,8 +501,7 @@ def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: 
             continue
         changed = False
         for path in paths:
-            # Not `any(...)`: every declared path must be walked, and a generator
-            # would stop at the first one that matched.
+            # Not `any(...)`: every declared path must be walked, and a generator would stop at the first one that matched.
             changed = _blank_json_leaf(payload, path) or changed
         if changed:
             conn.execute(
@@ -538,8 +523,7 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
 
 
 def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
-    """Clone the live DB, prune unselected domains, tag with meta, store in the
-    library. Returns the on-disk file name."""
+    """Clone the live DB, prune unselected domains, tag with meta, store in the library. Returns the on-disk file name."""
     kind = "manual"  # always a user-initiated snapshot; auto/import are tagged elsewhere
     selected = set(selected_domains)
     unknown = selected - set(ALL_DOMAINS)
@@ -565,10 +549,9 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         _assert_integrity(c, "the exported preset clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
-        # Tripwire: an excluded table that carries data would be invisible to both
-        # export and merge -- its rows would silently never be backed up. The only
-        # excluded data table is message_attachments, empty by invariant post-0020;
-        # this fails loudly the day someone parks a live table in EXCLUDED_TABLES.
+        # Tripwire: an excluded table that carries data would be invisible to both export and merge -- its rows would silently
+        # never be backed up. The only excluded data table is message_attachments, empty by invariant post-0020; this fails
+        # loudly the day someone parks a live table in EXCLUDED_TABLES.
         for tbl in ps.EXCLUDED_TABLES:
             if tbl in _EXCLUDED_MAY_HAVE_ROWS:
                 continue
@@ -582,10 +565,9 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 )
         for tbl in ps.DERIVED_TABLES:
             c.execute(f"DELETE FROM {tbl}")  # nosec B608 — constant identifier
-        # Prune each unselected domain by deleting its root tables: with FK on, a
-        # CASCADE prunes the owned children and a SET NULL clears soft pointers, so
-        # no per-child delete is hand-coded. configs is special (it scrubs the
-        # singleton in place rather than deleting it).
+        # Prune each unselected domain by deleting its root tables: with FK on, a CASCADE prunes the owned children and a SET
+        # NULL clears soft pointers, so no per-child delete is hand-coded. configs is special (it scrubs the singleton in place
+        # rather than deleting it).
         for domain in ALL_DOMAINS:
             if domain in selected:
                 continue
@@ -598,9 +580,8 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
                 c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 — schema-derived identifier, values parameterised
-            # The same rule, one level deeper: "every declared secret whose leaf is
-            # api_key", not "every column literally named api_key". A key inside a
-            # JSON column is the same key.
+            # The same rule, one level deeper: "every declared secret whose leaf is api_key", not "every column literally named
+            # api_key". A key inside a JSON column is the same key.
             for (table, col), paths in ps.SECRET_JSON_PATHS.items():
                 _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] == "api_key"))
             keys_stripped = True
@@ -616,18 +597,16 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     return name
 
 
-# Generic merge: clear replaced domains/subtrees, insert in dependency order
-# with surrogate-id remapping, fix deferred links, then reconcile soft pointers.
-# New schema children and FK columns follow these passes automatically.
+# Generic merge: clear replaced domains/subtrees, insert in dependency order with surrogate-id remapping, fix deferred links,
+# then reconcile soft pointers. New schema children and FK columns follow these passes automatically.
 
 
 def _existing(conn: sqlite3.Connection, cache: dict[str, set], parent: str, to_col: str) -> set:
     """Memoised set of a parent table's current key values in ``main``.
 
-    Used for the "keep this value -- it still resolves locally" branch of the FK
-    rewrite. A parent is always fully inserted/upserted before any child consults
-    it (topological order), and parents are never re-touched afterwards, so the
-    set is stable once built.
+    Used for the "keep this value -- it still resolves locally" branch of the FK rewrite. A parent is always fully
+    inserted/upserted before any child consults it (topological order), and parents are never re-touched afterwards, so the set
+    is stable once built.
     """
     if parent not in cache:
         cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}  # nosec B608 — schema-derived identifier, values parameterised
@@ -637,9 +616,8 @@ def _existing(conn: sqlite3.Connection, cache: dict[str, set], parent: str, to_c
 def _resolve_fk(value, fk: _FK, idmaps: dict[str, dict[int, int]], conn, cache) -> tuple[object, bool]:
     """Translate a foreign key; return (new_value, drop).
 
-    None stays None. Surrogate parents resolve only through this merge's id map;
-    stable/untouched parents must exist in main. Dangling nullable/SET NULL keys
-    become NULL; dangling required ownership keys drop the child row.
+    None stays None. Surrogate parents resolve only through this merge's id map; stable/untouched parents must exist in main.
+    Dangling nullable/SET NULL keys become NULL; dangling required ownership keys drop the child row.
     """
     if value is None:
         return None, False
@@ -658,10 +636,9 @@ def _resolve_fk(value, fk: _FK, idmaps: dict[str, dict[int, int]], conn, cache) 
 def _scope_clause(schema: _Schema, table: str, root: str) -> str:
     """A WHERE clause selecting ``main.table`` rows owned by the *incoming* roots.
 
-    Walks the ownership chain up from ``table`` to ``root``, building nested
-    subqueries: the final hop targets ``preset.root`` (the entities being
-    re-imported), the intermediate hops join through ``main``. This generalises
-    the hand-written "delete this conversation's message tree" prune.
+    Walks the ownership chain up from ``table`` to ``root``, building nested subqueries: the final hop targets ``preset.root``
+    (the entities being re-imported), the intermediate hops join through ``main``. This generalises the hand-written "delete
+    this conversation's message tree" prune.
     """
     fk = schema.tables[table].owner_fk
     assert fk is not None
@@ -698,8 +675,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
         return
 
     if t.kind == "stable":
-        # Identity is portable: upsert by primary key (the child-replace in
-        # phase B already cleared any subtree this row owns).
+        # Identity is portable: upsert by primary key (the child-replace in phase B already cleared any subtree this row owns).
         ph = ",".join("?" * len(cols))
         for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
             vals = list(row)
@@ -993,30 +969,25 @@ def restore_full(name: str) -> None:
     tmp = f"{live}.restore-{os.getpid()}"
     shutil.copyfile(src, tmp)
     try:
-        # Drop the preset marker so it doesn't ride along in the live DB, and
-        # bring the file up to the current schema -- all on the temp copy, which
-        # nothing else has open.
+        # Drop the preset marker so it doesn't ride along in the live DB, and bring the file up to the current schema -- all on
+        # the temp copy, which nothing else has open.
         conn = sqlite3.connect(tmp, isolation_level=None)
         try:
             conn.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
         finally:
             conn.close()
         if run_pending(tmp):
-            # A rebuild-style migration (0027's drop/rename, 0028's column
-            # drops) leaves the old table's pages on the freelist, so restoring
-            # a pre-rebuild snapshot bloated the live DB by the rebuilt tables'
-            # size (~24 -> ~35 MiB). Reclaim it here, on the still-private copy,
-            # *before* the integrity check so the check validates the exact
-            # bytes that get swapped in. Skipped when no migration ran: library
-            # files are VACUUM INTO products, already compact.
+            # A rebuild-style migration (0027's drop/rename, 0028's column drops) leaves the old table's pages on the freelist,
+            # so restoring a pre-rebuild snapshot bloated the live DB by the rebuilt tables' size (~24 -> ~35 MiB). Reclaim it
+            # here, on the still-private copy, *before* the integrity check so the check validates the exact bytes that get
+            # swapped in. Skipped when no migration ran: library files are VACUUM INTO products, already compact.
             vac = sqlite3.connect(tmp, isolation_level=None)
             try:
                 vac.execute("VACUUM")
             finally:
                 vac.close()
-        # The page size has to match before the copy, and rewriting it rebuilds
-        # the file -- so do it ahead of the checks below, which must validate the
-        # exact bytes that land in the live DB.
+        # The page size has to match before the copy, and rewriting it rebuilds the file -- so do it ahead of the checks below,
+        # which must validate the exact bytes that land in the live DB.
         _align_page_size(tmp, live)
         # The temp copy's contents are about to become the live DB; refuse a
         # structurally broken or FK-inconsistent file rather than copying it in.
@@ -1029,10 +1000,9 @@ def restore_full(name: str) -> None:
         finally:
             chk.close()
         _copy_over_live(tmp, live)
-        # The backup copies every page of the prepared file into the live
-        # database as one transaction, so all of it lands in the WAL. With the
-        # lifespan anchor open no last-close checkpoint follows, and the WAL
-        # would keep the whole database's size; reclaim it here instead.
+        # The backup copies every page of the prepared file into the live database as one transaction, so all of it lands in the
+        # WAL. With the lifespan anchor open no last-close checkpoint follows, and the WAL would keep the whole database's size;
+        # reclaim it here instead.
         checkpoint_wal(live)
     finally:
         # Unlike the old rename, the copy leaves the temp file behind on success
@@ -1075,11 +1045,7 @@ def delete_library_entry(name: str) -> None:
 
 
 def prune_auto(keep: int = 10) -> None:
-    autos = sorted(
-        (e for e in list_library() if e["kind"] == "auto"),
-        key=lambda x: x["mtime"],
-        reverse=True,
-    )
+    autos = sorted((e for e in list_library() if e["kind"] == "auto"), key=lambda x: x["mtime"], reverse=True)
     for entry in autos[keep:]:
         try:
             os.remove(os.path.join(_snapshots_dir(), entry["name"]))
@@ -1092,9 +1058,8 @@ def check_and_upgrade(path: str) -> None:
     schema. Rejects files produced by a newer Orb build."""
     conn = sqlite3.connect(path)
     try:
-        # quick_check on the upload before we trust it enough to migrate: a torn
-        # or tampered file that still opens must be rejected, not run through
-        # run_pending (which would write into a corrupt database).
+        # quick_check on the upload before we trust it enough to migrate: a torn or tampered file that still opens must be
+        # rejected, not run through run_pending (which would write into a corrupt database).
         qc = conn.execute("PRAGMA quick_check").fetchone()
         if not qc or qc[0] != "ok":
             raise PresetError(f"Uploaded file failed its integrity check: {qc[0] if qc else 'no result'}")

@@ -339,8 +339,7 @@ export function fitDecisionTextareas(root = document.getElementById("decision-se
 function _fit(el) {
   // A hidden section measures 0; it is fitted again when it is shown.
   if (!el.offsetParent) return;
-  // From zero, not "auto": auto is the rows attribute's height, a floor the
-  // measurement would never go under.
+  // From zero, not "auto": auto is the rows attribute's height, a floor the measurement would never go under.
   el.style.height = "0";
   el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
@@ -364,9 +363,8 @@ function _retype(type) {
   _draft.resolution = _policiesFor(type)[0] || "";
 }
 
-// Rows still carry their pre-drag indices, so read the form first, then take
-// the options in the rows' new order. Score levels are positional: a moved
-// level takes the key of the place it lands on.
+// Rows still carry their pre-drag indices, so read the form first, then take the options in the rows' new order. Score
+// levels are positional: a moved level takes the key of the place it lands on.
 function _reorderOptions(root) {
   const rows = [...root.querySelectorAll(".decision-option-row")];
   // The repaint replaces the handle an arrow-key reorder is still focused on.

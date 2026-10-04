@@ -1,8 +1,7 @@
 """Merge rewriter enablement into the workflow toggle; automatic config gates new turns.
 
-With a model selected, map the old engine toggle to enablement and the old
-workflow toggle to automatic. Without a model, retain workflow enablement
-and default automatic. Run once when the workflow config slot is absent.
+With a model selected, map the old engine toggle to enablement and the old workflow toggle to automatic. Without a model, retain
+workflow enablement and default automatic. Run once when the workflow config slot is absent.
 """
 
 from __future__ import annotations

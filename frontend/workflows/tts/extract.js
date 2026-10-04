@@ -184,9 +184,8 @@ function bestRun(words, tokens, from, to) {
   return best;
 }
 
-// Map blocks to rendered word indices, or -1 when absent. Prefer delimited
-// matches within windows bounded by the leftmost and rightmost feasible chains,
-// so a block cannot steal another's match. Ties choose the leftmost run.
+// Map blocks to rendered word indices, or -1 when absent. Prefer delimited matches within windows bounded by the
+// leftmost and rightmost feasible chains, so a block cannot steal another's match. Ties choose the leftmost run.
 export function alignBlocks(words, blockTokens) {
   const count = blockTokens.length;
   const earliest = new Array(count).fill(-1);

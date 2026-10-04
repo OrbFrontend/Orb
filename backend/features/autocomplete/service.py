@@ -7,18 +7,12 @@ from collections.abc import Mapping, Sequence
 from ...inference import local_ml
 
 
-async def complete(
-    prompt: str,
-    n_predict: int = 12,
-    stop: Sequence[str] = ("\n",),
-    temperature: float = 0.25,
-) -> str:
+async def complete(prompt: str, n_predict: int = 12, stop: Sequence[str] = ("\n",), temperature: float = 0.25) -> str:
     """Autocomplete continuation over the generic local-model runtime.
 
-    The typeahead model produces garbage for a whitespace-ending prompt, so
-    trim that tail before inference. If whitespace was removed, also remove the
-    model's re-emitted leading separator because the frontend appends the result
-    to the original, untrimmed draft.
+    The typeahead model produces garbage for a whitespace-ending prompt, so trim that tail before inference. If whitespace was
+    removed, also remove the model's re-emitted leading separator because the frontend appends the result to the original,
+    untrimmed draft.
     """
     trimmed = prompt.rstrip()
     completion = await local_ml.acomplete("autocomplete", trimmed, n_predict, stop, temperature)
@@ -37,9 +31,8 @@ def build_prompt(
 ) -> str:
     """Assemble a short raw-continuation prompt ending at the user's draft.
 
-    *recent* is oldest-to-newest and may carry a ``name`` that labels a group
-    speaker instead of using *char_name*. The lightweight prompt deliberately
-    excludes Director and pipeline injection content.
+    *recent* is oldest-to-newest and may carry a ``name`` that labels a group speaker instead of using *char_name*. The
+    lightweight prompt deliberately excludes Director and pipeline injection content.
     """
     lines: list[str] = []
     summary = (char_summary or "").strip()

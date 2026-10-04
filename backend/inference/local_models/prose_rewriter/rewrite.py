@@ -18,10 +18,8 @@ TOP_P = 0.9
 def budget(n_tokens: int) -> int:
     """How many tokens a paragraph of *n_tokens* is allowed.
 
-    1.6x the source plus a floor, capped at 512: the model is trained to land
-    near the source's length, so a budget proportional to it stops a runaway
-    from spending a slot on four hundred tokens of drift while another
-    paragraph waits.
+    1.6x the source plus a floor, capped at 512: the model is trained to land near the source's length, so a budget proportional
+    to it stops a runaway from spending a slot on four hundred tokens of drift while another paragraph waits.
     """
     return max(96, min(512, int(n_tokens * 1.6) + 32))
 
@@ -59,14 +57,12 @@ async def arewrite(
     async with host.use(profile) as server:
         done: dict[int, str] = {}
         completed: set[int] = set()
-        # ``jobs`` is in source order. A later paragraph may finish first, but its
-        # snapshot waits here until every preceding job has settled (whether it
-        # rewrote successfully or correctly passed through unchanged).
+        # ``jobs`` is in source order. A later paragraph may finish first, but its snapshot waits here until every preceding job
+        # has settled (whether it rewrote successfully or correctly passed through unchanged).
         next_progress = 0
         last_snapshot = draft
-        # Twice the slot count keeps the scheduler fed at all times — there is
-        # always a request waiting to fill a slot the moment one frees — without
-        # opening ninety-six connections for a ninety-six-paragraph draft.
+        # Twice the slot count keeps the scheduler fed at all times — there is always a request waiting to fill a slot the
+        # moment one frees — without opening ninety-six connections for a ninety-six-paragraph draft.
         admit = asyncio.Semaphore(max(2, server.slots * 2))
         lock = asyncio.Lock()
 
@@ -79,10 +75,7 @@ async def arewrite(
                     # Out past the trained envelope. Passing it through is the
                     # honest answer; the reference errors because a human can split it.
                     logger.info(
-                        "Prose rewriter: paragraph %d is %d tokens (>%d); left unchanged",
-                        index,
-                        n,
-                        T.MAX_SOURCE_TOKENS,
+                        "Prose rewriter: paragraph %d is %d tokens (>%d); left unchanged", index, n, T.MAX_SOURCE_TOKENS
                     )
                 else:
                     raw, stopped = await server.generate(
@@ -90,10 +83,8 @@ async def arewrite(
                         n_predict=budget(n),
                         temperature=TEMPERATURE,
                         top_p=TOP_P,
-                        # Belt and braces. <|im_end|> is marked EOG in these
-                        # GGUFs, so generation ends on the token; the string
-                        # stop covers a build that reads the metadata
-                        # differently, and llama.cpp trims it either way.
+                        # Belt and braces. <|im_end|> is marked EOG in these GGUFs, so generation ends on the token; the string
+                        # stop covers a build that reads the metadata differently, and llama.cpp trims it either way.
                         stop=(T.STOP_TOKEN,),
                     )
                     result = T.finish(raw, stopped)
@@ -102,10 +93,9 @@ async def arewrite(
                         done[index] = result
                     completed.add(index)
 
-                    # Awaiting a callback while holding this small bookkeeping lock
-                    # serializes its delivery too. In production it is an unbounded
-                    # Queue.put (no wait), and this keeps a slow custom callback from
-                    # letting a newer snapshot overtake an older one.
+                    # Awaiting a callback while holding this small bookkeeping lock serializes its delivery too. In production
+                    # it is an unbounded Queue.put (no wait), and this keeps a slow custom callback from letting a newer
+                    # snapshot overtake an older one.
                     advanced = False
                     while next_progress < len(jobs) and jobs[next_progress][0] in completed:
                         next_progress += 1
@@ -115,13 +105,11 @@ async def arewrite(
                         last_snapshot = snapshot
                         await on_progress(snapshot)
 
-        # Cancel-on-failure, which a bare ``gather`` does not do: it propagates
-        # the first failure but leaves the others RUNNING, holding llama-server
-        # slots after this call released its in-flight count — which then lets a
-        # swap or the idle unload stop the child underneath them. A dead child
-        # fails every paragraph at once, so that is the ordinary case. A
-        # ``TaskGroup`` would wrap the exception in an ``ExceptionGroup`` and
-        # cost the warning its message, so the tasks are tracked by hand.
+        # Cancel-on-failure, which a bare ``gather`` does not do: it propagates the first failure but leaves the others RUNNING,
+        # holding llama-server slots after this call released its in-flight count — which then lets a swap or the idle unload
+        # stop the child underneath them. A dead child fails every paragraph at once, so that is the ordinary case. A
+        # ``TaskGroup`` would wrap the exception in an ``ExceptionGroup`` and cost the warning its message, so the tasks are
+        # tracked by hand.
         tasks = [asyncio.create_task(run(i, source)) for i, source in jobs]
         try:
             await asyncio.gather(*tasks)
@@ -136,11 +124,9 @@ async def arewrite(
 def _admissible(layout: list[tuple[str, str]]) -> list[tuple[int, str]]:
     """``(slot index, source)`` for every paragraph this run will actually rewrite.
 
-    The caps clamp by declining to rewrite rather than by dropping text: a piece
-    past either limit keeps the writer's words and stays in the layout, so the
-    reassembled draft is always the whole draft. The reference rejects the
-    request instead — right for a person pasting into a text box, wrong for a
-    turn already in flight with nobody to ask.
+    The caps clamp by declining to rewrite rather than by dropping text: a piece past either limit keeps the writer's words and
+    stays in the layout, so the reassembled draft is always the whole draft. The reference rejects the request instead — right
+    for a person pasting into a text box, wrong for a turn already in flight with nobody to ask.
     """
     jobs: list[tuple[int, str]] = []
     chars = 0

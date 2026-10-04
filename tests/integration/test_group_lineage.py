@@ -1,10 +1,8 @@
 """Group families -- a fork of a group is a branch of it, not a second group.
 
-``conversations.group_root_id`` is what makes the sidebar show one entry per
-group instead of one per conversation. These tests pin the three things that
-would quietly break that: every fork path joining the source's family, the
-family staying flat however deep the forking goes, and a family surviving the
-deletion of the conversation it started as.
+``conversations.group_root_id`` is what makes the sidebar show one entry per group instead of one per conversation. These tests
+pin the three things that would quietly break that: every fork path joining the source's family, the family staying flat however
+deep the forking goes, and a family surviving the deletion of the conversation it started as.
 """
 
 from __future__ import annotations
@@ -13,23 +11,16 @@ from backend.database import add_message, get_conversation, set_active_leaf
 
 
 async def _card(client, name: str) -> str:
-    response = await client.post("/api/characters", json={"name": name})
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/characters", json={"name": name})
 
 
 async def _group(client, title: str = "Campfire") -> dict:
     aria, kael = await _card(client, "Aria"), await _card(client, "Kael")
-    response = await client.post(
+    response = await client.post_json(
         "/api/conversations",
-        json={
-            "kind": "group",
-            "title": title,
-            "members": [{"character_card_id": aria}, {"character_card_id": kael}],
-        },
+        json={"kind": "group", "title": title, "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
     )
-    assert response.status_code == 200
-    return response.json()
+    return response
 
 
 async def _history(cid: str, turns: int = 3) -> None:
@@ -62,12 +53,8 @@ async def test_compression_fork_joins_the_family(client):
     conv = await _group(client)
     await _history(conv["id"], turns=4)
 
-    response = await client.post(
-        f"/api/conversations/{conv['id']}/compress",
-        json={"summary": "So far.", "keep_count": 2},
-    )
-    assert response.status_code == 200
-    forked = await get_conversation(response.json()["new_conversation_id"])
+    response = await client.post_json(f"/api/conversations/{conv['id']}/compress", json={"summary": "So far.", "keep_count": 2})
+    forked = await get_conversation(response["new_conversation_id"])
 
     assert forked is not None and forked["group_root_id"] == conv["id"]
 
@@ -92,9 +79,8 @@ async def test_conversion_to_group_founds_a_family(client):
     card = await _card(client, "Ada")
     conv = (await client.post("/api/conversations", json={"character_card_id": card})).json()
 
-    response = await client.post(f"/api/conversations/{conv['id']}/convert-to-group")
-    assert response.status_code == 200
-    converted = response.json()["conversation"]
+    response = await client.post_json(f"/api/conversations/{conv['id']}/convert-to-group")
+    converted = response["conversation"]
 
     assert converted["kind"] == "group" and converted["group_root_id"] is None
 
@@ -138,9 +124,8 @@ async def test_group_only_routes_reject_a_solo_conversation(client):
 async def test_deleting_the_root_promotes_the_oldest_survivor(client):
     """The family outlives its founding conversation.
 
-    Without promotion the FK clears every fork's ``group_root_id`` and each one
-    resurfaces as its own group -- the duplication this feature exists to stop,
-    arriving by a different door.
+    Without promotion the FK clears every fork's ``group_root_id`` and each one resurfaces as its own group -- the duplication
+    this feature exists to stop, arriving by a different door.
     """
     conv = await _group(client)
     await _history(conv["id"])
@@ -161,9 +146,8 @@ async def test_deleting_the_group_takes_the_whole_family(client):
     checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
     bystander = await _group(client, title="Elsewhere")
 
-    response = await client.delete(f"/api/conversations/{conv['id']}/group")
-    assert response.status_code == 200
-    assert response.json()["deleted"] == 2
+    response = await client.delete_json(f"/api/conversations/{conv['id']}/group")
+    assert response["deleted"] == 2
 
     remaining = await _root_ids(client)
     assert conv["id"] not in remaining and checkpoint["id"] not in remaining
@@ -176,9 +160,8 @@ async def test_deleting_the_group_from_a_fork_resolves_the_root_first(client):
     await _history(conv["id"])
     checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
 
-    response = await client.delete(f"/api/conversations/{checkpoint['id']}/group")
-    assert response.status_code == 200
-    assert response.json()["deleted"] == 2
+    response = await client.delete_json(f"/api/conversations/{checkpoint['id']}/group")
+    assert response["deleted"] == 2
 
     remaining = await _root_ids(client)
     assert conv["id"] not in remaining and checkpoint["id"] not in remaining

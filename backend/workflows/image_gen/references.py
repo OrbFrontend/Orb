@@ -15,13 +15,7 @@ from ..toolkit import (
     get_workflow_attachment_by_id,
     get_workflow_character_state,
 )
-from .config import (
-    REFERENCE_MIMES,
-    REFERENCE_SOURCES,
-    WORKFLOW_ID,
-    SourcePolicy,
-    normalize_profile,
-)
+from .config import REFERENCE_MIMES, REFERENCE_SOURCES, WORKFLOW_ID, SourcePolicy, normalize_profile
 from .engine import ImageGenerationError
 from .engine.contracts import RenderTarget, ResolvedReference, reference_slot_key
 from .engine.display_encode import normalize_reference
@@ -31,26 +25,21 @@ from .subjects import Subject
 Fetched = tuple[bytes, str, str]
 
 # How each source reads in an error message. The names the import picker uses.
-SOURCE_LABELS = {
-    "previous": "the previous image in the chat",
-    "character": "the character reference image",
-}
+SOURCE_LABELS = {"previous": "the previous image in the chat", "character": "the character reference image"}
 
-# How far back a `previous` slot looks, in messages on this branch. Unbounded, the
-# first render in a conversation permanently retires the character reference:
-# `previous_or_character` would find *something* forever after, and a picture from
-# two hundred messages ago would outrank a likeness the user set on purpose.
+# How far back a `previous` slot looks, in messages on this branch. Unbounded, the first render in a conversation permanently
+# retires the character reference: `previous_or_character` would find *something* forever after, and a picture from two hundred
+# messages ago would outrank a likeness the user set on purpose.
 PREVIOUS_LOOKBACK_MESSAGES = 30
 
 
 def _bytes_from_row(row: Mapping[str, Any] | None) -> tuple[bytes, str] | None:
     """Decoded image bytes off an attachment row, or None when unusable.
 
-    An evicted row holds the sentinel rather than base64; that, a row that does not
-    decode, and a mime outside `REFERENCE_MIMES` all fall through to the next
-    candidate rather than raising, so one bad row cannot block a walk-back. The mime
-    check is not merely ``image/*``: a HEIC, AVIF or SVG upload would reach the
-    backend as undecodable bytes inside a body labelled as something else.
+    An evicted row holds the sentinel rather than base64; that, a row that does not decode, and a mime outside `REFERENCE_MIMES`
+    all fall through to the next candidate rather than raising, so one bad row cannot block a walk-back. The mime check is not
+    merely ``image/*``: a HEIC, AVIF or SVG upload would reach the backend as undecodable bytes inside a body labelled as
+    something else.
     """
     payload = (row or {}).get("data_b64")
     mime = (row or {}).get("mime_type")
@@ -73,9 +62,8 @@ def _rows(message: Mapping[str, Any], key: str) -> list[Mapping[str, Any]]:
 def _active_generated_image(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The image_gen attachment this message is actually *showing*.
 
-    Reroll siblings share a group root whose `active_sibling_id` names the one on
-    screen (NULL means the newest), and the latest group wins. Same rule the chat
-    renderer uses, so a reference is the image the user is looking at.
+    Reroll siblings share a group root whose `active_sibling_id` names the one on screen (NULL means the newest), and the latest
+    group wins. Same rule the chat renderer uses, so a reference is the image the user is looking at.
     """
     ours = [a for a in _rows(message, "workflow_attachments") if a.get("workflow_id") == WORKFLOW_ID]
     if not ours:
@@ -95,8 +83,7 @@ def _active_generated_image(message: Mapping[str, Any]) -> Mapping[str, Any] | N
 def _uploaded_image(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The newest upload on this message that Orb accepts as a reference.
 
-    Filtered on the mime alone: `_bytes_from_row` would decode a multi-megabyte
-    payload here and again at the point of use.
+    Filtered on the mime alone: `_bytes_from_row` would decode a multi-megabyte payload here and again at the point of use.
     """
     uploads = [a for a in _rows(message, "user_attachments") if str(a.get("mime_type") or "").lower() in REFERENCE_MIMES]
     return uploads[-1] if uploads else None
@@ -105,10 +92,9 @@ def _uploaded_image(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
 def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tuple[bytes, str, str] | None:
     """The newest usable image on this branch before the anchor.
 
-    The anchor is excluded, or a regenerate would feed the image already on the
-    message back in as its own reference and edit the previous render instead of the
-    scene. A user's own upload counts, and its origin carries the message id too
-    since user attachments are only readable per-message.
+    The anchor is excluded, or a regenerate would feed the image already on the message back in as its own reference and edit
+    the previous render instead of the scene. A user's own upload counts, and its origin carries the message id too since user
+    attachments are only readable per-message.
     """
     scanned = 0
     for message in reversed(list(history)):
@@ -128,15 +114,14 @@ def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tup
 
 
 async def _subject_image(subject: Subject | None) -> tuple[bytes, str, str] | None:
-    """The subject's likeness: their per-character reference, falling back to the card
-    avatar -- a genuine likeness, always present, so this source works before anything
-    is uploaded.
+    """The subject's likeness: their per-character reference, falling back to the card avatar -- a genuine likeness, always
+    present, so this source works before anything is uploaded.
 
-    The origin is keyed by card id, which is what lets a replay re-fetch it years later
-    with no conversation in hand -- `_origin_bytes` reads `character:<card id>` back.
+    The origin is keyed by card id, which is what lets a replay re-fetch it years later with no conversation in hand --
+    `_origin_bytes` reads `character:<card id>` back.
 
-    A subject with no card -- a narrator, or a render whose primary card was deleted --
-    is a missing source, and the caller falls through to the next name in the list.
+    A subject with no card -- a narrator, or a render whose primary card was deleted -- is a missing source, and the caller
+    falls through to the next name in the list.
     """
     character_id = subject.card_id if subject is not None else None
     if not character_id:
@@ -164,9 +149,8 @@ async def _subject_image(subject: Subject | None) -> tuple[bytes, str, str] | No
 def _constraints(entry: Mapping[str, Any]) -> dict:
     """Per-slot mime/size policy, as the slot's own record states it.
 
-    Data-driven rather than threaded down from the hook: each adapter states what
-    its slots accept, so nothing above here knows which backend is active. A slot
-    that states nothing gets the shared defaults.
+    Data-driven rather than threaded down from the hook: each adapter states what its slots accept, so nothing above here knows
+    which backend is active. A slot that states nothing gets the shared defaults.
     """
     limits: dict[str, Any] = {}
     mimes = entry.get("mimes")
@@ -181,22 +165,14 @@ def _constraints(entry: Mapping[str, Any]) -> dict:
 def _required(entry: Mapping[str, Any]) -> bool:
     """Whether this slot's render is impossible without an image.
 
-    A ComfyUI graph built around a `LoadImage` is -- rendering it unfilled submits
-    the exporter's stale filename. A cloud provider's synthetic slot is not, since
-    the same model has a plain generations endpoint one field away, so it degrades
-    with a note. Declared by the adapter, because it is a fact about the backend.
+    A ComfyUI graph built around a `LoadImage` is -- rendering it unfilled submits the exporter's stale filename. A cloud
+    provider's synthetic slot is not, since the same model has a plain generations endpoint one field away, so it degrades with
+    a note. Declared by the adapter, because it is a fact about the backend.
     """
     return entry.get("required") is not False
 
 
-async def _resolved(
-    slot: Any,
-    source: str,
-    data: bytes,
-    mime: str,
-    origin: str,
-    **limits: Any,
-) -> ResolvedReference:
+async def _resolved(slot: Any, source: str, data: bytes, mime: str, origin: str, **limits: Any) -> ResolvedReference:
     # Bounding is PIL work, so it goes off-thread like the display re-encode does.
     source_digest = hashlib.sha256(data).hexdigest()
     data, mime = await asyncio.to_thread(normalize_reference, data, mime, **limits)
@@ -222,9 +198,8 @@ def _unresolved(label: str, draw: Sequence[tuple[str, int]]) -> ImageGenerationE
 def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
     """The chat image a `previous` source would draw, found once for the whole render.
 
-    Hoisted out of the resolver because the *plan* depends on it: `previous_or_character`
-    sends one image when the chat has one and one per character when it does not, so how
-    many slots the render even asks for cannot be known until this is answered.
+    Hoisted out of the resolver because the *plan* depends on it: `previous_or_character` sends one image when the chat has one
+    and one per character when it does not, so how many slots the render even asks for cannot be known until this is answered.
     """
     return _previous_image(history, anchor_id)
 
@@ -232,10 +207,9 @@ def previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetc
 def last_reply_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fetched | None:
     """The generated image on the reply just before the anchor, or on the turns since.
 
-    Narrower than `previous_image` on purpose: this is what the prompter is shown, and
-    a picture from several replies back shows a scene the story has left. The walk stops
-    at the first earlier assistant message, image or not. Uploads never count, since the
-    prompter already sees them in the conversation.
+    Narrower than `previous_image` on purpose: this is what the prompter is shown, and a picture from several replies back shows
+    a scene the story has left. The walk stops at the first earlier assistant message, image or not. Uploads never count, since
+    the prompter already sees them in the conversation.
     """
     for message in reversed(list(history)):
         if message.get("id") == anchor_id:
@@ -249,24 +223,17 @@ def last_reply_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> Fe
     return None
 
 
-def plan_slots(
-    target: RenderTarget,
-    subjects: Sequence[Subject],
-    *,
-    previous: Fetched | None,
-) -> tuple[dict, ...]:
+def plan_slots(target: RenderTarget, subjects: Sequence[Subject], *, previous: Fetched | None) -> tuple[dict, ...]:
     """Plan the reference slots for a render."""
     source = target.reference_source
     policy = REFERENCE_SOURCES.get(source)
     if policy is None:
         return ()
     if target.reference_slots:
-        # Structural: the graph owns the inputs, while the round owns whose likeness
-        # each input carries. `_derived_draw` puts the reply speaker first and then
-        # assigns one distinct in-frame character per remaining slot. A graph may
-        # still declare more required inputs than a solo round can fill, so surplus
-        # slots deliberately reuse the first image instead of submitting the stale
-        # filenames exported with the workflow.
+        # Structural: the graph owns the inputs, while the round owns whose likeness each input carries. `_derived_draw` puts
+        # the reply speaker first and then assigns one distinct in-frame character per remaining slot. A graph may still declare
+        # more required inputs than a solo round can fill, so surplus slots deliberately reuse the first image instead of
+        # submitting the stale filenames exported with the workflow.
         draws = _derived_draw(policy, subjects, len(target.reference_slots), previous is not None)
         return tuple(
             {**dict(entry), "draw": draws[index] if index < len(draws) else draws[0]}
@@ -290,10 +257,7 @@ def plan_slots(
 
 
 def _derived_draw(
-    policy: SourcePolicy,
-    subjects: Sequence[Subject],
-    capacity: int,
-    has_previous: bool,
+    policy: SourcePolicy, subjects: Sequence[Subject], capacity: int, has_previous: bool
 ) -> list[tuple[tuple[str, int], ...]]:
     """Return distinct images for a homogeneous reference array."""
     drawable = [index for index, subject in enumerate(subjects) if subject.card_id]
@@ -312,10 +276,7 @@ def _derived_draw(
 
 
 async def resolve_references(
-    entries: Sequence[Mapping[str, Any]],
-    *,
-    subjects: Sequence[Subject] = (),
-    previous: Fetched | None = None,
+    entries: Sequence[Mapping[str, Any]], *, subjects: Sequence[Subject] = (), previous: Fetched | None = None
 ) -> tuple[ResolvedReference, ...]:
     """Resolve bytes for a fresh render."""
     if not entries:
@@ -345,18 +306,15 @@ async def resolve_references(
 def replay_slots(target: RenderTarget, recorded: Sequence[Mapping[str, Any]]) -> tuple[dict, ...]:
     """The slots a *replay's* recorded references land in.
 
-    A replay is about a render that already happened, so its slot count comes from the
-    record rather than from today's cast: rehydrating a two-hander must ask for two
-    images however many people are on screen now. A structural backend answers with its
-    declared inputs as always; a derived one is handed as many slots as the record has,
-    bounded by what it can still carry.
+    A replay is about a render that already happened, so its slot count comes from the record rather than from today's cast:
+    rehydrating a two-hander must ask for two images however many people are on screen now. A structural backend answers with
+    its declared inputs as always; a derived one is handed as many slots as the record has, bounded by what it can still carry.
     """
     if target.reference_slots:
         return tuple(dict(entry) for entry in target.reference_slots)
     template = target.reference_template
-    # A style with its reference switched off has nowhere to put a recorded one, even
-    # on a provider with the room: "off" is an answer about this render, not about the
-    # backend, and the caller discloses the drop rather than quietly re-sending.
+    # A style with its reference switched off has nowhere to put a recorded one, even on a provider with the room: "off" is an
+    # answer about this render, not about the backend, and the caller discloses the drop rather than quietly re-sending.
     if not template or target.reference_source not in REFERENCE_SOURCES:
         return ()
     node = str(template.get("slot_prefix") or "reference")
@@ -377,8 +335,7 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
     if kind == "attachment" and ident.isdigit():
         return _bytes_from_row(await get_workflow_attachment_by_id(int(ident)))
     if kind == "upload":
-        # "upload:<message id>:<attachment id>" -- user attachments are only
-        # readable per-message, so the origin carries both.
+        # "upload:<message id>:<attachment id>" -- user attachments are only readable per-message, so the origin carries both.
         message_id, _, attachment_id = ident.partition(":")
         if message_id.isdigit() and attachment_id.isdigit():
             for row in await get_user_attachments_for_message(int(message_id)):
@@ -395,17 +352,14 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
 
 
 def _pair_with_slots(
-    recorded: Sequence[Mapping[str, Any]],
-    slots: Sequence[Mapping[str, Any]],
+    recorded: Sequence[Mapping[str, Any]], slots: Sequence[Mapping[str, Any]]
 ) -> list[tuple[Mapping[str, Any], Mapping[str, Any] | None]]:
     """Which of *this* render's slots carries each recorded reference.
 
-    Matched by slot id first, so an unchanged target replays byte-identically. What
-    is left over is matched **positionally**, which is what makes replay work across
-    backends: a cloud reference is recorded against the synthetic
-    ``("cloud", "image_0")`` and a ComfyUI one against a node id, so the two never
-    match by key. A recorded reference with no slot left pairs with ``None``; the
-    caller drops it and discloses that rather than submitting it nowhere.
+    Matched by slot id first, so an unchanged target replays byte-identically. What is left over is matched **positionally**,
+    which is what makes replay work across backends: a cloud reference is recorded against the synthetic ``("cloud",
+    "image_0")`` and a ComfyUI one against a node id, so the two never match by key. A recorded reference with no slot left
+    pairs with ``None``; the caller drops it and discloses that rather than submitting it nowhere.
     """
     # Tracked by index, never by value: two slots on one target can be equal dicts,
     # and removing "the equal one" would consume the wrong slot.
@@ -433,11 +387,7 @@ def _pair_with_slots(
     return pairs
 
 
-async def refetch_references(
-    recorded: Any,
-    *,
-    slots: Sequence[Mapping[str, Any]] = (),
-) -> tuple[ResolvedReference, ...]:
+async def refetch_references(recorded: Any, *, slots: Sequence[Mapping[str, Any]] = ()) -> tuple[ResolvedReference, ...]:
     """Reload references strictly from recorded origins; never re-resolve on reroll.
 
     Fail on missing, evicted or changed origins. Target slots supply current MIME/
@@ -473,9 +423,8 @@ async def refetch_references(
 def _require_all_filled(slots: Sequence[Mapping[str, Any]], resolved: Sequence[ResolvedReference]) -> None:
     """Refuse a replay that leaves a slot the render cannot run without.
 
-    The only thing a style change on reroll is refused for: a target needing more
-    images than the record holds. Recorded slots naming another graph's node ids is
-    not one -- the origins never did, and `_pair_with_slots` re-keys them.
+    The only thing a style change on reroll is refused for: a target needing more images than the record holds. Recorded slots
+    naming another graph's node ids is not one -- the origins never did, and `_pair_with_slots` re-keys them.
     """
     filled = {reference_slot_key(reference.slot) for reference in resolved}
     missing = [slot for slot in slots if _required(slot) and reference_slot_key(slot.get("slot")) not in filled]
@@ -491,11 +440,10 @@ def _require_all_filled(slots: Sequence[Mapping[str, Any]], resolved: Sequence[R
 def _verify_unchanged(entry: Mapping[str, Any], reference: ResolvedReference) -> None:
     """Refuse a replay whose origin now holds different bytes than it recorded.
 
-    Compared on `source_digest`, taken before the destination's policy touches the
-    bytes, so a reference re-keyed onto another backend's slot is not accused of
-    changing merely because it converted differently. A `character:` origin is
-    exempt -- it addresses a *setting*, and "change the reference, then reroll" is
-    documented to apply -- and a record predating the field carries no digest.
+    Compared on `source_digest`, taken before the destination's policy touches the bytes, so a reference re-keyed onto another
+    backend's slot is not accused of changing merely because it converted differently. A `character:` origin is exempt -- it
+    addresses a *setting*, and "change the reference, then reroll" is documented to apply -- and a record predating the field
+    carries no digest.
     """
     if reference.origin.startswith("character:"):
         return

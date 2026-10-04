@@ -70,13 +70,11 @@ async def pre_pipeline(ctx):
 
 
 async def post_pipeline(ctx):
-    """Synthesize the finished reply for a character whose voice profile is
-    enabled. Yields one ``attach_artifact`` and, when auto-play is on, a
-    pass-through event the frontend uses to start playback.
+    """Synthesize the finished reply for a character whose voice profile is enabled. Yields one ``attach_artifact`` and, when
+    auto-play is on, a pass-through event the frontend uses to start playback.
 
-    Generation is gated solely by the per-character profile's ``enabled`` flag;
-    there is no global generate switch. A synthesis failure is logged and
-    swallowed -- a bad TTS backend must not fail the user's turn.
+    Generation is gated solely by the per-character profile's ``enabled`` flag; there is no global generate switch. A synthesis
+    failure is logged and swallowed -- a bad TTS backend must not fail the user's turn.
     """
     if not ctx.character_id:
         return
@@ -108,10 +106,9 @@ async def post_pipeline(ctx):
 async def regenerate(ctx, body):
     """Re-synthesize the message under the character's CURRENT voice profile.
 
-    Unlike reroll, this ignores the original's stored parameters and re-reads
-    both the message text and the live profile, so an edit to the voice (pitch,
-    rate, backend, voice id, ...) takes effect here. The route stamps
-    ``workflow_id`` and ``parent_attachment_id`` and validates each entry.
+    Unlike reroll, this ignores the original's stored parameters and re-reads both the message text and the live profile, so an
+    edit to the voice (pitch, rate, backend, voice id, ...) takes effect here. The route stamps ``workflow_id`` and
+    ``parent_attachment_id`` and validates each entry.
     """
     message = await get_message_by_id(ctx.message_id)
     text = (message or {}).get("content") or ""
@@ -129,13 +126,10 @@ async def regenerate(ctx, body):
 async def reroll_gen(ctx, params, seed):
     """Re-synthesize from the stored parameters. Returns ``(bytes, consumption_metadata)``.
 
-    The framework-supplied ``seed`` is ignored because TTS synthesis takes no
-    seed input -- there is nothing for it to influence -- so reroll and
-    rehydrate both reproduce from the stored parameters alone. The
-    consumption_metadata is returned alongside so the byte ranges track the
-    freshly synthesized clips on both the reroll (new sibling) and rehydrate
-    (in-place) routes. Raises on missing parameters, surfaced by the route as
-    a 500.
+    The framework-supplied ``seed`` is ignored because TTS synthesis takes no seed input -- there is nothing for it to influence
+    -- so reroll and rehydrate both reproduce from the stored parameters alone. The consumption_metadata is returned alongside
+    so the byte ranges track the freshly synthesized clips on both the reroll (new sibling) and rehydrate (in-place) routes.
+    Raises on missing parameters, surfaced by the route as a 500.
     """
     audio, _, blocks = await synthesize_blocks_from_metadata(params if isinstance(params, dict) else {})
     duration_ms = sum(
@@ -232,11 +226,9 @@ async def upload(ctx, params):
     }
 
 
-# These back the config panel's Backend / Voice / Model selectors and the
-# Preview button. They answer from the static backend registry or by probing the
-# TTS backend named in the form's unsaved profile, with no conversation in scope,
-# and report their own failures in-band -- the caller degrades (empty list,
-# status text) rather than treating a probe failure as an HTTP error.
+# These back the config panel's Backend / Voice / Model selectors and the Preview button. They answer from the static backend
+# registry or by probing the TTS backend named in the form's unsaved profile, with no conversation in scope, and report their
+# own failures in-band -- the caller degrades (empty list, status text) rather than treating a probe failure as an HTTP error.
 
 
 async def query(ctx, body):
@@ -274,10 +266,7 @@ async def _list_models(body) -> dict:
     backend = body.get("backend") or "spark"
     try:
         adapter = get_adapter(backend)
-        models = await adapter.list_models(
-            api_url=body.get("api_url") or "",
-            api_key=(body.get("api_key") or None),
-        )
+        models = await adapter.list_models(api_url=body.get("api_url") or "", api_key=(body.get("api_key") or None))
     except Exception:
         logger.exception("tts list_models failed for backend %r", backend)
         return {"models": [], "error": "could not load models"}
@@ -290,11 +279,9 @@ async def _preview(body) -> dict:
     try:
         audio, mime = await synthesize(text, profile)
     except ValueError as exc:
-        # An adapter raises ValueError for the refusals a user can act on: no
-        # voice enrolled yet, a model that is not downloaded, a missing API
-        # key. That message IS the fix, so it reaches the panel's status line;
-        # "preview synthesis failed" would send the user looking for a bug that
-        # is not there. Anything else IS a bug and stays generic below.
+        # An adapter raises ValueError for the refusals a user can act on: no voice enrolled yet, a model that is not
+        # downloaded, a missing API key. That message IS the fix, so it reaches the panel's status line; "preview synthesis
+        # failed" would send the user looking for a bug that is not there. Anything else IS a bug and stays generic below.
         logger.info("tts preview refused: %s", exc)
         return {"error": str(exc) or "preview synthesis failed"}
     except Exception:

@@ -1,9 +1,7 @@
 """Character-card snapshot (``ctx.character``) delivery to workflow hooks.
 
-Pins that each in-scope hook context (PreCtx, PostCtx, OnDemandCtx,
-RegenCtx) receives a read-only snapshot of the conversation's character
-card and its character_id, and that both degrade to None when the
-conversation has no card.
+Pins that each in-scope hook context (PreCtx, PostCtx, OnDemandCtx, RegenCtx) receives a read-only snapshot of the
+conversation's character card and its character_id, and that both degrade to None when the conversation has no card.
 """
 
 from __future__ import annotations
@@ -36,13 +34,7 @@ async def _drain(gen) -> list:
 
 
 def _pipeline_kwargs() -> dict:
-    return {
-        "prefix": _PREFIX,
-        "enabled_tools": {},
-        "turn_scratch": {},
-        "kv_tracker": KVCacheTracker(),
-        "schema_overrides": {},
-    }
+    return {"prefix": _PREFIX, "enabled_tools": {}, "turn_scratch": {}, "kv_tracker": KVCacheTracker(), "schema_overrides": {}}
 
 
 async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
@@ -179,17 +171,9 @@ async def test_regenerate_ctx_carries_card_snapshot_and_id_from_route(client):
         captured["character_id"] = ctx.character_id
         return []
 
-    wf = make_workflow(
-        "cf_rg",
-        regenerate=regenerate,
-        reroll_gen=lambda ctx, params, seed: b"",
-        produces_artifacts=True,
-    )
+    wf = make_workflow("cf_rg", regenerate=regenerate, reroll_gen=lambda ctx, params, seed: b"", produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/conv_rg/messages/{mid}/workflow-attachments/{aid}/regenerate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/conv_rg/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
 
     assert resp.status_code == 200
     assert captured["character_id"] == "card_rg"

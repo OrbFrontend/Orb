@@ -10,8 +10,7 @@ def _has_table(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # Idempotent: the second run matches no rows. Keep the update scoped to
-    # the three places where a TTS profile is persisted.
+    # Idempotent: the second run matches no rows. Keep the update scoped to the three places where a TTS profile is persisted.
     for table in ("character_cards", "group_members"):
         if not _has_table(conn, table):
             continue

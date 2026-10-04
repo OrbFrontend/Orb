@@ -8,7 +8,7 @@ from typing import Any, cast
 from typing import cast as typed_cast
 
 from ...core import CardScripts, CastMember, GroupContextMode, TurnCast
-from ..connection import get_db, immediate_tx
+from ..connection import get_db, immediate_tx, select_rows
 from ..models import ConversationRow, GroupMemberRow
 from .character_cards import get_character_card, render_public_profile
 
@@ -38,16 +38,13 @@ async def get_group_members(conversation_id: str, *, include_inactive: bool = Fa
 async def get_speaker_names(conversation_id: str) -> dict[str, str]:
     """Map all historical member ids to names, including inactive members.
 
-    History attribution must survive roster removal. Turn-context loading builds
-    the same map from its already fetched rows.
+    History attribution must survive roster removal. Turn-context loading builds the same map from its already fetched rows.
     """
     return {member["id"]: member["display_name"] for member in await get_group_members(conversation_id, include_inactive=True)}
 
 
 async def get_group_member_scripts(
-    conversation_id: str,
-    *,
-    members: Sequence[Mapping[str, Any]] | None = None,
+    conversation_id: str, *, members: Sequence[Mapping[str, Any]] | None = None
 ) -> dict[str, CardScripts]:
     """Compile scripts for card-backed members, including inactive speakers."""
     rows = members if members is not None else await get_group_members(conversation_id, include_inactive=True)
@@ -68,8 +65,7 @@ async def get_group_member(member_id: str, *, conversation_id: str | None = None
     if conversation_id is not None:
         sql += " AND conversation_id = ?"
         args += (conversation_id,)
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall(sql, args))
+    rows = await select_rows(sql, args)
     return cast(GroupMemberRow, dict(rows[0])) if rows else None
 
 
@@ -105,9 +101,8 @@ def resolve_private_sheet(card: Mapping | None, override: str | None = None) -> 
 def _context_mode(conv: Mapping) -> GroupContextMode:
     """The conversation's character-context mode, defaulting on an unknown value.
 
-    The column carries a CHECK constraint, so an out-of-domain value can only
-    arrive from a hand-edited database; falling back to the behaviour-preserving
-    default exchanges raising inside prompt assembly.
+    The column carries a CHECK constraint, so an out-of-domain value can only arrive from a hand-edited database; falling back
+    to the behaviour-preserving default exchanges raising inside prompt assembly.
     """
     mode = str(conv.get("group_context_mode") or "private")
     return typed_cast(GroupContextMode, mode) if mode in ("private", "shared", "swap") else "private"
@@ -210,10 +205,7 @@ async def create_group_conversation(
                 group_root_id,
             ),
         )
-        await db.execute(
-            "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-            (cid,),
-        )
+        await db.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (cid,))
         for order, spec in enumerate(members):
             name = str(spec.get("display_name") or spec.get("name") or "Narrator").strip() or "Narrator"
             requested = str(spec.get("speaker_key") or "").strip().casefold()
@@ -251,8 +243,7 @@ async def create_group_conversation(
                 (cid, greeting.strip(), now, speaker_id, str(uuid.uuid4())),
             )
             await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (cur.lastrowid, cid))
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM conversations WHERE id = ?", (cid,)))
+    rows = await select_rows("SELECT * FROM conversations WHERE id = ?", (cid,))
     return cast(ConversationRow, dict(rows[0]))
 
 
@@ -358,13 +349,10 @@ async def sync_group_members(conversation_id: str, specs: Sequence[Mapping[str, 
                         int(bool(spec.get("muted", False))),
                     ),
                 )
-        # A member the user just removed is out of the scene, so anything staged
-        # about its sheet is no longer a decision anyone can make: the apply has
-        # nothing active to write onto, and Manage cast renders rows only for the
-        # active roster, so an undecided proposal would sit in the review count
-        # forever with no row to dismiss it from. Retired here rather than in
-        # ``member_sheets`` because it has to be atomic with the tombstone, and
-        # because that module imports this one.
+        # A member the user just removed is out of the scene, so anything staged about its sheet is no longer a decision anyone
+        # can make: the apply has nothing active to write onto, and Manage cast renders rows only for the active roster, so an
+        # undecided proposal would sit in the review count forever with no row to dismiss it from. Retired here rather than in
+        # ``member_sheets`` because it has to be atomic with the tombstone, and because that module imports this one.
         leaving = [row["id"] for row in existing_rows if row["active"] and row["id"] not in kept]
         if leaving:
             await db.execute(

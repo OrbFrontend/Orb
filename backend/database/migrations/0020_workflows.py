@@ -110,9 +110,8 @@ def _split_attachments(conn: sqlite3.Connection) -> None:
 def _port_tts(conn: sqlite3.Connection) -> None:
     """Port legacy TTS storage into workflow_config + per-card state.
 
-    Reads the legacy settings.tts_* columns and voice_profiles rows, writes the
-    final runtime shape directly, then drops the legacy storage. Gated on the
-    legacy sources still being present, so it is a no-op once they are gone.
+    Reads the legacy settings.tts_* columns and voice_profiles rows, writes the final runtime shape directly, then drops the
+    legacy storage. Gated on the legacy sources still being present, so it is a no-op once they are gone.
     """
     settings_cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
@@ -155,9 +154,8 @@ def _port_tts(conn: sqlite3.Connection) -> None:
 def _move_voice_profiles(conn: sqlite3.Connection) -> None:
     """Move each voice_profiles row into its card's workflow_state["tts"] slot.
 
-    A card whose slot is unparseable or already carries a tts profile (set via
-    the config panel) is left alone -- the live value wins. The vestigial
-    endpoint_id field is not carried over.
+    A card whose slot is unparseable or already carries a tts profile (set via the config panel) is left alone -- the live value
+    wins. The vestigial endpoint_id field is not carried over.
     """
     for vp in conn.execute(
         """

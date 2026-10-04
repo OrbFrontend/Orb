@@ -14,13 +14,11 @@ from backend.api.compression import compressible
 
 
 async def test_static_files_revalidate_instead_of_redownloading(client):
-    resp = await client.get("/static/app.js")
-    assert resp.status_code == 200
+    resp = await client.get_checked("/static/app.js")
     assert resp.headers["cache-control"] == "no-cache"
     etag = resp.headers["etag"]
 
-    again = await client.get("/static/app.js", headers={"If-None-Match": etag})
-    assert again.status_code == 304
+    again = await client.get_checked("/static/app.js", headers={"If-None-Match": etag}, expected_status=304)
     assert again.content == b""
 
 
@@ -43,22 +41,20 @@ async def test_text_responses_are_gzipped(client):
 
 
 async def test_small_responses_skip_compression(client):
-    resp = await client.get("/api/themes", headers={"Accept-Encoding": "gzip"})
-    assert resp.status_code == 200
+    resp = await client.get_checked("/api/themes", headers={"Accept-Encoding": "gzip"})
     assert "content-encoding" not in resp.headers
 
 
 async def test_media_is_not_recompressed(client):
-    resp = await client.get("/static/favicon.png", headers={"Accept-Encoding": "gzip"})
-    assert resp.status_code == 200
+    resp = await client.get_checked("/static/favicon.png", headers={"Accept-Encoding": "gzip"})
     assert "content-encoding" not in resp.headers
 
 
 async def test_byte_ranges_are_not_gzipped(client):
-    # Content-Range offsets name the uncompressed bytes; a gzipped slice would
-    # break media seeking.
-    resp = await client.get("/static/app.js", headers={"Accept-Encoding": "gzip", "Range": "bytes=0-4095"})
-    assert resp.status_code == 206
+    # Content-Range offsets name the uncompressed bytes; a gzipped slice would break media seeking.
+    resp = await client.get_checked(
+        "/static/app.js", headers={"Accept-Encoding": "gzip", "Range": "bytes=0-4095"}, expected_status=206
+    )
     assert "content-encoding" not in resp.headers
     assert len(resp.content) == 4096
 

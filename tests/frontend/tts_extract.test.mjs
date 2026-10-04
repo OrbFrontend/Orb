@@ -42,9 +42,8 @@ test("TTS preserves the legacy scanner for old audio", () => {
   assert.deepEqual(attachmentBlocks(text, [{ words: [] }]), ["tired", "Hello."]);
 });
 
-// Stands in for the rendered word stream the widget aligns against: every word
-// the reader sees, narration included, with its delimiters still attached. The
-// separator set is the one the DOM tokenizer uses, hard line breaks included.
+// Stands in for the rendered word stream the widget aligns against: every word the reader sees, narration included,
+// with its delimiters still attached. The separator set is the one the DOM tokenizer uses, hard line breaks included.
 function shownWords(text) {
   return text
     .split(/[\s\u001c-\u001e\u0085\u2028\u2029]+/u)
@@ -107,9 +106,8 @@ test("TTS alignment never takes a run a later block needs", () => {
 });
 
 test("TTS alignment tokenizes blocks the way the backend times them", () => {
-  // The backend emits one timing span per `alignableKeys` token and the karaoke
-  // driver drops a block whose index count disagrees, so the two must not drift
-  // on the separators that only one of the splitters treats as whitespace.
+  // The backend emits one timing span per `alignableKeys` token and the karaoke driver drops a block whose index count
+  // disagrees, so the two must not drift on the separators that only one of the splitters treats as whitespace.
   const text = "one\u001ctwo\u001dthree\u001efour";
   const words = shownWords(text);
   const tokens = alignableKeys(text);

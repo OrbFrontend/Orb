@@ -11,21 +11,18 @@ from .chat_stream import ChatStream
 from .errors import llm_stream_error
 from .schema import strictify_schema
 
-# Anthropic rejects unknown top-level fields. These are the only user-provided
-# extra_body keys accepted on a native Messages route; OpenAI-shaped escape
-# hatches therefore cannot turn an otherwise-valid request into a hard 400.
-# A configured ``cache_control`` (automatic caching) replaces Orb's breakpoints.
+# Anthropic rejects unknown top-level fields. These are the only user-provided extra_body keys accepted on a native Messages
+# route; OpenAI-shaped escape hatches therefore cannot turn an otherwise-valid request into a hard 400. A configured
+# ``cache_control`` (automatic caching) replaces Orb's breakpoints.
 EXTRA_BODY_ALLOWED: frozenset[str] = frozenset({"cache_control", "metadata", "service_tier"})
 DEFAULT_MAX_TOKENS = 4096
 
-# Sampling support is a capability of the concrete endpoint/model pair, not
-# something that can be inferred from a provider-owned model id. Send the
-# caller's controls optimistically and remember an explicit rejection.
+# Sampling support is a capability of the concrete endpoint/model pair, not something that can be inferred from a provider-owned
+# model id. Send the caller's controls optimistically and remember an explicit rejection.
 _SAMPLING_UNSUPPORTED: set[tuple[str, str]] = set()
 
-# Some Messages implementations accept an older ``budget_tokens`` shape and
-# reject adaptive thinking or ``output_config.effort``. As with sampling, the
-# modern fields go out once and an explicit rejection is remembered.
+# Some Messages implementations accept an older ``budget_tokens`` shape and reject adaptive thinking or
+# ``output_config.effort``. As with sampling, the modern fields go out once and an explicit rejection is remembered.
 _THINKING_UNSUPPORTED: set[tuple[str, str]] = set()
 
 
@@ -56,12 +53,7 @@ def _text_parts(content: object) -> list[dict[str, Any]]:
                     base64.b64decode(data, validate=True)
                 except ValueError:
                     continue
-                blocks.append(
-                    {
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": media_type, "data": data},
-                    }
-                )
+                blocks.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}})
     return blocks
 
 
@@ -85,25 +77,15 @@ def _tool_use_blocks(tool_calls: object) -> list[dict[str, Any]]:
             decoded = raw
         if not isinstance(decoded, Mapping):
             decoded = {"value": decoded}
-        out.append(
-            {
-                "type": "tool_use",
-                "id": str(call.get("id") or ""),
-                "name": function["name"],
-                "input": dict(decoded),
-            }
-        )
+        out.append({"type": "tool_use", "id": str(call.get("id") or ""), "name": function["name"], "input": dict(decoded)})
     return out
 
 
-def translate_messages(
-    messages: Sequence[Mapping[str, Any]],
-) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
+def translate_messages(messages: Sequence[Mapping[str, Any]]) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]]]:
     """Hoist system text and translate/coalesce Anthropic user/assistant turns.
 
-    A cache breakpoint on the system text turns ``system`` into a one-block list
-    carrying it; the text is the same either way. A breakpoint inside a tool
-    message moves onto its ``tool_result`` block.
+    A cache breakpoint on the system text turns ``system`` into a one-block list carrying it; the text is the same either way. A
+    breakpoint inside a tool message moves onto its ``tool_result`` block.
     """
     system_parts: list[str] = []
     system_cache: dict[str, Any] | None = None
@@ -169,10 +151,9 @@ def translate_tools(tools: object) -> list[dict[str, Any]]:
             continue
         translated: dict[str, Any] = {
             "name": function["name"],
-            # ``strict`` obliges the schema to close every object and mark every
-            # property required; Orb's own tools ship partial ``required`` lists,
-            # so shape them the way the OpenAI forced path already does rather
-            # than sending a schema the API will reject.
+            # ``strict`` obliges the schema to close every object and mark every property required; Orb's own tools ship partial
+            # ``required`` lists, so shape them the way the OpenAI forced path already does rather than sending a schema the API
+            # will reject.
             "input_schema": strictify_schema(dict(function.get("parameters") or {"type": "object", "properties": {}})),
             "strict": True,
         }
@@ -207,10 +188,7 @@ def _sampling_allowed(endpoint_url: str, model: str) -> bool:
 
 
 def build_request_body(
-    openai_body: Mapping[str, Any],
-    endpoint_url: str,
-    model: str,
-    extra_body: Mapping[str, Any] | None = None,
+    openai_body: Mapping[str, Any], endpoint_url: str, model: str, extra_body: Mapping[str, Any] | None = None
 ) -> dict[str, Any]:
     """Build a native Messages body from an allowlist."""
     system, messages = translate_messages(openai_body.get("messages") or [])
@@ -288,12 +266,7 @@ def recover_sampling_error(endpoint_url: str, model: str, body: dict[str, Any], 
 
 
 # Messages stop reasons in OpenAI ``finish_reason`` terms; others pass through.
-_FINISH_REASONS = {
-    "end_turn": "stop",
-    "stop_sequence": "stop",
-    "tool_use": "tool_calls",
-    "max_tokens": "length",
-}
+_FINISH_REASONS = {"end_turn": "stop", "stop_sequence": "stop", "tool_use": "tool_calls", "max_tokens": "length"}
 
 
 async def consume_stream(
@@ -308,10 +281,8 @@ async def consume_stream(
 ) -> AsyncIterator[dict]:
     """Fold Messages stream payloads into *acc* in OpenAI terms, yielding live deltas.
 
-    An ``error`` event, or a stream that ends before ``message_stop`` without an
-    abort, raises the provider error *url*, *model* and *api_key* describe. A
-    *forced* call buffers its text as the tool-arguments payload, as on the
-    OpenAI surface.
+    An ``error`` event, or a stream that ends before ``message_stop`` without an abort, raises the provider error *url*, *model*
+    and *api_key* describe. A *forced* call buffers its text as the tool-arguments payload, as on the OpenAI surface.
     """
     stopped = False
     async for payload in payloads:
@@ -370,8 +341,5 @@ async def consume_stream(
             break
     if not stopped and not is_aborted():
         raise llm_stream_error(
-            payload={"error": {"message": "Anthropic stream ended before message_stop"}},
-            url=url,
-            model=model,
-            api_key=api_key,
+            payload={"error": {"message": "Anthropic stream ended before message_stop"}}, url=url, model=model, api_key=api_key
         )

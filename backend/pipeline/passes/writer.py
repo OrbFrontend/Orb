@@ -19,12 +19,7 @@ from ...core import (
     extract_hyperparams,
     resolve_inline,
 )
-from ...inference import (
-    CachedBase,
-    KVCacheTracker,
-    LLMClient,
-    reasoning_cfg,
-)
+from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
 from .editor.length_guard import LengthGuard, writer_nudge
 
@@ -37,10 +32,9 @@ logger = logging.getLogger(__name__)
 def strip_speaker_label(text: str, speaker_name: str) -> str:
     """Remove a leading plain/Markdown label for the complete speaker name.
 
-    A **colon** is what makes a label a label -- ``Alice smiled.`` is prose and
-    always was, and ``**Alice** walked to the door.`` is the same sentence in
-    bold. The one colon-free form accepted is a name that owns its whole line
-    (a heading, or bold with nothing after it), which prose never is.
+    A **colon** is what makes a label a label -- ``Alice smiled.`` is prose and always was, and ``**Alice** walked to the
+    door.`` is the same sentence in bold. The one colon-free form accepted is a name that owns its whole line (a heading, or
+    bold with nothing after it), which prose never is.
     """
     if not text or not speaker_name.strip():
         return text
@@ -62,9 +56,8 @@ def strip_speaker_label(text: str, speaker_name: str) -> str:
     return label.sub("", text, count=1)
 
 
-# Private perspective places identity after history for shared-prefix caching.
-# Tell the model to prefer transcript updates over the sheet without dating it:
-# reviewed mid-scene sheet updates can make a scene-start label inaccurate.
+# Private perspective places identity after history for shared-prefix caching. Tell the model to prefer transcript updates over
+# the sheet without dating it: reviewed mid-scene sheet updates can make a scene-start label inaccurate.
 SHEET_FRAMING = (
     "Reference sheet for this scene. Where the transcript above shows it has changed "
     "— appearance, dress, injuries, what they carry — follow the transcript."
@@ -136,25 +129,22 @@ async def writer_pass(
 ) -> AsyncIterator[dict]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
-    *content* is the writer's user-message body, prebuilt by
-    ``build_writer_content`` and shared with the editor. The tool blob comes from
-    *base* so it stays byte-identical with the director and editor passes.
+    *content* is the writer's user-message body, prebuilt by ``build_writer_content`` and shared with the editor. The tool blob
+    comes from *base* so it stays byte-identical with the director and editor passes.
     """
     trailing: list[ChatMessage] = [{"role": "user", "content": content}]
 
     hyperparams = extract_hyperparams(settings)
     logger.info(
-        "Writer pass: tools included=%s",
-        json.dumps([t["function"]["name"] for t in base.tools]) if base.tools else "[]",
+        "Writer pass: tools included=%s", json.dumps([t["function"]["name"] for t in base.tools]) if base.tools else "[]"
     )
 
     async for item in base.complete(
         client,
         label="writer",
         trailing=trailing,
-        # base.tools is empty in dual-model (Invariant 5) → no tools, no
-        # tool_choice; otherwise the writer ships the shared blob but is barred
-        # from calling anything.
+        # base.tools is empty in dual-model (Invariant 5) → no tools, no tool_choice; otherwise the writer ships the shared blob
+        # but is barred from calling anything.
         tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
         **reasoning_cfg(reasoning_on, reasoning_prefill),
@@ -180,20 +170,15 @@ async def writer_stage(
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
-    Builds ``state.writer_content`` once (replayed verbatim by the editor to
-    extend the writer's KV-cached prefix), runs :func:`writer_pass` translating
-    ``content``→``token`` and ``reasoning``→``reasoning`` events, and accumulates
-    the writer's wall time into ``state.latency``.
+    Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
+    :func:`writer_pass` translating ``content``→``token`` and ``reasoning``→``reasoning`` events, and accumulates the writer's
+    wall time into ``state.latency``.
     """
     yield {"event": "step_start", "data": {"step": "writer"}}
-    # Probe only the message shape that chooses the transport. The final text
-    # cannot affect that choice; images in the frozen history or current
-    # attachments can. ModelLane then combines it with the actual frozen tools
-    # tuple, so an all-false enablement map cannot masquerade as schemas.
-    transport_probe: ChatMessage = {
-        "role": "user",
-        "content": build_multimodal_content("", attachments),
-    }
+    # Probe only the message shape that chooses the transport. The final text cannot affect that choice; images in the frozen
+    # history or current attachments can. ModelLane then combines it with the actual frozen tools tuple, so an all-false
+    # enablement map cannot masquerade as schemas.
+    transport_probe: ChatMessage = {"role": "user", "content": build_multimodal_content("", attachments)}
     tools_sent = cfg.writer_lane.sends_tool_schemas([transport_probe])
 
     state.writer_content = build_writer_content(
@@ -227,10 +212,7 @@ async def writer_stage(
         reasoning_prefill=cfg.writer_reasoning_prefill,
     ):
         if item["type"] == "reasoning":
-            yield {
-                "event": "reasoning",
-                "data": {"pass": "writer", "delta": state.add_reasoning("writer", item)},
-            }
+            yield {"event": "reasoning", "data": {"pass": "writer", "delta": state.add_reasoning("writer", item)}}
         else:
             delta = item["delta"]
             if label_pending and speaker is not None:
@@ -250,10 +232,8 @@ async def writer_stage(
         if stripped:
             state.resp_text += stripped
             yield {"event": "token", "data": stripped}
-    # Freeze inline macros before any post-writer pass sees the prose. Resolving
-    # a raw {{random}} again later could silently change the Editor's input or
-    # the pre-rewriter draft retained after editing.
+    # Freeze inline macros before any post-writer pass sees the prose. Resolving a raw {{random}} again later could silently
+    # change the Editor's input or the pre-rewriter draft retained after editing.
     state.resp_text = resolve_inline(state.resp_text)
-    # agent_latency_ms is the whole turn's wall time; accumulate the writer's
-    # span here (director + editor add their own).
+    # agent_latency_ms is the whole turn's wall time; accumulate the writer's span here (director + editor add their own).
     state.latency += int((time.monotonic() - writer_t0) * 1000)

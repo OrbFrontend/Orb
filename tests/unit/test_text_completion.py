@@ -1,8 +1,7 @@
 """Unit tests for text-completion mode.
 
-The leaf (backend/inference/text_completion.py) is pure, so most tests need no
-HTTP mocking. Client-level tests supply explicit reasoning profiles and patch
-the render/stream seams. Discovery has its own captured-render tests.
+The leaf (backend/inference/text_completion.py) is pure, so most tests need no HTTP mocking. Client-level tests supply explicit
+reasoning profiles and patch the render/stream seams. Discovery has its own captured-render tests.
 """
 
 from __future__ import annotations
@@ -13,11 +12,7 @@ import pytest
 from backend.inference import reasoning_format as rf
 from backend.inference import text_completion as tc
 from backend.inference.chat_stream import parse_chat_logprobs
-from backend.inference.client import (
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from backend.inference.client import LLMClient, parse_tool_calls, reasoning_cfg
 from backend.inference.retry import RetryPolicy
 
 GEMMA_OPEN, GEMMA_CLOSE = rf.GEMMA_TAGS
@@ -41,8 +36,7 @@ def _run(splitter: tc.Splitter, chunks: list[str]) -> tuple[str, str]:
 def test_splitter_gemma_open_tag_split_across_three_chunks():
     # The live-observed split: '<|channel>' + 'thought' + '\n' arrive separately.
     r, c = _run(
-        tc.ThinkSplitter(rf.GEMMA_TAGS),
-        ["<|channel>", "thought", "\n", "The user", " said hi", "<channel|>", "Hello", "!"],
+        tc.ThinkSplitter(rf.GEMMA_TAGS), ["<|channel>", "thought", "\n", "The user", " said hi", "<channel|>", "Hello", "!"]
     )
     assert r == "The user said hi"
     assert c == "Hello!"
@@ -162,11 +156,7 @@ def test_parse_token_probs_post_sampling_shape():
     # Current shape: {token, prob, top_probs:[{token, prob}]} (linear probs).
     data = {
         "completion_probabilities": [
-            {
-                "token": " Paris",
-                "prob": 0.86,
-                "top_probs": [{"token": " Paris", "prob": 0.86}, {"token": " own", "prob": 0.1}],
-            }
+            {"token": " Paris", "prob": 0.86, "top_probs": [{"token": " Paris", "prob": 0.86}, {"token": " own", "prob": 0.1}]}
         ]
     }
     assert tc.parse_token_probs(data) == [
@@ -191,8 +181,7 @@ def test_parse_token_probs_logprob_shape_exponentiated():
 
 
 def test_parse_token_probs_legacy_shape_derives_prob_from_alts():
-    # Legacy {content, probs:[{tok_str, prob}]} — no top-level prob; the sampled
-    # token's prob is read from the alternatives.
+    # Legacy {content, probs:[{tok_str, prob}]} — no top-level prob; the sampled token's prob is read from the alternatives.
     data = {
         "completion_probabilities": [
             {"content": " the", "probs": [{"tok_str": " the", "prob": 0.7}, {"tok_str": " a", "prob": 0.2}]}
@@ -214,16 +203,8 @@ def test_parse_token_probs_garbage_returns_empty_never_raises():
 
 def test_parse_token_probs_multiple_records_and_missing_alts():
     # More than one token in a chunk; a record with no alternatives keeps prob.
-    data = {
-        "completion_probabilities": [
-            {"token": "a", "prob": 0.9, "top_probs": []},
-            {"token": "b", "prob": 0.5},
-        ]
-    }
-    assert tc.parse_token_probs(data) == [
-        {"token": "a", "prob": 0.9, "top": []},
-        {"token": "b", "prob": 0.5, "top": []},
-    ]
+    data = {"completion_probabilities": [{"token": "a", "prob": 0.9, "top_probs": []}, {"token": "b", "prob": 0.5}]}
+    assert tc.parse_token_probs(data) == [{"token": "a", "prob": 0.9, "top": []}, {"token": "b", "prob": 0.5, "top": []}]
 
 
 # ── Chat-transport logprobs normalization ─────────────────────────────────────
@@ -351,16 +332,12 @@ def _format(props: str) -> rf.ReasoningFormat:
             status="known",
             channel=True,
             controls=rf.ReasoningControls(
-                " to=self<|message|>",
-                " to=user<|message|>",
-                "<|eom|><|start|>assistant to=user<|message|>",
+                " to=self<|message|>", " to=user<|message|>", "<|eom|><|start|>assistant to=user<|message|>"
             ),
         )
     if "<|channel>thought" in props:
         return rf.ReasoningFormat(
-            status="known",
-            tags=rf.GEMMA_TAGS,
-            controls=rf.ReasoningControls(GEMMA_OPEN, GEMMA_DISABLE, GEMMA_CLOSE),
+            status="known", tags=rf.GEMMA_TAGS, controls=rf.ReasoningControls(GEMMA_OPEN, GEMMA_DISABLE, GEMMA_CLOSE)
         )
     if "<think>" in props:
         return rf.ReasoningFormat(
@@ -397,13 +374,7 @@ def _wired_text_client(template="P", props="", pieces=("x",), captured=None, fin
         captured["prompt"] = body["prompt"]
         for piece in pieces:
             yield {"content": piece, "stop": False}
-        yield final or {
-            "content": "",
-            "stop": True,
-            "tokens_evaluated": 1,
-            "tokens_predicted": 1,
-            "timings": {"prompt_n": 1},
-        }
+        yield final or {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
 
     client._apply_template = fake_apply  # type: ignore[method-assign]
     client._reasoning_format = fake_format  # type: ignore[method-assign]
@@ -455,9 +426,8 @@ async def test_complete_text_enable_thinking_delegated_to_template_no_manual_suf
 
 
 async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
-    # Qwen3 case: template pre-opens <think> in the prompt, so the model stream
-    # starts INSIDE reasoning (no leading <think>). The splitter must classify the
-    # CoT as reasoning and only the post-</think> text as content.
+    # Qwen3 case: template pre-opens <think> in the prompt, so the model stream starts INSIDE reasoning (no leading <think>).
+    # The splitter must classify the CoT as reasoning and only the post-</think> text as content.
     client = _wired_text_client(
         template="<|im_start|>assistant\n<think>\n",  # ends with the open tag
         props="<think>...</think>",  # sniffs to _THINK
@@ -481,8 +451,7 @@ async def test_complete_text_prefill_appends_assistant_message():
 
 
 async def test_complete_text_forced_prefill_prepends_arguments():
-    # Editor prefill path: arguments = prompt-side prefill bytes + generated
-    # remainder, so json.loads sees one complete object.
+    # Editor prefill path: arguments = prompt-side prefill bytes + generated remainder, so json.loads sees one complete object.
     client = _wired_text_client(pieces=['REPL"', "}]}"])
 
     tools = [{"type": "function", "function": {"name": "editor_apply_patch", "parameters": {"type": "object"}}}]
@@ -502,10 +471,9 @@ async def test_complete_text_forced_prefill_prepends_arguments():
 
 
 async def test_complete_text_pre_open_detected_from_bytes_even_when_reasoning_off():
-    # Kimi K2 case: the template keys thinking off a boolean `thinking`, not the
-    # `enable_thinking` we send, so a reasoning-OFF request still renders a
-    # pre-opened <think>. The splitter must detect the pre-open from the rendered
-    # bytes (not our flag) and route the CoT to reasoning instead of collapsing.
+    # Kimi K2 case: the template keys thinking off a boolean `thinking`, not the `enable_thinking` we send, so a reasoning-OFF
+    # request still renders a pre-opened <think>. The splitter must detect the pre-open from the rendered bytes (not our flag)
+    # and route the CoT to reasoning instead of collapsing.
     client = _wired_text_client(
         template="<|im_assistant|>assistant<|im_middle|><think>",  # pre-opened despite off
         props="<think>...</think>",  # sniffs to _THINK
@@ -528,11 +496,7 @@ async def test_complete_text_grammar_overrides_json_schema():
     choice = {"type": "function", "function": {"name": "t"}}
     await _drain(
         client.complete(
-            messages=[{"role": "user", "content": "hi"}],
-            model="m",
-            tools=tools,
-            tool_choice=choice,
-            grammar='root ::= "x"',
+            messages=[{"role": "user", "content": "hi"}], model="m", tools=tools, tool_choice=choice, grammar='root ::= "x"'
         )
     )
     assert captured["body"]["grammar"] == 'root ::= "x"'
@@ -568,10 +532,7 @@ async def test_chat_transport_drops_grammar():
     client._complete_chat = fake_chat  # type: ignore[method-assign]
     await _drain(
         client.complete(
-            messages=[{"role": "user", "content": "hi"}],
-            model="m",
-            grammar="root ::= x",
-            json_schema={"type": "object"},
+            messages=[{"role": "user", "content": "hi"}], model="m", grammar="root ::= x", json_schema={"type": "object"}
         )
     )
     assert "grammar" not in captured["params"]
@@ -650,9 +611,8 @@ def test_reasoning_cfg_carries_prefill_only_when_reasoning_on():
 
 
 async def test_reasoning_prefill_appends_to_pre_opened_think():
-    # Qwen3 shape: the template already opened <think>, so only the seed text is
-    # appended (no second open tag), and it is echoed as reasoning ahead of the
-    # model's own deltas.
+    # Qwen3 shape: the template already opened <think>, so only the seed text is appended (no second open tag), and it is echoed
+    # as reasoning ahead of the model's own deltas.
     captured: dict = {}
     client = _wired_text_client("<|im_start|>assistant\n<think>\n", "<think>...</think>", ["CoT", "</think>", "text"], captured)
     events = await _drain(
@@ -695,16 +655,12 @@ async def test_reasoning_prefill_ignored_on_non_thinking_template():
 
 
 async def test_assistant_prefill_wins_over_reasoning_prefill():
-    # The assistant prefill already owns the prompt tail (a trailing assistant
-    # turn in render_prompt); the two cannot both.
+    # The assistant prefill already owns the prompt tail (a trailing assistant turn in render_prompt); the two cannot both.
     captured: dict = {}
     client = _wired_text_client("BASE", "<|channel>thought", ["x"], captured)
     events = await _drain(
         client.complete(
-            messages=[{"role": "user", "content": "hi"}],
-            model="m",
-            prefill="Once upon",
-            **reasoning_cfg(True, "Seed."),
+            messages=[{"role": "user", "content": "hi"}], model="m", prefill="Once upon", **reasoning_cfg(True, "Seed.")
         )
     )
     assert captured["prompt"] == "BASE"
@@ -770,8 +726,7 @@ def test_splitter_keeps_the_continuation_space_on_a_prefilled_call():
 
 
 def test_splitter_retrims_after_a_late_open_tag():
-    # Provisional pre-span whitespace is a false start: the trim re-arms so the
-    # real reply after the close is still clean.
+    # Provisional pre-span whitespace is a false start: the trim re-arms so the real reply after the close is still clean.
     r, c = _run(tc.ThinkSplitter(rf.THINK_TAGS), ["\n", "<think>", "cot", "</think>", "\n\nReply."])
     assert r == "cot"
     assert c == "Reply."
@@ -782,8 +737,7 @@ def test_splitter_retrims_after_a_late_open_tag():
 # Captured from Muse-Glimmer-30B's template and completion stream.
 ONYX_TEMPLATE = (
     "{%- if message.get('reasoning_content') -%}"
-    "{{- '<|start|>assistant to=self<|message|>' + message['reasoning_content'] + '<|eom|>' -}}"
-    "{%- endif -%}"
+    "{{- '<|start|>assistant to=self<|message|>' + message['reasoning_content'] + '<|eom|>' -}}{%- endif -%}"
 )
 ONYX_LIVE = " to=self<|message|>Name one color.\n\nProbably just Blue.<|start|>assistant to=user<|message|>Blue"
 
@@ -897,12 +851,7 @@ async def test_complete_text_channel_splits_reasoning_from_the_reply():
 
 async def test_complete_text_channel_reasoning_off_opens_the_reply_channel():
     captured: dict = {}
-    client = _wired_text_client(
-        template="<|start|>assistant",
-        props=ONYX_TEMPLATE,
-        pieces=["Blue"],
-        captured=captured,
-    )
+    client = _wired_text_client(template="<|start|>assistant", props=ONYX_TEMPLATE, pieces=["Blue"], captured=captured)
     events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
     # Channel templates need an explicit reply header when reasoning is off.
     assert captured["prompt"] == "<|start|>assistant to=user<|message|>"
@@ -1010,11 +959,7 @@ async def test_complete_text_channel_reasoning_prefill_opens_the_thought_channel
 async def test_complete_text_channel_headerless_stream_still_yields_the_reply():
     # A channel model that skips its routing header must not persist an empty
     # turn; the reply survives even though the split had nothing to key on.
-    client = _wired_text_client(
-        template="<|start|>assistant",
-        props=ONYX_TEMPLATE,
-        pieces=["Blue is ", "a fine color."],
-    )
+    client = _wired_text_client(template="<|start|>assistant", props=ONYX_TEMPLATE, pieces=["Blue is ", "a fine color."])
     events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m"))
     message = events[-1]["message"]
     assert message["content"] == "Blue is a fine color."
@@ -1063,20 +1008,17 @@ async def _forced(props: str, template: str, captured: dict) -> None:
 
 
 async def test_complete_text_tag_pair_forced_call_closes_the_thought_span():
-    # The grammar forbids the open tag, so a template that leaves that tag to the
-    # model asks for thinking it cannot do. Measured on Gemma 4 31B, the model
-    # degenerates instead (3000 tokens of one repeated word) unless the span is
-    # closed for it here.
+    # The grammar forbids the open tag, so a template that leaves that tag to the model asks for thinking it cannot do. Measured
+    # on Gemma 4 31B, the model degenerates instead (3000 tokens of one repeated word) unless the span is closed for it here.
     captured: dict = {}
     await _forced("<|channel>thought", "PROMPT", captured)
     assert captured["prompt"] == "PROMPT" + GEMMA_DISABLE
 
 
 async def test_complete_text_forced_call_closes_a_pre_opened_span():
-    # Qwen3.8's generation prompt opens <think> itself. The JSON is legal inside
-    # an open span but reads as scratch work: a median 67 argument characters
-    # against 765 once closed. The rewrite lands on the template's own
-    # reasoning-off tail rather than doubling the open tag.
+    # Qwen3.8's generation prompt opens <think> itself. The JSON is legal inside an open span but reads as scratch work: a
+    # median 67 argument characters against 765 once closed. The rewrite lands on the template's own reasoning-off tail rather
+    # than doubling the open tag.
     captured: dict = {}
     await _forced("<think>...</think>", "PROMPT<think>\n", captured)
     assert captured["prompt"] == "PROMPT<think>\n\n</think>\n\n"
@@ -1131,9 +1073,8 @@ async def test_render_prompt_omits_a_custom_reasoning_effort():
 
 
 async def test_render_prompt_retries_without_a_refused_reasoning_effort():
-    # Qwen3.8 accepts only low/medium/xhigh and raises on the rest, so three of
-    # the six levels Orb's picker offers render as HTTP 500. Dropping the effort
-    # keeps the call in the text transport instead of losing it to chat.
+    # Qwen3.8 accepts only low/medium/xhigh and raises on the rest, so three of the six levels Orb's picker offers render as
+    # HTTP 500. Dropping the effort keeps the call in the text transport instead of losing it to chat.
     captured: dict = {}
     client = _effort_client("high", captured, refuse=("high",))
     assert await client.render_prompt([{"role": "user", "content": "hi"}], reasoning=True) == "P"

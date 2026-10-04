@@ -1,9 +1,8 @@
 """The cloud HTTP client: both decode paths, the byte cap, and the error funnel.
 
-The funnel is the reason this file is long. A provider 400 is genuinely
-actionable ("Argument not supported: size"), so unlike ComfyUI's totally opaque
-message this one echoes an excerpt -- which makes "what must never survive the
-scrub" a property worth pinning, not a comment.
+The funnel is the reason this file is long. A provider 400 is genuinely actionable ("Argument not supported: size"), so unlike
+ComfyUI's totally opaque message this one echoes an excerpt -- which makes "what must never survive the scrub" a property worth
+pinning, not a comment.
 """
 
 from __future__ import annotations
@@ -14,11 +13,7 @@ import httpx
 import pytest
 
 from backend.workflows.image_gen.engine.image_bytes import MAX_IMAGE_BYTES
-from backend.workflows.image_gen.engine.openai_image_client import (
-    MODEL_NOT_FOUND,
-    CloudImageError,
-    OpenAIImageClient,
-)
+from backend.workflows.image_gen.engine.openai_image_client import MODEL_NOT_FOUND, CloudImageError, OpenAIImageClient
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"pixels" * 32
 KEY = "sk-live-do-not-leak"
@@ -26,11 +21,7 @@ KEY = "sk-live-do-not-leak"
 
 def _client(handler, **kwargs) -> OpenAIImageClient:
     return OpenAIImageClient(
-        "https://api.example.test/v1",
-        KEY,
-        label="xAI (Grok)",
-        transport=httpx.MockTransport(handler),
-        **kwargs,
+        "https://api.example.test/v1", KEY, label="xAI (Grok)", transport=httpx.MockTransport(handler), **kwargs
     )
 
 
@@ -64,8 +55,7 @@ async def test_a_hosted_url_is_fetched_and_the_cost_unit_is_carried_verbatim():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/images/generations"):
             return httpx.Response(
-                200,
-                json={"data": [{"url": "https://cdn.example.test/out.png"}], "usage": {"cost_in_usd_ticks": 1400}},
+                200, json={"data": [{"url": "https://cdn.example.test/out.png"}], "usage": {"cost_in_usd_ticks": 1400}}
             )
         return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
 
@@ -122,10 +112,9 @@ async def test_a_non_image_payload_is_refused():
         ),
         ("openai_data", {"data": [{"id": "gpt-image-1"}]}, ["gpt-image-1"]),
         ("bare_list", [{"id": "flux", "type": "image"}, {"id": "kimi", "type": "chat"}], ["flux", "kimi"]),
-        # The ids are the *keys*, and the values are per-model capability records Orb
-        # does not read. NanoGPT's documented `/v1/models` is an ordinary
-        # `{"data": [...]}` of 653 models, none of which make an image, so a row that
-        # reads the ordinary shape gets a full dropdown and no way to render.
+        # The ids are the *keys*, and the values are per-model capability records Orb does not read. NanoGPT's documented
+        # `/v1/models` is an ordinary `{"data": [...]}` of 653 models, none of which make an image, so a row that reads the
+        # ordinary shape gets a full dropdown and no way to render.
         (
             "nanogpt_image_map",
             {
@@ -149,13 +138,10 @@ async def test_every_declared_model_list_shape_is_read(shape, payload, expected)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "shape",
-    ["nanogpt_image_map", "bare_list"],
-    ids=["a map shape pointed at a list", "a list shape pointed at a map"],
+    "shape", ["nanogpt_image_map", "bare_list"], ids=["a map shape pointed at a list", "a list shape pointed at a map"]
 )
 async def test_a_shape_mismatch_is_malformed_rather_than_empty(shape):
-    """A silently-empty picker reads to the user as "this key has no models", not as
-    "Orb parsed the wrong thing"."""
+    """A silently-empty picker reads to the user as "this key has no models", not as "Orb parsed the wrong thing"."""
     with pytest.raises(CloudImageError) as excinfo:
         await _client(_ok({"data": [{"id": "flux"}]})).list_models("/models", shape)
     assert excinfo.value.kind == "malformed"
@@ -236,14 +222,12 @@ async def test_a_modality_filter_reads_outputs_and_never_inputs():
 
 @pytest.mark.asyncio
 async def test_an_id_filter_is_the_only_rule_openai_s_catalogue_supports():
-    """OpenAI's 125 entries carry `id`, `object`, `created` and `owned_by` -- no
-    `type` like Together, no `architecture` like OpenRouter. Nothing in the payload
-    answers "does this make images", so the id is read, and the images path answers
-    *"The model 'gpt-4o' does not exist"* for everything this drops.
+    """OpenAI's 125 entries carry `id`, `object`, `created` and `owned_by` -- no `type` like Together, no `architecture` like
+    OpenRouter. Nothing in the payload answers "does this make images", so the id is read, and the images path answers *"The
+    model 'gpt-4o' does not exist"* for everything this drops.
     """
-    # Trimmed to the ids that carry a decision. `chatgpt-image-latest` is why the rule
-    # matches "image" anywhere rather than a `gpt-image` prefix; `dall-e-3` stays in
-    # the vocabulary though OpenAI no longer lists one.
+    # Trimmed to the ids that carry a decision. `chatgpt-image-latest` is why the rule matches "image" anywhere rather than a
+    # `gpt-image` prefix; `dall-e-3` stays in the vocabulary though OpenAI no longer lists one.
     entries = [{"id": name} for name in ("gpt-image-1", "chatgpt-image-latest", "dall-e-3", "gpt-4o", "whisper-1")]
     models = await _client(_ok({"data": entries})).list_models("/models", "openai_data", "openai_image_ids")
     assert models == ["chatgpt-image-latest", "dall-e-3", "gpt-image-1"]
@@ -284,9 +268,8 @@ async def test_every_status_shows_only_what_the_provider_said(status, payload, e
 @pytest.mark.parametrize(
     "payload, expected",
     [
-        # OpenRouter buries its reason under `error.metadata`; nothing FastAPI-shaped
-        # puts a string in `detail` at all. Both used to reach the user as a bare
-        # "rejected the request" with nothing after it.
+        # OpenRouter buries its reason under `error.metadata`; nothing FastAPI-shaped puts a string in `detail` at all. Both
+        # used to reach the user as a bare "rejected the request" with nothing after it.
         ({"error": {"metadata": {"raw": "flagged upstream"}, "code": 403}}, "flagged upstream"),
         ({"detail": [{"loc": ["body", "size"], "msg": "unexpected value"}]}, "unexpected value"),
         ({"errors": [{"title": "quota exceeded"}]}, "quota exceeded"),
@@ -294,8 +277,7 @@ async def test_every_status_shows_only_what_the_provider_said(status, payload, e
     ids=["nested under metadata", "a detail list", "a shape nobody enumerated"],
 )
 async def test_an_unenumerated_body_shape_still_says_something(payload, expected):
-    """The generic walk, which is why the well-known keys can stay a short list
-    instead of growing a row per provider."""
+    """The generic walk, which is why the well-known keys can stay a short list instead of growing a row per provider."""
     handler = lambda _request: httpx.Response(400, json=payload)  # noqa: E731
     with pytest.raises(CloudImageError) as exc:
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
@@ -306,10 +288,9 @@ async def test_an_unenumerated_body_shape_still_says_something(payload, expected
 @pytest.mark.parametrize(
     "message",
     [
-        # The `_MODERATION_MARKERS` list this replaced matched "not allowed" and
-        # "blocked", so both of these were reported as content refusals -- telling the
-        # user to reword a prompt that was never the problem, and dropping the
-        # sentence that named the real one.
+        # The `_MODERATION_MARKERS` list this replaced matched "not allowed" and "blocked", so both of these were reported as
+        # content refusals -- telling the user to reword a prompt that was never the problem, and dropping the sentence that
+        # named the real one.
         "Model gpt-image-1 is not allowed for your account tier",
         "Request blocked: negative_prompt not allowed for this model",
     ],
@@ -337,18 +318,15 @@ async def test_a_content_refusal_still_reaches_the_user_in_the_provider_s_own_wo
 
 @pytest.mark.asyncio
 async def test_a_refusal_keeps_the_reason_it_puts_last():
-    """OpenAI's live refusal body, verbatim. It is 203 characters and spends the
-    first 175 on a support address and a request id, so the category -- the only part
-    a user can act on -- is last. A 200-character cap ended it at
+    """OpenAI's live refusal body, verbatim. It is 203 characters and spends the first 175 on a support address and a request
+    id, so the category -- the only part a user can act on -- is last. A 200-character cap ended it at
     "safety_violations=[sexua", cutting the one informative token in the sentence.
 
-    Roleplay imagery is the dominant failure mode on a commercial API, so this is the
-    message users read most often.
+    Roleplay imagery is the dominant failure mode on a commercial API, so this is the message users read most often.
     """
     message = (
         "Your request was rejected by the safety system. If you believe this is an error, contact us at "
-        "help.openai.com and include the request ID req_f70cba2c7faf4c96a24e7fad962594ce. "
-        "safety_violations=[sexual]."
+        "help.openai.com and include the request ID req_f70cba2c7faf4c96a24e7fad962594ce. safety_violations=[sexual]."
     )
     handler = lambda _request: httpx.Response(  # noqa: E731
         400, json={"error": {"message": message, "code": "moderation_blocked"}}
@@ -489,11 +467,7 @@ async def test_a_top_level_cost_is_read_when_there_is_no_usage_block():
 async def test_a_usage_block_still_wins_over_a_top_level_cost():
     """A provider reporting both means the nested one; the top level is the fallback
     for providers that have no `usage` at all."""
-    payload = {
-        "data": [{"b64_json": base64.b64encode(PNG).decode()}],
-        "usage": {"cost_in_usd_ticks": 1400},
-        "cost": 99,
-    }
+    payload = {"data": [{"b64_json": base64.b64encode(PNG).decode()}], "usage": {"cost_in_usd_ticks": 1400}, "cost": 99}
     image = await _client(_ok(payload)).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
     assert image.cost == {"provider": "xai", "unit": "usd_ticks", "value": 1400}
 

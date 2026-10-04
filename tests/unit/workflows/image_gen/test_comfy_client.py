@@ -9,10 +9,7 @@ import pytest
 from PIL import Image
 
 from backend.workflows.image_gen.engine import comfy_client
-from backend.workflows.image_gen.engine.comfy_client import (
-    ComfyClient,
-    invalidate_object_info,
-)
+from backend.workflows.image_gen.engine.comfy_client import ComfyClient, invalidate_object_info
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 
 
@@ -37,17 +34,7 @@ async def test_queue_history_view_contract_returns_valid_image():
                 json={
                     "p1": {
                         "status": {"completed": True, "status_str": "success"},
-                        "outputs": {
-                            "9": {
-                                "images": [
-                                    {
-                                        "filename": "x.png",
-                                        "subfolder": "",
-                                        "type": "output",
-                                    }
-                                ]
-                            }
-                        },
+                        "outputs": {"9": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}},
                     }
                 },
             )
@@ -94,20 +81,14 @@ async def test_validation_error_is_sanitized_and_names_checkpoint():
         return httpx.Response(
             400,
             json={
-                "error": {
-                    "type": "prompt_outputs_failed_validation",
-                    "traceback": "/secret/ComfyUI/execution.py",
-                },
+                "error": {"type": "prompt_outputs_failed_validation", "traceback": "/secret/ComfyUI/execution.py"},
                 "node_errors": {
                     "4": {
                         "errors": [
                             {
                                 "type": "value_not_in_list",
                                 "details": "ckpt_name",
-                                "extra_info": {
-                                    "input_name": "ckpt_name",
-                                    "exception_message": "/secret/model",
-                                },
+                                "extra_info": {"input_name": "ckpt_name", "exception_message": "/secret/model"},
                             }
                         ]
                     }
@@ -182,8 +163,7 @@ _BUSY = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
         # Queued behind two, no repeat while the position is unchanged, then rendering.
         ([_BUSY, _BUSY, {"queue_running": [[5, "p1"]], "queue_pending": []}], [("queued", 2), ("rendering", 0)]),
         ([], [("rendering", 0)]),
-        # An unavailable /queue leaves the position unknown, never guessed, and the
-        # render proceeds regardless.
+        # An unavailable /queue leaves the position unknown, never guessed, and the render proceeds regardless.
         ([httpx.Response(404)], [("rendering", None)]),
     ],
     ids=["queued then rendering", "queue empty", "queue endpoint missing"],

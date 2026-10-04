@@ -28,18 +28,14 @@ class TestTruePositives:
             # Normalization treats 'He', 'he', 'He!' as the same opener.
             ("He walked! he ran. He jumped? He skipped.", 1, "he"),
             (
-                "The quick brown fox jumps over the lazy dog. "
-                "The quick brown fox sleeps all day. "
-                "The quick brown fox eats a rabbit. "
-                "The quick brown fox chases the hen.",
+                "The quick brown fox jumps over the lazy dog. The quick brown fox sleeps all day. "
+                "The quick brown fox eats a rabbit. The quick brown fox chases the hen.",
                 3,
                 "the quick brown",
             ),
             (
-                "In the beginning God created the heavens. "
-                "In the beginning God created the earth. "
-                "In the beginning God created the light. "
-                "In the beginning God created the stars.",
+                "In the beginning God created the heavens. In the beginning God created the earth. "
+                "In the beginning God created the light. In the beginning God created the stars.",
                 4,
                 "in the beginning god",
             ),
@@ -86,9 +82,7 @@ class TestTruePositives:
     def test_default_n_words_detects_consecutive_first_word(self):
         """Default n_words=1 detects consecutive first-word repetition."""
         text = (
-            "She is a very talented artist. "
-            "She is a very skilled musician. "
-            "She is a very dedicated teacher. "
+            "She is a very talented artist. She is a very skilled musician. She is a very dedicated teacher. "
             "She is a very hard worker."
         )
         result = detect_opening_monotony(text)  # default n_words=1
@@ -142,14 +136,11 @@ class TestFalsePositives:
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
+            "off toward the parking lot, leaning back against the concrete planter with his clipboard tucked under one arm.\n\n"
             '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
             'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare. "
+            "back in '19. Kid from out of state. He presents his ID, right? The card says...\"\n\n"
+            "He shifts his weight, his tone remaining as boring as a weather report while he describes a sensory nightmare. "
             "He waits for a response."
         )
         result = detect_opening_monotony(text, n_words=1)
@@ -246,14 +237,11 @@ class TestAuditIntegration:
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
+            "off toward the parking lot, leaning back against the concrete planter with his clipboard tucked under one arm.\n\n"
             '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
             'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare. "
+            "back in '19. Kid from out of state. He presents his ID, right? The card says...\"\n\n"
+            "He shifts his weight, his tone remaining as boring as a weather report while he describes a sensory nightmare. "
             "He waits for a response."
         )
         report = run_audit(text, [])
@@ -265,11 +253,8 @@ class TestAuditIntegration:
         from backend.analysis import run_audit
 
         text = (
-            "Henderson sighs, a long rattling sound. "
-            "He walks to the window. "
-            "He stares at the parking lot. "
-            "He says nothing for a long time. "
-            "He waits."
+            "Henderson sighs, a long rattling sound. He walks to the window. He stares at the parking lot. "
+            "He says nothing for a long time. He waits."
         )
         report = run_audit(text, [])
         assert len(report.monotony_result.flagged_openers) >= 1

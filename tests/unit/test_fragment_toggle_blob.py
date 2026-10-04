@@ -1,9 +1,7 @@
 """Enabling or disabling a fragment never rewrites the shared tools blob.
 
-The blob renders ahead of the conversation in the cached prefix, so the
-fragment-built tools offer every defined fragment and each call narrows to its
-live fields per call (see "Treat tools as part of the prompt" in
-docs/architecture/kv-cache.md).
+The blob renders ahead of the conversation in the cached prefix, so the fragment-built tools offer every defined fragment and
+each call narrows to its live fields per call (see "Treat tools as part of the prompt" in docs/architecture/kv-cache.md).
 """
 
 from __future__ import annotations
@@ -155,11 +153,9 @@ class TestLiveView:
             fragments={row["id"]: row for row in live},
         )
         assert (
-            "Parameters, in order:\n"
-            "* intent (single value): Instruction for intent\n"
+            "Parameters, in order:\n* intent (single value): Instruction for intent\n"
             "* keywords (list of strings): Instruction for keywords\n"
-            "* mood_note (single value, kept across turns): Instruction for mood_note\n"
-            "* moods (list of strings)\n"
+            "* mood_note (single value, kept across turns): Instruction for mood_note\n* moods (list of strings)\n"
             "Required: intent"
         ) in out
 

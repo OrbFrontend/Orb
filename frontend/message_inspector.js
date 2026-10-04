@@ -52,9 +52,8 @@ export function setInlineInspectorRepaint(fn) {
   repaintMessages = fn;
 }
 
-// `toggle` does not bubble, so it is caught in the capture phase. Firefox also
-// fires it for a `<details open>` set through innerHTML; sections render from
-// these flags, so comparing first makes a repaint's event a no-op.
+// `toggle` does not bubble, so it is caught in the capture phase. Firefox also fires it for a `<details open>` set
+// through innerHTML; sections render from these flags, so comparing first makes a repaint's event a no-op.
 document.addEventListener(
   "toggle",
   (e) => {

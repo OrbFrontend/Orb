@@ -1,8 +1,7 @@
 """One suggestion-mining run, importable by a spawned child process.
 
-The run reads the database read-only, compares model replies with card-authored
-text, and returns plain dicts. It never writes: the parent persists the result,
-and only the accept endpoint turns a suggestion into a phrase-bank entry.
+The run reads the database read-only, compares model replies with card-authored text, and returns plain dicts. It never writes:
+the parent persists the result, and only the accept endpoint turns a suggestion into a phrase-bank entry.
 """
 
 from __future__ import annotations
@@ -19,14 +18,7 @@ from ...analysis.detectors.slop_detector import detect_cliches
 from ...analysis.text.roleplay_segmentation import split_segment_sentences
 from ...database import iter_model_replies, open_readonly, read_card_rows, read_names
 from ...database.models import PhraseGroup, SlopReplyRow, SlopSuggestionDraft
-from .patterns import (
-    CharacterSentences,
-    PatternScore,
-    SentenceCorpus,
-    Shape,
-    best_pattern,
-    fold,
-)
+from .patterns import CharacterSentences, PatternScore, SentenceCorpus, Shape, best_pattern, fold
 from .scoring import (
     LONGSTANDING,
     NEW,
@@ -39,14 +31,7 @@ from .scoring import (
     rank_lanes,
     spread_candidates,
 )
-from .shapes import (
-    NARRATION,
-    Sentence,
-    build_names,
-    card_baseline_text,
-    sentence_keys,
-    sentences,
-)
+from .shapes import NARRATION, Sentence, build_names, card_baseline_text, sentence_keys, sentences
 
 RECENT_DAYS = 150
 MIN_CHARACTERS = 40
@@ -76,9 +61,8 @@ def _on(toggles: Mapping[str, object], key: str) -> bool:
 def coverage(examples: Sequence[str], bank: list[PhraseGroup], toggles: Mapping[str, object]) -> float:
     """The share of *examples* an enabled scanner already flags.
 
-    ``negated_narration`` runs with ``min_hits=0``, one sentence without the
-    two-hits-per-reply gate, so this overstates what the Editor flags. It
-    filters out duplicates of existing checks; it promises nothing more.
+    ``negated_narration`` runs with ``min_hits=0``, one sentence without the two-hits-per-reply gate, so this overstates what
+    the Editor flags. It filters out duplicates of existing checks; it promises nothing more.
     """
     checks: list[Callable[[str], bool]] = []
     if _on(toggles, "banned_phrases") and bank:

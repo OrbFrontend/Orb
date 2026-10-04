@@ -1,9 +1,8 @@
 """Unit tests for lorebook activation.
 
-Covers the direct_scene ``selected_lorebook_entries`` parameter, the Director
-catalog, the unified three-source selection core (``select_active_entries`` and
-its two named wrappers), macro resolution, the ``LorebookTurn`` per-turn bundle,
-activation gating, and keyword-scan parity.
+Covers the direct_scene ``selected_lorebook_entries`` parameter, the Director catalog, the unified three-source selection core
+(``select_active_entries`` and its two named wrappers), macro resolution, the ``LorebookTurn`` per-turn bundle, activation
+gating, and keyword-scan parity.
 """
 
 from __future__ import annotations
@@ -26,25 +25,14 @@ from backend.features.lorebook import (
 from backend.inference import CachedBase
 from backend.pipeline import LorebookTurn
 from backend.pipeline.passes.director import lorebook_select_step
-from backend.pipeline.passes.director.lorebook_select import (
-    _log_director_pick_diagnostics,
-)
+from backend.pipeline.passes.director.lorebook_select import _log_director_pick_diagnostics
 from backend.pipeline.passes.director.prompts import build_lorebook_select_prompt
 from backend.pipeline.passes.writer import build_writer_content
 from backend.prompting.tool_catalog import TOOLS
 from backend.prompting.tool_schemas import build_direct_scene_tool
 
 
-def _entry(
-    name,
-    content="",
-    keywords=None,
-    *,
-    constant=False,
-    priority=100,
-    world_name="World",
-    case_insensitive=True,
-):
+def _entry(name, content="", keywords=None, *, constant=False, priority=100, world_name="World", case_insensitive=True):
     return {
         "name": name,
         "content": content or f"{name} content",
@@ -162,10 +150,7 @@ class TestComputeAgenticLorebookBlock:
 
 class TestBuildLorebookCatalog:
     def test_excludes_constants(self):
-        entries = [
-            _entry("Const", constant=True, keywords=["k"]),
-            _entry("Var", keywords=["v"]),
-        ]
+        entries = [_entry("Const", constant=True, keywords=["k"]), _entry("Var", keywords=["v"])]
         cat = build_lorebook_catalog(entries)
         assert "Const" not in cat
         assert "- [Var] — v" in cat
@@ -222,8 +207,7 @@ class TestKeywordScanParity:
         assert compute_lorebook_injection_block(msgs, [_entry("Var", keywords=["sword"])]) == ""
 
     def test_renderer_matches_keyword_path_on_same_set(self):
-        # The shared render_lorebook_block reproduces the keyword-scan output
-        # exactly for the same matched entry set.
+        # The shared render_lorebook_block reproduces the keyword-scan output exactly for the same matched entry set.
         msgs = [{"role": "user", "content": "sword"}]
         entries = [_entry("Var", keywords=["sword"])]
         assert compute_lorebook_injection_block(msgs, entries) == render_lorebook_block([entries[0]])
@@ -257,8 +241,7 @@ class TestComputeConstantLorebookBlock:
         assert compute_constant_lorebook_block([]) == ""
 
     def test_byte_stable_under_input_permutation(self):
-        # The prefix section must render byte-identically across turns
-        # regardless of input order (KV cache).
+        # The prefix section must render byte-identically across turns regardless of input order (KV cache).
         a = {**_entry("Robin", constant=True), "id": 1, "sort_order": 0}
         b = {**_entry("Ellis", constant=True), "id": 2, "sort_order": 0}
         c = {**_entry("Bob", constant=True), "id": 3, "sort_order": 0}
@@ -321,9 +304,8 @@ class TestSelectActiveEntries:
 class TestDirectorPickDelimiters:
     """The catalog renders ``- [Name] — kw``; models copy the brackets too.
 
-    ``.strip()`` removes whitespace and not delimiters, so before this a correct
-    relevance judgment arriving as ``[The Ashen Seal]`` activated nothing,
-    injected no lore, and logged nothing.
+    ``.strip()`` removes whitespace and not delimiters, so before this a correct relevance judgment arriving as ``[The Ashen
+    Seal]`` activated nothing, injected no lore, and logged nothing.
     """
 
     _entries = [_entry("The Ashen Seal", keywords=["wax seal", "raven crest"])]
@@ -339,9 +321,8 @@ class TestDirectorPickDelimiters:
         assert self._names("  the ashen seal  ") == ["The Ashen Seal"]
 
     def test_appended_catalog_metadata_is_not_undone(self):
-        # The explicit decision: a pick carrying the catalog row's keywords is a
-        # model copying the whole line, not a name. It stays unmatched so the
-        # prompt defect is visible instead of guessed through.
+        # The explicit decision: a pick carrying the catalog row's keywords is a model copying the whole line, not a name. It
+        # stays unmatched so the prompt defect is visible instead of guessed through.
         assert self._names("[The Ashen Seal] — wax seal") == []
         assert self._names("The Ashen Seal — wax seal") == []
 
@@ -372,8 +353,7 @@ class TestDirectorPickDelimiters:
         assert caplog.text == ""
 
     def test_a_pick_naming_a_constant_entry_stays_silent(self, caplog):
-        # Constant entries ride the cached prefix; excluding them here is by
-        # design, so it must not read as a failed pick.
+        # Constant entries ride the cached prefix; excluding them here is by design, so it must not read as a failed pick.
         entries = [_entry("Const", constant=True)]
         with caplog.at_level(logging.INFO, logger="backend.pipeline.passes.director.lorebook_select"):
             _log_director_pick_diagnostics(entries, ["[Const]"])

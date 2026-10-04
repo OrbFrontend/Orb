@@ -5,11 +5,7 @@ import json
 
 import pytest
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-)
+from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     OVERSIZE_NO_METADATA_REASON,
@@ -29,22 +25,16 @@ from ._fixtures import seed_message as _seed_message
 
 @pytest.fixture(autouse=True)
 def _register_wf_workflow():
-    """Register the ``"wf"`` workflow with produces_artifacts=True for every
-    test in this module. The cache helpers gate on producer-workflow
-    registration; without this fixture every helper call would short-circuit
-    to the policy-rejection path and the oversize/eviction behaviors under
-    test would never run."""
+    """Register the ``"wf"`` workflow with produces_artifacts=True for every test in this module. The cache helpers gate on
+    producer-workflow registration; without this fixture every helper call would short-circuit to the policy-rejection path
+    and the oversize/eviction behaviors under test would never run.
+    """
     with registered_artifact_workflow():
         yield
 
 
 async def _seed_row(
-    mid: int,
-    *,
-    wid: str = "wf",
-    data: bytes = b"X",
-    parent: int | None = None,
-    recoverable: bool = True,
+    mid: int, *, wid: str = "wf", data: bytes = b"X", parent: int | None = None, recoverable: bool = True
 ) -> int:
     att = {"filename": "x", "mime": "application/octet-stream", "data": data, "workflow_id": wid}
     if recoverable:
@@ -84,8 +74,7 @@ async def test_record_access_assigns_counters_in_input_order(client, db):
 
     rows = list(
         await db.execute_fetchall(
-            "SELECT id, recent_accesses FROM workflow_attachments WHERE id IN (?, ?, ?) ORDER BY id",
-            tuple(ids),
+            "SELECT id, recent_accesses FROM workflow_attachments WHERE id IN (?, ?, ?) ORDER BY id", tuple(ids)
         )
     )
     parsed = {r["id"]: json.loads(r["recent_accesses"]) for r in rows}
@@ -163,8 +152,7 @@ async def test_evict_is_noop_on_already_evicted_row(client):
 async def test_insert_workflow_attachment_birth_recent_accesses_has_one_entry(client):
     cid, mid = await _seed_message(client)
     new_id, _ = await insert_workflow_attachment(
-        mid,
-        {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"},
+        mid, {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"}
     )
     assert new_id is not None
     row = await must_get_workflow_attachment(new_id)
@@ -177,10 +165,7 @@ async def test_insert_workflow_attachment_birth_advances_counter_by_one(client, 
     before = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
         "attachment_access_counter"
     ]
-    await insert_workflow_attachment(
-        mid,
-        {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"},
-    )
+    await insert_workflow_attachment(mid, {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"})
     after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
         "attachment_access_counter"
     ]
@@ -199,8 +184,7 @@ async def test_insert_workflow_attachment_evicts_lowest_lru_when_over_budget(cli
     await _set_budget(db, 25)
 
     new_id, _ = await insert_workflow_attachment(
-        mid,
-        {"filename": "new", "mime": "image/png", "data": b"NNNNNNNNNN", "workflow_id": "wf"},
+        mid, {"filename": "new", "mime": "image/png", "data": b"NNNNNNNNNN", "workflow_id": "wf"}
     )
     assert new_id is not None
     r1 = await must_get_workflow_attachment(a1)
@@ -223,10 +207,7 @@ async def test_insert_workflow_attachment_evicts_multiple_when_needed(client, db
     # Budget so two rows must be evicted to fit a new 5-byte row.
     await _set_budget(db, 10)
 
-    await insert_workflow_attachment(
-        mid,
-        {"filename": "new", "mime": "image/png", "data": b"NNNNN", "workflow_id": "wf"},
-    )
+    await insert_workflow_attachment(mid, {"filename": "new", "mime": "image/png", "data": b"NNNNN", "workflow_id": "wf"})
     r1 = await must_get_workflow_attachment(a1)
     r2 = await must_get_workflow_attachment(a2)
     r3 = await must_get_workflow_attachment(a3)
@@ -237,12 +218,10 @@ async def test_insert_workflow_attachment_evicts_multiple_when_needed(client, db
 
 async def test_insert_workflow_attachment_self_oversized_returns_rejection_without_evicting(client, db):
     cid, mid = await _seed_message(client)
-    # Seed an existing byte-bearing row so we can verify the refusal does
-    # not evict anything in its attempt to make room.
+    # Seed an existing byte-bearing row so we can verify the refusal does not evict anything in its attempt to make room.
     existing = await _seed_row(mid, data=b"KEEP-ME")
-    # Budget = 1 byte; new row is 5 bytes AND lacks seed+generation_metadata
-    # so it cannot be marker-inserted -- rejection returns before any
-    # eviction, so the existing row stays byte-bearing.
+    # Budget = 1 byte; new row is 5 bytes AND lacks seed+generation_metadata so it cannot be marker-inserted -- rejection
+    # returns before any eviction, so the existing row stays byte-bearing.
     await _set_budget(db, 1)
     att_dict = {"filename": "huge", "mime": "image/png", "data": b"HHHHH", "workflow_id": "wf"}
     new_id, rejected = await insert_workflow_attachment(mid, att_dict)
@@ -260,9 +239,8 @@ async def test_insert_workflow_attachment_self_oversized_returns_rejection_witho
 async def test_insert_workflow_attachment_oversize_rehydratable_inserts_as_marker(client, db):
     cid, mid = await _seed_message(client)
     existing = await _seed_row(mid, data=b"KEEP-ME")
-    # Budget = 1 byte; new row is 5 bytes BUT carries seed+generation_metadata
-    # so the cache marker-inserts (recoverable later via rehydrate). Existing
-    # row is preserved -- no eviction needed because the new row stores no bytes.
+    # Budget = 1 byte; new row is 5 bytes BUT carries seed+generation_metadata so the cache marker-inserts (recoverable later
+    # via rehydrate). Existing row is preserved -- no eviction needed because the new row stores no bytes.
     await _set_budget(db, 1)
     new_id, _ = await insert_workflow_attachment(
         mid,
@@ -355,14 +333,7 @@ async def test_insert_workflow_attachment_mark_active_writes_root_pointer(client
     cid, mid = await _seed_message(client)
     root_id = await _seed_row(mid)
     new_id, _ = await insert_workflow_attachment(
-        mid,
-        {
-            "filename": "sib",
-            "mime": "image/png",
-            "data": b"S",
-            "workflow_id": "wf",
-            "parent_attachment_id": root_id,
-        },
+        mid, {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_id}
     )
     root = await must_get_workflow_attachment(root_id)
     assert root["active_sibling_id"] == new_id
@@ -373,13 +344,7 @@ async def test_insert_workflow_attachment_mark_active_false_does_not_write(clien
     root_id = await _seed_row(mid)
     new_id, _ = await insert_workflow_attachment(
         mid,
-        {
-            "filename": "sib",
-            "mime": "image/png",
-            "data": b"S",
-            "workflow_id": "wf",
-            "parent_attachment_id": root_id,
-        },
+        {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_id},
         mark_active=False,
     )
     root = await must_get_workflow_attachment(root_id)
@@ -389,10 +354,7 @@ async def test_insert_workflow_attachment_mark_active_false_does_not_write(clien
 
 async def test_insert_workflow_attachment_root_insert_does_not_touch_active(client):
     cid, mid = await _seed_message(client)
-    new_id, _ = await insert_workflow_attachment(
-        mid,
-        {"filename": "r", "mime": "image/png", "data": b"R", "workflow_id": "wf"},
-    )
+    new_id, _ = await insert_workflow_attachment(mid, {"filename": "r", "mime": "image/png", "data": b"R", "workflow_id": "wf"})
     assert new_id is not None
     row = await must_get_workflow_attachment(new_id)
     assert row["active_sibling_id"] is None
@@ -404,8 +366,7 @@ async def test_insert_workflow_attachment_policy_gate_unregistered_workflow(clie
     await _set_budget(db, 100)
 
     new_id, rejected = await insert_workflow_attachment(
-        mid,
-        {"filename": "x.bin", "mime": "image/png", "data": b"X", "workflow_id": "stale"},
+        mid, {"filename": "x.bin", "mime": "image/png", "data": b"X", "workflow_id": "stale"}
     )
     assert new_id is None
     assert rejected is not None
@@ -416,12 +377,7 @@ async def test_insert_workflow_attachment_policy_gate_unregistered_workflow(clie
     existing_row = await must_get_workflow_attachment(existing)
     assert existing_row["data_b64"] != EVICTED_MARKER
 
-    new_rows = list(
-        await db.execute_fetchall(
-            "SELECT id FROM workflow_attachments WHERE workflow_id = ?",
-            ("stale",),
-        )
-    )
+    new_rows = list(await db.execute_fetchall("SELECT id FROM workflow_attachments WHERE workflow_id = ?", ("stale",)))
     assert new_rows == [], "policy-rejected attachment must not persist"
 
 
@@ -434,13 +390,7 @@ async def test_insert_workflow_attachment_rejects_foreign_message_parent(client)
     with pytest.raises(ValueError, match="belongs to message"):
         await insert_workflow_attachment(
             mid_b,
-            {
-                "filename": "sib",
-                "mime": "image/png",
-                "data": b"S",
-                "workflow_id": "wf",
-                "parent_attachment_id": root_on_a,
-            },
+            {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_on_a},
         )
     foreign_root = await must_get_workflow_attachment(root_on_a)
     assert foreign_root["active_sibling_id"] is None, "cross-message rejection must not write the foreign root's active pointer"

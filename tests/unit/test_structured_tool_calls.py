@@ -12,6 +12,7 @@ import backend.inference.endpoint_profiles as ep_mod
 from backend.inference.client import LLMClient, parse_tool_calls
 from backend.inference.endpoint_profiles import supports_structured_tool_calls
 from backend.inference.schema import strictify_schema
+from tests.http_stream import ScriptedClient, StreamResponse
 
 
 @pytest.fixture(autouse=True)
@@ -26,11 +27,7 @@ def _no_learned_demotions():
 
 
 def test_strictify_requires_all_and_closes_object():
-    schema = {
-        "type": "object",
-        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
-        "required": ["a", "b"],
-    }
+    schema = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}}, "required": ["a", "b"]}
     out = strictify_schema(schema)
     assert out["required"] == ["a", "b"]
     assert out["additionalProperties"] is False
@@ -38,11 +35,7 @@ def test_strictify_requires_all_and_closes_object():
 
 
 def test_strictify_makes_optionals_nullable():
-    schema = {
-        "type": "object",
-        "properties": {"a": {"type": "string"}, "opt": {"type": "string"}},
-        "required": ["a"],
-    }
+    schema = {"type": "object", "properties": {"a": {"type": "string"}, "opt": {"type": "string"}}, "required": ["a"]}
     out = strictify_schema(schema)
     assert out["properties"]["opt"]["type"] == ["string", "null"]
     assert out["properties"]["a"]["type"] == "string"
@@ -71,20 +64,13 @@ def test_strictify_recurses_into_array_items():
 
 
 def test_strictify_drops_keywords_outside_the_strict_subset():
-    # The library auto-tagger's uniqueItems: a strict json_schema carrying one
-    # is rejected outright (HTTP 400, no field named), so the whole forced call
-    # fails rather than the constraint being ignored. Constraints the subset
-    # does accept must survive -- enum is what holds the answer to the
-    # vocabulary, and it travels on the same node.
+    # The library auto-tagger's uniqueItems: a strict json_schema carrying one is rejected outright (HTTP 400, no field named),
+    # so the whole forced call fails rather than the constraint being ignored. Constraints the subset does accept must survive
+    # -- enum is what holds the answer to the vocabulary, and it travels on the same node.
     schema = {
         "type": "object",
         "properties": {
-            "tags": {
-                "type": "array",
-                "items": {"type": "string", "enum": ["a", "b"]},
-                "maxItems": 12,
-                "uniqueItems": True,
-            }
+            "tags": {"type": "array", "items": {"type": "string", "enum": ["a", "b"]}, "maxItems": 12, "uniqueItems": True}
         },
         "required": ["tags"],
         "minProperties": 1,
@@ -136,55 +122,18 @@ FORCED = {"type": "function", "function": {"name": "direct_scene"}}
 
 ARGS_JSON = '{"history-summary": "so far", "moods": ["eerie"]}'
 
-_IMAGE_CONTENT = [
-    {"type": "text", "text": "hi"},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
-]
+_IMAGE_CONTENT = [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}]
 
 
-class _FakeStream:
-    status_code = 200
-
+class _FakeStream(StreamResponse):
     def __init__(self, lines):
+        super().__init__(lines=lines)
         self._lines = lines
 
-    async def __aenter__(self):
-        return self
 
-    async def __aexit__(self, *exc):
-        return False
-
-    async def aiter_lines(self):
-        for ln in self._lines:
-            yield ln
-
-
-class _FakeAsyncClient:
-    def __init__(self, lines):
-        self._lines = lines
-        self.bodies = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    def stream(self, method, url, json=None, headers=None):
-        self.bodies.append(dict(json or {}))
-        return _FakeStream(self._lines)
-
-
-class _ReplayAsyncClient(_FakeAsyncClient):
-    """Serves a different SSE script per request, repeating the last one."""
-
+class _ReplayAsyncClient(ScriptedClient):
     def __init__(self, scripts):
-        super().__init__(scripts[0])
-        self._scripts = scripts
-
-    def stream(self, method, url, json=None, headers=None):
-        self.bodies.append(dict(json or {}))
-        return _FakeStream(self._scripts[min(len(self.bodies) - 1, len(self._scripts) - 1)])
+        super().__init__([_FakeStream(lines) for lines in scripts], repeat_last=True)
 
 
 def _content_lines(text: str) -> list[str]:
@@ -253,9 +202,8 @@ async def test_unknown_endpoint_keeps_forced_tool_choice():
 
 
 async def test_tools_in_prompt_false_forces_structured_without_tools():
-    # No profile (localhost llama.cpp) — the flag alone triggers the rewrite,
-    # and the tools blob is dropped: the caller's conversation has no schemas
-    # in its cached prefix, so none may enter the server-rendered prompt.
+    # No profile (localhost llama.cpp) — the flag alone triggers the rewrite, and the tools blob is dropped: the caller's
+    # conversation has no schemas in its cached prefix, so none may enter the server-rendered prompt.
     client = LLMClient("http://localhost:5000/v1")
     body, events = await _run(
         client, _content_lines(ARGS_JSON), tools=[DIRECT_SCENE], tool_choice=FORCED, tools_in_prompt=False
@@ -292,9 +240,8 @@ async def test_auto_choice_not_rewritten():
 async def test_structured_endpoint_omits_tools_on_every_pass():
     """The tool blob is withheld for unforced passes too, not just forced ones.
 
-    This is what keeps one stable prefix. The server renders `tools` into the
-    prompt, so sending it on the writer's pass and not the director's would
-    hand the two different prefixes and thrash the KV base they share.
+    This is what keeps one stable prefix. The server renders `tools` into the prompt, so sending it on the writer's pass and not
+    the director's would hand the two different prefixes and thrash the KV base they share.
     """
     client = LLMClient("https://nano-gpt.com/api/v1")
     for choice in (FORCED, "auto", "none", "required", None):
@@ -304,8 +251,7 @@ async def test_structured_endpoint_omits_tools_on_every_pass():
 
 
 async def test_unlisted_endpoint_still_sends_tools():
-    # The omission is scoped to endpoints that take structured output; everyone
-    # else keeps ordinary tool calling.
+    # The omission is scoped to endpoints that take structured output; everyone else keeps ordinary tool calling.
     client = LLMClient("http://localhost:5000/v1")
     body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice="auto")
     assert body["tools"] == [DIRECT_SCENE]
@@ -313,10 +259,9 @@ async def test_unlisted_endpoint_still_sends_tools():
 
 
 async def test_forced_without_schema_degrades_to_plain_completion():
-    # The forced name is not in `tools`, so no schema can be built. Rather than
-    # send a tool_choice pointing at a tool the body no longer carries, the call
-    # goes out unconstrained and the parse_tool_calls recovery chain handles the
-    # reply -- the same posture as any unforced pass.
+    # The forced name is not in `tools`, so no schema can be built. Rather than send a tool_choice pointing at a tool the body
+    # no longer carries, the call goes out unconstrained and the parse_tool_calls recovery chain handles the reply -- the same
+    # posture as any unforced pass.
     client = LLMClient("https://nano-gpt.com/api/v1")
     unknown_forced = {"type": "function", "function": {"name": "not_in_tools"}}
     body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice=unknown_forced)
@@ -326,8 +271,7 @@ async def test_forced_without_schema_degrades_to_plain_completion():
 
 
 async def test_real_tool_calls_win_over_synthesis():
-    # A provider that answers a structured request with genuine tool_calls
-    # anyway: prefer them over content synthesis.
+    # A provider that answers a structured request with genuine tool_calls anyway: prefer them over content synthesis.
     client = LLMClient("https://nano-gpt.com/api/v1")
     lines = [
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"direct_scene","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}',
@@ -339,9 +283,8 @@ async def test_real_tool_calls_win_over_synthesis():
 
 
 async def test_unparseable_content_degrades_to_empty_args():
-    # tools_in_prompt=False has no second shape to retry into (its prefix must
-    # stay schema-free), so this is the path where the degrade still stands
-    # alone: unparseable forced content becomes a call with no arguments.
+    # tools_in_prompt=False has no second shape to retry into (its prefix must stay schema-free), so this is the path where the
+    # degrade still stands alone: unparseable forced content becomes a call with no arguments.
     client = LLMClient("https://nano-gpt.com/api/v1")
     _, events = await _run(
         client, _content_lines("not json at all"), tools=[DIRECT_SCENE], tool_choice=FORCED, tools_in_prompt=False
@@ -356,10 +299,9 @@ async def test_unparseable_content_degrades_to_empty_args():
 async def test_non_json_reply_demotes_the_pair_and_restores_tool_calling():
     """The reply is the only evidence: a 200 that ignores the schema.
 
-    NanoGPT fronts a different upstream engine per model, so the profile opt-in
-    is optimistic. One completed non-object reply proves this route decodes
-    unconstrained, and the next call must go back to ordinary tool calling
-    rather than keep feeding a constraint nobody applies.
+    NanoGPT fronts a different upstream engine per model, so the profile opt-in is optimistic. One completed non-object reply
+    proves this route decodes unconstrained, and the next call must go back to ordinary tool calling rather than keep feeding a
+    constraint nobody applies.
     """
     client = LLMClient("https://nano-gpt.com/api/v1")
     memo = '<memo lang="en"><small>- moods: [talkative, grounded]</small></memo>'
@@ -373,23 +315,20 @@ async def test_non_json_reply_demotes_the_pair_and_restores_tool_calling():
     assert "response_format" not in body
     assert body["tools"] == [DIRECT_SCENE]
     assert body["tool_choice"] == FORCED
-    # The writer's prompt guard has to move with it, or it nudges against a
-    # schema block the request no longer omits.
+    # The writer's prompt guard has to move with it, or it nudges against a schema block the request no longer omits.
     assert client.sends_tool_schemas([], "TEE/glm-5.2:thinking")
 
 
 async def test_the_demoting_call_retries_and_keeps_its_own_turn():
     """The reply that teaches us is not also a lost pass.
 
-    A forced call buffers its arguments instead of streaming them, so at the
-    moment the schema is disproved nothing but reasoning has reached the
-    caller -- the request can simply be re-issued in the shape that works.
+    A forced call buffers its arguments instead of streaming them, so at the moment the schema is disproved nothing but
+    reasoning has reached the caller -- the request can simply be re-issued in the shape that works.
     """
     client = LLMClient("https://nano-gpt.com/api/v1")
     native = [
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function",'
-        '"function":{"name":"direct_scene","arguments":' + json.dumps(ARGS_JSON) + "}}]},"
-        '"finish_reason":"tool_calls"}]}',
+        '"function":{"name":"direct_scene","arguments":' + json.dumps(ARGS_JSON) + '}}]},"finish_reason":"tool_calls"}]}',
         "data: [DONE]",
     ]
     bodies, events = await _run_raw(
@@ -479,13 +418,7 @@ async def test_sends_tool_schemas_tracks_text_modes_multimodal_chat_branch():
     assert not client.sends_tool_schemas([], "TEE/glm-5.2:thinking")
     assert client.sends_tool_schemas(messages, "TEE/glm-5.2:thinking")
 
-    body, _ = await _run(
-        client,
-        _content_lines("hi"),
-        messages=messages,
-        tools=[DIRECT_SCENE],
-        tool_choice="none",
-    )
+    body, _ = await _run(client, _content_lines("hi"), messages=messages, tools=[DIRECT_SCENE], tool_choice="none")
     assert "tools" in body
 
 

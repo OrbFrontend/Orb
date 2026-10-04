@@ -32,8 +32,7 @@ class AliasedEntry:
 def entry_aliases(fragments: Sequence[StateFragment], view: StateView) -> list[AliasedEntry]:
     """Number the listed entries across the whole request: ``e1``, ``e2``, ...
 
-    Only multiple-entry fragments list retirable entries. Entry ids never reach
-    the model; the aliases are mapped back in code.
+    Only multiple-entry fragments list retirable entries. Entry ids never reach the model; the aliases are mapped back in code.
     """
     out: list[AliasedEntry] = []
     for fragment in fragments:

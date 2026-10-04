@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-from backend.database import (
-    add_message,
-    get_messages_before,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-)
+from backend.database import add_message, get_messages_before, insert_workflow_attachment_row, set_active_leaf
 
 
 async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "history"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "history"})
 
 
 async def test_get_messages_before_returns_empty_for_root_message(client):
@@ -52,18 +45,11 @@ async def test_get_messages_before_returns_root_to_leaf_order(client):
 async def test_get_messages_before_populates_split_attachment_fields(client):
     cid = await _new_conversation(client)
     m1, _ = await add_message(
-        cid,
-        "user",
-        "look",
-        0,
-        attachments=[{"mime_type": "image/png", "data_b64": "WA==", "filename": "p"}],
+        cid, "user", "look", 0, attachments=[{"mime_type": "image/png", "data_b64": "WA==", "filename": "p"}]
     )
     m2, _ = await add_message(cid, "assistant", "ok", 0, parent_id=m1)
     await set_active_leaf(cid, m2)
-    await insert_workflow_attachment_row(
-        m1,
-        {"filename": "wf", "mime": "image/png", "data": b"WF", "workflow_id": "wf"},
-    )
+    await insert_workflow_attachment_row(m1, {"filename": "wf", "mime": "image/png", "data": b"WF", "workflow_id": "wf"})
     msgs = await get_messages_before(cid, m2)
     assert len(msgs) == 1
     m1_row = msgs[0]

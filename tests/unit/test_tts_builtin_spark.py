@@ -108,10 +108,7 @@ def test_the_transcript_is_kept_on_one_line_and_within_the_limit():
     assert len(profile["reference_text"]) == 400
 
 
-@pytest.mark.parametrize(
-    "change",
-    [{"clone_mode": "basic"}, {"reference_text": "   "}, {"reference_tokens": []}],
-)
+@pytest.mark.parametrize("change", [{"clone_mode": "basic"}, {"reference_text": "   "}, {"reference_tokens": []}])
 def test_advanced_speech_needs_the_tab_and_both_halves_of_the_reference(change):
     profile = normalize_profile({**ADVANCED, **change})
     assert not speaks_advanced(profile)
@@ -180,10 +177,7 @@ async def test_synthesis_surfaces_the_readiness_reason_verbatim():
         pytest.skip("Spark-TTS is fully installed on this machine")
     with pytest.raises(ValueError) as excinfo:
         await BuiltinSparkAdapter().synthesize(
-            chunks=[SpeakableChunk(text="hi")],
-            voice_id="cloned",
-            speaker_tokens=VALID,
-            settings=settings,
+            chunks=[SpeakableChunk(text="hi")], voice_id="cloned", speaker_tokens=VALID, settings=settings
         )
     assert str(excinfo.value) == reason
 

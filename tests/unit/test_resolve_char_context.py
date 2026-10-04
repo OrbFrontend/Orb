@@ -1,9 +1,8 @@
 """resolve_char_context: pre-fetched card reuse and fetch fallback.
 
-Pins that a supplied card short-circuits the internal fetch (so an in-turn
-caller's existing read is reused, not duplicated), that the fetch fallback
-is preserved when no card is supplied, and that an absent character_card_id
-yields empty persona/example without a fetch.
+Pins that a supplied card short-circuits the internal fetch (so an in-turn caller's existing read is reused, not duplicated),
+that the fetch fallback is preserved when no card is supplied, and that an absent character_card_id yields empty persona/example
+without a fetch.
 """
 
 from __future__ import annotations

@@ -1,8 +1,7 @@
 """Rank keys against card-authored text, counting each character equally.
 
-Average per-character reply sentence rates estimate expected card counts;
-lb divides that expectation by the observed count's 95% upper bound.
-Pure iterable-based scoring; no database access.
+Average per-character reply sentence rates estimate expected card counts; lb divides that expectation by the observed count's
+95% upper bound. Pure iterable-based scoring; no database access.
 """
 
 from __future__ import annotations
@@ -63,10 +62,9 @@ def rise_z(a: int, a_total: int, b: int, b_total: int, prior: float = 0.5) -> fl
 def spread_candidates(characters: Iterable[Iterable[Reply]], min_spread: int = MIN_SPREAD) -> tuple[set[int], int]:
     """Pass 1: hashes of keys used by at least *min_spread* characters.
 
-    Each character's distinct keys become a sorted array of 64-bit string
-    hashes and the arrays merge in order, so memory holds hashes rather than
-    every key string. String hashes are stable within one process, and a run
-    is one process. Returns the candidates and the number of characters.
+    Each character's distinct keys become a sorted array of 64-bit string hashes and the arrays merge in order, so memory holds
+    hashes rather than every key string. String hashes are stable within one process, and a run is one process. Returns the
+    candidates and the number of characters.
     """
     arrays: list[array[int]] = []
     for replies in characters:
@@ -161,10 +159,7 @@ def _overlaps(core: tuple[str, ...], other: tuple[str, ...]) -> bool:
 
 
 def rank_lanes(
-    stats: Mapping[str, KeyStats],
-    *,
-    new_lane: bool,
-    skip: Callable[[str], bool] = lambda _key: False,
+    stats: Mapping[str, KeyStats], *, new_lane: bool, skip: Callable[[str], bool] = lambda _key: False
 ) -> list[tuple[str, list[KeyStats]]]:
     """Each lane's qualifying keys, best first, as ``(lane, ranked)``.
 
@@ -182,18 +177,12 @@ def rank_lanes(
 
 
 def fill_lane(
-    ranked: Iterable[KeyStats],
-    accept: Callable[[KeyStats], T | None],
-    *,
-    limit: int = LANE_SIZE,
-    attempts: int = LANE_ATTEMPTS,
+    ranked: Iterable[KeyStats], accept: Callable[[KeyStats], T | None], *, limit: int = LANE_SIZE, attempts: int = LANE_ATTEMPTS
 ) -> list[T]:
-    """Walk *ranked* best first, keeping what *accept* returns, until *limit* are
-    kept or *attempts* keys were tried.
+    """Walk *ranked* best first, keeping what *accept* returns, until *limit* are kept or *attempts* keys were tried.
 
-    A key whose core contains, or is contained in, a kept key's core is passed
-    over without an attempt. A rejected key blocks nothing, so a lane whose top
-    keys fail as regexes fills from further down the ranking.
+    A key whose core contains, or is contained in, a kept key's core is passed over without an attempt. A rejected key blocks
+    nothing, so a lane whose top keys fail as regexes fills from further down the ranking.
     """
     kept: list[T] = []
     cores: list[tuple[str, ...]] = []

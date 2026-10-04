@@ -237,9 +237,8 @@ export async function selectConversation(id) {
     if (conv?.kind === "group") {
       av.textContent = "👥";
     } else if (conv?.character_card_id) {
-      // The library's bust token, not a fresh timestamp: an avatar edit bumps it,
-      // and otherwise the header reuses the cached image instead of downloading
-      // it again on every switch.
+      // The library's bust token, not a fresh timestamp: an avatar edit bumps it, and otherwise the header reuses the
+      // cached image instead of downloading it again on every switch.
       av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}${avatarBustQuery(conv.character_card_id)}`, {
         icon: CHAT_AVATAR_ICON,
         attrs: 'data-wf-action="inspector:avatarPopup" style="cursor:pointer"',

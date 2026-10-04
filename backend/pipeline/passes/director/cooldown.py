@@ -18,9 +18,7 @@ def blocked(state: Mapping[str, int]) -> frozenset[str]:
 
 
 def advance(
-    prior: Mapping[str, int],
-    fired: Sequence[str] | set[str],
-    fragments: Sequence[Mapping[str, Any]],
+    prior: Mapping[str, int], fired: Sequence[str] | set[str], fragments: Sequence[Mapping[str, Any]]
 ) -> dict[str, int]:
     """Age prior cooldowns, then start cooldowns for fragments fired now."""
     state = {fragment_id: turns - 1 for fragment_id, turns in prior.items() if turns > 1}
@@ -35,9 +33,8 @@ def advance(
 def fire(state: Mapping[str, int], fired: Sequence[str] | set[str], cooldowns: Mapping[str, int]) -> dict[str, int]:
     """Start cooldowns for fragments that fired after the Director's aging step.
 
-    State fragments updated through the ``update_state`` tool fire later in the
-    turn than :func:`advance` runs; this adds their cooldowns to the same snapshot
-    without aging anything a second time.
+    State fragments updated through the ``update_state`` tool fire later in the turn than :func:`advance` runs; this adds their
+    cooldowns to the same snapshot without aging anything a second time.
     """
     out = dict(state)
     for fragment_id in fired:

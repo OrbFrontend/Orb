@@ -1,21 +1,21 @@
-"""Move length_guard and length_guard_enforce out of enabled_tools into
-dedicated flag columns, preserving their values.
-"""
+"""Move length_guard and length_guard_enforce out of enabled_tools into dedicated flag columns, preserving their values."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
 
+from .helpers import add_columns
+
 
 def migrate(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
-    if "length_guard_enabled" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN length_guard_enabled INTEGER NOT NULL DEFAULT 0")
-        print("[migrations] 0023: added length_guard_enabled column to settings")
-    if "length_guard_enforce" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN length_guard_enforce INTEGER NOT NULL DEFAULT 0")
-        print("[migrations] 0023: added length_guard_enforce column to settings")
+    add_columns(
+        conn,
+        "settings",
+        "length_guard_enabled INTEGER NOT NULL DEFAULT 0",
+        "length_guard_enforce INTEGER NOT NULL DEFAULT 0",
+        migration="0023",
+    )
 
     row = conn.execute("SELECT id, enabled_tools FROM settings").fetchone()
     if row is None:

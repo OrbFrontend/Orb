@@ -19,12 +19,7 @@ from ...database import (
 from ...database.queries.documents import DocumentConflict
 from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
-from ..deps import (
-    CleanupStreamingResponse,
-    deleting_resources,
-    sse_stream,
-    stop_active_stream,
-)
+from ..deps import CleanupStreamingResponse, deleting_resources, sse_stream, stop_active_stream
 from ..schemas import (
     DocumentAuditRequest,
     DocumentAuditResponse,
@@ -79,9 +74,8 @@ async def api_delete_document(did: str):
 async def api_generate_document(did: str, data: DocumentGenerateRequest, request: Request):
     """Stream a continuation of the document prefix from the cursor (SSE).
 
-    Stateless proxy — the client persists generated text; this only reads
-    settings and drives the LLM. 404s an unknown ``did`` first so garbage ids
-    never mint locks/abort entries.
+    Stateless proxy — the client persists generated text; this only reads settings and drives the LLM. 404s an unknown ``did``
+    first so garbage ids never mint locks/abort entries.
     """
     if not await get_document(did):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -95,33 +89,25 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
         try:
             finish = ""
             async for chunk in continuer.stream(
-                data.prompt,
-                settings.get("model_name", ""),
-                assisted=data.assisted,
-                token_probs=data.token_probs,
+                data.prompt, settings.get("model_name", ""), assisted=data.assisted, token_probs=data.token_probs
             ):
                 if chunk["type"] == "content":
                     # Byte-identical wire: plain string, \n-escaped by sse_stream.
                     yield {"event": "token", "data": chunk["delta"]}
                 elif chunk["type"] == "token_probs":
                     # dict data auto-JSON-serialized by sse_stream
-                    yield {
-                        "event": "probs",
-                        "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]},
-                    }
+                    yield {"event": "probs", "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]}}
                 else:  # done — carries the transport's finish_reason
                     finish = chunk.get("finish_reason") or ""
-            # Like `probs`, the done payload is a JSON dict the client must not
-            # unescapeSSE. "length" marks a token-budget cutoff (Output Auditor
-            # trims the dangling half-sentence before scanning).
+            # Like `probs`, the done payload is a JSON dict the client must not unescapeSSE. "length" marks a token-budget
+            # cutoff (Output Auditor trims the dangling half-sentence before scanning).
             yield {"event": "done", "data": {"finish": finish}}
         except Exception as e:
             logger.error("Document generate error: %s", e)
             yield {"event": "error", "data": "Generation failed; see server logs"}
 
     return CleanupStreamingResponse(
-        sse_stream(_gen(), request, abort_token=abort_token, cid=f"doc:{did}"),
-        media_type="text/event-stream",
+        sse_stream(_gen(), request, abort_token=abort_token, cid=f"doc:{did}"), media_type="text/event-stream"
     )
 
 
@@ -138,9 +124,8 @@ async def api_stop_document(did: str, operation_id: str | None = None):
 async def api_audit_document(did: str, data: DocumentAuditRequest) -> DocumentAuditResponse:
     """Run the Output Auditor's prose scanners on a generated run (no LLM).
 
-    Stateless like /generate: the client sends the run ("draft") and the
-    preceding document text ("context"); nothing is persisted. 404s an unknown
-    ``did`` first, same guard as generate.
+    Stateless like /generate: the client sends the run ("draft") and the preceding document text ("context"); nothing is
+    persisted. 404s an unknown ``did`` first, same guard as generate.
     """
     if not await get_document(did):
         raise HTTPException(status_code=404, detail="Document not found")

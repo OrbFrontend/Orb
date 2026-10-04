@@ -26,14 +26,12 @@ UNKNOWN = "ambiguous"
 VoiceLabels = tuple[str, str]
 UNKNOWN_LABELS: VoiceLabels = (UNKNOWN, UNKNOWN)
 
-# The POV label is a precedence rule over the pronouns the narration contains --
-# "I tell you" is first, "He tells you" is second, "He tells her" is third -- not a
-# prose style. So `second` means the speaking character is narrated in third person
-# while the reader is still addressed as "you", which is the commonest RP register.
-# Asking a copy editor for "second person" instead gets the other reading: it makes
-# the narration's subject "you" and turns the character's own actions into the
-# reader's. Each phrase names what happens to BOTH parties for that reason, and none
-# of them may invite a name the passage does not contain (see the system rules).
+# The POV label is a precedence rule over the pronouns the narration contains -- "I tell you" is first, "He tells you" is
+# second, "He tells her" is third -- not a prose style. So `second` means the speaking character is narrated in third person
+# while the reader is still addressed as "you", which is the commonest RP register. Asking a copy editor for "second person"
+# instead gets the other reading: it makes the narration's subject "you" and turns the character's own actions into the
+# reader's. Each phrase names what happens to BOTH parties for that reason, and none of them may invite a name the passage does
+# not contain (see the system rules).
 _POV_PHRASE = {
     "first": 'first person (the speaking character narrates their own actions as "I"), with anyone they address staying "you"',
     "second": "third person for the speaking character (their own actions become "
@@ -42,14 +40,12 @@ _POV_PHRASE = {
 }
 _TENSE_PHRASE = {"past": "past tense", "present": "present tense"}
 
-# The labels' precedence order. A message's POV is its highest-ranked pronoun
-# anywhere in the narration.
+# The labels' precedence order. A message's POV is its highest-ranked pronoun anywhere in the narration.
 _POV_RANK = {"third": 1, "second": 2, "first": 3}
 
 
 def _content_digest(text: str) -> str:
-    """Identify the message and the narration-extraction and reading policy that
-    labeled it."""
+    """Identify the message and the narration-extraction and reading policy that labeled it."""
     return hashlib.sha256(b"whole-narration-v4\0" + text.encode()).hexdigest()
 
 
@@ -67,13 +63,12 @@ def combine(windows: Sequence[VoiceLabels]) -> VoiceLabels:
 
 
 async def read(text: str, style: AxisStyle) -> VoiceLabels | None:
-    """Return the (POV, tense) of *text*'s whole narration, extracted under its
-    markup reading *style*, or ``None`` on a local-ML fault.
+    """Return the (POV, tense) of *text*'s whole narration, extracted under its markup reading *style*, or ``None`` on a
+    local-ML fault.
 
-    The model reads a few sentences at a time, so every window is classified and
-    combined. Drafts and baseline rows both go through here: a rewrite costs far
-    more than reading every window, and two ends read differently disagree about
-    messages that do not differ.
+    The model reads a few sentences at a time, so every window is classified and combined. Drafts and baseline rows both go
+    through here: a rewrite costs far more than reading every window, and two ends read differently disagree about messages that
+    do not differ.
     """
     try:
         windows = await classify_pov_tense_chunks(narration_only(text, style.dialogue))
@@ -114,13 +109,7 @@ async def labels_for(msg: Mapping[str, Any], style: AxisStyle) -> VoiceLabels | 
     pov, tense = labels
     payload = dict(cached) if isinstance(cached, Mapping) else {}
     payload.update(
-        {
-            "pov": pov,
-            "tense": tense,
-            "dialogue": style.dialogue.value,
-            "content_sha256": digest,
-            "classifier": classifier,
-        }
+        {"pov": pov, "tense": tense, "dialogue": style.dialogue.value, "content_sha256": digest, "classifier": classifier}
     )
     await set_workflow_message_state(mid, WORKFLOW_ID, payload)
     return labels
@@ -137,10 +126,7 @@ def target(window_labels: list[VoiceLabels]) -> VoiceLabels:
 def drift(source: VoiceLabels, target_labels: VoiceLabels) -> list[str]:
     """Return human phrases for confident voice axes that drifted."""
     phrases: list[str] = []
-    for src, tgt, table in (
-        (source[0], target_labels[0], _POV_PHRASE),
-        (source[1], target_labels[1], _TENSE_PHRASE),
-    ):
+    for src, tgt, table in ((source[0], target_labels[0], _POV_PHRASE), (source[1], target_labels[1], _TENSE_PHRASE)):
         if src != UNKNOWN and tgt != UNKNOWN and src != tgt and tgt in table:
             phrases.append(table[tgt])
     return phrases

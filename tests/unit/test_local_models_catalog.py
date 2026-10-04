@@ -1,6 +1,5 @@
-"""Check artifact basenames directly from the manifest: downloads flatten paths,
-so shared basenames collide and unclaimed weights are pruned. New specs
-automatically participate.
+"""Check artifact basenames directly from the manifest: downloads flatten paths, so shared basenames collide and unclaimed
+weights are pruned. New specs automatically participate.
 """
 
 from __future__ import annotations
@@ -25,8 +24,7 @@ def test_every_downloadable_basename_is_claimed_exactly_once():
 
 
 def test_a_variant_bearing_specs_default_file_is_one_of_its_variants():
-    """Otherwise a bare download would fetch a fourth file the selector cannot
-    offer and nothing would ever load it."""
+    """Otherwise a bare download would fetch a fourth file the selector cannot offer and nothing would ever load it."""
     for feature, spec in MODELS.items():
         if spec.variants:
             assert spec.local_name in {v.local_name for v in spec.variants}, feature
@@ -48,10 +46,8 @@ def test_prune_stale_keeps_a_claimed_variant_and_removes_an_unclaimed_file(tmp_p
 def test_prune_stale_keeps_every_registered_prose_variant(tmp_path, monkeypatch):
     """All three at once, not just the one the test above happened to pick.
 
-    ``prune_stale`` reads the WHOLE manifest to build its claim set, so the
-    property that matters is that no variant is missing from it — a checkpoint
-    the claim set forgets is 4.7 GB deleted the next time an unrelated Download
-    button is pressed.
+    ``prune_stale`` reads the WHOLE manifest to build its claim set, so the property that matters is that no variant is missing
+    from it — a checkpoint the claim set forgets is 4.7 GB deleted the next time an unrelated Download button is pressed.
     """
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     variants = MODELS["prose_rewriter"].variants
@@ -120,8 +116,7 @@ def test_a_companion_file_is_required_for_present_and_kept_by_prune(tmp_path, mo
 
 
 def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
-    """They are useless alone, and 23 MB nothing claims is the shape of bug
-    ``prune_stale`` exists to prevent."""
+    """They are useless alone, and 23 MB nothing claims is the shape of bug ``prune_stale`` exists to prevent."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     spec = MODELS["spark_tts_codec"]
     companion = spec.extra_files[0]
@@ -135,8 +130,7 @@ def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
 
 
 def test_deleting_one_variant_leaves_shared_companions_alone(tmp_path, monkeypatch):
-    """A variant's siblings still need them, so the companion sweep is scoped
-    to a delete of the spec's OWN file."""
+    """A variant's siblings still need them, so the companion sweep is scoped to a delete of the spec's OWN file."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
     spec = MODELS["prose_rewriter"]
     variant = spec.variants[0]

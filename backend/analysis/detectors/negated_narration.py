@@ -9,23 +9,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ...core.text_segmentation import (
-    PARA_SPLIT,
-    ends_with_question,
-    find_quote_spans,
-    split_sentence_units,
-)
+from ...core.text_segmentation import PARA_SPLIT, ends_with_question, find_quote_spans, split_sentence_units
 from ..text.lexical import TOKEN_RE, normalize_word
 from ..text.roleplay import THOUGHT_ATTRIBUTION, is_inline_emphasis
 from ..text.roleplay_segmentation import find_emphasis_spans, ooc_spans
 
-__all__ = [
-    "NegationConstituent",
-    "NegationFinding",
-    "NegationResult",
-    "detect_negated_narration",
-    "evaluate_negated_narration",
-]
+__all__ = ["NegationConstituent", "NegationFinding", "NegationResult", "detect_negated_narration", "evaluate_negated_narration"]
 
 ASTERISK = "asterisk"
 PROSE = "prose"
@@ -117,12 +106,10 @@ _TAG_SUBJECT = r"(?:i|you|he|she|it|we|they|there)"
 # A negative tag anywhere (", didn't he"); an affirmative one only at the end
 # (", did she."), so ", did she go" mid-sentence is not mistaken for a tag.
 _TAG_QUESTION = re.compile(
-    rf",\s*(?:(?:{_TAG_AUX}|wo|ca)n't\s+{_TAG_SUBJECT}\b|{_TAG_AUX}\s+{_TAG_SUBJECT}\W*$)",
-    re.IGNORECASE,
+    rf",\s*(?:(?:{_TAG_AUX}|wo|ca)n't\s+{_TAG_SUBJECT}\b|{_TAG_AUX}\s+{_TAG_SUBJECT}\W*$)", re.IGNORECASE
 )
 _INTERJECTION = re.compile(
-    r"(?:(?:oh|ah),?\s+)?no+(?:\s*[,.!…—–-]+\s*(?:(?:oh|ah),?\s+)?(?:no+|oh|god|wait))*[\s.!…—–-]*",
-    re.IGNORECASE,
+    r"(?:(?:oh|ah),?\s+)?no+(?:\s*[,.!…—–-]+\s*(?:(?:oh|ah),?\s+)?(?:no+|oh|god|wait))*[\s.!…—–-]*", re.IGNORECASE
 )
 _NO_FOLLOWER_PUNCT = frozenset(",;:—–.!?…")
 
@@ -303,9 +290,8 @@ def _paragraphs(text: str) -> list[_Paragraph]:
     paragraphs: list[_Paragraph] = []
     for seg_start, seg_end in _segments(text, _excluded_regions(text)):
         segment = text[seg_start:seg_end]
-        # A balanced quote may span paragraphs. When a quote mark is left
-        # unpaired, per-paragraph parsing adds what the malformed quote would
-        # otherwise flip from speech to narration; the union only grows speech.
+        # A balanced quote may span paragraphs. When a quote mark is left unpaired, per-paragraph parsing adds what the
+        # malformed quote would otherwise flip from speech to narration; the union only grows speech.
         segment_quotes = find_quote_spans(segment)
         balanced = _quotes_well_formed(segment, segment_quotes)
         for p_start, p_end in _paragraph_ranges(segment):
@@ -518,8 +504,7 @@ def _same_referent(first: tuple[str, ...], second: tuple[str, ...]) -> bool:
         return True
     if second != ("it",):
         return False
-    # A thing named by a determiner phrase or a demonstrative may become "it";
-    # a personal pronoun never does.
+    # A thing named by a determiner phrase or a demonstrative may become "it"; a personal pronoun never does.
     return first in (("this",), ("that",)) or (len(first) >= 2 and first[0] in _DETERMINERS)
 
 
@@ -758,8 +743,7 @@ def detect_negated_narration(text: str, *, min_hits: int = 2) -> NegationResult:
 def evaluate_negated_narration(text: str, style: str, *, min_hits: int = 0) -> NegationResult:
     """Re-detect a full patched draft under an explicit narration style.
 
-    Evaluation only, not an application setting: a repair benchmark scores the
-    edited draft with the original draft's interpretation instead of letting a
-    shortened draft re-infer its style. Every exclusion rule still applies.
+    Evaluation only, not an application setting: a repair benchmark scores the edited draft with the original draft's
+    interpretation instead of letting a shortened draft re-infer its style. Every exclusion rule still applies.
     """
     return _detect(text, min_hits=min_hits, style=style)

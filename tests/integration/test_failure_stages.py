@@ -1,9 +1,8 @@
 """The terminal ``error`` event names the pass an internal failure escaped.
 
-Provider failures inside the Judge and Director are skipped by those passes, so
-what reaches ``stage`` here is Orb's own code failing. A group exchange runs its
-Judge and Director outside ``run_pipeline``, and must label them the same way
-a solo turn does.
+Provider failures inside the Judge and Director are skipped by those passes, so what reaches ``stage`` here is Orb's own code
+failing. A group exchange runs its Judge and Director outside ``run_pipeline``, and must label them the same way a solo turn
+does.
 """
 
 from __future__ import annotations
@@ -29,9 +28,7 @@ def _error(body: str) -> dict:
 
 
 async def _card(client, name: str) -> str:
-    response = await client.post("/api/characters", json={"name": name})
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/characters", json={"name": name})
 
 
 async def _conversation(client, kind: str) -> str:
@@ -40,9 +37,7 @@ async def _conversation(client, kind: str) -> str:
         body: dict = {"character_card_id": aria}
     else:
         body = {"kind": "group", "group_turn_mode": "round_robin", "members": [{"character_card_id": aria}]}
-    response = await client.post("/api/conversations", json=body)
-    assert response.status_code == 200
-    return response.json()["id"]
+    return await client.create("/api/conversations", json=body)
 
 
 def _raise(*_args, **_kwargs):

@@ -74,9 +74,8 @@ async def resolve(
         Subject(
             member_id=primary.member_id if primary else "",
             card_id=character_id,
-            # The member's local name when the scene has one for them; a removed
-            # member (still the anchor's speaker, no longer on the roster) and every
-            # solo chat fall back to the card's.
+            # The member's local name when the scene has one for them; a removed member (still the anchor's speaker, no longer
+            # on the roster) and every solo chat fall back to the card's.
             name=(primary.name if primary else "") or str((character or {}).get("name") or ""),
             profile=profile,
         )
@@ -85,34 +84,26 @@ async def resolve(
     for member in cast.members:
         if member.member_id in ("", subjects[0].member_id) or member.member_id not in spoke:
             continue
-        # A narrator has no likeness and no appearance sheet; it speaks in the round
-        # without ever being in the picture.
+        # A narrator has no likeness and no appearance sheet; it speaks in the round without ever being in the picture.
         if member.kind != "character" or not member.card_id:
             continue
         subjects.append(
             Subject(
-                member_id=member.member_id,
-                card_id=member.card_id,
-                name=member.name,
-                profile=await _profile_for(member.card_id),
+                member_id=member.member_id, card_id=member.card_id, name=member.name, profile=await _profile_for(member.card_id)
             )
         )
     return _disambiguated(subjects)
 
 
 def _anchor_member(
-    history: Sequence[Mapping[str, Any]],
-    anchor_id: int,
-    character_id: str,
-    by_id: Mapping[str, CastMember],
+    history: Sequence[Mapping[str, Any]], anchor_id: int, character_id: str, by_id: Mapping[str, CastMember]
 ) -> str:
     """Which roster member the primary card is, when the scene still has one.
 
-    Preferred by the anchor's own `speaker_member_id`, because two members may not
-    share a card but a *tombstoned* one and an active one can: the route resolved the
-    card from the anchor's speaker, so the anchor is the authority on which member
-    that was. Falls back to the single active member holding that card, which is what
-    a regenerate of a message written before speakers were recorded resolves to.
+    Preferred by the anchor's own `speaker_member_id`, because two members may not share a card but a *tombstoned* one and an
+    active one can: the route resolved the card from the anchor's speaker, so the anchor is the authority on which member that
+    was. Falls back to the single active member holding that card, which is what a regenerate of a message written before
+    speakers were recorded resolves to.
     """
     speaker = next((message.get("speaker_member_id") for message in history if message.get("id") == anchor_id), None)
     if isinstance(speaker, str) and speaker in by_id:

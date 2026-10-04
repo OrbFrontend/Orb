@@ -1,13 +1,10 @@
 """Byte-parity: the off-turn prefix equals the pipeline's turn prefix.
 
-Off-turn workflow calls (image_gen's analyze/compose, and anything else built
-on ``build_offturn_prefix``) ride the llama.cpp server's cached KV for the
-whole conversation prefix. That only works if the toolkit builder and the
-pipeline's ``build_prefixes`` produce **byte-identical** messages for the same
-conversation state — one diverging byte evicts the cache for the off-turn call
-and again for the next chat turn. This test seeds every prefix-shaping input
-(card-bound conversation, active persona, macros, post-history instructions,
-constant + keyword lorebook entries) and compares the two builders' output
+Off-turn workflow calls (image_gen's analyze/compose, and anything else built on ``build_offturn_prefix``) ride the llama.cpp
+server's cached KV for the whole conversation prefix. That only works if the toolkit builder and the pipeline's
+``build_prefixes`` produce **byte-identical** messages for the same conversation state — one diverging byte evicts the cache for
+the off-turn call and again for the next chat turn. This test seeds every prefix-shaping input (card-bound conversation, active
+persona, macros, post-history instructions, constant + keyword lorebook entries) and compares the two builders' output
 serialized, which is exactly the equality the server's prefix matcher sees.
 """
 
@@ -58,14 +55,8 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     persona = await create_user_persona({"name": "Chi", "description": "A curious visitor."})
     await update_settings({"active_persona_id": persona["id"]})
     world = await create_world({"name": "Archive", "is_global": True})
-    await create_lorebook_entry(
-        world["id"],
-        {"name": "Canon", "content": "The moon is shattered.", "constant": True},
-    )
-    await create_lorebook_entry(
-        world["id"],
-        {"name": "Sword", "content": "A legendary blade.", "keywords": ["sword"]},
-    )
+    await create_lorebook_entry(world["id"], {"name": "Canon", "content": "The moon is shattered.", "constant": True})
+    await create_lorebook_entry(world["id"], {"name": "Sword", "content": "A legendary blade.", "keywords": ["sword"]})
     await create_conversation(conv_id, "Parity", "Iris", "A rainy archive.", character_card_id="parity-char")
     mid, _ = await add_message(conv_id, "user", "Hello there.", 0)
     mid, _ = await add_message(conv_id, "assistant", "She looks up from the desk.", 0, parent_id=mid)
@@ -93,12 +84,11 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
 
     # Dual-model mode substitutes only the agent system prompt; every other
     # prefix-shaping byte must still match the pipeline's own agent builder.
-    endpoint = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
-    assert endpoint.status_code == 200
+    endpoint = await client.post_json("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
     await update_settings(
         {
             "agent_same_as_writer": 0,
-            "agent_endpoint_id": endpoint.json()["id"],
+            "agent_endpoint_id": endpoint["id"],
             "agent_shared_system_prompt": "Agent-only system prompt.",
             "prevent_prompt_overrides": 1,
         }
@@ -118,15 +108,13 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
 @pytest.mark.parametrize("context_mode", ["private", "shared", "swap"])
 @pytest.mark.asyncio
 async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
-    """A group's prefix is a different document: the cast section stands in for
-    the card, {{char}} is the scene title, {{cast}} is the roster, and every
-    assistant line is attributed to the member who wrote it. An off-turn builder
-    that rebuilt the solo shape would evict the conversation's KV on every
-    workflow call — and hand image_gen a transcript with nobody's name on it.
+    """A group's prefix is a different document: the cast section stands in for the card, {{char}} is the scene title, {{cast}}
+    is the roster, and every assistant line is attributed to the member who wrote it. An off-turn builder that rebuilt the
+    solo shape would evict the conversation's KV on every workflow call — and hand image_gen a transcript with nobody's name
+    on it.
 
-    The neutral base (no active speaker) is the comparison in all three modes:
-    it is the base the Director runs on, and under Classic card swap it is the
-    only one an off-turn call can name without picking a speaker for itself.
+    The neutral base (no active speaker) is the comparison in all three modes: it is the base the Director runs on, and under
+    Classic card swap it is the only one an off-turn call can name without picking a speaker for itself.
     """
     aria = await client.post(
         "/api/characters",
@@ -139,7 +127,7 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
         },
     )
     kael = await client.post("/api/characters", json={"name": "Kael", "description": "A blunt smith."})
-    conv = await client.post(
+    conv_id = await client.create(
         "/api/conversations",
         json={
             "kind": "group",
@@ -148,7 +136,6 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
             "members": [{"character_card_id": aria.json()["id"]}, {"character_card_id": kael.json()["id"]}],
         },
     )
-    conv_id = conv.json()["id"]
     members = (await client.get(f"/api/conversations/{conv_id}/members")).json()
     mid, _ = await add_message(conv_id, "user", "What was that noise?", 0)
     mid, _ = await add_message(

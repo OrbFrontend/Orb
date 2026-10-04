@@ -5,10 +5,9 @@ import { compileCss, filterDeclarations } from "../../frontend/message_css.js";
 // message_css_containment.test.mjs pins what card CSS may not do. This file pins
 // the other half: what it *may* do, and why each of those is safe to allow.
 //
-// The policy is permissive because it reads the sheet as a token stream rather
-// than as text -- escapes decoded, comments elided, functions balanced -- so
-// every case below is really the same claim twice: the capability works, and the
-// spelling that tries to smuggle something past it does not.
+// The policy is permissive because it reads the sheet as a token stream rather than as text -- escapes decoded,
+// comments elided, functions balanced -- so every case below is really the same claim twice: the capability works, and
+// the spelling that tries to smuggle something past it does not.
 
 const SCOPE = "msg-sx";
 const css = (text) => compileCss(text, SCOPE).css;
@@ -45,8 +44,7 @@ test("value functions are an allowlist, which is what makes url() safe to permit
   ]) {
     assert.notEqual(css(`.a { ${value} }`), "", value);
   }
-  // Not on the list: a legacy script hatch, and one that paints another part of
-  // the page into the bubble.
+  // Not on the list: a legacy script hatch, and one that paints another part of the page into the bubble.
   for (const value of ["width: expression(alert(1))", "background: element(#hero)", "background: -moz-element(#hero)"]) {
     assert.equal(css(`.a { ${value} }`), "", value);
   }
@@ -114,9 +112,8 @@ test("a sheet cannot close its own style element, however it spells the close", 
   ];
   for (const source of payloads) {
     const out = css(source);
-    // Not just `</style`: no raw angle bracket survives at all, in a string or
-    // in a name, so there is no tag for the re-parse to find. What is left is
-    // inert CSS text -- `content: "\3c img ...\3e "` renders as characters.
+    // Not just `</style`: no raw angle bracket survives at all, in a string or in a name, so there is no tag for the
+    // re-parse to find. What is left is inert CSS text -- `content: "\3c img ...\3e "` renders as characters.
     assert.ok(!/[<>]/.test(out), `${source} -> ${out}`);
   }
 });

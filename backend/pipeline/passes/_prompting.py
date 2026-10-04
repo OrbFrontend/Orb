@@ -30,9 +30,8 @@ def tool_call_instruction(
 ) -> str:
     """Render the ordered single-tool instruction from its live schema.
 
-    State live requiredness here because cached fragment schemas omit it.
-    Optional fragments adds per-parameter type hints and row descriptions;
-    mood/speaking-plan instructions come from their own sections.
+    State live requiredness here because cached fragment schemas omit it. Optional fragments adds per-parameter type hints and
+    row descriptions; mood/speaking-plan instructions come from their own sections.
     """
     description = schema["function"]["description"]
     parameters = schema["function"]["parameters"].get("properties", {})

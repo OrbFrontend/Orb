@@ -9,12 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
-from ....inference import (
-    CachedBase,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
+from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import GIVE_FEEDBACK_CHOICE, build_feedback_tool
 from .prompts import build_feedback_prompt
 
@@ -25,9 +20,8 @@ logger = logging.getLogger(__name__)
 class FeedbackResult:
     """Typed result of the feedback step, yielded as the ``done`` event payload.
 
-    ``values`` holds the ``give_feedback`` arguments keyed by fragment id; empty
-    or None entries are dropped (mirroring the director's ``extra_fields``).
-    ``agent_raw`` is the raw model response, kept for logging.
+    ``values`` holds the ``give_feedback`` arguments keyed by fragment id; empty or None entries are dropped (mirroring the
+    director's ``extra_fields``). ``agent_raw`` is the raw model response, kept for logging.
     """
 
     values: dict = field(default_factory=dict)
@@ -37,10 +31,9 @@ class FeedbackResult:
 def extract_feedback_values(tool_calls: list[dict]) -> dict:
     """Pull the ``give_feedback`` arguments from parsed tool calls.
 
-    Empty or None entries are dropped. A later call wins on key collisions,
-    matching ``apply_tool_calls`` semantics. Each value is normally a string;
-    the empty ``[]`` guard is defensive against a model that returns a list,
-    matching the frontend's array handling in ``message_inspector.buildFeedbackHtml``.
+    Empty or None entries are dropped. A later call wins on key collisions, matching ``apply_tool_calls`` semantics. Each value
+    is normally a string; the empty ``[]`` guard is defensive against a model that returns a list, matching the frontend's array
+    handling in ``message_inspector.buildFeedbackHtml``.
     """
     values: dict = {}
     for tc in tool_calls:
@@ -67,18 +60,12 @@ async def feedback_step(
         yield {"type": "done", "result": FeedbackResult()}
         return
 
-    # The live view of the shared ``give_feedback``: the blob offers every defined
-    # feedback fragment with nothing required, so an enable toggle never rewrites
-    # it. This one lists the enabled fragments for the prompt and narrows the call
-    # (``json_schema``) where the transport can; the wire tools blob is the
-    # unchanged base.
+    # The live view of the shared ``give_feedback``: the blob offers every defined feedback fragment with nothing required, so
+    # an enable toggle never rewrites it. This one lists the enabled fragments for the prompt and narrows the call
+    # (``json_schema``) where the transport can; the wire tools blob is the unchanged base.
     tool_schema = build_feedback_tool(feedback_fragments)
 
-    request = build_feedback_prompt(
-        feedback_fragments,
-        reasoning_on=reasoning_on,
-        tool_schema=tool_schema,
-    )
+    request = build_feedback_prompt(feedback_fragments, reasoning_on=reasoning_on, tool_schema=tool_schema)
     # Replay writer_user_msg + reply (as the editor does) so the feedback call
     # continues the warm writer/editor stack; only `request` is new bytes.
     trailing: list[ChatMessage] = [
@@ -115,10 +102,4 @@ async def feedback_step(
     live = {fragment["id"] for fragment in feedback_fragments}
     values = {key: value for key, value in extract_feedback_values(parse_tool_calls(resp)).items() if key in live}
 
-    yield {
-        "type": "done",
-        "result": FeedbackResult(
-            values=values,
-            agent_raw=agent_raw,
-        ),
-    }
+    yield {"type": "done", "result": FeedbackResult(values=values, agent_raw=agent_raw)}

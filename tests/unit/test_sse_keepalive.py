@@ -1,10 +1,8 @@
 """sse_stream emits keepalive comments during silent gaps, and settles a stopped stream.
 
-A turn has long token-free stretches (reasoning-off director, the text-mode
-editor prefill loop). Without a heartbeat an idle-timeout proxy drops the SSE
-connection and strands the still-running backend. The comment frame must carry
-no event/data line so the frontend parser ignores it, and real events must still
-pass through untouched.
+A turn has long token-free stretches (reasoning-off director, the text-mode editor prefill loop). Without a heartbeat an
+idle-timeout proxy drops the SSE connection and strands the still-running backend. The comment frame must carry no event/data
+line so the frontend parser ignores it, and real events must still pass through untouched.
 """
 
 from __future__ import annotations
@@ -40,9 +38,8 @@ async def test_keepalive_during_silence_and_events_passthrough(monkeypatch):
 
 # ── Stop settlement ──────────────────────────────────────────────────────────
 # /stop answers only once the stopped stream has finished saving, and the
-# conversation lock is held until then, whether the client stays connected or
-# goes away. The generators below stand in for a turn: they wind down when the
-# token fires and then "save" behind a barrier the test controls.
+# conversation lock is held until then, whether the client stays connected or goes away. The generators below stand in for a
+# turn: they wind down when the token fires and then "save" behind a barrier the test controls.
 
 
 class _Req:

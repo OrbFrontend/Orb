@@ -16,7 +16,7 @@ _DIRECT_SCENE_FIXED_PROPERTIES = {
         "type": "array",
         "items": {"type": "string"},
         "description": "List of moods to activate. Leave empty for a neutral tone.",
-    },
+    }
 }
 
 _DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
@@ -27,7 +27,7 @@ _ACTIVE_LOREBOOK_PROPERTY = {
         "type": "array",
         "items": {"type": "string"},
         "description": ("Names of lorebook entries relevant to this scene. Leave empty if none apply."),
-    },
+    }
 }
 
 _DIRECT_SCENE_DESCRIPTION = (
@@ -36,14 +36,11 @@ _DIRECT_SCENE_DESCRIPTION = (
 )
 
 
-def build_direct_scene_tool(
-    interactive_fragments: Sequence[Mapping[str, Any]],
-) -> dict:
+def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the ``direct_scene`` tool schema from *interactive_fragments*.
 
-    Fragments add dynamic string/array parameters beyond the fixed ``moods``
-    field. Returns an OpenAI function-calling format dict. (Lorebook selection is
-    a separate concern handled by the standalone ``select_lorebook`` tool.)
+    Fragments add dynamic string/array parameters beyond the fixed ``moods`` field. Returns an OpenAI function-calling format
+    dict. (Lorebook selection is a separate concern handled by the standalone ``select_lorebook`` tool.)
     """
     properties: dict = {}
     required: list[str] = []
@@ -54,11 +51,7 @@ def build_direct_scene_tool(
         fid = df["id"]
         field_type = df["field_type"]
         if field_type == "array":
-            prop = {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": df["description"],
-            }
+            prop = {"type": "array", "items": {"type": "string"}, "description": df["description"]}
         else:
             prop = {"type": "string", "description": df["description"]}
         properties[fid] = prop
@@ -73,11 +66,7 @@ def build_direct_scene_tool(
         "function": {
             "name": "direct_scene",
             "description": _DIRECT_SCENE_DESCRIPTION,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
+            "parameters": {"type": "object", "properties": properties, "required": required},
         },
     }
 
@@ -95,11 +84,7 @@ SELECT_LOREBOOK_TOOL = {
     "function": {
         "name": "select_lorebook",
         "description": _SELECT_LOREBOOK_DESCRIPTION,
-        "parameters": {
-            "type": "object",
-            "properties": dict(_ACTIVE_LOREBOOK_PROPERTY),
-            "required": [],
-        },
+        "parameters": {"type": "object", "properties": dict(_ACTIVE_LOREBOOK_PROPERTY), "required": []},
     },
 }
 
@@ -111,10 +96,9 @@ _PROPOSE_WORLD_CHANGES_DESCRIPTION = (
     "leave operations empty when no durable change occurred."
 )
 
-# Fixed, feature-gated Dynamic Worlds schema. Expose activation choices only;
-# other fields use reviewed defaults. validate_proposal derives stored verbs.
-# Keep rationale before each change and operations before summary, allowing
-# an empty proposal without a precommitted summary.
+# Fixed, feature-gated Dynamic Worlds schema. Expose activation choices only; other fields use reviewed defaults.
+# validate_proposal derives stored verbs. Keep rationale before each change and operations before summary, allowing an empty
+# proposal without a precommitted summary.
 PROPOSE_WORLD_CHANGES_TOOL = {
     "type": "function",
     "function": {
@@ -206,12 +190,11 @@ _GIVE_FEEDBACK_DESCRIPTION = (
 def _build_fragment_tool(name: str, description: str, fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build a tool schema whose parameters are exactly one string per fragment.
 
-    Shared by the fragment-driven tools: each fragment contributes one string
-    parameter keyed by its id, and there are no fixed parameters. Returns an
-    OpenAI function-calling format dict.
+    Shared by the fragment-driven tools: each fragment contributes one string parameter keyed by its id, and there are no fixed
+    parameters. Returns an OpenAI function-calling format dict.
 
-    These schemas ride the shared per-turn tools blob (via ``schema_overrides``)
-    so their step can force ``tool_choice`` on the tool without a cache miss.
+    These schemas ride the shared per-turn tools blob (via ``schema_overrides``) so their step can force ``tool_choice`` on the
+    tool without a cache miss.
     """
     properties: dict = {}
     required: list[str] = []
@@ -227,11 +210,7 @@ def _build_fragment_tool(name: str, description: str, fragments: Sequence[Mappin
         "function": {
             "name": name,
             "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
+            "parameters": {"type": "object", "properties": properties, "required": required},
         },
     }
 
@@ -260,18 +239,16 @@ _RETIRE_PROPERTY = {
             "Ids of listed entries (e1, e2, ...) that no longer hold. To correct an entry, retire it and add "
             "the corrected text to its field."
         ),
-    },
+    }
 }
 
 
 def build_state_tool(state_fragments: Sequence[StateFragment]) -> dict:
     """Build the ``update_state`` tool schema from the turn's state-tool fragments.
 
-    A one-value fragment is one string parameter; a multiple-entry fragment is one
-    array of new entries. Nothing volatile -- entry ids, current values, counts
-    -- ever reaches the schema: it rides the shared tools blob, which must stay
-    byte-identical while only the state changes. Nothing is required, because
-    omission means keep.
+    A one-value fragment is one string parameter; a multiple-entry fragment is one array of new entries. Nothing volatile --
+    entry ids, current values, counts -- ever reaches the schema: it rides the shared tools blob, which must stay byte-identical
+    while only the state changes. Nothing is required, because omission means keep.
     """
     properties: dict = dict(deepcopy(_RETIRE_PROPERTY))
     for fragment in state_fragments:
@@ -303,7 +280,7 @@ EDITOR_REWRITE_TOOL = {
                 "rewritten_text": {
                     "type": "string",
                     "description": "The refined rewrite of the entire draft. Should address length constraints and/or audit issues while preserving the original intent.",
-                },
+                }
             },
             "required": ["rewritten_text"],
         },
@@ -345,10 +322,7 @@ EDITOR_SEARCH_REPLACE_TOOL = {
     },
 }
 
-EDITOR_SEARCH_REPLACE_CHOICE = {
-    "type": "function",
-    "function": {"name": "editor_search_replace"},
-}
+EDITOR_SEARCH_REPLACE_CHOICE = {"type": "function", "function": {"name": "editor_search_replace"}}
 
 EDITOR_APPLY_PATCH_TOOL = {
     "type": "function",
@@ -370,10 +344,7 @@ EDITOR_APPLY_PATCH_TOOL = {
                                 "type": "integer",
                                 "description": "The number of the sentence being fixed, as shown in [brackets] in the report.",
                             },
-                            "replace": {
-                                "type": "string",
-                                "description": "Replacement text for that sentence.",
-                            },
+                            "replace": {"type": "string", "description": "Replacement text for that sentence."},
                         },
                         "required": ["id", "replace"],
                     },

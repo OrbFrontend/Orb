@@ -1,7 +1,6 @@
 """Add library_tags vocabulary and card auto-tag staleness stamps.
 
-Use canonical table DDL. Runs rewrite the card's tags when vocabulary
-or card content changes.
+Use canonical table DDL. Runs rewrite the card's tags when vocabulary or card content changes.
 """
 
 from __future__ import annotations

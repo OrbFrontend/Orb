@@ -1,20 +1,15 @@
-"""Integration tests for Document mode: CRUD, span roundtrip, 404s, the
-spans-without-content guard, and the generate proxy in both transports.
+"""Integration tests for Document mode: CRUD, span roundtrip, 404s, the spans-without-content guard, and the generate proxy in
+both transports.
 
-The chat fallback calls ``complete()`` with no tools/tool_choice, which
-``_pass_from_tool_choice`` routes to the **writer** queue — so chat-mode doc
-tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
+The chat fallback calls ``complete()`` with no tools/tool_choice, which ``_pass_from_tool_choice`` routes to the **writer**
+queue — so chat-mode doc tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
 """
 
 from __future__ import annotations
 
 import json
 
-from backend.features.documents import (
-    DOC_ASSIST_CONTINUE,
-    DOC_ASSIST_INSTRUCTION,
-    DOC_CHAT_INSTRUCTION,
-)
+from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION, DOC_CHAT_INSTRUCTION
 from backend.features.documents.continuation import build_generation_messages
 
 
@@ -53,7 +48,7 @@ async def test_document_crud_lifecycle(client):
     assert "content" not in listed[0]
 
     # update content + title + spans together
-    r = await client.put(
+    await client.put_checked(
         "/api/documents/" + did,
         json={
             "expected_revision": 0,
@@ -62,7 +57,6 @@ async def test_document_crud_lifecycle(client):
             "generated_spans": [{"start": 6, "end": 11}],
         },
     )
-    assert r.status_code == 200
 
     got = (await client.get("/api/documents/" + did)).json()
     assert got["title"] == "My Doc"
@@ -74,7 +68,7 @@ async def test_document_crud_lifecycle(client):
 
 
 async def test_span_json_roundtrip_multiple(client):
-    did = (await client.post("/api/documents", json={"title": "Spans"})).json()["id"]
+    did = await client.create("/api/documents", json={"title": "Spans"})
     spans = [{"start": 0, "end": 3}, {"start": 10, "end": 25}]
     await client.put("/api/documents/" + did, json={"expected_revision": 0, "content": "abc...", "generated_spans": spans})
     got = (await client.get("/api/documents/" + did)).json()
@@ -86,24 +80,21 @@ async def test_404s(client):
     assert (await client.put("/api/documents/nope", json={"title": "x"})).status_code == 404
     assert (await client.delete("/api/documents/nope")).status_code == 404
     # generate 404s an unknown id before minting any lock/abort entry
-    r = await client.post("/api/documents/nope/generate", json={"prompt": "hi"})
-    assert r.status_code == 404
+    await client.post_checked("/api/documents/nope/generate", json={"prompt": "hi"}, expected_status=404)
 
 
 async def test_update_spans_without_content_is_422(client):
-    did = (await client.post("/api/documents", json={})).json()["id"]
-    r = await client.put("/api/documents/" + did, json={"generated_spans": [{"start": 0, "end": 1}]})
-    assert r.status_code == 422
+    did = await client.create("/api/documents", json={})
+    await client.put_checked("/api/documents/" + did, json={"generated_spans": [{"start": 0, "end": 1}]}, expected_status=422)
     # title-only is fine
     assert (await client.put("/api/documents/" + did, json={"title": "ok"})).status_code == 200
 
 
 async def test_generate_chat_mode(client, llm_mock):
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" and then the sky opened.")
 
-    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "Once upon a time"})
-    assert r.status_code == 200
+    r = await client.post_checked("/api/documents/" + did + "/generate", json={"prompt": "Once upon a time"})
     events = _parse_sse(r.text)
     assert events[0] == {"event": "token", "data": " and then the sky opened."}
     assert events[-1]["event"] == "done"
@@ -117,11 +108,10 @@ async def test_generate_chat_mode(client, llm_mock):
 
 async def test_generate_text_mode(client, llm_mock):
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_raw(" a raw continuation")
 
-    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "verbatim prefix"})
-    assert r.status_code == 200
+    r = await client.post_checked("/api/documents/" + did + "/generate", json={"prompt": "verbatim prefix"})
     events = _parse_sse(r.text)
     assert events[0] == {"event": "token", "data": " a raw continuation"}
     assert events[-1]["event"] == "done"
@@ -134,22 +124,18 @@ async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
     # assisted:true in text mode → parse_doc_macros → complete() (writer queue),
     # NOT complete_raw. The mock sees the parsed multi-turn shape + open prefill.
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" a steered continuation")
 
     prompt = "### USER: be terse\nThe monkey woke. He"
-    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
-    assert r.status_code == 200
+    r = await client.post_checked("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
     events = _parse_sse(r.text)
     assert events[0] == {"event": "token", "data": " a steered continuation"}
     assert events[-1]["event"] == "done"
 
     assert not llm_mock.raw_calls  # assisted never touches the raw path
     cap = llm_mock.captured[-1]
-    assert cap["messages"] == [
-        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
-        {"role": "user", "content": "be terse"},
-    ]
+    assert cap["messages"] == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": "be terse"}]
     assert cap["params"]["prefill"] == "The monkey woke. He"
     # Reasoning suppressed on every assisted call.
     assert cap["params"]["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
@@ -158,12 +144,11 @@ async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
 async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
     # assisted:true on a chat endpoint → prefill closed as an assistant turn +
     # a re-anchor user turn (chat transport can't hold an open prefill).
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" continued.")
 
     prompt = "### USER: keep it dark\nThe hollow"
-    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
-    assert r.status_code == 200
+    await client.post_checked("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
 
     cap = llm_mock.captured[-1]
     assert cap["messages"] == [
@@ -178,7 +163,7 @@ async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
 async def test_generate_assisted_defaults_false_hits_raw(client, llm_mock):
     # Omitting `assisted` keeps the verbatim Raw path (complete_raw), unchanged.
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_raw(" raw")
     await client.post("/api/documents/" + did + "/generate", json={"prompt": "### USER: literal now"})
     # No macro interpretation: the whole prompt went verbatim to complete_raw.
@@ -186,7 +171,7 @@ async def test_generate_assisted_defaults_false_hits_raw(client, llm_mock):
 
 
 async def test_generate_preserves_newlines(client, llm_mock):
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer("line one\nline two")
     r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
     events = _parse_sse(r.text)
@@ -194,29 +179,26 @@ async def test_generate_preserves_newlines(client, llm_mock):
 
 
 async def test_stop_with_and_without_active_token(client):
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     # no active generation → still a clean 200, saying nothing was running
     assert (await client.post("/api/documents/" + did + "/stop")).json() == {"ok": True, "active": False, "settled": True}
 
 
 # ── token_probs wire: `event: probs` frames ───────────────────────────────────
 
-# Mock token records live on a separate channel from the text; keep their token
-# strings newline-free so the test-only _parse_sse (which unescapes \n on every
-# frame, unlike the real reader) doesn't corrupt the probs JSON.
+# Mock token records live on a separate channel from the text; keep their token strings newline-free so the test-only _parse_sse
+# (which unescapes \n on every frame, unlike the real reader) doesn't corrupt the probs JSON.
 _PROBS = [{"token": " Paris", "prob": 0.86, "top": [{"t": " Paris", "p": 0.86}, {"t": " Lyon", "p": 0.1}]}]
 
 
 async def test_generate_text_mode_probs_frames(client, llm_mock):
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_raw(" Paris", probs=_PROBS)
 
-    r = await client.post(
-        "/api/documents/" + did + "/generate",
-        json={"prompt": "The capital of France is", "token_probs": True},
+    r = await client.post_checked(
+        "/api/documents/" + did + "/generate", json={"prompt": "The capital of France is", "token_probs": True}
     )
-    assert r.status_code == 200
     events = _parse_sse(r.text)
 
     # token frame is byte-identical to the no-probs wire.
@@ -230,14 +212,12 @@ async def test_generate_text_mode_probs_frames(client, llm_mock):
 
 
 async def test_generate_chat_mode_probs_frames(client, llm_mock):
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer(" Paris", probs=_PROBS)
 
-    r = await client.post(
-        "/api/documents/" + did + "/generate",
-        json={"prompt": "The capital of France is", "token_probs": True},
+    r = await client.post_checked(
+        "/api/documents/" + did + "/generate", json={"prompt": "The capital of France is", "token_probs": True}
     )
-    assert r.status_code == 200
     events = _parse_sse(r.text)
     assert events[0] == {"event": "token", "data": " Paris"}
     probs = [json.loads(e["data"]) for e in events if e["event"] == "probs"]
@@ -251,11 +231,10 @@ async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
     # Probs enqueued, but token_probs omitted → the continuer sends no n_probs, so
     # the mock (like a real server) returns none; the wire carries only tokens.
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_raw(" Paris", probs=_PROBS)
 
-    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
-    assert r.status_code == 200
+    r = await client.post_checked("/api/documents/" + did + "/generate", json={"prompt": "x"})
     events = _parse_sse(r.text)
     assert not any(e["event"] == "probs" for e in events)
     assert "n_probs" not in llm_mock.raw_calls[-1]["params"]
@@ -264,7 +243,7 @@ async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
 async def test_generate_done_event_carries_finish_json(client, llm_mock):
     # The done frame is a JSON dict {"finish": ...} (like the probs channel);
     # the mock's done message carries no finish_reason → empty string.
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     llm_mock.enqueue_writer("some text")
     r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
     done = _parse_sse(r.text)[-1]
@@ -278,8 +257,7 @@ _BANNED = "shivers down her spine"
 
 
 async def _seed_phrase(client, phrase: str = _BANNED) -> None:
-    r = await client.post("/api/phrase-bank", json={"variants": [phrase], "kind": "literal"})
-    assert r.status_code == 200
+    await client.post_checked("/api/phrase-bank", json={"variants": [phrase], "kind": "literal"})
 
 
 async def test_audit_and_patch_404_unknown_document(client):
@@ -289,10 +267,9 @@ async def test_audit_and_patch_404_unknown_document(client):
 
 
 async def test_audit_clean_draft(client):
-    did = (await client.post("/api/documents", json={})).json()["id"]
-    r = await client.post(f"/api/documents/{did}/audit", json={"draft": "A perfectly ordinary sentence."})
-    assert r.status_code == 200
-    body = r.json()
+    did = await client.create("/api/documents", json={})
+    r = await client.post_json(f"/api/documents/{did}/audit", json={"draft": "A perfectly ordinary sentence."})
+    body = r
     assert body["report"]["is_clean"] is True
     assert body["report"]["total_issues"] == 0
     assert body["skipped"] is None
@@ -301,10 +278,9 @@ async def test_audit_clean_draft(client):
 
 async def test_audit_flags_seeded_phrase(client):
     await _seed_phrase(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     r = await client.post(
-        f"/api/documents/{did}/audit",
-        json={"draft": f"She felt {_BANNED} again.", "context": "Earlier prose."},
+        f"/api/documents/{did}/audit", json={"draft": f"She felt {_BANNED} again.", "context": "Earlier prose."}
     )
     body = r.json()
     assert body["report"]["total_issues"] >= 1
@@ -316,10 +292,9 @@ async def test_audit_truncated_excludes_tail(client):
     # The banned phrase lives in the dangling half-sentence of a stopped run —
     # trimmed before scanning, so the report is clean and the tail flagged as excluded.
     await _seed_phrase(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     r = await client.post(
-        f"/api/documents/{did}/audit",
-        json={"draft": f"A clean opening sentence. She felt {_BANNED}", "truncated": True},
+        f"/api/documents/{did}/audit", json={"draft": f"A clean opening sentence. She felt {_BANNED}", "truncated": True}
     )
     body = r.json()
     assert body["tail_excluded"] is True
@@ -329,7 +304,7 @@ async def test_audit_truncated_excludes_tail(client):
 async def test_audit_respects_doc_toggles(client):
     await _seed_phrase(client)
     await client.put("/api/settings", json={"document_audit_toggles": {"banned_phrases": False}})
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     r = await client.post(f"/api/documents/{did}/audit", json={"draft": f"She felt {_BANNED} again."})
     assert r.json()["report"]["is_clean"] is True
 
@@ -342,8 +317,7 @@ async def test_audit_settings_roundtrip(client):
     assert before["document_audit_toggles"]["banned_phrases"] is True
 
     r = await client.put(
-        "/api/settings",
-        json={"document_audit_autopatch": True, "document_audit_toggles": {"banned_phrases": False}},
+        "/api/settings", json={"document_audit_autopatch": True, "document_audit_toggles": {"banned_phrases": False}}
     )
     after = r.json()
     assert after["document_audit_autopatch"] == 1
@@ -352,8 +326,7 @@ async def test_audit_settings_roundtrip(client):
 
 
 def _enqueue_patch_call(llm_mock, patches: list[dict]) -> None:
-    # The /patch route forces editor_apply_patch, which the mock's tool_choice
-    # dispatch routes to the editor queue.
+    # The /patch route forces editor_apply_patch, which the mock's tool_choice dispatch routes to the editor queue.
     llm_mock.enqueue_editor(
         {
             "tool_calls": [
@@ -369,13 +342,12 @@ def _enqueue_patch_call(llm_mock, patches: list[dict]) -> None:
 
 async def test_patch_applies_patches(client, llm_mock):
     await _seed_phrase(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     flagged = f"She felt {_BANNED} at once."
     _enqueue_patch_call(llm_mock, [{"id": 1, "replace": "A chill traced her back."}])
 
-    r = await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": "Earlier prose."})
-    assert r.status_code == 200
-    body = r.json()
+    r = await client.post_json(f"/api/documents/{did}/patch", json={"draft": flagged, "context": "Earlier prose."})
+    body = r
     assert body["patched_draft"] == "A chill traced her back."
     assert body["patch_count"] == 1
     assert body["errors"] == []
@@ -385,9 +357,8 @@ async def test_patch_applies_patches(client, llm_mock):
     cap = llm_mock.captured[-1]
     assert cap["pass"] == "editor"
     assert {"role": "assistant", "content": flagged} in cap["messages"]
-    # KV parity: the patch conversation replays the generation shape verbatim
-    # (chat fallback framing + full context as the user turn) and keeps the
-    # tool schema out of the rendered prompt.
+    # KV parity: the patch conversation replays the generation shape verbatim (chat fallback framing + full context as the user
+    # turn) and keeps the tool schema out of the rendered prompt.
     assert cap["messages"][0] == {"role": "system", "content": DOC_CHAT_INSTRUCTION}
     assert cap["messages"][1] == {"role": "user", "content": "Earlier prose."}
     assert cap["params"]["tools_in_prompt"] is False
@@ -395,7 +366,7 @@ async def test_patch_applies_patches(client, llm_mock):
 
 async def test_patch_surfaces_apply_errors(client, llm_mock):
     await _seed_phrase(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     draft = f"She felt {_BANNED} at once."
     # id 2 does not exist: the single banned sentence is the only finding.
     _enqueue_patch_call(llm_mock, [{"id": 2, "replace": "x"}])
@@ -408,7 +379,7 @@ async def test_patch_surfaces_apply_errors(client, llm_mock):
 
 
 async def test_patch_clean_draft_skips_llm(client, llm_mock):
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     body = (await client.post(f"/api/documents/{did}/patch", json={"draft": "Nothing to fix here."})).json()
     assert body["skipped"] == "clean"
     assert body["patched_draft"] == "Nothing to fix here."
@@ -418,7 +389,7 @@ async def test_patch_clean_draft_skips_llm(client, llm_mock):
 async def test_patch_text_mode_raw_extends_prompt_with_json_schema(client, llm_mock):
     await _seed_phrase(client)
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     flagged = f"She felt {_BANNED} at once."
     ctx = "Earlier prose precedes the run. "
     llm_mock.enqueue_raw(json.dumps({"patches": [{"id": 1, "replace": "A chill traced her back."}]}))
@@ -438,7 +409,7 @@ async def test_patch_text_mode_raw_extends_prompt_with_json_schema(client, llm_m
 async def test_patch_text_mode_assisted_rerenders_generation(client, llm_mock):
     await _seed_phrase(client)
     await _activate_text_endpoint(client)
-    did = (await client.post("/api/documents", json={})).json()["id"]
+    did = await client.create("/api/documents", json={})
     flagged = f"She felt {_BANNED} at once."
     ctx = "### USER: keep going\nThe last prose line"
     llm_mock.enqueue_raw(json.dumps({"patches": []}))
@@ -458,9 +429,8 @@ async def test_document_revision_conflict_keeps_latest_content(client):
     path = f"/api/documents/{doc['id']}"
     saved = await client.put(path, json={"content": "new", "expected_revision": doc["revision"]})
     assert saved.json()["revision"] == 1
-    stale = await client.put(path, json={"content": "old", "expected_revision": doc["revision"]})
-    assert stale.status_code == 409
-    assert stale.json()["detail"]["document"]["content"] == "new"
+    stale = await client.put_json(path, json={"content": "old", "expected_revision": doc["revision"]}, expected_status=409)
+    assert stale["detail"]["document"]["content"] == "new"
     renamed = await client.put(path, json={"title": "Renamed"})
     assert renamed.json()["content"] == "new"
     assert (await client.get(path)).json()["revision"] == 2

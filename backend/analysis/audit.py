@@ -11,21 +11,10 @@ if TYPE_CHECKING:
     from ..database.models import PhraseGroup
 from .detectors.anti_echo import EchoResult, detect_anti_echo
 from .detectors.contrastive_negation import detect_contrastive_negation
-from .detectors.negated_narration import (
-    NegationFinding,
-    NegationResult,
-    detect_negated_narration,
-)
+from .detectors.negated_narration import NegationFinding, NegationResult, detect_negated_narration
 from .detectors.opening_monotony import MonotonyResult, detect_opening_monotony
-from .detectors.phrase_repetition import (
-    PhraseResult,
-    deduplicate_phrases,
-    detect_phrase_repetition,
-)
-from .detectors.structural_repetition import (
-    StructuralResult,
-    detect_structural_repetition,
-)
+from .detectors.phrase_repetition import PhraseResult, deduplicate_phrases, detect_phrase_repetition
+from .detectors.structural_repetition import StructuralResult, detect_structural_repetition
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
 
 logger = logging.getLogger(__name__)
@@ -237,9 +226,8 @@ def run_audit(
 # Format into text report
 
 
-# Outer markers are omitted from reported snippets so the rewrite model searches
-# for the prose core rather than depending on a particular quote/emphasis style.
-# Straight ' is excluded so contractions/possessives survive.
+# Outer markers are omitted from reported snippets so the rewrite model searches for the prose core rather than depending on a
+# particular quote/emphasis style. Straight ' is excluded so contractions/possessives survive.
 OUTER_MARKERS = '*_"“”‘’'
 
 

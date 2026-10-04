@@ -95,11 +95,9 @@ test("localMlReady only holds runtime_ok against a feature that reports one", ()
   assert.equal(localMlReady("llama_server"), false);
 });
 
-// A solo branch where `stormy` fires on reply 3 with a two-turn cooldown: it is
-// held out of replies 5 and 7, and free again on 9. Each row carries the state
-// its own turn leaves behind, which is why reading a turn's resting set off its
-// own row would mark `stormy` on 3 (the turn it fired) and clear it on 7 (a turn
-// it is still held out of).
+// A solo branch where `stormy` fires on reply 3 with a two-turn cooldown: it is held out of replies 5 and 7, and free
+// again on 9. Each row carries the state its own turn leaves behind, which is why reading a turn's resting set off its
+// own row would mark `stormy` on 3 (the turn it fired) and clear it on 7 (a turn it is still held out of).
 const soloPath = [
   { id: 1, role: "assistant", fragment_cooldowns: {} },
   { id: 2, role: "user" },

@@ -9,21 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...core import ChatMessage, ContentPart, extract_hyperparams
-from ...features.lorebook import (
-    build_world_change_catalog,
-    parse_proposal_call,
-    validate_proposal,
-)
-from ...inference import (
-    CachedBase,
-    LLMClient,
-    parse_tool_calls,
-    reasoning_cfg,
-)
-from ...prompting.tool_schemas import (
-    PROPOSE_WORLD_CHANGES_CHOICE,
-    PROPOSE_WORLD_CHANGES_TOOL,
-)
+from ...features.lorebook import build_world_change_catalog, parse_proposal_call, validate_proposal
+from ...inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
+from ...prompting.tool_schemas import PROPOSE_WORLD_CHANGES_CHOICE, PROPOSE_WORLD_CHANGES_TOOL
 from .world_change_prompt import build_world_change_prompt
 
 logger = logging.getLogger(__name__)
@@ -33,12 +21,10 @@ logger = logging.getLogger(__name__)
 class WorldChangeResult:
     """Typed result of the proposal step, yielded as the ``done`` payload.
 
-    ``operations`` are validated and ready to stage, each stamped with the World
-    it belongs to when the step was given more than one; an empty list is the
-    normal "nothing durable happened" outcome and stages nothing. ``calls`` is
-    the parsed tool call, appended to the turn's tool calls so the proposal stays
-    visible in the inspector audit -- while the durable changeset lives in its
-    own table, independent of reclaimable conversation logs.
+    ``operations`` are validated and ready to stage, each stamped with the World it belongs to when the step was given more than
+    one; an empty list is the normal "nothing durable happened" outcome and stages nothing. ``calls`` is the parsed tool call,
+    appended to the turn's tool calls so the proposal stays visible in the inspector audit -- while the durable changeset lives
+    in its own table, independent of reclaimable conversation logs.
     """
 
     summary: str = ""
@@ -68,15 +54,11 @@ async def world_change_step(
 ) -> AsyncIterator[dict]:
     """Make one forced proposal call over all opted-in Worlds.
 
-    Yield reasoning then done with WorldChangeResult. Operations are stamped
-    with their World for split_by_world.
+    Yield reasoning then done with WorldChangeResult. Operations are stamped with their World for split_by_world.
     """
     catalog = build_world_change_catalog(entries, worlds=worlds, exchange_text=exchange_text)
     request = build_world_change_prompt(
-        catalog,
-        original_user_message=original_user_message,
-        reasoning_on=reasoning_on,
-        tool_schema=PROPOSE_WORLD_CHANGES_TOOL,
+        catalog, original_user_message=original_user_message, reasoning_on=reasoning_on, tool_schema=PROPOSE_WORLD_CHANGES_TOOL
     )
     trailing: list[ChatMessage] = [
         {"role": "user", "content": writer_user_msg or ""},

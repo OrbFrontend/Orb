@@ -86,10 +86,9 @@ async def judge_gate(
 ) -> dict[str, Any]:
     """Evaluate *fragment*'s gate on *draft* and return its Inspector record.
 
-    *recent_replies* is the conversation's assistant replies, newest first; the
-    gate shows the Judge as many as the fragment asks for. Anything that keeps
-    the Judge from answering fails open (``fired: 1``) and records why. A Stop
-    raises ``DecisionCancelled`` instead.
+    *recent_replies* is the conversation's assistant replies, newest first; the gate shows the Judge as many as the fragment
+    asks for. Anything that keeps the Judge from answering fails open (``fired: 1``) and records why. A Stop raises
+    ``DecisionCancelled`` instead.
     """
     question = gate_question(fragment)
     previous = list(reversed(recent_replies[: gate_replies(fragment)]))

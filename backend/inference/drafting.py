@@ -25,14 +25,7 @@ def normalize(text: str) -> str:
 
 
 async def forced_draft(
-    client: LLMClient,
-    model: str,
-    *,
-    system: str,
-    user: str,
-    tool: dict[str, Any],
-    max_tokens: int,
-    reasoning_on: bool,
+    client: LLMClient, model: str, *, system: str, user: str, tool: dict[str, Any], max_tokens: int, reasoning_on: bool
 ) -> dict[str, Any] | None:
     """Make one forced tool call and return its arguments, or ``None`` if absent.
 
@@ -40,18 +33,9 @@ async def forced_draft(
     salvaged from a cut reply can look complete while missing their tail.
     """
     name = tool["function"]["name"]
-    messages: list[ChatMessage] = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ]
+    messages: list[ChatMessage] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     response = await forced_turn(
-        client,
-        model,
-        messages=messages,
-        tools=[tool],
-        forced=name,
-        max_tokens=max_tokens,
-        reasoning_on=reasoning_on,
+        client, model, messages=messages, tools=[tool], forced=name, max_tokens=max_tokens, reasoning_on=reasoning_on
     )
     if response.get("finish_reason") == "length":
         raise ReplyCutOff

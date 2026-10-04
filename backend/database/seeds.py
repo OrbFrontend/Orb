@@ -102,7 +102,7 @@ STARTER_STATE_FRAGMENTS = [
         "state_mode": "entries",
         "state_update": "after_reply",
         "state_inject": "both",
-    },
+    }
 ]
 
 # Free-form notes the user keeps by hand. Migration 0067 moves user-authored
@@ -274,11 +274,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
     NOTES_STATE_FRAGMENT,
 ]
 
-DEFAULT_ENABLED_TOOLS = {
-    "direct_scene": True,
-    "editor_apply_patch": False,
-    "editor_rewrite": False,
-}
+DEFAULT_ENABLED_TOOLS = {"direct_scene": True, "editor_apply_patch": False, "editor_rewrite": False}
 
 DEFAULT_SETTINGS = {
     "endpoint_url": "http://localhost:5000/v1",
@@ -315,9 +311,8 @@ DEFAULT_SETTINGS = {
         "anti_echo": True,
         "negated_narration": False,
     },
-    # Document-mode Output Auditor: doc-owned columns, deliberately separate from
-    # the chat editor's so a doc-mode save can never perturb chat scanner state.
-    # The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
+    # Document-mode Output Auditor: doc-owned columns, deliberately separate from the chat editor's so a doc-mode save can never
+    # perturb chat scanner state. The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
     "document_audit_enabled": 1,
     "document_audit_autopatch": 0,
     "document_audit_toggles": {
@@ -336,9 +331,8 @@ DEFAULT_SETTINGS = {
 }
 
 
-# Seeds are regex strings or literal-variant lists. Regexes match one sentence
-# case-insensitively; use bounded gaps, inflection suffixes and word boundaries
-# to avoid greedy or substring overmatches.
+# Seeds are regex strings or literal-variant lists. Regexes match one sentence case-insensitively; use bounded gaps, inflection
+# suffixes and word boundaries to avoid greedy or substring overmatches.
 SEED_PHRASE_BANK = [
     r"a mix(ture)? of",
     r"drip(ped|ping|s) with",

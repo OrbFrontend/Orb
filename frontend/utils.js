@@ -44,9 +44,8 @@ export function attachmentMime(mime) {
   return ATTACHMENT_MIME_RE.test(type) ? type.toLowerCase() : "";
 }
 
-// The message listing carries attachments without their bytes; each one's
-// bytes load from its content route, which the browser caches and revalidates.
-// The id is the only thing interpolated, and only once it is a positive integer.
+// The message listing carries attachments without their bytes; each one's bytes load from its content route, which the
+// browser caches and revalidates. The id is the only thing interpolated, and only once it is a positive integer.
 function attachmentContentUrl(kind, att) {
   const id = Number(att?.id);
   return Number.isInteger(id) && id > 0 ? `/api/${kind}/${id}/content` : "";
@@ -331,10 +330,9 @@ function _restoreInlineCode(html, codes) {
   return codes.length ? html.replace(CODE_SLOT_RE, (slot, i) => codes[i] ?? slot) : html;
 }
 
-// Showdown's inline link, as SillyTavern renders it: `[text](url "title")`,
-// with `<url>` also accepted. Tags match first so a link spelled inside an
-// attribute stays put. Cards hide model-only notes as `[](#'note')`, which is
-// an anchor with no text, so the reader never sees it.
+// Showdown's inline link, as SillyTavern renders it: `[text](url "title")`, with `<url>` also accepted. Tags match
+// first so a link spelled inside an attribute stays put. Cards hide model-only notes as `[](#'note')`, which is an
+// anchor with no text, so the reader never sees it.
 const INLINE_LINK_RE =
   /(<[^>]*>)|(?<![!\\])\[((?:\[[^\]]*]|[^[\]])*)][ \t]*\([ \t]?(?:<([^>]*)>|<?(\S+?(?:\(\S*?\)\S*?)?)>?)(?:[ \t]*(["'])([^"]*?)\5)?[ \t]?\)/g;
 const EMPTY_LINK_URL_RE = /\(<?\s*>? ?(['"].*['"])?\)$/m;
@@ -412,10 +410,9 @@ function renderImageEmbed(url, alt) {
   );
 }
 
-// Split out fenced code, style and textarea blocks and image embeds before
-// formatting prose. An open fence runs to the end so its contents remain escaped
-// code; a textarea's body is raw text the browser shows verbatim, so markdown in
-// it would surface as literal tags.
+// Split out fenced code, style and textarea blocks and image embeds before formatting prose. An open fence runs to the
+// end so its contents remain escaped code; a textarea's body is raw text the browser shows verbatim, so markdown in it
+// would surface as literal tags.
 const PROSE_PART_RE =
   /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
 const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;

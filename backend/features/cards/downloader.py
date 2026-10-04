@@ -24,7 +24,7 @@ _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
 _CHUB_MAX_RESULTS = 100_000
 # The detail API 403s a bare "Mozilla/5.0"; a full browser UA passes.
 _CHUB_SITE_HEADERS = {
-    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"),
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
 }
 
 SOURCES: dict[str, dict] = {}
@@ -32,11 +32,7 @@ SOURCES: dict[str, dict] = {}
 
 def register_source(name: str, browse_fn, download_fn, randomize_fn):
     """Register an external source for character-card browsing and downloading."""
-    SOURCES[name] = {
-        "browse": browse_fn,
-        "download": download_fn,
-        "randomize": randomize_fn,
-    }
+    SOURCES[name] = {"browse": browse_fn, "download": download_fn, "randomize": randomize_fn}
 
 
 def _get_source(source: str) -> dict:
@@ -71,12 +67,7 @@ async def download_card(source: str, full_path: str) -> dict:
 
 
 async def _fetch(
-    url: str,
-    *,
-    what: str,
-    params: dict | None = None,
-    timeout: float = 30,
-    headers: dict | None = None,
+    url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
 ) -> httpx.Response:
     """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail.
 
@@ -95,9 +86,8 @@ async def _fetch(
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
     """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
 
-    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` — the PNG itself
-    doubles as the avatar, and ``card_id`` is the embedded orb id when present,
-    else a stable hash of the bytes so re-importing the same card relinks history.
+    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` — the PNG itself doubles as the avatar, and ``card_id`` is the
+    embedded orb id when present, else a stable hash of the bytes so re-importing the same card relinks history.
     """
     if not content[:8].startswith(b"\x89PNG"):
         raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
@@ -126,9 +116,8 @@ def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, 
 async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | None, str | None, bytes]:
     """Best-effort fetch of a card's avatar image from a CDN URL.
 
-    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken
-    avatar degrades to ``(None, None, b"")`` — it must not block importing the
-    card text.
+    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken avatar degrades to ``(None, None, b"")`` — it must
+    not block importing the card text.
     """
     if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
         return None, None, b""
@@ -217,10 +206,9 @@ async def _randomize_characterhub(q: str) -> dict:
 async def _chub_expression_pack(full_path: str) -> dict | None:
     """Best-effort fetch of a CharacterHub card's expression pack.
 
-    The pack (``{compressed, expressions}``) lives only in the detail API — the
-    CDN card PNG carries ``expressions: null`` — so we fetch it separately and
-    let the caller merge it into the card's extensions. Never raises: expressions
-    are a nice-to-have and must not block importing the card.
+    The pack (``{compressed, expressions}``) lives only in the detail API — the CDN card PNG carries ``expressions: null`` — so
+    we fetch it separately and let the caller merge it into the card's extensions. Never raises: expressions are a nice-to-have
+    and must not block importing the card.
     """
     url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
     try:
@@ -245,10 +233,7 @@ async def _download_characterhub_card(full_path: str):
     if not full_path:
         raise HTTPException(status_code=400, detail="Missing full_path")
     if "/" not in full_path:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid Chub full_path (expected creator/name): {full_path}",
-        )
+        raise HTTPException(status_code=400, detail=f"Invalid Chub full_path (expected creator/name): {full_path}")
     url = f"{_CHUB_AVATARS_BASE}/{full_path}/chara_card_v2.png"
     content = (await _fetch(url, what="Failed to download card")).content
 
@@ -262,20 +247,13 @@ async def _download_characterhub_card(full_path: str):
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "characterhub",
-    _chub_search,
-    _download_characterhub_card,
-    _randomize_characterhub,
-)
+register_source("characterhub", _chub_search, _download_characterhub_card, _randomize_characterhub)
 
 
 #
-# Character Archive mirrors cards from upstream sites (chub, etc.) behind a
-# FastAPI JSON API. Browse hits the meilisearch-backed search endpoint; the
-# per-card definition is served as chara_card_v2 JSON (not embedded in a PNG),
-# so download parses it via parsing.from_json_obj and fetches the avatar
-# image separately.
+# Character Archive mirrors cards from upstream sites (chub, etc.) behind a FastAPI JSON API. Browse hits the meilisearch-backed
+# search endpoint; the per-card definition is served as chara_card_v2 JSON (not embedded in a PNG), so download parses it via
+# parsing.from_json_obj and fetches the avatar image separately.
 
 _CHARARC_BASE = "https://chararc.bernkastel.pictures"
 _CHARARC_API = f"{_CHARARC_BASE}/api/archive"
@@ -299,8 +277,7 @@ def _chararc_full_path_str(src_obj: dict) -> str | None:
 def _chararc_card_token(item: dict) -> str | None:
     """Build the `source/def/type/path` token used to fetch a card definition.
 
-    chub cards carry their creator/slug under `chub.fullPath`; other upstreams
-    expose it under `sourceSpecific`.
+    chub cards carry their creator/slug under `chub.fullPath`; other upstreams expose it under `sourceSpecific`.
     """
     source = item.get("source")
     if not source:
@@ -410,27 +387,20 @@ async def _download_chararc_card(token: str):
     # Pull the avatar image (a CDN URL embedded in the definition).
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Bernkastel")
 
-    # Stable id so re-importing the same card relinks history: hash the avatar
-    # bytes when present, else the card path.
+    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the card path.
     seed = avatar_bytes if avatar_bytes else token.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "chararc",
-    _browse_chararc,
-    _download_chararc_card,
-    _randomize_chararc,
-)
+register_source("chararc", _browse_chararc, _download_chararc_card, _randomize_chararc)
 
 
 #
-# Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a
-# JSON browse API whose `q` matches both tags and character names. Unlike the
-# other two sources it has a native random sort, so the randomizer is a single
-# query-filtered request rather than a random-page hack.
+# Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a JSON browse API whose `q` matches both tags and
+# character names. Unlike the other two sources it has a native random sort, so the randomizer is a single query-filtered
+# request rather than a random-page hack.
 
 _BOTBOORU_BASE = "https://botbooru.com"
 _BOTBOORU_PAGE_SIZE = 24
@@ -484,18 +454,16 @@ async def _browse_botbooru(q: str, page: int) -> dict:
 async def _randomize_botbooru(q: str) -> dict:
     """Surface a random batch of cards from Botbooru.
 
-    Botbooru has a native server-side random sort, so a single query-filtered
-    request gives a fresh selection each call. Randomized results are a one-shot
-    batch; paging "Load More" would silently switch back to ranked order, so
-    don't advertise more.
+    Botbooru has a native server-side random sort, so a single query-filtered request gives a fresh selection each call.
+    Randomized results are a one-shot batch; paging "Load More" would silently switch back to ranked order, so don't advertise
+    more.
     """
     results, _, _ = await _botbooru_posts({"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed")
     return {"results": results, "has_more": False}
 
 
 async def _download_botbooru_card(full_path: str):
-    """Download the PNG character card from Botbooru and parse it through the
-    same tavern_cards pipeline as file import.
+    """Download the PNG character card from Botbooru and parse it through the same tavern_cards pipeline as file import.
 
     Returns (card_dict, avatar_b64, avatar_mime, card_id).
     """
@@ -511,17 +479,11 @@ async def _download_botbooru_card(full_path: str):
     return _parse_png_card(content, "Botbooru")
 
 
-register_source(
-    "botbooru",
-    _browse_botbooru,
-    _download_botbooru_card,
-    _randomize_botbooru,
-)
+register_source("botbooru", _browse_botbooru, _download_botbooru_card, _randomize_botbooru)
 
 
-# Wyvern search returns card definitions but only lorebook ids; download the
-# character detail to embed V2 lorebook entries. Avatars use Cloudflare Images.
-# Random selection reads the page count first to handle narrow queries.
+# Wyvern search returns card definitions but only lorebook ids; download the character detail to embed V2 lorebook entries.
+# Avatars use Cloudflare Images. Random selection reads the page count first to handle narrow queries.
 
 _WYVERN_BASE = "https://api.wyvern.chat"
 _WYVERN_PAGE_SIZE = 24
@@ -549,12 +511,7 @@ def _wyvern_to_result(item: dict) -> dict:
 async def _wyvern_search(q: str, page: int) -> dict:
     """Run a Wyvern explore search and return the raw (parsed) JSON response."""
     page = max(1, int(page))
-    params = {
-        "page": page,
-        "limit": _WYVERN_PAGE_SIZE,
-        "sort": "created_at",
-        "order": "DESC",
-    }
+    params = {"page": page, "limit": _WYVERN_PAGE_SIZE, "sort": "created_at", "order": "DESC"}
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
@@ -574,10 +531,9 @@ async def _browse_wyvern(q: str, page: int) -> dict:
 async def _randomize_wyvern(q: str) -> dict:
     """Surface a random batch of cards from Wyvern.
 
-    Wyvern has no native random sort, so — like the CharacterHub randomizer — we
-    jump to a random page of the (optionally query-filtered) catalog. We first
-    read the real ``totalPages`` so the random page is always in range, which
-    keeps it working even when a query narrows the catalog to a handful of pages.
+    Wyvern has no native random sort, so — like the CharacterHub randomizer — we jump to a random page of the (optionally
+    query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
+    even when a query narrows the catalog to a handful of pages.
     """
     first = await _wyvern_search(q, 1)
     total_pages = int(first.get("totalPages") or 1)
@@ -595,10 +551,9 @@ async def _randomize_wyvern(q: str) -> dict:
 def _wyvern_character_book(obj: dict) -> dict | None:
     """Convert Wyvern's embedded lorebooks into a single V2 character_book.
 
-    A card may reference several lorebooks; the V2 spec allows only one, so we
-    merge all of their entries. Only the spec-defined entry fields are carried
-    over (Wyvern-specific keys like ``key_logic``/``sticky`` and the ambiguous
-    numeric ``position`` are dropped so the V2 parser doesn't choke).
+    A card may reference several lorebooks; the V2 spec allows only one, so we merge all of their entries. Only the spec-defined
+    entry fields are carried over (Wyvern-specific keys like ``key_logic``/``sticky`` and the ambiguous numeric ``position`` are
+    dropped so the V2 parser doesn't choke).
     """
     lorebooks = obj.get("lorebooks")
     if not isinstance(lorebooks, list):
@@ -710,17 +665,11 @@ async def _download_wyvern_card(full_path: str):
     # Pull the avatar image (Cloudflare Images CDN URL).
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(obj.get("avatar"), "Wyvern")
 
-    # Stable id so re-importing the same card relinks history: hash the avatar
-    # bytes when present, else the character id.
+    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the character id.
     seed = avatar_bytes if avatar_bytes else char_id.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source(
-    "wyvern",
-    _browse_wyvern,
-    _download_wyvern_card,
-    _randomize_wyvern,
-)
+register_source("wyvern", _browse_wyvern, _download_wyvern_card, _randomize_wyvern)

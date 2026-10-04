@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import socket
+from functools import partialmethod
 from pathlib import Path
 
 import aiosqlite
@@ -26,6 +27,48 @@ import backend.database.connection as db_connection
 from backend.database import init_db
 
 from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
+
+
+class _Client(httpx.AsyncClient):
+    """Check HTTP status at the request boundary, then optionally decode JSON."""
+
+    async def expect(self, method, url, *, expected_status=200, **kwargs):
+        response = await getattr(self, method)(url, **kwargs)
+        assert response.status_code == expected_status, response.text
+        return response
+
+    async def _json(self, method, url, **kwargs):
+        return (await self.expect(method, url, **kwargs)).json()
+
+    async def create(self, url, **kwargs):
+        return (await self.post_json(url, **kwargs))["id"]
+
+    get_checked = partialmethod(expect, "get")
+    post_checked = partialmethod(expect, "post")
+    put_checked = partialmethod(expect, "put")
+    delete_checked = partialmethod(expect, "delete")
+    get_json = partialmethod(_json, "get")
+    post_json = partialmethod(_json, "post")
+    put_json = partialmethod(_json, "put")
+    delete_json = partialmethod(_json, "delete")
+
+
+class _Database:
+    """Forward connection operations and close cursors around short reads."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __getattr__(self, name):
+        return getattr(self.connection, name)
+
+    async def one(self, *args, **kwargs):
+        async with self.connection.execute(*args, **kwargs) as cursor:
+            return await cursor.fetchone()
+
+    async def all(self, *args, **kwargs):
+        async with self.connection.execute(*args, **kwargs) as cursor:
+            return await cursor.fetchall()
 
 
 @pytest.fixture(autouse=True)
@@ -56,20 +99,17 @@ def _reset_module_locks():
 def _fresh_db_template(tmp_path_factory, _never_the_real_database) -> Path:
     """A fresh-install database, built once and copied per test.
 
-    ``init_db`` runs the whole CREATE TABLES script plus every seed insert. At
-    ~0.6s a test that was the single largest line item in the suite, and it
-    produces the same bytes every time, so it runs once here and each test
-    copies the result.
+    ``init_db`` runs the whole CREATE TABLES script plus every seed insert. At ~0.6s a test that was the single largest line
+    item in the suite, and it produces the same bytes every time, so it runs once here and each test copies the result.
 
-    Tests that exercise ``init_db`` or the migration chain itself (e.g.
-    ``test_fresh_install_stamping``) still call it directly and are unaffected.
+    Tests that exercise ``init_db`` or the migration chain itself (e.g. ``test_fresh_install_stamping``) still call it directly
+    and are unaffected.
     """
     template = tmp_path_factory.mktemp("db_template") / "template.db"
 
     async def _build() -> None:
-        # `_never_the_real_database` is depended on above, not for a value but for
-        # ordering: without it this can run first, and `original` is then the real
-        # database path, which the restore below would reinstate for the whole session.
+        # `_never_the_real_database` is depended on above, not for a value but for ordering: without it this can run first, and
+        # `original` is then the real database path, which the restore below would reinstate for the whole session.
         original = db_connection.DB_PATH
         db_connection.DB_PATH = str(template)
         try:
@@ -95,10 +135,7 @@ async def client(db_path: Path, monkeypatch):
 
     from backend.main import app
 
-    async with httpx.AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as ac:
+    async with _Client(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
@@ -107,15 +144,14 @@ async def db(db_path: Path):
     """Raw aiosqlite connection for post-call DB assertions."""
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
-        yield conn
+        yield _Database(conn)
 
 
 @pytest.fixture
 def llm_mock(monkeypatch, request):
     """Patch LLMClient at the shared factory seam for all production construction.
 
-    Teardown checks captured KV prefixes; kv_divergence_expected opts out for
-    intentional mid-conversation changes.
+    Teardown checks captured KV prefixes; kv_divergence_expected opts out for intentional mid-conversation changes.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
@@ -143,19 +179,17 @@ async def streaming_client(db_path: Path, monkeypatch):
 
     from backend.main import app
 
-    # Bind the socket here (rather than letting uvicorn bind by host/port) so
-    # the OS-assigned ephemeral port stays reserved across the handoff into
-    # server.serve(sockets=[sock]); otherwise the window between
-    # getsockname() and uvicorn's own bind would let another process grab it.
+    # Bind the socket here (rather than letting uvicorn bind by host/port) so the OS-assigned ephemeral port stays reserved
+    # across the handoff into server.serve(sockets=[sock]); otherwise the window between getsockname() and uvicorn's own bind
+    # would let another process grab it.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
 
-    # timeout_graceful_shutdown=1 ensures uvicorn's internal wait_closed
-    # path is bounded; without it, undrained client transports can pin
-    # shutdown for the default 30s+ window. host/port are passed for log
-    # clarity -- the sockets=[...] arg below is what governs binding.
+    # timeout_graceful_shutdown=1 ensures uvicorn's internal wait_closed path is bounded; without it, undrained client
+    # transports can pin shutdown for the default 30s+ window. host/port are passed for log clarity -- the sockets=[...] arg
+    # below is what governs binding.
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
@@ -163,9 +197,8 @@ async def streaming_client(db_path: Path, monkeypatch):
         log_level="warning",
         lifespan="off",
         timeout_graceful_shutdown=1,
-        # The app is SSE-based and uses no WebSocket endpoints. Disabling the
-        # WebSocket protocol avoids uvicorn importing the deprecated
-        # ``websockets.legacy`` module, which emits DeprecationWarnings.
+        # The app is SSE-based and uses no WebSocket endpoints. Disabling the WebSocket protocol avoids uvicorn importing the
+        # deprecated ``websockets.legacy`` module, which emits DeprecationWarnings.
         ws="none",
     )
     server = uvicorn.Server(config)
@@ -176,19 +209,16 @@ async def streaming_client(db_path: Path, monkeypatch):
         try:
             await asyncio.wait_for(serve_task, timeout=2.0)
         except TimeoutError:
-            # uvicorn's force_exit path skips the connection-drain polls
-            # but the trailing server.wait_closed() call is not gated by
-            # it. The second bounded wait gives uvicorn's own graceful
-            # timeout a chance to fire; the explicit cancel covers the
-            # case where even that path stalls.
+            # uvicorn's force_exit path skips the connection-drain polls but the trailing server.wait_closed() call is not gated
+            # by it. The second bounded wait gives uvicorn's own graceful timeout a chance to fire; the explicit cancel covers
+            # the case where even that path stalls.
             server.force_exit = True
             try:
                 await asyncio.wait_for(serve_task, timeout=2.0)
             except TimeoutError:
                 serve_task.cancel()
                 await asyncio.gather(serve_task, return_exceptions=True)
-        # uvicorn closes the socket itself on a normal exit; cover the
-        # cancelled path where it never reaches that branch.
+        # uvicorn closes the socket itself on a normal exit; cover the cancelled path where it never reaches that branch.
         try:
             sock.close()
         except OSError:
@@ -203,17 +233,13 @@ async def streaming_client(db_path: Path, monkeypatch):
                 raise RuntimeError("uvicorn did not start within 5s")
             await asyncio.sleep(0.01)
 
-        # httpx defaults to a 5s read timeout, which here is a stopwatch on
-        # the *gap between SSE events* -- and every test on this fixture
-        # deliberately parks the server mid-pipeline while it does something
-        # else. Under `tests.sh all` (-n 8) that gap is scheduling noise, not
-        # behaviour: the three tests on this fixture failed intermittently with
-        # httpx.ReadTimeout on a loaded box while asserting nothing about
-        # latency. Each one already bounds its own waits (gate events, the
-        # ~2s lock-release poll), so the transport timeout is pure flake
-        # surface; raise it to a value only a real hang can reach.
+        # httpx defaults to a 5s read timeout, which here is a stopwatch on the *gap between SSE events* -- and every test on
+        # this fixture deliberately parks the server mid-pipeline while it does something else. Under `tests.sh all` (-n 8) that
+        # gap is scheduling noise, not behaviour: the three tests on this fixture failed intermittently with httpx.ReadTimeout
+        # on a loaded box while asserting nothing about latency. Each one already bounds its own waits (gate events, the ~2s
+        # lock-release poll), so the transport timeout is pure flake surface; raise it to a value only a real hang can reach.
         timeout = httpx.Timeout(30.0, connect=10.0)
-        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=timeout) as ac:
+        async with _Client(base_url=f"http://127.0.0.1:{port}", timeout=timeout) as ac:
             yield ac
     finally:
         await _shutdown()

@@ -1,9 +1,8 @@
 """Upgrade coverage for migration 0067: progressive fragments and direction notes become state.
 
-Builds a database as it stood before 0067 -- the frozen historical schema run
-through every earlier migration -- fills it with legacy state across a branching
-tree, runs 0067, and then holds the result to an independent reading of the
-legacy columns (``_state_conversion_oracle``).
+Builds a database as it stood before 0067 -- the frozen historical schema run through every earlier migration -- fills it with
+legacy state across a branching tree, runs 0067, and then holds the result to an independent reading of the legacy columns
+(``_state_conversion_oracle``).
 """
 
 from __future__ import annotations
@@ -221,10 +220,7 @@ def test_a_notes_id_taken_by_another_fragment_moves_notes_aside(tmp_path):
     _run_0067(conn)
 
     assert conn.execute("SELECT field_type FROM interactive_fragments WHERE id = 'notes'").fetchone() == ("string",)
-    assert conn.execute("SELECT label, enabled FROM interactive_fragments WHERE id = 'user_notes'").fetchone() == (
-        "Notes",
-        1,
-    )
+    assert conn.execute("SELECT label, enabled FROM interactive_fragments WHERE id = 'user_notes'").fetchone() == ("Notes", 1)
     assert conn.execute("SELECT fragment_id, text, source FROM fragment_state_events").fetchall() == [
         ("user_notes", "mine", "user")
     ]

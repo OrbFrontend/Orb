@@ -17,11 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.api.schemas import EndpointUpdate
-from backend.inference import (
-    LLMClient,
-    agent_client_from_settings,
-    client_from_settings,
-)
+from backend.inference import LLMClient, agent_client_from_settings, client_from_settings
 
 
 def test_llmclient_proxy_default_is_none():
@@ -29,8 +25,7 @@ def test_llmclient_proxy_default_is_none():
 
 
 def test_llmclient_empty_proxy_normalizes_to_none():
-    # The stored default is "" (no proxy); httpx rejects "" as a URL, so it must
-    # reach httpx as None (direct connection).
+    # The stored default is "" (no proxy); httpx rejects "" as a URL, so it must reach httpx as None (direct connection).
     assert LLMClient("http://localhost:9999", proxy="").proxy is None
 
 
@@ -39,10 +34,7 @@ def test_llmclient_preserves_real_proxy():
     assert c.proxy == "socks5://127.0.0.1:1080"
 
 
-@pytest.mark.parametrize(
-    "url",
-    ["http://proxy:8080", "https://proxy:8443", "socks5://127.0.0.1:1080"],
-)
+@pytest.mark.parametrize("url", ["http://proxy:8080", "https://proxy:8443", "socks5://127.0.0.1:1080"])
 def test_endpoint_update_accepts_supported_schemes(url):
     assert EndpointUpdate(proxy=url).proxy == url
 
@@ -56,8 +48,7 @@ def test_endpoint_update_trims_proxy():
 
 
 def test_endpoint_update_proxy_unset_is_none():
-    # Omitted != blank: model_dump(exclude_unset=True) drops it, so the PUT leaves
-    # the endpoint's proxy column untouched.
+    # Omitted != blank: model_dump(exclude_unset=True) drops it, so the PUT leaves the endpoint's proxy column untouched.
     assert EndpointUpdate().proxy is None
 
 

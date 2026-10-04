@@ -31,10 +31,7 @@ QUESTION = DecisionQuestion(
 
 
 def _payload(**overrides) -> dict:
-    payload = {
-        "model": "typesafe/jev-1.13.2",
-        "answers": {"outcome": {"noul": 0.83}},
-    }
+    payload = {"model": "typesafe/jev-1.13.2", "answers": {"outcome": {"noul": 0.83}}}
     payload.update(overrides)
     return payload
 
@@ -49,9 +46,8 @@ def _payload(**overrides) -> dict:
         "https://openrouter.ai/api/v1/",
         "https://openrouter.ai/api/v1/chat/completions",
         "https://openrouter.ai/api",
-        # The route itself, and the prefix the panel's own placeholder shows.
-        # Deriving from either must land on the same URL: appending blindly is
-        # what produced /api/alpha/alpha/decisions and a 404 with no explanation.
+        # The route itself, and the prefix the panel's own placeholder shows. Deriving from either must land on the same URL:
+        # appending blindly is what produced /api/alpha/alpha/decisions and a 404 with no explanation.
         "https://openrouter.ai/api/alpha",
         "https://openrouter.ai/api/alpha/",
         "https://openrouter.ai/api/alpha/decisions",
@@ -143,12 +139,7 @@ def test_choice_and_score_answers_normalize_without_coercion():
     response = normalize_response(
         {
             "answers": {
-                "beat": {
-                    "type": "choice",
-                    "choice": "messy",
-                    "probabilities": {"clean": 0.2, "messy": 0.8},
-                    "confidence": 0.7,
-                },
+                "beat": {"type": "choice", "choice": "messy", "probabilities": {"clean": 0.2, "messy": 0.8}, "confidence": 0.7},
                 "cost": {
                     "type": "score",
                     "score": 0.75,

@@ -1,10 +1,8 @@
-"""Character Card Spec V3 ingest: the `ccv3` chunk, V3-only field parking, and
-the lorebook semantics Orb can act on (`use_regex`, `selective`/`secondary_keys`,
-decorator stripping).
+"""Character Card Spec V3 ingest: the `ccv3` chunk, V3-only field parking, and the lorebook semantics Orb can act on
+(`use_regex`, `selective`/`secondary_keys`, decorator stripping).
 
-Before this, a card declaring ``spec: "chara_card_v3"`` fell through to the V1
-parser and silently lost its character_book, tags, alternate_greetings and
-extensions.
+Before this, a card declaring ``spec: "chara_card_v3"`` fell through to the V1 parser and silently lost its character_book,
+tags, alternate_greetings and extensions.
 """
 
 from __future__ import annotations
@@ -37,10 +35,7 @@ def _png(tmp_path, name="card.png", **chunks) -> str:
     return str(path)
 
 
-_BOOK = {
-    "name": "marvel",
-    "entries": [{"keys": ["doom"], "content": "Victor von Doom.", "use_regex": True, "selective": True}],
-}
+_BOOK = {"name": "marvel", "entries": [{"keys": ["doom"], "content": "Victor von Doom.", "use_regex": True, "selective": True}]}
 
 
 # ── Ingest ────────────────────────────────────────────────────────────────────

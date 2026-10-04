@@ -16,27 +16,22 @@ from PIL import Image, UnidentifiedImageError
 from ...analysis.text.lexical import ngrams, tokenize
 from .matching import IDENTITY_FIELDS, SKETCH_SIZE, CardSignals
 
-# Bump when normalization, the shingle width, or the dHash construction changes
-# in a way that makes a stored ``avatar_dhash`` mean something different. It
-# salts the stamp, which is the invalidation seam — exactly as TAGGER_REVISION
-# salts ``vocabulary_hash()``.
+# Bump when normalization, the shingle width, or the dHash construction changes in a way that makes a stored ``avatar_dhash``
+# mean something different. It salts the stamp, which is the invalidation seam — exactly as TAGGER_REVISION salts
+# ``vocabulary_hash()``.
 DEDUPE_REVISION = 1
 
-# Token 5-grams: long enough that unrelated prose shares none (a 2000-card
-# benchmark over random text produced zero candidate pairs), short enough to
-# survive the sentence-level edits a "minor edit" duplicate actually carries.
+# Token 5-grams: long enough that unrelated prose shares none (a 2000-card benchmark over random text produced zero candidate
+# pairs), short enough to survive the sentence-level edits a "minor edit" duplicate actually carries.
 SHINGLE_N = 5
 
-# Which fields the shingle sketch reads. The narrative body only: a shared
-# system prompt or example-message block is a field-hash signal, not evidence
-# that two cards are the same character.
+# Which fields the shingle sketch reads. The narrative body only: a shared system prompt or example-message block is a
+# field-hash signal, not evidence that two cards are the same character.
 SHINGLE_FIELDS = ("description", "personality", "scenario", "first_mes")
 
-# Decompression-bomb guard. Deliberately *not* ``Image.MAX_IMAGE_PIXELS``: that
-# is PIL global state, so raising or lowering it here would silently change
-# behaviour for ``features/cards/parsing.py`` and the image-generation workflow.
-# ``Image.open`` is lazy and reads only the header, so the check below happens
-# before ``.convert("L")`` decodes a single row.
+# Decompression-bomb guard. Deliberately *not* ``Image.MAX_IMAGE_PIXELS``: that is PIL global state, so raising or lowering it
+# here would silently change behaviour for ``features/cards/parsing.py`` and the image-generation workflow. ``Image.open`` is
+# lazy and reads only the header, so the check below happens before ``.convert("L")`` decodes a single row.
 MAX_AVATAR_PIXELS = 50_000_000
 
 _DHASH_WIDTH = 9
@@ -46,8 +41,7 @@ _DHASH_HEIGHT = 8
 def normalize_field(value: Any) -> str:
     """NFC, casefold, collapse whitespace runs to one space, trim.
 
-    One normalizer for every text signal, so "Same description" means the same
-    thing to the hash, the block and the reason.
+    One normalizer for every text signal, so "Same description" means the same thing to the hash, the block and the reason.
     """
     if isinstance(value, (list, tuple)):
         # ``alternate_greetings``: order is presentation, not identity, and the
@@ -80,10 +74,9 @@ def field_hashes(card: Mapping[str, Any]) -> dict[str, str]:
 def body_hash(card: Mapping[str, Any]) -> str:
     """One digest over every identity field, or "" when the card has no content.
 
-    Field names are folded into the payload so moving text between two fields
-    cannot collide with leaving it where it was. This value is also what a
-    dismissal is stamped with, which is why it excludes tags and public
-    profiles: re-tagging the library must not resurrect dismissed pairs.
+    Field names are folded into the payload so moving text between two fields cannot collide with leaving it where it was. This
+    value is also what a dismissal is stamped with, which is why it excludes tags and public profiles: re-tagging the library
+    must not resurrect dismissed pairs.
     """
     parts = [f"{name}\x00{normalize_field(card.get(name))}" for name in IDENTITY_FIELDS]
     if not any(part.split("\x00", 1)[1] for part in parts):
@@ -94,9 +87,8 @@ def body_hash(card: Mapping[str, Any]) -> str:
 def shingles(card: Mapping[str, Any]) -> frozenset[int]:
     """Stably hashed token 5-grams over the card's narrative body.
 
-    ``blake2b``, not the built-in ``hash()``: Python randomizes string and tuple
-    hashing per process, which would make sketches — and therefore any test that
-    asserts on them — differ across restarts.
+    ``blake2b``, not the built-in ``hash()``: Python randomizes string and tuple hashing per process, which would make sketches
+    — and therefore any test that asserts on them — differ across restarts.
     """
     text = " ".join(normalize_field(card.get(name)) for name in SHINGLE_FIELDS)
     tokens = tokenize(text)
@@ -109,9 +101,8 @@ def shingles(card: Mapping[str, Any]) -> frozenset[int]:
 def shingle_sketch(values: frozenset[int], k: int = SKETCH_SIZE) -> tuple[int, ...]:
     """The k smallest shingle hashes — a bottom-k sketch used only for blocking.
 
-    Two cards sharing any sketch member become candidates and are then scored on
-    their *full* shingle sets, so the sketch costs recall on nothing it indexes
-    and never decides a tier.
+    Two cards sharing any sketch member become candidates and are then scored on their *full* shingle sets, so the sketch costs
+    recall on nothing it indexes and never decides a tier.
     """
     return tuple(sorted(values)[:k])
 
@@ -119,8 +110,7 @@ def shingle_sketch(values: frozenset[int], k: int = SKETCH_SIZE) -> tuple[int, .
 def dhash_from_image_bytes(data: bytes) -> str:
     """Return a 64-bit pixel difference hash as 16 hex chars, or empty on decode failure.
 
-    Pixel hashing ignores card metadata differences. Empty hashes never participate
-    in avatar blocking or equality matching.
+    Pixel hashing ignores card metadata differences. Empty hashes never participate in avatar blocking or equality matching.
     """
     if not data:
         return ""

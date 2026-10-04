@@ -1,13 +1,11 @@
-"""
-Regression tests for stop-generation abort propagation through the pipeline.
+"""Regression tests for stop-generation abort propagation through the pipeline.
 
-Verifies that aborting during the director pass prevents the writer pass from
-firing, and aborting during the writer pass prevents the editor pass from firing.
+Verifies that aborting during the director pass prevents the writer pass from firing, and aborting during the writer pass
+prevents the editor pass from firing.
 
-Also verifies the error-abort corner case: a genuine error in any of the three
-passes aborts the pipeline (the exception propagates out of ``run_pipeline``)
-rather than being swallowed, so a failed pass ends the turn just like a manual
-abort does — never producing a half-processed draft.
+Also verifies the error-abort corner case: a genuine error in any of the three passes aborts the pipeline (the exception
+propagates out of ``run_pipeline``) rather than being swallowed, so a failed pass ends the turn just like a manual abort does —
+never producing a half-processed draft.
 """
 
 from __future__ import annotations
@@ -77,15 +75,7 @@ class TestAbortPropagation:
             patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
         ):
             await _drain(
-                run_pipeline(
-                    client,
-                    settings,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(settings["enabled_tools"]),
-                )
+                run_pipeline(client, settings, _DIRECTOR_STATE, [], [], "hello", **_pipeline_kwargs(settings["enabled_tools"]))
             )
 
         assert writer_calls[0] == 0, "writer pass must not fire after director-phase abort"
@@ -164,13 +154,7 @@ class TestErrorAborts:
             with pytest.raises(RuntimeError, match="director endpoint exploded"):
                 await _drain(
                     run_pipeline(
-                        client,
-                        settings,
-                        _DIRECTOR_STATE,
-                        [],
-                        [],
-                        "hello",
-                        **_pipeline_kwargs(settings["enabled_tools"]),
+                        client, settings, _DIRECTOR_STATE, [], [], "hello", **_pipeline_kwargs(settings["enabled_tools"])
                     )
                 )
 

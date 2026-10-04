@@ -13,17 +13,15 @@ const HISTORY_VERBS = { add: "added", revise: "revised", retire: "retired" };
 let panel = null;
 let panelConvId = null;
 let loadSeq = 0;
-// The one open inline editor: { fragmentId, op: "set" | "add" | "revise", entryId, text }.
-// ``text`` is the live draft, so a re-render (a finished turn, a history load)
-// keeps what the user typed.
+// The one open inline editor: { fragmentId, op: "set" | "add" | "revise", entryId, text }. ``text`` is the live draft,
+// so a re-render (a finished turn, a history load) keeps what the user typed.
 let editing = null;
 // Set when an editor opens, so only that render takes focus.
 let focusEditor = false;
 // A manual write in flight; further clicks wait for it.
 let writing = false;
-// Fragments whose history is expanded, and their loaded history. ``historyGen``
-// retires history reads that started before the state last changed; the cached
-// history stays on screen until its re-read replaces it.
+// Fragments whose history is expanded, and their loaded history. ``historyGen`` retires history reads that started
+// before the state last changed; the cached history stays on screen until its re-read replaces it.
 const historyOpen = new Set();
 const historyCache = new Map();
 let historyGen = 0;

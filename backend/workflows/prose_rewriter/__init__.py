@@ -9,16 +9,13 @@ from ..toolkit import Workflow
 
 WORKFLOW_ID = "prose_rewriter"
 
-# The workflow toggle turns the rewriter on, which is what the rewrite button
-# on a saved reply needs; this switch decides whether every new reply also runs
-# through it.
+# The workflow toggle turns the rewriter on, which is what the rewrite button on a saved reply needs; this switch decides
+# whether every new reply also runs through it.
 CONFIG_DEFAULTS: dict[str, Any] = {"automatic": True}
 
 CONFIG_SCHEMA = {
     "type": "object",
-    "properties": {
-        "automatic": {"type": "boolean", "title": "Rewrite every reply automatically"},
-    },
+    "properties": {"automatic": {"type": "boolean", "title": "Rewrite every reply automatically"}},
 }
 
 

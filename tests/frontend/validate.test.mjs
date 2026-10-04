@@ -30,8 +30,7 @@ test("validateChatInput rejects over-limit input", () => {
 });
 
 test("validateEditMessage is the exact same implementation as validateChatInput (alias)", () => {
-  // The dedupe: one function, two names. Identity check guards against a future
-  // divergent copy sneaking back in.
+  // The dedupe: one function, two names. Identity check guards against a future divergent copy sneaking back in.
   assert.equal(validateEditMessage, validateChatInput);
   assert.equal(validate.validateEditMessage, validateChatInput);
 });

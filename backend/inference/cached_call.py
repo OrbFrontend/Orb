@@ -18,9 +18,8 @@ logger = logging.getLogger(__name__)
 def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
     """Flatten the per-call tail messages for the console log.
 
-    Only the tail is logged: the prefix is byte-identical across every pass of
-    the turn, so printing it once per call is noise. Multimodal parts render as
-    their text, non-text parts as a ``[type]`` marker — never the base64 blob.
+    Only the tail is logged: the prefix is byte-identical across every pass of the turn, so printing it once per call is noise.
+    Multimodal parts render as their text, non-text parts as a ``[type]`` marker — never the base64 blob.
     """
     out = []
     for m in tail:
@@ -45,23 +44,16 @@ async def cached_complete(
 ) -> AsyncIterator[dict]:
     """Run ``client.complete`` and snapshot the KV tracker from the same args.
 
-    Every pass funnels through here so the tracker sees exactly what was sent.
-    ``record=True`` snapshots before the call, and provider usage from ``done``
-    is attached to the latest entry. The first reasoning delta is marked with
-    the call boundary used by downstream buffers.
+    Every pass funnels through here so the tracker sees exactly what was sent. ``record=True`` snapshots before the call, and
+    provider usage from ``done`` is attached to the latest entry. The first reasoning delta is marked with the call boundary
+    used by downstream buffers.
     """
     if kv_tracker is not None and record:
         # The client's server is half the lane key: two endpoints have independent
         # KV caches even when they answer to the same model name.
         kv_tracker.record(label, messages, tools, model=model, endpoint=getattr(client, "base_url", ""))
     async for event in mark_call_start(
-        client.complete(
-            messages=messages,
-            model=model,
-            tools=tools,
-            tool_choice=tool_choice,
-            **params,
-        )
+        client.complete(messages=messages, model=model, tools=tools, tool_choice=tool_choice, **params)
     ):
         if event["type"] == "done" and kv_tracker is not None:
             kv_tracker.record_usage(label, event.get("usage"))
@@ -99,11 +91,9 @@ class CachedBase:
     ) -> AsyncIterator[dict]:
         """Issue one completion extending this base with *trailing*.
 
-        The cached bottom (prefix + tools + model) comes from ``self``; only
-        *trailing* and *tool_choice* vary per call. The stack is resolved via
-        ``self.resolve`` if set, then handed to :func:`cached_complete`. The
-        prefix length rides along so the client can mark the base's end for
-        providers that cache only at marked positions.
+        The cached bottom (prefix + tools + model) comes from ``self``; only *trailing* and *tool_choice* vary per call. The
+        stack is resolved via ``self.resolve`` if set, then handed to :func:`cached_complete`. The prefix length rides along so
+        the client can mark the base's end for providers that cache only at marked positions.
         """
         messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
         if self.resolve is not None:
@@ -125,11 +115,9 @@ class CachedBase:
     def complete_into(self, client: Any, reply: dict, **kw: Any) -> AsyncIterator[dict]:
         """:meth:`complete`, demuxed the way every agentic pass consumes it.
 
-        Yields only the reasoning deltas — for the pass to forward onto its own
-        event stream — and collects the terminal assembled message into *reply*.
-        *reply* is filled in place rather than returned because an async
-        generator cannot return a value; it stays ``{}`` when the call produced
-        no message, which is the "model skipped" shape the passes already
+        Yields only the reasoning deltas — for the pass to forward onto its own event stream — and collects the terminal
+        assembled message into *reply*. *reply* is filled in place rather than returned because an async generator cannot return
+        a value; it stays ``{}`` when the call produced no message, which is the "model skipped" shape the passes already
         handle.
         """
         return _relay_reasoning(self.complete(client, **kw), reply)

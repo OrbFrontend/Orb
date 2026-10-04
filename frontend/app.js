@@ -162,9 +162,8 @@ async function initAll() {
           }
         }),
         startupStep("load documents", loadDocuments),
-        // Workflow modules register UI in the order they evaluate, so they still
-        // evaluate one at a time in manifest order; the preload above has their
-        // entry files in flight already.
+        // Workflow modules register UI in the order they evaluate, so they still evaluate one at a time in manifest
+        // order; the preload above has their entry files in flight already.
         manifest.then(() =>
           startupStep("load workflow modules", async () => {
             // Plug-ins register Tools panel cards as they evaluate.

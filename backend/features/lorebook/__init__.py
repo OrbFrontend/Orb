@@ -30,13 +30,7 @@ from .changesets import (
 )
 from .enablement import agentic_lorebook_active
 from .interchange import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
-from .proposals import (
-    ValidatedProposal,
-    build_world_change_catalog,
-    parse_proposal_call,
-    split_by_world,
-    validate_proposal,
-)
+from .proposals import ValidatedProposal, build_world_change_catalog, parse_proposal_call, split_by_world, validate_proposal
 
 __all__ = [
     # scan-depth constants

@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from .context import (
-    conversation_macro_seed,
-    persona_macros,
-    resolve_card_and_persona,
-    resolve_judge_config,
-)
+from .context import conversation_macro_seed, persona_macros, resolve_card_and_persona, resolve_judge_config
 from .entrypoints import (
     handle_fork_edit,
     handle_magic_rewrite,

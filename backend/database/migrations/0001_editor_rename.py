@@ -1,6 +1,5 @@
-"""
-0001_editor_rename — rename legacy `refine_assistant_output` → `editor_apply_patch`
-in settings.enabled_tools, and `refiner` → `editor` in settings.reasoning_enabled_passes.
+"""0001_editor_rename — rename legacy `refine_assistant_output` → `editor_apply_patch` in settings.enabled_tools, and `refiner`
+→ `editor` in settings.reasoning_enabled_passes.
 """
 
 from __future__ import annotations

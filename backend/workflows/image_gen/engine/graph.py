@@ -14,9 +14,8 @@ OPTIONAL_SLOTS = ("negative", "width", "height")
 def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]:
     """The imported graph and its slot map for `graph_id`.
 
-    External mode ships no default graph, so an empty or dangling id is a
-    configuration gap rather than a fallback; the messages say which, so the caller
-    can surface them verbatim.
+    External mode ships no default graph, so an empty or dangling id is a configuration gap rather than a fallback; the messages
+    say which, so the caller can surface them verbatim.
     """
     for item in config["external_comfy"]["user_graphs"]:
         if item["id"] == graph_id:
@@ -34,12 +33,11 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
 
 
 def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """The image slots this graph declares, as normalization stored them. A graph that
-    loads no image has no `references` key at all, so callers treat "not an edit
-    workflow" and "no image inputs" as one case.
+    """The image slots this graph declares, as normalization stored them. A graph that loads no image has no `references` key at
+    all, so callers treat "not an edit workflow" and "no image inputs" as one case.
 
-    Declared, not enabled: whether a slot is actually filled is the rendering style's
-    answer, and `enabled_references` is where the two meet.
+    Declared, not enabled: whether a slot is actually filled is the rendering style's answer, and `enabled_references` is where
+    the two meet.
     """
     entries = slots.get("references")
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
@@ -48,13 +46,11 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def enabled_references(slots: Mapping[str, Any], source: str) -> list[Mapping[str, Any]]:
     """The slots this render will fill: all of them, or none.
 
-    One source policy for the whole graph. The render planner assigns separate
-    characters to separate `LoadImage` slots in a group round, while reusing the
-    primary character for surplus required slots in a smaller scene.
+    One source policy for the whole graph. The render planner assigns separate characters to separate `LoadImage` slots in a
+    group round, while reusing the primary character for surplus required slots in a smaller scene.
 
-    A style with no source is the same render as the old "Not used": each `LoadImage`
-    keeps whatever filename the workflow was exported with, and nothing about the
-    conversation is uploaded for it.
+    A style with no source is the same render as the old "Not used": each `LoadImage` keeps whatever filename the workflow was
+    exported with, and nothing about the conversation is uploaded for it.
     """
     return reference_slots(slots) if source else []
 
@@ -72,8 +68,7 @@ def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> An
 def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | None:
     """The `inputs` mapping a slot points at, or None when it does not resolve.
 
-    The read-only counterpart of `_input_slot`: describing a graph must degrade to
-    "unknown" where patching it would raise.
+    The read-only counterpart of `_input_slot`: describing a graph must degrade to "unknown" where patching it would raise.
     """
     if not isinstance(slot, (list, tuple)) or len(slot) != 2:
         return None
@@ -85,8 +80,7 @@ def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | Non
 def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> dict:
     """Read best-effort render identity from standard graph inputs.
 
-    Missing fields are None. size_measured distinguishes mapped slots from
-    a fallback scan that may select an upscale node.
+    Missing fields are None. size_measured distinguishes mapped slots from a fallback scan that may select an upscale node.
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
     params["size_measured"] = False
@@ -234,11 +228,9 @@ def validate_graph_structure(
 ) -> None:
     """Prove this graph can run here, given the slots a render will actually fill.
 
-    `filled` is the style's *enabled* reference slots, not the graph's declared ones.
-    An image widget Orb is about to overwrite may name a file this server has never
-    seen; one it will leave alone may not, because that filename is what will render.
-    Defaulting to none is the strict reading, so a caller that forgets cannot get the
-    exemption by accident.
+    `filled` is the style's *enabled* reference slots, not the graph's declared ones. An image widget Orb is about to overwrite
+    may name a file this server has never seen; one it will leave alone may not, because that filename is what will render.
+    Defaulting to none is the strict reading, so a caller that forgets cannot get the exemption by accident.
     """
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")

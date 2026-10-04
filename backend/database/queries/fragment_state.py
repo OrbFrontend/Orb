@@ -9,7 +9,7 @@ from typing import Any, cast
 import aiosqlite
 
 from ...core import StateView, fold_events
-from ..connection import get_db
+from ..connection import get_db, select_rows
 from ..models import FragmentStateEventRow
 
 _SQL_PARAM_CHUNK = 900
@@ -84,10 +84,7 @@ async def get_state_events_for_message(
     message_id: int, *, sources: Collection[str] | None = None
 ) -> list[FragmentStateEventRow]:
     """One message's own events in row order, optionally limited to *sources*."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall("SELECT * FROM fragment_state_events WHERE message_id = ? ORDER BY id", (message_id,))
-        )
+    rows = await select_rows("SELECT * FROM fragment_state_events WHERE message_id = ? ORDER BY id", (message_id,))
     out = [cast(FragmentStateEventRow, dict(r)) for r in rows]
     return [r for r in out if sources is None or r["source"] in sources]
 
@@ -119,8 +116,7 @@ async def copy_state_events(source_cid: str, target_cid: str, id_map: Mapping[in
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")
         await db.executemany(
-            _INSERT,
-            [_row_values(target_cid, id_map[event["message_id"]], event, event["created_at"]) for event in events],
+            _INSERT, [_row_values(target_cid, id_map[event["message_id"]], event, event["created_at"]) for event in events]
         )
         await db.commit()
 

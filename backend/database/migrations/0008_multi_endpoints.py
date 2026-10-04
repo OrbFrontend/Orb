@@ -1,12 +1,12 @@
-"""
-0008_multi_endpoints — create endpoints and model_configs tables,
-add active_endpoint_id / active_model_config_id columns to settings,
-and seed one endpoint+model from the existing flat settings row.
+"""0008_multi_endpoints — create endpoints and model_configs tables, add active_endpoint_id / active_model_config_id columns to
+settings, and seed one endpoint+model from the existing flat settings row.
 """
 
 from __future__ import annotations
 
 import sqlite3
+
+from .helpers import add_columns
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -36,13 +36,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     """
     )
 
-    settings_cols = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
-    if "active_endpoint_id" not in settings_cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL")
-    if "active_model_config_id" not in settings_cols:
-        conn.execute(
-            "ALTER TABLE settings ADD COLUMN active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL"
-        )
+    add_columns(
+        conn,
+        "settings",
+        "active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL",
+        "active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL",
+    )
 
     # Seed from existing flat settings if endpoints table is still empty
     ep_count = conn.execute("SELECT COUNT(*) FROM endpoints").fetchone()[0]
@@ -54,10 +53,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             s = dict(zip(cols, row))
             cur_ep = conn.execute(
                 "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
-                (
-                    s.get("endpoint_url", "http://localhost:5000/v1"),
-                    s.get("api_key", ""),
-                ),
+                (s.get("endpoint_url", "http://localhost:5000/v1"), s.get("api_key", "")),
             )
             endpoint_id = cur_ep.lastrowid
             cur_mc = conn.execute(

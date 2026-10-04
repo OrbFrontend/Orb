@@ -38,13 +38,7 @@ from ...database import (
 from ...database.models import ConversationRow
 from ...database.queries.messages import get_message_subtree_ids
 from ...features import autocomplete
-from ...inference import (
-    AbortToken,
-    KVCacheTracker,
-    agent_lane_from_settings,
-    client_from_settings,
-    local_ml,
-)
+from ...inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings, local_ml
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -55,12 +49,7 @@ from ...pipeline import (
 )
 from ...pipeline.predicates import resolve_persona_id
 from ...pipeline.workflow_bridge import PostPipelineResult, run_post_pipeline
-from ...workflows.prose_rewriter_host import (
-    RERUN_AFTER_REWRITE,
-    ProseRewriteConfig,
-    resolve_config,
-    rewrite_events,
-)
+from ...workflows.prose_rewriter_host import RERUN_AFTER_REWRITE, ProseRewriteConfig, resolve_config, rewrite_events
 from ..deps import (
     attachment_content_response,
     conversation_stream_lock,
@@ -70,14 +59,7 @@ from ..deps import (
     rows_response,
     stream_idle_lock,
 )
-from ..schemas import (
-    AutocompleteInput,
-    EditMessage,
-    MagicRewriteMsg,
-    RegenerateMsg,
-    SendMessage,
-    SpeakRequest,
-)
+from ..schemas import AutocompleteInput, EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage, SpeakRequest
 
 router = APIRouter()
 
@@ -134,12 +116,10 @@ async def _message_rows_for_client(messages: Sequence[Mapping[str, Any]]) -> lis
 
 @router.get("/api/conversations/{cid}/messages")
 async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
-    # Greetings with inline macros re-roll freely on every fetch until the
-    # first user message freezes them. The try-lock (never queued) makes the
-    # re-roll mutually exclusive with a whole pipeline stream — skipped when
-    # one is running — so a fetch can never commit a re-roll between the
-    # stream's history read and its freeze, and the frozen bytes are always
-    # the ones the model saw.
+    # Greetings with inline macros re-roll freely on every fetch until the first user message freezes them. The try-lock (never
+    # queued) makes the re-roll mutually exclusive with a whole pipeline stream — skipped when one is running — so a fetch can
+    # never commit a re-roll between the stream's history read and its freeze, and the frozen bytes are always the ones the
+    # model saw.
     async with stream_idle_lock(cid) as idle:
         if idle:
             await reroll_unfrozen_greetings(cid)
@@ -175,10 +155,9 @@ async def api_edit_message(
     data: EditMessage,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    # Serialize against an in-flight streaming pipeline on this cid: the
-    # pipeline reads message content into the LLM prefix early and persists
-    # the assistant reply late, so a mid-stream edit would make the on-disk
-    # user message disagree with the prefix that produced the reply.
+    # Serialize against an in-flight streaming pipeline on this cid: the pipeline reads message content into the LLM prefix
+    # early and persists the assistant reply late, so a mid-stream edit would make the on-disk user message disagree with the
+    # prefix that produced the reply.
     async with conversation_stream_lock(cid):
         original = await get_message_by_id(msg_id)
         if not original or original["conversation_id"] != cid:
@@ -191,17 +170,14 @@ async def api_edit_message(
         # the next fetch would re-roll from it and clobber the manual edit.
         if original["role"] == "assistant" and original["parent_id"] is None:
             await set_workflow_message_state(msg_id, "macros", None)
-        # Same clobber, one surface over: the retained pre-rewriter draft describes
-        # the text this edit just replaced, and the on-demand prose rewriter
-        # prefers it over the saved content — so a rewrite after an edit would
-        # quietly restore the pre-edit prose. Dropping it makes the rewriter
-        # fall back to what the user actually wrote, which is what they mean by
+        # Same clobber, one surface over: the retained pre-rewriter draft describes the text this edit just replaced, and the
+        # on-demand prose rewriter prefers it over the saved content — so a rewrite after an edit would quietly restore the
+        # pre-edit prose. Dropping it makes the rewriter fall back to what the user actually wrote, which is what they mean by
         # "rewrite this message".
         if original["role"] == "assistant":
             await clear_writer_draft(msg_id)
-        # An unreviewed world-change proposal was derived from this exact text.
-        # Editing either source message invalidates that evidence, so the
-        # proposal goes stale and must be re-evaluated rather than applied.
+        # An unreviewed world-change proposal was derived from this exact text. Editing either source message invalidates that
+        # evidence, so the proposal goes stale and must be re-evaluated rather than applied.
         await mark_changesets_stale_for_messages([msg_id])
         return {"ok": True}
 
@@ -216,13 +192,7 @@ async def api_fork_edit_message(
 ):
     """Fork at a user message: persist an edited sibling and stream a fresh reply."""
     return pipeline_sse_response(
-        lambda tok: handle_fork_edit(
-            cid,
-            msg_id,
-            data.content,
-            abort_token=tok,
-            speaker_member_id=data.speaker_member_id,
-        ),
+        lambda tok: handle_fork_edit(cid, msg_id, data.content, abort_token=tok, speaker_member_id=data.speaker_member_id),
         request,
         cid,
     )
@@ -231,17 +201,14 @@ async def api_fork_edit_message(
 @router.delete("/api/conversations/{cid}/messages/{msg_id}")
 async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Delete a message and all its descendants. Returns updated message list."""
-    # Serialize against an in-flight streaming pipeline on this cid: ON
-    # DELETE CASCADE on messages.parent_id would otherwise wipe the
-    # in-flight assistant row mid-INSERT (IntegrityError) or right after
-    # commit (silent disappearance).
+    # Serialize against an in-flight streaming pipeline on this cid: ON DELETE CASCADE on messages.parent_id would otherwise
+    # wipe the in-flight assistant row mid-INSERT (IntegrityError) or right after commit (silent disappearance).
     async with conversation_stream_lock(cid), deleting_message_sources(cid, await get_message_subtree_ids(cid, msg_id)):
         if not await delete_message_with_descendants(cid, msg_id):
             raise HTTPException(status_code=404, detail="Message not found")
-        # The cascade has already NULLed every changeset pointer into the deleted
-        # subtree, so orphanhood is what identifies the affected proposals — an
-        # id list read before the delete would match nothing after it. Applied
-        # history survives the same cascade with its denormalised labels intact.
+        # The cascade has already NULLed every changeset pointer into the deleted subtree, so orphanhood is what identifies the
+        # affected proposals — an id list read before the delete would match nothing after it. Applied history survives the same
+        # cascade with its denormalised labels intact.
         await mark_orphaned_changesets_stale()
         return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
@@ -249,16 +216,14 @@ async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Dep
 @router.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")
 async def api_switch_branch(cid: str, msg_id: int, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Switch to the branch containing msg_id (sets active leaf to deepest descendant)."""
-    # Serialize against an in-flight streaming pipeline on this cid: the
-    # pipeline's terminal set_active_leaf would otherwise overwrite the
-    # branch the user just selected.
+    # Serialize against an in-flight streaming pipeline on this cid: the pipeline's terminal set_active_leaf would otherwise
+    # overwrite the branch the user just selected.
     async with conversation_stream_lock(cid):
         success = await switch_to_branch(cid, msg_id)
         if not success:
             raise HTTPException(status_code=404, detail="Message not found")
-        # Switching branches alters nothing about a proposal: a World has one
-        # canonical timeline, and an accepted change stays canon even if its
-        # source branch is later abandoned.
+        # Switching branches alters nothing about a proposal: a World has one canonical timeline, and an accepted change stays
+        # canon even if its source branch is later abandoned.
         return await _message_rows_for_client(await get_messages_with_branch_info(cid))
 
 
@@ -299,11 +264,7 @@ async def api_magic_rewrite_msg(
 
 
 async def _stream_prose_rewrite_message(
-    cid: str,
-    msg_id: int,
-    config: ProseRewriteConfig,
-    abort_token: AbortToken,
-    settings: Mapping[str, Any] | None = None,
+    cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Mapping[str, Any] | None = None
 ) -> AsyncIterator[dict]:
     """Stream the retained draft or saved text through the local rewriter.
 
@@ -371,11 +332,7 @@ async def _stream_prose_rewrite_message(
             character_id = member.get("character_card_id") if member else None
         card = await get_character_card(character_id) if character_id else None
         client = client_from_settings(settings, abort_token=abort_token)
-        agent_client, agent_model_name = agent_lane_from_settings(
-            settings,
-            writer_client=client,
-            abort_token=abort_token,
-        )
+        agent_client, agent_model_name = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
         post: PostPipelineResult | None = None
         async for event in run_post_pipeline(
             draft=rewritten,
@@ -404,13 +361,7 @@ async def _stream_prose_rewrite_message(
     if abort_token.is_aborted:
         yield {
             "event": "prose_rewrite_done",
-            "data": {
-                "message_id": msg_id,
-                "content": current_content,
-                "changed": False,
-                "warning": "",
-                "aborted": True,
-            },
+            "data": {"message_id": msg_id, "content": current_content, "changed": False, "warning": "", "aborted": True},
         }
         return
 
@@ -449,14 +400,9 @@ async def api_prose_rewrite_message(
     config = resolve_config(settings)
     if config is None:
         raise HTTPException(
-            status_code=503,
-            detail="Prose rewriter unavailable: turn it on and download a model in Workflow → Secondary",
+            status_code=503, detail="Prose rewriter unavailable: turn it on and download a model in Workflow → Secondary"
         )
-    return pipeline_sse_response(
-        lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings),
-        request,
-        cid,
-    )
+    return pipeline_sse_response(lambda tok: _stream_prose_rewrite_message(cid, msg_id, config, tok, settings), request, cid)
 
 
 @router.post("/api/conversations/{cid}/send")
@@ -469,11 +415,7 @@ async def api_send_message(
     attachments = [a.model_dump() for a in data.attachments]
     return pipeline_sse_response(
         lambda tok: handle_turn(
-            cid,
-            data.content,
-            attachments=attachments,
-            abort_token=tok,
-            speaker_member_id=data.speaker_member_id,
+            cid, data.content, attachments=attachments, abort_token=tok, speaker_member_id=data.speaker_member_id
         ),
         request,
         cid,
@@ -543,9 +485,8 @@ async def api_autocomplete(
     persona = await get_user_persona(persona_id) if persona_id else None
     user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
 
-    # For groups, resolve {{char}} to the scene title and label history by speaker.
-    # Read roster names directly to avoid loading cards on the typing debounce.
-    # Solo {{cast}} stays empty, matching prepare_turn.
+    # For groups, resolve {{char}} to the scene title and label history by speaker. Read roster names directly to avoid loading
+    # cards on the typing debounce. Solo {{cast}} stays empty, matching prepare_turn.
     speaker_names: dict[str, str] = {}
     cast_names = ""
     if conv.get("kind", "solo") == "group":

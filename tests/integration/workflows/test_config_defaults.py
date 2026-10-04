@@ -1,20 +1,13 @@
 """Integration tests for the get_workflow_config defaults fallback.
 
-The DB layer returns ``{}`` for an empty slot. The registry wrapper layers
-the registered workflow's ``config_defaults`` on top so callers always
-see a populated dict whenever the workflow ships defaults. A non-empty
-persisted slot shadows defaults entirely; clearing the slot restores
-defaults; an unregistered id falls through to ``{}``.
+The DB layer returns ``{}`` for an empty slot. The registry wrapper layers the registered workflow's ``config_defaults`` on top
+so callers always see a populated dict whenever the workflow ships defaults. A non-empty persisted slot shadows defaults
+entirely; clearing the slot restores defaults; an unregistered id falls through to ``{}``.
 """
 
 from __future__ import annotations
 
-from backend.workflows import (
-    Workflow,
-    get_workflow_config,
-    register_workflow,
-    set_workflow_config,
-)
+from backend.workflows import Workflow, get_workflow_config, register_workflow, set_workflow_config
 
 
 async def test_empty_slot_returns_defaults(client):

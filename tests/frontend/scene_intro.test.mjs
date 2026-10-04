@@ -1,29 +1,17 @@
+import { loadDom } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 // The Creator's Note and Scenario blocks that sit above the opening line.
 //
-// They are card metadata rendered into the message list, so they key like rows
-// (dom_reconcile.js) but carry no message id: nothing that edits, regenerates,
-// deletes or swipes a message can reach them.
+// They are card metadata rendered into the message list, so they key like rows (dom_reconcile.js) but carry no message
+// id: nothing that edits, regenerates, deletes or swipes a message can reach them.
 
-let dom = null;
-let failure = "";
-try {
-  const { JSDOM } = await import("jsdom");
-  dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://orb.invalid/" });
-} catch (e) {
-  failure = e?.message || String(e);
-}
+const { dom, failure } = await loadDom();
 
 let core = null;
 let state = null;
 if (dom) {
-  const w = dom.window;
-  globalThis.window = w;
-  for (const name of ["document", "Node", "NodeFilter", "Element", "DocumentFragment", "HTMLElement", "DOMParser"]) {
-    if (w[name] !== undefined) globalThis[name] = w[name];
-  }
   core = await import("../../frontend/chat_core.js");
   state = await import("../../frontend/state.js");
 } else {

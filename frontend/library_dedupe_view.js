@@ -250,9 +250,8 @@ export function compareHtml(compare, marks = {}) {
   const collisionNote = collision
     ? `<div class="lib-dupe-collision-note">${collision} shared group conversation${collision === 1 ? " already has" : "s already have"} both cards. Relinking drops the redundant slot.</div>`
     : "";
-  // Only the portrait and the letter->name binding the legend and diff rely on.
-  // How used and how old each copy is belongs on the keeper buttons, at the
-  // point of decision, rather than being restated at both ends of a long diff.
+  // Only the portrait and the letter->name binding the legend and diff rely on. How used and how old each copy is
+  // belongs on the keeper buttons, at the point of decision, rather than being restated at both ends of a long diff.
   const head = (member, cardView) => `
     <div class="lib-dupe-compare-card">
       ${avatarHtml(member, { alt: `${cardName(cardView?.card)} avatar` })}

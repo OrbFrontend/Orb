@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
+from typing import Any
 
 import aiosqlite
 
@@ -15,9 +17,8 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data",
 def current_db_path() -> str:
     """The live database path, read at call time.
 
-    Code outside this module asks here rather than importing ``DB_PATH``: an
-    imported copy is frozen at import, so a test that patches
-    ``connection.DB_PATH`` would still reach the real database through it.
+    Code outside this module asks here rather than importing ``DB_PATH``: an imported copy is frozen at import, so a test that
+    patches ``connection.DB_PATH`` would still reach the real database through it.
     """
     return DB_PATH
 
@@ -44,9 +45,8 @@ async def open_wal_anchor() -> None:
         db = await aiosqlite.connect(path)
         try:
             db.row_factory = aiosqlite.Row
-            # Each cursor is closed rather than left to the GC: an unfinalized
-            # statement would hold a read transaction open on this connection, and
-            # the anchor has to stay idle for the maintenance paths above.
+            # Each cursor is closed rather than left to the GC: an unfinalized statement would hold a read transaction open on
+            # this connection, and the anchor has to stay idle for the maintenance paths above.
             for pragma in ("PRAGMA journal_mode=WAL", "PRAGMA foreign_keys=ON"):
                 async with db.execute(pragma) as cur:
                     await cur.fetchall()
@@ -68,9 +68,8 @@ async def close_wal_anchor() -> None:
 async def _close_anchor() -> None:
     """Close and forget the anchor. Callers must hold :func:`wal_anchor_lock`.
 
-    Module state is cleared before the close is attempted, so a close that
-    raises cannot strand a dead connection object that the next
-    ``open_wal_anchor`` would mistake for a live anchor.
+    Module state is cleared before the close is attempted, so a close that raises cannot strand a dead connection object that
+    the next ``open_wal_anchor`` would mistake for a live anchor.
     """
     global _wal_anchor, _wal_anchor_path
     db, _wal_anchor, _wal_anchor_path = _wal_anchor, None, None
@@ -110,6 +109,12 @@ async def get_db():
         await db.close()
 
 
+async def select_rows(sql: str, parameters: Iterable[Any] | None = None) -> list[sqlite3.Row]:
+    """Collect a standalone read before closing its connection; decode rows in the owning query."""
+    async with get_db() as db:
+        return list(await db.execute_fetchall(sql, parameters))
+
+
 @asynccontextmanager
 async def immediate_tx():
     """Hold BEGIN IMMEDIATE through the body, committing on success.
@@ -144,19 +149,16 @@ def build_set_clause(
     return sets, vals
 
 
-# Per-workflow JSON slot accessors, shared by the three tables that carry a
-# ``workflow_state`` column (conversations, messages, character_cards). The
-# read/write pair is identical across them, so only the table and its id column
-# vary; both are module-private constants at the call sites and never reach here
-# from user input, which is what makes the interpolation below safe (a table
-# name cannot be a bound parameter).
+# Per-workflow JSON slot accessors, shared by the three tables that carry a ``workflow_state`` column (conversations, messages,
+# character_cards). The read/write pair is identical across them, so only the table and its id column vary; both are
+# module-private constants at the call sites and never reach here from user input, which is what makes the interpolation below
+# safe (a table name cannot be a bound parameter).
 async def get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -> dict | None:
     """Return the workflow's slot on this row, or None if the row is missing or the slot empty."""
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM {table} WHERE {id_col} = ?",
-                (workflow_id, row_id),
+                f"SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM {table} WHERE {id_col} = ?", (workflow_id, row_id)
             )
         )
         if not rows:
@@ -170,8 +172,7 @@ async def get_workflow_slot(table: str, id_col: str, row_id, workflow_id: str) -
 async def set_workflow_slot(table: str, id_col: str, row_id, workflow_id: str, payload: dict | None) -> None:
     """Atomic per-slot write via SQLite JSON1.
 
-    payload=None removes the slot. Empty dict stores {}. No-op if the row is
-    missing (UPDATE matches zero rows).
+    payload=None removes the slot. Empty dict stores {}. No-op if the row is missing (UPDATE matches zero rows).
     """
     async with get_db() as db:
         if payload is None:

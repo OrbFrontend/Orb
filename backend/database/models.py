@@ -7,11 +7,9 @@ from typing import Literal, TypedDict
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 
 
-# A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
-# two ``{"kind": ...}`` dicts; the bare ``list[str]`` is a legacy literal group
-# still accepted by the detector for backwards compatibility. The matching
-# semantics that consume these shapes live in
-# backend/analysis/detectors/slop_detector.py.
+# A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the two ``{"kind": ...}`` dicts; the bare
+# ``list[str]`` is a legacy literal group still accepted by the detector for backwards compatibility. The matching semantics
+# that consume these shapes live in backend/analysis/detectors/slop_detector.py.
 class LiteralPhraseGroup(TypedDict):
     """A set of equivalent literal variant phrases."""
 
@@ -30,10 +28,9 @@ PhraseGroup = list[str] | LiteralPhraseGroup | RegexPhraseGroup
 
 
 class PhraseBankRow(TypedDict):
-    """A ``phrase_bank`` row as get_phrase_bank_rows() exposes it for UI
-    management -- distinct from :data:`PhraseGroup` (the detector-facing shape).
-    ``variants`` is the JSON-*decoded* list; ``kind`` is normalised to
-    ``"literal"`` when the column is NULL, and ``pattern`` to ``""``.
+    """A ``phrase_bank`` row as get_phrase_bank_rows() exposes it for UI management -- distinct from :data:`PhraseGroup` (the
+    detector-facing shape). ``variants`` is the JSON-*decoded* list; ``kind`` is normalised to ``"literal"`` when the column
+    is NULL, and ``pattern`` to ``""``.
     """
 
     id: int
@@ -93,8 +90,7 @@ class SlopCardRow(TypedDict):
 class _SettingsBase(TypedDict):
     """Keys always returned by get_settings, including DEFAULT_SETTINGS fallback.
 
-    Keep this required base in sync with DEFAULT_SETTINGS; conditional keys
-    belong on SettingsRow.
+    Keep this required base in sync with DEFAULT_SETTINGS; conditional keys belong on SettingsRow.
     """
 
     endpoint_url: str
@@ -145,9 +141,8 @@ class SettingsRow(_SettingsBase, total=False):
     active_persona_id: int | None
     active_endpoint_id: int | None
     agent_endpoint_id: int | None
-    # Decision classifier configuration. ``decision_endpoint_id`` is None until
-    # the user saves a judge endpoint; until then enabled decisions are skipped
-    # and make no request.
+    # Decision classifier configuration. ``decision_endpoint_id`` is None until the user saves a judge endpoint; until then
+    # enabled decisions are skipped and make no request.
     decision_endpoint_id: int | None
     decision_model: str
     attachment_cache_budget_bytes: int
@@ -162,37 +157,30 @@ class SettingsRow(_SettingsBase, total=False):
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     workflow_enabled: dict[str, bool]  # decoded by get_settings(); per-workflow on/off, missing key => on
     local_ml_enabled: dict[str, bool]  # decoded by get_settings(); per-local-ML-feature on/off, missing key => on
-    # Per-local-ML-feature config, decoded by get_settings(). Sibling to
-    # local_ml_enabled and written only by the dedicated route, never by
-    # update_settings(). Shape is the feature's own, e.g.
-    # {"prose_rewriter": {"variant": "4b-q8", "gpu": true, "batch_size": 2}}.
+    # Per-local-ML-feature config, decoded by get_settings(). Sibling to local_ml_enabled and written only by the dedicated
+    # route, never by update_settings(). Shape is the feature's own, e.g. {"prose_rewriter": {"variant": "4b-q8", "gpu": true,
+    # "batch_size": 2}}.
     local_ml_config: dict[str, dict]
-    # Per-endpoint transport mode, surfaced by the get_settings() overlay from
-    # the active/agent endpoint row (default 'chat'). agent_completion_mode
-    # falls back to completion_mode when the agent shares the writer endpoint.
+    # Per-endpoint transport mode, surfaced by the get_settings() overlay from the active/agent endpoint row (default 'chat').
+    # agent_completion_mode falls back to completion_mode when the agent shares the writer endpoint.
     completion_mode: CompletionMode
     agent_completion_mode: CompletionMode
-    # Per-endpoint proxy URL, surfaced by the same overlay (default ''); empty
-    # means a direct connection. agent_proxy falls back to proxy when the agent
-    # shares the writer endpoint.
+    # Per-endpoint proxy URL, surfaced by the same overlay (default ''); empty means a direct connection. agent_proxy falls back
+    # to proxy when the agent shares the writer endpoint.
     proxy: str
     agent_proxy: str
-    # Per-model reasoning effort, surfaced by the same overlay (default '');
-    # empty means no effort param is sent and the provider default governs.
-    # 'custom' sends {reasoning_effort_param: reasoning_effort_value} instead
-    # of the standard param. The agent_* variants fall back to the writer's
-    # values when the agent shares the writer endpoint.
+    # Per-model reasoning effort, surfaced by the same overlay (default ''); empty means no effort param is sent and the
+    # provider default governs. 'custom' sends {reasoning_effort_param: reasoning_effort_value} instead of the standard param.
+    # The agent_* variants fall back to the writer's values when the agent shares the writer endpoint.
     reasoning_effort: str
     reasoning_effort_param: str
     reasoning_effort_value: str
     agent_reasoning_effort: str
     agent_reasoning_effort_param: str
     agent_reasoning_effort_value: str
-    # Arbitrary per-model request additions, surfaced by the same overlay
-    # (default ''). extra_headers is "Name: value" lines merged into the
-    # outbound headers; extra_body is a JSON object merged into the chat body.
-    # The agent_* variants fall back to the writer's values when the agent
-    # shares the writer endpoint.
+    # Arbitrary per-model request additions, surfaced by the same overlay (default ''). extra_headers is "Name: value" lines
+    # merged into the outbound headers; extra_body is a JSON object merged into the chat body. The agent_* variants fall back to
+    # the writer's values when the agent shares the writer endpoint.
     extra_headers: str
     extra_body: str
     agent_extra_headers: str
@@ -213,8 +201,7 @@ class SettingsRow(_SettingsBase, total=False):
 class ConversationRow(TypedDict):
     """A row from the ``conversations`` table (schema.py).
 
-    ``workflow_state`` is left as the raw JSON string; it is decoded per-slot by
-    get_workflow_state(), not eagerly here.
+    ``workflow_state`` is left as the raw JSON string; it is decoded per-slot by get_workflow_state(), not eagerly here.
     """
 
     id: str
@@ -238,13 +225,11 @@ class ConversationRow(TypedDict):
     # Which character information every group generation carries; see
     # ``core.domain_types.GroupContextMode``. Stored but ignored when solo.
     group_context_mode: str
-    # Opt-in to the post-exchange sheet-update pass. Off by default: it is one billed
-    # call per member the exchange touched, and staleness is a property of a *long*
-    # scene, which a new one is not.
+    # Opt-in to the post-exchange sheet-update pass. Off by default: it is one billed call per member the exchange touched, and
+    # staleness is a property of a *long* scene, which a new one is not.
     group_sheet_updates: int
-    # The group family this conversation belongs to: the id of the conversation
-    # it descends from, or None when it *is* that root. Read it through
-    # ``group_root_of()`` rather than directly -- None is a value, not a gap.
+    # The group family this conversation belongs to: the id of the conversation it descends from, or None when it *is* that
+    # root. Read it through ``group_root_of()`` rather than directly -- None is a value, not a gap.
     group_root_id: str | None
 
 
@@ -255,9 +240,8 @@ class GroupMemberRow(TypedDict):
     character_card_id: str | None
     display_name: str
     public_profile_override: str | None
-    # What the member reads about *itself* this scene, replacing the card's
-    # description/personality join. ``None`` falls back to the card; ``""`` is a
-    # deliberate blanking. See ``queries.group_members.resolve_private_sheet``.
+    # What the member reads about *itself* this scene, replacing the card's description/personality join. ``None`` falls back to
+    # the card; ``""`` is a deliberate blanking. See ``queries.group_members.resolve_private_sheet``.
     card_sheet_override: str | None
     member_kind: str
     sort_order: int
@@ -267,9 +251,8 @@ class GroupMemberRow(TypedDict):
 
 
 class ConversationListRow(ConversationRow, total=False):
-    """A ``ConversationRow`` plus the aggregate columns list_conversations()
-    selects for the sidebar. ``total=False`` because they exist only on that
-    query's rows, not on the base table.
+    """A ``ConversationRow`` plus the aggregate columns list_conversations() selects for the sidebar. ``total=False`` because
+    they exist only on that query's rows, not on the base table.
     """
 
     last_message_preview: str | None
@@ -289,10 +272,9 @@ class MessageRow(TypedDict):
     conversation_id: str
     role: MessageRole
     content: str
-    # Immutable post-Editor output before the local rewriter and later
-    # post-pipeline workflows, with inline macros frozen. The column keeps its
-    # legacy name for storage compatibility. NULL means the row predates this
-    # capture or did not come from the turn pipeline (for example a greeting).
+    # Immutable post-Editor output before the local rewriter and later post-pipeline workflows, with inline macros frozen. The
+    # column keeps its legacy name for storage compatibility. NULL means the row predates this capture or did not come from the
+    # turn pipeline (for example a greeting).
     writer_draft: str | None
     turn_index: int
     parent_id: int | None
@@ -301,9 +283,8 @@ class MessageRow(TypedDict):
     workflow_state: str | None
     speaker_member_id: str | None
     exchange_id: str | None
-    # This reply's own versioned decision envelope
-    # (``{version, evaluations, skipped}``, written by pipeline/passes/judge)
-    # and the decision cooldown state as of this reply.
+    # This reply's own versioned decision envelope (``{version, evaluations, skipped}``, written by pipeline/passes/judge) and
+    # the decision cooldown state as of this reply.
     decision_evaluations: dict
     decision_cooldowns: dict[str, int]
 
@@ -353,18 +334,16 @@ class _WorkflowAttachmentColumns(TypedDict):
 class WorkflowAttachmentRowBase(_WorkflowAttachmentColumns):
     """Common byte-reading attachment projection; WorkflowAttachmentRow adds message_id.
 
-    Message-scoped readers omit that redundant FK. data_b64 becomes EVICTED_MARKER
-    after eviction; see secondary-workflow.md §9.
+    Message-scoped readers omit that redundant FK. data_b64 becomes EVICTED_MARKER after eviction; see secondary-workflow.md §9.
     """
 
     data_b64: str
 
 
 class WorkflowAttachmentSummary(_WorkflowAttachmentColumns):
-    """A ``workflow_attachments`` row without its bytes, as the message listing
-    projects it. ``evicted`` is 1 when ``data_b64`` holds EVICTED_MARKER, which
-    is the only thing the listing needs to know about the bytes; the client
-    loads them from the attachment content route.
+    """A ``workflow_attachments`` row without its bytes, as the message listing projects it. ``evicted`` is 1 when ``data_b64``
+    holds EVICTED_MARKER, which is the only thing the listing needs to know about the bytes; the client loads them from the
+    attachment content route.
     """
 
     message_id: int
@@ -372,27 +351,24 @@ class WorkflowAttachmentSummary(_WorkflowAttachmentColumns):
 
 
 class WorkflowAttachmentMeta(_WorkflowAttachmentColumns):
-    """A ``workflow_attachments`` row with nothing read from its bytes -- not even
-    the listing's ``evicted`` flag, which has to load them -- as
-    get_workflow_attachment_meta() returns it.
+    """A ``workflow_attachments`` row with nothing read from its bytes -- not even the listing's ``evicted`` flag, which has to
+    load them -- as get_workflow_attachment_meta() returns it.
     """
 
     message_id: int
 
 
 class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
-    """A fully-projected ``workflow_attachments`` row -- the shared columns plus
-    the ``message_id`` FK -- as get_workflow_attachment_by_id() and the
-    per-message attachment glue return it.
+    """A fully-projected ``workflow_attachments`` row -- the shared columns plus the ``message_id`` FK -- as
+    get_workflow_attachment_by_id() and the per-message attachment glue return it.
     """
 
     message_id: int
 
 
 class MessageWithAttachments(MessageRow, total=False):
-    """A ``MessageRow`` after the query layer glues on its attachment rows in
-    place. The extra keys are not columns; _attach_attachments() populates
-    them, hence ``total=False``.
+    """A ``MessageRow`` after the query layer glues on its attachment rows in place. The extra keys are not columns;
+    _attach_attachments() populates them, hence ``total=False``.
     """
 
     user_attachments: list[UserAttachmentRow]
@@ -412,10 +388,9 @@ class MessageListing(MessageRow, total=False):
     next_branch_id: int | None
 
 
-# NOTE on the ``int`` columns below: SQLite has no boolean type. Columns the
-# schema declares ``BOOLEAN`` / flags (enabled, required, case_insensitive,
-# constant, ...) come back from ``dict(row)`` as 0/1 ints, so they are typed
-# ``int`` to match the runtime value, not ``bool``.
+# NOTE on the ``int`` columns below: SQLite has no boolean type. Columns the schema declares ``BOOLEAN`` / flags (enabled,
+# required, case_insensitive, constant, ...) come back from ``dict(row)`` as 0/1 ints, so they are typed ``int`` to match the
+# runtime value, not ``bool``.
 
 
 class EndpointRow(TypedDict):
@@ -497,8 +472,7 @@ class LorebookEntryRow(TypedDict):
 class MemberSheetProposalRow(TypedDict):
     """One staged scene-sheet rewrite per member, derived from an exchange.
 
-    base_sheet guards against intervening edits; exchange_id records provenance
-    because the pass runs once per exchange.
+    base_sheet guards against intervening edits; exchange_id records provenance because the pass runs once per exchange.
     """
 
     id: int
@@ -543,12 +517,11 @@ class WorldChangesetRow(TypedDict):
 
 
 class ActiveLorebookEntryRow(LorebookEntryRow):
-    """A :class:`LorebookEntryRow` joined with its world's name, as
-    ``get_active_lorebook_entries()`` returns it (it selects ``w.name AS
-    world_name`` on top of ``le.*``). Required-base + extension idiom: the
-    single-entry readers project only ``le.*`` and return the base, while this
-    join reader projects a strict superset and adds ``world_name`` (used to group
-    the Director's agentic-lorebook catalog by world)."""
+    """A :class:`LorebookEntryRow` joined with its world's name, as ``get_active_lorebook_entries()`` returns it (it selects
+    ``w.name AS world_name`` on top of ``le.*``). Required-base + extension idiom: the single-entry readers project only
+    ``le.*`` and return the base, while this join reader projects a strict superset and adds ``world_name`` (used to group
+    the Director's agentic-lorebook catalog by world).
+    """
 
     world_name: str
 
@@ -593,8 +566,7 @@ class InteractiveFragmentRow(TypedDict):
     injection_label: str
     sort_order: int
     cooldown_turns: int
-    # State-only settings, NULL for other fragment types; parsed with defaults by
-    # ``core.fragment_state.state_fragment_of``.
+    # State-only settings, NULL for other fragment types; parsed with defaults by ``core.fragment_state.state_fragment_of``.
     state_mode: str | None
     state_update: str | None
     state_inject: str | None
@@ -647,9 +619,8 @@ class FragmentStateEventRow(TypedDict):
 class DirectorStateRow(TypedDict):
     """The director-state dict returned by ``get_director_state()``.
 
-    The JSON columns are decoded before return: ``active_moods`` and
-    ``keywords`` to lists, ``macro_choices`` to a dict. When no row exists the
-    query synthesizes the same shape with empty containers.
+    The JSON columns are decoded before return: ``active_moods`` and ``keywords`` to lists, ``macro_choices`` to a dict. When no
+    row exists the query synthesizes the same shape with empty containers.
     """
 
     conversation_id: str

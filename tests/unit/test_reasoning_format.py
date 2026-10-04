@@ -28,12 +28,7 @@ def _renders(name):
     "name,tags,channel,reply",
     [
         ("qwen", ("<think>", "</think>"), False, "<think>\n\n</think>\n\n"),
-        (
-            "gemma",
-            ("<|channel>thought\n", "<channel|>"),
-            False,
-            "<|channel>thought\n<channel|>",
-        ),
+        ("gemma", ("<|channel>thought\n", "<channel|>"), False, "<|channel>thought\n<channel|>"),
         ("muse", ("", ""), True, " to=user<|message|>"),
     ],
 )
@@ -121,13 +116,7 @@ def test_explicit_content_start_preserves_literal_tags_and_whitespace():
 
 def test_assistant_prefill_owns_state_even_if_it_ends_with_a_reasoning_tag():
     fmt = rf.format_from_probes(**_renders("qwen"))
-    prepared = rf.prepare_prompt(
-        "An XML example: <think>",
-        fmt,
-        reasoning=True,
-        prefill=True,
-        reasoning_prefill="seed",
-    )
+    prepared = rf.prepare_prompt("An XML example: <think>", fmt, reasoning=True, prefill=True, reasoning_prefill="seed")
     assert prepared == rf.PreparedPrompt("An XML example: <think>", "content")
 
 
@@ -138,25 +127,11 @@ def test_closed_render_blocks_conflicting_reasoning_prefill():
         rf.prepare_prompt(renders["off"], fmt, reasoning=True, reasoning_prefill="seed")
 
 
-@pytest.mark.parametrize(
-    "tag",
-    [
-        "think",
-        "mm:think",
-        "seed:think",
-        "think:opensource",
-        "thinking",
-        "thought",
-        "reasoning",
-    ],
-)
+@pytest.mark.parametrize("tag", ["think", "mm:think", "seed:think", "think:opensource", "thinking", "thought", "reasoning"])
 def test_rendered_tag_pair_needs_no_jinja_expression_interpreter(tag):
     history = f"Ignored example: <think>. ASSISTANT<{tag}> {rf.PROBE_REASONING} </{tag}>\n{rf.PROBE_CONTENT}"
     fmt = rf.format_from_probes(
-        on="ASSISTANT",
-        off="ASSISTANT",
-        history=history,
-        empty_history=history.replace(rf.PROBE_REASONING, ""),
+        on="ASSISTANT", off="ASSISTANT", history=history, empty_history=history.replace(rf.PROBE_REASONING, "")
     )
     assert fmt.tags == (f"<{tag}>", f"</{tag}>")
     assert fmt.controls == rf.ReasoningControls(f"<{tag}> ", f"<{tag}>  </{tag}>\n", f" </{tag}>\n")
@@ -169,17 +144,7 @@ def test_confirmed_unstructured_template_is_not_unknown():
     assert rf.prepare_prompt("PREFIX", fmt, reasoning=True) == rf.PreparedPrompt("PREFIX", "content")
 
 
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "missing",
-        "duplicate",
-        "unpaired",
-        "unsupported",
-        "different_empty",
-        "toggle_only",
-    ],
-)
+@pytest.mark.parametrize("failure", ["missing", "duplicate", "unpaired", "unsupported", "different_empty", "toggle_only"])
 def test_ambiguous_probes_cannot_authorize_generation(failure):
     renders = _renders("qwen")
     if failure == "missing":
@@ -257,9 +222,7 @@ async def test_model_change_during_discovery_is_not_cached(monkeypatch):
     assert client._reasoning_profile is None
 
 
-async def test_metadata_outage_never_uses_cached_profile_or_emits_raw_content(
-    monkeypatch,
-):
+async def test_metadata_outage_never_uses_cached_profile_or_emits_raw_content(monkeypatch):
     client, calls = _client(monkeypatch, ["qwen"])
     await client._reasoning_format("http://test")
 
@@ -273,25 +236,12 @@ async def test_metadata_outage_never_uses_cached_profile_or_emits_raw_content(
 
 
 @pytest.mark.parametrize(
-    "body",
-    [
-        "null",
-        "[]",
-        "{}",
-        '{"chat_template":null}',
-        '{"chat_template":42}',
-        '{"chat_template":""}',
-        "bad json",
-    ],
+    "body", ["null", "[]", "{}", '{"chat_template":null}', '{"chat_template":42}', '{"chat_template":""}', "bad json"]
 )
 async def test_invalid_props_is_an_error_not_a_nonreasoning_model(monkeypatch, body):
     real_client = httpx.AsyncClient
     transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
-    monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: real_client(transport=transport, **kwargs),
-    )
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs))
     client = LLMClient("http://test/v1", completion_mode="text")
     with pytest.raises(rf.ReasoningFormatError, match="metadata"):
         await client._fetch_chat_template("http://test")
@@ -303,10 +253,7 @@ async def test_captured_render_through_constrained_transport(monkeypatch, name):
     events = [
         event
         async for event in client.complete(
-            messages=[{"role": "user", "content": "Hi"}],
-            model="m",
-            grammar='root ::= "Blue"',
-            **reasoning_cfg(True),
+            messages=[{"role": "user", "content": "Hi"}], model="m", grammar='root ::= "Blue"', **reasoning_cfg(True)
         )
     ]
     assert events[-1]["message"]["content"] == "Blue"

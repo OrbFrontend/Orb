@@ -11,8 +11,7 @@ import { charactersView, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
-// The view toggle, in order. Manager holds auto-tagging, duplicate finding,
-// and character card generation.
+// The view toggle, in order. Manager holds auto-tagging, duplicate finding, and character card generation.
 const VIEWS = [
   { mode: "grid", label: "Grid", icon: GRID_ICON },
   { mode: "list", label: "List", icon: LIST_ICON },
@@ -156,8 +155,7 @@ function wireBrowserChrome() {
 }
 
 function renderCharacterBrowser() {
-  // Search and tags belong to the card list; the other two views own the whole
-  // content area.
+  // Search and tags belong to the card list; the other two views own the whole content area.
   const isCardList = _browserViewMode === "grid" || _browserViewMode === "list";
   const searchRow = document.querySelector(".char-browser-search-row");
   const tagsRow = document.querySelector(".char-browser-tags-row");
@@ -197,16 +195,14 @@ async function refreshAfterRun() {
   reconcileSelectedTags();
   const tagsEl = $("char-browser-tags");
   if (tagsEl) tagsEl.innerHTML = browserTagsHtml();
-  // No re-render: the Manager tab owns the content area while a run is on, and
-  // repainting it here would remount the panel out from under its own callback.
-  // Switching back to a card view renders from the refreshed cache.
+  // No re-render: the Manager tab owns the content area while a run is on, and repainting it here would remount the
+  // panel out from under its own callback. Switching back to a card view renders from the refreshed cache.
 }
 
 function setCharBrowserView(mode) {
   _browserViewMode = mode;
-  // Only the two card views are sticky. Internet and Manager are somewhere you
-  // go on purpose, not where you want the library to open next time — which
-  // also settles the long-standing quirk of Internet persisting itself.
+  // Only the two card views are sticky. Internet and Manager are somewhere you go on purpose, not where you want the
+  // library to open next time — which also settles the long-standing quirk of Internet persisting itself.
   if (mode === "grid" || mode === "list") {
     S.characterBrowserView = mode;
     api.put("/settings", { character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));

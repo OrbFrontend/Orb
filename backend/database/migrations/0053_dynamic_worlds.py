@@ -6,10 +6,7 @@ import sqlite3
 
 from backend.database import schema
 
-_WORLD_COLUMNS = (
-    ("dynamic_enabled", "INTEGER NOT NULL DEFAULT 0"),
-    ("content_revision", "INTEGER NOT NULL DEFAULT 0"),
-)
+_WORLD_COLUMNS = (("dynamic_enabled", "INTEGER NOT NULL DEFAULT 0"), ("content_revision", "INTEGER NOT NULL DEFAULT 0"))
 
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_lorebook_overlay ON lorebook_entries(world_id, entry_layer, archived)",

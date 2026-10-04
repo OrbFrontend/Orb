@@ -28,11 +28,7 @@ def _serialize_tools(tools: list[dict] | None) -> str:
 
 def _lane_of(entry: Mapping[str, Any]) -> tuple[str, str, str]:
     """The physical cache owner and rendered-prompt shape for an entry."""
-    return (
-        entry.get("endpoint", "") or "",
-        entry.get("model", "") or "",
-        entry.get("shape", "") or "",
-    )
+    return (entry.get("endpoint", "") or "", entry.get("model", "") or "", entry.get("shape", "") or "")
 
 
 def _lane_name(lane: tuple[str, str, str]) -> str:
@@ -58,12 +54,7 @@ def extract_cache_stats(usage: dict | None) -> dict:
     Missing/unrecognized fields return zero counts with a diagnostic source label.
     """
     if not isinstance(usage, dict):
-        return {
-            "prompt_tokens": 0,
-            "cached_tokens": 0,
-            "cache_write_tokens": 0,
-            "source": "missing",
-        }
+        return {"prompt_tokens": 0, "cached_tokens": 0, "cache_write_tokens": 0, "source": "missing"}
 
     # Anthropic splits the *entire* input across these three fields. Unlike
     # OpenAI-style prompt_tokens, input_tokens is only the uncached tail.
@@ -102,12 +93,7 @@ def extract_cache_stats(usage: dict | None) -> dict:
     if prompt_tokens > 0 and source == "unrecognized" and not cache_write:
         source = "no_cache_fields"
 
-    return {
-        "prompt_tokens": prompt_tokens,
-        "cached_tokens": cached,
-        "cache_write_tokens": cache_write,
-        "source": source,
-    }
+    return {"prompt_tokens": prompt_tokens, "cached_tokens": cached, "cache_write_tokens": cache_write, "source": source}
 
 
 class KVCacheTracker:
@@ -115,11 +101,9 @@ class KVCacheTracker:
         self._entries: list[dict] = []
         self._conversation_id = conversation_id
         self._prev_entries: list[dict] = list(_prev_turn_entries.get(conversation_id, [])) if conversation_id else []
-        # How far ``log_summary`` has already printed. One tracker can be summarised
-        # several times per request — a group exchange runs one pipeline per speaker
-        # and each one summarises on its way out — and reprinting the whole list
-        # every time made the report grow quadratically with cast size, burying the
-        # calls the reader opened the log for.
+        # How far ``log_summary`` has already printed. One tracker can be summarised several times per request — a group
+        # exchange runs one pipeline per speaker and each one summarises on its way out — and reprinting the whole list every
+        # time made the report grow quadratically with cast size, burying the calls the reader opened the log for.
         self._reported = 0
 
     def record(
@@ -133,11 +117,9 @@ class KVCacheTracker:
     ) -> None:
         """Snapshot one LLM call (messages + tools). Call once per pass or per director tool.
 
-        *endpoint* and *model* identify the physical cache owner. *shape* is a
-        stable discriminator for an intentionally separate rendered-prompt family
-        on that owner, such as a self-contained workflow call. It is deliberately
-        not derived from the current bytes: accidental changes within one family
-        must stay comparable so the report can expose them.
+        *endpoint* and *model* identify the physical cache owner. *shape* is a stable discriminator for an intentionally
+        separate rendered-prompt family on that owner, such as a self-contained workflow call. It is deliberately not derived
+        from the current bytes: accidental changes within one family must stay comparable so the report can expose them.
         """
         msgs_serialized = _serialize_messages(messages)
         tools_serialized = _serialize_tools(tools)
@@ -166,9 +148,8 @@ class KVCacheTracker:
     def _find_prev(self, i: int, lane: tuple[str, str, str], label: str) -> tuple[dict | None, bool]:
         """Find the previous cache entry on *lane* to compare against.
 
-        A comparison only means something within one lane: across lanes the tools
-        blob and the system prompt differ by design, so a cross-lane "diff" reads
-        as a cache bust that no one can fix.
+        A comparison only means something within one lane: across lanes the tools blob and the system prompt differ by design,
+        so a cross-lane "diff" reads as a cache bust that no one can fix.
         """
         for j in range(i - 1, -1, -1):
             if _lane_of(self._entries[j]) == lane:
@@ -181,9 +162,8 @@ class KVCacheTracker:
     def log_summary(self) -> None:
         """Print the calls recorded since the last summary, comparisons unchanged.
 
-        Only *unreported* entries are rendered; ``_find_prev`` still ranges over
-        the whole list, so a group exchange's second speaker is still measured
-        against the first speaker's calls — it just isn't reprinted alongside them.
+        Only *unreported* entries are rendered; ``_find_prev`` still ranges over the whole list, so a group exchange's second
+        speaker is still measured against the first speaker's calls — it just isn't reprinted alongside them.
         """
         first = self._reported
         if first >= len(self._entries):
@@ -196,9 +176,8 @@ class KVCacheTracker:
         # Lanes over the whole turn, not just the printed slice: a continued report
         # still compares against calls above it, so the legend has to name those too.
         lanes = {lane: index for index, lane in enumerate(dict.fromkeys(map(_lane_of, self._entries)), 1)}
-        # Only worth the noise when there is more than one. A dual-model turn is
-        # where the reader most needs to know why a pass has no one to compare to:
-        # it is the first call on its lane, not a broken prefix.
+        # Only worth the noise when there is more than one. A dual-model turn is where the reader most needs to know why a pass
+        # has no one to compare to: it is the first call on its lane, not a broken prefix.
         multi_lane = len(lanes) > 1
         if multi_lane:
             lines.append("  lanes: " + "   ".join(f"L{index}={_lane_name(lane)}" for lane, index in lanes.items()))
@@ -242,11 +221,7 @@ class KVCacheTracker:
             elif stats["source"] in ("unrecognized", "no_cache_fields"):
                 provider_note = f"provider: prompt={stats['prompt_tokens']} tok  cached=N/A [{stats['source']}]"
             else:
-                pt, ct, cw = (
-                    stats["prompt_tokens"],
-                    stats["cached_tokens"],
-                    stats["cache_write_tokens"],
-                )
+                pt, ct, cw = (stats["prompt_tokens"], stats["cached_tokens"], stats["cache_write_tokens"])
                 total_cached += ct
                 total_prompt += pt
                 pct = (ct / pt * 100) if pt else 0.0

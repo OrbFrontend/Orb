@@ -56,10 +56,7 @@ def main() -> int:
     )
     parser.add_argument("--fp32", action="store_true", help="keep float32 weights (twice the size)")
     parser.add_argument(
-        "--min-agreement",
-        type=float,
-        default=0.99,
-        help="minimum fraction of tokens that must match upstream (default 0.99)",
+        "--min-agreement", type=float, default=0.99, help="minimum fraction of tokens that must match upstream (default 0.99)"
     )
     args = parser.parse_args()
 

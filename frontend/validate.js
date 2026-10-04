@@ -138,42 +138,26 @@ export function validateImageFiles(files, maxCount = 10, maxSize = MAX_IMAGE_SIZ
   return { valid: true, warnings };
 }
 
-export function validateChatInput(content) {
-  const trimmed = (content || "").trim();
-  if (!trimmed) {
-    return { valid: false, error: "Message cannot be empty" };
-  }
-  if (trimmed.length > MAX_CHAT_INPUT) {
-    return { valid: false, error: `Message must be ${MAX_CHAT_INPUT} characters or less` };
-  }
-  return { valid: true };
+function boundedRequired(value, max, label, emptyError) {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return { valid: false, error: emptyError };
+  return trimmed.length > max ? { valid: false, error: `${label} must be ${max} characters or less` } : { valid: true };
 }
 
-export function validateCharacterName(name) {
-  const trimmed = (name || "").trim();
-  if (!trimmed) {
-    return { valid: false, error: "Character name is required" };
-  }
-  if (trimmed.length > MAX_CHARACTER_NAME) {
-    return { valid: false, error: `Character name must be ${MAX_CHARACTER_NAME} characters or less` };
-  }
-  return { valid: true };
+export function validateChatInput(value) {
+  return boundedRequired(value, MAX_CHAT_INPUT, "Message", "Message cannot be empty");
+}
+
+export function validateCharacterName(value) {
+  return boundedRequired(value, MAX_CHARACTER_NAME, "Character name", "Character name is required");
 }
 
 export function validateCharacterField(value, fieldName = "Field") {
-  if (typeof value !== "string") return { valid: true };
-  if (value.length > MAX_CHARACTER_FIELD) {
-    return { valid: false, error: `${fieldName} must be ${MAX_CHARACTER_FIELD} characters or less` };
-  }
-  return { valid: true };
+  return maxLength(value, MAX_CHARACTER_FIELD, fieldName);
 }
 
 export function validateCharacterAdvancedField(value, fieldName = "Field") {
-  if (typeof value !== "string") return { valid: true };
-  if (value.length > MAX_CHARACTER_ADVANCED) {
-    return { valid: false, error: `${fieldName} must be ${MAX_CHARACTER_ADVANCED} characters or less` };
-  }
-  return { valid: true };
+  return maxLength(value, MAX_CHARACTER_ADVANCED, fieldName);
 }
 
 export function validateAlternateGreetings(greetings) {
@@ -197,46 +181,49 @@ export function validateAlternateGreetings(greetings) {
   return { valid: true };
 }
 
-export function validateMoodFragment(data) {
-  const id = (data.id || "").trim();
-  const label = (data.label || "").trim();
-  const description = (data.description || "").trim();
-  const promptText = (data.prompt_text || "").trim();
-  const negativePrompt = (data.negative_prompt || "").trim();
+const FRAGMENT_TEXT_FIELDS = {
+  id: [MAX_FRAGMENT_ID, "ID"],
+  label: [MAX_FRAGMENT_LABEL, "Label"],
+  description: [MAX_FRAGMENT_DESCRIPTION, "Description"],
+  prompt_text: [MAX_FRAGMENT_PROMPT, "Prompt text"],
+  negative_prompt: [MAX_FRAGMENT_NEGATIVE_PROMPT, "Negative prompt"],
+  injection_label: [MAX_FRAGMENT_LABEL, "Injection label"],
+};
 
-  if (!id) return { valid: false, error: "Fragment ID is required" };
-  if (!label) return { valid: false, error: "Label is required" };
-  if (!promptText) return { valid: false, error: "Prompt text is required" };
-
+function fragmentText(data, keys, requiredKeys) {
+  const values = Object.fromEntries(keys.map((key) => [key, (data[key] || "").trim()]));
+  for (const key of requiredKeys) {
+    if (!values[key]) {
+      const label = key === "id" ? "Fragment ID" : FRAGMENT_TEXT_FIELDS[key][1];
+      return { valid: false, error: `${label} is required` };
+    }
+  }
   const idCheck = patternMatch(
-    id,
+    values.id,
     FRAGMENT_ID_REGEX,
     "ID",
     "lowercase letters, numbers, hyphens, and underscores (must start with letter or number)",
   );
   if (!idCheck.valid) return idCheck;
-
-  const idLen = maxLength(id, MAX_FRAGMENT_ID, "ID");
-  if (!idLen.valid) return idLen;
-
-  const labelLen = maxLength(label, MAX_FRAGMENT_LABEL, "Label");
-  if (!labelLen.valid) return labelLen;
-
-  const descLen = maxLength(description, MAX_FRAGMENT_DESCRIPTION, "Description");
-  if (!descLen.valid) return descLen;
-
-  const promptLen = maxLength(promptText, MAX_FRAGMENT_PROMPT, "Prompt text");
-  if (!promptLen.valid) return promptLen;
-
-  const negLen = maxLength(negativePrompt, MAX_FRAGMENT_NEGATIVE_PROMPT, "Negative prompt");
-  if (!negLen.valid) return negLen;
-
-  const cooldownRange = numberRange(data.cooldown_turns, 0, 50, "Cooldown");
-  if (!cooldownRange.valid) return cooldownRange;
-  const cooldownInteger = isInteger(data.cooldown_turns, "Cooldown");
-  if (!cooldownInteger.valid) return cooldownInteger;
-
+  for (const key of keys) {
+    const length = maxLength(values[key], ...FRAGMENT_TEXT_FIELDS[key]);
+    if (!length.valid) return length;
+  }
   return { valid: true };
+}
+
+function integerRange(value, min, max, label) {
+  const range = numberRange(value, min, max, label);
+  return range.valid ? isInteger(value, label) : range;
+}
+
+export function validateMoodFragment(data) {
+  const text = fragmentText(
+    data,
+    ["id", "label", "description", "prompt_text", "negative_prompt"],
+    ["id", "label", "prompt_text"],
+  );
+  return text.valid ? integerRange(data.cooldown_turns, 0, 50, "Cooldown") : text;
 }
 
 const FRAGMENT_FIELD_TYPES = ["string", "array", "state", "feedback", "post_processing", "decision"];
@@ -247,34 +234,12 @@ const STATE_SETTINGS = {
 };
 
 export function validateInteractiveFragment(data) {
-  const id = (data.id || "").trim();
-  const label = (data.label || "").trim();
-  const injectionLabel = (data.injection_label || "").trim();
-  const description = (data.description || "").trim();
-
-  if (!id) return { valid: false, error: "Fragment ID is required" };
-  if (!label) return { valid: false, error: "Label is required" };
-  if (!injectionLabel) return { valid: false, error: "Injection label is required" };
-
-  const idCheck = patternMatch(
-    id,
-    FRAGMENT_ID_REGEX,
-    "ID",
-    "lowercase letters, numbers, hyphens, and underscores (must start with letter or number)",
+  const text = fragmentText(
+    data,
+    ["id", "label", "injection_label", "description"],
+    ["id", "label", "injection_label"],
   );
-  if (!idCheck.valid) return idCheck;
-
-  const idLen = maxLength(id, MAX_FRAGMENT_ID, "ID");
-  if (!idLen.valid) return idLen;
-
-  const labelLen = maxLength(label, MAX_FRAGMENT_LABEL, "Label");
-  if (!labelLen.valid) return labelLen;
-
-  const injLen = maxLength(injectionLabel, MAX_FRAGMENT_LABEL, "Injection label");
-  if (!injLen.valid) return injLen;
-
-  const descLen = maxLength(description, MAX_FRAGMENT_DESCRIPTION, "Description");
-  if (!descLen.valid) return descLen;
+  if (!text.valid) return text;
 
   if (data.field_type !== undefined && !FRAGMENT_FIELD_TYPES.includes(data.field_type)) {
     return { valid: false, error: `Field type must be one of: ${FRAGMENT_FIELD_TYPES.join(", ")}` };
@@ -287,153 +252,59 @@ export function validateInteractiveFragment(data) {
     }
   }
 
-  const cooldownRange = numberRange(data.cooldown_turns, 0, 50, "Cooldown");
-  if (!cooldownRange.valid) return cooldownRange;
-  const cooldownInteger = isInteger(data.cooldown_turns, "Cooldown");
-  if (!cooldownInteger.valid) return cooldownInteger;
+  const cooldown = integerRange(data.cooldown_turns, 0, 50, "Cooldown");
+  return cooldown.valid ? integerRange(data.post_processing_gate_replies, 0, 10, "History") : cooldown;
+}
 
-  const historyRange = numberRange(data.post_processing_gate_replies, 0, 10, "History");
-  if (!historyRange.valid) return historyRange;
-  const historyInteger = isInteger(data.post_processing_gate_replies, "History");
-  if (!historyInteger.valid) return historyInteger;
+const TEXT_SETTINGS = {
+  api_key: [1024, "API Key"],
+  model_name: [256, "Model name"],
+  system_prompt: [MAX_SETTINGS_PROMPT, "System prompt"],
+  reasoning_effort_param: [128, "Reasoning param name"],
+  reasoning_effort_value: [4096, "Reasoning param value"],
+  extra_headers: [4096, "Extra request headers"],
+  extra_body: [4096, "Extra request body"],
+};
 
-  return { valid: true };
+const NUMBER_SETTINGS = {
+  temperature: [0, 2, "Temperature"],
+  max_tokens: [64, 32768, "Max tokens", true],
+  top_p: [0, 1, "Top P"],
+  min_p: [0, 1, "Min P"],
+  top_k: [0, 200, "Top K", true],
+  repetition_penalty: [1, 2, "Repetition penalty"],
+  length_guard_max_words: [50, 4000, "Max words", true],
+  length_guard_max_paragraphs: [1, 20, "Max paragraphs", true],
+};
+
+function boundedNumber(value, min, max, label, integer = false) {
+  const number = isNumber(value, label);
+  if (!number.valid) return number;
+  const range = numberRange(number.parsed, min, max, label);
+  return !range.valid || !integer ? range : isInteger(number.parsed, label);
 }
 
 export function validateSetting(key, value) {
-  switch (key) {
-    case "endpoint_url": {
-      if (typeof value === "string" && value.trim()) {
-        if (value === "claude-code://local") return { valid: true };
-        return formatMatch(value, "Endpoint URL", "url");
-      }
-      return { valid: true };
-    }
-    case "api_key": {
-      if (typeof value === "string") {
-        return maxLength(value, 1024, "API Key");
-      }
-      return { valid: true };
-    }
-    case "model_name": {
-      if (typeof value === "string") {
-        return maxLength(value, 256, "Model name");
-      }
-      return { valid: true };
-    }
-    case "system_prompt": {
-      if (typeof value === "string") {
-        return maxLength(value, MAX_SETTINGS_PROMPT, "System prompt");
-      }
-      return { valid: true };
-    }
-    case "temperature": {
-      const numCheck = isNumber(value, "Temperature");
-      if (!numCheck.valid) return numCheck;
-      return numberRange(numCheck.parsed, 0, 2, "Temperature");
-    }
-    case "max_tokens": {
-      const numCheck = isNumber(value, "Max tokens");
-      if (!numCheck.valid) return numCheck;
-      const range = numberRange(numCheck.parsed, 64, 32768, "Max tokens");
-      if (!range.valid) return range;
-      return isInteger(numCheck.parsed, "Max tokens");
-    }
-    case "top_p": {
-      const numCheck = isNumber(value, "Top P");
-      if (!numCheck.valid) return numCheck;
-      return numberRange(numCheck.parsed, 0, 1, "Top P");
-    }
-    case "min_p": {
-      const numCheck = isNumber(value, "Min P");
-      if (!numCheck.valid) return numCheck;
-      return numberRange(numCheck.parsed, 0, 1, "Min P");
-    }
-    case "top_k": {
-      const numCheck = isNumber(value, "Top K");
-      if (!numCheck.valid) return numCheck;
-      const range = numberRange(numCheck.parsed, 0, 200, "Top K");
-      if (!range.valid) return range;
-      return isInteger(numCheck.parsed, "Top K");
-    }
-    case "repetition_penalty": {
-      const numCheck = isNumber(value, "Repetition penalty");
-      if (!numCheck.valid) return numCheck;
-      return numberRange(numCheck.parsed, 1, 2, "Repetition penalty");
-    }
-    case "length_guard_max_words": {
-      const numCheck = isNumber(value, "Max words");
-      if (!numCheck.valid) return numCheck;
-      const range = numberRange(numCheck.parsed, 50, 4000, "Max words");
-      if (!range.valid) return range;
-      return isInteger(numCheck.parsed, "Max words");
-    }
-    case "length_guard_max_paragraphs": {
-      const numCheck = isNumber(value, "Max paragraphs");
-      if (!numCheck.valid) return numCheck;
-      const range = numberRange(numCheck.parsed, 1, 20, "Max paragraphs");
-      if (!range.valid) return range;
-      return isInteger(numCheck.parsed, "Max paragraphs");
-    }
-    case "reasoning_effort_param": {
-      if (typeof value === "string") {
-        return maxLength(value, 128, "Reasoning param name");
-      }
-      return { valid: true };
-    }
-    case "reasoning_effort_value": {
-      if (typeof value === "string") {
-        return maxLength(value, 4096, "Reasoning param value");
-      }
-      return { valid: true };
-    }
-    case "extra_headers": {
-      if (typeof value === "string") {
-        return maxLength(value, 4096, "Extra request headers");
-      }
-      return { valid: true };
-    }
-    case "extra_body": {
-      if (typeof value === "string") {
-        return maxLength(value, 4096, "Extra request body");
-      }
-      return { valid: true };
-    }
-    default:
-      return { valid: true };
+  if (key === "endpoint_url") {
+    return value === "claude-code://local" ? { valid: true } : formatMatch(value, "Endpoint URL", "url");
   }
+  if (typeof key !== "string") return { valid: true };
+  if (Object.hasOwn(TEXT_SETTINGS, key)) return maxLength(value, ...TEXT_SETTINGS[key]);
+  if (Object.hasOwn(NUMBER_SETTINGS, key)) return boundedNumber(value, ...NUMBER_SETTINGS[key]);
+  return { valid: true };
+}
+
+function profile(name, description, maxName, maxDescription, emptyError) {
+  const required = boundedRequired(name, maxName, "Name", emptyError);
+  return required.valid ? maxLength(description, maxDescription, "Description") : required;
 }
 
 export function validateUserProfile(name, description) {
-  const nameTrimmed = (name || "").trim();
-  if (!nameTrimmed) {
-    return { valid: false, error: "Name is required" };
-  }
-  if (nameTrimmed.length > MAX_USER_PROFILE_NAME) {
-    return { valid: false, error: `Name must be ${MAX_USER_PROFILE_NAME} characters or less` };
-  }
-
-  if (typeof description === "string" && description.length > MAX_USER_PROFILE_DESC) {
-    return { valid: false, error: `Description must be ${MAX_USER_PROFILE_DESC} characters or less` };
-  }
-
-  return { valid: true };
+  return profile(name, description, MAX_USER_PROFILE_NAME, MAX_USER_PROFILE_DESC, "Name is required");
 }
 
 export function validatePersona(name, description) {
-  const nameTrimmed = (name || "").trim();
-  if (!nameTrimmed) {
-    return { valid: false, error: "Persona name is required" };
-  }
-  if (nameTrimmed.length > MAX_PERSONA_NAME) {
-    return { valid: false, error: `Name must be ${MAX_PERSONA_NAME} characters or less` };
-  }
-
-  if (typeof description === "string" && description.length > MAX_PERSONA_DESC) {
-    return { valid: false, error: `Description must be ${MAX_PERSONA_DESC} characters or less` };
-  }
-
-  return { valid: true };
+  return profile(name, description, MAX_PERSONA_NAME, MAX_PERSONA_DESC, "Persona name is required");
 }
 
 export function validatePhraseVariants(variants) {
@@ -474,20 +345,11 @@ export function validatePhraseRegex(pattern) {
 }
 
 export function validateBrowseSearch(query) {
-  if (typeof query !== "string") return { valid: true };
-  if (query.length > MAX_BROWSE_SEARCH) {
-    return { valid: false, error: `Search query must be ${MAX_BROWSE_SEARCH} characters or less` };
-  }
-  return { valid: true };
+  return maxLength(query, MAX_BROWSE_SEARCH, "Search query");
 }
 
-export function validateConversationTitle(title) {
-  const trimmed = (title || "").trim();
-  if (!trimmed) return { valid: false, error: "Title cannot be empty" };
-  if (trimmed.length > MAX_CONVERSATION_TITLE) {
-    return { valid: false, error: `Title must be ${MAX_CONVERSATION_TITLE} characters or less` };
-  }
-  return { valid: true };
+export function validateConversationTitle(value) {
+  return boundedRequired(value, MAX_CONVERSATION_TITLE, "Title", "Title cannot be empty");
 }
 
 export const validateEditMessage = validateChatInput;

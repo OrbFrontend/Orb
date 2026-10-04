@@ -1,10 +1,8 @@
 """SSE projection test for `workflow_attachments_rejected` event.
 
-The orchestrator's `consume_pipeline` emits a
-`workflow_attachments_rejected` event after `_persist_result` when the
-cache drops one or more workflow attachments for rehydratability
-reasons. This test pins the SSE event shape -- specifically the
-`reason` field whose presence the frontend chip depends on.
+The orchestrator's `consume_pipeline` emits a `workflow_attachments_rejected` event after `_persist_result` when the cache drops
+one or more workflow attachments for rehydratability reasons. This test pins the SSE event shape -- specifically the `reason`
+field whose presence the frontend chip depends on.
 """
 
 from __future__ import annotations
@@ -27,33 +25,21 @@ def _register_sse_test_workflow():
     upstream with WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON. The test needs
     the Step-A oversize rejection path, not the policy-partition path."""
     wf = make_workflow(
-        "sse-test",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
+        "sse-test", produces_artifacts=True, regenerate=lambda ctx, body: [], reroll_gen=lambda ctx, params, seed: b""
     )
     with register_for_test(wf):
         yield
 
 
 async def _seed(client) -> tuple[str, int]:
-    resp = await client.post("/api/conversations", json={"title": "sse-reject"})
-    assert resp.status_code == 200
-    cid = resp.json()["id"]
+    cid = await client.create("/api/conversations", json={"title": "sse-reject"})
     user_id, _ = await add_message(cid, "user", "ping", 0)
     await set_active_leaf(cid, user_id)
     return cid, user_id
 
 
 async def _fake_pipeline(staged_atts: list[dict]) -> AsyncIterator[dict]:
-    yield {
-        "event": "_result",
-        "data": {
-            "active_moods": [],
-            "resp_text": "assistant draft",
-            "staged_attachments": staged_atts,
-        },
-    }
+    yield {"event": "_result", "data": {"active_moods": [], "resp_text": "assistant draft", "staged_attachments": staged_atts}}
     yield {"event": "done", "data": {}}
 
 
@@ -87,9 +73,8 @@ async def test_sse_emits_workflow_attachments_rejected_with_reason(client, db):
     assert entry["workflow_id"] == "sse-test"
     assert entry["mime"] == "image/png"
     assert entry["reason"] == OVERSIZE_NO_METADATA_REASON
-    # SSE-path rejections never had a DB row, so there is no originating
-    # attachment to point the frontend at; null tells the renderer to use
-    # the message-level footer chip rather than a per-widget chip.
+    # SSE-path rejections never had a DB row, so there is no originating attachment to point the frontend at; null tells the
+    # renderer to use the message-level footer chip rather than a per-widget chip.
     assert entry["originating_attachment_id"] is None
     # Bytes/path/seed/generation_metadata must not leak into the SSE payload.
     assert "data" not in entry

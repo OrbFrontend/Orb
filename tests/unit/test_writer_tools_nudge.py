@@ -1,10 +1,8 @@
 """The writer's no-tools nudge and the gate deciding whether it is emitted.
 
-The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three
-plain-text configurations send nothing — dual-model (Invariant 5), text mode,
-and structured endpoints. Multimodal text mode intentionally takes the chat
-transport, so it is symmetric with chat mode instead. These tests pin both the
-frozen-base and transport halves of that decision.
+The provider-neutral gate is whether Orb sends a non-empty schema tuple. Three plain-text configurations send nothing —
+dual-model (Invariant 5), text mode, and structured endpoints. Multimodal text mode intentionally takes the chat transport, so
+it is symmetric with chat mode instead. These tests pin both the frozen-base and transport halves of that decision.
 """
 
 from __future__ import annotations
@@ -59,10 +57,7 @@ def _sends(cfg, content="hi") -> bool:
     return cfg.writer_lane.sends_tool_schemas([{"role": "user", "content": content}])
 
 
-_IMAGE_CONTENT = [
-    {"type": "text", "text": "hi"},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
-]
+_IMAGE_CONTENT = [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}]
 
 
 # ── the gate feeds the content builder ───────────────────────────────────────
@@ -118,9 +113,6 @@ def test_dual_model_does_not_send_tools():
 
 
 def test_false_only_enablement_map_does_not_masquerade_as_schemas():
-    cfg = _resolve(
-        LLMClient("http://localhost:5000/v1"),
-        enabled_tools={"direct_scene": False, "editor_apply_patch": False},
-    )
+    cfg = _resolve(LLMClient("http://localhost:5000/v1"), enabled_tools={"direct_scene": False, "editor_apply_patch": False})
     assert cfg.writer_lane.base.tools == ()
     assert not _sends(cfg)

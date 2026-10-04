@@ -72,10 +72,7 @@ def test_feature_slices_cannot_import_peers(tmp_path: Path):
         ("from backend.workflows.peer import workflow\n", "backend.workflows.peer"),
         ("from backend.workflows.registry import Workflow\n", "backend.workflows.registry"),
         ("from backend.workflows.contracts import ToolSpec\n", "backend.workflows.contracts"),
-        (
-            "from backend.workflows.attachment_cache import insert_workflow_attachment\n",
-            "backend.workflows.attachment_cache",
-        ),
+        ("from backend.workflows.attachment_cache import insert_workflow_attachment\n", "backend.workflows.attachment_cache"),
     ],
 )
 def test_workflow_slices_import_only_their_api(tmp_path: Path, statement: str, target: str):
@@ -99,11 +96,7 @@ from backend.workflows.plugin.local import helper
 
 
 def test_workflow_framework_modules_remain_host_adapters(tmp_path: Path):
-    root, backend = _fixture(
-        tmp_path,
-        "workflows/toolkit",
-        "__all__ = []\nfrom backend.prompting import build_prefix\n",
-    )
+    root, backend = _fixture(tmp_path, "workflows/toolkit", "__all__ = []\nfrom backend.prompting import build_prefix\n")
     assert _checker().check(root=root, backend=backend) == []
 
 

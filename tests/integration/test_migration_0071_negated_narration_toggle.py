@@ -17,8 +17,7 @@ def _db(*maps: dict) -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE settings (id INTEGER PRIMARY KEY, editor_audit_toggles TEXT NOT NULL)")
     conn.executemany(
-        "INSERT INTO settings (id, editor_audit_toggles) VALUES (?, ?)",
-        [(i, json.dumps(m)) for i, m in enumerate(maps, 1)],
+        "INSERT INTO settings (id, editor_audit_toggles) VALUES (?, ?)", [(i, json.dumps(m)) for i, m in enumerate(maps, 1)]
     )
     return conn
 

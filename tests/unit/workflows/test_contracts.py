@@ -8,13 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.workflows.contracts import (
-    PostCtx,
-    PreCtx,
-    RerollGenCtx,
-    ToolSpec,
-    readonly_view,
-)
+from backend.workflows.contracts import PostCtx, PreCtx, RerollGenCtx, ToolSpec, readonly_view
 
 
 class TestReadonlyDict:

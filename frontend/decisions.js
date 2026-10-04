@@ -1,5 +1,4 @@
-// Shared config cache and display labels for decision fragments.
-// Authoring options come from the server config.
+// Shared config cache and display labels for decision fragments. Authoring options come from the server config.
 import { api } from "./api.js";
 
 let _config = null;

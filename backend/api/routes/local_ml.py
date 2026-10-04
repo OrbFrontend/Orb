@@ -12,13 +12,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
-from ...inference.local_models import (
-    assets,
-    catalog,
-    dependencies,
-    llama_server,
-    onnx_runtime,
-)
+from ...inference.local_models import assets, catalog, dependencies, llama_server, onnx_runtime
 from ...inference.local_models.llama_server import binary as llama_binary
 from ...workflows import prose_rewriter_host, spark_tts_host
 
@@ -26,10 +20,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# One large download at a time: model fetches, model deletes, and the
-# llama-server runtime fetch. A single-user box on a home connection pulls two
-# multi-gigabyte files at once slower than either alone, and the runtime fetch
-# also replaces a directory a model load may be reading from.
+# One large download at a time: model fetches, model deletes, and the llama-server runtime fetch. A single-user box on a home
+# connection pulls two multi-gigabyte files at once slower than either alone, and the runtime fetch also replaces a directory a
+# model load may be reading from.
 _download_lock = asyncio.Lock()
 
 
@@ -120,13 +113,7 @@ async def api_local_ml_status():
         }
         if spec.variants:
             info["variants"] = [
-                {
-                    "id": v.id,
-                    "label": v.label,
-                    "detail": v.detail,
-                    "size_mb": v.size_mb,
-                    "present": assets.variant_present(v),
-                }
+                {"id": v.id, "label": v.label, "detail": v.detail, "size_mb": v.size_mb, "present": assets.variant_present(v)}
                 for v in spec.variants
             ]
         if spec.runtime == "llama_server":
@@ -139,12 +126,7 @@ async def api_local_ml_status():
         if controller is not None:
             info.update(await controller.status_extra(settings))
         features[f] = info
-    return {
-        "deps_ok": deps_ok,
-        "reason": reason,
-        "install_cmd": dependencies.install_cmd(),
-        "features": features,
-    }
+    return {"deps_ok": deps_ok, "reason": reason, "install_cmd": dependencies.install_cmd(), "features": features}
 
 
 @router.post("/api/local-ml/{feature}/download")
@@ -156,12 +138,10 @@ async def api_local_ml_download(feature: str, data: dict | None = Body(default=N
     """
     spec = _require(feature)
     variant = str((data or {}).get("variant") or "") or None
-    # Validated here rather than inside download(): a bad id is the caller's
-    # mistake and should not first take the global download lock and occupy a
-    # worker thread to find that out. It is also checked *before* deps, for the
-    # same reason `_require` is: whether a variant exists is a fact about the
-    # request, not about the machine, so the answer must not change from 404 to
-    # 400 just because this install happens to be missing the extras.
+    # Validated here rather than inside download(): a bad id is the caller's mistake and should not first take the global
+    # download lock and occupy a worker thread to find that out. It is also checked *before* deps, for the same reason
+    # `_require` is: whether a variant exists is a fact about the request, not about the machine, so the answer must not change
+    # from 404 to 400 just because this install happens to be missing the extras.
     if variant and variant not in {v.id for v in spec.variants}:
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     ok, reason = dependencies.deps_ok(feature)
@@ -248,10 +228,9 @@ async def api_slop_score(data: dict = Body(...)):  # noqa: B008
 async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
     """Classify one text → {"label": go-emotions label}.
 
-    The frontend sends only the last few sentences of the latest assistant message
-    (recency is enforced caller-side; the model isn't trusted to weight late text).
-    503 when the extra/model is missing or the toggle is off — the expression popup
-    treats that as "no expressions" and falls back to the plain avatar.
+    The frontend sends only the last few sentences of the latest assistant message (recency is enforced caller-side; the model
+    isn't trusted to weight late text). 503 when the extra/model is missing or the toggle is off — the expression popup treats
+    that as "no expressions" and falls back to the plain avatar.
     """
     ok, reason = local_ml.available("emotion_classifier")
     settings = await get_settings()
@@ -275,10 +254,7 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
         # repair a selection that points at nothing, and pre-warm what it picks.
         await controller.on_enabled(enabled)
     settings = await get_settings()
-    return {
-        "local_ml_enabled": settings.get("local_ml_enabled", {}),
-        "local_ml_config": settings.get("local_ml_config", {}),
-    }
+    return {"local_ml_enabled": settings.get("local_ml_enabled", {}), "local_ml_config": settings.get("local_ml_config", {})}
 
 
 @router.post("/api/local-ml/runtime")

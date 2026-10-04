@@ -8,35 +8,15 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..database import (
-    get_workflow_character_state as _db_get_workflow_character_state,
-)
-from ..database import (
-    get_workflow_config as _db_get_workflow_config,
-)
-from ..database import (
-    get_workflow_message_state as _db_get_workflow_message_state,
-)
-from ..database import (
-    get_workflow_state as _db_get_workflow_state,
-)
-from ..database import (
-    set_workflow_character_state as _db_set_workflow_character_state,
-)
-from ..database import (
-    set_workflow_config as _db_set_workflow_config,
-)
-from ..database import (
-    set_workflow_message_state as _db_set_workflow_message_state,
-)
-from ..database import (
-    set_workflow_state as _db_set_workflow_state,
-)
-from ..prompting.tool_catalog import (
-    BUILTIN_TOOL_NAMES,
-    register_tool,
-    remove_tool,
-)
+from ..database import get_workflow_character_state as _db_get_workflow_character_state
+from ..database import get_workflow_config as _db_get_workflow_config
+from ..database import get_workflow_message_state as _db_get_workflow_message_state
+from ..database import get_workflow_state as _db_get_workflow_state
+from ..database import set_workflow_character_state as _db_set_workflow_character_state
+from ..database import set_workflow_config as _db_set_workflow_config
+from ..database import set_workflow_message_state as _db_set_workflow_message_state
+from ..database import set_workflow_state as _db_set_workflow_state
+from ..prompting.tool_catalog import BUILTIN_TOOL_NAMES, register_tool, remove_tool
 from .contracts import HookType, ToolSpec
 
 
@@ -58,9 +38,8 @@ class Workflow:
 class Subscription:
     """A workflow's binding into one pipeline hook slot.
 
-    ``priority`` only matters for fan-out slots (``PRE_PIPELINE``,
-    ``POST_PIPELINE``); single-dispatch slots are resolved by workflow id
-    and ignore it.
+    ``priority`` only matters for fan-out slots (``PRE_PIPELINE``, ``POST_PIPELINE``); single-dispatch slots are resolved by
+    workflow id and ignore it.
     """
 
     hook_type: HookType
@@ -75,10 +54,9 @@ class ToolNameCollision(Exception):
 
 
 class WorkflowMandateError(ValueError):
-    """Raised by ``finalize_registry`` when a ``produces_artifacts=True``
-    workflow lacks ``REGENERATE`` and/or ``REROLL_GEN``. Failing at import
-    rather than on the first regen click avoids shipping a half-bound
-    artifact workflow into production."""
+    """Raised by ``finalize_registry`` when a ``produces_artifacts=True`` workflow lacks ``REGENERATE`` and/or ``REROLL_GEN``.
+    Failing at import rather than on the first regen click avoids shipping a half-bound artifact workflow into production.
+    """
 
 
 class WorkflowDeclarationError(ValueError):
@@ -151,13 +129,7 @@ def register_workflow(w: Workflow) -> None:
     _WORKFLOWS_BY_ID[w.id] = w
 
 
-def subscribe(
-    workflow_id: str,
-    hook_type: HookType,
-    fn: Callable,
-    *,
-    priority: int = 0,
-) -> None:
+def subscribe(workflow_id: str, hook_type: HookType, fn: Callable, *, priority: int = 0) -> None:
     record = _WORKFLOWS_BY_ID.get(workflow_id)
     if record is None:
         raise LookupError(f"subscribe: workflow {workflow_id!r} not registered")
@@ -196,13 +168,10 @@ def workflow_has_hook(w: Workflow, hook_type: HookType) -> bool:
 
 
 def finalize_registry() -> None:
-    """Validate that every ``produces_artifacts=True`` workflow has both
-    ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
+    """Validate that every ``produces_artifacts=True`` workflow has both ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
 
-    Invoke at the bottom of any module that completes a workflow's wiring
-    -- this is the only hook that fails import on a partially-bound
-    artifact workflow rather than deferring the crash to the first regen
-    click.
+    Invoke at the bottom of any module that completes a workflow's wiring -- this is the only hook that fails import on a
+    partially-bound artifact workflow rather than deferring the crash to the first regen click.
     """
     for w in _WORKFLOWS_BY_ID.values():
         if not w.produces_artifacts:
@@ -273,23 +242,17 @@ async def get_workflow_config(workflow_id: str) -> dict:
 async def set_workflow_config(workflow_id: str, payload: dict) -> None:
     """Write the workflow's global config slot. Empty dict clears it.
 
-    Caller must hold ``workflow_config_lock()`` across the read-then-write
-    the payload was computed from. Direct use without the lock is safe for
-    blind-replace writes; RMW sequences (``get_workflow_config`` -> mutate
-    -> ``set_workflow_config``) silently lose writes under contention
-    because the read happens in a separate transaction outside the lock.
+    Caller must hold ``workflow_config_lock()`` across the read-then-write the payload was computed from. Direct use without the
+    lock is safe for blind-replace writes; RMW sequences (``get_workflow_config`` -> mutate -> ``set_workflow_config``) silently
+    lose writes under contention because the read happens in a separate transaction outside the lock.
     """
     await _db_set_workflow_config(workflow_id, payload)
 
 
-def overlay_enable_tools(
-    base: Mapping[str, bool],
-    contribution: set[str] | Mapping[str, bool] | None,
-) -> dict[str, bool]:
+def overlay_enable_tools(base: Mapping[str, bool], contribution: set[str] | Mapping[str, bool] | None) -> dict[str, bool]:
     """Return a mutable base copy with enabled contributions merged; false is ignored.
 
-    Accept a set or Mapping contribution and any Mapping base. Validation/warnings
-    belong to the caller.
+    Accept a set or Mapping contribution and any Mapping base. Validation/warnings belong to the caller.
     """
     result = dict(base)
     if contribution is None:

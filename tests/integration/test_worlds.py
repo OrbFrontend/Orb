@@ -30,8 +30,7 @@ async def test_lorebook_export_round_trip(client, db):
         },
     )
 
-    resp = await client.get(f"/api/worlds/{wid}/export")
-    assert resp.status_code == 200
+    resp = await client.get_checked(f"/api/worlds/{wid}/export")
     assert resp.headers["content-type"].startswith("application/json")
     assert 'filename="Test Realm.json"' in resp.headers["content-disposition"]
 
@@ -47,9 +46,8 @@ async def test_lorebook_export_round_trip(client, db):
 
     # The export must be accepted verbatim by the import endpoint, losslessly
     world2 = (await client.post("/api/worlds", json={"name": "Copy"})).json()
-    imp = await client.post(f"/api/worlds/{world2['id']}/import", json={"entries": book["entries"]})
-    assert imp.status_code == 200
-    assert imp.json()["imported"] == 2
+    imp = await client.post_json(f"/api/worlds/{world2['id']}/import", json={"entries": book["entries"]})
+    assert imp["imported"] == 2
 
     copied = {e["name"]: e for e in (await client.get(f"/api/worlds/{world2['id']}/entries")).json()}
     assert copied["Dragons"]["keywords"] == ["dragon", "wyrm"]
@@ -88,9 +86,8 @@ async def test_import_world_info_file_maps_at_depth(client, db):
             },
         }
     }
-    imp = await client.post(f"/api/worlds/{world['id']}/import", json=payload)
-    assert imp.status_code == 200
-    assert imp.json()["imported"] == 2
+    imp = await client.post_json(f"/api/worlds/{world['id']}/import", json=payload)
+    assert imp["imported"] == 2
 
     entries = {e["name"]: e for e in (await client.get(f"/api/worlds/{world['id']}/entries")).json()}
     assert bool(entries["Rules"]["at_depth"]) is True
@@ -112,9 +109,8 @@ async def test_import_world_info_file_maps_at_depth(client, db):
 async def test_character_book_extensions_round_trip(client, db):
     """The card-embedded `character_book` shape: placement + case live in `extensions`.
 
-    World Info readers take `extensions.position` / `extensions.case_sensitive`
-    and title the entry from `comment`, so the export has to fill those in or a
-    round-trip through another frontend loses all three.
+    World Info readers take `extensions.position` / `extensions.case_sensitive` and title the entry from `comment`, so the
+    export has to fill those in or a round-trip through another frontend loses all three.
     """
     world = (await client.post("/api/worlds", json={"name": "Book"})).json()
     payload = {
@@ -150,8 +146,7 @@ async def test_character_book_extensions_round_trip(client, db):
 
 
 async def test_lorebook_export_missing_world_404(client, db):
-    resp = await client.get("/api/worlds/no-such-world/export")
-    assert resp.status_code == 404
+    await client.get_checked("/api/worlds/no-such-world/export", expected_status=404)
 
 
 async def test_reading_scene_worlds_preserves_other_scenes_and_recency(client):
@@ -172,9 +167,9 @@ async def test_reading_scene_worlds_preserves_other_scenes_and_recency(client):
 async def test_choices_override_defaults_copy_on_fork_and_survive_partial_preset(client, db):
     from backend.database import fork_conversation, get_conversation
 
-    global_world = (await client.post("/api/worlds", json={"name": "Global", "is_global": True})).json()["id"]
-    floating = (await client.post("/api/worlds", json={"name": "Floating"})).json()["id"]
-    cid = (await client.post("/api/conversations", json={})).json()["id"]
+    global_world = await client.create("/api/worlds", json={"name": "Global", "is_global": True})
+    floating = await client.create("/api/worlds", json={"name": "Floating"})
+    cid = await client.create("/api/conversations", json={})
     await client.put(f"/api/conversations/{cid}/worlds/{global_world}", json={"enabled": False})
     await client.put(f"/api/conversations/{cid}/worlds/{floating}", json={"enabled": True})
     assert (await client.get(f"/api/conversations/{cid}/worlds")).json()["world_ids"] == [floating]
@@ -189,6 +184,5 @@ async def test_choices_override_defaults_copy_on_fork_and_survive_partial_preset
     assert (await client.get(f"/api/conversations/{fork}/worlds")).json()["world_ids"] == []
     name = (await client.post("/api/presets/export", json={"domains": ["chats"]})).json()["name"]
     await client.delete(f"/api/worlds/{global_world}")
-    applied = await client.post(f"/api/presets/{name}/apply")
-    assert applied.status_code == 200
+    await client.post_checked(f"/api/presets/{name}/apply")
     assert not await db.execute_fetchall("SELECT 1 FROM conversation_worlds WHERE world_id = ?", (global_world,))

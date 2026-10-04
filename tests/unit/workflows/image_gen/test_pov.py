@@ -72,8 +72,7 @@ def test_pov_from_logits_marginalizes_tense_rather_than_taking_the_top_cell():
 # --- the levers ----------------------------------------------------------------
 
 
-# `normalize_mode` itself is pinned through the config route it exists for, in
-# `test_hooks::test_pov_mode_is_global_config`.
+# `normalize_mode` itself is pinned through the config route it exists for, in `test_hooks::test_pov_mode_is_global_config`.
 
 
 @pytest.mark.parametrize("mode, expected", [("first", pov.FIRST), ("third", pov.THIRD), ("background", pov.BACKGROUND)])
@@ -93,16 +92,10 @@ async def test_ambiguous_walks_back_to_the_previous_decided_message(monkeypatch)
     seen = _fake_classifier(monkeypatch, ["ambiguous", "ambiguous", "third"])
     result = await pov.resolve(
         mode="auto",
-        history=_history(
-            ("assistant", "oldest"),
-            ("user", "ignored"),
-            ("assistant", "middle"),
-            ("assistant", "anchor"),
-        ),
+        history=_history(("assistant", "oldest"), ("user", "ignored"), ("assistant", "middle"), ("assistant", "anchor")),
     )
     assert result == (pov.THIRD, "classifier")
-    # Newest first, assistant turns only -- the user's persona voice need not match
-    # the camera of the reply being illustrated.
+    # Newest first, assistant turns only -- the user's persona voice need not match the camera of the reply being illustrated.
     assert seen == ["anchor", "middle", "oldest"]
 
 

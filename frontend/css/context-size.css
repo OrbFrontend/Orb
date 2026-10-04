@@ -1,37 +1,9 @@
-.ctx-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 3px 0;
-}
-.ctx-label {
-  width: 110px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ctx-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--border, #333);
-  border-radius: 2px;
-  min-width: 40px;
-}
-.ctx-bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent, #6c8);
-  border-radius: 2px;
-  transition: width 0.3s ease;
-}
-.ctx-tokens {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 40px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
+.ctx-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.ctx-label { width: 110px; font-size: 11px; color: var(--text-secondary); flex-shrink: 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.ctx-bar { flex: 1; height: 4px; background: var(--border, #333); border-radius: 2px; min-width: 40px; }
+.ctx-bar-fill { display: block; height: 100%; background: var(--accent, #6c8); border-radius: 2px;
+  transition: width 0.3s ease; }
+.ctx-tokens { font-size: 11px; color: var(--text-muted); min-width: 40px; text-align: right;
+  font-variant-numeric: tabular-nums; }
 

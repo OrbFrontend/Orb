@@ -1,22 +1,7 @@
+import { installEscapingDocument } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boolFlag, escAttr, replacePlaceholders } from "../../frontend/utils.js";
-
-function installEscapingDocument() {
-  globalThis.document = {
-    createElement() {
-      return {
-        innerHTML: "",
-        set textContent(value) {
-          this.innerHTML = String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-        },
-      };
-    },
-  };
-}
 
 test("boolFlag accepts SQLite and optimistic-update true values only", () => {
   assert.equal(boolFlag(true), true);

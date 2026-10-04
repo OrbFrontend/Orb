@@ -1,133 +1,47 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-
-* {
-  scrollbar-width: var(--scrollbar-width, thin);
-  scrollbar-color: var(--scrollbar-thumb, var(--border)) var(--scrollbar-track, transparent);
-}
-
-body {
-  font-family: var(--font-ui);
-  background: var(--bg-deep);
-  color: var(--text-primary);
-  height: var(--app-height, 100dvh);
-  overflow: hidden;
-}
-
-#app {
-  display: flex;
-  height: var(--app-height, 100dvh);
-  position: relative;
-  top: var(--app-offset, 0px);
-}
-
+* { scrollbar-width: var(--scrollbar-width, thin);
+  scrollbar-color: var(--scrollbar-thumb, var(--border)) var(--scrollbar-track, transparent); }
+body { font-family: var(--font-ui); background: var(--bg-deep); color: var(--text-primary);
+  height: var(--app-height, 100dvh); overflow: hidden; }
+#app { display: flex; height: var(--app-height, 100dvh); position: relative; top: var(--app-offset, 0px); }
 .hidden { display: none !important; }
-
 [hidden] { display: none !important; }
 
 /* Align badge and host capitals across theme fonts using text-box trimming.
    Firefox requires overflow: clip for trimming. Add badges to both lists
    and their flex-row titles to the last selector. */
-@property --host-cap {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
+@property --host-cap { syntax: "<length>"; inherits: true; initial-value: 0px; }
 
 :where(
-  .inspect-chip,
-  .frag-type-badge,
-  .persona-active-badge,
-  .lb-unsaved-badge,
-  .lb-tab-badge,
-  .world-pending,
-  .cast-manage-badge,
-  .cast-row-summary-badge,
-  .lib-dupe-mark,
-  .lib-dupe-reason,
-  .lib-dupe-chip
+  .inspect-chip, .frag-type-badge, .persona-active-badge, .lb-unsaved-badge, .lb-tab-badge, .world-pending,
+  .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip
 ) {
-  display: inline-block;
-  text-box: trim-both cap alphabetic;
-  vertical-align: calc((var(--host-cap) - 1cap) / 2);
+  display: inline-block; text-box: trim-both cap alphabetic; vertical-align: calc((var(--host-cap) - 1cap) / 2);
 }
-
 :where(
   :has(
     > :is(
-      .inspect-chip,
-      .frag-type-badge,
-      .persona-active-badge,
-      .lb-unsaved-badge,
-      .lb-tab-badge,
-      .world-pending,
-      .cast-manage-badge,
-      .cast-row-summary-badge,
-      .lib-dupe-mark,
-      .lib-dupe-reason,
-      .lib-dupe-chip
+      .inspect-chip, .frag-type-badge, .persona-active-badge, .lb-unsaved-badge, .lb-tab-badge, .world-pending,
+      .cast-manage-badge, .cast-row-summary-badge, .lib-dupe-mark, .lib-dupe-reason, .lib-dupe-chip
     )
   )
 ) {
   --host-cap: 1cap;
 }
-
 :where(
-  .decision-eval-name,
-  .decision-skipped-name,
-  .msg-inspect-title,
-  .persona-name,
-  .lib-dupe-choice-label
+  .decision-eval-name, .decision-skipped-name, .msg-inspect-title, .persona-name, .lib-dupe-choice-label
 ) {
-  text-box: trim-both cap alphabetic;
-  margin-block: calc((1lh - 1cap) / 2);
+  text-box: trim-both cap alphabetic; margin-block: calc((1lh - 1cap) / 2);
 }
-
-#sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  background: var(--bg-primary);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-#inspector {
-  width: 0;
-  min-width: 0;
-  background: var(--bg-primary);
-  overflow: hidden;
-  transition: width .25s, min-width .25s;
-}
-
-#inspector.open {
-  width: var(--inspector-width);
-  min-width: var(--inspector-width);
-  border-left: 1px solid var(--border);
-}
-
-#tools-panel {
-  width: 0;
-  min-width: 0;
-  background: var(--bg-primary);
-  overflow: hidden;
-  transition: width .25s, min-width .25s;
-}
-
-#tools-panel.open {
-  width: var(--inspector-width);
-  min-width: var(--inspector-width);
-  border-left: 1px solid var(--border);
-}
-
-#inspector.no-anim,
-#tools-panel.no-anim {
-  transition: none;
-}
+#sidebar { width: var(--sidebar-width); min-width: var(--sidebar-width); background: var(--bg-primary);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#inspector { width: 0; min-width: 0; background: var(--bg-primary); overflow: hidden;
+  transition: width .25s, min-width .25s; }
+#inspector.open { width: var(--inspector-width); min-width: var(--inspector-width);
+  border-left: 1px solid var(--border); }
+#tools-panel { width: 0; min-width: 0; background: var(--bg-primary); overflow: hidden;
+  transition: width .25s, min-width .25s; }
+#tools-panel.open { width: var(--inspector-width); min-width: var(--inspector-width);
+  border-left: 1px solid var(--border); }
+#inspector.no-anim, #tools-panel.no-anim { transition: none; }

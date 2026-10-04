@@ -38,6 +38,5 @@ def migrate(conn: sqlite3.Connection) -> None:
                 metadata.pop("notes", None)
         if metadata != before:
             conn.execute(
-                "UPDATE workflow_attachments SET consumption_metadata = ? WHERE id = ?",
-                (json.dumps(metadata), attachment_id),
+                "UPDATE workflow_attachments SET consumption_metadata = ? WHERE id = ?", (json.dumps(metadata), attachment_id)
             )

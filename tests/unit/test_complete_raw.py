@@ -1,9 +1,7 @@
 """Unit tests for LLMClient.complete_raw (raw text-completion transport).
 
-Patches the documented ``_stream_completion`` HTTP seam so no sockets are
-touched. complete_raw is the Document-mode continuation path: a bare prompt
-string POSTed to llama.cpp ``/completion`` with no chat template and no
-think-splitting.
+Patches the documented ``_stream_completion`` HTTP seam so no sockets are touched. complete_raw is the Document-mode
+continuation path: a bare prompt string POSTed to llama.cpp ``/completion`` with no chat template and no think-splitting.
 """
 
 from __future__ import annotations

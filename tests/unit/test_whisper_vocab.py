@@ -6,8 +6,7 @@ import json
 
 from backend.inference.local_models.whisper.vocab import Vocabulary
 
-# Byte-level BPE spellings: "Ġ" is a space, and "ä½" + "ł" is the three UTF-8
-# bytes of 你 split across two tokens.
+# Byte-level BPE spellings: "Ġ" is a space, and "ä½" + "ł" is the three UTF-8 bytes of 你 split across two tokens.
 _TOKENS = {"Hello": 0, "Ġthere": 1, ".": 2, "ä½": 3, "ł": 4, "<|endoftext|>": 5}
 
 

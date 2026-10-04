@@ -1,7 +1,6 @@
 """Gzip whole 200 text responses using Starlette's compressor.
 
-Skip compressed media, SSE and byte ranges; compressing a 206 response
-would invalidate Content-Range offsets and break seeking.
+Skip compressed media, SSE and byte ranges; compressing a 206 response would invalidate Content-Range offsets and break seeking.
 """
 
 from __future__ import annotations

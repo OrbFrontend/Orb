@@ -1,9 +1,8 @@
 """Re-encoding on the way out (display) and on the way in (references).
 
-The reference half is the one with a contract: a destination that declares
-`allowed`/`max_bytes` must be honoured or refused, while one that declares nothing
-stays best effort. Both halves live here rather than beside each backend, because
-the rule is the same wherever the bytes are going.
+The reference half is the one with a contract: a destination that declares `allowed`/`max_bytes` must be honoured or refused,
+while one that declares nothing stays best effort. Both halves live here rather than beside each backend, because the rule is
+the same wherever the bytes are going.
 """
 
 import io
@@ -12,11 +11,7 @@ import pytest
 from PIL import Image
 
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
-from backend.workflows.image_gen.engine.display_encode import (
-    lossless_png,
-    normalize_reference,
-    shrink_for_display,
-)
+from backend.workflows.image_gen.engine.display_encode import lossless_png, normalize_reference, shrink_for_display
 
 _CAP = 4 * 1024 * 1024
 

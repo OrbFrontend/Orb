@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ...core.text_segmentation import (
-    HARD_LINE_BREAK_RE,
-    find_quote_spans,
-    split_paragraphs,
-    split_sentence_units,
-)
+from ...core.text_segmentation import HARD_LINE_BREAK_RE, find_quote_spans, split_paragraphs, split_sentence_units
 
 __all__ = [
     "split_segment_sentences",
@@ -29,8 +24,7 @@ def split_narration_sentences(text: str) -> list[str]:
     def append_run(run: str, *, touches_dialogue: bool) -> None:
         units = split_sentence_units(run)
         if touches_dialogue:
-            # In punctuation-outside-quote styles (``"Enough". Then``), a
-            # punctuation-only narration block belongs to the quote.
+            # In punctuation-outside-quote styles (``"Enough". Then``), a punctuation-only narration block belongs to the quote.
             units = [unit for unit in units if any(ch.isalnum() for ch in unit)]
         sentences.extend(units)
 

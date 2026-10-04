@@ -11,15 +11,12 @@ from typing import Any
 class SpeakableChunk:
     """A unit of text ready for TTS synthesis.
 
-    Speech extractors produce these from writer output.
-    Each chunk has its own emotion/prosody settings.
+    Speech extractors produce these from writer output. Each chunk has its own emotion/prosody settings.
     """
 
     text: str
-    # Dialogue without the optional emotion-tag prefix that `text` may carry for
-    # tag-aware backends. Word-timing alignment keys off this, because the
-    # highlighted on-screen words never include the tag; equals `text` when no
-    # tag was applied.
+    # Dialogue without the optional emotion-tag prefix that `text` may carry for tag-aware backends. Word-timing alignment keys
+    # off this, because the highlighted on-screen words never include the tag; equals `text` when no tag was applied.
     spoken_text: str = ""
     emotion: str = "neutral"
     pause_before_ms: int = 0
@@ -53,9 +50,8 @@ class SynthesisResult:
     content_type: str = "audio/mpeg"  # MIME type
     duration_ms: int = 0  # Estimated duration (0 if unknown)
     size_bytes: int = 0
-    # Per-word clip-local spans from a backend that natively reports them (edge's
-    # WordBoundary stream); None when the backend has no native timing, leaving
-    # the caller to estimate. Each entry: {text, start_ms, end_ms}.
+    # Per-word clip-local spans from a backend that natively reports them (edge's WordBoundary stream); None when the backend
+    # has no native timing, leaving the caller to estimate. Each entry: {text, start_ms, end_ms}.
     word_boundaries: list[dict] | None = None
 
     def __post_init__(self):
@@ -66,8 +62,7 @@ class SynthesisResult:
 class TTSAdapter(ABC):
     """Abstract base class for TTS backends.
 
-    Each adapter wraps a specific TTS service (Edge TTS, Fish Speech, etc.)
-    and translates SpeakableChunks into audio.
+    Each adapter wraps a specific TTS service (Edge TTS, Fish Speech, etc.) and translates SpeakableChunks into audio.
     """
 
     _supports_streaming = False
@@ -124,8 +119,7 @@ class TTSAdapter(ABC):
     def _chunks_to_text(self, chunks: list[SpeakableChunk]) -> str:
         """Merge chunks into plain text with natural pauses.
 
-        Used by backends that don't support explicit pause markers.
-        Punctuation-based pauses: periods, ellipses, commas.
+        Used by backends that don't support explicit pause markers. Punctuation-based pauses: periods, ellipses, commas.
         """
         parts = []
         for chunk in chunks:

@@ -1,5 +1,4 @@
-"""Add macro_choices for persistent fragment random picks and macro_seed for
-rebuilt prompt fields.
+"""Add macro_choices for persistent fragment random picks and macro_seed for rebuilt prompt fields.
 
 Empty seed uses conversation id; forks copy the effective seed for prefix parity.
 """

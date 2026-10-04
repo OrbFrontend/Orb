@@ -6,15 +6,13 @@ from typing import Literal, NamedTuple, TypeAlias
 
 AgentLane: TypeAlias = Literal["writer", "agent"]
 CompletionMode: TypeAlias = Literal["chat", "text"]
-# Which lane an ``endpoints`` row belongs to. The Writer and Agent share the
-# ``chat`` pool; ``judge`` rows are the decision classifier's own connections and
-# are never offered to the chat lanes.
+# Which lane an ``endpoints`` row belongs to. The Writer and Agent share the ``chat`` pool; ``judge`` rows are the decision
+# classifier's own connections and are never offered to the chat lanes.
 EndpointKind: TypeAlias = Literal["chat", "judge"]
 MessageRole: TypeAlias = Literal["user", "assistant"]
 
-# Which character information every group generation carries. Stored on
-# ``conversations.group_context_mode``; the projection each value selects lives
-# in ``prompting/group_context.py`` and nowhere else.
+# Which character information every group generation carries. Stored on ``conversations.group_context_mode``; the projection
+# each value selects lives in ``prompting/group_context.py`` and nowhere else.
 GroupContextMode: TypeAlias = Literal["private", "shared", "swap"]
 
 
@@ -30,10 +28,8 @@ class CastMember(NamedTuple):
     private_sheet: str
     mes_example: str
     post_history: str
-    # In scene but never scheduled to speak. Muted members still contribute
-    # their identity to the shared body — the cast has to know they are there —
-    # but they can never be the *active* speaker, so they are excluded from
-    # per-speaker maxima.
+    # In scene but never scheduled to speak. Muted members still contribute their identity to the shared body — the cast has to
+    # know they are there — but they can never be the *active* speaker, so they are excluded from per-speaker maxima.
     muted: bool = False
 
 

@@ -88,11 +88,7 @@ def test_without_a_model_the_workflow_toggle_keeps_its_meaning():
 
 
 def test_runs_once():
-    conn = _staged(
-        workflow_enabled={"prose_rewriter": False},
-        local_ml_enabled={"prose_rewriter": True},
-        local_ml_config=MODEL,
-    )
+    conn = _staged(workflow_enabled={"prose_rewriter": False}, local_ml_enabled={"prose_rewriter": True}, local_ml_config=MODEL)
 
     _migrate(conn)
     first = _row(conn)

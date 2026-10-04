@@ -115,11 +115,7 @@ def _match_regex_group(rx: re.Pattern, sentence: str) -> ClicheHit | None:
 
 
 def _match_sentence(
-    sent_tokens: list[str],
-    sent_lower: str,
-    sentence: str,
-    compiled_groups: list[tuple],
-    threshold: float,
+    sent_tokens: list[str], sent_lower: str, sentence: str, compiled_groups: list[tuple], threshold: float
 ) -> list[ClicheHit]:
     hits: list[ClicheHit] = []
     # Precompute normalised sentence for comma-insensitive short matches
@@ -192,11 +188,7 @@ def _deduplicate_hits(hits: list[ClicheHit]) -> list[ClicheHit]:
     return kept
 
 
-def detect_cliches(
-    text: str,
-    phrase_bank: list[PhraseGroup],
-    threshold: float = _DEFAULT_THRESHOLD,
-) -> DetectionResult:
+def detect_cliches(text: str, phrase_bank: list[PhraseGroup], threshold: float = _DEFAULT_THRESHOLD) -> DetectionResult:
     sentences = _split_sentences(text)
     compiled_groups = _compile_phrase_bank(phrase_bank)
     flagged: list[FlaggedSentence] = []

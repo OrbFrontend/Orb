@@ -47,11 +47,9 @@ async def test_disjoint_wid_paths_compose_under_json_set():
 async def test_naked_rmw_without_lock_loses_writes():
     """All readers must complete before any writer proceeds.
 
-    Without the gate, asyncio could interleave a read after another
-    coroutine's write, hiding the lost-write race behind a non-deterministic
-    schedule. The ``asyncio.Event`` forces every coroutine to read the same
-    empty starting state, so the final counter is deterministically 1
-    rather than something between 1 and ``n``.
+    Without the gate, asyncio could interleave a read after another coroutine's write, hiding the lost-write race behind a
+    non-deterministic schedule. The ``asyncio.Event`` forces every coroutine to read the same empty starting state, so the final
+    counter is deterministically 1 rather than something between 1 and ``n``.
     """
     wid = "wf_naked"
     n = 20

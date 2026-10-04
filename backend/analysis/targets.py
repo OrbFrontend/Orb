@@ -6,13 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from ..core.text_segmentation import split_paragraphs
-from .audit import (
-    CLEAN_REPORT,
-    OUTER_MARKERS,
-    AuditReport,
-    negation_reason,
-    strip_markers,
-)
+from .audit import CLEAN_REPORT, OUTER_MARKERS, AuditReport, negation_reason, strip_markers
 from .detectors.negated_narration import NegationFinding
 from .detectors.opening_monotony import FlaggedOpener
 from .detectors.template_repetition import FlaggedTemplate
@@ -87,24 +81,12 @@ def _raw_findings(report: AuditReport, draft: str) -> list[tuple[str, str, str]]
             raw.append((s, "repetitive_templates", f'follows the repeated sentence structure "{ft.template}"'))
     for nb in report.not_but_result:
         if nb.get("sentence"):
-            raw.append(
-                (
-                    nb["sentence"],
-                    "contrastive_negation",
-                    "uses the contrastive-negation cliché ('not X, but Y')",
-                )
-            )
+            raw.append((nb["sentence"], "contrastive_negation", "uses the contrastive-negation cliché ('not X, but Y')"))
     if report.phrase_result:
         for fp in report.phrase_result.flagged_phrases:
             for s in reversed(fp.example_sentences):
                 if s in draft:
-                    raw.append(
-                        (
-                            s,
-                            "phrase_repetition",
-                            f'reuses the phrase "{fp.phrase}" already seen in previous messages',
-                        )
-                    )
+                    raw.append((s, "phrase_repetition", f'reuses the phrase "{fp.phrase}" already seen in previous messages'))
                     break
     if report.echo_result:
         for fe in report.echo_result.flagged_echoes:

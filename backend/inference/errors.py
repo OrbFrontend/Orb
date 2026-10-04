@@ -24,33 +24,22 @@ _MIN_SECRET_LEN = 4
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
-# How many nested gateway envelopes to unwrap. One gateway in front of one
-# provider is the shape that exists; the cap is only so a body that quotes itself
-# cannot recurse without end.
+# How many nested gateway envelopes to unwrap. One gateway in front of one provider is the shape that exists; the cap is only so
+# a body that quotes itself cannot recurse without end.
 _MAX_UNWRAP = 3
 
 
 class LLMCallError(httpx.HTTPStatusError):
     """A provider rejection with the provider's own words kept alongside the status.
 
-    ``sentence`` is the one line worth putting in front of a user; ``body`` is the
-    whole response, credential removed, for the case where the sentence is not
-    enough. Both are already sanitized -- a consumer may render them without
-    re-checking.
+    ``sentence`` is the one line worth putting in front of a user; ``body`` is the whole response, credential removed, for the
+    case where the sentence is not enough. Both are already sanitized -- a consumer may render them without re-checking.
     """
 
     stream_event = False
 
     def __init__(
-        self,
-        message: str,
-        *,
-        request: httpx.Request,
-        response: httpx.Response,
-        sentence: str,
-        body: str,
-        host: str,
-        model: str,
+        self, message: str, *, request: httpx.Request, response: httpx.Response, sentence: str, body: str, host: str, model: str
     ) -> None:
         super().__init__(message, request=request, response=response)
         self.sentence = sentence
@@ -74,10 +63,9 @@ def redact(text: str, secret: str) -> str:
 def _walk_strings(payload: Any, *, limit: int = 6, budget: int = 200) -> str:
     """Every human-looking string in a body, outermost first.
 
-    The fallback for a shape nobody enumerated, and the reason the well-known keys
-    in :func:`provider_sentence` can stay a short list instead of growing a row per
-    provider. Breadth first, because the outer strings are the summary and the inner
-    ones the particulars.
+    The fallback for a shape nobody enumerated, and the reason the well-known keys in :func:`provider_sentence` can stay a short
+    list instead of growing a row per provider. Breadth first, because the outer strings are the summary and the inner ones the
+    particulars.
     """
     found: list[str] = []
     queue: list[Any] = [payload]
@@ -153,23 +141,14 @@ def provider_sentence(body: str, _depth: int = 0) -> str:
     return _WHITESPACE_RE.sub(" ", found).strip()[:SENTENCE_LIMIT]
 
 
-def llm_call_error(
-    *,
-    response: httpx.Response,
-    body: str,
-    url: str,
-    model: str,
-    api_key: str,
-) -> LLMCallError:
+def llm_call_error(*, response: httpx.Response, body: str, url: str, model: str, api_key: str) -> LLMCallError:
     """Build the typed rejection from what the transport already holds.
 
-    *body* is the text ``_read_error_body`` already read and logged; passing it in
-    rather than re-reading matters because a streaming response can only be read
-    once.
+    *body* is the text ``_read_error_body`` already read and logged; passing it in rather than re-reading matters because a
+    streaming response can only be read once.
 
-    ``Response.request`` raises ``RuntimeError`` when the response was constructed
-    without one, so it is never read bare — a synthesized request from *url* keeps
-    the exception well-formed for ``RetryPolicy`` either way.
+    ``Response.request`` raises ``RuntimeError`` when the response was constructed without one, so it is never read bare — a
+    synthesized request from *url* keeps the exception well-formed for ``RetryPolicy`` either way.
     """
     clean = redact(body, api_key)[:BODY_LIMIT]
     sentence = redact(provider_sentence(body), api_key)[:SENTENCE_LIMIT]
@@ -193,9 +172,8 @@ def llm_call_error(
 def llm_stream_error(*, payload: object, url: str, model: str, api_key: str) -> LLMCallError:
     """Build a normal sanitized provider error for an SSE error event.
 
-    Providers can report an error inside an HTTP-200 stream, or end a stream
-    before its terminal event. A synthetic 502 response represents that upstream
-    failure without teaching pipeline failure rendering a second exception shape.
+    Providers can report an error inside an HTTP-200 stream, or end a stream before its terminal event. A synthetic 502 response
+    represents that upstream failure without teaching pipeline failure rendering a second exception shape.
     """
     body = json.dumps(payload, ensure_ascii=False) if not isinstance(payload, str) else payload
     request = httpx.Request("POST", url)

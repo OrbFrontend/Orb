@@ -1,8 +1,7 @@
 """On-demand guards, replay routing, and the on-demand-only contract.
 
-The generate action returns a `StreamingResponse` whose body is consumed after the
-trigger route has released its locks, so every one of these asserts against the
-*stream* rather than a JSON body -- a guard that answers with plain JSON here is
+The generate action returns a `StreamingResponse` whose body is consumed after the trigger route has released its locks, so
+every one of these asserts against the *stream* rather than a JSON body -- a guard that answers with plain JSON here is
 invisible to the client, which is parsing SSE frames.
 """
 
@@ -25,10 +24,7 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.workflows import set_workflow_character_state, set_workflow_config
-from backend.workflows.attachment_cache import (
-    insert_workflow_variant,
-    set_active_sibling,
-)
+from backend.workflows.attachment_cache import insert_workflow_variant, set_active_sibling
 from backend.workflows.image_gen import pov
 from backend.workflows.image_gen.composer import Revision
 from backend.workflows.image_gen.engine import ImageGenerationError, ImageResult
@@ -94,11 +90,7 @@ async def _seed(conv_id: str, *, with_character: bool = False, config: dict | No
     if with_character:
         await create_character_card({"id": f"{conv_id}-char", "name": "Iris"})
     await create_conversation(
-        conv_id,
-        "Images",
-        "Iris",
-        "A quiet room",
-        character_card_id=f"{conv_id}-char" if with_character else None,
+        conv_id, "Images", "Iris", "A quiet room", character_card_id=f"{conv_id}-char" if with_character else None
     )
     mid, _ = await add_message(conv_id, "assistant", "She turns toward the door.", 0)
     await set_active_leaf(conv_id, mid)
@@ -131,14 +123,14 @@ async def _attach(
 
 
 async def _trigger(client, conv_id: str, body: dict) -> list[tuple[str, dict]]:
-    response = await client.post(f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json=body)
-    assert response.status_code == 200
+    response = await client.post_checked(f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json=body)
     return _events(response.text)
 
 
 async def _replay(client, conv_id: str, mid: int, aid: int, action: str = "reroll-gen", **body):
-    response = await client.post(f"/api/conversations/{conv_id}/messages/{mid}/workflow-attachments/{aid}/{action}", json=body)
-    assert response.status_code == 200
+    response = await client.post_checked(
+        f"/api/conversations/{conv_id}/messages/{mid}/workflow-attachments/{aid}/{action}", json=body
+    )
     return response
 
 
@@ -194,8 +186,7 @@ def _cloud_render(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "body_key, message",
-    [("bad_type", "message_id (int) required"), ("missing", "no longer part of this conversation")],
+    "body_key, message", [("bad_type", "message_id (int) required"), ("missing", "no longer part of this conversation")]
 )
 async def test_a_rejected_generate_still_speaks_the_stream_contract(client, monkeypatch, body_key, message):
     """A guard that answers in JSON leaves the client waiting on frames that never
@@ -300,11 +291,10 @@ async def test_two_concurrent_triggers_on_one_message_stay_separate_roots(client
 
 # ── replay ───────────────────────────────────────────────────────────────────
 #
-# One hook, two routes, one thing they disagree about. /rehydrate owes the row the
-# image it lost, so it renders what the row recorded; /reroll-gen owes the user
-# another variant of the same subject, so it renders on the style as it stands --
-# otherwise every render setting is inert on any image already made, and only
-# Regenerate, which rewrites the prompt too, can pick a new one up.
+# One hook, two routes, one thing they disagree about. /rehydrate owes the row the image it lost, so it renders what the row
+# recorded; /reroll-gen owes the user another variant of the same subject, so it renders on the style as it stands -- otherwise
+# every render setting is inert on any image already made, and only Regenerate, which rewrites the prompt too, can pick a new
+# one up.
 
 # Styles that pin targets of their own, so "what the row recorded" and "what the
 # style says now" are two different answers rather than the same one twice.
@@ -337,9 +327,8 @@ async def test_reroll_renders_on_the_style_as_it_stands_now(client, monkeypatch)
     assert captured["checkpoint"] == "current.safetensors"
     assert captured["graph_id"] == "user_a"
     assert captured["seed"] != 1234, "a reroll must move the seed or it silently returns the cached image"
-    # And the sibling records the render it got rather than the one its parent got:
-    # it is itself rehydratable, and a record naming the parent's checkpoint would
-    # restore an image this row never made.
+    # And the sibling records the render it got rather than the one its parent got: it is itself rehydratable, and a record
+    # naming the parent's checkpoint would restore an image this row never made.
     assert json.loads((await _sibling(mid, aid))["generation_metadata"])["backend_model"] == "current.safetensors"
 
 
@@ -412,14 +401,13 @@ async def test_an_override_that_keeps_the_style_still_renders_on_it(client, monk
 @pytest.mark.asyncio
 async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client, monkeypatch):
     mid = await _seed("ig-regen")
-    agent_endpoint = await client.post("/api/endpoints", json={"url": "http://regen-agent.local", "api_key": "agent-key"})
-    assert agent_endpoint.status_code == 200
-    agent_model = await client.put(
-        f"/api/models/{agent_endpoint.json()['agent_active_model_config_id']}",
-        json={"model_name": "regen-agent-model"},
+    agent_endpoint = await client.post_checked(
+        "/api/endpoints", json={"url": "http://regen-agent.local", "api_key": "agent-key"}
     )
-    assert agent_model.status_code == 200
-    settings = await client.put(
+    await client.put_checked(
+        f"/api/models/{agent_endpoint.json()['agent_active_model_config_id']}", json={"model_name": "regen-agent-model"}
+    )
+    await client.put_checked(
         "/api/settings",
         json={
             "agent_same_as_writer": False,
@@ -427,7 +415,6 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
             "agent_shared_system_prompt": "Regeneration agent system.",
         },
     )
-    assert settings.status_code == 200
 
     aid = await _attach(mid, style_id="realistic", prompt="stale")
     captured: dict = {}
@@ -637,8 +624,7 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
     """Composing blind instead would leave the setting looking as if it worked."""
     earlier = await _seed("ig-pref-fail", config={**CONFIG, "prompter_reference": True})
     await insert_workflow_attachment_row(
-        earlier,
-        {"filename": "x.png", "mime": "image/png", "data": _png(), "workflow_id": "image_gen", "seed": "1"},
+        earlier, {"filename": "x.png", "mime": "image/png", "data": _png(), "workflow_id": "image_gen", "seed": "1"}
     )
     uid, _ = await add_message("ig-pref-fail", "user", "Later.", 1, parent_id=earlier)
     mid, _ = await add_message("ig-pref-fail", "assistant", "She steps outside.", 2, parent_id=uid)
@@ -728,8 +714,7 @@ async def test_regeneration_streams_review_reason_only_in_live_progress(client, 
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
     url = f"/api/conversations/ig-regen-refine/messages/{mid}/workflow-attachments/{target_id}/regenerate"
-    response = await client.post(url, json={}, headers={"Accept": "text/event-stream"})
-    assert response.status_code == 200
+    response = await client.post_checked(url, json={}, headers={"Accept": "text/event-stream"})
     events = _events(response.text)
     labels = [data["label"] for name, data in events if name == "phase_status"]
     assert "Rendering revision 1... hands merged" in labels
@@ -810,9 +795,8 @@ async def test_pov_mode_is_global_config(client):
     await client.put("/api/workflows/image_gen/config", json={"config": {**CONFIG, "pov_mode": "sideways"}})
     assert (await client.get("/api/workflows/image_gen/config")).json()["config"]["pov_mode"] == "auto"
 
-    # The picker labels "Auto" off these two, so both must be answered whatever the
-    # machine has on disk -- a dev box with the GGUF present reports ready, and an
-    # absent flag would leave the label lying either way.
+    # The picker labels "Auto" off these two, so both must be answered whatever the machine has on disk -- a dev box with the
+    # GGUF present reports ready, and an absent flag would leave the label lying either way.
     status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
     assert isinstance(status["classifier_ready"], bool)
     assert status["fallback_mode"] == pov.DEFAULT_POV_MODE
@@ -978,8 +962,7 @@ async def test_a_cloud_generate_runs_the_whole_stack_end_to_end(client, monkeypa
         submitted["auth"] = request.headers.get("authorization")
         submitted["body"] = json.loads(request.content)
         return httpx.Response(
-            200,
-            json={"data": [{"b64_json": base64.b64encode(buf.getvalue()).decode()}], "usage": {"cost_in_usd_ticks": 900}},
+            200, json={"data": [{"b64_json": base64.b64encode(buf.getvalue()).decode()}], "usage": {"cost_in_usd_ticks": 900}}
         )
 
     monkeypatch.setattr(
@@ -1022,13 +1005,11 @@ async def test_a_cloud_generate_runs_the_whole_stack_end_to_end(client, monkeypa
     # Real pixels, probed off what came back -- not the 1536x1024 that was asked for.
     assert (metadata["width"], metadata["height"]) == (1344, 768)
     assert metadata["seed_honored"] is False
-    # The seed is still stored: rehydrate 409s on a null one, which would make every
-    # cloud image permanently unrehydratable.
+    # The seed is still stored: rehydrate 409s on a null one, which would make every cloud image permanently unrehydratable.
     assert rows[0]["seed"]
 
     consumption = json.loads(rows[0]["consumption_metadata"])
     assert consumption["source"] == "xAI (Grok)"
     assert consumption["cost"] == {"provider": "xai", "unit": "usd_ticks", "value": 900}
-    # The negative is recorded even though it was never sent, so replaying this image
-    # on ComfyUI later is still correct.
+    # The negative is recorded even though it was never sent, so replaying this image on ComfyUI later is still correct.
     assert "negative_prompt" in consumption

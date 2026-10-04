@@ -17,11 +17,7 @@ from backend.analysis import (
     run_audit,
 )
 from backend.features.documents.audit import _audit_sync, audit_document
-from backend.pipeline.passes.editor.prompts import (
-    PATCH_CATEGORY_RULES,
-    build_editor_prompt,
-    patch_instructions,
-)
+from backend.pipeline.passes.editor.prompts import PATCH_CATEGORY_RULES, build_editor_prompt, patch_instructions
 
 _ON = {key: key == "negated_narration" for key in AUDIT_TYPES}
 _RULE = PATCH_CATEGORY_RULES["negated_narration"]

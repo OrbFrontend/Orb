@@ -11,16 +11,14 @@ CAST_HEADING = "## Cast"
 DOSSIER_HEADING = "## Character dossier: "
 ACTIVE_CARD_HEADING = "## Character: "
 EXAMPLE_HEADING = "## Example Dialogue"
-# A dossier is a `##` section, so its examples nest one level deeper or they
-# would close the dossier they belong to.
+# A dossier is a `##` section, so its examples nest one level deeper or they would close the dossier they belong to.
 DOSSIER_EXAMPLE_HEADING = "### Example Dialogue"
 
 
 def carries_public_cast(mode: GroupContextMode) -> bool:
     """Whether the shared body needs public profiles: private/swap do, shared does not.
 
-    Private card text stays owner-only; swap appends the active card after the
-    profiles. Shared mode already exposes every card.
+    Private card text stays owner-only; swap appends the active card after the profiles. Shared mode already exposes every card.
     """
     return mode != "shared"
 
@@ -37,21 +35,18 @@ def _shared_component_key(mode: GroupContextMode) -> str:
 def prefix_is_speaker_scoped(mode: GroupContextMode) -> bool:
     """True when the shared system body depends on *who* is speaking.
 
-    Only Classic card swap substitutes an active card before history, so only
-    it needs one frozen prefix per selected speaker -- plus a neutral one for
-    the Director and the pre-pipeline hooks, which both run before a speaking
-    plan exists.
+    Only Classic card swap substitutes an active card before history, so only it needs one frozen prefix per selected speaker --
+    plus a neutral one for the Director and the pre-pipeline hooks, which both run before a speaking plan exists.
     """
     return mode == "swap"
 
 
 def tail_carries_identity(mode: GroupContextMode) -> bool:
-    """True when the speaker's description/personality/examples ride the
-    trailing Writer message rather than the shared system body.
+    """True when the speaker's description/personality/examples ride the trailing Writer message rather than the shared system
+    body.
 
-    A *card's* ``post_history_instructions`` is not covered by this: it is
-    active-only in every mode and always stays in the tail. The scene's own
-    directive is not a member field at all and rides the shared body.
+    A *card's* ``post_history_instructions`` is not covered by this: it is active-only in every mode and always stays in the
+    tail. The scene's own directive is not a member field at all and rides the shared body.
     """
     return mode == "private"
 
@@ -114,11 +109,9 @@ def render_dossier(member: CastMember, macros: Macros | None, roster: str) -> st
 def render_active_card(speaker: CastMember, macros: Macros | None, roster: str) -> str:
     """Classic card swap: the selected member's identity fields, card-style.
 
-    Appended after the public cast, so the speaker is described twice on
-    purpose: the short public line the rest of the cast reads about it, then its
-    own card. The same doubling exists under Private, where the card lands in
-    the tail instead -- neither mode suppresses a member's public profile just
-    because that member happens to be speaking.
+    Appended after the public cast, so the speaker is described twice on purpose: the short public line the rest of the cast
+    reads about it, then its own card. The same doubling exists under Private, where the card lands in the tail instead --
+    neither mode suppresses a member's public profile just because that member happens to be speaking.
     """
     resolve = _resolver(member_macros(macros, speaker, roster))
     parts = [f"\n\n{ACTIVE_CARD_HEADING}{speaker.name}"]
@@ -132,24 +125,21 @@ def render_active_card(speaker: CastMember, macros: Macros | None, roster: str) 
 def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
     """The whole group identity section of the system body, leading newlines included.
 
-    Returns ``""`` for a solo turn. In Classic card swap a *cast* with no
-    ``speaker`` renders the neutral base every speaker's prefix shares: the
-    public cast and nothing after it.
+    Returns ``""`` for a solo turn. In Classic card swap a *cast* with no ``speaker`` renders the neutral base every speaker's
+    prefix shares: the public cast and nothing after it.
     """
     if not cast.grouped:
         return ""
     roster = roster_names(cast)
     if not carries_public_cast(cast.context_mode):
-        # Shared keeps a names-only list ahead of the dossiers: it guarantees
-        # every active member is named even when its dossier is empty. The other
-        # two get that floor from the public cast's per-member headings.
+        # Shared keeps a names-only list ahead of the dossiers: it guarantees every active member is named even when its dossier
+        # is empty. The other two get that floor from the public cast's per-member headings.
         parts = [f"\n\n{CAST_HEADING}\n{roster}"]
         parts.extend(render_dossier(member, macros, roster) for member in cast.members)
         return "".join(parts)
     parts = [_render_public_cast(cast, macros, roster)]
-    # Swap alone appends a card, and only once a speaker is chosen -- the
-    # Director and the pre-pipeline hooks run before that and stop at the
-    # public cast, which is exactly the base each speaker then extends.
+    # Swap alone appends a card, and only once a speaker is chosen -- the Director and the pre-pipeline hooks run before that
+    # and stop at the public cast, which is exactly the base each speaker then extends.
     if prefix_is_speaker_scoped(cast.context_mode) and cast.speaker is not None:
         parts.append(render_active_card(cast.speaker, macros, roster))
     return "".join(parts)
@@ -158,10 +148,8 @@ def render_cast_section(cast: TurnCast, macros: Macros | None) -> str:
 def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_prompt_overrides: bool) -> list[str]:
     """The member's own fields the trailing Writer message carries, in order.
 
-    Derived from :func:`tail_carries_identity`, so this and the tail
-    ``build_writer_content`` actually renders cannot disagree about *which*
-    fields ship -- only about the headings wrapped around them, which the
-    size estimator does not need.
+    Derived from :func:`tail_carries_identity`, so this and the tail ``build_writer_content`` actually renders cannot disagree
+    about *which* fields ship -- only about the headings wrapped around them, which the size estimator does not need.
     """
     fields = [member.private_sheet, member.mes_example] if tail_carries_identity(mode) else []
     if not prevent_prompt_overrides:
@@ -170,25 +158,20 @@ def speaker_tail_fields(member: CastMember, mode: GroupContextMode, *, prevent_p
 
 
 def context_size_components(
-    cast: TurnCast,
-    macros: Macros | None,
-    *,
-    prevent_prompt_overrides: bool = False,
+    cast: TurnCast, macros: Macros | None, *, prevent_prompt_overrides: bool = False
 ) -> list[tuple[str, str]]:
     """The mode's group-specific size components as ``(key, text)`` pairs.
 
-    The estimate is a *maximum* group call, not a sum: the shared body once,
-    plus the largest single speaker's share of it. Built from the same
-    renderers the prompt uses so the two cannot drift.
+    The estimate is a *maximum* group call, not a sum: the shared body once, plus the largest single speaker's share of it.
+    Built from the same renderers the prompt uses so the two cannot drift.
     """
     mode = cast.context_mode
     roster = roster_names(cast)
     neutral = cast._replace(speaker=None)
     components = [(_shared_component_key(mode), render_cast_section(neutral, macros))]
-    # The shared body above covers the whole roster, muted members included --
-    # they are in scene. The per-speaker maxima below must not: a muted member
-    # is never scheduled, so billing the exchange for a card that can never be sent
-    # overstates the call. An all-muted scene generates nothing and measures 0.
+    # The shared body above covers the whole roster, muted members included -- they are in scene. The per-speaker maxima below
+    # must not: a muted member is never scheduled, so billing the exchange for a card that can never be sent overstates the
+    # call. An all-muted scene generates nothing and measures 0.
     speakers = [member for member in cast.members if not member.muted]
     if prefix_is_speaker_scoped(mode):
         cards = [render_active_card(member, macros, roster) for member in speakers]

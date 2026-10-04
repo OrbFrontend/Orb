@@ -10,14 +10,7 @@ from backend.analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from backend.analysis.text.roleplay_segmentation import split_segment_sentences
 from backend.features.slop_suggestions.patterns import LOOSE, STRICT, Shape, build_regex
 from backend.features.slop_suggestions.runner import REFRESH_REPLIES, stale
-from backend.features.slop_suggestions.scoring import (
-    KeyStats,
-    count_candidates,
-    count_card,
-    fill_lane,
-    key_stats,
-    overuse_lb,
-)
+from backend.features.slop_suggestions.scoring import KeyStats, count_candidates, count_card, fill_lane, key_stats, overuse_lb
 from backend.features.slop_suggestions.shapes import sentence_keys, sentences
 
 NO_NAMES: frozenset[str] = frozenset()

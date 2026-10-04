@@ -27,11 +27,10 @@ def _shell_quote(path: str) -> str:
 
 
 def install_cmd() -> str:
-    """Install command for THIS interpreter, fully qualified — a bare `pip` targets
-    whatever's on PATH, not the venv/uv env the server actually runs under, so the
-    extras land in the wrong Python and the button stays gray; and a bare
-    requirements filename only resolves if the shell happens to be cwd'd into the
-    repo, which a fresh cmd prompt is not."""
+    """Install command for THIS interpreter, fully qualified — a bare `pip` targets whatever's on PATH, not the venv/uv env the
+    server actually runs under, so the extras land in the wrong Python and the button stays gray; and a bare requirements
+    filename only resolves if the shell happens to be cwd'd into the repo, which a fresh cmd prompt is not.
+    """
     req = os.path.join(_ROOT, "requirements-ml.txt")
     return f"{_shell_quote(sys.executable)} -m pip install -r {_shell_quote(req)}"
 
@@ -39,9 +38,8 @@ def install_cmd() -> str:
 def deps_ok(feature: str | None = None) -> tuple[bool, str]:
     """Check importable extras without loading models.
 
-    llama_server needs download support; llama_cpp also needs its binding;
-    ONNX runtime needs onnxruntime, not the graph-building onnx package.
-    feature=None checks all extras for the grouped opt-in card.
+    llama_server needs download support; llama_cpp also needs its binding; ONNX runtime needs onnxruntime, not the
+    graph-building onnx package. feature=None checks all extras for the grouped opt-in card.
     """
     runtime = MODELS[feature].runtime if feature in MODELS else "llama_cpp"
     try:

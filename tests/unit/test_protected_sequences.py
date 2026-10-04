@@ -53,9 +53,8 @@ def _rejection(errors: list[str]) -> str:
 
 @pytest.mark.parametrize("markup", list(DRAFTS))
 def test_a_copied_line_is_rejected_whatever_wraps_it(markup):
-    # `"Don't touch it,"` sits in protected text before the flagged narration.
-    # Quotes, smart quotes, asterisks, a bare line and a paragraph break are all
-    # formatting: the lexical run don't/touch/it is the same copy in each.
+    # `"Don't touch it,"` sits in protected text before the flagged narration. Quotes, smart quotes, asterisks, a bare line and
+    # a paragraph break are all formatting: the lexical run don't/touch/it is the same copy in each.
     draft = DRAFTS[markup]
     out, errors = _apply(draft, [{"id": 1, "replace": "Don't touch it, she whispered again."}])
     assert out == draft
@@ -89,9 +88,8 @@ def test_a_copy_from_after_the_span_names_the_right_side():
 
 
 def test_an_interior_copy_is_rejected_rather_than_trimmed():
-    # An end-aligned copy can be trimmed because the remainder rejoins the text
-    # it duplicated. An interior one carries no such guarantee, so the writer's
-    # original text is kept instead of a guess at what the model meant.
+    # An end-aligned copy can be trimmed because the remainder rejoins the text it duplicated. An interior one carries no such
+    # guarantee, so the writer's original text is kept instead of a guess at what the model meant.
     draft = DRAFTS["straight"]
     out, errors = _apply(draft, [{"id": 1, "replace": "She said don't touch it, and her hand fell away."}])
     assert out == draft
@@ -117,14 +115,10 @@ def test_healing_still_trims_an_end_aligned_copy():
 
 
 def test_the_guard_reads_the_healed_text_not_the_raw_replacement():
-    # Healing trims the copied tail; what it leaves still contains an interior
-    # clone. Guarding the raw `replace` would have found the tail first and
-    # reported the wrong run — guarding the healed text finds the real one.
+    # Healing trims the copied tail; what it leaves still contains an interior clone. Guarding the raw `replace` would have
+    # found the tail first and reported the wrong run — guarding the healed text finds the real one.
     draft = DRAFTS["straight"]
-    out, errors = _apply(
-        draft,
-        [{"id": 1, "replace": "Don't touch it, she whispered. \"I wasn't going to,\" Ilya replied."}],
-    )
+    out, errors = _apply(draft, [{"id": 1, "replace": "Don't touch it, she whispered. \"I wasn't going to,\" Ilya replied."}])
     assert out == draft
     assert "“Don't touch it”" in _rejection(errors)
 
@@ -163,9 +157,8 @@ def test_short_overlaps_do_not_hard_fail():
 
 
 def test_a_short_three_token_run_is_logged_not_rejected(caplog):
-    # Three tokens but only eight alphanumeric characters: over the token floor,
-    # under the character floor. Allowed, and logged so the false-positive
-    # corpus can be read before the constants move.
+    # Three tokens but only eight alphanumeric characters: over the token floor, under the character floor. Allowed, and logged
+    # so the false-positive corpus can be read before the constants move.
     draft = "He sat in the car. The rain was heavy and grey. She never looked back."
     span = "The rain was heavy and grey."
     start = draft.index(span)
@@ -200,10 +193,9 @@ def test_a_two_token_name_near_the_target_is_not_a_false_positive():
 
 
 def test_a_three_token_name_is_a_known_false_positive():
-    # Locality, uniqueness and the length floors reduce this risk but cannot
-    # remove it: a three-word name repeated beside its own mention reads exactly
-    # like a clone. Pinned as the measured cost of the conservative policy — the
-    # fallback keeps the writer's text, which is the acceptable failure here.
+    # Locality, uniqueness and the length floors reduce this risk but cannot remove it: a three-word name repeated beside its
+    # own mention reads exactly like a clone. Pinned as the measured cost of the conservative policy — the fallback keeps the
+    # writer's text, which is the acceptable failure here.
     draft = "Captain Ilyra Venn crossed the deck. The night was dark and full of terrors. She waited below."
     span = "The night was dark and full of terrors."
     start = draft.index(span)
@@ -217,9 +209,8 @@ def test_a_three_token_name_is_a_known_false_positive():
 
 
 def test_protected_gaps_survive_a_reordered_multi_patch_call():
-    # The later patch changes the draft's length before the earlier one is
-    # healed and guarded. Bands are cut from the original draft at offsets that
-    # are still valid there, so the verdict must not depend on patch order.
+    # The later patch changes the draft's length before the earlier one is healed and guarded. Bands are cut from the original
+    # draft at offsets that are still valid there, so the verdict must not depend on patch order.
     draft = DRAFTS["straight"]
     patches = [
         {"id": 2, "replace": "Nobody spoke for a long, long while afterwards."},
@@ -235,9 +226,8 @@ def test_protected_gaps_survive_a_reordered_multi_patch_call():
 
 
 def test_a_gap_two_targets_away_is_not_inspected():
-    # Intended behaviour, pinned so that widening the bands is a deliberate
-    # change: only the gaps adjacent to a target can be sliced from the original
-    # draft and still be the text that will surround the replacement.
+    # Intended behaviour, pinned so that widening the bands is a deliberate change: only the gaps adjacent to a target can be
+    # sliced from the original draft and still be the text that will surround the replacement.
     draft = DRAFTS["straight"] + " The lantern guttered out on its hook."
     out, errors = _apply(draft, [{"id": 1, "replace": "The lantern guttered out on its hook, unnoticed."}])
     assert errors == []
@@ -245,9 +235,8 @@ def test_a_gap_two_targets_away_is_not_inspected():
 
 
 def test_protected_bands_require_boundaries_that_bracket_the_target():
-    # The signature carries most of the invariant — there is no argument that
-    # names a gap further away — and the assertion carries the rest: boundaries
-    # that do not bracket the target are not the text touching it.
+    # The signature carries most of the invariant — there is no argument that names a gap further away — and the assertion
+    # carries the rest: boundaries that do not bracket the target are not the text touching it.
     draft = DRAFTS["straight"]
     start = draft.index(NARRATION)
     with pytest.raises(AssertionError):

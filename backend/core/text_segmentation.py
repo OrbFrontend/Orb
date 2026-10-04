@@ -171,9 +171,8 @@ def _period_is_nonterminal(text: str, period: int, next_char: int) -> bool:
 def sentence_boundary_ends(text: str) -> Iterator[int]:
     """Yield lossless exclusive ends of punctuation-complete sentences.
 
-    This iterator does not manufacture a sentence object and may include
-    separator whitespace in its offsets.  Use :func:`split_sentence_units`
-    when consuming sentence text; that function removes all line separators.
+    This iterator does not manufacture a sentence object and may include separator whitespace in its offsets. Use
+    :func:`split_sentence_units` when consuming sentence text; that function removes all line separators.
     """
     i = 0
     size = len(text)
@@ -201,10 +200,9 @@ def sentence_boundary_ends(text: str) -> Iterator[int]:
             i = terminal_end
             continue
 
-        # The abbreviation check below only ever guarded a SINGLE period, so a
-        # run of terminators reached the yield unconditionally. Lowercase after
-        # the run is the same evidence `_period_is_nonterminal` reads for
-        # `approx.`/`a.m.`: the writer did not start a new sentence here.
+        # The abbreviation check below only ever guarded a SINGLE period, so a run of terminators reached the yield
+        # unconditionally. Lowercase after the run is the same evidence `_period_is_nonterminal` reads for `approx.`/`a.m.`: the
+        # writer did not start a new sentence here.
         next_value = text[boundary_end] if boundary_end < size else ""
         if next_value.islower() and _ELLIPSIS_RUN.fullmatch(text[i:terminal_end]):
             i = terminal_end

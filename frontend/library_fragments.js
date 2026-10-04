@@ -267,9 +267,8 @@ function setupDragAndDrop(container) {
 
 function updateFragmentOrder(container) {
   const items = container.querySelectorAll(".fragment-item");
-  // A lane's order is its priority for the passes that consume it. Retain the
-  // lane's existing global priority slots instead of renumbering every
-  // fragment: that keeps each lane's priorities independent.
+  // A lane's order is its priority for the passes that consume it. Retain the lane's existing global priority slots
+  // instead of renumbering every fragment: that keeps each lane's priorities independent.
   const prioritySlots = Array.from(items)
     .map((item) => {
       const fragment = S.interactiveFragments.find((f) => f.id === item.dataset.id);
@@ -623,9 +622,8 @@ export async function saveInteractiveFragment(isEdit) {
     toast(validation.error, true);
     return;
   }
-  // Option names collapse into the JSON objects the columns are sent as, so a
-  // blank or repeated one has to be caught before the request or it is caught
-  // by nobody. Routed through the same renderer as a 422.
+  // Option names collapse into the JSON objects the columns are sent as, so a blank or repeated one has to be caught
+  // before the request or it is caught by nobody. Routed through the same renderer as a 422.
   if (d.field_type === "decision" && _showDecisionProblems(decisionDraftProblems())) return;
   try {
     if (isEdit) await api.put(`/interactive-fragments/${d.id}`, d);
@@ -634,9 +632,8 @@ export async function saveInteractiveFragment(isEdit) {
     await loadInteractiveFragments();
     toast("Interactive fragment saved");
   } catch (e) {
-    // The whole definition is validated on the merged row and comes back as
-    // problems joined by "; ". Render them against the fields they name -- a
-    // toast would scroll a rule away from the field it is about.
+    // The whole definition is validated on the merged row and comes back as problems joined by "; ". Render them
+    // against the fields they name -- a toast would scroll a rule away from the field it is about.
     if (e.status === 422 && d.field_type === "decision" && _showDecisionProblems(e.message)) return;
     toast(e.message, true);
   }

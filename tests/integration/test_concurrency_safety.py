@@ -12,7 +12,7 @@ from backend.inference import AbortToken
 
 
 async def test_delete_waits_for_media_and_closes_admission(client):
-    cid = (await client.post("/api/conversations", json={})).json()["id"]
+    cid = await client.create("/api/conversations", json={})
     started, winding_down, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     async def render():
@@ -42,15 +42,16 @@ async def test_delete_waits_for_media_and_closes_admission(client):
 
 
 async def test_busy_card_and_cluster_resolution_leave_every_card(client):
-    cards = [(await client.post("/api/characters", json={"name": name})).json()["id"] for name in ["Keep", "First", "Busy"]]
-    cid = (await client.post("/api/conversations", json={"character_card_id": cards[2]})).json()["id"]
+    cards = [await client.create("/api/characters", json={"name": name}) for name in ["Keep", "First", "Busy"]]
+    cid = await client.create("/api/conversations", json={"character_card_id": cards[2]})
     job = deps.start_workflow_job(cid, asyncio.Event().wait(), job="earlier-speaker-image")
     try:
         assert (await client.delete(f"/api/characters/{cards[2]}")).status_code == 409
-        resolved = await client.post(
-            "/api/library/duplicates/resolve-group", json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True}
+        await client.post_checked(
+            "/api/library/duplicates/resolve-group",
+            json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True},
+            expected_status=409,
         )
-        assert resolved.status_code == 409
         assert all([(await client.get(f"/api/characters/{card}")).status_code == 200 for card in cards])
         assert (await get_conversation(cid))["character_card_id"] == cards[2]
     finally:
@@ -62,8 +63,8 @@ async def test_busy_card_and_cluster_resolution_leave_every_card(client):
 async def test_cluster_resolution_rolls_back_if_a_later_member_fails(client, monkeypatch):
     from backend.database.queries import library_dedupe
 
-    cards = [(await client.post("/api/characters", json={"name": name})).json()["id"] for name in ["Keeper", "First", "Second"]]
-    cids = [(await client.post("/api/conversations", json={"character_card_id": card})).json()["id"] for card in cards[1:]]
+    cards = [await client.create("/api/characters", json={"name": name}) for name in ["Keeper", "First", "Second"]]
+    cids = [await client.create("/api/conversations", json={"character_card_id": card}) for card in cards[1:]]
     original = library_dedupe._relink_card_in_tx
 
     async def fail_later(db, source, keeper):
@@ -72,10 +73,11 @@ async def test_cluster_resolution_rolls_back_if_a_later_member_fails(client, mon
         return await original(db, source, keeper)
 
     monkeypatch.setattr(library_dedupe, "_relink_card_in_tx", fail_later)
-    result = await client.post(
-        "/api/library/duplicates/resolve-group", json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True}
+    await client.post_checked(
+        "/api/library/duplicates/resolve-group",
+        json={"keep_id": cards[0], "remove_ids": cards[1:], "relink": True},
+        expected_status=409,
     )
-    assert result.status_code == 409
     assert all([(await client.get(f"/api/characters/{card}")).status_code == 200 for card in cards])
     for cid, card in zip(cids, cards[1:], strict=True):
         assert (await get_conversation(cid))["character_card_id"] == card
@@ -103,22 +105,21 @@ async def test_restore_refuses_admitted_write_and_old_epoch_cannot_save(client, 
         client.put(path, headers={"X-Orb-Epoch": epoch}, json={"content": "saved", "expected_revision": 0})
     )
     await entered.wait()
-    refused = await client.post(f"/api/presets/{name}/restore")
-    assert refused.status_code == 409
-    assert refused.json()["detail"]["work"]
+    refused = await client.post_json(f"/api/presets/{name}/restore", expected_status=409)
+    assert refused["detail"]["work"]
     release.set()
     assert (await saving).status_code == 200
-    restored = await client.post(f"/api/presets/{name}/restore")
-    assert restored.status_code == 200
+    restored = await client.post_checked(f"/api/presets/{name}/restore")
     assert restored.headers["X-Orb-Epoch"] != epoch
-    stale = await client.put(path, headers={"X-Orb-Epoch": epoch}, json={"content": "late", "expected_revision": 0})
-    assert stale.status_code == 409
-    assert stale.json()["detail"]["code"] == "refresh_required"
+    stale = await client.put_json(
+        path, headers={"X-Orb-Epoch": epoch}, json={"content": "late", "expected_revision": 0}, expected_status=409
+    )
+    assert stale["detail"]["code"] == "refresh_required"
     assert (await client.get(path)).json()["content"] == ""
 
 
 async def test_stale_stop_does_not_abort_new_reply(client):
-    cid = (await client.post("/api/conversations", json={})).json()["id"]
+    cid = await client.create("/api/conversations", json={})
     token = AbortToken()
     active = deps._ActiveStream(token, operation_id="new-run")
     deps._active_streams[cid] = active
@@ -138,7 +139,7 @@ async def test_stale_stop_does_not_abort_new_reply(client):
 async def test_message_delete_settles_only_its_source_jobs(client):
     from backend.database import add_message
 
-    cid = (await client.post("/api/conversations", json={})).json()["id"]
+    cid = await client.create("/api/conversations", json={})
     other, _ = await add_message(cid, "user", "parent", 0)
     first, _ = await add_message(cid, "assistant", "first", 1, parent_id=other)
     entered = asyncio.Event()

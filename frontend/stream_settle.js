@@ -1,6 +1,5 @@
-// Stop keeps the stream open until the server saves and settles. Drop it only
-// if /stop fails, finds no registered stream, or times out. After disconnect,
-// ask /stop again before refetching to wait for server cleanup.
+// Stop keeps the stream open until the server saves and settles. Drop it only if /stop fails, finds no registered
+// stream, or times out. After disconnect, ask /stop again before refetching to wait for server cleanup.
 //
 // Maximum stream wait after server settlement.
 const CLOSE_GRACE_MS = 2000;

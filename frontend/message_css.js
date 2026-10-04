@@ -1,7 +1,6 @@
-// Tokenise and reserialise card CSS with escapes decoded and delimiters balanced.
-// Containment requires scoped selectors, renamed global symbols, and paint
-// containment on `.msg-css-scope` (chat.css) to bound fixed overlays and z-index.
-// Remote URLs remain allowed, including conditional fetches via :hover or @media.
+// Tokenise and reserialise card CSS with escapes decoded and delimiters balanced. Containment requires scoped
+// selectors, renamed global symbols, and paint containment on `.msg-css-scope` (chat.css) to bound fixed overlays and
+// z-index. Remote URLs remain allowed, including conditional fetches via :hover or @media.
 //
 // Tokenizer: CSS Syntax Level 3 section 4, restricted to message-body tokens.
 
@@ -1353,9 +1352,8 @@ export function compileCss(cssText, scope) {
     const tokens = tokenize(cssText);
     collectNames(tokens, ctx, 0);
     const css = emitBody(tokens, ctx, "", 0).rules;
-    // Belt and braces on top of the string escaping: the fragment is serialised
-    // before it reaches innerHTML, and `</style` is the one token that ends a
-    // style element's raw text on the way back in.
+    // Belt and braces on top of the string escaping: the fragment is serialised before it reaches innerHTML, and
+    // `</style` is the one token that ends a style element's raw text on the way back in.
     return { css: css.replace(/<\/style/gi, "\\3c /style"), names: ctx.names };
   } catch {
     return { css: "", names: ctx.names };

@@ -70,10 +70,7 @@ class _Decoder:
     def _run(self, ids: list[int], *, cached: bool) -> np.ndarray:
         import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 
-        feed: dict[str, np.ndarray] = {
-            "input_ids": np.asarray([ids], dtype=np.int64),
-            "encoder_hidden_states": self._hidden,
-        }
+        feed: dict[str, np.ndarray] = {"input_ids": np.asarray([ids], dtype=np.int64), "encoder_hidden_states": self._hidden}
         if "use_cache_branch" in self._inputs:
             feed["use_cache_branch"] = np.asarray([cached])
         for name in self._inputs:
@@ -120,12 +117,7 @@ def transcribe(wav: np.ndarray, files: WhisperFiles) -> Transcript:
     languages = {token.strip("<|>"): int(index) for token, index in generation["lang_to_id"].items()}
     heard = decoder.start([start])
     language_id = max(languages.values(), key=lambda index: heard[index])
-    prompt = [
-        start,
-        language_id,
-        int(generation["task_to_id"]["transcribe"]),
-        int(generation["no_timestamps_token_id"]),
-    ]
+    prompt = [start, language_id, int(generation["task_to_id"]["transcribe"]), int(generation["no_timestamps_token_id"])]
 
     # Only text tokens and end-of-text may be generated: a special token in
     # the middle of a transcript is a decoding failure, not content.

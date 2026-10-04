@@ -1,34 +1,19 @@
+import { installEscapingDocument } from "./dom_fixture.mjs";
 // Dynamic Worlds review surface. world_proposals.js is string-in/string-out
 // (it imports only utils.js, also DOM-free), so it loads under node --test.
 //
-// What matters here is what a reviewer is told: which changeset states offer
-// which actions, what a before/after actually shows for each operation, and
-// that a pending proposal never leaks into anything that reads as applied lore.
+// What matters here is what a reviewer is told: which changeset states offer which actions, what a before/after
+// actually shows for each operation, and that a pending proposal never leaks into anything that reads as applied lore.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// `esc` escapes through a detached DOM node, so node needs the same minimal
-// stand-in the utils escaping test installs. Escaping *behaviour* is that
-// test's subject; here it only has to not throw.
+// `esc` escapes through a detached DOM node, so node needs the same minimal stand-in the utils escaping test installs.
+// Escaping *behaviour* is that test's subject; here it only has to not throw.
 //
-// Installed as a plain module-scope statement rather than a top-level `before()`
-// hook: whether such a hook runs ahead of top-level tests is a node-version
-// detail (it does not on 19.x, where every escaping test in this file then dies
-// on `document is not defined`). Module evaluation always precedes them, and
-// nothing below calls `esc` at import time.
-globalThis.document = {
-  createElement() {
-    return {
-      innerHTML: "",
-      set textContent(value) {
-        this.innerHTML = String(value)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-      },
-    };
-  },
-};
+// Installed as a plain module-scope statement rather than a top-level `before()` hook: whether such a hook runs ahead
+// of top-level tests is a node-version detail (it does not on 19.x, where every escaping test in this file then dies on
+// `document is not defined`). Module evaluation always precedes them, and nothing below calls `esc` at import time.
+installEscapingDocument();
 
 import {
   actionsHtml,
@@ -187,8 +172,7 @@ test("a recorded deletion still says what was deleted, from the operation alone"
   const html = changesetRowHtml(deletion());
   assert.match(html, /Deleted entry/);
   assert.match(operationHtml(deletion().operations[0]), /Delete “The Bridge”/);
-  // The row it names no longer exists, so the snapshot on the operation is the
-  // only place its text can come from.
+  // The row it names no longer exists, so the snapshot on the operation is the only place its text can come from.
   assert.match(operationHtml(deletion().operations[0]), /It spans the gorge\./);
   assert.deepEqual(operationDiff(deletion().operations[0]), { before: "It spans the gorge.", after: "" });
 });
@@ -241,9 +225,8 @@ test("a drawer row summarises the change, its source and its date", () => {
   assert.match(html, /data-wc-action="undo"/);
 });
 
-// History stacks four terminal states together and most of them offer no
-// button, so the row has to say which one it is or an accepted change reads
-// exactly like a discarded one.
+// History stacks four terminal states together and most of them offer no button, so the row has to say which one it is
+// or an accepted change reads exactly like a discarded one.
 test("a drawer row leads with the state it ended in", () => {
   for (const status of ["applied", "rejected", "reverted", "superseded", "stale", "pending"]) {
     assert.match(changesetRowHtml(changeset({ status })), new RegExp(STATUS_LABELS[status]));

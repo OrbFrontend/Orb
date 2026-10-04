@@ -5,21 +5,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import cast
 
-from ..connection import (
-    build_set_clause,
-    get_db,
-    get_workflow_slot,
-    immediate_tx,
-    set_workflow_slot,
-)
+from ..connection import build_set_clause, get_db, get_workflow_slot, immediate_tx, select_rows, set_workflow_slot
 from ..models import ConversationListRow, ConversationRow
 
 
 async def list_conversations() -> list[ConversationListRow]:
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                """
+    rows = await select_rows(
+        """
             WITH RECURSIVE active_path(conv_id, id, parent_id) AS (
                 SELECT c.id, m.id, m.parent_id
                 FROM conversations c
@@ -56,31 +48,28 @@ async def list_conversations() -> list[ConversationListRow]:
             LEFT JOIN active_counts ac ON ac.conv_id = c.id
             ORDER BY max(COALESCE(c.last_accessed_at, ''), COALESCE(c.updated_at, ''), c.created_at) DESC
         """
-            )
-        )
-        out: list[ConversationListRow] = []
-        for row in rows:
-            item = dict(row)
-            item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
-            item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
-            out.append(cast(ConversationListRow, item))
-        return out
+    )
+    out: list[ConversationListRow] = []
+    for row in rows:
+        item = dict(row)
+        item["group_card_ids"] = json.loads(item.get("group_card_ids") or "[]")
+        item["group_member_names"] = json.loads(item.get("group_member_names") or "[]")
+        out.append(cast(ConversationListRow, item))
+    return out
 
 
 def group_root_of(conv: ConversationRow) -> str:
     """The id of the group family *conv* belongs to.
 
-    A root stores NULL and is its own family key, so every read of the column
-    goes through here rather than repeating the fallback. Meaningless for solo
-    conversations, which have no family; callers gate on ``kind`` first.
+    A root stores NULL and is its own family key, so every read of the column goes through here rather than repeating the
+    fallback. Meaningless for solo conversations, which have no family; callers gate on ``kind`` first.
     """
     return str(conv.get("group_root_id") or conv["id"])
 
 
 async def get_conversation(cid: str) -> ConversationRow | None:
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT * FROM conversations WHERE id = ?", (cid,)))
-        return cast(ConversationRow, dict(rows[0])) if rows else None
+    rows = await select_rows("SELECT * FROM conversations WHERE id = ?", (cid,))
+    return cast(ConversationRow, dict(rows[0])) if rows else None
 
 
 async def create_conversation(
@@ -113,10 +102,7 @@ async def create_conversation(
                 now,
             ),
         )
-        await db.execute(
-            "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
-            (cid,),
-        )
+        await db.execute("INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')", (cid,))
         await db.commit()
         result = await get_conversation(cid)
         assert result is not None
@@ -181,12 +167,7 @@ async def delete_conversation(cid: str) -> bool:
     member and repointing forks if the root is removed.
     """
     async with immediate_tx() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, kind, group_root_id FROM conversations WHERE id = ?",
-                (cid,),
-            )
-        )
+        rows = list(await db.execute_fetchall("SELECT id, kind, group_root_id FROM conversations WHERE id = ?", (cid,)))
         if not rows:
             return False
         conv = dict(rows[0])
@@ -194,16 +175,14 @@ async def delete_conversation(cid: str) -> bool:
         if conv["kind"] == "group" and not conv["group_root_id"]:
             children = list(
                 await db.execute_fetchall(
-                    "SELECT id FROM conversations WHERE group_root_id = ? ORDER BY created_at, id",
-                    (cid,),
+                    "SELECT id FROM conversations WHERE group_root_id = ? ORDER BY created_at, id", (cid,)
                 )
             )
             if children:
                 heir = children[0]["id"]
                 await db.execute("UPDATE conversations SET group_root_id = NULL WHERE id = ?", (heir,))
                 await db.execute(
-                    "UPDATE conversations SET group_root_id = ? WHERE group_root_id = ? AND id != ?",
-                    (heir, cid, heir),
+                    "UPDATE conversations SET group_root_id = ? WHERE group_root_id = ? AND id != ?", (heir, cid, heir)
                 )
         cur = await db.execute("DELETE FROM conversations WHERE id = ?", (cid,))
         return cur.rowcount > 0
@@ -219,15 +198,11 @@ async def group_family_ids(root_cid: str) -> list[str]:
 async def delete_group_family(root_cid: str) -> int:
     """Delete a whole group family -- the root and every fork taken from it.
 
-    What the sidebar's × means once one row stands for the whole group. Unlike a
-    character card, a group has no existence apart from its conversations, so
-    there is nothing to keep behind after they go.
+    What the sidebar's × means once one row stands for the whole group. Unlike a character card, a group has no existence apart
+    from its conversations, so there is nothing to keep behind after they go.
     """
     async with immediate_tx() as db:
-        cur = await db.execute(
-            "DELETE FROM conversations WHERE id = ? OR group_root_id = ?",
-            (root_cid, root_cid),
-        )
+        cur = await db.execute("DELETE FROM conversations WHERE id = ? OR group_root_id = ?", (root_cid, root_cid))
         return cur.rowcount
 
 
@@ -255,9 +230,8 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
         ]
         sets, vals = build_set_clause(allowed, data)
         if sets:
-            # updated_at is the conversation's "last activity" date (shown in the
-            # history modal). Pinning/changing a persona is metadata, not chat
-            # activity, so a persona_lock_id-only update must not bump it.
+            # updated_at is the conversation's "last activity" date (shown in the history modal). Pinning/changing a persona is
+            # metadata, not chat activity, so a persona_lock_id-only update must not bump it.
             if any(k in data for k in allowed if k != "persona_lock_id"):
                 sets.append("updated_at = ?")
                 vals.append(datetime.now(UTC).isoformat())

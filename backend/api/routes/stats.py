@@ -28,11 +28,9 @@ async def api_global_stats():
     # then incremented per successful generation -- not recomputed per call.
     generated_chars = await get_generated_chars()
     avg_latency = s["avg_latency_ms"]
-    # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
-    # hold not-yet-checkpointed pages and can be a sizable share of the total,
-    # plus any downloaded local-ML weights (data/models/*.gguf) and the
-    # llama-server runtime a local-model feature may have fetched (~100 MB
-    # unpacked, which is enough to be a visible surprise if it went uncounted).
+    # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which hold not-yet-checkpointed pages and can be a
+    # sizable share of the total, plus any downloaded local-ML weights (data/models/*.gguf) and the llama-server runtime a
+    # local-model feature may have fetched (~100 MB unpacked, which is enough to be a visible surprise if it went uncounted).
     storage_bytes = _db_bytes()
     models_dir = model_dir()
     for name in os.listdir(models_dir):

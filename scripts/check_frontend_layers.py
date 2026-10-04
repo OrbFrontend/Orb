@@ -30,9 +30,8 @@ LAYERS = {
     "icons.js": 0,
     "drag_reorder.js": 0,
     "dom_reconcile.js": 0,
-    # The Character Library's search + tag predicate. A leaf on purpose: the
-    # filter is the one piece of the browser worth testing directly, and
-    # library_browser.js drags in the whole L5 chat chain.
+    # The Character Library's search + tag predicate. A leaf on purpose: the filter is the one piece of the browser worth
+    # testing directly, and library_browser.js drags in the whole L5 chat chain.
     "library_filter.js": 0,
     # The desktop-width card rescue: measures a rendered bubble and re-widens a
     # collapsed card block. Pure DOM, imports nothing, so it stays a leaf.
@@ -42,9 +41,8 @@ LAYERS = {
     # is its own. A leaf so the settlement rules can be tested without a DOM.
     "stream_settle.js": 0,
     "expression_segments.js": 0,
-    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper.
-    # A leaf so it can be tested without a DOM, which is the whole point of it
-    # being a string pass rather than a trip through the CSSOM.
+    # The card-CSS policy: a tokenizer, an allowlist and the per-message scoper. A leaf so it can be tested without a DOM, which
+    # is the whole point of it being a string pass rather than a trip through the CSSOM.
     "message_css.js": 0,
     # The avatar crop box as pure geometry (hit test, move, aspect-locked
     # resize), split from modal.js so it can be tested without a canvas.
@@ -52,10 +50,9 @@ LAYERS = {
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,
-    # The decision-fragment vocabulary: the cached /api/decisions/config read,
-    # the outcome-space rule, and the wording for each machine reason the stage
-    # reports. Imports only api.js, so it sits with the other shared helpers and
-    # all four decision surfaces can read it.
+    # The decision-fragment vocabulary: the cached /api/decisions/config read, the outcome-space rule, and the wording for each
+    # machine reason the stage reports. Imports only api.js, so it sits with the other shared helpers and all four decision
+    # surfaces can read it.
     "decisions.js": 1,
     "model_catalog.js": 1,
     "workflow_registry.js": 1,
@@ -64,12 +61,10 @@ LAYERS = {
     # register the handlers for the markup it renders; workflow_api.js re-exports it.
     "actions.js": 1,
     "notify.js": 1,
-    # A workflow render the button that started it can stop: its job id, the
-    # stop request, and that button's Stop state.
+    # A workflow render the button that started it can stop: its job id, the stop request, and that button's Stop state.
     "workflow_jobs.js": 1,
-    # The browser half of prose rendering: DOMPurify, block layout and <style>
-    # scoping. Sits beside utils.js because it is what makes utils.js output
-    # safe to hand to innerHTML, and imports nothing above it.
+    # The browser half of prose rendering: DOMPurify, block layout and <style> scoping. Sits beside utils.js because it is what
+    # makes utils.js output safe to hand to innerHTML, and imports nothing above it.
     "message_html.js": 1,
     "card_scripts.js": 1,
     # Pure render/state helpers for the Dynamic Worlds review surface; imports
@@ -84,8 +79,7 @@ LAYERS = {
     "modal.js": 3,
     "panels.js": 3,
     "chips.js": 3,
-    # The Inspector's section shell, shared by the panel, the in-chat blocks
-    # and the Decisions section beneath both.
+    # The Inspector's section shell, shared by the panel, the in-chat blocks and the Decisions section beneath both.
     "inspector_section.js": 3,
     "audio_player.js": 3,
     "audio_transport.js": 3,
@@ -135,12 +129,10 @@ LAYERS = {
     "workflow_api.js": 6,
 }
 
-# ── 4. Frozen ABI ────────────────────────────────────────────────────────────
-# workflow_api.js's complete export surface, additive-only. A rename or removal
-# fails; a genuinely new export is added here in the same commit -- and, because
-# that is a new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with
-# it. The check below reads that constant back so the number cannot drift from
-# the surface it describes.
+# ── 4. Frozen ABI ──────────────────────────────────────────────────────────── workflow_api.js's complete export surface,
+# additive-only. A rename or removal fails; a genuinely new export is added here in the same commit -- and, because that is a
+# new revision of the plugin ABI, `WORKFLOW_API_VERSION` is bumped with it. The check below reads that constant back so the
+# number cannot drift from the surface it describes.
 FROZEN_ABI = {
     "WORKFLOW_API_VERSION",
     # registrars
@@ -224,9 +216,8 @@ _DYNAMIC_IMPORT_CALL = re.compile(r"\bimport\s*\(")
 _DYNAMIC_IMPORT_LITERAL = re.compile(r'\bimport\s*\(\s*(["\'`])([^"\'`]*?)\1\s*\)', re.DOTALL)
 # Braced import/re-export binding list, possibly multiline.
 _BRACED = re.compile(r'(?:import|export)\s*(?:type\s+)?\{([^}]*)\}\s*from\s+["\']([^"\']+)["\']', re.DOTALL)
-# Inline event handler attribute (on*="...") in HTML or in a JS string, whether the
-# attribute follows whitespace or opens a quoted string. `.onclick =` is a DOM
-# property, not markup, and is allowed.
+# Inline event handler attribute (on*="...") in HTML or in a JS string, whether the attribute follows whitespace or opens a
+# quoted string. `.onclick =` is a DOM property, not markup, and is allowed.
 _INLINE_ON = re.compile(r'(?<![\w.$-])on[a-z]{4,}\s*=\s*["\'`]')
 # A name published on window/globalThis for markup or another module to reach.
 _WINDOW_GLOBAL = re.compile(
@@ -366,8 +357,7 @@ def main() -> int:
     if cycle:
         errors.append(f"[cycle] {' -> '.join(cycle)}")
 
-    # 2a. Markup reaches code only through registered actions (scope: all of
-    # frontend/ and index.html, vendor/ excluded).
+    # 2a. Markup reaches code only through registered actions (scope: all of frontend/ and index.html, vendor/ excluded).
     scan = [p for p in FE.rglob("*.js") if "vendor" not in p.parts] + [FE / "index.html"]
     texts = {path: path.read_text(encoding="utf-8") for path in scan}
     registered: set[str] = set()
@@ -402,8 +392,7 @@ def main() -> int:
                 )
 
     # 4. ABI snapshot: workflow_api.js exports must equal FROZEN_ABI. Only real
-    # `export` statements count — NOT the `import {...}` blocks above them (the
-    # facade imports the same names it re-exports).
+    # `export` statements count — NOT the `import {...}` blocks above them (the facade imports the same names it re-exports).
     api_text = (FE / "workflow_api.js").read_text(encoding="utf-8")
     exports = set(_EXPORT_DECL.findall(api_text))
     # Re-export blocks: `export { a, b as c };` and `export { a } from "...";`.

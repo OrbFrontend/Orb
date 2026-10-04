@@ -1,22 +1,17 @@
 """Wiring tests: constant lorebook entries ride the cached system prefix.
 
-Drives the real prefix-assembly seam (``build_prefixes``) with a
-``PipelineContext`` carrying one constant and one keyword entry, and asserts
-the split: the constant entry lands as a byte-identical ``## Lorebook`` section
-in both the writer and agent prefixes (KV cache Invariant 1), while the
-trailing block excludes it.
+Drives the real prefix-assembly seam (``build_prefixes``) with a ``PipelineContext`` carrying one constant and one keyword
+entry, and asserts the split: the constant entry lands as a byte-identical ``## Lorebook`` section in both the writer and agent
+prefixes (KV cache Invariant 1), while the trailing block excludes it.
 
-Plus the ``at_depth`` (``@ Depth``) opt-out: such an entry leaves the
-prefix for the per-turn tail block, where its inline macros re-roll every turn.
+Plus the ``at_depth`` (``@ Depth``) opt-out: such an entry leaves the prefix for the per-turn tail block, where its inline
+macros re-roll every turn.
 """
 
 from __future__ import annotations
 
 from backend.core import Macros
-from backend.features.lorebook import (
-    compute_depth_lorebook_block,
-    compute_lorebook_injection_block,
-)
+from backend.features.lorebook import compute_depth_lorebook_block, compute_lorebook_injection_block
 from backend.pipeline.context import PipelineContext, build_prefixes
 from backend.pipeline.passes.writer import build_writer_content
 

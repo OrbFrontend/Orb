@@ -17,10 +17,9 @@ _LITERAL_RE = re.compile(r"`[^`\n]*`")
 def _outside_literals(text: str, fn) -> str:
     """Apply *fn* to *text* with single-backtick spans masked out (kept literal).
 
-    Spans are swapped for control-char placeholders, *fn* runs on the rest as
-    one string (so occurrence counting spans the whole text), then the spans
-    are restored verbatim — backticks included, which is what makes literal
-    macros survive repeated resolution passes.
+    Spans are swapped for control-char placeholders, *fn* runs on the rest as one string (so occurrence counting spans the whole
+    text), then the spans are restored verbatim — backticks included, which is what makes literal macros survive repeated
+    resolution passes.
     """
     if "`" not in text:
         return fn(text)
@@ -74,9 +73,8 @@ def _sub_description(text: str, description: str) -> str:
 def card_description(card: Mapping[str, Any] | None) -> str:
     """The ``{{description}}`` value for a solo conversation.
 
-    The card's own ``description`` field, alone -- not the ``description`` +
-    ``personality`` join that ``resolve_char_context`` builds for the persona
-    block. The macro is named after the field, so it carries the field.
+    The card's own ``description`` field, alone -- not the ``description`` + ``personality`` join that ``resolve_char_context``
+    builds for the persona block. The macro is named after the field, so it carries the field.
     """
     return str((card or {}).get("description") or "").strip()
 
@@ -87,8 +85,7 @@ _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
 _RANDOM_RE = re.compile(r"\{\{(?:random|pick)::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
 _TIME_RE = re.compile(r"\{\{time\}\}", re.IGNORECASE)
 _DATE_RE = re.compile(r"\{\{date\}\}", re.IGNORECASE)
-# Eats the newlines on both sides, joining what they separated. [\r\n] rather
-# than \n because card fields commonly arrive CRLF.
+# Eats the newlines on both sides, joining what they separated. [\r\n] rather than \n because card fields commonly arrive CRLF.
 _TRIM_RE = re.compile(r"[\r\n]*\{\{trim\}\}[\r\n]*", re.IGNORECASE)
 
 
@@ -123,10 +120,9 @@ def _trim(m: re.Match, rng: Any) -> str:
     return ""
 
 
-# The inline-macro grammar. Adding a macro = one regex + one handler + one row
-# here; _resolve_inline and has_inline_macros iterate this table. Comments come
-# first so a macro written inside one is deleted rather than resolved, and
-# {{trim}} last so it eats the newlines the rows above leave behind.
+# The inline-macro grammar. Adding a macro = one regex + one handler + one row here; _resolve_inline and has_inline_macros
+# iterate this table. Comments come first so a macro written inside one is deleted rather than resolved, and {{trim}} last so it
+# eats the newlines the rows above leave behind.
 _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
     (_COMMENT_RE, _comment),
     (_ROLL_RE, _roll),
@@ -146,9 +142,8 @@ def _resolve_inline(text: str, seed: str = "") -> str:
     if not text or not isinstance(text, str):
         return text or ""
 
-    # Ordinal counts prior occurrences of the *same* macro text, so a seeded
-    # pick survives unrelated edits around it and repeats of the same macro
-    # still roll independently.
+    # Ordinal counts prior occurrences of the *same* macro text, so a seeded pick survives unrelated edits around it and repeats
+    # of the same macro still roll independently.
     seen: dict[str, int] = {}
 
     def _seeded_rng(m: re.Match) -> random.Random:
@@ -184,9 +179,8 @@ def outside_literals(text: str, fn: Callable[[str], str]) -> str:
 def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -> str:
     """Resolve all macros: {{user}}, {{char}}, and inline macros like {{roll}}.
 
-    Use this for the latest user message, persona text, scenario, and other
-    turn-specific content where all macros should be resolved. *seed* makes
-    {{random}} and {{roll}} deterministic (see :func:`_resolve_inline`).
+    Use this for the latest user message, persona text, scenario, and other turn-specific content where all macros should be
+    resolved. *seed* makes {{random}} and {{roll}} deterministic (see :func:`_resolve_inline`).
     """
     return _resolve_inline(_sub(text, user_name, char_name), seed=seed)
 
@@ -207,11 +201,7 @@ def has_inline_macros(text: str) -> bool:
     return any(pattern.search(text) for pattern, _ in _INLINE_MACROS)
 
 
-def resolve_stored_random(
-    texts: Sequence[str],
-    choices: MutableMapping[str, str],
-    key_prefix: str,
-) -> list[str]:
+def resolve_stored_random(texts: Sequence[str], choices: MutableMapping[str, str], key_prefix: str) -> list[str]:
     """Resolve random and pick macros against stored choices."""
     seen: dict[str, int] = {}
 
@@ -238,8 +228,7 @@ def resolve_stored_random(
 def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
     """Resolve only {{user}}/{{char}} placeholders — no inline macros.
 
-    Use this for historical messages and prompt context where inline macros
-    (like {{roll}}) should NOT fire.
+    Use this for historical messages and prompt context where inline macros (like {{roll}}) should NOT fire.
     """
     return _sub(text, user_name, char_name)
 
@@ -258,10 +247,9 @@ class Macros(NamedTuple):
     char: str
     seed: str = ""
     cast: str = ""
-    # {{description}}: the character's own description prose, from
-    # :func:`card_description` solo and from the member's sheet in a group
-    # (``prompting.group_context.member_macros``). Unlike the three above it is
-    # a body of text, not a name -- see :func:`_sub_description`.
+    # {{description}}: the character's own description prose, from :func:`card_description` solo and from the member's sheet in
+    # a group (``prompting.group_context.member_macros``). Unlike the three above it is a body of text, not a name -- see
+    # :func:`_sub_description`.
     description: str = ""
 
     @classmethod
@@ -291,10 +279,7 @@ class Macros(NamedTuple):
 
     def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:
         """Apply prompt-level resolution (substitution only) to a single message dict."""
-        return {
-            **msg,
-            "content": _apply_content(msg.get("content"), lambda t: self.resolve_prompt(t)),
-        }
+        return {**msg, "content": _apply_content(msg.get("content"), lambda t: self.resolve_prompt(t))}
 
     def resolve_prompt_messages(self, messages: Sequence[Mapping[str, Any]]) -> list[dict]:
         """Resolve prompt macros in a message sequence."""

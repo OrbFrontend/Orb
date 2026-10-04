@@ -23,10 +23,9 @@ def readonly_view(obj: Any) -> Any:
     return obj
 
 
-# Control-event discriminators a workflow hook may yield (the ``"type"`` key the
-# bridge dispatches on). Defined once here, where the seam owns its contract, so
-# the bridge and any workflow import the same names instead of duplicating bare
-# string literals. The string values are the stable wire shape.
+# Control-event discriminators a workflow hook may yield (the ``"type"`` key the bridge dispatches on). Defined once here, where
+# the seam owns its contract, so the bridge and any workflow import the same names instead of duplicating bare string literals.
+# The string values are the stable wire shape.
 EV_ENABLE_TOOLS = "enable_tools"  # pre-pipeline
 EV_SYSTEM_PROMPT = "system_prompt"  # pre-pipeline
 EV_DRAFT_REPLACED = "draft_replaced"  # post-pipeline
@@ -70,10 +69,9 @@ class PreCtx:
 class PostCtx:
     """Inputs available to a workflow's post-pipeline hook.
 
-    ``client``/``prefix`` are the Writer lane. ``agent_client`` and
-    ``agent_model_name`` identify the resolved Agent execution target, which is
-    the Writer target in single-model mode. The defaults keep a hand-built
-    ``PostCtx`` (tests, out-of-tree callers) valid.
+    ``client``/``prefix`` are the Writer lane. ``agent_client`` and ``agent_model_name`` identify the resolved Agent execution
+    target, which is the Writer target in single-model mode. The defaults keep a hand-built ``PostCtx`` (tests, out-of-tree
+    callers) valid.
     """
 
     conversation_id: str
@@ -98,11 +96,9 @@ class PostCtx:
 class OnDemandCtx:
     """Inputs available to a workflow's on-demand HTTP handler.
 
-    No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside
-    any turn, Python locals serve in place of scratch, and on-demand LLM
-    calls do not participate in turn cache accounting. ``client`` is the
-    Writer lane; ``agent_client`` and ``agent_model_name`` are the resolved
-    Agent lane, reusing that same client in single-model mode.
+    No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside any turn, Python locals serve in place of scratch, and
+    on-demand LLM calls do not participate in turn cache accounting. ``client`` is the Writer lane; ``agent_client`` and
+    ``agent_model_name`` are the resolved Agent lane, reusing that same client in single-model mode.
     """
 
     conversation_id: str
@@ -133,14 +129,12 @@ class RegenCtx:
     character_id: str | None = None
     character: MappingProxyType | None = None
     phase: Callable[[str], None] = lambda _label: None  # step label, streamed to a client that asks
-    # Saves one attachment as a sibling now, instead of with the handler's return,
-    # and answers its id (None when the cache rejected it). A handler that makes
-    # several renders keeps each as it lands, so Stop keeps them and the client
-    # sees them arrive. None where no route is saving for it.
+    # Saves one attachment as a sibling now, instead of with the handler's return, and answers its id (None when the cache
+    # rejected it). A handler that makes several renders keeps each as it lands, so Stop keeps them and the client sees them
+    # arrive. None where no route is saving for it.
     keep: Callable[[dict], Awaitable[int | None]] | None = None
-    # Sends one extra event on the regenerate stream, for a client that asks for
-    # events. The name must start with "<workflow_id>_". Silent where no stream is
-    # attached.
+    # Sends one extra event on the regenerate stream, for a client that asks for events. The name must start with
+    # "<workflow_id>_". Silent where no stream is attached.
     emit: Callable[[str, dict], None] = lambda _event, _data: None
 
 
@@ -155,12 +149,10 @@ class RerollGenCtx:
     settings: MappingProxyType
     client: Any
     prior_consumption_metadata: MappingProxyType | None = None
-    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it
-    # required -- so the default covers only a ctx constructed directly, in a
-    # test or out of tree. Reproducing is the safe end of it: a wrong ``True``
-    # costs a render nobody asked for, while a wrong ``False`` hands
-    # ``/rehydrate`` a *different* image and overwrites the row with it, which is
-    # the one failure on these two routes that destroys something.
+    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it required -- so the default covers only a ctx
+    # constructed directly, in a test or out of tree. Reproducing is the safe end of it: a wrong ``True`` costs a render nobody
+    # asked for, while a wrong ``False`` hands ``/rehydrate`` a *different* image and overwrites the row with it, which is the
+    # one failure on these two routes that destroys something.
     replay: bool = True
 
 
@@ -190,9 +182,8 @@ class UploadCtx:
 class ExportCtx:
     """Inputs available to a workflow's export hook.
 
-    ``attachment`` is the row without its bytes, and ``stored_bytes`` reads them
-    only when called (None once evicted): an export that can fetch the file from
-    where it was made never loads the stored copy.
+    ``attachment`` is the row without its bytes, and ``stored_bytes`` reads them only when called (None once evicted): an export
+    that can fetch the file from where it was made never loads the stored copy.
     """
 
     attachment_id: int
@@ -225,9 +216,8 @@ class WorkflowEventStream:
 def public_event_error(ev: object) -> str | None:
     """Validate public {event, data}; return None or a rejection reason.
 
-    Event names must be non-empty, single-line and not start with _. Data defaults
-    to empty text and accepts strings or strict JSON-serializable dicts. Shared
-    by pipeline hooks and on-demand SSE.
+    Event names must be non-empty, single-line and not start with _. Data defaults to empty text and accepts strings or strict
+    JSON-serializable dicts. Shared by pipeline hooks and on-demand SSE.
     """
     if not isinstance(ev, dict):
         return f"not a dict (type={type(ev).__name__})"
@@ -250,12 +240,10 @@ def public_event_error(ev: object) -> str | None:
 class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
-    PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY, UPLOAD, and EXPORT are
-    single-dispatch slots resolved by workflow id from an HTTP route. QUERY and
-    UPLOAD have no conversation in scope: QUERY is the global config/discovery
-    surface, and UPLOAD takes a file for one character. EXPORT is optional,
-    even for artifact workflows.
+    PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow per turn; ON_DEMAND, REGENERATE, REROLL_GEN, QUERY,
+    UPLOAD, and EXPORT are single-dispatch slots resolved by workflow id from an HTTP route. QUERY and UPLOAD have no
+    conversation in scope: QUERY is the global config/discovery surface, and UPLOAD takes a file for one character. EXPORT is
+    optional, even for artifact workflows.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -277,6 +265,5 @@ OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
 QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
-# None means there is nothing left to export: the bytes are evicted and the
-# workflow cannot fetch the file from anywhere else.
+# None means there is nothing left to export: the bytes are evicted and the workflow cannot fetch the file from anywhere else.
 ExportHook = Callable[[ExportCtx], Awaitable[ExportedFile | None]]

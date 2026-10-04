@@ -5,15 +5,12 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
-# What may sit between a resolved speaker and its cue. Applied to the text
-# *after* the speaker has already been identified, never to find the speaker:
-# a `-` is as much a part of `jean-luc-picard` as of `alice-hart`, and every
-# multi-word display name produces a hyphenated speaker key, so splitting on it
-# to locate the boundary discarded the whole plan for most casts.
+# What may sit between a resolved speaker and its cue. Applied to the text *after* the speaker has already been identified,
+# never to find the speaker: a `-` is as much a part of `jean-luc-picard` as of `alice-hart`, and every multi-word display name
+# produces a hyphenated speaker key, so splitting on it to locate the boundary discarded the whole plan for most casts.
 _PLAN_SEPARATOR = re.compile(r"\A\s*[—–:-]?\s*")
 
-# The label must end where the cue begins. Without this, a member keyed `aria`
-# would claim a plan line naming `arianna`.
+# The label must end where the cue begins. Without this, a member keyed `aria` would claim a plan line naming `arianna`.
 _PLAN_BOUNDARY = re.compile(r"\A[\s—–:-]")
 
 
@@ -30,11 +27,9 @@ def _resolve_item(text: str, labels: Sequence[tuple[str, Mapping]]) -> tuple[Map
 def parse_speaking_plan(raw: object, members: Sequence[Mapping], cap: int) -> list[tuple[Mapping, str]] | None:
     """Validate a Director plan. None means malformed/missing; [] is intentional rest.
 
-    Each line is ``<speaker_key> — <cue>`` (the shape ``build_direct_scene_override``
-    asks for), but the speaker is found by matching the roster's own keys and display
-    names against the head of the line rather than by splitting on punctuation — a
-    speaker key is kebab-cased, so it contains the very characters a split would
-    treat as the boundary.
+    Each line is ``<speaker_key> — <cue>`` (the shape ``build_direct_scene_override`` asks for), but the speaker is found by
+    matching the roster's own keys and display names against the head of the line rather than by splitting on punctuation — a
+    speaker key is kebab-cased, so it contains the very characters a split would treat as the boundary.
     """
     if raw is None or not isinstance(raw, list):
         return None
@@ -98,11 +93,10 @@ def choose_speakers(
 ) -> list[tuple[Mapping, str]]:
     """Return an exchange's ``(member, cue)`` speakers in order; ``[]`` is a rest.
 
-    Who speaks and what the Director wrote for them are separate questions: a pin
-    and round-robin answer the first without the plan and still carry the
-    member's cue from it, or the Director is half-ignored on every path but
-    ``director``. A plan in which nothing resolved to a member falls back to
-    round-robin with no cue to carry over. *pinned_id* must name an unmuted member.
+    Who speaks and what the Director wrote for them are separate questions: a pin and round-robin answer the first without the
+    plan and still carry the member's cue from it, or the Director is half-ignored on every path but ``director``. A plan in
+    which nothing resolved to a member falls back to round-robin with no cue to carry over. *pinned_id* must name an unmuted
+    member.
     """
     if pinned_id:
         pinned = next(m for m in members if m["id"] == pinned_id and not m.get("muted"))

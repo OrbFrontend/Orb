@@ -1,30 +1,16 @@
-// The group chat's identity surface. group_cast.js is string-in/string-out over
-// `S` (it imports only state.js and utils.js, both DOM-free beyond `esc`), so it
-// loads under node --test.
+import { installEscapingDocument } from "./dom_fixture.mjs";
+// The group chat's identity surface. group_cast.js is string-in/string-out over `S` (it imports only state.js and
+// utils.js, both DOM-free beyond `esc`), so it loads under node --test.
 //
-// What matters here is what the scene *tells* the user: who is about to answer
-// and whether that choice survives the turn, what a click on a cast chip will
-// actually do, and that the speaking-plan rail never paints a row with nothing
+// What matters here is what the scene *tells* the user: who is about to answer and whether that choice survives the
+// turn, what a click on a cast chip will actually do, and that the speaking-plan rail never paints a row with nothing
 // in it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-// `esc` escapes through a detached DOM node; the same minimal stand-in the other
-// string-rendering tests install (see world_proposals.test.mjs for why it is a
-// module-scope statement rather than a before() hook).
-globalThis.document = {
-  createElement() {
-    return {
-      innerHTML: "",
-      set textContent(value) {
-        this.innerHTML = String(value)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-      },
-    };
-  },
-};
+// `esc` escapes through a detached DOM node; the same minimal stand-in the other string-rendering tests install (see
+// world_proposals.test.mjs for why it is a module-scope statement rather than a before() hook).
+installEscapingDocument();
 
 import {
   CONTEXT_MODES,
@@ -84,12 +70,10 @@ function solo() {
   S.currentSpeaker = null;
 }
 
-// Deliberately not asserted anywhere in this file: the *wording* of a label or a
-// rail title. Those live in one table an import away, so restating them here proves
-// only that someone typed them twice — and costs a failing suite every time the copy
-// is improved. What is pinned instead is the shape the copy hangs on: which modes
-// exist, that every field a modal renders is filled, and the data attributes and ARIA
-// state a click actually reads.
+// Deliberately not asserted anywhere in this file: the *wording* of a label or a rail title. Those live in one table an
+// import away, so restating them here proves only that someone typed them twice — and costs a failing suite every time
+// the copy is improved. What is pinned instead is the shape the copy hangs on: which modes exist, that every field a
+// modal renders is filled, and the data attributes and ARIA state a click actually reads.
 
 test("the stored turn modes are the three the backend persists", () => {
   // The dropdown renders the table directly, so a mode missing here is a mode the
@@ -107,10 +91,9 @@ test("an unknown or absent context mode falls back to the behaviour-preserving d
 });
 
 test("every context mode fills every field both modals render", () => {
-  // The dropdown shows `label`; the "How character context works" disclosure shows
-  // `detail` + `billing` for all three. A mode missing one renders an empty paragraph
-  // where the privacy or cost consequence should be. Whether the sentence in it is a
-  // *good* explanation is a review question, not a test one.
+  // The dropdown shows `label`; the "How character context works" disclosure shows `detail` + `billing` for all three.
+  // A mode missing one renders an empty paragraph where the privacy or cost consequence should be. Whether the sentence
+  // in it is a *good* explanation is a review question, not a test one.
   for (const [value, mode] of Object.entries(CONTEXT_MODES)) {
     for (const field of ["label", "detail", "billing"]) {
       assert.ok(mode[field]?.trim(), `${value}.${field} is empty`);
@@ -118,14 +101,12 @@ test("every context mode fills every field both modals render", () => {
   }
 });
 
-// ── Context-mode recommendation ─────────────────────────────────────────────
-// The rule was fitted against simulated 30-beat, three-pass group sessions
-// rendered through the shipped prompt builders, on a server holding several
-// prefix-cache lanes. These pin the boundary it landed on and, more
-// importantly, the direction it is allowed to be wrong in.
+// ── Context-mode recommendation ───────────────────────────────────────────── The rule was fitted against simulated
+// 30-beat, three-pass group sessions rendered through the shipped prompt builders, on a server holding several
+// prefix-cache lanes. These pin the boundary it landed on and, more importantly, the direction it is allowed to be
+// wrong in.
 
-// `def_chars` arrives from the library list, which is the only card payload
-// creation ever holds.
+// `def_chars` arrives from the library list, which is the only card payload creation ever holds.
 const card = (defChars) => ({ id: `c${defChars}`, name: "x", def_chars: defChars });
 // tokens → the `def_chars` a card of that weight would report (CHARS_PER_TOKEN=4).
 const ofTokens = (tokens) => card(tokens * 4);
@@ -133,9 +114,8 @@ const ofTokens = (tokens) => card(tokens * 4);
 test("a card's weight counts only the fields the two modes disagree about", () => {
   assert.equal(cardDefTokens(card(4000)), 1000);
   assert.equal(cardDefTokens(card(0)), 0);
-  // A card list fetched before `def_chars` existed, and a missing row from a
-  // picker whose selection outran the character cache. Neither may throw, and
-  // both have to read as weightless so the cast lands on the default.
+  // A card list fetched before `def_chars` existed, and a missing row from a picker whose selection outran the
+  // character cache. Neither may throw, and both have to read as weightless so the cast lands on the default.
   assert.equal(cardDefTokens({}), 0);
   assert.equal(cardDefTokens(undefined), 0);
   assert.equal(cardDefTokens({ def_chars: "not a number" }), 0);
@@ -150,10 +130,9 @@ test("no cast, no recommendation", () => {
 });
 
 test("one character is not a cast, at any card weight", () => {
-  // The threshold is 500 * (cast - 1), which at one member is zero — so every
-  // card cleared it and an eight-token stub was told it was heavy enough to
-  // cache. There is also nothing to weigh it against yet: the panel recomputes
-  // per pick, so answering here means answering for a half-chosen cast.
+  // The threshold is 500 * (cast - 1), which at one member is zero — so every card cleared it and an eight-token stub
+  // was told it was heavy enough to cache. There is also nothing to weigh it against yet: the panel recomputes per
+  // pick, so answering here means answering for a half-chosen cast.
   for (const tokens of [2, 8, 500, 2000]) {
     assert.equal(recommendContextMode([ofTokens(tokens)]), null, `1 x ${tokens} should stay silent`);
   }
@@ -170,9 +149,8 @@ test("the boundary is mean card weight against 500 tokens per member past the fi
 });
 
 test("a wide cast is private at every card size — swap runs out of cache lanes, not tokens", () => {
-  // Swap needs roughly 2.5 warm branches per member, so a fourth member is
-  // where they stop fitting and its cost jumps 4-6x rather than drifting. No
-  // card weight buys that back, so the cap is not a threshold.
+  // Swap needs roughly 2.5 warm branches per member, so a fourth member is where they stop fitting and its cost jumps
+  // 4-6x rather than drifting. No card weight buys that back, so the cap is not a threshold.
   for (const tokens of [500, 1000, 1500, 2000, 8000]) {
     const wide = Array.from({ length: 4 }, () => ofTokens(tokens));
     assert.equal(recommendContextMode(wide).mode, "private", `4 x ${tokens} should stay private`);
@@ -181,9 +159,8 @@ test("a wide cast is private at every card size — swap runs out of cache lanes
 });
 
 test("the mean is the statistic, because both modes bill per speaking turn", () => {
-  // One heavy card and two light ones costs what three middling ones cost:
-  // private re-sends whoever speaks, swap caches whoever speaks. Simulation put
-  // these two casts within a token of each other.
+  // One heavy card and two light ones costs what three middling ones cost: private re-sends whoever speaks, swap caches
+  // whoever speaks. Simulation put these two casts within a token of each other.
   const lopsided = recommendContextMode([ofTokens(2000), ofTokens(500), ofTokens(500)]);
   const even = recommendContextMode([ofTokens(1000), ofTokens(1000), ofTokens(1000)]);
   assert.equal(lopsided.mode, even.mode);
@@ -191,9 +168,8 @@ test("the mean is the statistic, because both modes bill per speaking turn", () 
 });
 
 test("a cast with no card text lands on the default rather than on the cheaper mode", () => {
-  // Narrator-shaped members have nothing worth caching. From two members up the
-  // threshold is never below 500, so they fall to Private on the comparison
-  // itself — no separate floor to keep in step with the boundary.
+  // Narrator-shaped members have nothing worth caching. From two members up the threshold is never below 500, so they
+  // fall to Private on the comparison itself — no separate floor to keep in step with the boundary.
   assert.equal(recommendContextMode([card(0), card(0)]).mode, "private");
   assert.equal(recommendContextMode([{}, {}]).mode, "private");
   assert.equal(recommendContextMode([card(0), card(0), card(0)]).mode, "private");
@@ -293,9 +269,8 @@ test("a display name cannot inject markup into the rail or the empty state", () 
   assert.doesNotMatch(sceneEmptyStateHtml(), /<img src=x/);
 });
 
-// ── Speaker labels ──────────────────────────────────────────────────────────
-// The role line over every reply. This reads `speakerNames`, never `members`,
-// and the distinction is the whole point: the active roster is what the rail
+// ── Speaker labels ────────────────────────────────────────────────────────── The role line over every reply. This
+// reads `speakerNames`, never `members`, and the distinction is the whole point: the active roster is what the rail
 // paints, but the transcript outlives it.
 
 test("a reply is labelled with its speaker's name", () => {
@@ -309,11 +284,10 @@ test("the user is always 'You', in a group as in a solo chat", () => {
 });
 
 test("a removed member still labels the lines it wrote", () => {
-  // The regression this pins: Manage cast tombstones a member rather than
-  // deleting it, and its replies keep pointing at that id forever. Resolving
-  // them through the active roster turned a roster edit into a silent rewrite
-  // of the transcript — every one of that member's lines read "Unknown
-  // speaker". The backend refuses the same shortcut in `get_speaker_names`.
+  // The regression this pins: Manage cast tombstones a member rather than deleting it, and its replies keep pointing at
+  // that id forever. Resolving them through the active roster turned a roster edit into a silent rewrite of the
+  // transcript — every one of that member's lines read "Unknown speaker". The backend refuses the same shortcut in
+  // `get_speaker_names`.
   scene({ members: [WALTER], retired: [ASSISTANT] });
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m2" }), "Assistant");
   // ...and it is still gone from every surface that asks who is in the scene.
@@ -336,9 +310,8 @@ test("an id no roster has ever held is named as unknown rather than blank", () =
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "gone" }), "Unknown speaker");
 });
 
-// ── Group families ──────────────────────────────────────────────────────────
-// A checkpoint of a group is a branch of that group. These cover the grouping
-// the sidebar reads: what a fork belongs to, and which conversation in a family
+// ── Group families ────────────────────────────────────────────────────────── A checkpoint of a group is a branch of
+// that group. These cover the grouping the sidebar reads: what a fork belongs to, and which conversation in a family
 // supplies the name and the click target.
 
 // Conversations arrive newest-active first, which is the order the sidebar and
@@ -381,9 +354,8 @@ test("each group collapses to one entry, ordered by its most recent conversation
 });
 
 test("the open conversation is the one its group's row stands for", () => {
-  // Selecting a checkpoint has to repaint the row with *that* conversation's
-  // cast: the two forks' rosters have diverged, and the rail already shows the
-  // open one's. Only the family holding it is marked open.
+  // Selecting a checkpoint has to repaint the row with *that* conversation's cast: the two forks' rosters have
+  // diverged, and the rail already shows the open one's. Only the family holding it is marked open.
   const families = groupFamilies([FORK, OTHER, ROOT, SOLO], "g1");
   assert.equal(families[0].shown.id, "g1");
   assert.equal(families[0].open, true);
@@ -410,9 +382,8 @@ test("a family whose root is missing still renders, led by its newest member", (
   assert.equal(families[0].shown.id, "g2");
 });
 
-// ── Sidebar cap ─────────────────────────────────────────────────────────────
-// The Groups section is capped the way Worlds and Documents are: a recent slice
-// by default, a search box and a "show all" behind it.
+// ── Sidebar cap ───────────────────────────────────────────────────────────── The Groups section is capped the way
+// Worlds and Documents are: a recent slice by default, a search box and a "show all" behind it.
 
 // n families in conversation order, the (openIndex)th marked open.
 function families(n, openIndex = -1) {
@@ -445,9 +416,8 @@ test("expanded shows every group", () => {
 });
 
 test("the open group keeps a row even when recency pushed it past the cut", () => {
-  // Otherwise selecting a checkpoint of a quiet group would delete the row the
-  // click came from. It takes the last slot, and the hidden count still counts
-  // every group the list is not showing.
+  // Otherwise selecting a checkpoint of a quiet group would delete the row the click came from. It takes the last slot,
+  // and the hidden count still counts every group the list is not showing.
   const { shown, hidden } = visibleGroups(families(GROUP_LIMIT + 4, GROUP_LIMIT + 2));
   assert.equal(shown.length, GROUP_LIMIT);
   assert.equal(shown[shown.length - 1].rootId, `r${GROUP_LIMIT + 2}`);
@@ -463,9 +433,8 @@ test("an open group already inside the cap is not moved", () => {
 });
 
 test("search matches the group name or its cast, and ignores the cap", () => {
-  // Twelve, not `GROUP_LIMIT + 4`. The match is a substring, and demonstrating
-  // that needs the list to reach double digits before "Group 1" has more than
-  // one answer — sizing the fixture off the cap instead is what quietly emptied
+  // Twelve, not `GROUP_LIMIT + 4`. The match is a substring, and demonstrating that needs the list to reach double
+  // digits before "Group 1" has more than one answer — sizing the fixture off the cap instead is what quietly emptied
   // this expectation down to a single row when the cap moved to 5.
   const all = families(12);
   assert.deepEqual(

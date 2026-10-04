@@ -1,9 +1,8 @@
 """Which image an edit workflow's `LoadImage` slot actually gets fed.
 
-The failure this guards is silent and expensive: a reference resolved off the wrong
-row produces a picture of the wrong person, which reads as a bad model rather than
-a bad lookup. So the walk-back rules -- active sibling, evicted rows, the excluded
-anchor -- are pinned here rather than left to the end-to-end path.
+The failure this guards is silent and expensive: a reference resolved off the wrong row produces a picture of the wrong person,
+which reads as a bad model rather than a bad lookup. So the walk-back rules -- active sibling, evicted rows, the excluded anchor
+-- are pinned here rather than left to the end-to-end path.
 """
 
 from __future__ import annotations
@@ -17,10 +16,7 @@ from PIL import Image
 
 from backend.workflows.image_gen import references as refs
 from backend.workflows.image_gen.config import REFERENCE_SOURCES
-from backend.workflows.image_gen.engine.contracts import (
-    ImageGenerationError,
-    RenderTarget,
-)
+from backend.workflows.image_gen.engine.contracts import ImageGenerationError, RenderTarget
 from backend.workflows.image_gen.subjects import Subject
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"first"
@@ -133,8 +129,7 @@ async def test_no_mapped_slots_resolves_to_nothing():
         # The anchor is excluded, or a regenerate would edit the render already on
         # the message instead of the scene, drifting further from the reply each pass.
         ([_msg(1, workflow=[_gen(10)]), _msg(2, workflow=[_gen(20, OTHER)])], 2, "attachment:10"),
-        # A user upload counts, and its origin carries the message id too, since
-        # user attachments are only readable per-message.
+        # A user upload counts, and its origin carries the message id too, since user attachments are only readable per-message.
         ([_msg(1, user=[_upload(5, OTHER)])], 99, "upload:1:5"),
         ([_msg(1, workflow=[_gen(10)], user=[_upload(5, OTHER)])], 99, "attachment:10"),
     ],
@@ -160,8 +155,7 @@ async def test_the_walk_back_stops_before_the_whole_branch():
     picture from two hundred messages ago is a worse likeness than the one the user
     set on purpose."""
     ancient = [_msg(1, workflow=[_gen(10)])]
-    # The image sits one message beyond the window: the walk scans `since` first,
-    # so reaching it costs len(since) + 1 steps.
+    # The image sits one message beyond the window: the walk scans `since` first, so reaching it costs len(since) + 1 steps.
     since = [_msg(i) for i in range(2, 2 + refs.PREVIOUS_LOOKBACK_MESSAGES)]
 
     assert refs._previous_image(ancient + since, 99) is None
@@ -189,11 +183,10 @@ async def test_only_a_required_slot_fails_when_nothing_resolves():
 
 @pytest.mark.asyncio
 async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
-    """The per-source cache, which is what makes a two-`Load Image` graph work in a
-    solo chat: both rows on the character reference receive the same bytes. This is
-    why `cast` is a source of its own rather than a redefinition of `character` --
-    re-pointing slot two at "subject two" would leave it unfilled here, and a ComfyUI
-    slot is unconditionally required."""
+    """The per-source cache, which is what makes a two-`Load Image` graph work in a solo chat: both rows on the character
+    reference receive the same bytes. This is why `cast` is a source of its own rather than a redefinition of `character` --
+    re-pointing slot two at "subject two" would leave it unfilled here, and a ComfyUI slot is unconditionally required.
+    """
 
     async def avatar(_card_id):
         return AVATAR, "image/png"
@@ -214,9 +207,8 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
 def _avatars(monkeypatch):
     """One distinct avatar per card, so which subject a slot drew is readable.
 
-    Real bytes, not the walk-back tests' stand-ins: a slot carrying a mime allowlist
-    re-encodes what it resolved, and a distinct colour per card is what makes the
-    digests distinguishable afterwards.
+    Real bytes, not the walk-back tests' stand-ins: a slot carrying a mime allowlist re-encodes what it resolved, and a distinct
+    colour per card is what makes the digests distinguishable afterwards.
     """
 
     async def avatar(card_id):
@@ -463,8 +455,7 @@ async def test_nothing_recorded_replays_as_no_references():
     [
         (["72", "image"], CLOUD_SLOTS, ("cloud", "image_0")),
         (["cloud", "image_0"], COMFY_SLOTS, ("72", "image")),
-        # A graph re-exported with different node ids is the same problem in one
-        # backend, and gets the same answer.
+        # A graph re-exported with different node ids is the same problem in one backend, and gets the same answer.
         (["72", "image"], [{**COMFY_SLOTS[0], "slot": ["81", "image"]}], ("81", "image")),
     ],
     ids=["comfy -> cloud", "cloud -> comfy", "graph re-exported"],

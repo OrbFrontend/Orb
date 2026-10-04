@@ -100,11 +100,7 @@ def join_content(reference_text: str, text: str) -> str:
     return head + ("" if _is_cjk(head[-1]) or _is_cjk(tail[0]) else " ") + tail
 
 
-def clone_prompt(
-    text_tokens: Sequence[int],
-    speaker_tokens: Sequence[int],
-    reference_tokens: Sequence[int] = (),
-) -> list[int]:
+def clone_prompt(text_tokens: Sequence[int], speaker_tokens: Sequence[int], reference_tokens: Sequence[int] = ()) -> list[int]:
     """Build a Spark-TTS prompt with optional reference speech."""
     speaker = validate_speaker_tokens(list(speaker_tokens))
     prompt = [

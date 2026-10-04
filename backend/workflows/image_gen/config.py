@@ -15,9 +15,8 @@ from .pov import normalize_mode as normalize_pov_mode
 WORKFLOW_ID = "image_gen"
 SOURCES = ("external_comfy", "cloud")
 DEFAULT_SOURCE = "external_comfy"
-# The reserved connection id for the ComfyUI server -- the one connection that
-# always exists and cannot be removed. Every other id in that namespace is a cloud
-# provider id, so nothing may ship a provider preset called "comfy".
+# The reserved connection id for the ComfyUI server -- the one connection that always exists and cannot be removed. Every other
+# id in that namespace is a cloud provider id, so nothing may ship a provider preset called "comfy".
 COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
 MAX_SCENE_SKILLS = 32
@@ -26,10 +25,9 @@ MAX_USER_GRAPHS = 32
 # retained rather than replaced -- and, like everything here, bounded.
 MAX_CLOUD_PROVIDERS = 16
 CLOUD_QUALITIES = ("low", "medium", "high")
-# Canonical pixel bounds, shared by both backends. Stored as width/height even for
-# providers that speak aspect ratios: one representation, converted at the wire. A
-# ComfyUI graph reads the same pair, through whichever node its `width`/`height`
-# slots map -- and ignores it entirely when it maps none.
+# Canonical pixel bounds, shared by both backends. Stored as width/height even for providers that speak aspect ratios: one
+# representation, converted at the wire. A ComfyUI graph reads the same pair, through whichever node its `width`/`height` slots
+# map -- and ignores it entirely when it maps none.
 MIN_CLOUD_EDGE = 64
 MAX_CLOUD_EDGE = 4096
 DEFAULT_CLOUD_EDGE = 1024
@@ -46,19 +44,16 @@ MAX_SEED = 2**64 - 1
 MAX_REFINE_TURNS = 5
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
-# The three formats Orb carries end to end, each mapped to the extension it is named
-# by. One table rather than three, because "a mime Orb accepts" and "a mime Orb can
-# name as a file" are the same set: ComfyUI's multipart upload takes the extension
-# from here, and so does a stored attachment's filename.
+# The three formats Orb carries end to end, each mapped to the extension it is named by. One table rather than three, because "a
+# mime Orb accepts" and "a mime Orb can name as a file" are the same set: ComfyUI's multipart upload takes the extension from
+# here, and so does a stored attachment's filename.
 MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
 
-# The composition-skill library Orb ships. Seeded only when a stored config has
-# never carried the field -- removing one keeps it removed, per `normalize_config`.
-# These IDs are stable and referenced by saved renders; user-authored rows get
-# label-derived IDs minted at the persistence boundary instead. The selector reads
-# only `label` and `description`, so those carry the "when to use"; `instructions`
-# reach the composer only for the skills it picks.
+# The composition-skill library Orb ships. Seeded only when a stored config has never carried the field -- removing one keeps it
+# removed, per `normalize_config`. These IDs are stable and referenced by saved renders; user-authored rows get label-derived
+# IDs minted at the persistence boundary instead. The selector reads only `label` and `description`, so those carry the "when to
+# use"; `instructions` reach the composer only for the skills it picks.
 DEFAULT_SCENE_SKILLS = [
     {
         "id": "first_person_hug",
@@ -101,25 +96,21 @@ DEFAULT_SCENE_SKILLS = [
 class SourcePolicy(NamedTuple):
     """What kinds of image a style asks for, and how the kinds combine.
 
-    `kinds` is ordered. `all_of` says whether every kind contributes (`character` then
-    `previous`) or whether the first kind that resolves wins and the rest are its
-    fallbacks -- which is what `previous_or_character` has always meant.
+    `kinds` is ordered. `all_of` says whether every kind contributes (`character` then `previous`) or whether the first kind
+    that resolves wins and the rest are its fallbacks -- which is what `previous_or_character` has always meant.
     """
 
     kinds: tuple[str, ...]
     all_of: bool = False
 
 
-# Where a style's reference images come from. The combined `previous_or_character` is
-# the default so the choice has no cold-start cliff: a style pinned to `previous` alone
-# hard-fails on a new conversation's first Visualize.
+# Where a style's reference images come from. The combined `previous_or_character` is the default so the choice has no
+# cold-start cliff: a style pinned to `previous` alone hard-fails on a new conversation's first Visualize.
 #
-# **One reference image per character.** `character` means the people this render is a
-# picture *of*, one image each and never the same person twice -- in a solo chat that is
-# one image, in a group it is one per member in frame, in `subjects.py`'s order. What a
-# style no longer does is say *which* image goes in *which* slot: position is the
-# subject order, so there is nothing positional left to configure and no `cast` ordinal
-# to count. How many actually travel is the render target's to cap.
+# **One reference image per character.** `character` means the people this render is a picture *of*, one image each and never
+# the same person twice -- in a solo chat that is one image, in a group it is one per member in frame, in `subjects.py`'s order.
+# What a style no longer does is say *which* image goes in *which* slot: position is the subject order, so there is nothing
+# positional left to configure and no `cast` ordinal to count. How many actually travel is the render target's to cap.
 REFERENCE_SOURCES: dict[str, SourcePolicy] = {
     "previous": SourcePolicy(("previous",)),
     "character": SourcePolicy(("character",)),
@@ -134,9 +125,8 @@ DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 CONFIG_DEFAULTS = {
     "source": DEFAULT_SOURCE,
     "default_style": "realistic",
-    # Default styles leave connection unlinked so source selects the backend
-    # until first save. Omit render settings to let _style inherit legacy cloud
-    # model/size/quality instead of overwriting them with defaults.
+    # Default styles leave connection unlinked so source selects the backend until first save. Omit render settings to let
+    # _style inherit legacy cloud model/size/quality instead of overwriting them with defaults.
     "styles": [
         {
             "id": "realistic",
@@ -178,10 +168,9 @@ CONFIG_DEFAULTS = {
     # `external_comfy`'s. What an image looks like belongs to the style.
     "cloud": {
         "provider": "xai",
-        # One entry per cloud connection, keyed by provider id. One representative
-        # entry ships so the preset-schema coverage walker can see the `api_key` leaf
-        # under the map level; it is inert and the panel does not list it until it
-        # holds something.
+        # One entry per cloud connection, keyed by provider id. One representative entry ships so the preset-schema coverage
+        # walker can see the `api_key` leaf under the map level; it is inert and the panel does not list it until it holds
+        # something.
         "providers": {"xai": {"api_key": "", "base_url": ""}},
     },
 }
@@ -238,9 +227,8 @@ def _source_name(value: Any) -> str:
 def _first_source(values: Any) -> str:
     """The first live source in a stored *list* of them.
 
-    A style could once point each of its target's slots somewhere of its own, and the
-    entry that fed slot 0 is the one that survives: it is the slot every target has,
-    and the one a solo render was always about.
+    A style could once point each of its target's slots somewhere of its own, and the entry that fed slot 0 is the one that
+    survives: it is the slot every target has, and the one a solo render was always about.
     """
     if not isinstance(values, (list, tuple)):
         return ""
@@ -263,18 +251,12 @@ def _reference_source(raw: Mapping[str, Any], legacy_slots: Sequence[Any], legac
 
 
 def _render_target(
-    raw: Mapping[str, Any],
-    cloud: Mapping[str, Any],
-    connection: str,
-    workflow: str,
-    legacy_slots: Sequence[str],
+    raw: Mapping[str, Any], cloud: Mapping[str, Any], connection: str, workflow: str, legacy_slots: Sequence[str]
 ) -> dict:
     """Resolve the fields that control one render."""
-    # An unlinked style renders on `cloud.provider`, so that is the entry it inherits
-    # from -- which is what makes the migration a no-op for what it next produces.
-    # Guarded on a non-empty id: `""` is not a connection, and `_cloud` drops an entry
-    # keyed by it, so inheriting from one would seed a style off a row that is about
-    # to cease to exist.
+    # An unlinked style renders on `cloud.provider`, so that is the entry it inherits from -- which is what makes the migration
+    # a no-op for what it next produces. Guarded on a non-empty id: `""` is not a connection, and `_cloud` drops an entry keyed
+    # by it, so inheriting from one would seed a style off a row that is about to cease to exist.
     entries = cloud.get("providers")
     source_id = connection or _text(cloud.get("provider"), 64)
     entry = entries.get(source_id) if source_id and isinstance(entries, Mapping) else None
@@ -284,20 +266,17 @@ def _render_target(
         return next((s[name] for s in sources if isinstance(s, Mapping) and name in s), None)
 
     quality = _text(inherited("quality"), 16).lower()
-    # A graph-bound style deliberately does **not** inherit the lone cloud-block
-    # `reference_source`: it reaches every style through the raw cloud block whatever the
-    # connection, so honouring it here would silently start uploading conversation images
-    # to a ComfyUI server that never asked.
+    # A graph-bound style deliberately does **not** inherit the lone cloud-block `reference_source`: it reaches every style
+    # through the raw cloud block whatever the connection, so honouring it here would silently start uploading conversation
+    # images to a ComfyUI server that never asked.
     return {
-        # "" means "the provider's own default", resolved at the adapter where the
-        # preset table lives -- not substituted here, so relinking to a provider with
-        # a different default does not need the stored value rewritten.
+        # "" means "the provider's own default", resolved at the adapter where the preset table lives -- not substituted here,
+        # so relinking to a provider with a different default does not need the stored value rewritten.
         "model": _text(inherited("model"), 256),
         "width": _edge(inherited("width"), DEFAULT_CLOUD_EDGE),
         "height": _edge(inherited("height"), DEFAULT_CLOUD_EDGE),
         "quality": quality if quality in CLOUD_QUALITIES else "",
-        # Compatibility is user-owned. Provider refusals are never parsed to mutate
-        # these fields behind the user's back.
+        # Compatibility is user-owned. Provider refusals are never parsed to mutate these fields behind the user's back.
         "send_seed": _enabled(raw.get("send_seed")),
         "seed_max": _seed_max(raw.get("seed_max")),
         "send_negative_prompt": _enabled(raw.get("send_negative_prompt")),
@@ -375,11 +354,9 @@ def _next_scene_skill_id(base: str, unavailable: set[str]) -> str:
 def _scene_skills(candidates: Any) -> list[dict]:
     """Normalize the editable library, allocating IDs for user-authored rows.
 
-    Built-in skills arrive with stable IDs, while custom rows from forms, preset
-    imports, and older saved state may have only a label. The selector can only
-    return an ID, so mint one here at the persistence boundary. Label-derived
-    IDs are readable in the compact selector catalog and remain stable after
-    this normalized shape is saved.
+    Built-in skills arrive with stable IDs, while custom rows from forms, preset imports, and older saved state may have only a
+    label. The selector can only return an ID, so mint one here at the persistence boundary. Label-derived IDs are readable in
+    the compact selector catalog and remain stable after this normalized shape is saved.
     """
     entries = candidates if isinstance(candidates, list) else []
     reserved = {
@@ -421,12 +398,10 @@ def _slot(value: Any) -> list[str] | None:
 def _declared_references(raw: Any) -> list[tuple[dict, str]]:
     """This graph's image slots, each paired with the source a legacy config pinned to it.
 
-    The slot is **structural** -- which node inputs load an image is a fact about the
-    graph, discovered at import against ComfyUI's `/object_info` -- so it is stored
-    here, for every image widget the importer found rather than only the ones pointed
-    somewhere. Where the bytes come from is not a fact about the graph: that is the
-    style's to say, so two styles on one workflow can differ and either can send no
-    reference at all. The second element is only what an older config recorded, for
+    The slot is **structural** -- which node inputs load an image is a fact about the graph, discovered at import against
+    ComfyUI's `/object_info` -- so it is stored here, for every image widget the importer found rather than only the ones
+    pointed somewhere. Where the bytes come from is not a fact about the graph: that is the style's to say, so two styles on one
+    workflow can differ and either can send no reference at all. The second element is only what an older config recorded, for
     `_style` to migrate onto the styles using this graph.
     """
     entries: list[tuple[dict, str]] = []
@@ -437,9 +412,8 @@ def _declared_references(raw: Any) -> list[tuple[dict, str]]:
         slot = _slot(item.get("slot"))
         if slot is None:
             continue
-        # One entry per widget: two rows on one slot would both resolve and both be
-        # recorded, but only the second survives patching, so the record would claim
-        # a reference the render never used.
+        # One entry per widget: two rows on one slot would both resolve and both be recorded, but only the second survives
+        # patching, so the record would claim a reference the render never used.
         if (slot[0], slot[1]) in seen:
             continue
         seen.add((slot[0], slot[1]))
@@ -457,11 +431,10 @@ def _declared_references(raw: Any) -> list[tuple[dict, str]]:
 def _strip_machine_local_state(graph: dict) -> dict:
     """A deep copy of `graph` with each node's top-level `is_changed` removed.
 
-    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the file
-    on the *exporter's* disk. `IsChangedCache.get` returns the client-supplied value
-    verbatim as part of the node's cache signature, so a pinned hash masks a change
-    of file contents at an unchanged path and the render returns the previously
-    decoded image. Stripped before the size cap is measured.
+    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the file on the *exporter's* disk.
+    `IsChangedCache.get` returns the client-supplied value verbatim as part of the node's cache signature, so a pinned hash
+    masks a change of file contents at an unchanged path and the render returns the previously decoded image. Stripped before
+    the size cap is measured.
     """
     stripped = copy.deepcopy(graph)
     for node in stripped.values():
@@ -473,9 +446,8 @@ def _strip_machine_local_state(graph: dict) -> dict:
 def _user_graph(raw: Any, legacy_sources: dict[str, list[str]] | None = None) -> dict | None:
     """One imported graph, optionally recording what an older config pinned per slot.
 
-    `legacy_sources` is filled in only for a graph that actually parses, and only for
-    the first entry claiming an id -- exactly the ones `_unique_by_id` keeps, so the
-    style inheriting from a graph id never inherits from a row that was discarded.
+    `legacy_sources` is filled in only for a graph that actually parses, and only for the first entry claiming an id -- exactly
+    the ones `_unique_by_id` keeps, so the style inheriting from a graph id never inherits from a row that was discarded.
     """
     if not isinstance(raw, Mapping):
         return None
@@ -494,28 +466,21 @@ def _user_graph(raw: Any, legacy_sources: dict[str, list[str]] | None = None) ->
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
             slots[name] = parsed
-    # `negative`, `checkpoint` and the two size slots stay optional: a one-encoder
-    # prose graph has nothing to map negative to, a self-contained graph keeps its own
-    # model, and a graph whose output size comes from a reference image or an
-    # aspect-ratio node has no width/height pair to patch. Absent is how "unmapped"
-    # is encoded, which is also why no migration is needed for either.
+    # `negative`, `checkpoint` and the two size slots stay optional: a one-encoder prose graph has nothing to map negative to, a
+    # self-contained graph keeps its own model, and a graph whose output size comes from a reference image or an aspect-ratio
+    # node has no width/height pair to patch. Absent is how "unmapped" is encoded, which is also why no migration is needed for
+    # either.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
-    # Also optional, so a t2i graph normalizes unchanged: a graph that loads no image
-    # has no `references` key at all, which is how "not an edit workflow" is encoded.
-    # "Off" is not encoded here any more -- it is a style saying `""` for this slot.
+    # Also optional, so a t2i graph normalizes unchanged: a graph that loads no image has no `references` key at all, which is
+    # how "not an edit workflow" is encoded. "Off" is not encoded here any more -- it is a style saying `""` for this slot.
     declared = _declared_references(slots_raw.get("references"))
     references = [entry for entry, _ in declared]
     if references:
         slots["references"] = references
     if legacy_sources is not None:
         legacy_sources.setdefault(gid, [source for _, source in declared])
-    return {
-        "id": gid,
-        "label": _text(raw.get("label"), 100, gid) or gid,
-        "graph": graph,
-        "slots": slots,
-    }
+    return {"id": gid, "label": _text(raw.get("label"), 100, gid) or gid, "graph": graph, "slots": slots}
 
 
 def _is_loopback(hostname: str) -> bool:
@@ -564,10 +529,7 @@ def _cloud_provider_entry(raw: Any) -> dict:
     legacy fields before this discards them on the next write.
     """
     raw = raw if isinstance(raw, Mapping) else {}
-    return {
-        "api_key": _text(raw.get("api_key"), 2_048),
-        "base_url": _cloud_base_url(raw.get("base_url")),
-    }
+    return {"api_key": _text(raw.get("api_key"), 2_048), "base_url": _cloud_base_url(raw.get("base_url"))}
 
 
 def _cloud(raw: Any, provider_override: str = "") -> dict:
@@ -618,9 +580,8 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         url = CONFIG_DEFAULTS["external_comfy"]["api_url"]
     url = url.rstrip("/")
 
-    # Styles were nested inside `external_comfy` before they were shared. The
-    # normalizer runs on every read and every write, so a legacy config hoists on
-    # first read and persists hoisted on first write -- no DB migration.
+    # Styles were nested inside `external_comfy` before they were shared. The normalizer runs on every read and every write, so
+    # a legacy config hoists on first read and persists hoisted on first write -- no DB migration.
     raw_styles = raw.get("styles")
     if not isinstance(raw_styles, list):
         raw_styles = external_raw.get("styles")
@@ -628,9 +589,8 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         raw_styles = CONFIG_DEFAULTS["styles"]
     cloud_value = raw.get("cloud")
     cloud_raw: Mapping[str, Any] = cloud_value if isinstance(cloud_value, Mapping) else {}
-    # Graphs parse first because a style inherits from the one it names: the sources
-    # now on the style were stored per slot on the graph, and `_user_graph` drops them
-    # on the way past, so it hands them out here on its way past instead.
+    # Graphs parse first because a style inherits from the one it names: the sources now on the style were stored per slot on
+    # the graph, and `_user_graph` drops them on the way past, so it hands them out here on its way past instead.
     legacy_references: dict[str, list[str]] = {}
     graphs = _unique_by_id(
         external_raw.get("user_graphs"), partial(_user_graph, legacy_sources=legacy_references), MAX_USER_GRAPHS
@@ -638,15 +598,13 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     # The raw cloud block and the legacy map are bound at the call site rather than by
     # widening `_unique_by_id`, which `_user_graph` shares and has neither to pass.
     parse_style = partial(_style, cloud=cloud_raw, legacy_references=legacy_references)
-    # The shipped defaults go through the same parse rather than being copied in
-    # whole, so every path out of here produces one shape -- and so a config that
-    # never stored a style still inherits the cloud block it was configured with.
+    # The shipped defaults go through the same parse rather than being copied in whole, so every path out of here produces one
+    # shape -- and so a config that never stored a style still inherits the cloud block it was configured with.
     styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
         CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
     )
-    # Empty is a deliberate library state. Seed the editable starter only when the
-    # field has never existed; a present malformed value normalizes to an empty list
-    # rather than resurrecting a skill the user removed.
+    # Empty is a deliberate library state. Seed the editable starter only when the field has never existed; a present malformed
+    # value normalizes to an empty list rather than resurrecting a skill the user removed.
     raw_scene_skills = raw.get("scene_skills") if "scene_skills" in raw else CONFIG_DEFAULTS["scene_skills"]
     scene_skills = _scene_skills(raw_scene_skills)
 
@@ -661,14 +619,11 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     source = _text(raw.get("source"), 32, DEFAULT_SOURCE)
     if source not in SOURCES:
         source = DEFAULT_SOURCE
-    # `source` is derived, not chosen: the form has a connection per style, so which
-    # backend routes is a property of the style, not of the config. Kept here only so
-    # `_status` and a stored attachment's record still have a global answer -- the
-    # render path routes per style through `style_source`, which is this same call
-    # with whichever style is actually about to render.
+    # `source` is derived, not chosen: the form has a connection per style, so which backend routes is a property of the style,
+    # not of the config. Kept here only so `_status` and a stored attachment's record still have a global answer -- the render
+    # path routes per style through `style_source`, which is this same call with whichever style is actually about to render.
     source, provider_override = style_source(
-        {"source": source, "cloud": cloud_raw},
-        active_style({"styles": styles, "default_style": default_style}),
+        {"source": source, "cloud": cloud_raw}, active_style({"styles": styles, "default_style": default_style})
     )
 
     return {
@@ -686,11 +641,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "prompter_reference": raw.get("prompter_reference") is True,
         "refine_turns": _refine_turns(raw.get("refine_turns")),
         "timeout_seconds": min(900.0, max(10.0, timeout)),
-        "external_comfy": {
-            "api_url": url,
-            "api_key": _text(external_raw.get("api_key"), 2_048),
-            "user_graphs": graphs,
-        },
+        "external_comfy": {"api_url": url, "api_key": _text(external_raw.get("api_key"), 2_048), "user_graphs": graphs},
         "cloud": _cloud(raw.get("cloud"), provider_override),
     }
 
@@ -722,9 +673,8 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     style = next((s for s in config["styles"] if s["id"] == style_id), None)
     if style is None:
         raise ValueError(f"unknown image style {style_id!r}")
-    # An empty workflow stays empty: external mode has no default graph, so the
-    # render path turns "no workflow" into an "assign one" error rather than
-    # silently substituting.
+    # An empty workflow stays empty: external mode has no default graph, so the render path turns "no workflow" into an "assign
+    # one" error rather than silently substituting.
     return dict(style)
 
 
@@ -740,9 +690,8 @@ def style_reference_source(style: Mapping[str, Any]) -> str:
 
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:
     raw = raw if isinstance(raw, Mapping) else {}
-    # The per-character reference, for slots resolving to `character`. Dropped rather
-    # than truncated when oversized (half a base64 payload is not a smaller image),
-    # and both halves ride together: bytes with no mime cannot be read.
+    # The per-character reference, for slots resolving to `character`. Dropped rather than truncated when oversized (half a
+    # base64 payload is not a smaller image), and both halves ride together: bytes with no mime cannot be read.
     image_raw = raw.get("reference_image_b64")
     image = image_raw.strip() if isinstance(image_raw, str) else ""
     mime = _text(raw.get("reference_mime"), 64).lower()

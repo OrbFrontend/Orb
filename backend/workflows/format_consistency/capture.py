@@ -1,8 +1,7 @@
 """Capture pre-normalization inputs for offline markup evaluation.
 
-ORB_MARKUP_CAPTURE enables JSONL records of draft, newest-first baseline,
-readings, action and output. Stored replies are already normalized and cannot
-substitute for these inputs. Capture failures never escape the hook.
+ORB_MARKUP_CAPTURE enables JSONL records of draft, newest-first baseline, readings, action and output. Stored replies are
+already normalized and cannot substitute for these inputs. Capture failures never escape the hook.
 """
 
 from __future__ import annotations

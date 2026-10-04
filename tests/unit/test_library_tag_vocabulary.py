@@ -1,8 +1,7 @@
 """The curated vocabulary's normalization, identity, and diff rules.
 
-Pure functions, no app stack. These are the rules the whole idempotency contract
-rests on: the hash decides which cards are pending, and the diff decides whether
-a save costs zero model calls or a full re-pass over the library.
+Pure functions, no app stack. These are the rules the whole idempotency contract rests on: the hash decides which cards are
+pending, and the diff decides whether a save costs zero model calls or a full re-pass over the library.
 """
 
 from __future__ import annotations
@@ -25,8 +24,7 @@ def test_empty_names_are_dropped():
 
 
 def test_dedupe_is_case_insensitive_and_keeps_the_first_casing():
-    # Both spellings would otherwise spend two of the 64 slots on one concept and
-    # split its assignments across them.
+    # Both spellings would otherwise spend two of the 64 slots on one concept and split its assignments across them.
     assert normalize_vocabulary(["Fantasy", "fantasy", "FANTASY"]) == ["Fantasy"]
 
 

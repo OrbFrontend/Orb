@@ -157,12 +157,7 @@ def _trim(
 
 
 def trim_silence(
-    wav: np.ndarray,
-    *,
-    threshold: float = 0.01,
-    min_silence_ms: int = 300,
-    keep_ms: int = 200,
-    min_keep_samples: int = 16000,
+    wav: np.ndarray, *, threshold: float = 0.01, min_silence_ms: int = 300, keep_ms: int = 200, min_keep_samples: int = 16000
 ) -> np.ndarray:
     """Remove silent edges and clamp long interior silence runs."""
     return _trim(
@@ -179,9 +174,8 @@ def trim_silence_edges(
     wav: np.ndarray,
     *,
     threshold: float = 0.01,
-    # No floor: a synthesized line is as long as it is, and "Wait." deserves the
-    # same edges as a sentence. The release-aware cut is conservative enough on
-    # its own — it only ever removes audio that sits below the decay floor.
+    # No floor: a synthesized line is as long as it is, and "Wait." deserves the same edges as a sentence. The release-aware cut
+    # is conservative enough on its own — it only ever removes audio that sits below the decay floor.
     min_keep_samples: int = 0,
     release_threshold: float = RELEASE_THRESHOLD,
     release_ms: int = RELEASE_MS,
@@ -190,10 +184,9 @@ def trim_silence_edges(
 ) -> np.ndarray:
     """Remove dead air at the edges, keeping each word's attack and release.
 
-    Pauses inside the speech are left alone. The edges are cut at the decay
-    floor rather than at the last speech frame, and a short pad of the
-    waveform's own trailing silence is kept, so a synthesized line ends the way
-    it was spoken instead of stopping dead on the last audible sample.
+    Pauses inside the speech are left alone. The edges are cut at the decay floor rather than at the last speech frame, and a
+    short pad of the waveform's own trailing silence is kept, so a synthesized line ends the way it was spoken instead of
+    stopping dead on the last audible sample.
     """
     return _trim(
         wav,
@@ -212,10 +205,8 @@ def trim_silence_edges(
 def pad_tail(wav: np.ndarray, *, ms: int = RELEASE_PAD_MS, threshold: float = RELEASE_THRESHOLD) -> np.ndarray:
     """Append silence so a clip ends with at least *ms* of quiet.
 
-    Spark's decoder normally renders its own trailing silence and the trim keeps
-    it, leaving this a no-op. A short line is the exception: the decoder can
-    stop on the last audible sample, which is heard as the voice being cut off
-    mid-breath.
+    Spark's decoder normally renders its own trailing silence and the trim keeps it, leaving this a no-op. A short line is the
+    exception: the decoder can stop on the last audible sample, which is heard as the voice being cut off mid-breath.
     """
     import numpy as np  # noqa: PLC0415 — deferred; numpy arrives with onnxruntime
 

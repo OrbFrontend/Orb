@@ -33,12 +33,7 @@ await import('./dynamic.js');
 
 
 def test_module_cycle_is_reported():
-    assert import_cycle({"a.js": {"b.js"}, "b.js": {"c.js"}, "c.js": {"a.js"}}) == [
-        "a.js",
-        "b.js",
-        "c.js",
-        "a.js",
-    ]
+    assert import_cycle({"a.js": {"b.js"}, "b.js": {"c.js"}, "c.js": {"a.js"}}) == ["a.js", "b.js", "c.js", "a.js"]
     assert import_cycle({"a.js": {"b.js"}, "b.js": set()}) is None
 
 

@@ -1,18 +1,13 @@
-"""Pins the consumption_metadata contract: workflows write a dict, the row
-helper JSON-encodes it (or silently stores NULL for non-dicts and
-non-serializable dicts), and the bulk reader returns the stored JSON string
-unchanged for the frontend to decode.
+"""Pins the consumption_metadata contract: workflows write a dict, the row helper JSON-encodes it (or silently stores NULL for
+non-dicts and non-serializable dicts), and the bulk reader returns the stored JSON string unchanged for the frontend to
+decode.
 """
 
 from __future__ import annotations
 
 import json
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-)
+from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.database.queries.messages import get_workflow_attachments_for_message
 from backend.workflows.attachment_cache import EVICTED_MARKER, evict
 
@@ -20,9 +15,7 @@ from ._fixtures import make_workflow, must_get_workflow_attachment, register_for
 
 
 async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "cm"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return await client.create("/api/conversations", json={"title": "cm"})
 
 
 async def _seed_with_consumption_metadata(client, payload: dict | None) -> tuple[str, int, int]:
@@ -101,17 +94,9 @@ async def test_reroll_gen_tuple_return_writes_fresh_consumption_metadata(client)
     async def reroll(ctx, params, seed):
         return (b"NEW", {"v": 2})
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
     assert resp.status_code == 200
     new_id = resp.json()["attachment_id"]
     new_row = await must_get_workflow_attachment(new_id)
@@ -124,17 +109,9 @@ async def test_reroll_gen_raw_bytes_writes_null_consumption_metadata(client):
     async def reroll(ctx, params, seed):
         return b"NEW"
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
     assert resp.status_code == 200
     new_id = resp.json()["attachment_id"]
     new_row = await must_get_workflow_attachment(new_id)
@@ -149,17 +126,9 @@ async def test_reroll_gen_hook_reads_prior_consumption_metadata(client):
         captured.append(ctx.prior_consumption_metadata)
         return b"NEW"
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
     assert resp.status_code == 200
     assert len(captured) == 1
     prior = captured[0]
@@ -175,17 +144,9 @@ async def test_reroll_gen_hook_prior_consumption_metadata_is_none_when_absent(cl
         captured.append(ctx.prior_consumption_metadata)
         return b"NEW"
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
-            json={},
-        )
+        await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
     assert captured == [None]
 
 
@@ -196,17 +157,9 @@ async def test_rehydrate_tuple_dict_overwrites_consumption_metadata(client):
     async def reroll(ctx, params, seed):
         return (b"RECOVERED", {"fresh": True})
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
     assert resp.status_code == 200
     row = await must_get_workflow_attachment(aid)
     assert row["data_b64"] != EVICTED_MARKER
@@ -220,17 +173,9 @@ async def test_rehydrate_raw_bytes_keeps_stored_consumption_metadata(client):
     async def reroll(ctx, params, seed):
         return b"RECOVERED"
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
     assert resp.status_code == 200
     row = await must_get_workflow_attachment(aid)
     assert row["data_b64"] != EVICTED_MARKER
@@ -244,17 +189,9 @@ async def test_rehydrate_tuple_none_keeps_stored_consumption_metadata(client):
     async def reroll(ctx, params, seed):
         return (b"RECOVERED", None)
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
     assert resp.status_code == 200
     row = await must_get_workflow_attachment(aid)
     assert json.loads(row["consumption_metadata"]) == {"orig": True}
@@ -267,17 +204,9 @@ async def test_rehydrate_overwrites_when_stored_was_null(client):
     async def reroll(ctx, params, seed):
         return (b"RECOVERED", {"new": 1})
 
-    wf = make_workflow(
-        "img",
-        regenerate=lambda ctx, body: [],
-        reroll_gen=reroll,
-        produces_artifacts=True,
-    )
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
     with register_for_test(wf):
-        resp = await client.post(
-            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
-            json={},
-        )
+        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
     assert resp.status_code == 200
     row = await must_get_workflow_attachment(aid)
     assert json.loads(row["consumption_metadata"]) == {"new": 1}

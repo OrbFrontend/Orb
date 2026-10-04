@@ -1,8 +1,7 @@
 """The cloud adapter: targeting, references, and the promises it must not break.
 
-One of these guards against spending the user's money by accident (Test connection
-must not render), and two against a silent substitution (a replay must pin its own
-resolution and model). `n` stays 1 in `test_providers`, per preset.
+One of these guards against spending the user's money by accident (Test connection must not render), and two against a silent
+substitution (a replay must pin its own resolution and model). `n` stays 1 in `test_providers`, per preset.
 """
 
 from __future__ import annotations
@@ -47,13 +46,11 @@ _MODELS = {
 
 
 def _config(provider: str = "xai", model: str | None = None, **style) -> dict:
-    """One builder for every provider under test: the rows differ by provider id and
-    model, and nothing else, so three near-identical builders were three places to
-    forget a field. `model=""` is a real answer -- AI/ML API ships no default.
+    """One builder for every provider under test: the rows differ by provider id and model, and nothing else, so three
+    near-identical builders were three places to forget a field. `model=""` is a real answer -- AI/ML API ships no default.
 
-    The render settings sit on the style and the credential on the connection, which
-    is the split this whole fixture exists to exercise: `_MODELS` names one model per
-    provider, and a second style on the same connection could name another.
+    The render settings sit on the style and the credential on the connection, which is the split this whole fixture exists to
+    exercise: `_MODELS` names one model per provider, and a second style on the same connection could name another.
     """
     return normalize_config(
         {
@@ -79,12 +76,7 @@ def _adapter(config, handler) -> OpenAICompatibleImageAdapter:
 
     class _Mocked(OpenAICompatibleImageAdapter):
         def _client(self, timeout: float) -> OpenAIImageClient:
-            return OpenAIImageClient(
-                "https://api.x.ai/v1",
-                "sk-test",
-                label=self.label,
-                transport=httpx.MockTransport(handler),
-            )
+            return OpenAIImageClient("https://api.x.ai/v1", "sk-test", label=self.label, transport=httpx.MockTransport(handler))
 
     return _Mocked(config, resolve_style(config, "anime"))
 
@@ -129,11 +121,7 @@ def _generation_handler(record: dict, *, image: bytes | None = None):
         record["path"] = request.url.path
         record["body"] = json.loads(request.content)
         return httpx.Response(
-            200,
-            json={
-                "data": [{"b64_json": base64.b64encode(image or _png()).decode()}],
-                "usage": {"cost_in_usd_ticks": 900},
-            },
+            200, json={"data": [{"b64_json": base64.b64encode(image or _png()).decode()}], "usage": {"cost_in_usd_ticks": 900}}
         )
 
     return handler
@@ -208,8 +196,7 @@ def test_a_fresh_target_reads_the_configured_model_and_resolution():
     target = _target(_bound(config), config)
     assert (target.source, target.target_id, target.model) == ("cloud", "", "grok-imagine-image")
     assert (target.width, target.height) == (1536, 1024)
-    # xAI honours neither, so the composer is told not to write an `avoid` and the
-    # attachment will say the seed was unused.
+    # xAI honours neither, so the composer is told not to write an `avoid` and the attachment will say the seed was unused.
     assert target.supports_negative_prompt is False
     assert target.supports_seed is False
 
@@ -263,22 +250,17 @@ def test_a_replay_pins_the_resolution_it_was_generated_at_not_todays():
     """The exact silent substitution rehydrate exists to avoid: an image made at
     1024x1024 must not come back 1536x1024 because the picker moved since."""
     config = _config(width=1536, height=1024)
-    target = _target(
-        _bound(config),
-        config,
-        {"backend_model": "grok-imagine-image-quality", "width": 1024, "height": 1024},
-    )
+    target = _target(_bound(config), config, {"backend_model": "grok-imagine-image-quality", "width": 1024, "height": 1024})
     assert (target.width, target.height) == (1024, 1024)
     assert target.model == "grok-imagine-image-quality"
 
 
 def test_a_replay_pins_the_quality_and_reference_slot_it_was_made_with():
-    """The two settings that used to be read off the style at request-build time --
-    so a rehydrate billed at today's quality, and turning references off in settings
-    re-rendered an evicted image from the prompt alone and overwrote the row with it.
+    """The two settings that used to be read off the style at request-build time -- so a rehydrate billed at today's quality,
+    and turning references off in settings re-rendered an evicted image from the prompt alone and overwrote the row with it.
 
-    `""` is a real recorded value for both ("the provider's default", "no reference"),
-    which is why the rule is "a string wins" rather than truthiness.
+    `""` is a real recorded value for both ("the provider's default", "no reference"), which is why the rule is "a string wins"
+    rather than truthiness.
     """
     config = _config(quality="high", reference_source="character")
     replayed = _target(_bound(config), config, {"quality": "", "reference_source": ""})
@@ -308,8 +290,7 @@ async def test_the_attachment_records_the_quality_and_reference_slot_it_used():
 
 @pytest.mark.asyncio
 async def test_the_request_is_built_with_the_targets_quality_not_todays():
-    """The last hop: `resolve_target` can pin all it likes if the body is assembled
-    off `self.style` anyway."""
+    """The last hop: `resolve_target` can pin all it likes if the body is assembled off `self.style` anyway."""
     record: dict = {}
     config = _config(provider="openai", model="gpt-image-1", quality="high")
     adapter = _adapter(config, _generation_handler(record))
@@ -335,8 +316,7 @@ async def test_a_recorded_model_that_is_gone_degrades_with_disclosure():
     config = _config()
     adapter = _adapter(config, handler)
     target = _target(adapter, config, {"backend_model": "grok-imagine-legacy"})
-    # Overlong, so both builds emit a truncation note and the degrade has something
-    # to double up on.
+    # Overlong, so both builds emit a truncation note and the degrade has something to double up on.
     result = await adapter.generate(_request(prompt="x" * (XAI.max_prompt + 50)), target=target)
 
     assert calls == ["grok-imagine-legacy", "grok-imagine-image"]
@@ -356,8 +336,7 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     result = await adapter.generate(_request(), target=_target(adapter, config))
 
     assert (result.backend_info["width"], result.backend_info["height"]) == (1024, 768)
-    # Probed off the returned image, not echoed from the request: an aspect-only
-    # provider decides the actual size.
+    # Probed off the returned image, not echoed from the request: an aspect-only provider decides the actual size.
     assert result.backend_info["seed_honored"] is False
     assert result.backend_info["cost"] == {"provider": "xai", "unit": "usd_ticks", "value": 900}
     assert result.backend_info["steps"] is None
@@ -392,9 +371,8 @@ async def test_a_seed_provider_records_the_seed_the_request_actually_sent():
     ],
 )
 def test_readiness_names_the_gap(cloud, reason):
-    """Deliberately on the legacy shape -- no `styles` key, so both shipped styles
-    carry `connection: ""` and resolve through `cloud.provider`. That path is live on
-    every install that predates connection linking, and this is its coverage: the
+    """Deliberately on the legacy shape -- no `styles` key, so both shipped styles carry `connection: ""` and resolve through
+    `cloud.provider`. That path is live on every install that predates connection linking, and this is its coverage: the
     model hoists off the entry, and readiness answers about it.
     """
     config = normalize_config({"source": "cloud", "cloud": cloud})
@@ -422,11 +400,9 @@ def test_readiness_judges_a_replay_on_the_model_it_recorded():
 
 
 def test_two_styles_on_one_connection_render_differently():
-    """The case the old shape could not express at all. `cloud.providers` is keyed by
-    provider id and the panel allows one connection per provider, so "Kontext for
-    realistic, schnell for anime, both on Together AI" needed a second connection that
-    could not exist -- which is why the shipped install grew styles named after
-    providers.
+    """The case the old shape could not express at all. `cloud.providers` is keyed by provider id and the panel allows one
+    connection per provider, so "Kontext for realistic, schnell for anime, both on Together AI" needed a second connection
+    that could not exist -- which is why the shipped install grew styles named after providers.
     """
     config = normalize_config(
         {
@@ -503,12 +479,7 @@ async def test_test_connection_still_works_before_a_model_is_chosen():
 
 def _reference(data: bytes, mime: str) -> ResolvedReference:
     return ResolvedReference(
-        slot=CLOUD_REFERENCE_SLOT,
-        source="character",
-        data=data,
-        mime=mime,
-        origin="character:card-1",
-        digest="d" * 64,
+        slot=CLOUD_REFERENCE_SLOT, source="character", data=data, mime=mime, origin="character:card-1", digest="d" * 64
     )
 
 
@@ -638,11 +609,10 @@ async def test_references_ride_the_generations_body_when_there_is_no_edits_endpo
 def test_the_model_is_not_consulted_about_references_any_more():
     """A slot is offered on every model of a reference-capable provider.
 
-    Withholding it was a hand-kept allowlist over catalogues that grow without us, and
-    being behind was invisible -- the user configured a likeness, paid for the render,
-    and got neither the picture nor a word about it. A model that cannot use one says
-    so in the refusal, and the user can turn references off. `FLUX.1-schnell` is the
-    model that used to be denied a slot here.
+    Withholding it was a hand-kept allowlist over catalogues that grow without us, and being behind was invisible -- the user
+    configured a likeness, paid for the render, and got neither the picture nor a word about it. A model that cannot use one
+    says so in the refusal, and the user can turn references off. `FLUX.1-schnell` is the model that used to be denied a slot
+    here.
     """
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(_bound(config), config)
@@ -663,11 +633,10 @@ def test_a_reference_capable_model_is_not_nagged_about_it():
 async def test_a_gone_model_falls_back_and_still_carries_its_reference():
     """The substitute still gets the reference, and the substitution is disclosed.
 
-    This used to drop the reference on the model's behalf, off the allowlist. It no
-    longer guesses: `FLUX.1-schnell` answers 200 having ignored `image_url`, which
-    costs an upload and nothing else now that the prompt describes everyone whether or
-    not a picture went with them. A model that *refuses* is handled one layer up, by
-    the render seam's ladder."""
+    This used to drop the reference on the model's behalf, off the allowlist. It no longer guesses: `FLUX.1-schnell` answers 200
+    having ignored `image_url`, which costs an upload and nothing else now that the prompt describes everyone whether or not a
+    picture went with them. A model that *refuses* is handled one layer up, by the render seam's ladder.
+    """
     record: dict = {}
     calls = {"n": 0}
 

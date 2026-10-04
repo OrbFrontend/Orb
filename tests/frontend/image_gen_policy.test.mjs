@@ -36,9 +36,8 @@ test("the camera picker offers Auto only when the classifier can answer it", () 
   assert.equal(povChoices({ classifier: false, mode: "first", fallback: "third" }).selected, "first");
 });
 
-// Both style pickers name the prompt format beside the style, so the label must be
-// the format the render path will actually use — and anything unknown or unset
-// reads as the default the backend substitutes.
+// Both style pickers name the prompt format beside the style, so the label must be the format the render path will
+// actually use — and anything unknown or unset reads as the default the backend substitutes.
 test("every stored format has a label, and everything else reads as the default", () => {
   for (const [id, label] of PROMPT_FORMATS) {
     assert.equal(normalizePromptFormat(id), id);
@@ -106,9 +105,8 @@ test("the tools card summarizes enabled skills and the selected style format", (
 
 // ── connections ──────────────────────────────────────────────────────────────
 //
-// The connection list is derived from the credentials rather than stored beside
-// them, so the interesting cases are all about *which* stored rows count as a
-// connection the user made — and what a style pointing at one resolves to.
+// The connection list is derived from the credentials rather than stored beside them, so the interesting cases are all
+// about *which* stored rows count as a connection the user made — and what a style pointing at one resolves to.
 
 // `supports_references` rides along because the panel offers the reference control
 // exactly where the adapter would send one: a provider with no reference field in
@@ -137,17 +135,15 @@ test("ComfyUI is always the first connection and is never removable", () => {
 });
 
 test("the inert shipped provider row is not a connection the user made", () => {
-  // The defaults carry one empty `xai` entry so the preset-schema walker can see
-  // the api_key leaf. Listing it would put a connection in the panel that nobody
-  // added and that renders nothing.
+  // The defaults carry one empty `xai` entry so the preset-schema walker can see the api_key leaf. Listing it would put
+  // a connection in the panel that nobody added and that renders nothing.
   const list = connectionList(config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS);
   assert.deepEqual(list.map((c) => c.id), [COMFY_CONNECTION]);
 });
 
 test("a just-added, still-empty connection is listed while it is pending", () => {
-  // The panel tracks those ids in a Set, so asking it the membership question in
-  // list form threw instead of answering — and took the settings modal with it,
-  // on the shipped defaults, which carry exactly the empty entry this filters.
+  // The panel tracks those ids in a Set, so asking it the membership question in list form threw instead of answering —
+  // and took the settings modal with it, on the shipped defaults, which carry exactly the empty entry this filters.
   const args = [config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS];
   for (const pending of [["xai"], new Set(["xai"])]) {
     assert.deepEqual(
@@ -180,9 +176,8 @@ test("a cloud connection is unready until it has every prerequisite", () => {
   const only = (providers, styles = []) => connectionList(config({ styles, cloud: { providers } }), PROVIDERS).at(-1);
   assert.equal(only({ xai: { base_url: "https://proxy.example.com/v1" } }).detail, "No API key");
   assert.equal(only({ custom: { api_key: "k" } }).detail, "No API base URL");
-  // A key is now the whole prerequisite. The model used to be checked here and is a
-  // *style* problem: a connection with a key can render, and which model it renders
-  // is a question the connection has no longer any business answering.
+  // A key is now the whole prerequisite. The model used to be checked here and is a *style* problem: a connection with
+  // a key can render, and which model it renders is a question the connection has no longer any business answering.
   assert.equal(only({ xai: { api_key: "k" } }).ready, true);
 
   // A provider Orb no longer knows is still listed: the backend retains such rows so
@@ -194,12 +189,10 @@ test("a cloud connection is unready until it has every prerequisite", () => {
 });
 
 test("a connection a style renders on is listed even with nothing in it", () => {
-  // The model used to make an entry "held", so a keyless row stayed visible through
-  // it. With the model gone, only credentials count — and a connection a style
-  // resolves to must still be reachable, or "Paste an API key for xAI" names a row
-  // the panel does not show and the one thing to fix is the one thing you cannot
-  // reach. Resolved, not raw: this is the legacy fallback path, where the style
-  // names no connection at all.
+  // The model used to make an entry "held", so a keyless row stayed visible through it. With the model gone, only
+  // credentials count — and a connection a style resolves to must still be reachable, or "Paste an API key for xAI"
+  // names a row the panel does not show and the one thing to fix is the one thing you cannot reach. Resolved, not raw:
+  // this is the legacy fallback path, where the style names no connection at all.
   const unlinked = config({
     source: "cloud",
     styles: [{ id: "a", connection: "" }],
@@ -212,17 +205,15 @@ test("a connection a style renders on is listed even with nothing in it", () => 
 });
 
 test("a ready cloud row says how many styles reach it, since the model no longer can", () => {
-  // Two styles on one provider is the state this whole change exists to allow, so
-  // "which model" stopped being a connection-level fact. What is still worth seeing
-  // collapsed is whether anything renders here at all -- a credentialed connection
-  // nothing points at is a real state, and one that explains a setting doing nothing.
+  // Two styles on one provider is the state this whole change exists to allow, so "which model" stopped being a
+  // connection-level fact. What is still worth seeing collapsed is whether anything renders here at all -- a
+  // credentialed connection nothing points at is a real state, and one that explains a setting doing nothing.
   const only = (styles) =>
     connectionList(config({ styles, cloud: { providers: { xai: { api_key: "k" } } } }), PROVIDERS).at(-1);
   assert.equal(only([]).detail, "No styles");
   assert.equal(only([{ id: "a", connection: "xai" }]).detail, "1 style");
   assert.equal(only([{ id: "a", connection: "xai" }, { id: "b", connection: "xai" }]).detail, "2 styles");
-  // A style resolving there only through the legacy fallback counts too: it is the
-  // connection that style renders on.
+  // A style resolving there only through the legacy fallback counts too: it is the connection that style renders on.
   const unlinked = connectionList(
     { ...config({ source: "cloud", styles: [{ id: "a", connection: "" }] }), cloud: { provider: "xai", providers: { xai: { api_key: "k" } } } },
     PROVIDERS,
@@ -244,9 +235,8 @@ test("an unlinked style resolves to whatever the old global source said", () => 
 });
 
 test("a connection just added is listed before it holds anything", () => {
-  // A fresh connection is genuinely empty — its model lives on a style now, and
-  // dropping the row between the click and the first keystroke would read as the Add
-  // button doing nothing.
+  // A fresh connection is genuinely empty — its model lives on a style now, and dropping the row between the click and
+  // the first keystroke would read as the Add button doing nothing.
   const empty = config({ cloud: { providers: { openai: { api_key: "", base_url: "" } } } });
   assert.deepEqual(
     connectionList(empty, PROVIDERS).map((c) => c.id),
@@ -259,11 +249,10 @@ test("a connection just added is listed before it holds anything", () => {
 });
 
 test("reference support is a provider fact and is never asked of the model", () => {
-  // The per-model allowlist is gone, and its absence is the point: it was a hand-kept
-  // table over catalogues of hundreds of models, so it was always behind, and being
-  // behind hid the control entirely — the user never learned the capability existed.
-  // A model that will not take a reference says so in the remote message; the user
-  // can then turn the existing reference control off.
+  // The per-model allowlist is gone, and its absence is the point: it was a hand-kept table over catalogues of hundreds
+  // of models, so it was always behind, and being behind hid the control entirely — the user never learned the
+  // capability existed. A model that will not take a reference says so in the remote message; the user can then turn
+  // the existing reference control off.
   assert.equal(providerTakesReferences({ supports_references: true }), true);
   assert.equal(providerTakesReferences({ supports_references: true, default_model: "flux-schnell" }), true);
 
@@ -273,10 +262,9 @@ test("reference support is a provider fact and is never asked of the model", () 
   assert.equal(providerTakesReferences(null), false);
 });
 
-// ── resolution ───────────────────────────────────────────────────────────────
-// The picker's job is to offer only what the target will actually render. Anything
-// else is a label that lies at the moment the user is choosing what to pay for --
-// the backend does snap it, but it says so afterwards, on an image already billed.
+// ── resolution ─────────────────────────────────────────────────────────────── The picker's job is to offer only what
+// the target will actually render. Anything else is a label that lies at the moment the user is choosing what to pay
+// for -- the backend does snap it, but it says so afterwards, on an image already billed.
 
 test("a provider that names its own sizes is offered exactly those", () => {
   // OpenAI names them in its own rejection: "Supported sizes are 1024x1024,
@@ -286,9 +274,8 @@ test("a provider that names its own sizes is offered exactly those", () => {
 });
 
 test("a size provider that declares no menu keeps the full list", () => {
-  // NanoGPT and OpenRouter deliberately publish none: each model has its own
-  // vocabulary, and snapping to a menu the next model does not share is a worse
-  // answer than the one the provider itself picks.
+  // NanoGPT and OpenRouter deliberately publish none: each model has its own vocabulary, and snapping to a menu the
+  // next model does not share is a worse answer than the one the provider itself picks.
   for (const preset of [{ dimension_mode: "size" }, { dimension_mode: "size", sizes: [] }]) {
     assert.deepEqual(sizeChoices(preset, false), CLOUD_SIZES);
   }
@@ -301,8 +288,7 @@ test("a pixel-grid provider is offered only what lands on its grid", () => {
   const offered = sizeChoices(together, false);
   assert.deepEqual(offered, ["1024x1024", "1024x1536", "1536x1024"]);
   assert.equal(offered.includes("1820x1024"), false);
-  // Off the grid rather than out of bounds -- under a higher ceiling, 1820 is
-  // still not a multiple of 64.
+  // Off the grid rather than out of bounds -- under a higher ceiling, 1820 is still not a multiple of 64.
   const coarse = { ...together, max_dimension: 4096, dimension_step: 64 };
   assert.deepEqual(sizeChoices(coarse, false), ["1024x1024", "1024x1536", "1536x1024"]);
 });

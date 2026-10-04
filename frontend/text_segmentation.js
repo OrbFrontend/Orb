@@ -67,9 +67,8 @@ const NUMBER_ABBREVIATIONS = new Set([
 const LETTER = /\p{L}/u;
 const ALNUM = /[\p{L}\p{N}]/u;
 const ABBREVIATION = /(?:\p{L}+\.)+$/u;
-// Parity with backend/core/text_segmentation.py: a trailing-off ellipsis is
-// only a sentence end when what follows starts one. `a bit... more still than
-// usual` is one sentence, and splitting it manufactures a fragment.
+// Parity with backend/core/text_segmentation.py: a trailing-off ellipsis is only a sentence end when what follows
+// starts one. `a bit... more still than usual` is one sentence, and splitting it manufactures a fragment.
 const ELLIPSIS_RUN = /^(?:\.{2,}|…+)$/u;
 
 export function isHardLineBreak(c) {

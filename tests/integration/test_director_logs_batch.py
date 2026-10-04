@@ -33,9 +33,8 @@ async def test_batch_matches_single_reads(client, db):
         [{"fragment_id": "hp", "entry_id": "e-hp", "op": "add", "text": "5", "fragment_label": "HP", "source": "agent"}],
     )
     # The user message has no log: it gets the fallback shape.
-    resp = await client.get(f"/api/conversations/{cid}/director-logs", params={"ids": f"{a1},{a2},{u2}"})
-    assert resp.status_code == 200
-    batch = resp.json()
+    resp = await client.get_json(f"/api/conversations/{cid}/director-logs", params={"ids": f"{a1},{a2},{u2}"})
+    batch = resp
     assert set(batch) == {str(a1), str(a2), str(u2)}
     for mid in (a1, a2, u2):
         single = (await client.get(f"/api/conversations/{cid}/messages/{mid}/director-log")).json()
@@ -53,9 +52,8 @@ async def test_batch_leaves_out_foreign_and_unknown_ids(client, db):
     foreign = await _reply_with_log("conv-b", ub, 1, "not yours")
     own = await _reply_with_log("conv-a", ua, 1, "yours")
 
-    resp = await client.get("/api/conversations/conv-a/director-logs", params={"ids": f"{own},{foreign},999999"})
-    assert resp.status_code == 200
-    assert list(resp.json()) == [str(own)]
+    resp = await client.get_json("/api/conversations/conv-a/director-logs", params={"ids": f"{own},{foreign},999999"})
+    assert list(resp) == [str(own)]
 
 
 async def test_batch_rejects_bad_ids(client, db):

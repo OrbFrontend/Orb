@@ -5,9 +5,8 @@
 // container -> Map(key -> last rendered HTML).
 const _signatures = new WeakMap();
 
-// Attribute snapshots describe rendered markup, not interactive state (e.g.
-// a disclosure opened while the reply streams). Only source changes overwrite
-// attributes; unchanged src/style attributes must not restart media/animations.
+// Attribute snapshots describe rendered markup, not interactive state (e.g. a disclosure opened while the reply
+// streams). Only source changes overwrite attributes; unchanged src/style attributes must not restart media/animations.
 const _renderedAttributes = new WeakMap();
 
 function rememberAttributes(node) {

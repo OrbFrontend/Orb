@@ -1,50 +1,21 @@
+import { loadDom, MESSAGE_GLOBALS } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { patchHtml } from "../../frontend/dom_reconcile.js";
 
-// The render boundary, driven end to end against a real DOM: escapeUnknownTags
-// -> formatProse -> DOMPurify -> chrome rebuild -> CSS containment -> serialise
-// -> re-parse. Every other suite here tests one pure pass; this is the only one
-// that runs the pipeline the browser actually runs, and it is where the
-// confused-deputy and mXSS questions can be asked at all.
+// The render boundary, driven end to end against a real DOM: escapeUnknownTags -> formatProse -> DOMPurify -> chrome
+// rebuild -> CSS containment -> serialise -> re-parse. Every other suite here tests one pure pass; this is the only one
+// that runs the pipeline the browser actually runs, and it is where the confused-deputy and mXSS questions can be asked
+// at all.
 //
 // jsdom is a devDependency rather than a vendored file. Without `npm install`
 // there is no DOM to drive, and the file skips loudly instead of passing quietly.
 
-let dom = null;
-let failure = "";
-try {
-  const { JSDOM } = await import("jsdom");
-  dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://orb.invalid/" });
-} catch (e) {
-  failure = e?.message || String(e);
-}
+const { dom, failure } = await loadDom({ globals: MESSAGE_GLOBALS });
 
 let mod = null;
 let utils = null;
 if (dom) {
-  const w = dom.window;
-  // DOMPurify binds to `window` at import time, so the globals go in before the
-  // dynamic import below — which is also why this module cannot import
-  // message_html.js statically.
-  globalThis.window = w;
-  for (const name of [
-    "document",
-    "Node",
-    "NodeFilter",
-    "Element",
-    "DocumentFragment",
-    "HTMLElement",
-    "HTMLUnknownElement",
-    "HTMLImageElement",
-    "DOMParser",
-    "MouseEvent",
-  ]) {
-    // `navigator` is deliberately not in this list: Node defines its own as a
-    // getter-only global, and the one thing the pipeline asks of it —
-    // navigator.clipboard — is absent there, which the copy handler tolerates.
-    if (w[name] !== undefined) globalThis[name] = w[name];
-  }
   mod = await import("../../frontend/message_html.js");
   utils = await import("../../frontend/utils.js");
 } else {
@@ -155,9 +126,8 @@ it("script elements and inline handlers do not survive", () => {
 });
 
 it("a data attribute survives only under a name no app dispatcher selects on", () => {
-  // This is what makes the app's global dispatchers unreachable from a bubble:
-  // [data-chat-action] (app.js), [data-wf-action] (workflow_api.js),
-  // [data-orb-action] (message_html.js) and [data-wc-action] (lorebooks.js) can
+  // This is what makes the app's global dispatchers unreachable from a bubble: [data-chat-action] (app.js),
+  // [data-wf-action] (workflow_api.js), [data-orb-action] (message_html.js) and [data-wc-action] (lorebooks.js) can
   // none of them be written by a model, while a card's own `data-text` still is.
   const html = render(
     '<span data-wf-action="image_gen:generate" data-chat-action="inspector" data-orb-action="copy" ' +
@@ -223,9 +193,8 @@ it("a markdown hidden note renders as an empty link", () => {
 });
 
 it("a checkbox and its label survive, still pointing at each other", () => {
-  // The CSS-only disclosure widget: a checkbox, a label over the thumbnail, and
-  // `input:checked ~ label img` to expand it. It only works if `for` follows the
-  // id through the sanitiser's rename.
+  // The CSS-only disclosure widget: a checkbox, a label over the thumbnail, and `input:checked ~ label img` to expand
+  // it. It only works if `for` follows the id through the sanitiser's rename.
   const holder = reparse(
     render("<figure><input type='checkbox' id='img-1'><label for='img-1'><img src='https://cdn.test/a.png'></label></figure>"),
   );
@@ -234,8 +203,7 @@ it("a checkbox and its label survive, still pointing at each other", () => {
   assert.equal(input.getAttribute("type"), "checkbox");
   assert.equal(input.id, "user-content-img-1");
   assert.equal(label.getAttribute("for"), "user-content-img-1");
-  // The association itself, not just the matching strings: this is what the
-  // browser resolves when the label is clicked.
+  // The association itself, not just the matching strings: this is what the browser resolves when the label is clicked.
   assert.equal(label.control, input);
   assert.equal(holder.querySelectorAll("input[type=checkbox]").length, 1);
 });
@@ -406,9 +374,8 @@ it("a link opens away from the app", () => {
 });
 
 it("the serialised output re-parses into the same safe tree", () => {
-  // The pipeline sanitises a DOM, serialises it, and the call sites re-parse it
-  // through innerHTML. That round trip is where mXSS lives, so it is walked
-  // here rather than trusted.
+  // The pipeline sanitises a DOM, serialises it, and the call sites re-parse it through innerHTML. That round trip is
+  // where mXSS lives, so it is walked here rather than trusted.
   const payloads = [
     '<math><mtext><table><mglyph><style><img src=x onerror="alert(1)">',
     '<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">',
@@ -471,9 +438,8 @@ it("fromMessageBody tells the app's dispatchers where model markup begins", () =
 });
 
 it("a message too large for the cache still renders, and renders the same way", () => {
-  // The cache is bounded by characters rather than by entries — 2,000 entries of
-  // 100k characters is hundreds of megabytes — and an entry past the per-entry
-  // ceiling is simply not stored. What must not change is the output.
+  // The cache is bounded by characters rather than by entries — 2,000 entries of 100k characters is hundreds of
+  // megabytes — and an entry past the per-entry ceiling is simply not stored. What must not change is the output.
   const big = `${"x".repeat(300 * 1024)} tail`;
   const first = render(big);
   for (let i = 0; i < 50; i++) render(`message number ${i}`);

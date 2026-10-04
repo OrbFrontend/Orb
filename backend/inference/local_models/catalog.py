@@ -17,8 +17,7 @@ RuntimeKind = Literal["llama_cpp", "llama_server", "onnx"]
 class ModelFileSpec:
     """Required companion artifact, downloaded and checked with the main file.
 
-    Unlike alternative variants, every companion must be present. Pruning claims
-    their basenames too.
+    Unlike alternative variants, every companion must be present. Pruning claims their basenames too.
     """
 
     repo_id: str
@@ -37,13 +36,11 @@ class ModelFileSpec:
 class ModelVariantSpec:
     """One downloadable checkpoint of a feature that ships several.
 
-    ``label``/``detail`` are presentation: the Local ML panel renders them for
-    ANY variant-bearing feature, which is why they live on the artifact record
-    rather than in the feature that happens to have variants today.
+    ``label``/``detail`` are presentation: the Local ML panel renders them for ANY variant-bearing feature, which is why they
+    live on the artifact record rather than in the feature that happens to have variants today.
 
-    ``path`` is the path *inside the HF repo* (upstream's ``GGUF/`` layout);
-    ``local_name`` is the flat basename ``assets.download`` writes under
-    ``data/models/``, and the name ``prune_stale`` must claim.
+    ``path`` is the path *inside the HF repo* (upstream's ``GGUF/`` layout); ``local_name`` is the flat basename
+    ``assets.download`` writes under ``data/models/``, and the name ``prune_stale`` must claim.
     """
 
     id: str
@@ -77,29 +74,22 @@ class ModelSpec:
     def local_name(self) -> str:
         """On-disk name under data/models/, always flat.
 
-        Upstream repos disagree about where a GGUF lives — root, ``gguf/``,
-        ``GGUF/`` — and mirroring that gave us a tree whose two case-variant
-        directories are ONE directory on macOS/Windows. Basenames must stay
-        unique across MODELS *and* across every spec's variants — a name two
-        specs both claim is one file two features would fight over, and a
-        variant name no spec claims is a file ``prune_stale`` deletes the next
-        time anything downloads. ``test_local_models_catalog`` asserts both.
+        Upstream repos disagree about where a GGUF lives — root, ``gguf/``, ``GGUF/`` — and mirroring that gave us a tree whose
+        two case-variant directories are ONE directory on macOS/Windows. Basenames must stay unique across MODELS *and* across
+        every spec's variants — a name two specs both claim is one file two features would fight over, and a variant name no
+        spec claims is a file ``prune_stale`` deletes the next time anything downloads. ``test_local_models_catalog`` asserts
+        both.
         """
         return self.local_filename or os.path.basename(self.filename)
 
     def all_names(self) -> set[str]:
         """Every basename this spec puts under data/models/ — the prune claim."""
-        return {
-            self.local_name,
-            *(v.local_name for v in self.variants),
-            *(f.local_name for f in self.extra_files),
-        }
+        return {self.local_name, *(v.local_name for v in self.variants), *(f.local_name for f in self.extra_files)}
 
 
-# The two prose-rewriter repos, pinned. Named once because three variants
-# share them and a half-updated pin is a silently different model. The two
-# lines version independently — upstream releases the sizes on their own
-# cadence, so a mismatched pair of version numbers here is not a typo.
+# The two prose-rewriter repos, pinned. Named once because three variants share them and a half-updated pin is a silently
+# different model. The two lines version independently — upstream releases the sizes on their own cadence, so a mismatched pair
+# of version numbers here is not a typo.
 _PROSE_1_7B_REPO = "chartreuse-verte/prose-rewriter-1.7b-v2.2"
 _PROSE_1_7B_REV = "b404a131336d472d9672eea450fe9a3ada782e59"
 _PROSE_4B_REPO = "chartreuse-verte/prose-rewriter-4b-v2.2"
@@ -150,11 +140,9 @@ MODELS: dict[str, ModelSpec] = {
         size_mb=20,
         revision="758d5236405776dd801452a4954b047ba63775aa",
     ),
-    # Not an in-process model: served by a child llama-server (see
-    # local_models/llama_server/, driven by the Prose Rewriter workflow host).
-    # `filename`/`size_mb` name the default variant so the legacy single-file
-    # paths keep working; the selector reads `variants`, and every basename
-    # here must also be claimed by prune_stale.
+    # Not an in-process model: served by a child llama-server (see local_models/llama_server/, driven by the Prose Rewriter
+    # workflow host). `filename`/`size_mb` name the default variant so the legacy single-file paths keep working; the selector
+    # reads `variants`, and every basename here must also be claimed by prune_stale.
     "prose_rewriter": ModelSpec(
         repo_id=_PROSE_4B_REPO,
         filename="GGUF/prose-rewriter-4b-v2.2-Q8_0.gguf",
@@ -191,10 +179,9 @@ MODELS: dict[str, ModelSpec] = {
             ),
         ),
     ),
-    # The Spark-TTS half that runs on the GPU: a 0.5B Qwen2 whose vocabulary
-    # carries 12 288 audio tokens alongside ordinary text. Driven by the same
-    # child-process runtime as the prose rewriter, which is what lets Orb's
-    # Vulkan build accelerate the 63% of synthesis wall time that lives here.
+    # The Spark-TTS half that runs on the GPU: a 0.5B Qwen2 whose vocabulary carries 12 288 audio tokens alongside ordinary
+    # text. Driven by the same child-process runtime as the prose rewriter, which is what lets Orb's Vulkan build accelerate the
+    # 63% of synthesis wall time that lives here.
     "spark_tts_llm": ModelSpec(
         repo_id=_SPARK_LLM_REPO,
         filename="Spark-TTS-0.5B.Q8_0.gguf",
@@ -203,11 +190,9 @@ MODELS: dict[str, ModelSpec] = {
         runtime="llama_server",
         sha256="9ea2db6a658652c7f5ad35d5c428ad476e37cd7c9a20fe3c9b1a0fbc26da6b0f",
     ),
-    # The Spark-TTS half that runs on the CPU, as two ONNX graphs that must
-    # travel together: `bicodec.onnx` turns audio tokens back into a waveform,
-    # `spark-speaker-encoder.onnx` turns an uploaded clip into the 32 ints that
-    # name a voice. Neither is a choice the user makes, so they are companions
-    # rather than variants.
+    # The Spark-TTS half that runs on the CPU, as two ONNX graphs that must travel together: `bicodec.onnx` turns audio tokens
+    # back into a waveform, `spark-speaker-encoder.onnx` turns an uploaded clip into the 32 ints that name a voice. Neither is a
+    # choice the user makes, so they are companions rather than variants.
     "spark_tts_codec": ModelSpec(
         repo_id=_SPARK_CODEC_REPO,
         filename="bicodec.onnx",

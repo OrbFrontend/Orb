@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
+from .helpers import column_migration
 
-
-def migrate(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
-    if "agentic_lorebook_enabled" not in cols:
-        conn.execute("ALTER TABLE settings ADD COLUMN agentic_lorebook_enabled INTEGER NOT NULL DEFAULT 0")
-        print("[migrations] 0030: added agentic_lorebook_enabled column to settings")
+migrate = column_migration("settings", "agentic_lorebook_enabled INTEGER NOT NULL DEFAULT 0", migration="0030")

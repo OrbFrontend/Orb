@@ -25,8 +25,7 @@ class ImagePart(TypedDict):
     image_url: ImageURLSpec
 
 
-# A message body is either a plain string or, for vision-capable turns, a list
-# of typed parts. ``build_multimodal_content`` and
+# A message body is either a plain string or, for vision-capable turns, a list of typed parts. ``build_multimodal_content`` and
 # ``format_message_with_attachments`` emit the list form.
 ContentPart = TextPart | ImagePart
 
@@ -75,11 +74,8 @@ class ToolResultMessage(TypedDict):
     content: str
 
 
-# The full mutable wire buffer a pass ships to the model: a ``ChatMessage``
-# prefix plus the turns the ReAct loops append. Modelled as a union (not a
-# single open TypedDict) because adding optional keys would make a superset
-# TypedDict a *subtype* of ``ChatMessage`` -- the wrong direction -- so a
-# ``ChatMessage`` could not flow into it. As a union member it flows in
-# directly, letting a buffer be built ``[*prefix, ...]`` and typed
-# ``list[WireMessage]`` with no cast.
+# The full mutable wire buffer a pass ships to the model: a ``ChatMessage`` prefix plus the turns the ReAct loops append.
+# Modelled as a union (not a single open TypedDict) because adding optional keys would make a superset TypedDict a *subtype* of
+# ``ChatMessage`` -- the wrong direction -- so a ``ChatMessage`` could not flow into it. As a union member it flows in directly,
+# letting a buffer be built ``[*prefix, ...]`` and typed ``list[WireMessage]`` with no cast.
 WireMessage = ChatMessage | AssistantToolMessage | ToolResultMessage

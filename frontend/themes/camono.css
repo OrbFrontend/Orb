@@ -1,66 +1,23 @@
-:root {
-  --bg-deep:#1e2326;--bg-primary:#272e33;--bg-surface:#2e383c;--bg-elevated:#374145;
-  --bg-hover:#414b50;--border:#414b50;--border-light:#4f5b58;
-
-  --text-primary:#d7e9f0;
-  --text-secondary:#a6c1cc;
-  --text-muted:#8ba3ad;
-
-  --accent:#a7c080;
-  --accent-dim:#6e7f54;
-  --accent-glow:rgba(167,192,128,0.13);
-
-  --red:#e67e80;
-
+:root { --bg-deep:#1e2326; --bg-primary:#272e33; --bg-surface:#2e383c; --bg-elevated:#374145; --bg-hover:#414b50;
+  --border:#414b50; --border-light:#4f5b58; --text-primary:#d7e9f0; --text-secondary:#a6c1cc; --text-muted:#8ba3ad;
+  --accent:#a7c080; --accent-dim:#6e7f54; --accent-glow:rgba(167,192,128,0.13); --red:#e67e80;
   --font-prose:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
   --font-ui:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
-  --font-mono:'Fira Code','Cascadia Code','Courier New',Consolas,monospace;
-  --radius:0px;
-  --font-prose-size:14px;
-  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
-}
-
+  --font-mono:'Fira Code','Cascadia Code','Courier New',Consolas,monospace; --radius:0px; --font-prose-size:14px;
+  --sidebar-width:300px; --inspector-width:340px; --tools-width:260px; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
-:root {
-  --scrollbar-width: thin;
-  --scrollbar-thumb: var(--border-light);
-  --scrollbar-track: transparent;
-}
-
+:root { --scrollbar-width: thin; --scrollbar-thumb: var(--border-light); --scrollbar-track: transparent; }
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-
-.message .msg-body {
-  border-radius: 0 !important;
-  border-left: none !important;
-  border-right: none !important;
-  border-top: none !important;
-  border-bottom: 1px solid var(--border) !important;
-  padding: 10px 20px !important;
-}
-
-.message.user .msg-body {
-  background: var(--bg-elevated) !important;
-  border-color: var(--border-light) !important;
-}
+.message .msg-body { border-radius: 0 !important; border-left: none !important; border-right: none !important;
+  border-top: none !important; border-bottom: 1px solid var(--border) !important; padding: 10px 20px !important; }
+.message.user .msg-body { background: var(--bg-elevated) !important; border-color: var(--border-light) !important; }
 /* The reply's Inspector block keeps the bubble's open sides and bottom rule. */
 .message .msg-inspect { border-width: 0 0 1px !important; }
-
-#chat-messages {
-  padding: 1 !important;
-}
-
-.message .msg-body em {
-  color: #8ba7b3 !important;
-}
-
-.sidebar-section-header .arrow {
-  color: var(--accent-dim);
-}
-
-.sidebar-section-header:hover .arrow {
-  color: var(--accent);
-}
+#chat-messages { padding: 1 !important; }
+.message .msg-body em { color: #8ba7b3 !important; }
+.sidebar-section-header .arrow { color: var(--accent-dim); }
+.sidebar-section-header:hover .arrow { color: var(--accent); }

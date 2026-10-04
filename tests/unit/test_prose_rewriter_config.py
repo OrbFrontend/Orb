@@ -1,10 +1,8 @@
 """The trust barrier between a stored selection and a child command line.
 
-NOTHING REQUEST-DERIVED REACHES ARGV. A batch size is a key into a closed map
-and what comes back is a code-owned literal; a variant is re-resolved against
-the registry before its path is allowed anywhere near a subprocess. If either
-check were quietly dropped in a refactor, nothing would fail — the barrier
-would simply cease to exist — so both are asserted directly.
+NOTHING REQUEST-DERIVED REACHES ARGV. A batch size is a key into a closed map and what comes back is a code-owned literal; a
+variant is re-resolved against the registry before its path is allowed anywhere near a subprocess. If either check were quietly
+dropped in a refactor, nothing would fail — the barrier would simply cease to exist — so both are asserted directly.
 """
 
 from __future__ import annotations
@@ -113,11 +111,7 @@ async def test_turn_config_resolves_the_persisted_batch_size(monkeypatch):
     monkeypatch.setattr(config, "runnable", lambda _variant: True)
 
     resolved = prose_rewriter_host.resolve_config(
-        {
-            "local_ml_config": {
-                "prose_rewriter": {"variant": "1.7b-q8", "gpu": False, "batch_size": 2},
-            }
-        }
+        {"local_ml_config": {"prose_rewriter": {"variant": "1.7b-q8", "gpu": False, "batch_size": 2}}}
     )
 
     assert resolved == {"variant_id": "1.7b-q8", "gpu": False, "batch_size": 2}

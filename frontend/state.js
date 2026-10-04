@@ -23,9 +23,8 @@ export const S = {
   interactiveFragments: [],
   cardMoodFragments: [],
   cardInteractiveFragments: [],
-  // The solo card's Scenario and Creator's Note, shown above the opening line.
-  // Carries the conversation it was read for so a repaint mid-switch cannot
-  // paint the outgoing character's framing over the incoming one's.
+  // The solo card's Scenario and Creator's Note, shown above the opening line. Carries the conversation it was read for
+  // so a repaint mid-switch cannot paint the outgoing character's framing over the incoming one's.
   sceneIntro: null,
 
   personas: [],
@@ -236,8 +235,7 @@ for (const key of conversationKeys) {
 /** Read live Local ML availability (downloaded, enabled, dependencies installed) from S. */
 export function localMlReady(feature) {
   const info = S.localMlFeatures[feature];
-  // `runtime_ok` is absent for in-process features: only a feature that
-  // reports one can fail it.
+  // `runtime_ok` is absent for in-process features: only a feature that reports one can fail it.
   return Boolean(info?.present && info?.enabled && info?.deps_ok && info.runtime_ok !== false);
 }
 

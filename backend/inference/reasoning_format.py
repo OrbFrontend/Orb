@@ -27,13 +27,7 @@ def probe_messages(*, history: bool = False, empty: bool = False) -> list[dict]:
     """Fixed synthetic inputs; no conversation data and no generation needed."""
     messages = [{"role": "user", "content": "Reply with one color."}]
     if history:
-        messages.append(
-            {
-                "role": "assistant",
-                "content": PROBE_CONTENT,
-                "reasoning_content": "" if empty else PROBE_REASONING,
-            }
-        )
+        messages.append({"role": "assistant", "content": PROBE_CONTENT, "reasoning_content": "" if empty else PROBE_REASONING})
     return messages
 
 
@@ -74,15 +68,11 @@ _TAG_BEFORE_REASONING = re.compile(
 def format_from_probes(*, on: str, off: str, history: str, empty_history: str) -> ReasoningFormat:
     """Recognize markers immediately surrounding the synthetic reasoning field.
 
-    Requiring the empty render to agree prevents an incidental tag elsewhere in
-    the prompt from authorizing prompt edits. Unsupported/ambiguous reasoning is
-    distinct from a template that demonstrably ignores the reasoning field and
-    toggle. No arbitrary template expressions are interpreted here.
+    Requiring the empty render to agree prevents an incidental tag elsewhere in the prompt from authorizing prompt edits.
+    Unsupported/ambiguous reasoning is distinct from a template that demonstrably ignores the reasoning field and toggle. No
+    arbitrary template expressions are interpreted here.
     """
-    unknown = ReasoningFormat(
-        status="unknown",
-        detail="the rendered reasoning boundaries are unsupported or ambiguous",
-    )
+    unknown = ReasoningFormat(status="unknown", detail="the rendered reasoning boundaries are unsupported or ambiguous")
     if history.count(PROBE_CONTENT) != 1 or empty_history.count(PROBE_CONTENT) != 1:
         return unknown
     if PROBE_REASONING not in history:
@@ -96,16 +86,9 @@ def format_from_probes(*, on: str, off: str, history: str, empty_history: str) -
     if before.endswith(SELF_HEADER) and between.endswith(REPLY_HEADER):
         # Both headers and their transition were observed in the rendered
         # assistant message. Only this routed protocol uses ChannelSplitter.
-        if between not in (
-            "<|eom|><|start|>assistant" + REPLY_HEADER,
-            "<|start|>assistant" + REPLY_HEADER,
-        ):
+        if between not in ("<|eom|><|start|>assistant" + REPLY_HEADER, "<|start|>assistant" + REPLY_HEADER):
             return unknown
-        return ReasoningFormat(
-            status="known",
-            channel=True,
-            controls=ReasoningControls(SELF_HEADER, REPLY_HEADER, between),
-        )
+        return ReasoningFormat(status="known", channel=True, controls=ReasoningControls(SELF_HEADER, REPLY_HEADER, between))
     if before.endswith(GEMMA_TAGS[0]) and between.strip() == GEMMA_TAGS[1]:
         opening, closing = GEMMA_TAGS
         open_suffix = opening
@@ -119,9 +102,7 @@ def format_from_probes(*, on: str, off: str, history: str, empty_history: str) -
             return unknown
         open_suffix = opening + padding
     return ReasoningFormat(
-        status="known",
-        tags=(opening, closing),
-        controls=ReasoningControls(open_suffix, open_suffix + between, between),
+        status="known", tags=(opening, closing), controls=ReasoningControls(open_suffix, open_suffix + between, between)
     )
 
 

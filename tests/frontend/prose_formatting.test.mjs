@@ -1,22 +1,7 @@
+import { installEscapingDocument } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatProse, formatProseWithDiff } from "../../frontend/utils.js";
-
-function installEscapingDocument() {
-  globalThis.document = {
-    createElement() {
-      return {
-        innerHTML: "",
-        set textContent(value) {
-          this.innerHTML = String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-        },
-      };
-    },
-  };
-}
 
 test("normal and diff prose share all supported quote formatting", () => {
   installEscapingDocument();
@@ -29,8 +14,7 @@ test("normal and diff prose share all supported quote formatting", () => {
 
 test("tag interiors are not treated as prose", () => {
   installEscapingDocument();
-  // Without tag extraction INLINE_QUOTE_RE wraps the attribute value and the
-  // `*` in a class name becomes an <em>.
+  // Without tag extraction INLINE_QUOTE_RE wraps the attribute value and the `*` in a class name becomes an <em>.
   const html = formatProse('<img src="x.png" alt="a * b" class="c*d">');
   assert.equal(html, '<img src="x.png" alt="a * b" class="c*d">');
   assert.ok(!html.includes("quoted"));

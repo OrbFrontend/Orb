@@ -155,8 +155,7 @@ async def state_step(
         if client.is_aborted:
             break
         aliases = entry_aliases(group, view)
-        # The group's live view of the shared schema: listed in the request and
-        # narrowing the call where the transport can.
+        # The group's live view of the shared schema: listed in the request and narrowing the call where the transport can.
         live_schema = build_state_tool(group)
         request = build_state_request(
             group,
@@ -197,8 +196,7 @@ async def state_step(
             # Keep the reply saveable if an after-reply update fails.
             logger.exception("State update call failed; keeping this group's state")
             continue
-        # A stop cut the call short: its operations may be half-written, so only
-        # the groups that finished apply.
+        # A stop cut the call short: its operations may be half-written, so only the groups that finished apply.
         if client.is_aborted:
             break
 

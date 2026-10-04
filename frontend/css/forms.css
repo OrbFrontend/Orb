@@ -1,49 +1,12 @@
-button {
-  font-family: var(--font-ui);
-  cursor: pointer;
-  border: none;
-  outline: none;
-  background: none;
-  color: var(--text-primary);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  transition: all .15s;
-}
-
-.btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-light);
-}
-
-.btn-accent {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: #fff;
-}
-
+button { font-family: var(--font-ui); cursor: pointer; border: none; outline: none; background: none;
+  color: var(--text-primary); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; font-weight: 500;
+  border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border); transition: all .15s; }
+.btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
+.btn-accent { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
 .btn-accent:hover { background: var(--accent); }
-
-.btn-active {
-  background: var(--accent-glow);
-  border-color: var(--accent-dim);
-  color: var(--accent);
-}
-.btn-active:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: #fff;
-}
-
+.btn-active { background: var(--accent-glow); border-color: var(--accent-dim); color: var(--accent); }
+.btn-active:hover { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-icon:hover { color: var(--text-primary); }
@@ -51,187 +14,60 @@ button {
 
 /* Square SVG buttons stay centred across theme fonts. Size with
    --btn-square-size / --ui-icon-size instead of positional transforms. */
-.btn-square {
-  --ui-icon-size: calc(var(--btn-square-size, 22px) * .6);
-  --ui-icon-stroke: 2.4;
-  flex: 0 0 auto;
-  width: var(--btn-square-size, 22px);
-  height: var(--btn-square-size, 22px);
-  padding: 0;
-  display: inline-grid;
-  place-items: center;
-}
+.btn-square { --ui-icon-size: calc(var(--btn-square-size, 22px) * .6); --ui-icon-stroke: 2.4; flex: 0 0 auto;
+  width: var(--btn-square-size, 22px); height: var(--btn-square-size, 22px); padding: 0; display: inline-grid;
+  place-items: center; }
 
 /* Raise --ui-icon-stroke for small icons to offset viewBox scaling.
    Decorative icons ignore pointer events so clicks target their button. */
-.ui-icon {
-  display: block;
-  width: var(--ui-icon-size, 16px);
-  height: var(--ui-icon-size, 16px);
-  stroke-width: var(--ui-icon-stroke, 2);
-  pointer-events: none;
-}
-
+.ui-icon { display: block; width: var(--ui-icon-size, 16px); height: var(--ui-icon-size, 16px);
+  stroke-width: var(--ui-icon-stroke, 2); pointer-events: none; }
 .btn-danger { color: var(--red); }
 .btn-danger:hover { background: rgba(196, 93, 93, .15); }
-
 .btn-block { width: 100%; justify-content: center; }
-
 .btn-row { display: flex; gap: 4px; }
-
-.tog {
-  position: relative;
-  display: inline-block;
-  width: 32px;
-  height: 18px;
-  margin: 0;
-  flex-shrink: 0;
-}
-
+.tog { position: relative; display: inline-block; width: 32px; height: 18px; margin: 0; flex-shrink: 0; }
 .tog input { opacity: 0; width: 0; height: 0; }
-
-.tog-slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  transition: .2s;
-}
-
-.tog-slider:before {
-  position: absolute;
-  content: "";
-  height: 12px;
-  width: 12px;
-  left: 2px;
-  bottom: 2px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: .2s;
-}
-
-.tog input:checked + .tog-slider {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
-
-.tog input:checked + .tog-slider:before {
-  transform: translateX(14px);
-  background: #fff;
-}
-
-.tog input:disabled + .tog-slider {
-  opacity: .5;
-  cursor: not-allowed;
-}
-
-.tog input:focus-visible + .tog-slider {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-input,
-textarea,
-select {
-  font-family: var(--font-ui);
-  background: var(--bg-deep);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 7px 10px;
-  font-size: 13px;
-  outline: none;
-  width: 100%;
+.tog-slider { position: absolute; cursor: pointer; inset: 0; background: var(--bg-elevated);
+  border: 1px solid var(--border); border-radius: 9px; transition: .2s; }
+.tog-slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px;
+  background: var(--text-muted); border-radius: 50%; transition: .2s; }
+.tog input:checked + .tog-slider { background: var(--accent-dim); border-color: var(--accent); }
+.tog input:checked + .tog-slider:before { transform: translateX(14px); background: #fff; }
+.tog input:disabled + .tog-slider { opacity: .5; cursor: not-allowed; }
+.tog input:focus-visible + .tog-slider { outline: 2px solid var(--accent); outline-offset: 1px; }
+input, textarea, select {
+  font-family: var(--font-ui); background: var(--bg-deep); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 7px 10px; font-size: 13px; outline: none; width: 100%;
   transition: border-color .15s, box-shadow .15s;
 }
-
-input[type="checkbox"],
-input[type="radio"] {
-  width: auto;
-  padding: 0;
-  border: none;
-  background: none;
-  box-shadow: none;
-  accent-color: var(--accent);
+input[type="checkbox"], input[type="radio"] {
+  width: auto; padding: 0; border: none; background: none; box-shadow: none; accent-color: var(--accent);
 }
-
-input:not([type="checkbox"]):not([type="radio"]):hover,
-textarea:hover,
-select:hover {
-  border-color: var(--border-light);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+input:not([type="checkbox"]):not([type="radio"]):hover, textarea:hover, select:hover {
+  border-color: var(--border-light); box-shadow: 0 0 0 3px var(--accent-glow);
 }
-
-input:not([type="checkbox"]):not([type="radio"]):focus,
-textarea:focus,
-select:focus {
-  border-color: var(--accent-dim);
-  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
+input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus {
+  border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
 }
-
-textarea {
-  resize: vertical;
-  min-height: 60px;
-}
-
-textarea[data-key="system_prompt"] {
-  min-height: 30px;
-  height: 30px;
-}
-
-label {
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
+textarea { resize: vertical; min-height: 60px; }
+textarea[data-key="system_prompt"] { min-height: 30px; height: 30px; }
+label { display: block; font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: .5px; }
 
 /* Clear the stacked-label margin so labels and controls centre on the same line. */
-.setting-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px 10px;
-}
-
+.setting-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 10px; }
 .setting-row > label { margin: 0; }
-
-.setting-row > .tog,
-.setting-row > select,
-.setting-row > button,
-.setting-row > input { justify-self: end; }
+.setting-row > .tog, .setting-row > select, .setting-row > button, .setting-row > input { justify-self: end; }
 
 /* Controls size to their content so every row's control shares one right edge. */
-.setting-row > select,
-.setting-row > input:not([type="checkbox"]):not([type="radio"]) {
-  width: auto;
-  max-width: 100%;
-}
-
+.setting-row > select, .setting-row > input:not([type="checkbox"]):not([type="radio"]) { width: auto; max-width: 100%; }
 .field { margin-bottom: 10px; }
-
-.field-warning {
-  font-size: 11px;
-  color: #c8a84b;
-  margin-top: 4px;
-  line-height: 1.4;
-}
-
-.field-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: -4px 0 10px;
-  line-height: 1.4;
-}
+.field-warning { font-size: 11px; color: #c8a84b; margin-top: 4px; line-height: 1.4; }
+.field-hint { font-size: 11px; color: var(--text-muted); margin: -4px 0 10px; line-height: 1.4; }
 
 /* Inside a field the hint sits under its own control, not a field's margin. */
 .field > .field-hint { margin: 4px 0 0; }
-
 .field-row { display: flex; gap: 8px; }
 .field-row .field { flex: 1; }
 
@@ -242,45 +78,15 @@ label {
 /* A two- or three-digit number beside wider controls: a fixed sliver rather
    than an equal share of the row. */
 .field-row > .field-narrow { flex: 0 0 88px; min-width: 0; }
-
-
-
-
-.tab-lock-banner {
-  display: none;
-  background: var(--red);
-  color: #fff;
-  padding: 10px 16px;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-#main.tab-locked .tab-lock-banner {
-  display: flex;
-}
-
+.tab-lock-banner { display: none; background: var(--red); color: #fff; padding: 10px 16px; align-items: center;
+  justify-content: center; gap: 10px; font-size: 13px; font-weight: 500; }
+#main.tab-locked .tab-lock-banner { display: flex; }
 #main.tab-locked
   :is(
-    #chat-input-wrap,
-    .msg-toolbar,
-    .swipe-nav,
-    .workflow-swipe-btn,
-    .workflow-regen-button,
-    .workflow-reroll-button,
+    #chat-input-wrap, .msg-toolbar, .swipe-nav, .workflow-swipe-btn, .workflow-regen-button, .workflow-reroll-button,
     .workflow-rehydrate-button
   ) {
-  pointer-events: none;
-  opacity: 0.45;
+  pointer-events: none; opacity: 0.45;
 }
-
-#main.tab-locked #stop-btn {
-  pointer-events: auto;
-  opacity: 1;
-}
-
-.tab-lock-icon {
-  font-size: 16px;
-}
+#main.tab-locked #stop-btn { pointer-events: auto; opacity: 1; }
+.tab-lock-icon { font-size: 16px; }

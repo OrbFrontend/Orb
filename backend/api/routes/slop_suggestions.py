@@ -9,11 +9,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
-from ...database import (
-    accept_slop_suggestion,
-    dismiss_slop_suggestion,
-    list_slop_suggestions,
-)
+from ...database import accept_slop_suggestion, dismiss_slop_suggestion, list_slop_suggestions
 from ...features.slop_suggestions import refresh_if_stale
 from ..deps import validate_phrase_group
 from ..schemas import SlopSuggestionAccept

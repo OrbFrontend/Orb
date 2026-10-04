@@ -27,9 +27,8 @@ SHEET_SYSTEM_PROMPT = (
     "character's sheet or display name. Call the requested tool, reporting no change when there is none."
 )
 
-# Deliberately not registered in ``prompting.tool_catalog``, for the same reason
-# ``DRAFT_PROFILE_TOOL`` is not: this call is bookkeeping about a finished
-# exchange, not part of the stable pipeline tool blob.
+# Deliberately not registered in ``prompting.tool_catalog``, for the same reason ``DRAFT_PROFILE_TOOL`` is not: this call is
+# bookkeeping about a finished exchange, not part of the stable pipeline tool blob.
 UPDATE_SHEET_TOOL = {
     "type": "function",
     "function": {
@@ -58,10 +57,9 @@ UPDATE_SHEET_TOOL = {
     },
 }
 
-# An update is an edit, not a rewrite into something larger. The cap is relative
-# to what came in rather than fixed, because a sheet's natural length is the
-# card's and cards differ by an order of magnitude — a fixed ceiling would either
-# reject every long card's update or wave through an essay on a short one.
+# An update is an edit, not a rewrite into something larger. The cap is relative to what came in rather than fixed, because a
+# sheet's natural length is the card's and cards differ by an order of magnitude — a fixed ceiling would either reject every
+# long card's update or wave through an essay on a short one.
 MAX_SHEET_GROWTH_CHARS = 600
 MIN_SHEET_CEILING_CHARS = 1200
 
@@ -71,8 +69,7 @@ def _sheet_ceiling(base: str) -> int:
     return max(MIN_SHEET_CEILING_CHARS, len(base) + MAX_SHEET_GROWTH_CHARS)
 
 
-# One short line for the review row. Longer than this is the model narrating the
-# exchange instead of naming the change.
+# One short line for the review row. Longer than this is the model narrating the exchange instead of naming the change.
 MAX_SUMMARY_WORDS = 25
 
 
@@ -84,9 +81,8 @@ class SheetUpdate(TypedDict):
 class SheetUpdateUnavailable(RuntimeError):
     """The endpoint answered, but not with an update this may stage.
 
-    Raised for an absent or unnamed tool call and for a parsed update that fails
-    the output contract. Distinct from ``LLMCallError``, which the transport
-    raises and this module never catches. Mirrors
+    Raised for an absent or unnamed tool call and for a parsed update that fails the output contract. Distinct from
+    ``LLMCallError``, which the transport raises and this module never catches. Mirrors
     :class:`..public_profile.ProfileDraftUnavailable`.
     """
 
@@ -111,9 +107,8 @@ def _clean_sheet(value: Any, base: str) -> str:
 def _clean_summary(value: Any) -> str:
     """The reviewer's one-line label. Absent is tolerable; an essay is not.
 
-    Softer than :func:`_clean_sheet` on purpose — the summary is a convenience
-    on a review row that already shows both sheets in full, so a missing one
-    costs a fallback label rather than the whole proposal.
+    Softer than :func:`_clean_sheet` on purpose — the summary is a convenience on a review row that already shows both sheets in
+    full, so a missing one costs a fallback label rather than the whole proposal.
     """
     text = normalize(value) if isinstance(value, str) else ""
     if not text or any(brace in text for brace in BRACES):
@@ -125,9 +120,8 @@ def _clean_summary(value: Any) -> str:
 def build_exchange_transcript(lines: Sequence[tuple[str, str]]) -> str:
     """The exchange as ``Speaker: text``, in order — the only evidence the call gets.
 
-    Shared material by construction: every member's call reads the same
-    transcript, which is what makes it safe to include while the sheets stay
-    one-per-call.
+    Shared material by construction: every member's call reads the same transcript, which is what makes it safe to include while
+    the sheets stay one-per-call.
     """
     return "\n\n".join(f"{speaker}: {text.strip()}" for speaker, text in lines if text.strip())
 
@@ -144,13 +138,7 @@ def build_update_message(*, member_name: str, sheet: str, transcript: str) -> st
 
 
 async def propose_sheet_update(
-    client: LLMClient,
-    model: str,
-    *,
-    member_name: str,
-    sheet: str,
-    transcript: str,
-    settings: Mapping[str, Any],
+    client: LLMClient, model: str, *, member_name: str, sheet: str, transcript: str, settings: Mapping[str, Any]
 ) -> SheetUpdate | None:
     """Drain and validate one forced sheet-update call; None means no durable change.
 
@@ -165,9 +153,8 @@ async def propose_sheet_update(
             user=build_update_message(member_name=member_name, sheet=sheet, transcript=transcript),
             tool=UPDATE_SHEET_TOOL,
             max_tokens=agent_lane_max_tokens(settings),
-            # Pinned off: the task is to carry unchanged sentences forward
-            # verbatim, which thinking does not help, and reasoning is spent from
-            # the same budget the restated sheet needs.
+            # Pinned off: the task is to carry unchanged sentences forward verbatim, which thinking does not help, and reasoning
+            # is spent from the same budget the restated sheet needs.
             reasoning_on=False,
         )
     except ReplyCutOff:

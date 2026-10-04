@@ -1,12 +1,10 @@
 """The editor's ReAct loop over id-anchored patches.
 
-One draft mutation per iteration → one draft_update per iteration, on both
-transports (the text-mode per-finding prefill path is gone; text endpoints
-grammar-constrain the same single call from the tool schema instead).
+One draft mutation per iteration → one draft_update per iteration, on both transports (the text-mode per-finding prefill path is
+gone; text endpoints grammar-constrain the same single call from the tool schema instead).
 
-Also pins the two things the id method made load-bearing: the ids the model
-answers with are the ones from the report it was shown, and a re-audit
-renumbers them with the change stated to the model.
+Also pins the two things the id method made load-bearing: the ids the model answers with are the ones from the report it was
+shown, and a re-audit renumbers them with the change stated to the model.
 """
 
 from __future__ import annotations
@@ -19,24 +17,13 @@ import pytest
 
 from backend.analysis import AuditReport, build_targets
 from backend.analysis.detectors.opening_monotony import MonotonyResult
-from backend.analysis.detectors.slop_detector import (
-    ClicheHit,
-    DetectionResult,
-    FlaggedSentence,
-)
+from backend.analysis.detectors.slop_detector import ClicheHit, DetectionResult, FlaggedSentence
 from backend.analysis.detectors.structural_repetition import StructuralResult
 from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.analysis.patching import apply_id_patches
-from backend.inference import (
-    CachedBase,
-    LLMClient,
-)
+from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
-from backend.pipeline.passes.editor.prompts import (
-    EDITOR_RENUMBER_NOTICE,
-    PATCH_CATEGORY_RULES,
-    patch_instructions,
-)
+from backend.pipeline.passes.editor.prompts import EDITOR_RENUMBER_NOTICE, PATCH_CATEGORY_RULES, patch_instructions
 from backend.prompting.tool_catalog import enabled_schemas
 
 SETTINGS = {
@@ -74,12 +61,7 @@ def _make_base(tools: Sequence[str] = ("editor_apply_patch",)) -> CachedBase:
 
 
 async def _run(
-    client: LLMClient,
-    audits: list[AuditReport],
-    draft: str,
-    *,
-    tools: Sequence[str] = ("editor_apply_patch",),
-    **kwargs,
+    client: LLMClient, audits: list[AuditReport], draft: str, *, tools: Sequence[str] = ("editor_apply_patch",), **kwargs
 ) -> list[dict]:
     """Run editor_pass with a scripted audit sequence and strip its step marker."""
     audit_iter = iter(audits)
@@ -116,10 +98,7 @@ def _patch_call(patches: list[dict]) -> dict:
         "message": {
             "content": "",
             "tool_calls": [
-                {
-                    "id": "tc1",
-                    "function": {"name": "editor_apply_patch", "arguments": json.dumps({"patches": patches})},
-                }
+                {"id": "tc1", "function": {"name": "editor_apply_patch", "arguments": json.dumps({"patches": patches})}}
             ],
         },
     }
@@ -142,9 +121,8 @@ async def test_chat_path_emits_draft_update_per_iteration():
 
 
 async def test_null_rewritten_text_stops_the_loop():
-    # `"rewritten_text": null` is the model declining the rewrite. The default on
-    # the .get() only covers an absent key, so a null used to reach .strip() and
-    # abort the whole turn -- in a group exchange, mid-exchange. It must read as an empty
+    # `"rewritten_text": null` is the model declining the rewrite. The default on the .get() only covers an absent key, so a
+    # null used to reach .strip() and abort the whole turn -- in a group exchange, mid-exchange. It must read as an empty
     # rewrite and stop the loop with the draft intact.
     client = LLMClient("http://localhost:9999")
 
@@ -168,9 +146,8 @@ async def test_null_rewritten_text_stops_the_loop():
 
 
 async def test_findings_with_no_target_end_the_pass_without_a_call():
-    # Neither flagged sentence is in the draft, so neither gets an id. A finding
-    # that could not even be located is no reason to rewrite the whole draft,
-    # even with editor_rewrite on offer: there is nothing to send.
+    # Neither flagged sentence is in the draft, so neither gets an id. A finding that could not even be located is no reason to
+    # rewrite the whole draft, even with editor_rewrite on offer: there is nothing to send.
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
@@ -192,10 +169,7 @@ async def test_findings_with_no_target_end_the_pass_without_a_call():
 
 @pytest.mark.parametrize(
     ("tools", "forced"),
-    [
-        (("editor_apply_patch",), "editor_apply_patch"),
-        (("editor_apply_patch", "editor_rewrite"), "editor_rewrite"),
-    ],
+    [(("editor_apply_patch",), "editor_apply_patch"), (("editor_apply_patch", "editor_rewrite"), "editor_rewrite")],
 )
 async def test_structural_repetition_forces_a_rewrite_only_when_the_blob_carries_it(tools, forced):
     # Forcing a tool the request does not carry gets prose back, never a call,
@@ -240,8 +214,7 @@ async def test_text_path_takes_the_same_single_call():
 
 
 async def test_ids_address_the_report_the_model_was_shown():
-    """Every id patches its own sentence — the second id must not be resolved
-    against the post-first-patch text."""
+    """Every id patches its own sentence — the second id must not be resolved against the post-first-patch text."""
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
@@ -266,8 +239,7 @@ async def test_structured_replay_tells_the_model_the_ids_moved():
 
     client.complete = fake_complete
 
-    # 3 issues → 2 issues → clean: two LLM calls, so the second one carries the
-    # replayed tool result.
+    # 3 issues → 2 issues → clean: two LLM calls, so the second one carries the replayed tool result.
     await _run(
         client,
         [
@@ -375,11 +347,9 @@ async def test_apply_errors_reach_the_model_in_id_vocabulary():
 
 # ── The protected-sequence guard, in the loop ─────────────────────────────────
 #
-# Two audit findings, so the pass does not take the `total_issues <= 1` skip and
-# the ReAct loop actually runs — a single-target fixture measures the patch
-# function, not the orchestration around it. What these pin is the guard's real
-# user-visible effect: a rejected patch means the flagged span *keeps its slop*,
-# not that it gets a better repair.
+# Two audit findings, so the pass does not take the `total_issues <= 1` skip and the ReAct loop actually runs — a single-target
+# fixture measures the patch function, not the orchestration around it. What these pin is the guard's real user-visible effect:
+# a rejected patch means the flagged span *keeps its slop*, not that it gets a better repair.
 
 GUARDED_DRAFT = (
     '"Don\'t touch it," Mara said. She said softly, her voice thick with tension. '
@@ -390,10 +360,9 @@ GUARDED_CLOSER = "The silence was deafening."
 
 
 async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
-    # Both replacements copy protected dialogue, so nothing applies, the issue
-    # count cannot move, and the no-progress stop fires. One bad patch per
-    # target abandons both repairs — defensible (intact writer text beats a
-    # corrupt splice) but worth seeing asserted before any retry policy lands.
+    # Both replacements copy protected dialogue, so nothing applies, the issue count cannot move, and the no-progress stop
+    # fires. One bad patch per target abandons both repairs — defensible (intact writer text beats a corrupt splice) but worth
+    # seeing asserted before any retry policy lands.
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
@@ -415,18 +384,12 @@ async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
 
 
 async def test_a_rejected_patch_does_not_block_its_neighbour():
-    # One clone, one clean replacement: the clean one lands, the flagged span
-    # behind the rejection keeps the writer's original text, and the `<= 1`
-    # break ends the pass with it still unrepaired.
+    # One clone, one clean replacement: the clean one lands, the flagged span behind the rejection keeps the writer's original
+    # text, and the `<= 1` break ends the pass with it still unrepaired.
     client = LLMClient("http://localhost:9999")
 
     async def fake_complete(*args, **kwargs):
-        yield _patch_call(
-            [
-                {"id": 1, "replace": "Don't touch it, she whispered again."},
-                {"id": 2, "replace": "Nobody spoke."},
-            ]
-        )
+        yield _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}])
 
     client.complete = fake_complete
 
@@ -452,29 +415,19 @@ def _tool_turns(messages: list) -> list[str]:
 
 
 async def test_thinking_mode_is_told_when_and_why_a_patch_was_rejected():
-    # Without this the model is left believing its patch landed: the rejected
-    # target keeps the writer's text, so the issue count cannot improve, so the
-    # `<= 1` stop fires before the tool-result turn that carries the reason.
+    # Without this the model is left believing its patch landed: the rejected target keeps the writer's text, so the issue count
+    # cannot improve, so the `<= 1` stop fires before the tool-result turn that carries the reason.
     client = LLMClient("http://localhost:9999")
     seen: list[list] = []
     client.complete = _scripted(
         [
-            _patch_call(
-                [
-                    {"id": 1, "replace": "Don't touch it, she whispered again."},
-                    {"id": 2, "replace": "Nobody spoke."},
-                ]
-            ),
+            _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}]),
             _patch_call([{"id": 1, "replace": "Her hand fell away from the latch."}]),
         ],
         seen,
     )
 
-    audits = [
-        _make_report([GUARDED_NARRATION, GUARDED_CLOSER]),
-        _make_report([GUARDED_NARRATION]),
-        _make_report([]),
-    ]
+    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION]), _make_report([])]
     events = await _run(client, audits, GUARDED_DRAFT, reasoning_on=True)
 
     assert len(seen) == 2  # the loop did not stop on the rejection
@@ -503,20 +456,12 @@ async def test_the_rejection_is_explained_once_not_chased_forever():
 
 
 async def test_non_thinking_mode_still_stops_quietly():
-    # The flat recap has no tool-result slot to carry the reason, so those models
-    # keep the phase-one behaviour: the flagged span keeps its slop, and the
-    # rejection is logged rather than replayed.
+    # The flat recap has no tool-result slot to carry the reason, so those models keep the phase-one behaviour: the flagged span
+    # keeps its slop, and the rejection is logged rather than replayed.
     client = LLMClient("http://localhost:9999")
     seen: list[list] = []
     client.complete = _scripted(
-        [
-            _patch_call(
-                [
-                    {"id": 1, "replace": "Don't touch it, she whispered again."},
-                    {"id": 2, "replace": "Nobody spoke."},
-                ]
-            )
-        ],
+        [_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}])],
         seen,
     )
 
@@ -528,10 +473,9 @@ async def test_non_thinking_mode_still_stops_quietly():
 
 
 async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():
-    # The reported failure: `a bit... more still than usual` is ONE sentence, and
-    # splitting at the ellipsis made its first half an addressable target. The
-    # model's replacement ends in a full stop, so patching the fragment left
-    # `. more still than usual.` -- a lowercase orphan -- in the saved reply.
+    # The reported failure: `a bit... more still than usual` is ONE sentence, and splitting at the ellipsis made its first half
+    # an addressable target. The model's replacement ends in a full stop, so patching the fragment left `. more still than
+    # usual.` -- a lowercase orphan -- in the saved reply.
     draft = "Heidi doesn't flinch. Her expression still open, although her emerald eyes seem a bit... more still than usual."
     beat = "Her expression still open, although her emerald eyes seem a bit... more still than usual."
 

@@ -1,9 +1,8 @@
 """Drop the progressive-field and direction-note storage that 0067 converted.
 
-0067 moved this data to ``fragment_state_events`` and state fragments, and nothing
-has read it since. Shared card files still carry the old fragment types; those are
-mapped at the card read boundary and never touched these columns. A rerun finds
-nothing left to drop and changes nothing.
+0067 moved this data to ``fragment_state_events`` and state fragments, and nothing has read it since. Shared card files still
+carry the old fragment types; those are mapped at the card read boundary and never touched these columns. A rerun finds nothing
+left to drop and changes nothing.
 """
 
 from __future__ import annotations

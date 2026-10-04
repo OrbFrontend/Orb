@@ -33,25 +33,15 @@ async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
 
     Returns ``(conversation_id, card_id)``.
     """
-    writer_endpoint = await client.post("/api/endpoints", json={"url": "http://writer.local", "api_key": "writer-key"})
-    assert writer_endpoint.status_code == 200
+    writer_endpoint = await client.post_checked("/api/endpoints", json={"url": "http://writer.local", "api_key": "writer-key"})
     writer_config_id = writer_endpoint.json()["active_model_config_id"]
-    writer_model = await client.put(
-        f"/api/models/{writer_config_id}",
-        json={"model_name": "writer-model"},
-    )
-    assert writer_model.status_code == 200
+    await client.put_checked(f"/api/models/{writer_config_id}", json={"model_name": "writer-model"})
 
-    agent_endpoint = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
-    assert agent_endpoint.status_code == 200
+    agent_endpoint = await client.post_checked("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
     agent_config_id = agent_endpoint.json()["agent_active_model_config_id"]
-    agent_model = await client.put(
-        f"/api/models/{agent_config_id}",
-        json={"model_name": "agent-model", "reasoning_effort": "high"},
-    )
-    assert agent_model.status_code == 200
+    await client.put_checked(f"/api/models/{agent_config_id}", json={"model_name": "agent-model", "reasoning_effort": "high"})
 
-    resp = await client.put(
+    resp = await client.put_checked(
         "/api/settings",
         json={
             "active_endpoint_id": writer_endpoint.json()["id"],
@@ -62,18 +52,14 @@ async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
         },
     )
-    assert resp.status_code == 200
 
     # Prefix-shaping state the off-turn builder must reproduce byte-for-byte.
     persona = await create_user_persona({"name": "Chi", "description": "A curious visitor."})
     await update_settings({"active_persona_id": persona["id"]})
     world = await create_world({"name": "Archive"})
-    await create_lorebook_entry(
-        world["id"],
-        {"name": "Canon", "content": "The moon is shattered.", "constant": True},
-    )
+    await create_lorebook_entry(world["id"], {"name": "Canon", "content": "The moon is shattered.", "constant": True})
 
-    card = await client.post(
+    card_id = await client.create(
         "/api/characters",
         json={
             "name": "Iris",
@@ -82,17 +68,12 @@ async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
             "scenario": "A rainy archive.",
         },
     )
-    assert card.status_code == 200
-    card_id = card.json()["id"]
-    conv = await client.post("/api/conversations", json={"character_card_id": card_id})
-    assert conv.status_code == 200
-    cid = conv.json()["id"]
+    cid = await client.create("/api/conversations", json={"character_card_id": card_id})
 
     # One genuine chat turn establishes the conversation's cached prefix.
     llm_mock.enqueue_writer("She sits by the rain-streaked window.")
     llm_mock.enqueue_editor(None)
-    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "I step inside.", "attachments": []})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "I step inside.", "attachments": []})
     _ = resp.text
     return cid, card_id
 
@@ -101,11 +82,7 @@ async def _fake_render(adapter, request, **kwargs):
     return ImageResult(
         image_bytes=b"\x89PNG\r\n\x1a\nimage",
         mime="image/png",
-        backend_info={
-            "source": "external_comfy",
-            "workflow_id": "user_a",
-            "backend_model": "a.safetensors",
-        },
+        backend_info={"source": "external_comfy", "workflow_id": "user_a", "backend_model": "a.safetensors"},
     )
 
 
@@ -127,15 +104,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _fake_render)
 
     llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "read_image_skills",
-                {
-                    "skill_ids": ["first_person_hug"],
-                    "visible_subjects": ["Iris"],
-                },
-            )
-        }
+        {"tool_calls": _tc("read_image_skills", {"skill_ids": ["first_person_hug"], "visible_subjects": ["Iris"]})}
     )
     llm_mock.enqueue_workflow(
         {
@@ -148,11 +117,10 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
 
     msgs = await get_messages(cid)
     mid = next(m["id"] for m in reversed(msgs) if m["role"] == "assistant")
-    resp = await client.post(
+    resp = await client.post_checked(
         f"/api/conversations/{cid}/workflows/image_gen/trigger",
         json={"action": "generate", "message_id": mid, "style_id": "anime"},
     )
-    assert resp.status_code == 200
     assert "event: image_gen_done" in resp.text
     attachment_id = int(resp.text.partition('"attachment_id":')[2].partition("}")[0])
     attachment = await get_workflow_attachment_by_id(attachment_id)
@@ -165,11 +133,10 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     assert generation["composition_skills"] == expected_skills
     assert consumption["composition_skills"] == expected_skills
 
-    # Vacuity guards: the forced calls really reached the client boundary, ship
-    # the workflow's own tools blob and force via tool_choice (the pipeline
-    # pattern — a chat model needs the real tool, not tools=None), and share the
-    # conversation identity the teardown invariant groups by — so system-prefix
-    # parity with the chat turn is enforced there for every off-turn call site.
+    # Vacuity guards: the forced calls really reached the client boundary, ship the workflow's own tools blob and force via
+    # tool_choice (the pipeline pattern — a chat model needs the real tool, not tools=None), and share the conversation identity
+    # the teardown invariant groups by — so system-prefix parity with the chat turn is enforced there for every off-turn call
+    # site.
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     assert len(wf) == 2, "composer must issue select + compose through the real forced-call stack"
     writer = next(c for c in llm_mock.captured if c["pass"] == "writer")
@@ -224,8 +191,7 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
     llm_mock.enqueue_workflow(
         {
             "tool_calls": _tc(
-                "compose_image_prompt",
-                {"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]},
+                "compose_image_prompt", {"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]}
             )
         }
     )
@@ -252,11 +218,10 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
     )
 
     mid = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
-    resp = await client.post(
+    resp = await client.post_checked(
         f"/api/conversations/{cid}/workflows/image_gen/trigger",
         json={"action": "generate", "message_id": mid, "style_id": "anime"},
     )
-    assert resp.status_code == 200
     assert resp.text.count("event: image_gen_render") == 2
 
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
@@ -321,12 +286,7 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
 
     await set_workflow_config(
         "image_gen",
-        {
-            **base,
-            "scene_skills_enabled": True,
-            "refine_turns": 1,
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
+        {**base, "scene_skills_enabled": True, "refine_turns": 1, "external_comfy": {"api_url": "http://127.0.0.1:8188"}},
     )
     llm_mock.enqueue_workflow({"tool_calls": _tc("read_image_skills", {"skill_ids": [], "visible_subjects": ["Iris"]})})
     llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, window, rain", "avoid": ""})})
@@ -375,8 +335,7 @@ async def test_an_upload_is_not_sent_to_the_prompter_twice(client, llm_mock, mon
     llm_mock.enqueue_writer("She studies the map.")
     llm_mock.enqueue_editor(None)
     upload = {"b64": base64.b64encode(_png()).decode("ascii"), "mime": "image/png", "filename": "map.png"}
-    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "Look.", "attachments": [upload]})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Look.", "attachments": [upload]})
     _ = resp.text
     reply = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
 
@@ -405,8 +364,7 @@ async def test_an_image_older_than_the_last_reply_is_not_sent_to_the_prompter(cl
     assert "event: image_gen_done" in (await _generate(client, cid, greeting)).text
     llm_mock.enqueue_writer("She leaves the archive.")
     llm_mock.enqueue_editor(None)
-    resp = await client.post(f"/api/conversations/{cid}/send", json={"content": "Go on."})
-    assert resp.status_code == 200
+    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Go on."})
     _ = resp.text
     latest = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
 

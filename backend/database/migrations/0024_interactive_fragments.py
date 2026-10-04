@@ -1,6 +1,5 @@
-"""Rename director_fragments to interactive_fragments and use field_type
-for feedback routing. Add feedback log/settings fields; reuse Editor timing.
-All operations are guarded for reruns.
+"""Rename director_fragments to interactive_fragments and use field_type for feedback routing. Add feedback log/settings fields;
+reuse Editor timing. All operations are guarded for reruns.
 """
 
 from __future__ import annotations

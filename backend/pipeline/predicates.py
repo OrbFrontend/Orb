@@ -24,11 +24,7 @@ def world_proposal_active(world: Mapping[str, Any] | None, *, agent_on: bool) ->
     return agent_on and bool(world and world.get("dynamic_enabled"))
 
 
-def resolve_persona_id(
-    conv: Mapping[str, Any],
-    card: Mapping[str, Any] | None,
-    settings: Mapping[str, Any],
-) -> int | None:
+def resolve_persona_id(conv: Mapping[str, Any], card: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> int | None:
     """Return the effective persona id for a turn.
 
     Priority: conversation pin → character-card pin → global active persona.

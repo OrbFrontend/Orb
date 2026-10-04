@@ -19,17 +19,15 @@ def serve_prompt(source: str) -> str:
     return f"<|im_start|>source\n{source}<|im_end|>\n<|im_start|>rewrite\n"
 
 
-# ANY newline run, not just blank lines -- the corpus builder split on r"\n+" and
-# the training target IS one such paragraph. Splitting on blank lines only handed
-# the model multi-line blocks whose newlines it had never once been asked to
-# emit (0 of 21,942 targets contain one), so it deleted them and welded the
-# lines: '"What in the-"\n"Good Lord,"' came back as '"What in the-""Good Lord,"'.
+# ANY newline run, not just blank lines -- the corpus builder split on r"\n+" and the training target IS one such paragraph.
+# Splitting on blank lines only handed the model multi-line blocks whose newlines it had never once been asked to emit (0 of
+# 21,942 targets contain one), so it deleted them and welded the lines: '"What in the-"\n"Good Lord,"' came back as '"What in
+# the-""Good Lord,"'.
 PARAGRAPH_BREAK = re.compile(r"(\n+)")
 
-# Below this the model is out of its training distribution: the corpus builder
-# dropped every human paragraph under 80 bytes, so short dialogue lines were
-# never targets. Asked to rewrite one anyway it pads toward its learned length and
-# invents. Passing them through unchanged is the honest answer.
+# Below this the model is out of its training distribution: the corpus builder dropped every human paragraph under 80 bytes, so
+# short dialogue lines were never targets. Asked to rewrite one anyway it pads toward its learned length and invents. Passing
+# them through unchanged is the honest answer.
 MIN_REWRITE_BYTES = 80
 # 512, because the longest source in the training pool is 445 tokens (p99 275,
 # p50 76). Accepting several times that degrades quietly instead of erroring.
@@ -41,9 +39,8 @@ MAX_CHARS = 40_000
 def plan(text: str) -> list[tuple[str, str]]:
     """Split a paste into ('keep', literal) and ('rewrite', paragraph) pieces.
 
-    The layout is produced BEFORE anything runs, because the paragraphs are
-    generated simultaneously and come back out of order; the client needs the
-    slots up front to render each one where it belongs.
+    The layout is produced BEFORE anything runs, because the paragraphs are generated simultaneously and come back out of order;
+    the client needs the slots up front to render each one where it belongs.
     """
     pieces: list[tuple[str, str]] = []
     for piece in PARAGRAPH_BREAK.split(text.strip()):
@@ -60,16 +57,14 @@ def plan(text: str) -> list[tuple[str, str]]:
 def trim_to_sentence(text: str) -> str:
     """Cut back to the last sentence that actually ended.
 
-    Closing quotes and asterisks may follow the terminal mark, so the cut lands
-    after them, not before -- trimming to the '.' inside '..."' would strip the
-    quote and unbalance the dialogue this exists to protect.
+    Closing quotes and asterisks may follow the terminal mark, so the cut lands after them, not before -- trimming to the '.'
+    inside '..."' would strip the quote and unbalance the dialogue this exists to protect.
     """
     closers = "\"'”’*)]"
     best = -1
     for i, ch in enumerate(text):
-        # An em-dash ends a sentence only when a closing quote follows it: that
-        # is interrupted dialogue ("What in the-"), which the corpus preserves
-        # 96.3% of the time. A bare dash between words is a parenthetical.
+        # An em-dash ends a sentence only when a closing quote follows it: that is interrupted dialogue ("What in the-"), which
+        # the corpus preserves 96.3% of the time. A bare dash between words is a parenthetical.
         terminal = ch in ".!?…" or (ch in "—–" and i + 1 < len(text) and text[i + 1] in closers)
         if terminal:
             j = i + 1
@@ -80,9 +75,8 @@ def trim_to_sentence(text: str) -> str:
     return text[:best].strip() if best > 0 else ""
 
 
-# Python and JSON preserve these separators as literal characters. Five corpus
-# rows carried U+2028 after the ordinary CR/LF cleanup, leaving an invisible
-# source artefact in both the target and the trained model's output.
+# Python and JSON preserve these separators as literal characters. Five corpus rows carried U+2028 after the ordinary CR/LF
+# cleanup, leaving an invisible source artefact in both the target and the trained model's output.
 _UNICODE_LINE_BREAK = re.compile(r"\r\n?|[\v\f\u0085\u2028\u2029]")
 _HORIZONTAL_SPACE = re.compile(r"[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+")
 
@@ -98,16 +92,14 @@ def normalise_spacing(text: str) -> str:
     return _SPACE_BEFORE_PUNCT.sub(r"\g<left>\g<mark>", text)
 
 
-# The BARE join demands a capital followed by a lowercase letter, and that is
-# not an oversight: measured on the 87,716-row screened build, `[.!?][a-z]` with
-# no space fires on 207 targets and almost none of them are sentence boundaries
-# -- `a.m.`, `s.o.`, `4chan.net`, `2145 a.d.`, plus chat-log transcripts. The
-# capital is the only thing separating a welded boundary from an abbreviation.
+# The BARE join demands a capital followed by a lowercase letter, and that is not an oversight: measured on the 87,716-row
+# screened build, `[.!?][a-z]` with no space fires on 207 targets and almost none of them are sentence boundaries -- `a.m.`,
+# `s.o.`, `4chan.net`, `2145 a.d.`, plus chat-log transcripts. The capital is the only thing separating a welded boundary from
+# an abbreviation.
 #
-# A QUOTE-ADJACENT join carries that evidence in the glyph: no decimal, domain
-# or abbreviation contains a double quote, so `couldn't."jae sighed` is
-# unambiguous. Single quotes are excluded for the mirror-image reason --
-# `U.A.'s Staff` is a possessive initialism, which is 15 of the 15 rows.
+# A QUOTE-ADJACENT join carries that evidence in the glyph: no decimal, domain or abbreviation contains a double quote, so
+# `couldn't."jae sighed` is unambiguous. Single quotes are excluded for the mirror-image reason -- `U.A.'s Staff` is a
+# possessive initialism, which is 15 of the 15 rows.
 _SENTENCE_JOIN = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?])(?=[A-Z][a-z])")
 _QUOTED_SENTENCE_JOIN = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?])([\"“”])(?=[A-Za-z])")
 # Two adjacent quote glyphs after terminal punctuation are not ambiguous: the
@@ -135,32 +127,27 @@ def restore_sentence_spacing(text: str) -> str:
     return _SENTENCE_JOIN.sub(r"\1 ", text)
 
 
-# The AO3 scrape does not merely drop the space between two utterances, it drops
-# the PARAGRAPH BREAK, and the archive's own format is one paragraph per
-# speaker. The discriminator is free, and it is the space itself: an exchange
-# the author really did write into one paragraph is already close-space-open in
-# the raw text (3,878 occurrences), a lost break is the tight form (73,224). The
-# mark class is wider than restore_sentence_spacing's because a line of dialogue
-# ends in more than a full stop; the comma is excluded because `,"` promises a
-# dialogue tag, so it is not a line end.
+# The AO3 scrape does not merely drop the space between two utterances, it drops the PARAGRAPH BREAK, and the archive's own
+# format is one paragraph per speaker. The discriminator is free, and it is the space itself: an exchange the author really did
+# write into one paragraph is already close-space-open in the raw text (3,878 occurrences), a lost break is the tight form
+# (73,224). The mark class is wider than restore_sentence_spacing's because a line of dialogue ends in more than a full stop;
+# the comma is excluded because `,"` promises a dialogue tag, so it is not a line end.
 _LOST_PARAGRAPH = re.compile(r"(?<=[A-Za-z0-9\]\)])([.!?…—–-])([\"”])([\"“])(?=[A-Za-z])")
 
 
 def split_lost_paragraphs(text: str) -> str:
     """Tight close-quote/open-quote weld -> the paragraph break it used to be.
 
-    Runs BEFORE restore_sentence_spacing, whose back-to-back rule would
-    otherwise settle the same weld as a space. What survives to that rule is
-    what this one declined, so the two do not overlap.
+    Runs BEFORE restore_sentence_spacing, whose back-to-back rule would otherwise settle the same weld as a space. What survives
+    to that rule is what this one declined, so the two do not overlap.
     """
 
     def cut(match: re.Match) -> str:
         mark, close, opening = match.groups()
         if close == "“" or opening == "”":
             return match.group(0)  # both glyphs face the wrong way
-        # A straight quote is symmetric, so its role is its parity: the nth
-        # quote of a line opens when n is even. Counting from the line start
-        # keeps one unbalanced quote from inverting every verdict after it.
+        # A straight quote is symmetric, so its role is its parity: the nth quote of a line opens when n is even. Counting from
+        # the line start keeps one unbalanced quote from inverting every verdict after it.
         head = text.rfind("\n", 0, match.start()) + 1
         before = len(re.findall(r'(?<!\\)"', text[head : match.start() + 1]))
         if close == '"' and before % 2 == 0:
@@ -175,9 +162,8 @@ def split_lost_paragraphs(text: str) -> str:
 def finish(text: str, stopped: bool) -> str:
     """The cleanup every rewrite gets before it is called an answer.
 
-    `stopped` is whether the model ended the paragraph itself. A generation that
-    did not ran out of budget rather than finishing, and its tail is half a
-    sentence.
+    `stopped` is whether the model ended the paragraph itself. A generation that did not ran out of budget rather than
+    finishing, and its tail is half a sentence.
     """
     text = text.strip()
     if not stopped:

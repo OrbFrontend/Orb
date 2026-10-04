@@ -9,18 +9,14 @@ from ..core import resolve_stored_random
 
 
 def resolve_mood_fragment_randoms(
-    mood_fragments: Sequence[Mapping[str, Any]],
-    renderable_ids: Collection[str],
-    choices: MutableMapping[str, str],
+    mood_fragments: Sequence[Mapping[str, Any]], renderable_ids: Collection[str], choices: MutableMapping[str, str]
 ) -> list[Mapping[str, Any]]:
     """Resolve stored random macros in renderable mood prompt fields."""
     resolved: list[Mapping[str, Any]] = []
     for fragment in mood_fragments:
         if fragment["id"] in renderable_ids:
             prompt_text, negative_prompt = resolve_stored_random(
-                [fragment.get("prompt_text", ""), fragment.get("negative_prompt", "")],
-                choices,
-                f"mood:{fragment['id']}",
+                [fragment.get("prompt_text", ""), fragment.get("negative_prompt", "")], choices, f"mood:{fragment['id']}"
             )
             fragment = {**fragment, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
         resolved.append(fragment)
@@ -59,12 +55,7 @@ def compute_style_injection_block(
 
     if not (active or deactivated or injection_extra):
         return ""
-    return build_style_injection(
-        active,
-        deactivated,
-        interactive_fragments,
-        injection_extra,
-    )
+    return build_style_injection(active, deactivated, interactive_fragments, injection_extra)
 
 
 def build_style_injection(

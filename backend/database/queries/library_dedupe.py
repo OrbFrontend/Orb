@@ -1,9 +1,8 @@
 """Database operations for the Character Library duplicate finder.
 
-The matching itself lives in :mod:`backend.features.library_dedupe`; this
-module owns only the intentionally narrow persistence boundary.  In particular,
-avatars are read one card at a time because their base64 blobs are large enough
-that loading a stale library in a single query can consume gigabytes of memory.
+The matching itself lives in :mod:`backend.features.library_dedupe`; this module owns only the intentionally narrow persistence
+boundary. In particular, avatars are read one card at a time because their base64 blobs are large enough that loading a stale
+library in a single query can consume gigabytes of memory.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from typing import Any
 
 import aiosqlite
 
-from ..connection import get_db, immediate_tx
+from ..connection import get_db, immediate_tx, select_rows
 
 
 async def list_cards_for_dedupe() -> list[dict[str, Any]]:
@@ -25,16 +24,13 @@ async def list_cards_for_dedupe() -> list[dict[str, Any]]:
     created_at and has_avatar identify copies in the review UI. IS NOT NULL
     checks the record header without loading the avatar blob.
     """
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, name, description, personality, scenario, first_mes, mes_example, "
-                "system_prompt, post_history_instructions, alternate_greetings, creator, "
-                "avatar_dhash, avatar_dhash_stamp, created_at, updated_at, "
-                "avatar_b64 IS NOT NULL AS has_avatar "
-                "FROM character_cards ORDER BY id"
-            )
-        )
+    rows = await select_rows(
+        "SELECT id, name, description, personality, scenario, first_mes, mes_example, "
+        "system_prompt, post_history_instructions, alternate_greetings, creator, "
+        "avatar_dhash, avatar_dhash_stamp, created_at, updated_at, "
+        "avatar_b64 IS NOT NULL AS has_avatar "
+        "FROM character_cards ORDER BY id"
+    )
     cards: list[dict[str, Any]] = []
     for row in rows:
         card = dict(row)
@@ -48,25 +44,15 @@ async def list_cards_for_dedupe() -> list[dict[str, Any]]:
 
 async def list_stale_avatar_ids(stamp_prefix: str) -> list[str]:
     """Return cards whose avatar cache does not match this revision and edit."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id FROM character_cards WHERE avatar_dhash_stamp != ? || updated_at ORDER BY id",
-                (stamp_prefix,),
-            )
-        )
+    rows = await select_rows(
+        "SELECT id FROM character_cards WHERE avatar_dhash_stamp != ? || updated_at ORDER BY id", (stamp_prefix,)
+    )
     return [str(row["id"]) for row in rows]
 
 
 async def read_avatar_b64(card_id: str) -> tuple[str | None, str, str] | None:
     """Read one avatar blob with its immutable-for-CAS snapshot and display name."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT avatar_b64, updated_at, name FROM character_cards WHERE id = ?",
-                (card_id,),
-            )
-        )
+    rows = await select_rows("SELECT avatar_b64, updated_at, name FROM character_cards WHERE id = ?", (card_id,))
     if not rows:
         return None
     row = rows[0]
@@ -93,8 +79,7 @@ async def apply_avatar_dhash(card_id: str, dhash: str, stamp: str) -> bool:
 
 async def get_dismissals() -> dict[tuple[str, str], tuple[str, str]]:
     """Return the body-hash stamps for every currently remembered pair."""
-    async with get_db() as db:
-        rows = list(await db.execute_fetchall("SELECT card_a, card_b, hash_a, hash_b FROM duplicate_dismissals"))
+    rows = await select_rows("SELECT card_a, card_b, hash_a, hash_b FROM duplicate_dismissals")
     return {(str(row["card_a"]), str(row["card_b"])): (str(row["hash_a"]), str(row["hash_b"])) for row in rows}
 
 
@@ -131,19 +116,14 @@ async def remove_dismissals(pairs: Iterable[tuple[str, str]]) -> int:
     if not values:
         return 0
     async with immediate_tx() as db:
-        cursor = await db.executemany(
-            "DELETE FROM duplicate_dismissals WHERE card_a = ? AND card_b = ?",
-            values,
-        )
+        cursor = await db.executemany("DELETE FROM duplicate_dismissals WHERE card_a = ? AND card_b = ?", values)
     return cursor.rowcount
 
 
 async def get_relink_impact(from_id: str, to_id: str) -> dict[str, int]:
     """Count a removal's conversation impact before the caller applies it."""
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                """SELECT
+    rows = await select_rows(
+        """SELECT
                      (SELECT COUNT(*) FROM conversations WHERE character_card_id = ?) AS solo,
                      (SELECT COUNT(DISTINCT conversation_id) FROM group_members WHERE character_card_id = ?) AS groups,
                      (SELECT COUNT(DISTINCT conversation_id)
@@ -159,9 +139,8 @@ async def get_relink_impact(from_id: str, to_id: str) -> dict[str, int]:
                        AND keeper.character_card_id = ?
                        AND keeper.active = 1
                       WHERE doomed.character_card_id = ?) AS collisions""",
-                (from_id, from_id, from_id, from_id, to_id, from_id),
-            )
-        )
+        (from_id, from_id, from_id, from_id, to_id, from_id),
+    )
     row = rows[0]
     return {key: int(row[key]) for key in ("solo", "groups", "conversations", "collisions")}
 
@@ -169,10 +148,9 @@ async def get_relink_impact(from_id: str, to_id: str) -> dict[str, int]:
 async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str) -> dict[str, int]:
     """Move a doomed card's conversations and group slots to a keeper.
 
-    The group-member unique index permits only one active card per conversation.
-    If both cards are already active in a group, the keeper already has a
-    speaking slot, so the doomed row is removed instead of triggering an
-    integrity error. The caller owns the immediate transaction.
+    The group-member unique index permits only one active card per conversation. If both cards are already active in a group,
+    the keeper already has a speaking slot, so the doomed row is removed instead of triggering an integrity error. The caller
+    owns the immediate transaction.
     """
     keeper_rows = list(
         await db.execute_fetchall(
@@ -219,8 +197,7 @@ async def _relink_card_in_tx(db: aiosqlite.Connection, from_id: str, to_id: str)
             await db.execute("UPDATE group_members SET character_card_id = ? WHERE id = ?", (to_id, member["id"]))
 
     # Mirror sync_conversations_for_card() inside this transaction.  The
-    # reassigned conversations must use the keeper's denormalized fields,
-    # not the deleted card's old name and scenario.
+    # reassigned conversations must use the keeper's denormalized fields, not the deleted card's old name and scenario.
     await db.execute(
         "UPDATE conversations SET character_name = ?, character_scenario = ?, post_history_instructions = ? "
         "WHERE character_card_id = ?",

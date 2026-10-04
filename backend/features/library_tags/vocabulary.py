@@ -37,9 +37,8 @@ def normalize_vocabulary(names: list[str]) -> list[str]:
 def vocabulary_hash(names: list[str]) -> str:
     """Return the semantic classifier identity of a vocabulary.
 
-    Order and display casing do not change which concepts a card was offered,
-    so neither should make a whole library stale.  The explicit tagger revision
-    does: it gives prompt/projection upgrades a deliberate invalidation seam.
+    Order and display casing do not change which concepts a card was offered, so neither should make a whole library stale. The
+    explicit tagger revision does: it gives prompt/projection upgrades a deliberate invalidation seam.
     """
     payload = {"tagger": TAGGER_REVISION, "tags": sorted(name.lower() for name in names)}
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
