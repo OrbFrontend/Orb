@@ -742,7 +742,9 @@ function initCombobox(rootEl, getItems, { lane = "writer", searchable = false, l
   // mouseover on the new node (an endless re-render) and deliver the next mousedown to .cb-list.
   function setActive(idx) {
     activeIdx = idx;
-    list.querySelectorAll(".cb-option").forEach((el, i) => el.classList.toggle("active", i === idx));
+    list.querySelectorAll(".cb-option").forEach((el, i) => {
+      el.classList.toggle("active", i === idx);
+    });
   }
 
   async function openDropdown({ revertValue = input.value, query = "" } = {}) {
