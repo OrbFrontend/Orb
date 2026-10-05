@@ -13,6 +13,7 @@ export async function apiFetch(path, opts = {}) {
   const headers = { ...opts.headers, ...(_epoch && { "X-Orb-Epoch": _epoch }) };
   const response = await fetch(path, { ...opts, headers });
   _epoch ||= response.headers?.get("X-Orb-Epoch") || null;
+  if (response.status === 401) _onRefreshRequired();
   if (response.status === 409 && response.clone) {
     const body = await response
       .clone()

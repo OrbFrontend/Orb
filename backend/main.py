@@ -15,4 +15,4 @@ app = build_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host=os.environ.get("ORB_HOST", "0.0.0.0"), port=8899)  # nosec B104 -- ORB_HOST narrows the LAN bind
+    uvicorn.run(app, host=os.environ.get("ORB_HOST", "0.0.0.0"), port=8899, server_header=False)  # nosec B104 -- ORB_HOST narrows the LAN bind

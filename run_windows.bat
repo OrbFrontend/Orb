@@ -56,11 +56,11 @@ echo Press Ctrl+C to stop
 echo.
 
 REM Wait for the server to come up in the background, then open the browser once.
-start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -fsS -o nul %URL% && (start "" %URL% & exit) || timeout /t 1 /nobreak >nul)"
+start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -sS -o nul %URL% && (start "" %URL% & exit) || timeout /t 1 /nobreak >nul)"
 
 REM Reload watches backend/ only; the default is the whole repo, .venv and
 REM node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host %ORB_HOST% --port 8899 --reload --reload-dir backend
+uvicorn backend.main:app --host %ORB_HOST% --port 8899 --no-server-header --reload --reload-dir backend
 if errorlevel 1 goto uvicorn_failed
 exit /b 0
 

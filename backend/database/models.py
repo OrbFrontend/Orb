@@ -720,3 +720,8 @@ class DocumentRow(DocumentListRow):
     content: str
     generated_spans: list
     revision: int
+
+
+class AccessPasswordRow(TypedDict):
+    password_hash: str
+    session_key: str

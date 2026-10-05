@@ -17,6 +17,7 @@ from ..features.cards import http_session as card_http_session
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from ..inference.local_models import onnx_runtime
 from ..inference.local_models.llama_server import manager
+from .access_gate import AccessGateMiddleware
 from .admission import DatasetAdmissionMiddleware
 from .cache_control import CacheControlMiddleware
 from .compression import TextGZipMiddleware
@@ -90,6 +91,7 @@ def build_app() -> FastAPI:
     app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
     app.add_middleware(CacheControlMiddleware)
     app.add_middleware(DatasetAdmissionMiddleware)
+    app.add_middleware(AccessGateMiddleware)
 
     for router in ROUTERS:
         app.include_router(router)

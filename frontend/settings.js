@@ -141,6 +141,8 @@ export function renderSettings() {
     <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
+    ${divider("Password")}
+    <div id="access-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
@@ -151,6 +153,39 @@ export function renderSettings() {
   wireSettingsToggles($("settings-form"));
   syncHideUntilBakedCard();
   loadLocalMLSection();
+  void loadAccessSection();
+}
+
+async function loadAccessSection() {
+  try {
+    renderAccessSection(await api.get("/access"));
+  } catch (_e) {
+    const el = $("access-settings");
+    if (el) el.innerHTML = '<div class="tool-card-desc">Could not load password status.</div>';
+  }
+}
+
+function renderAccessSection({ password_set: on }) {
+  const el = $("access-settings");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="tool-card-desc">${on ? "On. Every browser must sign in." : "Off. Anyone who can reach this address can open Orb."}</div>
+    <div class="field-row" style="margin:8px 0">
+      <input type="password" id="access-password" placeholder="${on ? "New password" : "Password"}" autocomplete="new-password" aria-label="${on ? "New password" : "Password"}" style="flex:1;min-width:0" data-wf-action="settings:accessPasswordKey" data-wf-on="keydown">
+      <button class="btn btn-sm" data-wf-action="settings:accessPasswordSet">Set</button>
+    </div>
+  `;
+}
+
+async function setAccessPassword() {
+  let state;
+  try {
+    state = await api.put("/access/password", { password: $("access-password").value });
+  } catch (e) {
+    return toast(e.message, true);
+  }
+  renderAccessSection(state);
+  toast(state.password_set ? "Password set. Other browsers must sign in." : "Password off.");
 }
 
 // Expression-based rendering always holds replies from characters with
@@ -1123,6 +1158,8 @@ async function showResetConfirmModal() {
 
 registerActions("settings", {
   theme: (el) => applyTheme(el.value),
+  accessPasswordKey: (_el, e) => e.key === "Enter" && setAccessPassword(),
+  accessPasswordSet: () => setAccessPassword(),
   toggleToolsPanel: () => toggleToolsPanel(),
   agentEnabled: (el) => setAgentEnabled(el.checked),
   toolEnabled: (el) => toggleToolEnabled(el.dataset.toolId, el.checked),

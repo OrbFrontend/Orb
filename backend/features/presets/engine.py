@@ -455,7 +455,27 @@ def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
 
 # Excluded tables that may legitimately hold rows (bookkeeping, not domain data).
 # Every *other* excluded table must stay empty, or its data would ship in no backup.
-_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations", "dataset_meta", *ps.DERIVED_TABLES})
+_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset(
+    {META_TABLE, "schema_migrations", "dataset_meta", *ps.DERIVED_TABLES, *ps.LOCAL_TABLES}
+)
+
+
+def _drop_local_rows(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA secure_delete = ON")
+    for tbl in ps.LOCAL_TABLES:
+        conn.execute(f"DELETE FROM {tbl}")  # nosec B608 -- constant identifier
+    conn.execute("PRAGMA secure_delete = OFF")
+
+
+def _carry_local_rows(prepared: str, live: str) -> None:
+    conn = sqlite3.connect(prepared, isolation_level=None)
+    try:
+        conn.execute("ATTACH DATABASE ? AS live", (live,))
+        for tbl in ps.LOCAL_TABLES:
+            conn.execute(f"DELETE FROM main.{tbl}")  # nosec B608 -- constant identifier
+            conn.execute(f"INSERT INTO main.{tbl} SELECT * FROM live.{tbl}")  # nosec B608 -- constant identifier
+    finally:
+        conn.close()
 
 
 def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:
@@ -565,6 +585,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 )
         for tbl in ps.DERIVED_TABLES:
             c.execute(f"DELETE FROM {tbl}")  # nosec B608 -- constant identifier
+        _drop_local_rows(c)
         # Prune each unselected domain by deleting its root tables: with FK on, a CASCADE prunes the owned children and a SET
         # NULL clears soft pointers, so no per-child delete is hand-coded. configs is special (it scrubs the singleton in place
         # rather than deleting it).
@@ -907,6 +928,7 @@ def create_snapshot(label: str = "") -> str:
     c = sqlite3.connect(dest, isolation_level=None)
     try:
         _assert_integrity(c, "the snapshot")
+        _drop_local_rows(c)
         _stamp_migrations(c)
         _write_meta(c, ALL_DOMAINS, label, "auto", False)
     finally:
@@ -986,6 +1008,7 @@ def restore_full(name: str) -> None:
                 vac.execute("VACUUM")
             finally:
                 vac.close()
+        _carry_local_rows(tmp, live)
         # The page size has to match before the copy, and rewriting it rebuilds the file -- so do it ahead of the checks below,
         # which must validate the exact bytes that land in the live DB.
         _align_page_size(tmp, live)

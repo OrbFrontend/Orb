@@ -34,10 +34,10 @@ You do not need to activate the environment for normal use.
 Orb listens on port 8899 on every network interface, so a phone or another
 computer on the same network can open `http://<this computer's IP>:8899`.
 
-!!! warning "Orb has no login"
-    Anyone who can reach port 8899 can use Orb: read and change your chats,
-    characters, and settings, and read the API keys saved in **Endpoints**.
-    Use the default only on a network you trust.
+!!! warning "Set a password before sharing a network"
+    Without a password, anyone who can reach port 8899 can use Orb: read and
+    change your chats, characters, and settings, and read the API keys saved in
+    **Endpoints**. See [Password](#password).
 
 Set the `ORB_HOST` environment variable to choose the address Orb listens on:
 
@@ -65,6 +65,51 @@ Set the `ORB_HOST` environment variable to choose the address Orb listens on:
 When `ORB_HOST` is a specific address, the launcher opens that address instead
 of `localhost`. Orb listens on one address at a time; to allow some networks and
 block others, keep the default and use a firewall rule.
+
+### Password
+
+Set a password in **Settings → Password**. Every page, file, and API request
+then needs it, from this computer as well as from other devices. A browser
+without a valid session gets only a plain sign-in page, whatever address it
+asks for. That page and its headers do not name Orb, so a network scanner
+cannot tell which app is answering.
+
+- A browser stays signed in for up to 400 days.
+- Setting a new password signs out every other browser. The browser you set
+  it from stays signed in.
+- Setting an empty password removes it.
+- After five wrong passwords, a device must wait a minute before it can try
+  again.
+- Presets and backups never contain the password, and restoring one keeps
+  your current password.
+
+Orb serves plain HTTP, so the password crosses the network unencrypted. On a
+network you do not trust, put Orb behind an HTTPS reverse proxy.
+
+### Forgotten password
+
+Orb stores the password, hashed, in its database at `backend/data/app.db`, in the
+`access_password` table. Deleting that table's row removes the password:
+
+1. Stop Orb.
+2. From the Orb folder, run:
+
+    === "Linux/macOS"
+
+        ```bash
+        .venv/bin/python -c "import sqlite3; c = sqlite3.connect('backend/data/app.db'); c.execute('DELETE FROM access_password'); c.commit()"
+        ```
+
+    === "Windows"
+
+        ```bat
+        .venv\Scripts\python -c "import sqlite3; c = sqlite3.connect('backend/data/app.db'); c.execute('DELETE FROM access_password'); c.commit()"
+        ```
+
+    With the `sqlite3` command-line tool installed, this does the same:
+    `sqlite3 backend/data/app.db "DELETE FROM access_password;"`
+
+3. Start Orb. It opens without a password; set a new one in **Settings**.
 
 ## First run
 
