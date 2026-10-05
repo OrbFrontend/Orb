@@ -39,7 +39,7 @@ test('legacy character IDs stay literal in sidebar, browser, editor and avatar m
     assert.equal(document.querySelectorAll('[onerror]').length, 0);
     assert.ok(el.querySelector('img').getAttribute('src').includes(encodeURIComponent(id)));
   }
-  showCharEditModal(card);
+  await showCharEditModal(card);
   for (const el of document.querySelectorAll('[data-wf-action^="library:"][data-char-id]')) assert.equal(el.dataset.charId, id);
   assert.equal(document.querySelectorAll('[onerror]').length, 0);
 });
