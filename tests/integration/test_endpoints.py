@@ -1,8 +1,34 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from backend.api.routes import endpoints as endpoint_routes
+
+
+async def test_saved_keys_leave_the_server_only_through_the_reveal_route(client):
+    key = "sk-or-v1-0123456789abcdef"
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://masked.test/v1", "api_key": key})
+    endpoint_id = endpoint["id"]
+    await client.put_checked(
+        "/api/settings",
+        json={"active_endpoint_id": endpoint_id, "agent_endpoint_id": endpoint_id, "agent_same_as_writer": False},
+    )
+
+    responses = [
+        endpoint,
+        await client.put_json(f"/api/endpoints/{endpoint_id}", json={"proxy": ""}),
+        await client.get_json(f"/api/endpoints/{endpoint_id}"),
+        await client.get_json("/api/endpoints"),
+        await client.get_json("/api/settings"),
+        await client.put_json("/api/settings", json={"user_name": "Masked"}),
+    ]
+
+    assert all(key not in json.dumps(body) for body in responses)
+    assert endpoint["api_key_hint"] == "••••••••cdef"
+    assert endpoint_routes.api_key_hint("short-key") == "••••••••"
+    assert await client.get_json(f"/api/endpoints/{endpoint_id}/api-key") == {"api_key": key}
 
 
 async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch):

@@ -152,9 +152,10 @@ export function renderEndpoints() {
               </div>`;
     }
     if (f.t === "api_key") {
+      const endpoint = _endpointById(isAgent ? S.agentEndpointId : S.activeEndpointId);
       return `<div class="field"><label>${f.l}</label>
         <div class="api-key-wrap">
-          <input type="text" class="api-key-input" value="${esc(v)}" data-key="${f.k}" autocomplete="off" ${save}>
+          <input type="text" class="api-key-input" value="" ${_savedKeyAttrs(endpoint)} data-key="${f.k}" autocomplete="off" ${save}>
           <button type="button" class="api-key-toggle" data-wf-action="models:toggleApiKey" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>`;
@@ -280,6 +281,53 @@ export function renderEndpoints() {
   updateEndpointsLabel();
 }
 
+// -- Saved keys ---------------------------------------------------------------
+// A saved key never rides a list or settings payload. Its field starts empty, with the server's hint as the placeholder and
+// the owning row's id on the input; left empty, the field means "keep that key", and the eye fetches the key itself.
+
+function _endpointById(id) {
+  return id == null ? undefined : S.endpoints.find((e) => e.id === id);
+}
+
+function _savedKeyAttrs(endpoint) {
+  return endpoint?.api_key_hint
+    ? `placeholder="${escAttr(endpoint.api_key_hint)}" data-saved-key-of="${endpoint.id}"`
+    : 'placeholder=""';
+}
+
+/** Show *endpoint*'s saved key, hidden, in its key field. */
+function _showSavedKey(input, endpoint) {
+  if (!input) return;
+  input.value = "";
+  input.placeholder = endpoint?.api_key_hint || "";
+  if (endpoint?.api_key_hint) input.dataset.savedKeyOf = String(endpoint.id);
+  else delete input.dataset.savedKeyOf;
+  const btn = input.closest(".api-key-wrap")?.querySelector(".api-key-toggle");
+  if (btn) _setKeyVisible(btn, input, false);
+}
+
+/** The row whose saved key an empty field stands for; null once the field holds text or no key is saved. */
+function _savedKeyOwner(input) {
+  return input && !input.value && input.dataset.savedKeyOf ? Number(input.dataset.savedKeyOf) : null;
+}
+
+async function _revealKey(endpointId) {
+  return (await api.get(`/endpoints/${endpointId}/api-key`)).api_key || "";
+}
+
+/**
+ * The key a URL switch stores on *target* (null for a row about to be created), or undefined to keep target's own key.
+ * Typed text is stored as given. An empty field keeps a saved row's key; a new row takes the saved key the field shows, as it
+ * did when the field held that key in plain text.
+ */
+async function _keyToStore(input, target) {
+  const typed = input?.value.trim() ?? "";
+  if (typed) return typed;
+  if (target) return undefined;
+  const owner = _savedKeyOwner(input);
+  return owner == null ? "" : _revealKey(owner);
+}
+
 // -- Judge lane ---------------------------------------------------------------
 // The classifier has its own endpoint and model, with no chat sampling options. Its route is derived from the URL,
 // which may already include `/decisions`.
@@ -312,7 +360,7 @@ function _judgeLaneHtml() {
       </div>
       <div class="field"><label>Judge API Key</label>
         <div class="api-key-wrap">
-          <input type="text" class="api-key-input" value="${escAttr(endpoint?.api_key || "")}" data-key="judge_api_key" autocomplete="off">
+          <input type="text" class="api-key-input" value="" ${_savedKeyAttrs(endpoint)} data-key="judge_api_key" autocomplete="off">
           <button type="button" class="api-key-toggle" data-wf-action="models:toggleApiKey" aria-label="Show/hide API key">${EYE_TOGGLE_ICON}</button>
         </div>
       </div>
@@ -361,16 +409,17 @@ async function _syncJudgeEndpoint(url) {
     await _saveDecisionConfig({ decision_endpoint_id: null });
     return;
   }
-  const apiKey = document.querySelector('[data-key="judge_api_key"]')?.value.trim() ?? "";
+  const keyEl = document.querySelector('[data-key="judge_api_key"]');
   const proxy = document.querySelector('[data-key="judge_proxy"]')?.value.trim() ?? "";
   let endpoint = S.judgeEndpoints.find((e) => e.url === url);
   if (endpoint) {
     const patch = {};
-    if (endpoint.api_key !== apiKey) patch.api_key = apiKey;
+    const apiKey = await _keyToStore(keyEl, endpoint);
+    if (apiKey !== undefined) patch.api_key = apiKey;
     if ((endpoint.proxy || "") !== proxy) patch.proxy = proxy;
     if (Object.keys(patch).length) Object.assign(endpoint, await api.put(`/endpoints/${endpoint.id}`, patch));
   } else {
-    endpoint = await api.post("/endpoints", { url, api_key: apiKey, kind: "judge" });
+    endpoint = await api.post("/endpoints", { url, api_key: await _keyToStore(keyEl, null), kind: "judge" });
     endpoint.proxy = proxy;
     if (proxy) await api.put(`/endpoints/${endpoint.id}`, { proxy });
     S.judgeEndpoints.push(endpoint);
@@ -378,17 +427,22 @@ async function _syncJudgeEndpoint(url) {
   await _saveDecisionConfig({ decision_endpoint_id: endpoint.id });
 }
 
-/** Write one field of the judge endpoint row. Nothing to write before a URL is saved. */
+/** Write one field of the judge endpoint row, and return the row. Nothing to write before a URL is saved. */
 async function _saveJudgeEndpointField(patch) {
   const endpoint = _judgeEndpoint();
-  if (!endpoint) return; // The URL handler reads these fields when it creates the row.
-  Object.assign(endpoint, await api.put(`/endpoints/${endpoint.id}`, patch));
+  if (!endpoint) return undefined; // The URL handler reads these fields when it creates the row.
+  return Object.assign(endpoint, await api.put(`/endpoints/${endpoint.id}`, patch));
+}
+
+async function _saveJudgeKey(value) {
+  const endpoint = await _saveJudgeEndpointField({ api_key: value });
+  if (endpoint) _showSavedKey(document.querySelector('[data-key="judge_api_key"]'), endpoint);
 }
 
 const JUDGE_SAVERS = {
   judge_endpoint_url: (value) => _syncJudgeEndpoint(value),
   judge_model: (value) => _saveDecisionConfig({ decision_model: value }),
-  judge_api_key: (value) => _saveJudgeEndpointField({ api_key: value }),
+  judge_api_key: (value) => _saveJudgeKey(value),
   judge_proxy: (value) => _saveJudgeEndpointField({ proxy: value }),
 };
 
@@ -1034,8 +1088,7 @@ function _fillEndpointFields(ctx) {
   if (ep) {
     const epEl = document.querySelector(`[data-key="${ctx.urlField}"]`);
     if (epEl) epEl.value = ep.url || "";
-    const keyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
-    if (keyEl) keyEl.value = ep.api_key || "";
+    _showSavedKey(document.querySelector(`[data-key="${ctx.apiKeyField}"]`), ep);
     const cmEl = document.querySelector(`[data-key="${ctx.completionModeField}"]`);
     if (cmEl) cmEl.value = ep.completion_mode || "chat";
     const pxEl = document.querySelector(`[data-key="${ctx.proxyField}"]`);
@@ -1049,20 +1102,23 @@ function _fillEndpointFields(ctx) {
   }
 }
 
-async function _syncEndpointRecord(ctx, url, apiKey) {
+async function _syncEndpointRecord(ctx, url) {
+  const keyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
   const existing = S.endpoints.find((e) => e.url === url);
   if (existing) {
     S[ctx.endpointIdKey] = existing.id;
-    if (existing.api_key !== apiKey) {
-      await api.put(`/endpoints/${existing.id}`, { api_key: apiKey });
-      existing.api_key = apiKey;
+    const apiKey = url === CLAUDE_CODE_ENDPOINT ? undefined : await _keyToStore(keyEl, existing);
+    if (apiKey !== undefined) {
+      Object.assign(existing, await api.put(`/endpoints/${existing.id}`, { api_key: apiKey }));
       _invalidateAvailableModels(existing.id);
     }
     await api.put("/settings", { [ctx.settingsEndpointField]: existing.id });
     if (!S[ctx.configsKey].length || S[ctx.configsKey][0]?.endpoint_id !== existing.id) {
       await _loadConfigs(ctx, existing.id);
     }
+    _showSavedKey(keyEl, existing);
   } else if (url) {
+    const apiKey = url === CLAUDE_CODE_ENDPOINT ? "" : await _keyToStore(keyEl, null);
     const ep = await api.post("/endpoints", { url, api_key: apiKey });
     S.endpoints.push(ep);
     S[ctx.endpointIdKey] = ep.id;
@@ -1070,6 +1126,7 @@ async function _syncEndpointRecord(ctx, url, apiKey) {
     await api.put("/settings", { [ctx.settingsEndpointField]: ep.id });
     populateEndpointDatalist();
     await _loadConfigs(ctx, ep.id);
+    _showSavedKey(keyEl, ep);
   }
 }
 
@@ -1141,11 +1198,7 @@ async function _doSaveEndpointSetting(ctx, el) {
     return;
   }
   const payload = { [key]: v };
-  if (key === ctx.urlField) {
-    const apiKeyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
-    payload[ctx.apiKeyField] =
-      v === CLAUDE_CODE_ENDPOINT ? "" : apiKeyEl?.value || S.endpoints.find((ep) => ep.url === v)?.api_key || "";
-  } else if (key === ctx.modelField) {
+  if (key === ctx.modelField) {
     ctx.hyperparamKeys.forEach((k) => {
       const fieldEl = document.querySelector(`[data-key="${k}"]`);
       if (!fieldEl) return;
@@ -1171,10 +1224,13 @@ async function _doSaveEndpointSetting(ctx, el) {
   }
   try {
     if (key === ctx.urlField) {
-      await _syncEndpointRecord(ctx, v, payload[ctx.apiKeyField] || "");
+      await _syncEndpointRecord(ctx, v);
     } else if (key === ctx.apiKeyField && S[ctx.endpointIdKey]) {
-      await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
-      _invalidateAvailableModels(S[ctx.endpointIdKey]);
+      const saved = await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
+      const row = _endpointById(saved.id);
+      if (row) Object.assign(row, saved);
+      _invalidateAvailableModels(saved.id);
+      _showSavedKey(el, saved);
     } else if (baseKey === "completion_mode" && S[ctx.endpointIdKey]) {
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { completion_mode: v });
       const row = S.endpoints.find((e) => e.id === S[ctx.endpointIdKey]);
@@ -1218,8 +1274,7 @@ async function _onHybridInputCtx(ctx, el) {
     } catch (e) {
       console.error("Failed to fetch endpoint:", e);
     }
-    const apiKeyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
-    if (apiKeyEl) apiKeyEl.value = match.api_key || "";
+    _showSavedKey(document.querySelector(`[data-key="${ctx.apiKeyField}"]`), match);
     const cmEl = document.querySelector(`[data-key="${ctx.completionModeField}"]`);
     if (cmEl) cmEl.value = match.completion_mode || "chat";
     const pxEl = document.querySelector(`[data-key="${ctx.proxyField}"]`);
@@ -1291,20 +1346,32 @@ async function onHybridInput(el) {
   }
 }
 
-function _toggleApiKeyVisibility(btn) {
+function _setKeyVisible(btn, input, visible) {
+  input.style.webkitTextSecurity = visible ? "none" : "disc";
+  btn.dataset.visible = visible ? "1" : "";
+  btn.querySelector(".eye-show").style.display = visible ? "none" : "";
+  btn.querySelector(".eye-hide").style.display = visible ? "" : "none";
+}
+
+async function _toggleApiKeyVisibility(btn) {
   const input = btn.closest(".api-key-wrap").querySelector(".api-key-input");
-  const visible = btn.dataset.visible === "1";
-  if (!visible) {
-    input.style.webkitTextSecurity = "none";
-    btn.dataset.visible = "1";
-    btn.querySelector(".eye-show").style.display = "none";
-    btn.querySelector(".eye-hide").style.display = "";
-  } else {
-    input.style.webkitTextSecurity = "disc";
-    btn.dataset.visible = "";
-    btn.querySelector(".eye-show").style.display = "";
-    btn.querySelector(".eye-hide").style.display = "none";
+  const owner = _savedKeyOwner(input);
+  if (owner == null) {
+    _setKeyVisible(btn, input, btn.dataset.visible !== "1");
+    return;
   }
+  let key;
+  try {
+    key = await _revealKey(owner);
+  } catch (e) {
+    toast(`Could not load the saved key: ${e.message}`, true);
+    return;
+  }
+  // Typing during the fetch, or a switch to another row, wins over the key that arrived.
+  if (_savedKeyOwner(input) !== owner) return;
+  input.value = key;
+  delete input.dataset.savedKeyOf;
+  _setKeyVisible(btn, input, true);
 }
 
 registerActions("models", {

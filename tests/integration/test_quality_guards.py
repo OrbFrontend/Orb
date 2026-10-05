@@ -52,7 +52,7 @@ async def test_endpoint_selection_requires_owned_model_in_correct_lane(client, f
     await client.put_checked(
         f"/api/endpoints/{endpoint['id']}", json={field: config_id, "api_key": "changed"}, expected_status=422
     )
-    assert (await client.get_json(f"/api/endpoints/{endpoint['id']}"))["api_key"] == "original"
+    assert (await client.get_json(f"/api/endpoints/{endpoint['id']}/api-key"))["api_key"] == "original"
 
 
 async def test_settings_do_not_follow_legacy_foreign_model_references(client, db):
@@ -67,7 +67,7 @@ async def test_settings_do_not_follow_legacy_foreign_model_references(client, db
         "/api/settings",
         json={"active_endpoint_id": selected["id"], "agent_endpoint_id": selected["id"], "agent_same_as_writer": False},
     )
-    settings = await client.get_json("/api/settings")
+    settings = await database.get_settings()
     assert settings["endpoint_url"] == "https://selected.test"
     assert settings["api_key"] == "selected-key"
     assert settings.get("agent_endpoint_url") != "https://foreign.test"

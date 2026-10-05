@@ -8,14 +8,14 @@ from ...database import get_endpoint, get_settings, reset_to_defaults, update_se
 from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
 from ...prompting.tool_catalog import has_tool
 from ..schemas import ResetConfirm, SettingsUpdate
-from .endpoints import check_claude_endpoint
+from .endpoints import check_claude_endpoint, public_settings
 
 router = APIRouter()
 
 
 @router.get("/api/settings")
 async def api_get_settings():
-    return await get_settings()
+    return public_settings(await get_settings())
 
 
 @router.put("/api/settings")
@@ -30,7 +30,7 @@ async def api_update_settings(data: SettingsUpdate):
     # registered tool so non-tool feature flags can never be persisted into it.
     if isinstance(payload.get("enabled_tools"), dict):
         payload["enabled_tools"] = {k: v for k, v in payload["enabled_tools"].items() if has_tool(k)}
-    return await update_settings(payload)
+    return public_settings(await update_settings(payload))
 
 
 @router.post("/api/reset")

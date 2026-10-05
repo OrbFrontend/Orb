@@ -46,7 +46,9 @@ async def test_update_settings_ignores_connection_and_hyperparams(client):
     payload = {"endpoint_url": "http://elsewhere/v1", "api_key": "sk-x", "model_name": "other", "max_tokens": 1}
     after = await client.put_json("/api/settings", json=payload)
 
-    assert {key: after[key] for key in payload} == {key: before[key] for key in payload}
+    assert {key: after.get(key) for key in payload} == {key: before.get(key) for key in payload}
+    stored = await client.get_json(f"/api/endpoints/{after['active_endpoint_id']}/api-key")
+    assert stored["api_key"] != "sk-x"
 
 
 async def test_connection_keys_survive_deleting_the_active_model_and_endpoint(client):

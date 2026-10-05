@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import httpx
 from fastapi import APIRouter, HTTPException
 
@@ -23,6 +26,30 @@ from ...inference.claude_code import ClaudeCodeError, cli_status
 from ..schemas import EndpointCreate, EndpointUpdate, ModelConfigCreate, ModelConfigUpdate
 
 router = APIRouter()
+
+# Saved keys stay on the server: endpoint and settings responses carry only a hint, and the key itself goes out one endpoint at
+# a time from /api/endpoints/{id}/api-key, when the user asks to see it.
+_KEY_MASK = "••••••••"
+
+
+def api_key_hint(key: str) -> str:
+    """What a response shows of a saved key: empty when there is none, its last four characters only on a key long enough to
+    keep the rest secret."""
+    if not key:
+        return ""
+    return _KEY_MASK + key[-4:] if len(key) >= 16 else _KEY_MASK
+
+
+def public_endpoint(row: Mapping[str, Any]) -> dict[str, Any]:
+    """An endpoint row as responses show it, with ``api_key_hint`` in place of ``api_key``."""
+    out = dict(row)
+    out["api_key_hint"] = api_key_hint(out.pop("api_key", "") or "")
+    return out
+
+
+def public_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
+    """Settings as responses show them, without the keys overlaid from the active endpoints; their rows carry the hints."""
+    return {key: value for key, value in settings.items() if key not in ("api_key", "agent_api_key")}
 
 
 def check_claude_endpoint(url: str, api_key: str = "", kind: EndpointKind = "chat") -> None:
@@ -46,7 +73,7 @@ async def api_claude_code_status():
 @router.get("/api/endpoints")
 async def api_get_endpoints(kind: EndpointKind | None = None):
     """Saved endpoints, narrowed to one lane's pool when *kind* is given."""
-    return await get_endpoints(kind)
+    return [public_endpoint(row) for row in await get_endpoints(kind)]
 
 
 @router.get("/api/endpoints/{endpoint_id}")
@@ -54,13 +81,22 @@ async def api_get_endpoint(endpoint_id: int):
     result = await get_endpoint(endpoint_id)
     if not result:
         raise HTTPException(status_code=404, detail="Endpoint not found")
-    return result
+    return public_endpoint(result)
+
+
+@router.get("/api/endpoints/{endpoint_id}/api-key")
+async def api_reveal_endpoint_key(endpoint_id: int):
+    """The one response that carries a saved key, for the key field's show button."""
+    result = await get_endpoint(endpoint_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    return {"api_key": result["api_key"]}
 
 
 @router.post("/api/endpoints")
 async def api_create_endpoint(data: EndpointCreate):
     check_claude_endpoint(data.url, data.api_key, data.kind)
-    return await create_endpoint(data.url, data.api_key, data.kind)
+    return public_endpoint(await create_endpoint(data.url, data.api_key, data.kind))
 
 
 @router.put("/api/endpoints/{endpoint_id}")
@@ -79,7 +115,7 @@ async def api_update_endpoint(endpoint_id: int, data: EndpointUpdate):
         raise HTTPException(status_code=422, detail=str(e)) from e
     if not result:
         raise HTTPException(status_code=404, detail="Endpoint not found")
-    return result
+    return public_endpoint(result)
 
 
 @router.delete("/api/endpoints/{endpoint_id}")
