@@ -10,8 +10,8 @@ pre-commit:
       stage_fixed: true
 
     format-js:
-      glob: "*.{js,jsx,ts,tsx}"
-      path_filter: "^frontend/"
+      glob: "frontend/*.js"
+      exclude: "frontend/vendor/**"
       run: npx biome format --write {staged_files}
       stage_fixed: true
 

@@ -1,12 +1,12 @@
 -r requirements.txt
 pytest==9.1.1
 pytest-asyncio==1.4.0
-pytest-mock==3.15.1
+pytest-mock==3.16.0
 pytest-cov==7.1.0
 bandit==1.9.4
 pip-audit==2.10.1
-pyright==1.1.411
-ruff==0.15.17
+pyright==1.1.414
+ruff==0.16.10
 pytest-xdist==3.8.0
 # Exporting Spark-TTS's speaker encoder (scripts/export_spark_speaker_encoder.py).
 # Never needed at run time — onnxruntime alone loads the result — so this stays
