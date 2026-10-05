@@ -80,6 +80,10 @@ Decode JSON columns in the query function and return the row `TypedDict` from
 
 ## Concurrent saves and dataset replacement
 
+Assistant replies commit their attachments, fragment state, Director moods,
+macro choices, cooldowns, and active leaf in one transaction. A failed save
+leaves the previous Director state intact.
+
 Document content writes require `expected_revision`. The database compares and
 increments `documents.revision` in one conditional update and reads the response
 inside the same transaction. A mismatch returns 409 with the current document.
@@ -92,6 +96,10 @@ refuses with a list of running work before modifying the dataset; export/downloa
 remain available. Successful apply/restore regenerates the epoch. Browser API and
 raw SSE/keepalive writes carry `X-Orb-Epoch`; a stale value returns 409 with
 `refresh_required`, prompting draft preservation and a reload.
+
+Preset workers run in threads. A cancelled request waits for its current worker
+to finish before releasing maintenance guards or removing temporary uploads;
+cancelling the await cannot stop the thread itself.
 
 Local model deletion also holds the download lock. Managed llama hosts retain their
 admission lock from active-use drain through unlink; ONNX inference holds a lease,

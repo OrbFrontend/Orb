@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import cast
 
+import aiosqlite
+
 from ..connection import get_db, select_rows
 from ..models import DirectorStateRow
 
@@ -24,9 +26,22 @@ async def get_director_state(cid: str) -> DirectorStateRow:
     return {"conversation_id": cid, "active_moods": [], "keywords": [], "macro_choices": {}}
 
 
-async def update_director_state(cid: str, active_moods: list, keywords: list | None = None, macro_choices: dict | None = None):
+async def update_director_state(
+    cid: str,
+    active_moods: list,
+    keywords: list | None = None,
+    macro_choices: dict | None = None,
+    *,
+    db: aiosqlite.Connection | None = None,
+):
     """Update the conversation's director state. Optional fields (``keywords``,
-    ``macro_choices``) are left untouched when ``None``."""
+    ``macro_choices``) are left untouched when ``None``. With an open connection,
+    participate in the caller's transaction without committing it."""
+    if db is None:
+        async with get_db() as conn:
+            await update_director_state(cid, active_moods, keywords, macro_choices, db=conn)
+            await conn.commit()
+        return
     sets = ["active_moods = ?"]
     vals: list = [json.dumps(active_moods)]
     if keywords is not None:
@@ -36,9 +51,7 @@ async def update_director_state(cid: str, active_moods: list, keywords: list | N
         sets.append("macro_choices = ?")
         vals.append(json.dumps(macro_choices))
     vals.append(cid)
-    async with get_db() as db:
-        await db.execute(
-            f"UPDATE director_state SET {', '.join(sets)} WHERE conversation_id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
-            vals,
-        )
-        await db.commit()
+    await db.execute(
+        f"UPDATE director_state SET {', '.join(sets)} WHERE conversation_id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
+        vals,
+    )

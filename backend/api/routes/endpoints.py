@@ -73,7 +73,10 @@ async def api_update_endpoint(endpoint_id: int, data: EndpointUpdate):
     check_claude_endpoint(url, api_key, original["kind"])
     if url == CLAUDE_CODE_ENDPOINT and (data.proxy if data.proxy is not None else original["proxy"]):
         raise HTTPException(status_code=422, detail="Claude Code local transport does not use an HTTP proxy")
-    result = await update_endpoint(endpoint_id, data.model_dump(exclude_unset=True))
+    try:
+        result = await update_endpoint(endpoint_id, data.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
     if not result:
         raise HTTPException(status_code=404, detail="Endpoint not found")
     return result

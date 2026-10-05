@@ -24,7 +24,8 @@ then the normal avatar if you have no neutral image.
 PNG, JPG/JPEG, WebP, and GIF are supported. Names ignore case; folders are
 ignored. Uploading a new ZIP replaces the set. **Clear** removes it.
 
-Limits: 200 files, 5 MB per image, 50 MB per ZIP.
+Limits: 200 files, 5 MB per image, 50 MB per ZIP, and 50 MB total
+uncompressed contents. Automatic downloads use the same size limits.
 
 ## Supported labels
 

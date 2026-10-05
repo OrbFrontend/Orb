@@ -7,6 +7,7 @@ import binascii
 import io
 import json
 import logging
+import re
 from typing import Any, Literal
 
 from PIL import Image, PngImagePlugin
@@ -275,7 +276,10 @@ def read_orb_id(image_path: str) -> str | None:
     """Return the orb_id tEXt chunk from a PNG produced by to_png, or None."""
     try:
         metadata = extract_exif_data(image_path)
-        return metadata.get("orb_id") or None
+        card_id = metadata.get("orb_id")
+        # Metadata is untrusted. Keep legacy opaque IDs as well as UUIDs, but
+        # ignore IDs that cannot safely identify a card in URLs or markup.
+        return card_id if isinstance(card_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", card_id) else None
     except Exception:
         return None
 

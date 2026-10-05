@@ -91,8 +91,6 @@ async def _persist_result(
     res.resp_text = resolve_inline(res.resp_text)
     resp_text = res.resp_text
     if resp_text.strip():
-        if agent_enabled(settings):
-            await db.update_director_state(conversation_id, res.active_moods, macro_choices=res.macro_choices)
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
         asst_id, rejected = await db.add_message(
@@ -114,6 +112,8 @@ async def _persist_result(
             # rewrite starts from the same edited source as the in-turn pass.
             writer_draft=res.writer_draft or resp_text,
             advance_leaf=True,
+            active_moods=res.active_moods if agent_enabled(settings) else None,
+            macro_choices=res.macro_choices,
         )
         # Row id only known here; no other caller can name it yet, so no lock needed.
         for wid, payload in res.staged_message_state.items():
