@@ -1,7 +1,16 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { selectChar } from "./chat.js";
-import { GLOBE_ICON, GRID_ICON, LIST_ICON, WRENCH_ICON } from "./icons.js";
+import {
+  CHAT_ICON,
+  DOWNLOAD_ICON,
+  GLOBE_ICON,
+  GRID_ICON,
+  HEART_ICON,
+  LIST_ICON,
+  STAR_ICON,
+  WRENCH_ICON,
+} from "./icons.js";
 import { showCharEditModal } from "./library.js";
 import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
@@ -45,7 +54,18 @@ const onIdle =
     ? (fn) => requestIdleCallback(fn, { timeout: 200 })
     : (fn) => setTimeout(() => fn(NO_BUDGET), 0);
 
+const INTERNET_SOURCES = [
+  { id: "characterhub", label: "Chub" },
+  { id: "chararc", label: "Bernkastel" },
+  // `login` names the sign-in field of a site with accounts.
+  { id: "botbooru", label: "Botbooru", login: "Username" },
+  { id: "wyvern", label: "Wyvern", login: "Email" },
+];
+const currentSource = () => INTERNET_SOURCES.find((src) => src.id === _internetSource);
+
 let _internetSource = "characterhub";
+// Per source: the server's account answer ({ supported, username, expired }), cached for the page's lifetime.
+const _sourceAccounts = new Map();
 let _internetQuery = "";
 let _internetPage = 1;
 let _internetResults = [];
@@ -440,10 +460,7 @@ function renderInternetPanel() {
     <div class="char-browser-internet">
       <div class="internet-controls">
         <select id="internet-source" data-wf-action="browser:source" data-wf-on="change">
-          <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>Chub</option>
-          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Bernkastel</option>
-          <option value="botbooru" ${_internetSource === "botbooru" ? "selected" : ""}>Botbooru</option>
-          <option value="wyvern" ${_internetSource === "wyvern" ? "selected" : ""}>Wyvern</option>
+          ${INTERNET_SOURCES.map((src) => `<option value="${src.id}" ${_internetSource === src.id ? "selected" : ""}>${src.label}</option>`).join("")}
         </select>
         <input id="internet-search-input" type="text"
                placeholder="Search characters…"
@@ -452,8 +469,88 @@ function renderInternetPanel() {
         <button class="btn" data-wf-action="browser:searchInternet">Search</button>
         <button class="btn" data-wf-action="browser:randomize" title="Show a random selection">🎲 Randomize</button>
       </div>
+      <div id="internet-account">${renderSourceAccountBody()}</div>
       <div id="internet-results">${renderInternetResultsBody()}</div>
     </div>`;
+  if (!_sourceAccounts.has(_internetSource)) loadSourceAccount(_internetSource);
+}
+
+/** The sign-in row for a source whose account widens what it lists; empty for the others. */
+function renderSourceAccountBody() {
+  const account = _sourceAccounts.get(_internetSource);
+  if (!account?.supported) return "";
+  const { label, login } = currentSource();
+  if (account.username) {
+    return `
+      <div class="internet-account">
+        <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong></span>
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogout">Sign out</button>
+      </div>`;
+  }
+  const hint = account.expired
+    ? `Your ${esc(label)} sign-in has expired. Sign in again to see exclusive cards.`
+    : `Sign in to ${esc(label)} to see exclusive cards. Orb keeps the session, not the password.`;
+  return `
+    <div class="internet-account">
+      <span>${hint}</span>
+      <div class="internet-account-form">
+        <input id="internet-login-user" type="text" placeholder="${login}" autocomplete="username"
+               data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
+        <input id="internet-login-pass" type="password" placeholder="Password" autocomplete="current-password"
+               data-wf-action="browser:sourceLoginKey" data-wf-on="keydown">
+        <button class="btn btn-sm" data-wf-action="browser:sourceLogin">Sign in</button>
+      </div>
+    </div>`;
+}
+
+function refreshSourceAccount() {
+  const el = $("internet-account");
+  if (el) el.innerHTML = renderSourceAccountBody();
+}
+
+async function loadSourceAccount(source) {
+  try {
+    _sourceAccounts.set(source, await api.get(`/characters/sources/${encodeURIComponent(source)}/account`));
+  } catch (e) {
+    console.error("Failed to read the card source sign-in:", e);
+    return;
+  }
+  if (source === _internetSource) refreshSourceAccount();
+}
+
+/** A sign-in change alters what the source lists, so results already on screen are fetched again. A failure leaves the row
+ *  as typed. */
+async function changeSourceAccount(request) {
+  const button = document.querySelector("#internet-account .btn");
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
+  const source = _internetSource;
+  try {
+    _sourceAccounts.set(source, await request(source));
+  } catch (e) {
+    toast(`Sign-in failed: ${e.message}`, true);
+    if (button) button.disabled = false;
+    return;
+  }
+  if (source !== _internetSource) return;
+  refreshSourceAccount();
+  if (_internetResults.length) searchInternet();
+}
+
+function loginSource() {
+  const username = $("internet-login-user")?.value.trim() || "";
+  const password = $("internet-login-pass")?.value || "";
+  if (!username || !password) {
+    toast(`Enter your ${currentSource().login.toLowerCase()} and password`, true);
+    return;
+  }
+  changeSourceAccount((source) =>
+    api.post(`/characters/sources/${encodeURIComponent(source)}/login`, { username, password }),
+  );
+}
+
+function logoutSource() {
+  changeSourceAccount((source) => api.del(`/characters/sources/${encodeURIComponent(source)}/login`));
 }
 
 function renderInternetResultsBody() {
@@ -470,19 +567,68 @@ function renderInternetResultsBody() {
   return `<div class="char-browser-grid">${cards}</div>${more}`;
 }
 
+const COMPACT = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+const EXACT = new Intl.NumberFormat();
+
+// The tallies a site reports, in tile order. A tile has room for two; the tooltip lists them all.
+function internetStats(item) {
+  const stats = [];
+  if (item.rating != null) {
+    const n = item.rating_count;
+    stats.push({
+      icon: STAR_ICON,
+      kind: "rating",
+      short: item.rating.toFixed(1),
+      full: `Rated ${item.rating.toFixed(1)} by ${EXACT.format(n)} ${n === 1 ? "person" : "people"}`,
+    });
+  }
+  for (const [key, icon, noun] of [
+    ["downloads", DOWNLOAD_ICON, "downloads"],
+    ["favorites", HEART_ICON, "favorites"],
+    ["chats", CHAT_ICON, "chats"],
+  ]) {
+    const n = item[key];
+    if (n != null) stats.push({ icon, kind: key, short: COMPACT.format(n), full: `${EXACT.format(n)} ${noun}` });
+  }
+  return stats;
+}
+
 function renderInternetResultCard(item) {
   const av = avatarCell(item.avatar_url ? escAttr(item.avatar_url) : "", { attrs: 'loading="lazy" decoding="async"' });
   const topics = (item.topics || []).slice(0, 12);
-  const updated = item.date_updated ? `Updated: ${formatRelativeDate(item.date_updated)}` : "";
-  const tooltipParts = [item.name, item.tagline, updated, topics.length ? `Tags: ${topics.join(", ")}` : ""].filter(
-    Boolean,
-  );
+  const updated = item.date_updated ? formatRelativeDate(item.date_updated) : "";
+  const stats = internetStats(item);
+  const tooltipParts = [
+    item.name,
+    item.creator ? `by ${item.creator}` : "",
+    item.tagline,
+    [...stats.map((s) => s.full), item.tokens != null ? `${EXACT.format(item.tokens)} tokens` : ""]
+      .filter(Boolean)
+      .join(" · "),
+    updated ? `Updated: ${updated}` : "",
+    topics.length ? `Tags: ${topics.join(", ")}` : "",
+  ].filter(Boolean);
   const tooltip = tooltipParts.map(esc).join("\n");
+  // A site with no tallies still says how fresh the card is.
+  const statRow = stats.length
+    ? stats
+        .slice(0, 2)
+        .map(
+          (s) =>
+            `<span class="internet-stat internet-stat-${s.kind}" title="${escAttr(s.full)}">${s.icon}${esc(s.short)}</span>`,
+        )
+        .join("")
+    : updated
+      ? `<span class="internet-stat">${esc(updated)}</span>`
+      : "";
   return `
     <div class="char-browser-card internet-result-card">
       <div class="char-browser-avatar" title="${tooltip}">${av}</div>
       <div class="char-browser-card-name">${esc(item.name || "")}</div>
-      <div class="internet-result-meta">${esc(item.tagline || "")}</div>
+      <div class="internet-result-meta">
+        <div class="internet-result-creator">${item.creator ? `by ${esc(item.creator)}` : ""}</div>
+        <div class="internet-result-stats">${statRow}</div>
+      </div>
       <button class="internet-import-btn" data-wf-action="browser:importInternet" data-path="${escAttr(item.full_path || "")}">Import</button>
     </div>`;
 }
@@ -592,4 +738,9 @@ registerActions("browser", {
   randomize: () => randomizeInternet(),
   loadMore: () => loadMoreInternet(),
   importInternet: (el) => importInternetChar(el.dataset.path),
+  sourceLogin: () => loginSource(),
+  sourceLoginKey: (_el, e) => {
+    if (e.key === "Enter") loginSource();
+  },
+  sourceLogout: () => logoutSource(),
 });

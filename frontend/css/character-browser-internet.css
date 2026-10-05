@@ -8,11 +8,27 @@
   border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
   transition: border-color .15s; }
 .internet-controls input:focus { border-color: var(--accent-dim); }
+.internet-account { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--text-muted); }
+.internet-account strong { color: var(--text-primary); font-weight: 600; }
+.internet-account-form { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; }
+.internet-account-form input { flex: 1 1 0; min-width: 0; padding: 6px 10px; font-size: 12px; background: var(--bg-deep);
+  border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); outline: none;
+  transition: border-color .15s; }
+.internet-account-form input:focus { border-color: var(--accent-dim); }
+.internet-account .btn { flex: 0 0 auto; white-space: nowrap; }
 .internet-result-card { cursor: default; }
 .internet-result-card:hover { background: transparent; }
-.internet-result-meta { font-size: 11px; color: var(--text-muted); text-align: center; margin: 4px 0; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; min-height: 48px; }
-.internet-import-btn { width: 100%; margin-top: 6px; padding: 5px 0; font-size: 12px; border-radius: 4px;
+/* Two fixed lines under the name: who made the card, then what the site tallies for it. */
+.internet-result-meta { display: flex; flex-direction: column; gap: 4px; width: 100%; margin: 4px 0; font-size: 11px;
+  line-height: 1.3; color: var(--text-muted); text-align: center; }
+.internet-result-creator { min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One line tall: a stat that does not fit wraps out of view whole rather than pushing the tile taller. */
+.internet-result-stats { --ui-icon-size: 10px; display: flex; justify-content: center; gap: 4px 7px; flex-wrap: wrap;
+  height: 1.3em; overflow: hidden; font-size: 10px; font-variant-numeric: tabular-nums; }
+.internet-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.internet-stat-rating .ui-icon { color: var(--warning, #c8a84b); }
+.internet-import-btn { width: 100%; margin-top: auto; padding: 5px 0; font-size: 12px; border-radius: 4px;
   background: var(--accent-dim); color: #fff; border: none; cursor: pointer; transition: opacity .15s; }
 .internet-import-btn:hover { opacity: 0.85; }
 .internet-loading { text-align: center; padding: 32px; color: var(--text-muted); }

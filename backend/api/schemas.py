@@ -816,6 +816,13 @@ class ImportUrlRequest(BaseModel):
     full_path: str
 
 
+class CardSourceLoginRequest(BaseModel):
+    """A card site's sign-in form; the password goes to the site once and is never stored."""
+
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=500)
+
+
 class CardGeneratorRunRequest(BaseModel):
     """Options for one unsaved character card draft."""
 

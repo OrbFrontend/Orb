@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from ..connection import build_set_clause, get_db, select_rows
-from ..models import SettingsRow
+from ..models import CardSourceAuth, SettingsRow
 from ..seeds import DEFAULT_CONNECTION, DEFAULT_SETTINGS
 
 # What get_settings() reports when no active endpoint, or no active Writer model config on it, supplies these keys: no
@@ -51,6 +51,8 @@ async def get_settings() -> SettingsRow:
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         s["local_ml_config"] = json.loads(s.get("local_ml_config") or "{}")
+        # Card-site session tokens stay out of the settings payload; get_card_source_auth() is their only reader.
+        s.pop("card_source_auth", None)
         # The active endpoint supplies the connection, and its active model config the model and hyperparameters.
         s.update(_UNSELECTED_CONNECTION)
         active_ep_id = s.get("active_endpoint_id")
@@ -307,6 +309,36 @@ async def update_settings(data: dict) -> SettingsRow:
             )
             await db.commit()
         return await get_settings()
+
+
+async def get_card_source_auth(source: str) -> CardSourceAuth | None:
+    """Return one card source's saved login, or None when there is none."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall("SELECT json_extract(card_source_auth, '$.' || ?) FROM settings WHERE id = 1", (source,))
+        )
+    raw = rows[0][0] if rows else None
+    auth = json.loads(raw) if raw else None
+    if not isinstance(auth, dict) or not auth.get("token"):
+        return None
+    return {"username": str(auth.get("username") or ""), "token": str(auth["token"])}
+
+
+async def set_card_source_auth(source: str, auth: CardSourceAuth | None) -> None:
+    """Replace one card source's saved login without touching the others; None logs it out."""
+    async with get_db() as db:
+        if auth is None:
+            await db.execute(
+                "UPDATE settings SET card_source_auth = json_remove(COALESCE(card_source_auth, '{}'), '$.' || ?) WHERE id = 1",
+                (source,),
+            )
+        else:
+            await db.execute(
+                "UPDATE settings SET card_source_auth = json_set(COALESCE(card_source_auth, '{}'), '$.' || ?, json(?)) "
+                "WHERE id = 1",
+                (source, json.dumps(dict(auth))),
+            )
+        await db.commit()
 
 
 # -- Decision classifier configuration --

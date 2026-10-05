@@ -8,14 +8,86 @@ import logging
 import os
 import random
 import tempfile
+import time
 import uuid
+from collections import OrderedDict
+from contextlib import asynccontextmanager
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 
 import httpx
 from fastapi import HTTPException
 
+from ...database.models import CardSourceAuth
 from . import parsing
 
 logger = logging.getLogger(__name__)
+
+_http_client: httpx.AsyncClient | None = None
+_PAGE_COUNT_TTL = 300
+_PAGE_COUNT_LIMIT = 256
+_page_counts: OrderedDict[tuple[str, str, str], tuple[int, float]] = OrderedDict()
+
+
+class _NoCookies(DefaultCookiePolicy):
+    """Card-site accounts use explicit bearer headers, never shared cookie sessions."""
+
+    def set_ok(self, cookie, request):
+        return False
+
+
+@asynccontextmanager
+async def http_session():
+    """Reuse card-site connections for the app lifespan, closing them at shutdown."""
+    global _http_client
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        cookies=CookieJar(policy=_NoCookies()),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60),
+    ) as client:
+        _http_client = client
+        try:
+            yield
+        finally:
+            _http_client = None
+            _page_counts.clear()
+
+
+@asynccontextmanager
+async def _client():
+    """Standalone imports/tests also work without an application lifespan."""
+    if _http_client is not None:
+        yield _http_client
+    else:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            yield client
+
+
+def _page_key(source: str, q: str, token: str | None) -> tuple[str, str, str]:
+    # A signed-in catalog can be much larger than a guest's; never share its bounds.
+    return source, q, hashlib.sha256(token.encode()).hexdigest() if token else ""
+
+
+def _remember_pages(source: str, q: str, pages: object, token: str | None = None) -> None:
+    if not isinstance(pages, int) or isinstance(pages, bool) or pages < 0:
+        return
+    key = _page_key(source, q, token)
+    _page_counts[key] = (max(1, pages), time.monotonic() + _PAGE_COUNT_TTL)
+    _page_counts.move_to_end(key)
+    while len(_page_counts) > _PAGE_COUNT_LIMIT:
+        _page_counts.popitem(last=False)
+
+
+def _known_pages(source: str, q: str, token: str | None = None) -> int | None:
+    key = _page_key(source, q, token)
+    cached = _page_counts.get(key)
+    if cached is None:
+        return None
+    if cached[1] <= time.monotonic():
+        del _page_counts[key]
+        return None
+    _page_counts.move_to_end(key)
+    return cached[0]
+
 
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
@@ -30,9 +102,19 @@ _CHUB_SITE_HEADERS = {
 SOURCES: dict[str, dict] = {}
 
 
-def register_source(name: str, browse_fn, download_fn, randomize_fn):
-    """Register an external source for character-card browsing and downloading."""
-    SOURCES[name] = {"browse": browse_fn, "download": download_fn, "randomize": randomize_fn}
+def register_source(name: str, browse_fn, download_fn, randomize_fn, *, login_fn=None, account_fn=None):
+    """Register an external source for character-card browsing and downloading.
+
+    A source with an account hands ``login_fn(username, password) -> CardSourceAuth`` and ``account_fn(token) -> username |
+    None``, and its browse and randomize functions take a ``token`` keyword (None browses as a guest).
+    """
+    SOURCES[name] = {
+        "browse": browse_fn,
+        "download": download_fn,
+        "randomize": randomize_fn,
+        "login": login_fn,
+        "account": account_fn,
+    }
 
 
 def _get_source(source: str) -> dict:
@@ -42,14 +124,45 @@ def _get_source(source: str) -> dict:
     return src
 
 
-async def browse(source: str, q: str = "", page: int = 1) -> dict:
+def supports_login(source: str) -> bool:
+    """Whether a source has accounts that change what it lists."""
+    return _get_source(source)["login"] is not None
+
+
+def _account_source(source: str) -> dict:
+    src = _get_source(source)
+    if src["login"] is None:
+        raise HTTPException(status_code=400, detail=f"{source} has no account to sign in to")
+    return src
+
+
+async def browse(source: str, q: str = "", page: int = 1, *, token: str | None = None) -> dict:
     """Proxy external character-card search providers (avoids browser CORS)."""
-    return await _get_source(source)["browse"](q, page)
+    src = _get_source(source)
+    if src["login"] is not None:
+        return await src["browse"](q, page, token=token)
+    return await src["browse"](q, page)
 
 
-async def randomize(source: str, q: str = "") -> dict:
+async def randomize(source: str, q: str = "", *, token: str | None = None) -> dict:
     """Return a randomized selection from a source."""
-    return await _get_source(source)["randomize"](q)
+    src = _get_source(source)
+    if src["login"] is not None:
+        return await src["randomize"](q, token=token)
+    return await src["randomize"](q)
+
+
+async def login(source: str, username: str, password: str) -> CardSourceAuth:
+    """Sign in to a source's account and return the session to save; a refused login is a 400 naming the site's reason."""
+    return await _account_source(source)["login"](username, password)
+
+
+async def account(source: str, token: str) -> str | None:
+    """The account name a saved session still belongs to, or None when the site rejects it.
+
+    A site that cannot be reached is not a rejection: that raises a 502, so a brief outage never discards the login.
+    """
+    return await _account_source(source)["account"](token)
 
 
 async def download_card(source: str, full_path: str) -> dict:
@@ -71,8 +184,8 @@ async def _fetch(
 ) -> httpx.Response:
     """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail."""
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
-            resp = await client.get(url, params=params)
+        async with _client() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp
     except httpx.HTTPError as e:
@@ -80,9 +193,11 @@ async def _fetch(
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
 
 
-async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeout: float = 30) -> dict:
+async def _fetch_json(
+    url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
+) -> dict:
     """GET a JSON object; a body that is not one (an HTML error page, a bare list) is a 502 like a failed request."""
-    resp = await _fetch(url, what=what, params=params, timeout=timeout)
+    resp = await _fetch(url, what=what, params=params, timeout=timeout, headers=headers)
     try:
         payload = resp.json()
     except ValueError:
@@ -91,6 +206,40 @@ async def _fetch_json(url: str, *, what: str, params: dict | None = None, timeou
         logger.error("%s: %s answered %s without a JSON object", what, url, resp.status_code)
         raise HTTPException(status_code=502, detail=f"{what}: the site sent an unexpected response")
     return payload
+
+
+def _count(value: object) -> int | None:
+    """A site's tally as an int, or None when it sent none or something that is not a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _card_stats(
+    *,
+    creator: object = None,
+    rating: object = None,
+    rating_count: object = None,
+    downloads: object = None,
+    favorites: object = None,
+    chats: object = None,
+    tokens: object = None,
+) -> dict:
+    """The browse-result fields a result tile shows under its name. A source passes what its site reports; the rest are None.
+
+    A rating with no ratings behind it is the site's placeholder, not a score, so it is dropped.
+    """
+    rated = _count(rating_count)
+    score = rating if rated and isinstance(rating, (int, float)) and not isinstance(rating, bool) else None
+    return {
+        "creator": (creator.strip() or None) if isinstance(creator, str) else None,
+        "rating": float(score) if score is not None else None,
+        "rating_count": rated if score is not None else None,
+        "downloads": _count(downloads),
+        "favorites": _count(favorites),
+        "chats": _count(chats),
+        "tokens": _count(tokens),
+    }
 
 
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
@@ -132,8 +281,8 @@ async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | No
     if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
         return None, None, b""
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            a = await client.get(avatar_url)
+        async with _client() as client:
+            a = await client.get(avatar_url, timeout=30)
             a.raise_for_status()
             mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
             return base64.b64encode(a.content).decode("ascii"), mime, a.content
@@ -182,10 +331,23 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
                 "full_path": full_path,
                 "topics": topics,
                 "date_updated": date_updated,
+                # `starCount` is Chub's download count: it is what sort=download_count orders by.
+                **_card_stats(
+                    creator=full_path.split("/", 1)[0] if "/" in full_path else None,
+                    rating=None if n.get("ratings_disabled") else n.get("rating"),
+                    rating_count=n.get("ratingCount"),
+                    downloads=n.get("starCount"),
+                    favorites=n.get("n_favorites"),
+                    chats=n.get("nChats"),
+                    tokens=n.get("nTokens"),
+                ),
             }
         )
     has_more = len(nodes) >= _CHUB_PAGE_SIZE
-    return {"results": results, "has_more": has_more}, int(body.get("count") or 0)
+    count = int(body.get("count") or 0)
+    if "count" in body:
+        _remember_pages("characterhub", q, _chub_max_page(count))
+    return {"results": results, "has_more": has_more}, count
 
 
 async def _chub_search(q: str, page: int) -> dict:
@@ -204,7 +366,8 @@ async def _randomize_characterhub(q: str) -> dict:
 
     If a filtered query overshoots, use the response count to retry within range.
     """
-    data, count = await _chub_page(q, random.randint(1, _chub_max_page(_CHUB_MAX_RESULTS)))
+    pages = _known_pages("characterhub", q) or _chub_max_page(_CHUB_MAX_RESULTS)
+    data, count = await _chub_page(q, random.randint(1, pages))
     if not data["results"] and count:
         data, _ = await _chub_page(q, random.randint(1, _chub_max_page(count)))
     # Randomized results are a one-shot batch; paging "Load More" would silently
@@ -222,8 +385,8 @@ async def _chub_expression_pack(full_path: str) -> dict | None:
     """
     url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_CHUB_SITE_HEADERS) as client:
-            resp = await client.get(url)
+        async with _client() as client:
+            resp = await client.get(url, timeout=15, headers=_CHUB_SITE_HEADERS)
             resp.raise_for_status()
             node = resp.json().get("node") or {}
         ext = (node.get("definition") or {}).get("extensions") or {}
@@ -329,6 +492,7 @@ def _chararc_to_result(item: dict) -> dict | None:
         "full_path": token,
         "topics": tags,
         "date_updated": item.get("updated") or item.get("created") or item.get("added") or "",
+        **_card_stats(creator=item.get("author")),
     }
 
 
@@ -341,12 +505,14 @@ async def _browse_chararc(q: str, page: int) -> dict:
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
     total_pages = data.get("totalPages") or 0
+    _remember_pages("chararc", q, data.get("totalPages"))
     return {"results": results, "has_more": page < total_pages}
 
 
 async def _randomize_chararc(q: str) -> dict:
     """Fetch a random Character Archive search page to avoid the slow random feed."""
-    page = random.randint(1, _CHARARC_RANDOM_MAX_PAGE)
+    pages = min(_known_pages("chararc", q) or _CHARARC_RANDOM_MAX_PAGE, _CHARARC_RANDOM_MAX_PAGE)
+    page = random.randint(1, pages)
     data = await _browse_chararc(q, page)
     # A deep random page can land past the end of a (query-filtered) result set;
     # fall back to the first page so the user still sees something.
@@ -407,9 +573,58 @@ register_source("chararc", _browse_chararc, _download_chararc_card, _randomize_c
 # Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a JSON browse API whose `q` matches both tags and
 # character names. Unlike the other two sources it has a native random sort, so the randomizer is a single query-filtered
 # request rather than a random-page hack.
+#
+# Guests see only the SFW slice of the catalog (about a tenth of it); a signed-in account sees every card. Only the listing is
+# gated: previews and PNG downloads answer anyone. The site ignores a token it does not accept and answers as if to a guest, so
+# only /auth/me can tell a stale login from a live one.
 
 _BOTBOORU_BASE = "https://botbooru.com"
 _BOTBOORU_PAGE_SIZE = 24
+
+
+def _bearer(token: str | None) -> dict | None:
+    return {"Authorization": f"Bearer {token}"} if token else None
+
+
+async def _account_call(method: str, url: str, *, what: str, **kwargs) -> tuple[int, dict]:
+    """Send one account request and return ``(status, JSON object or {})``; refusals are the caller's to read, not raised."""
+    try:
+        async with _client() as client:
+            resp = await client.request(method, url, timeout=20, follow_redirects=False, **kwargs)
+    except httpx.HTTPError as e:
+        logger.exception("%s", what)
+        raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    return resp.status_code, body if isinstance(body, dict) else {}
+
+
+async def _login_botbooru(username: str, password: str) -> CardSourceAuth:
+    """Exchange a Botbooru username and password for its session token (OAuth2 password form, no captcha on sign-in)."""
+    what = "Botbooru sign-in failed"
+    status, body = await _account_call(
+        "POST", f"{_BOTBOORU_BASE}/auth/token", what=what, data={"username": username, "password": password}
+    )
+    if status in (400, 401, 403):
+        # 401 is a wrong password; 403 is a right password on a timed-out or banned account. Both carry the site's own words.
+        raise HTTPException(status_code=400, detail=str(body.get("detail") or "Botbooru refused the sign-in"))
+    token = body.get("access_token")
+    if status != 200 or not isinstance(token, str) or not token:
+        raise HTTPException(status_code=502, detail=f"{what}: the site sent an unexpected response ({status})")
+    return {"username": username, "token": token}
+
+
+async def _botbooru_account(token: str) -> str | None:
+    """Ask Botbooru whose session this is; None when it rejects the token, expired ones included."""
+    what = "Botbooru could not confirm the sign-in"
+    status, me = await _account_call("GET", f"{_BOTBOORU_BASE}/auth/me", what=what, headers=_bearer(token))
+    if status in (401, 403):
+        return None
+    if status != 200 or not me:
+        raise HTTPException(status_code=502, detail=f"{what} ({status})")
+    return str(me.get("username") or "")
 
 
 def _botbooru_to_result(post: dict) -> dict:
@@ -432,10 +647,11 @@ def _botbooru_to_result(post: dict) -> dict:
         "full_path": str(post.get("id", "")),
         "topics": topics,
         "date_updated": post.get("created_at", ""),
+        **_card_stats(downloads=post.get("downloads"), favorites=post.get("favorite_count"), tokens=post.get("token_count")),
     }
 
 
-async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict], int, int]:
+async def _botbooru_posts(params: dict, q: str, *, what: str, token: str | None) -> tuple[list[dict], int, int]:
     """Run one Botbooru ``/posts/`` query. Returns ``(results, fetched, total)``.
 
     ``fetched`` counts the raw posts, not the normalized results, so a
@@ -443,28 +659,30 @@ async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict
     """
     if q:
         params["q"] = q
-    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)
+    data = await _fetch_json(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20, headers=_bearer(token))
     posts = data.get("posts") or []
     return [_botbooru_to_result(p) for p in posts if isinstance(p, dict)], len(posts), int(data.get("total") or 0)
 
 
-async def _browse_botbooru(q: str, page: int) -> dict:
+async def _browse_botbooru(q: str, page: int, *, token: str | None = None) -> dict:
     """Run a Botbooru browse query and normalize the response shape."""
     offset = (max(1, int(page)) - 1) * _BOTBOORU_PAGE_SIZE
     results, fetched, total = await _botbooru_posts(
-        {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}, q, what="Botbooru search failed"
+        {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}, q, what="Botbooru search failed", token=token
     )
     return {"results": results, "has_more": offset + fetched < total}
 
 
-async def _randomize_botbooru(q: str) -> dict:
+async def _randomize_botbooru(q: str, *, token: str | None = None) -> dict:
     """Surface a random batch of cards from Botbooru.
 
     Botbooru has a native server-side random sort, so a single query-filtered request gives a fresh selection each call.
     Randomized results are a one-shot batch; paging "Load More" would silently switch back to ranked order, so don't advertise
     more.
     """
-    results, _, _ = await _botbooru_posts({"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed")
+    results, _, _ = await _botbooru_posts(
+        {"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed", token=token
+    )
     return {"results": results, "has_more": False}
 
 
@@ -485,14 +703,87 @@ async def _download_botbooru_card(full_path: str):
     return _parse_png_card(content, "Botbooru")
 
 
-register_source("botbooru", _browse_botbooru, _download_botbooru_card, _randomize_botbooru)
+register_source(
+    "botbooru",
+    _browse_botbooru,
+    _download_botbooru_card,
+    _randomize_botbooru,
+    login_fn=_login_botbooru,
+    account_fn=_botbooru_account,
+)
 
 
 # Wyvern search returns card definitions but only lorebook ids; download the character detail to embed V2 lorebook entries.
 # Avatars use Cloudflare Images. Random selection reads the page count first to handle narrow queries.
+#
+# Guests see only unrated cards (about a sixth of the catalog); a signed-in account sees every rating. Only the listing is gated:
+# any card downloads in full for anyone. Accounts live in Firebase Auth: sign-in yields a long-lived refresh token, which is the
+# session Orb saves, and each browse sends an hour-long ID token minted from it. Like Botbooru, the API answers a bearer it does
+# not accept as if to a guest.
 
 _WYVERN_BASE = "https://api.wyvern.chat"
 _WYVERN_PAGE_SIZE = 24
+# Wyvern's public web-app key from its page bundle; it names the Firebase project, it is not a secret.
+_WYVERN_FIREBASE_KEY = "AIzaSyCqumrbjUy-EoMpfN4Ev0ppnqjkdpnOTTw"
+# Refresh token -> (ID token, monotonic deadline). ID tokens live an hour; renew five minutes early.
+_wyvern_id_tokens: dict[str, tuple[str, float]] = {}
+
+
+def _keep_id_token(refresh_token: str, id_token: object) -> str:
+    if not isinstance(id_token, str) or not id_token:
+        raise HTTPException(status_code=502, detail="Wyvern sign-in: the site sent an unexpected response")
+    _wyvern_id_tokens[refresh_token] = (id_token, time.monotonic() + 3300)
+    return id_token
+
+
+async def _login_wyvern(email: str, password: str) -> CardSourceAuth:
+    """Sign in to Wyvern's Firebase project with an email and password (no captcha) and keep its refresh token."""
+    status, body = await _account_call(
+        "POST",
+        "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
+        what="Wyvern sign-in failed",
+        params={"key": _WYVERN_FIREBASE_KEY},
+        json={"email": email, "password": password, "returnSecureToken": True},
+    )
+    refresh_token = body.get("refreshToken")
+    if status != 200 or not isinstance(refresh_token, str) or not refresh_token:
+        # Firebase refuses with a code such as `INVALID_LOGIN_CREDENTIALS` or `TOO_MANY_ATTEMPTS_TRY_LATER : <detail>`.
+        error = body.get("error")
+        code = str(error.get("message") or "").split(" : ")[0] if isinstance(error, dict) else ""
+        raise HTTPException(
+            status_code=400 if status == 400 else 502,
+            detail=code.replace("_", " ").capitalize() or f"Wyvern sign-in failed ({status})",
+        )
+    _keep_id_token(refresh_token, body.get("idToken"))
+    return {"username": str(body.get("displayName") or email), "token": refresh_token}
+
+
+async def _wyvern_id_token(token: str | None, *, renew: bool = False) -> str | None:
+    """The bearer for a saved session: the cached ID token while it is fresh, else a renewed one. None browses as a guest, and
+    is also the answer when Firebase rejects the refresh token (password changed, account gone)."""
+    if not token:
+        return None
+    cached = _wyvern_id_tokens.get(token)
+    if cached and cached[1] > time.monotonic() and not renew:
+        return cached[0]
+    status, body = await _account_call(
+        "POST",
+        "https://securetoken.googleapis.com/v1/token",
+        what="Wyvern could not renew the sign-in",
+        params={"key": _WYVERN_FIREBASE_KEY},
+        data={"grant_type": "refresh_token", "refresh_token": token},
+    )
+    if status == 400:
+        _wyvern_id_tokens.pop(token, None)
+        return None
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"Wyvern could not renew the sign-in ({status})")
+    return _keep_id_token(token, body.get("id_token"))
+
+
+async def _wyvern_account(token: str) -> str | None:
+    """Renew the session to prove Firebase still honours it; "" keeps the name saved at sign-in."""
+    return "" if await _wyvern_id_token(token, renew=True) else None
 
 
 def _wyvern_to_result(item: dict) -> dict:
@@ -504,6 +795,8 @@ def _wyvern_to_result(item: dict) -> dict:
     if not isinstance(tags, list):
         tags = []
     topics = [t for t in tags if isinstance(t, str)]
+    creator = item.get("creator")
+    stats = item.get("entity_statistics")
     return {
         "name": item.get("name", "") or "",
         "tagline": tagline,
@@ -511,39 +804,55 @@ def _wyvern_to_result(item: dict) -> dict:
         "full_path": str(item.get("id") or item.get("_id") or ""),
         "topics": topics,
         "date_updated": item.get("updated_at") or item.get("created_at") or "",
+        **_card_stats(
+            creator=creator.get("displayName") if isinstance(creator, dict) else None,
+            favorites=item.get("likes"),
+            chats=stats.get("total_chats") if isinstance(stats, dict) else None,
+            tokens=item.get("token_count"),
+        ),
     }
 
 
-async def _wyvern_search(q: str, page: int) -> dict:
-    """Run a Wyvern explore search and return the raw (parsed) JSON response."""
+async def _wyvern_search(q: str, page: int, bearer: str | None) -> dict:
+    """Run a Wyvern explore search and return the raw (parsed) JSON response.
+
+    No ``rating`` filter: a signed-in search then spans every rating, while a guest's is held to unrated cards whatever it asks.
+    """
     page = max(1, int(page))
     params = {"page": page, "limit": _WYVERN_PAGE_SIZE, "sort": "created_at", "order": "DESC"}
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20)
+    data = await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20, headers=_bearer(bearer))
+    _remember_pages("wyvern", q, data.get("totalPages"), bearer)
+    return data
 
 
-async def _browse_wyvern(q: str, page: int) -> dict:
-    data = await _wyvern_search(q, page)
+async def _browse_wyvern(q: str, page: int, *, token: str | None = None) -> dict:
+    data = await _wyvern_search(q, page, await _wyvern_id_token(token))
     items = data.get("results") or []
     results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
     return {"results": results, "has_more": bool(data.get("hasMore"))}
 
 
-async def _randomize_wyvern(q: str) -> dict:
+async def _randomize_wyvern(q: str, *, token: str | None = None) -> dict:
     """Surface a random batch of cards from Wyvern.
 
     Wyvern has no native random sort, so -- like the CharacterHub randomizer -- we jump to a random page of the (optionally
-    query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
-    even when a query narrows the catalog to a handful of pages.
+    query-filtered) catalog. A recent browse supplies ``totalPages``; only an unknown or expired count needs a first-page lookup.
     """
-    first = await _wyvern_search(q, 1)
-    total_pages = int(first.get("totalPages") or 1)
-    if total_pages <= 1:
-        data = first
-    else:
-        data = await _wyvern_search(q, random.randint(1, total_pages))
+    bearer = await _wyvern_id_token(token)
+    total_pages = _known_pages("wyvern", q, bearer)
+    first = None
+    if total_pages is None:
+        first = await _wyvern_search(q, 1, bearer)
+        total_pages = int(first.get("totalPages") or 1)
+    page = random.randint(1, max(1, total_pages))
+    data = first if page == 1 and first is not None else await _wyvern_search(q, page, bearer)
+    # A catalog can shrink while its count is cached. Recover rather than leaving
+    # Randomize empty until the count expires.
+    if not data.get("results") and page > 1:
+        data = await _wyvern_search(q, 1, bearer)
     items = data.get("results") or []
     results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
     # Randomized results are a one-shot batch; paging "Load More" would silently
@@ -671,4 +980,11 @@ async def _download_wyvern_card(full_path: str):
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source("wyvern", _browse_wyvern, _download_wyvern_card, _randomize_wyvern)
+register_source(
+    "wyvern",
+    _browse_wyvern,
+    _download_wyvern_card,
+    _randomize_wyvern,
+    login_fn=_login_wyvern,
+    account_fn=_wyvern_account,
+)

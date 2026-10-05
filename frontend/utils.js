@@ -394,7 +394,7 @@ export function formatProseWithDiff(ops) {
   return html;
 }
 
-const IMG_LINK_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\)/i;
+const IMG_LINK_RE = /^!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/i;
 
 function renderImageEmbed(url, alt) {
   const safeUrl = escAttr(url);
@@ -414,7 +414,7 @@ function renderImageEmbed(url, alt) {
 // end so its contents remain escaped code; a textarea's body is raw text the browser shows verbatim, so markdown in it
 // would surface as literal tags.
 const PROSE_PART_RE =
-  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi;
+  /(```[\w]*\n?[\s\S]*?```|```[\w]*\n?[\s\S]*$|<style\b[^>]*>[\s\S]*?<\/style\s*>|<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>|!\[[^\]]*\]\(https?:\/\/[^\s)]+\))/gi;
 const STYLE_BLOCK_RE = /^<style\b[^>]*>([\s\S]*?)<\/style\s*>$/i;
 const TEXTAREA_BLOCK_RE = /^<textarea\b[^>]*>[\s\S]*?<\/textarea\s*>$/i;
 const CLOSED_FENCE_RE = /^```(\w*)(\n)?([\s\S]*?)```$/;
