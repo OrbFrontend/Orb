@@ -10,6 +10,9 @@ import random
 import tempfile
 import time
 import uuid
+from collections import OrderedDict
+from contextlib import asynccontextmanager
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 
 import httpx
 from fastapi import HTTPException
@@ -18,6 +21,73 @@ from ...database.models import CardSourceAuth
 from . import parsing
 
 logger = logging.getLogger(__name__)
+
+_http_client: httpx.AsyncClient | None = None
+_PAGE_COUNT_TTL = 300
+_PAGE_COUNT_LIMIT = 256
+_page_counts: OrderedDict[tuple[str, str, str], tuple[int, float]] = OrderedDict()
+
+
+class _NoCookies(DefaultCookiePolicy):
+    """Card-site accounts use explicit bearer headers, never shared cookie sessions."""
+
+    def set_ok(self, cookie, request):
+        return False
+
+
+@asynccontextmanager
+async def http_session():
+    """Reuse card-site connections for the app lifespan, closing them at shutdown."""
+    global _http_client
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        cookies=CookieJar(policy=_NoCookies()),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=60),
+    ) as client:
+        _http_client = client
+        try:
+            yield
+        finally:
+            _http_client = None
+            _page_counts.clear()
+
+
+@asynccontextmanager
+async def _client():
+    """Standalone imports/tests also work without an application lifespan."""
+    if _http_client is not None:
+        yield _http_client
+    else:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            yield client
+
+
+def _page_key(source: str, q: str, token: str | None) -> tuple[str, str, str]:
+    # A signed-in catalog can be much larger than a guest's; never share its bounds.
+    return source, q, hashlib.sha256(token.encode()).hexdigest() if token else ""
+
+
+def _remember_pages(source: str, q: str, pages: object, token: str | None = None) -> None:
+    if not isinstance(pages, int) or isinstance(pages, bool) or pages < 0:
+        return
+    key = _page_key(source, q, token)
+    _page_counts[key] = (max(1, pages), time.monotonic() + _PAGE_COUNT_TTL)
+    _page_counts.move_to_end(key)
+    while len(_page_counts) > _PAGE_COUNT_LIMIT:
+        _page_counts.popitem(last=False)
+
+
+def _known_pages(source: str, q: str, token: str | None = None) -> int | None:
+    key = _page_key(source, q, token)
+    cached = _page_counts.get(key)
+    if cached is None:
+        return None
+    if cached[1] <= time.monotonic():
+        del _page_counts[key]
+        return None
+    _page_counts.move_to_end(key)
+    return cached[0]
+
 
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
@@ -114,8 +184,8 @@ async def _fetch(
 ) -> httpx.Response:
     """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail."""
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
-            resp = await client.get(url, params=params)
+        async with _client() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp
     except httpx.HTTPError as e:
@@ -211,8 +281,8 @@ async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | No
     if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
         return None, None, b""
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            a = await client.get(avatar_url)
+        async with _client() as client:
+            a = await client.get(avatar_url, timeout=30)
             a.raise_for_status()
             mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
             return base64.b64encode(a.content).decode("ascii"), mime, a.content
@@ -274,7 +344,10 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
             }
         )
     has_more = len(nodes) >= _CHUB_PAGE_SIZE
-    return {"results": results, "has_more": has_more}, int(body.get("count") or 0)
+    count = int(body.get("count") or 0)
+    if "count" in body:
+        _remember_pages("characterhub", q, _chub_max_page(count))
+    return {"results": results, "has_more": has_more}, count
 
 
 async def _chub_search(q: str, page: int) -> dict:
@@ -293,7 +366,8 @@ async def _randomize_characterhub(q: str) -> dict:
 
     If a filtered query overshoots, use the response count to retry within range.
     """
-    data, count = await _chub_page(q, random.randint(1, _chub_max_page(_CHUB_MAX_RESULTS)))
+    pages = _known_pages("characterhub", q) or _chub_max_page(_CHUB_MAX_RESULTS)
+    data, count = await _chub_page(q, random.randint(1, pages))
     if not data["results"] and count:
         data, _ = await _chub_page(q, random.randint(1, _chub_max_page(count)))
     # Randomized results are a one-shot batch; paging "Load More" would silently
@@ -311,8 +385,8 @@ async def _chub_expression_pack(full_path: str) -> dict | None:
     """
     url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_CHUB_SITE_HEADERS) as client:
-            resp = await client.get(url)
+        async with _client() as client:
+            resp = await client.get(url, timeout=15, headers=_CHUB_SITE_HEADERS)
             resp.raise_for_status()
             node = resp.json().get("node") or {}
         ext = (node.get("definition") or {}).get("extensions") or {}
@@ -431,12 +505,14 @@ async def _browse_chararc(q: str, page: int) -> dict:
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
     total_pages = data.get("totalPages") or 0
+    _remember_pages("chararc", q, data.get("totalPages"))
     return {"results": results, "has_more": page < total_pages}
 
 
 async def _randomize_chararc(q: str) -> dict:
     """Fetch a random Character Archive search page to avoid the slow random feed."""
-    page = random.randint(1, _CHARARC_RANDOM_MAX_PAGE)
+    pages = min(_known_pages("chararc", q) or _CHARARC_RANDOM_MAX_PAGE, _CHARARC_RANDOM_MAX_PAGE)
+    page = random.randint(1, pages)
     data = await _browse_chararc(q, page)
     # A deep random page can land past the end of a (query-filtered) result set;
     # fall back to the first page so the user still sees something.
@@ -513,8 +589,8 @@ def _bearer(token: str | None) -> dict | None:
 async def _account_call(method: str, url: str, *, what: str, **kwargs) -> tuple[int, dict]:
     """Send one account request and return ``(status, JSON object or {})``; refusals are the caller's to read, not raised."""
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.request(method, url, **kwargs)
+        async with _client() as client:
+            resp = await client.request(method, url, timeout=20, follow_redirects=False, **kwargs)
     except httpx.HTTPError as e:
         logger.exception("%s", what)
         raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
@@ -747,7 +823,9 @@ async def _wyvern_search(q: str, page: int, bearer: str | None) -> dict:
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    return await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20, headers=_bearer(bearer))
+    data = await _fetch_json(url, what="Wyvern search failed", params=params, timeout=20, headers=_bearer(bearer))
+    _remember_pages("wyvern", q, data.get("totalPages"), bearer)
+    return data
 
 
 async def _browse_wyvern(q: str, page: int, *, token: str | None = None) -> dict:
@@ -761,16 +839,20 @@ async def _randomize_wyvern(q: str, *, token: str | None = None) -> dict:
     """Surface a random batch of cards from Wyvern.
 
     Wyvern has no native random sort, so -- like the CharacterHub randomizer -- we jump to a random page of the (optionally
-    query-filtered) catalog. We first read the real ``totalPages`` so the random page is always in range, which keeps it working
-    even when a query narrows the catalog to a handful of pages.
+    query-filtered) catalog. A recent browse supplies ``totalPages``; only an unknown or expired count needs a first-page lookup.
     """
     bearer = await _wyvern_id_token(token)
-    first = await _wyvern_search(q, 1, bearer)
-    total_pages = int(first.get("totalPages") or 1)
-    if total_pages <= 1:
-        data = first
-    else:
-        data = await _wyvern_search(q, random.randint(1, total_pages), bearer)
+    total_pages = _known_pages("wyvern", q, bearer)
+    first = None
+    if total_pages is None:
+        first = await _wyvern_search(q, 1, bearer)
+        total_pages = int(first.get("totalPages") or 1)
+    page = random.randint(1, max(1, total_pages))
+    data = first if page == 1 and first is not None else await _wyvern_search(q, page, bearer)
+    # A catalog can shrink while its count is cached. Recover rather than leaving
+    # Randomize empty until the count expires.
+    if not data.get("results") and page > 1:
+        data = await _wyvern_search(q, 1, bearer)
     items = data.get("results") or []
     results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
     # Randomized results are a one-shot batch; paging "Load More" would silently
