@@ -834,6 +834,10 @@ class ImportUrlRequest(BaseModel):
     full_path: str
 
 
+class AccessPasswordUpdate(BaseModel):
+    password: str = Field(max_length=1000)
+
+
 class CardSourceLoginRequest(BaseModel):
     """A card site's sign-in form; the password goes to the site once and is never stored."""
 

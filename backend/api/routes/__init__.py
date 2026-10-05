@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from . import (
+    access,
     characters,
     conversations,
     decisions,
@@ -50,4 +51,5 @@ ROUTERS = [
     workflows.router,
     local_ml.router,
     documents.router,
+    access.router,
 ]

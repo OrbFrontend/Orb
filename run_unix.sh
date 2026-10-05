@@ -68,7 +68,7 @@ fi
 if [ -n "$OPEN_CMD" ]; then
     (
         for _ in $(seq 1 60); do
-            if curl -fsS -o /dev/null "$URL" 2>/dev/null; then
+            if curl -sS -o /dev/null "$URL" 2>/dev/null; then
                 "$OPEN_CMD" "$URL" >/dev/null 2>&1 || true
                 break
             fi
@@ -79,4 +79,4 @@ fi
 
 # Reload watches backend/ only; the default is the whole repo, .venv and
 # node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host "$HOST" --port 8899 --reload --reload-dir backend
+uvicorn backend.main:app --host "$HOST" --port 8899 --no-server-header --reload --reload-dir backend

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
 from .connection import checkpoint_wal, close_wal_anchor, current_db_path, get_db, immediate_tx, open_wal_anchor
+from .queries.access import clear_access_password, get_access_password, set_access_password
 from .queries.character_cards import (
     card_embedded_fragments,
     cast_embedded_fragments,
@@ -278,6 +279,7 @@ __all__ = [
     "apply_changeset",
     "apply_sheet_proposal",
     "card_embedded_fragments",
+    "clear_access_password",
     "cast_embedded_fragments",
     "checkpoint_wal",
     "clear_writer_draft",
@@ -321,6 +323,7 @@ __all__ = [
     "entry_snapshot",
     "fold_path_state",
     "fork_conversation",
+    "get_access_password",
     "get_active_dynamic_entries",
     "get_auto_tag_counts",
     "get_active_lorebook_entries",
@@ -437,6 +440,7 @@ __all__ = [
     "read_names",
     "replace_slop_suggestions",
     "resolve_cast",
+    "set_access_password",
     "set_active_leaf",
     "set_character_expressions",
     "set_card_source_auth",

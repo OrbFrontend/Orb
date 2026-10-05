@@ -31,10 +31,13 @@ DOMAIN_ROOTS: dict[str, str] = {
 # leaves the chats out.
 DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state"})
 
+# Machine-local tables: never exported, and a full restore keeps the live rows.
+LOCAL_TABLES: frozenset[str] = frozenset({"access_password"})
+
 # Exclude bookkeeping, caches and historical artifacts from export/merge.
 # Coverage checks require every table to have a domain or an exclusion.
 EXCLUDED_TABLES: frozenset[str] = (
-    frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"}) | DERIVED_TABLES
+    frozenset({"orb_preset_meta", "schema_migrations", "message_attachments", "dataset_meta"}) | DERIVED_TABLES | LOCAL_TABLES
 )
 
 # Touch when: a migration adds a column holding a key, the user's identity, or their prompts (the coverage test will fail and
