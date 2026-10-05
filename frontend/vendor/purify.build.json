@@ -1,9 +1,9 @@
 {
   "library": "DOMPurify",
-  "version": "3.4.15",
-  "upstream": "https://github.com/cure53/DOMPurify/tree/3.4.15",
+  "version": "3.4.16",
+  "upstream": "https://github.com/cure53/DOMPurify/tree/3.4.16",
   "generator": "terser@5.44.1",
-  "source_sha256": "493e9f430fbdde595f9e12ff46aa5b3606a514d5c8556eb144da69612f77fc8e",
+  "source_sha256": "c44274a7959cfdd4da871fa78a5d5fbbef55db68d118c5c0833bc4b5cf9633ad",
   "readable_source": "purify.js.map: sourcesContent[0]",
   "options": {
     "module": true,

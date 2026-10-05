@@ -10,6 +10,7 @@ from ...core.domain_types import MessageRole
 from ..connection import get_db, get_workflow_slot, select_rows, set_workflow_slot
 from ..models import MessageListing, MessageRow, MessageWithAttachments, UserAttachmentRow, WorkflowAttachmentRowBase
 from .conversations import get_conversation
+from .director_state import update_director_state
 from .fragment_state import insert_state_events
 from .workflow_attachments import EVICTED_MARKER
 
@@ -276,11 +277,14 @@ async def add_message(
     decision_cooldowns: Mapping[str, int] | None = None,
     state_events: Sequence[Mapping[str, Any]] | None = None,
     advance_leaf: bool = False,
+    active_moods: list | None = None,
+    macro_choices: dict | None = None,
 ) -> tuple[int, list[dict]]:
     """Insert a message and return its id and rejected attachments.
 
     *state_events* are the state-fragment changes the reply produced, in apply order. They are anchored on the new row inside
-    the same transaction, so a saved reply and its state cannot diverge.
+    the same transaction, so a saved reply and its state cannot diverge. When
+    supplied, Director moods and macro choices also commit with the reply.
     """
     # workflow atts are materialized into a fresh list[dict] the cache writer owns and mutates (it tags rejects with a 'reason'
     # and shallow-copies); the read-only user atts stay as the caller's mappings.
@@ -338,6 +342,8 @@ async def add_message(
                 )
             _, rejected_workflow_atts = await _workflow_attachment_persister(message_id, workflow_atts, db=db)
         await insert_state_events(db, cid, message_id, state_events or (), now)
+        if active_moods is not None:
+            await update_director_state(cid, active_moods, macro_choices=macro_choices, db=db)
         if advance_leaf:
             await db.execute("UPDATE conversations SET updated_at = ?, active_leaf_id = ? WHERE id = ?", (now, message_id, cid))
         else:

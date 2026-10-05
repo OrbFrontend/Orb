@@ -71,6 +71,7 @@ let _internetPage = 1;
 let _internetResults = [];
 let _internetLoading = false;
 let _internetHasMore = false;
+let _internetRequestToken = 0;
 
 export async function showCharacterBrowserModal({ view } = {}) {
   const token = ++_openToken;
@@ -431,7 +432,7 @@ function renderCharBrowserCard(c) {
   const bust = avatarBust.has(c.id) ? `?v=${avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   return `
-    <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${c.id}">
+    <div class="char-browser-card" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
       <div class="char-browser-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
     </div>`;
@@ -444,7 +445,7 @@ function renderCharBrowserListItem(c) {
   const notes = c.creator_notes || (cardTags.length ? cardTags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
-    <div class="char-browser-list-item" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${c.id}">
+    <div class="char-browser-list-item" ${charItemMatchAttrs(c)} data-wf-action="browser:pick" data-char-id="${escAttr(c.id)}">
       <div class="char-browser-list-avatar">${av}</div>
       <div class="char-browser-list-info">
         <div class="char-browser-list-name">${esc(c.name)}</div>
@@ -488,8 +489,8 @@ function renderSourceAccountBody() {
       </div>`;
   }
   const hint = account.expired
-    ? `Your ${esc(label)} sign-in has expired. Sign in again to see exclusive cards.`
-    : `Sign in to ${esc(label)} to see exclusive cards. Orb keeps the session, not the password.`;
+    ? `Your ${esc(label)} sign-in has expired.`
+    : `Sign in to ${esc(label)} to see exclusive cards.`;
   return `
     <div class="internet-account">
       <span>${hint}</span>
@@ -629,7 +630,7 @@ function renderInternetResultCard(item) {
         <div class="internet-result-creator">${item.creator ? `by ${esc(item.creator)}` : ""}</div>
         <div class="internet-result-stats">${statRow}</div>
       </div>
-      <button class="internet-import-btn" data-wf-action="browser:importInternet" data-path="${escAttr(item.full_path || "")}">Import</button>
+      <button class="internet-import-btn" data-wf-action="browser:importInternet" data-source="${escAttr(item.source)}" data-path="${escAttr(item.full_path || "")}">Import</button>
     </div>`;
 }
 
@@ -641,7 +642,10 @@ function refreshInternetResults() {
 async function searchInternet(nextPage = false) {
   if (_internetLoading) return;
   const input = $("internet-search-input");
-  if (input) _internetQuery = input.value.trim();
+  if (input && !nextPage) _internetQuery = input.value.trim();
+  const token = ++_internetRequestToken;
+  const source = _internetSource;
+  const page = nextPage ? _internetPage + 1 : 1;
 
   if (!nextPage) {
     _internetPage = 1;
@@ -654,23 +658,27 @@ async function searchInternet(nextPage = false) {
 
   try {
     const data = await api.get(
-      `/characters/browse?source=${encodeURIComponent(_internetSource)}&q=${encodeURIComponent(_internetQuery)}&page=${_internetPage}`,
+      `/characters/browse?source=${encodeURIComponent(source)}&q=${encodeURIComponent(_internetQuery)}&page=${page}`,
     );
-    const results = Array.isArray(data?.results) ? data.results : [];
+    if (token !== _internetRequestToken) return;
+    const results = Array.isArray(data?.results) ? data.results.map((item) => ({ ...item, source })) : [];
     if (!nextPage) _internetResults = results;
     else _internetResults = [..._internetResults, ...results];
     _internetHasMore = !!data?.has_more;
+    _internetPage = page;
   } catch (e) {
+    if (token !== _internetRequestToken) return;
     toast(`Search failed: ${e.message}`, true);
   } finally {
-    _internetLoading = false;
-    refreshInternetResults();
+    if (token === _internetRequestToken) {
+      _internetLoading = false;
+      refreshInternetResults();
+    }
   }
 }
 
 function loadMoreInternet() {
   if (_internetLoading || !_internetHasMore) return;
-  _internetPage += 1;
   searchInternet(true);
 }
 
@@ -678,6 +686,8 @@ async function randomizeInternet() {
   if (_internetLoading) return;
   const input = $("internet-search-input");
   if (input) _internetQuery = input.value.trim();
+  const token = ++_internetRequestToken;
+  const source = _internetSource;
 
   _internetPage = 1;
   _internetResults = [];
@@ -687,19 +697,25 @@ async function randomizeInternet() {
 
   try {
     const data = await api.get(
-      `/characters/randomize?source=${encodeURIComponent(_internetSource)}&q=${encodeURIComponent(_internetQuery)}`,
+      `/characters/randomize?source=${encodeURIComponent(source)}&q=${encodeURIComponent(_internetQuery)}`,
     );
-    _internetResults = Array.isArray(data?.results) ? data.results : [];
+    if (token !== _internetRequestToken) return;
+    _internetResults = Array.isArray(data?.results) ? data.results.map((item) => ({ ...item, source })) : [];
     _internetHasMore = !!data?.has_more;
   } catch (e) {
+    if (token !== _internetRequestToken) return;
     toast(`Randomize failed: ${e.message}`, true);
   } finally {
-    _internetLoading = false;
-    refreshInternetResults();
+    if (token === _internetRequestToken) {
+      _internetLoading = false;
+      refreshInternetResults();
+    }
   }
 }
 
 function setInternetSource(val) {
+  ++_internetRequestToken;
+  _internetLoading = false;
   _internetSource = val;
   _internetQuery = "";
   _internetResults = [];
@@ -708,10 +724,10 @@ function setInternetSource(val) {
   renderInternetPanel();
 }
 
-async function importInternetChar(fullPath) {
+async function importInternetChar(fullPath, source) {
   try {
     toast("Fetching card…");
-    const r = await api.post("/characters/import-url", { source: _internetSource, full_path: fullPath });
+    const r = await api.post("/characters/import-url", { source, full_path: fullPath });
     setModalCloseCallback(async () => {
       _browserViewMode = "internet";
       await showCharacterBrowserModal();
@@ -737,7 +753,7 @@ registerActions("browser", {
   },
   randomize: () => randomizeInternet(),
   loadMore: () => loadMoreInternet(),
-  importInternet: (el) => importInternetChar(el.dataset.path),
+  importInternet: (el) => importInternetChar(el.dataset.path, el.dataset.source),
   sourceLogin: () => loginSource(),
   sourceLoginKey: (_el, e) => {
     if (e.key === "Enter") loginSource();

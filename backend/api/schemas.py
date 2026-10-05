@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,7 +13,23 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
 
 
-class SettingsUpdate(BaseModel):
+class _PartialUpdate(BaseModel):
+    """Omission leaves a field alone; explicit null is valid only for nullable columns."""
+
+    nullable_fields: ClassVar[frozenset[str]] = frozenset()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_nulls(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for name, value in data.items():
+                if name in cls.model_fields and value is None and name not in cls.nullable_fields:
+                    raise ValueError(f"{name} cannot be null")
+        return data
+
+
+class SettingsUpdate(_PartialUpdate):
+    nullable_fields = frozenset({"active_persona_id", "active_endpoint_id", "agent_endpoint_id"})
     # The connection (endpoint_url, api_key), model_name and hyperparameters (temperature, min_p, top_k, top_p,
     # repetition_penalty, max_tokens) are NOT on this contract: they live on the active endpoint and its model_config, edited
     # via /endpoints/{id} and /models/{id}, and get_settings() overlays them for reads. The frontend still includes them in its
@@ -94,7 +110,8 @@ class EndpointCreate(BaseModel):
     kind: EndpointKind = "chat"
 
 
-class EndpointUpdate(BaseModel):
+class EndpointUpdate(_PartialUpdate):
+    nullable_fields = frozenset({"active_model_config_id", "agent_active_model_config_id"})
     url: str | None = None
     api_key: str | None = None
     active_model_config_id: int | None = None
@@ -184,8 +201,9 @@ class ModelConfigCreate(BaseModel):
     _check_body = field_validator("extra_body")(_check_extra_body)
 
 
-class ModelConfigUpdate(BaseModel):
+class ModelConfigUpdate(_PartialUpdate):
     model_config = {"protected_namespaces": ()}
+    nullable_fields = frozenset({"temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens"})
 
     model_name: str | None = None
     system_prompt: str | None = None
@@ -573,7 +591,7 @@ class CharacterCardCreate(BaseModel):
     # parses the PNG and computes a stable deterministic ID (orb_id embedded in the card, or a SHA-256-derived UUID of the raw
     # bytes), then the frontend passes it back here on Save. Preserving the original ID means re-importing a card after deletion
     # relinks its conversation history instead of creating an orphan.
-    id: str | None = None
+    id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     source_format: str | None = None
     name: str
     description: str = ""

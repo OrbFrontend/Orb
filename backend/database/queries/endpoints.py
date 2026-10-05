@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from ...core.domain_types import EndpointKind
-from ..connection import build_set_clause, get_db, select_rows
+from ..connection import build_set_clause, get_db, immediate_tx, select_rows
 from ..models import EndpointRow, ModelConfigRow
 
 # The EndpointRow projection. Spelled once so every read of the table returns the
@@ -62,7 +62,18 @@ async def create_endpoint(url: str, api_key: str = "", kind: EndpointKind = "cha
 
 
 async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
-    async with get_db() as db:
+    async with immediate_tx() as db:
+        if await _endpoint_on(db, endpoint_id) is None:
+            return None
+        for field, role in (("active_model_config_id", "writer"), ("agent_active_model_config_id", "agent")):
+            config_id = data.get(field)
+            if config_id is not None:
+                rows = await db.execute_fetchall(
+                    "SELECT id FROM model_configs WHERE id = ? AND endpoint_id = ? AND role = ?",
+                    (config_id, endpoint_id, role),
+                )
+                if not rows:
+                    raise ValueError(f"{field} must select a {role} model config belonging to this endpoint")
         allowed = ["url", "api_key", "active_model_config_id", "agent_active_model_config_id", "completion_mode", "proxy"]
         sets, vals = build_set_clause(allowed, data)
         if sets:
@@ -71,7 +82,6 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
                 f"UPDATE endpoints SET {', '.join(sets)} WHERE id = ?",  # nosec B608
                 vals,
             )
-            await db.commit()
         return await _endpoint_on(db, endpoint_id)
 
 

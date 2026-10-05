@@ -76,8 +76,8 @@ async def get_settings() -> SettingsRow:
                             """SELECT mc.*, e.url AS endpoint_url, e.api_key
                            FROM model_configs mc
                            JOIN endpoints e ON mc.endpoint_id = e.id
-                           WHERE mc.id = ?""",
-                            (mc_id,),
+                           WHERE mc.id = ? AND mc.endpoint_id = ? AND mc.role = 'writer'""",
+                            (mc_id, active_ep_id),
                         )
                     )
                     if mc_rows:
@@ -127,8 +127,8 @@ async def get_settings() -> SettingsRow:
                             """SELECT mc.*, e.url AS endpoint_url, e.api_key
                            FROM model_configs mc
                            JOIN endpoints e ON mc.endpoint_id = e.id
-                           WHERE mc.id = ?""",
-                            (agent_mc_id,),
+                           WHERE mc.id = ? AND mc.endpoint_id = ? AND mc.role = 'agent'""",
+                            (agent_mc_id, agent_ep_id),
                         )
                     )
                     if agent_mc_rows:

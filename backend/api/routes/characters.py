@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _MAX_EXPRESSION_UPLOAD = 50 * 1024 * 1024
+_MAX_CARD_UPLOAD = 50 * 1024 * 1024
 
 
 @router.get("/api/characters")
@@ -110,9 +111,12 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
     if not file.filename or not file.filename.lower().endswith(".png"):
         raise HTTPException(status_code=400, detail="Only .png character card files are supported")
 
+    content = await file.read(_MAX_CARD_UPLOAD + 1)
+    if len(content) > _MAX_CARD_UPLOAD:
+        raise HTTPException(status_code=413, detail="Character card exceeds 50 MB")
+
     # Save to temp file for the parser
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 

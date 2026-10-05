@@ -137,7 +137,7 @@ export function pinStreamingMessage(el) {
 
 /** A character's avatar as a small square thumbnail, for list and header surfaces. */
 export function avatarUrl(charId) {
-  return `/api/characters/${charId}/avatar/thumb`;
+  return `/api/characters/${encodeURIComponent(charId)}/avatar/thumb`;
 }
 
 function personaAvatarUrl(personaId) {

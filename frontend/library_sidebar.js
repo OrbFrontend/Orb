@@ -91,15 +91,15 @@ export function renderCharacters() {
       const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
-      return `<div class="char-item${isActive ? " active" : ""}" data-wf-action="conversations:selectChar" data-char-id="${c.id}" data-source="recent">
+      return `<div class="char-item${isActive ? " active" : ""}" data-wf-action="conversations:selectChar" data-char-id="${escAttr(c.id)}" data-source="recent">
       <div class="chat-activity" data-activity="${escAttr(c.id)}"><div class="char-avatar-sm${c.has_expressions ? " avatar-halo" : ""}">${av}</div></div>
       <div class="char-item-info">
         <div class="char-item-name">${esc(c.name)}</div>
         <div class="char-item-meta">${meta}</div>
       </div>
       <div class="char-item-actions">
-        <button class="char-action-edit" data-wf-action="library:edit" data-char-id="${c.id}" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${EDIT_ICON}</button>
-        <button class="char-action-delete" data-wf-action="library:delete" data-char-id="${c.id}" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${CLOSE_ICON}</button>
+        <button class="char-action-edit" data-wf-action="library:edit" data-char-id="${escAttr(c.id)}" title="Edit character" aria-label="Edit ${escAttr(c.name)}">${EDIT_ICON}</button>
+        <button class="char-action-delete" data-wf-action="library:delete" data-char-id="${escAttr(c.id)}" title="Delete character" aria-label="Delete ${escAttr(c.name)}">${CLOSE_ICON}</button>
       </div>
     </div>`;
     })

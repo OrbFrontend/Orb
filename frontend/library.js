@@ -239,10 +239,10 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
         d.id
           ? `<div class="modal-heading" role="heading" aria-level="3">Expression images</div>
       <div class="field">
-        <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" data-wf-action="library:expressionsZip" data-wf-on="change" data-char-id="${d.id}">
+        <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" data-wf-action="library:expressionsZip" data-wf-on="change" data-char-id="${escAttr(d.id)}">
         <div>
           <button class="btn btn-sm" data-wf-action="library:pickExpressionsZip" data-prefix="${prefix}">Upload .zip</button>
-          <button class="btn btn-sm" data-wf-action="library:clearExpressions" data-char-id="${d.id}">Clear</button>
+          <button class="btn btn-sm" data-wf-action="library:clearExpressions" data-char-id="${escAttr(d.id)}">Clear</button>
         </div>
         <div id="${prefix}-expr-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
       </div>`
@@ -436,14 +436,14 @@ export async function showCharEditModal(idOrData) {
     </div>
     ${charFormTabs("ce", c, true, worlds)}
     <div class="modal-actions">
-      ${!isNew ? `<button class="btn btn-danger" data-wf-action="library:delete" data-char-id="${c.id}">Delete</button>` : ""}
+      ${!isNew ? `<button class="btn btn-danger" data-wf-action="library:delete" data-char-id="${escAttr(c.id)}">Delete</button>` : ""}
       ${!isNew ? `<span id="ce-save-status" class="modal-action-status" role="status" aria-live="polite"></span>` : ""}
-      ${!isNew ? `<button class="btn" data-wf-action="library:export" data-char-id="${c.id}">Export PNG</button>` : ""}
+      ${!isNew ? `<button class="btn" data-wf-action="library:export" data-char-id="${escAttr(c.id)}">Export PNG</button>` : ""}
       <button class="btn" id="ce-cancel-btn" data-wf-action="modal:close">Cancel</button>
       ${
         isNew
           ? `<button class="btn btn-accent" data-wf-action="library:saveImported">Save</button>`
-          : `<button class="btn btn-accent" data-wf-action="library:save" data-char-id="${c.id}">Save</button>`
+          : `<button class="btn btn-accent" data-wf-action="library:save" data-char-id="${escAttr(c.id)}">Save</button>`
       }
     </div>`,
     { size: "wide" },
