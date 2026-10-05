@@ -489,8 +489,8 @@ function renderSourceAccountBody() {
       </div>`;
   }
   const hint = account.expired
-    ? `Your ${esc(label)} sign-in has expired. Sign in again to see exclusive cards.`
-    : `Sign in to ${esc(label)} to see exclusive cards. Orb keeps the session, not the password.`;
+    ? `Your ${esc(label)} sign-in has expired.`
+    : `Sign in to ${esc(label)} to see exclusive cards.`;
   return `
     <div class="internet-account">
       <span>${hint}</span>
