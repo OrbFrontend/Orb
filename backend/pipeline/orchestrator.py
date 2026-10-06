@@ -6,12 +6,12 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
-from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateView, carry_events
+from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateFragment, StateView, carry_events
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from .config import resolve_pipeline_config, split_interactive_fragments
-from .events import CoreTurnEvent, PipelineEvent, ResultEvent
+from .events import CoreTurnEvent, PipelineEvent, PublicTurnEvent, ResultEvent
 from .failures import (
     STAGE_AFTER_REPLY,
     STAGE_DIRECTOR,
@@ -172,11 +172,7 @@ async def run_pipeline(
     if lorebook is None:
         lorebook = LorebookTurn(entries=(), messages=(), agentic=False)
 
-    user_message = macros.resolve_message(user_message)
-    if card and speaker is None:
-        user_message = CardScripts.from_extensions(card.get("extensions")).apply(
-            user_message, "prompt", "user", macros.resolve_message
-        )
+    user_message = _resolve_user_message(user_message, macros, card=card, speaker=speaker)
 
     # Resolved once; cfg.enabled_tools is the length-guard-folded map.
     cfg = resolve_pipeline_config(
@@ -199,17 +195,7 @@ async def run_pipeline(
     contract = state_contract or StateContract.capture(settings, state_fragments)
 
     # Mutable state threaded through the three passes.
-    state = open_turn_state(director, user_message)
-    # Resolved before this call, by the stage that owns the frozen snapshot. The records ride the TurnState so persistence
-    # commits them in the same INSERT as the reply they produced; a group exchange's shared result reaches later speakers
-    # through ``director_seed`` instead, and is not re-resolved.
-    if judge is not None:
-        judge.apply_to(state)
-    # A group exchange runs one Director for every speaker, so speakers 2..n start from its result instead of re-deriving it.
-    # Which fields that covers is ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's -- including the
-    # before-Writer state changes, which the driver clears from the seed once the exchange's first reply has anchored them.
-    if director_seed is not None:
-        state.seed_from(director_seed)
+    state = _open_pipeline_state(director, user_message, judge=judge, director_seed=director_seed)
 
     if run_director:
         async for ev in run_director_stage(
@@ -275,13 +261,8 @@ async def run_pipeline(
     ):
         yield ev
 
-    # A full editor rewrite can reintroduce the model's self-label after the writer's streaming gate removed it. Apply the same
-    # pure transform and announce the corrected authoritative draft before workflows consume it.
-    if speaker is not None:
-        stripped_draft = strip_speaker_label(state.resp_text, speaker.name)
-        if stripped_draft != state.resp_text:
-            state.resp_text = stripped_draft
-            yield {"event": "writer_rewrite", "data": {"refined_text": stripped_draft}}
+    if (relabeled := _restrip_speaker_label(state, speaker)) is not None:
+        yield relabeled
 
     # Retain the Editor's result before any secondary workflow changes it. The database write still happens atomically with the
     # final assistant message; this snapshot is the source an on-demand prose rewrite can replay later.
@@ -294,8 +275,101 @@ async def run_pipeline(
         kv_tracker.log_summary()
         return
 
-    # director_output is a plain dict (PostCtx expects a read-only mapping).
-    director_output = state.as_director_output()
+    async for ev in _workflow_stage(
+        cfg,
+        state,
+        client=client,
+        settings=settings,
+        prefix=prefix,
+        turn_scratch=turn_scratch,
+        kv_tracker=kv_tracker,
+        schema_overrides=schema_overrides,
+        conversation_id=conversation_id,
+        character_id=character_id,
+        card=card,
+        history=history,
+    ):
+        yield ev
+
+    # `run_exchange_final` is what makes these steps once-per-exchange rather than once-per-speaker; the driver only builds a
+    # sheet turn for the final speaker, and the gate here is what keeps that true if another caller forgets.
+    if run_exchange_final:
+        async for ev in _reply_stages(
+            cfg,
+            state,
+            client=client,
+            settings=settings,
+            contract=contract,
+            director=director,
+            kv_tracker=kv_tracker,
+            world_proposal=world_proposal,
+            sheet_update=sheet_update,
+        ):
+            yield ev
+
+    yield _make_result(state)
+    kv_tracker.log_summary()
+
+
+def _resolve_user_message(
+    user_message: str, macros: Macros, *, card: Mapping[str, Any] | None, speaker: CastMember | None
+) -> str:
+    """Resolve *user_message*'s macros, then run the card's prompt scripts over it unless a group *speaker* is replying."""
+    resolved = macros.resolve_message(user_message)
+    if not card or speaker is not None:
+        return resolved
+    return CardScripts.from_extensions(card.get("extensions")).apply(resolved, "prompt", "user", macros.resolve_message)
+
+
+def _open_pipeline_state(
+    director: BranchBaseline, user_message: str, *, judge: JudgeResult | None, director_seed: TurnState | None
+) -> TurnState:
+    """Open the turn's working state, with the Judge's records and a shared Director result already folded in."""
+    state = open_turn_state(director, user_message)
+    # Resolved before this call, by the stage that owns the frozen snapshot. The records ride the TurnState so persistence
+    # commits them in the same INSERT as the reply they produced; a group exchange's shared result reaches later speakers
+    # through ``director_seed`` instead, and is not re-resolved.
+    if judge is not None:
+        judge.apply_to(state)
+    # A group exchange runs one Director for every speaker, so speakers 2..n start from its result instead of re-deriving it.
+    # Which fields that covers is ``TurnState``'s to say (``_DIRECTOR_SEED_FIELDS``), not this module's -- including the
+    # before-Writer state changes, which the driver clears from the seed once the exchange's first reply has anchored them.
+    if director_seed is not None:
+        state.seed_from(director_seed)
+    return state
+
+
+def _restrip_speaker_label(state: TurnState, speaker: CastMember | None) -> CoreTurnEvent | None:
+    """Strip a self-label from *speaker*'s Editor draft; the corrected draft's announcement, or None when nothing changed.
+
+    A full editor rewrite can reintroduce the model's self-label after the writer's streaming gate removed it. Apply the same
+    pure transform and announce the corrected authoritative draft before workflows consume it.
+    """
+    if speaker is None:
+        return None
+    stripped_draft = strip_speaker_label(state.resp_text, speaker.name)
+    if stripped_draft == state.resp_text:
+        return None
+    state.resp_text = stripped_draft
+    return {"event": "writer_rewrite", "data": {"refined_text": stripped_draft}}
+
+
+async def _workflow_stage(
+    cfg: PipelineConfig,
+    state: TurnState,
+    *,
+    client: LLMClient,
+    settings: Settings,
+    prefix: list[ChatMessage],
+    turn_scratch: dict,
+    kv_tracker: KVCacheTracker,
+    schema_overrides: Mapping[str, dict],
+    conversation_id: str | None,
+    character_id: str | None,
+    card: Mapping[str, Any] | None,
+    history: Sequence[Mapping[str, Any]] | None,
+) -> AsyncIterator[PublicTurnEvent]:
+    """Run the post-pipeline workflow hooks over the Editor's draft and fold what they hand back into *state*."""
 
     def fold_post(result: PostPipelineResult) -> None:
         # Fold the hooks' output into state as each piece is handed over, so a stop or failure mid-hook still saves the
@@ -314,7 +388,8 @@ async def run_pipeline(
             card=card,
             history=history,
             effective_msg=state.effective_msg,
-            director_output=director_output,
+            # A plain dict (PostCtx expects a read-only mapping).
+            director_output=state.as_director_output(),
             settings=settings,
             prefix=prefix,
             enabled_tools=cfg.enabled_tools,
@@ -336,57 +411,85 @@ async def run_pipeline(
     assert post is not None
     fold_post(post)
 
-    # Sees the finished reply. Skipped on an empty draft (no message to anchor the
-    # changes to) and on a stop arriving after the last pre-editor abort check.
+
+def _reply_stands(state: TurnState, client: LLMClient) -> bool:
+    """Whether a step judging the finished reply may start: there is a reply to anchor on, and no stop has arrived."""
+    return bool(state.resp_text.strip()) and not client.is_aborted
+
+
+async def _reply_stages(
+    cfg: PipelineConfig,
+    state: TurnState,
+    *,
+    client: LLMClient,
+    settings: Settings,
+    contract: StateContract,
+    director: BranchBaseline,
+    kv_tracker: KVCacheTracker,
+    world_proposal: WorldProposalTurn | None,
+    sheet_update: SheetUpdateTurn | None,
+) -> AsyncIterator[CoreTurnEvent]:
+    """The steps that judge the finished reply: after-reply state, then world changes, then sheet updates.
+
+    Last, deliberately: they judge the prose that will actually be persisted, so they sit after the editor and after any
+    draft-rewriting post-pipeline hook. Each is skipped on an empty draft (no message to anchor the changes to, nothing to
+    derive world state from) and once a stop has arrived, so a stop never starts a fresh call.
+    """
     resting = cooldown.blocked(director.get("fragment_cooldowns") or {})
     after_reply = [fragment for fragment in contract.after_reply() if fragment.id not in resting]
-    if run_exchange_final and after_reply and state.resp_text.strip() and not client.is_aborted:
-        yield {"event": "step_start", "data": {"step": "state"}}
-        async for ev in staged(
-            STAGE_AFTER_REPLY,
-            state_step(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                settings=settings,
-                fragments=after_reply,
-                view=state.state_view,
-                placement="after_reply",
-                known_ids=offered_state_ids(cfg.agent_lane.base),
-                # No decision guidance: it directs the Writer, rides the replayed
-                # Writer message already, and the reply is the only record now.
-                reply_text=state.resp_text,
-                writer_user_msg=state.writer_content,
-                kv_tracker=kv_tracker,
-                reasoning_on=cfg.editor_reasoning_on,
-                reasoning_prefill=cfg.editor_reasoning_prefill,
-            ),
+    if after_reply and _reply_stands(state, client):
+        async for ev in _after_reply_state_stage(
+            cfg, state, settings=settings, fragments=after_reply, contract=contract, kv_tracker=kv_tracker
         ):
-            if ev["type"] == "reasoning":
-                yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
-            elif ev["type"] == "failure":
-                yield step_failure_warning(ev["error"], "state", stage=STAGE_AFTER_REPLY)
-            elif ev["type"] == "done":
-                step_result: StateStepResult = ev["result"]
-                apply_state_step_result(state, step_result, contract)
-                if step_result.events or step_result.rejections:
-                    yield {"event": "state", "data": state_event_payload(state)}
+            yield ev
 
-    # Last, deliberately: it judges the prose that will actually be persisted, so it has to sit after the editor and after any
-    # draft-rewriting post-pipeline hook. Same skip conditions as the after-reply state step -- an empty draft has nothing to
-    # derive world state from, and a stop must not start a fresh call.
-    if run_exchange_final and world_proposal is not None and state.resp_text.strip() and not client.is_aborted:
+    if world_proposal is not None and _reply_stands(state, client):
         async for ev in staged(
             STAGE_AFTER_REPLY, world_proposal_stage(cfg, state, settings=settings, turn=world_proposal, kv_tracker=kv_tracker)
         ):
             yield ev
 
-    # Last of the post-turn steps, and for the same reason the world stage is second-to-last: it judges the prose that will
-    # actually be persisted, so it has to sit after the editor and after any draft-rewriting post-pipeline hook.
-    # `run_exchange_final` is what makes it once-per-exchange rather than once-per-speaker; the driver only builds a turn for
-    # the final speaker, and the gate here is what keeps that true if another caller forgets.
-    if run_exchange_final and sheet_update is not None and state.resp_text.strip() and not client.is_aborted:
+    if sheet_update is not None and _reply_stands(state, client):
         async for ev in staged(STAGE_AFTER_REPLY, sheet_update_stage(cfg, state, settings=settings, turn=sheet_update)):
             yield ev
 
-    yield _make_result(state)
-    kv_tracker.log_summary()
+
+async def _after_reply_state_stage(
+    cfg: PipelineConfig,
+    state: TurnState,
+    *,
+    settings: Settings,
+    fragments: Sequence[StateFragment],
+    contract: StateContract,
+    kv_tracker: KVCacheTracker,
+) -> AsyncIterator[CoreTurnEvent]:
+    """Let the after-reply state *fragments* read the finished reply, and apply the changes they make."""
+    yield {"event": "step_start", "data": {"step": "state"}}
+    async for ev in staged(
+        STAGE_AFTER_REPLY,
+        state_step(
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
+            settings=settings,
+            fragments=fragments,
+            view=state.state_view,
+            placement="after_reply",
+            known_ids=offered_state_ids(cfg.agent_lane.base),
+            # No decision guidance: it directs the Writer, rides the replayed
+            # Writer message already, and the reply is the only record now.
+            reply_text=state.resp_text,
+            writer_user_msg=state.writer_content,
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.editor_reasoning_on,
+            reasoning_prefill=cfg.editor_reasoning_prefill,
+        ),
+    ):
+        if ev["type"] == "reasoning":
+            yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
+        elif ev["type"] == "failure":
+            yield step_failure_warning(ev["error"], "state", stage=STAGE_AFTER_REPLY)
+        elif ev["type"] == "done":
+            step_result: StateStepResult = ev["result"]
+            apply_state_step_result(state, step_result, contract)
+            if step_result.events or step_result.rejections:
+                yield {"event": "state", "data": state_event_payload(state)}
