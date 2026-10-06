@@ -5,8 +5,6 @@ every one of these asserts against the *stream* rather than a JSON body -- a gua
 invisible to the client, which is parsing SSE frames.
 """
 
-from __future__ import annotations
-
 import asyncio
 import io
 import json
@@ -123,31 +121,47 @@ async def _attach(
 
 
 async def _trigger(client, conv_id: str, body: dict) -> list[tuple[str, dict]]:
-    response = await client.post_checked(f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json=body)
-    return _events(response.text)
+    return _events((await client.post_checked(f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json=body)).text)
 
 
 async def _replay(client, conv_id: str, mid: int, aid: int, action: str = "reroll-gen", **body):
-    response = await client.post_checked(
+    return await client.post_checked(
         f"/api/conversations/{conv_id}/messages/{mid}/workflow-attachments/{aid}/{action}", json=body
     )
-    return response
 
 
 async def _sibling(mid: int, aid: int) -> dict:
-    rows = await get_workflow_attachments_for_message(mid)
-    return next(row for row in rows if row["id"] != aid)
+    return next(row for row in await get_workflow_attachments_for_message(mid) if row["id"] != aid)
 
 
-def _stub(monkeypatch, render=None, scene="1girl, standing"):
+def _stub(monkeypatch, render=None, scene="1girl, standing", seen: dict | None = None):
     async def fake_compose(**kwargs):
+        if seen is not None:
+            seen.update(kwargs)
         return scene, "", "single_call"
 
     async def fake_render(adapter, request, **kwargs):
         return _image()
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render or fake_render)
+    if render is not False:
+        monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render or fake_render)
+
+
+def _refine(monkeypatch, *revisions, told: list | None = None) -> None:
+    reviews = iter(revisions)
+
+    async def fake_refine(**kwargs):
+        if told is not None:
+            told.append(kwargs["reseeded"])
+        review = next(reviews)
+        return review(kwargs) if callable(review) else review
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+
+
+def _labels(events) -> list[str]:
+    return [data["label"] for name, data in events if name == "phase_status" and "label" in data]
 
 
 def _capture_comfy(monkeypatch) -> dict:
@@ -184,7 +198,6 @@ def _cloud_render(monkeypatch):
 # -- guards -------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "body_key, message", [("bad_type", "message_id (int) required"), ("missing", "no longer part of this conversation")]
 )
@@ -194,16 +207,13 @@ async def test_a_rejected_generate_still_speaks_the_stream_contract(client, monk
     conv_id = f"ig-guard-{body_key}"
     await _seed(conv_id)
     _stub(monkeypatch)
-    body = {"action": "generate", "message_id": True if body_key == "bad_type" else 999_999}
-
-    events = await _trigger(client, conv_id, body)
+    events = await _trigger(client, conv_id, {"action": "generate", "message_id": True if body_key == "bad_type" else 999_999})
 
     assert [name for name, _ in events] == ["image_gen_error", "phase_status", "image_gen_done"]
     assert message in events[0][1]["message"]
     assert events[-1][1] == {"attachment_id": None}
 
 
-@pytest.mark.asyncio
 async def test_generate_refuses_a_user_message(client, monkeypatch):
     await _seed("ig-user-msg")
     uid, _ = await add_message("ig-user-msg", "user", "draw her", 1)
@@ -214,7 +224,6 @@ async def test_generate_refuses_a_user_message(client, monkeypatch):
     assert "assistant messages" in events[0][1]["message"]
 
 
-@pytest.mark.asyncio
 async def test_generate_refuses_a_message_off_the_active_branch(client, monkeypatch):
     """Conversation membership is not branch membership: composing from a history
     that never reaches the anchor describes replies that came after it."""
@@ -229,7 +238,6 @@ async def test_generate_refuses_a_message_off_the_active_branch(client, monkeypa
     assert events[-1][1] == {"attachment_id": None}
 
 
-@pytest.mark.asyncio
 async def test_a_render_failure_reaches_the_user_and_still_terminates(client, monkeypatch):
     mid = await _seed("ig-fail")
 
@@ -245,7 +253,6 @@ async def test_a_render_failure_reaches_the_user_and_still_terminates(client, mo
     assert any(name == "image_gen_error" and "could not complete" in data["message"] for name, data in events)
 
 
-@pytest.mark.asyncio
 async def test_the_attachment_records_the_seed_the_backend_actually_drew_with(client, monkeypatch):
     """Orb picks a seed out of 2**64, and a ComfyUI graph's seed node can declare a
     smaller range and fold it. The number stored beside the image is the one a user
@@ -261,11 +268,9 @@ async def test_the_attachment_records_the_seed_the_backend_actually_drew_with(cl
 
     await _trigger(client, "ig-seed", {"action": "generate", "message_id": mid})
 
-    rows = await get_workflow_attachments_for_message(mid)
-    assert rows[0]["seed"] == "739759991701499" != str(asked["seed"])
+    assert (await get_workflow_attachments_for_message(mid))[0]["seed"] == "739759991701499" != str(asked["seed"])
 
 
-@pytest.mark.asyncio
 async def test_two_concurrent_triggers_on_one_message_stay_separate_roots(client, monkeypatch):
     """The stream body runs after the trigger route drops its locks, so nothing
     serializes these two. What must hold is that each lands as its own flat
@@ -313,7 +318,6 @@ PINNED_CONFIG = {
 }
 
 
-@pytest.mark.asyncio
 async def test_reroll_renders_on_the_style_as_it_stands_now(client, monkeypatch):
     """The dice is the button for "same subject, different roll", so a checkpoint
     (or resolution, or model) changed since has to take effect. Replaying the stored
@@ -332,7 +336,6 @@ async def test_reroll_renders_on_the_style_as_it_stands_now(client, monkeypatch)
     assert json.loads((await _sibling(mid, aid))["generation_metadata"])["backend_model"] == "current.safetensors"
 
 
-@pytest.mark.asyncio
 async def test_rehydrate_replays_the_stored_model_not_todays_style(client, monkeypatch):
     """The other half of the same switch: these bytes are meant to *be* the ones the
     row lost, so resolving through the style would restore a different image and
@@ -350,7 +353,6 @@ async def test_rehydrate_replays_the_stored_model_not_todays_style(client, monke
     assert captured["seed"] == 1234, "a rehydrate hands back the row's own seed"
 
 
-@pytest.mark.asyncio
 async def test_a_style_override_renders_on_the_new_style_and_discloses_the_wording(client, monkeypatch):
     """Swapping style retargets the render entirely. The prompt text cannot follow --
     only the assembled string is stored, never the scene/avoid halves -- so say so."""
@@ -377,7 +379,6 @@ async def test_a_style_override_renders_on_the_new_style_and_discloses_the_wordi
     assert any("still carries the previous style" in note for note in cm["notes"])
 
 
-@pytest.mark.asyncio
 async def test_an_override_that_keeps_the_style_still_renders_on_it(client, monkeypatch):
     mid = await _seed("ig-noswap", config=PINNED_CONFIG)
     aid = await _attach(
@@ -398,7 +399,6 @@ async def test_an_override_that_keeps_the_style_still_renders_on_it(client, monk
     assert "notes" not in json.loads((await _sibling(mid, aid))["consumption_metadata"])
 
 
-@pytest.mark.asyncio
 async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client, monkeypatch):
     mid = await _seed("ig-regen")
     agent_endpoint = await client.post_checked(
@@ -418,13 +418,7 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
 
     aid = await _attach(mid, style_id="realistic", prompt="stale")
     captured: dict = {}
-
-    async def fake_compose(**kwargs):
-        captured.update(kwargs)
-        return "1girl, doorway, looking back", "", "single_call"
-
-    _stub(monkeypatch)
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    _stub(monkeypatch, scene="1girl, doorway, looking back", seen=captured)
 
     await _replay(client, "ig-regen", mid, aid, action="regenerate")
 
@@ -441,7 +435,6 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     assert captured["reasoning_on"] is False
 
 
-@pytest.mark.asyncio
 async def test_regenerate_streams_the_render_phase_a_fresh_generate_shows(client, monkeypatch):
     mid = await _seed("ig-regen-phase")
     aid = await _attach(mid)
@@ -464,20 +457,19 @@ async def test_regenerate_streams_the_render_phase_a_fresh_generate_shows(client
 # -- refinement ---------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_refinement_keeps_every_render_without_saving_reviews(client, monkeypatch):
     """The prompter's judgment of its own renders is unreliable, so no render it
     revised away from may be dropped: each lands as a variant the moment it exists,
     carries the review that followed it, and the last one is on show."""
     mid = await _seed("ig-refine", config={**CONFIG, "refine_turns": 2})
     _stub(monkeypatch)
-    reviews = iter(["hands merged", "second figure missing"])
-
-    async def fake_refine(**kwargs):
-        critique = next(reviews)
-        return Revision(critique, False, f"1girl, fixed {kwargs['render']}")
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(
+        monkeypatch,
+        *(
+            lambda kw, c=critique: Revision(c, False, f"1girl, fixed {kw['render']}")
+            for critique in ("hands merged", "second figure missing")
+        ),
+    )
 
     events = await _trigger(client, "ig-refine", {"action": "generate", "message_id": mid})
 
@@ -495,13 +487,12 @@ async def test_refinement_keeps_every_render_without_saving_reviews(client, monk
         assert "review" not in cm and "refine" not in cm
         assert "hands merged" not in json.dumps(cm)
         assert "second figure missing" not in json.dumps(cm)
-    labels = [data["label"] for name, data in events if name == "phase_status" and "label" in data]
+    labels = _labels(events)
     assert "Rendering revision 1... hands merged" in labels
     assert "Rendering revision 2... second figure missing" in labels
     assert not any(name in {"image_gen_review", "image_gen_refine_stage"} for name, _ in events)
 
 
-@pytest.mark.asyncio
 async def test_review_reason_survives_queue_and_render_progress_then_clears(client, monkeypatch):
     mid = await _seed("ig-refine-events", config={**CONFIG, "refine_turns": 2})
 
@@ -511,14 +502,9 @@ async def test_review_reason_survives_queue_and_render_progress_then_clears(clie
         return _image()
 
     _stub(monkeypatch, render=render)
-    reviews = iter([Revision("hands merged", False, "1girl, fixed"), Revision("good", True)])
-
-    async def fake_refine(**_kwargs):
-        return next(reviews)
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(monkeypatch, Revision("hands merged", False, "1girl, fixed"), Revision("good", True))
     events = await _trigger(client, "ig-refine-events", {"action": "generate", "message_id": mid})
-    labels = [data["label"] for name, data in events if name == "phase_status" and "label" in data]
+    labels = _labels(events)
     assert labels == [
         "Composing image prompt...",
         "Queued behind 2 renders...",
@@ -536,7 +522,6 @@ async def test_review_reason_survives_queue_and_render_progress_then_clears(clie
         assert "hands merged" not in row["generation_metadata"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("reseed", [False, True], ids=["keep-seed", "reseed"])
 async def test_a_revision_keeps_the_seed_unless_its_review_asks_for_a_new_one(client, monkeypatch, reseed):
     """A revision differs from the render it corrects by its prompt alone, unless
@@ -550,14 +535,8 @@ async def test_a_revision_keeps_the_seed_unless_its_review_asks_for_a_new_one(cl
         return _image()
 
     _stub(monkeypatch, render=render)
-    reviews = iter([Revision("hands fused", False, "1girl, fixed", reseed=reseed), Revision("good", True)])
     told: list[bool] = []
-
-    async def fake_refine(**kwargs):
-        told.append(kwargs["reseeded"])
-        return next(reviews)
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(monkeypatch, Revision("hands fused", False, "1girl, fixed", reseed=reseed), Revision("good", True), told=told)
 
     await _trigger(client, f"ig-refine-seed-{reseed}", {"action": "generate", "message_id": mid})
 
@@ -568,7 +547,6 @@ async def test_a_revision_keeps_the_seed_unless_its_review_asks_for_a_new_one(cl
     assert "review" not in json.loads(first["consumption_metadata"])
 
 
-@pytest.mark.asyncio
 async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
     mid = await _seed("ig-refine-off")
     _stub(monkeypatch)
@@ -580,7 +558,6 @@ async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
     assert not any(name in {"image_gen_refine_stage", "image_gen_review"} for name, _ in events)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("review", "status"),
     [(None, "No usable review"), (Revision("hands merged", False), "No revised prompt")],
@@ -589,11 +566,7 @@ async def test_a_render_without_refinement_carries_no_run(client, monkeypatch):
 async def test_unusable_review_keeps_the_render_without_saving_a_reason(client, monkeypatch, review, status):
     mid = await _seed("ig-refine-stop", config={**CONFIG, "refine_turns": 2})
     _stub(monkeypatch)
-
-    async def fake_refine(**_kwargs):
-        return review
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(monkeypatch, review)
     events = await _trigger(client, "ig-refine-stop", {"action": "generate", "message_id": mid})
     [row] = await get_workflow_attachments_for_message(mid)
     consumption = json.loads(row["consumption_metadata"])
@@ -619,7 +592,6 @@ def _compose_call(scene: str = "1girl, standing") -> dict:
     return {"tool_calls": [{"id": "t1", "type": "function", "function": {"name": "compose_image_prompt", "arguments": args}}]}
 
 
-@pytest.mark.asyncio
 async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(client, llm_mock, monkeypatch):
     """Composing blind instead would leave the setting looking as if it worked."""
     earlier = await _seed("ig-pref-fail", config={**CONFIG, "prompter_reference": True})
@@ -648,7 +620,6 @@ async def test_a_prompter_that_rejects_the_earlier_chat_image_stops_generation(c
     assert events[-1] == ("image_gen_done", {"attachment_id": None})
 
 
-@pytest.mark.asyncio
 async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_render(client, llm_mock, monkeypatch):
     mid = await _seed("ig-review-fail", config={**CONFIG, "refine_turns": 2})
 
@@ -670,7 +641,6 @@ async def test_a_review_the_provider_rejects_stops_generation_and_keeps_the_rend
     assert events[-1] == ("image_gen_done", {"attachment_id": row["id"]})
 
 
-@pytest.mark.asyncio
 async def test_a_failed_revision_ends_the_run_on_the_render_before_it(client, monkeypatch):
     mid = await _seed("ig-refine-fail", config={**CONFIG, "refine_turns": 2})
     renders = iter([_image(), ImageGenerationError("ComfyUI went away")])
@@ -682,11 +652,7 @@ async def test_a_failed_revision_ends_the_run_on_the_render_before_it(client, mo
         return outcome
 
     _stub(monkeypatch, render=render)
-
-    async def fake_refine(**_kwargs):
-        return Revision("hands merged", False, "1girl, fixed")
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(monkeypatch, Revision("hands merged", False, "1girl, fixed"))
 
     events = await _trigger(client, "ig-refine-fail", {"action": "generate", "message_id": mid})
 
@@ -699,25 +665,16 @@ async def test_a_failed_revision_ends_the_run_on_the_render_before_it(client, mo
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("from_sibling", [False, True])
 async def test_regeneration_streams_review_reason_only_in_live_progress(client, monkeypatch, from_sibling):
     mid = await _seed("ig-regen-refine", config={**CONFIG, "refine_turns": 1})
     aid = await _attach(mid)
     target_id = await _attach(mid, parent_attachment_id=aid) if from_sibling else aid
     _stub(monkeypatch)
-
-    reviews = iter([Revision("hands merged", False, "1girl, fixed")])
-
-    async def fake_refine(**_kwargs):
-        return next(reviews)
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.refine_scene", fake_refine)
+    _refine(monkeypatch, Revision("hands merged", False, "1girl, fixed"))
     url = f"/api/conversations/ig-regen-refine/messages/{mid}/workflow-attachments/{target_id}/regenerate"
-    response = await client.post_checked(url, json={}, headers={"Accept": "text/event-stream"})
-    events = _events(response.text)
-    labels = [data["label"] for name, data in events if name == "phase_status"]
-    assert "Rendering revision 1... hands merged" in labels
+    events = _events((await client.post_checked(url, json={}, headers={"Accept": "text/event-stream"})).text)
+    assert "Rendering revision 1... hands merged" in [data["label"] for name, data in events if name == "phase_status"]
     assert not any(name in {"image_gen_review", "image_gen_refine_stage"} for name, _ in events)
     for row in await get_workflow_attachments_for_message(mid):
         if row["id"] not in {aid, target_id}:
@@ -726,7 +683,6 @@ async def test_regeneration_streams_review_reason_only_in_live_progress(client, 
     assert events[-1][0] == "regenerate_done"
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(("action", "kept"), [("rehydrate", True), ("reroll-gen", False)])
 async def test_replay_does_not_copy_legacy_review_metadata(client, monkeypatch, action, kept):
     mid = await _seed(f"ig-refine-{action}")
@@ -746,7 +702,6 @@ async def test_replay_does_not_copy_legacy_review_metadata(client, monkeypatch, 
     assert "review" not in consumption and "refine" not in consumption
 
 
-@pytest.mark.asyncio
 async def test_a_user_who_paged_back_mid_run_stays_on_their_pick(client):
     mid = await _seed("ig-pick")
     render = {"workflow_id": "image_gen", "filename": "x.png", "mime": "image/png", "data": b"\x89PNGx", "seed": "1"}
@@ -758,11 +713,9 @@ async def test_a_user_who_paged_back_mid_run_stays_on_their_pick(client):
     await set_active_sibling(first, first, expected_message_id=mid)
     third, _ = await insert_workflow_variant(mid, render, group=[first, second], shown=second)
 
-    root = await get_workflow_attachment_by_id(first)
-    assert third is not None and root["active_sibling_id"] == first
+    assert third is not None and (await get_workflow_attachment_by_id(first))["active_sibling_id"] == first
 
 
-@pytest.mark.asyncio
 async def test_stopping_mid_write_still_saves_the_render(client):
     """Stop cancels the run; a render already being written must land anyway, or the
     user loses the image they were looking at when they pressed it."""
@@ -781,41 +734,32 @@ async def test_stopping_mid_write_still_saves_the_render(client):
 # -- camera -------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_pov_mode_is_global_config(client):
     """The camera rides the workflow config, like the style: one setting for every
     conversation, saved through the same config PUT the style picker uses."""
     await _seed("ig-pov-a")
     await client.put("/api/workflows/image_gen/config", json={"config": {**CONFIG, "pov_mode": "first"}})
 
-    stored = (await client.get("/api/workflows/image_gen/config")).json()["config"]
-    assert stored["pov_mode"] == "first"
+    assert (await client.get_json("/api/workflows/image_gen/config"))["config"]["pov_mode"] == "first"
 
     # Junk normalizes rather than persisting an unrenderable mode.
     await client.put("/api/workflows/image_gen/config", json={"config": {**CONFIG, "pov_mode": "sideways"}})
-    assert (await client.get("/api/workflows/image_gen/config")).json()["config"]["pov_mode"] == "auto"
+    assert (await client.get_json("/api/workflows/image_gen/config"))["config"]["pov_mode"] == "auto"
 
     # The picker labels "Auto" off these two, so both must be answered whatever the machine has on disk -- a dev box with the
     # GGUF present reports ready, and an absent flag would leave the label lying either way.
-    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
+    status = await client.post_json("/api/workflows/image_gen/query", json={"action": "status"})
     assert isinstance(status["classifier_ready"], bool)
     assert status["fallback_mode"] == pov.DEFAULT_POV_MODE
 
 
-@pytest.mark.asyncio
 async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, monkeypatch):
     mid = await _seed("ig-pov-meta", with_character=True)
     # The picker decides. A 'third_person' tag left in the character's appearance
     # prompt is appearance data now, not a camera override.
     await set_workflow_character_state("ig-pov-meta-char", "image_gen", {"appearance_prompt": "3D, third_person"})
     seen: dict = {}
-
-    async def fake_compose(**kwargs):
-        seen.update(kwargs)
-        return "1girl, standing", "", "single_call"
-
-    _stub(monkeypatch)
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    _stub(monkeypatch, seen=seen)
     await set_workflow_config("image_gen", {**CONFIG, "pov_mode": "first"})
 
     events = await _trigger(client, "ig-pov-meta", {"action": "generate", "message_id": mid, "style_id": "anime"})
@@ -834,11 +778,10 @@ async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, m
 # -- cloud source -------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_status_under_cloud_reports_the_provider_and_never_the_key(client):
     await _seed("ig-cloud-status", config=CLOUD_CONFIG)
 
-    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
+    status = await client.post_json("/api/workflows/image_gen/query", json={"action": "status"})
 
     assert status["source"] == "cloud"
     assert status["ready"] is True
@@ -848,7 +791,6 @@ async def test_status_under_cloud_reports_the_provider_and_never_the_key(client)
     assert "sk-live-canary" not in json.dumps(status)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("reachable", [True, False], ids=["typed", "server down"])
 async def test_node_types_still_answers_while_cloud_is_selected(client, monkeypatch, reachable):
     """Imported graphs are global and the importer must stay usable after a backend
@@ -866,9 +808,9 @@ async def test_node_types_still_answers_while_cloud_is_selected(client, monkeypa
         "backend.workflows.image_gen.engine.adapters.external_comfy.ExternalComfyAdapter.node_roles", fake_roles
     )
 
-    answer = (
-        await client.post("/api/workflows/image_gen/query", json={"action": "node_types", "class_types": ["CLIPTextEncode"]})
-    ).json()
+    answer = await client.post_json(
+        "/api/workflows/image_gen/query", json={"action": "node_types", "class_types": ["CLIPTextEncode"]}
+    )
     assert answer == (
         {"nodes": {"CLIPTextEncode": {"output_node": False, "text_inputs": ["text"]}}} if reachable else {"nodes": {}}
     )
@@ -894,7 +836,6 @@ async def _seed_cloud_attachment(conv_id: str, *, evicted: bool = False) -> tupl
     return mid, aid
 
 
-@pytest.mark.asyncio
 async def test_rehydrating_a_seedless_render_discloses_that_it_is_a_fresh_image(client, monkeypatch):
     """Rehydrate promises the same bytes back. A seedless API cannot give them, so
     the row is overwritten with something the user never generated -- and billed."""
@@ -903,12 +844,10 @@ async def test_rehydrating_a_seedless_render_discloses_that_it_is_a_fresh_image(
 
     await _replay(client, "ig-cloud-rehydrate", mid, aid, action="rehydrate")
 
-    rows = await get_workflow_attachments_for_message(mid)
-    row = next(r for r in rows if r["id"] == aid)
+    row = next(r for r in await get_workflow_attachments_for_message(mid) if r["id"] == aid)
     assert any("takes no seed" in note for note in json.loads(row["consumption_metadata"])["notes"])
 
 
-@pytest.mark.asyncio
 async def test_rerolling_an_evicted_attachment_does_not_claim_to_be_a_rehydrate(client, monkeypatch):
     """The case the eviction-marker discriminator gets wrong. `/reroll-gen` has no
     bytes precondition and the widget renders its button beside the evicted card, so
@@ -923,7 +862,6 @@ async def test_rerolling_an_evicted_attachment_does_not_claim_to_be_a_rehydrate(
     assert not any("takes no seed" in note for note in notes), notes
 
 
-@pytest.mark.asyncio
 async def test_rerolling_a_comfy_image_under_cloud_discloses_the_source_change(client, monkeypatch):
     mid = await _seed("ig-cross-source", config=CLOUD_CONFIG)
     aid = await _attach(mid, source="external_comfy", workflow_id="user_a")
@@ -935,7 +873,6 @@ async def test_rerolling_a_comfy_image_under_cloud_discloses_the_source_change(c
     assert any("External ComfyUI" in note and "xAI" in note for note in notes), notes
 
 
-@pytest.mark.asyncio
 async def test_a_cloud_generate_runs_the_whole_stack_end_to_end(client, monkeypatch):
     """Trigger route -> hooks -> router -> cloud adapter -> providers builder -> HTTP
     client -> stored attachment, with only the prompter LLM stubbed. Every other test
@@ -974,12 +911,7 @@ async def test_a_cloud_generate_runs_the_whole_stack_end_to_end(client, monkeypa
     )
 
     seen: dict = {}
-
-    async def fake_compose(**kwargs):
-        seen.update(kwargs)
-        return "1girl, standing by the window", "", "single_call"
-
-    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    _stub(monkeypatch, render=False, scene="1girl, standing by the window", seen=seen)  # only the prompter is stubbed
 
     events = await _trigger(client, "ig-cloud-e2e", {"action": "generate", "message_id": mid, "style_id": "anime"})
 

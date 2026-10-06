@@ -4,8 +4,6 @@ Missing hints default thinking on and can consume the answer budget. Check
 both the required signature and the transport interpretation of emitted params.
 """
 
-from __future__ import annotations
-
 import inspect
 from typing import Any
 

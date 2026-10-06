@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core.settings import Settings
 from ...inference import AbortToken, DecisionClient, DecisionQuestion, LLMClient, ReplyCutOff, forced_draft
 
 TAG_TOOL_NAME = "assign_character_tags"
@@ -176,7 +177,7 @@ async def tag_card(
     vocabulary: list[str],
     system: str,
     tool: dict[str, Any],
-    settings: Mapping[str, Any],
+    settings: Settings,
     reasoning_on: bool = False,
 ) -> list[str]:
     """Tag one card without persisting the result."""

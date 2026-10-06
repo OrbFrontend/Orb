@@ -3,8 +3,6 @@
 Provider rendering of the full array cannot be asserted offline.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -59,22 +57,19 @@ async def test_blob_is_byte_identical_across_the_two_forced_calls(client):
     select, compose = client.calls
     assert json.dumps(select["tools"]) == json.dumps(compose["tools"])
 
-    differing = {k for k in select.keys() | compose.keys() if select.get(k) != compose.get(k)}
-    assert differing == {"tool_choice"}
+    assert {k for k in select.keys() | compose.keys() if select.get(k) != compose.get(k)} == {"tool_choice"}
 
 
 async def test_blob_order_follows_offer_tools_declaration(client):
     """Order is the cache-relevant property; pin it to the declared tuple."""
     await _run(client, "compose_image_prompt")
-    names = [t["function"]["name"] for t in client.calls[0]["tools"]]
-    assert names == list(OFFER_TOOLS)
+    assert [t["function"]["name"] for t in client.calls[0]["tools"]] == list(OFFER_TOOLS)
 
 
 async def test_forcing_a_tool_outside_the_offer_appends_it_without_reordering(client):
     """A forced tool absent from offer_tools is appended, never inserted."""
     await _run(client, "direct_scene")
-    names = [t["function"]["name"] for t in client.calls[0]["tools"]]
-    assert names == [*OFFER_TOOLS, "direct_scene"]
+    assert [t["function"]["name"] for t in client.calls[0]["tools"]] == [*OFFER_TOOLS, "direct_scene"]
 
 
 async def test_offer_member_is_not_duplicated_when_forced(client):
@@ -88,8 +83,7 @@ async def test_offer_member_is_not_duplicated_when_forced(client):
 async def test_blob_carries_the_registry_schemas_verbatim(client):
     """The array is the registry's bytes -- not a copy that could drift."""
     await _run(client, "read_image_skills")
-    sent = client.calls[0]["tools"]
-    assert sent == [TOOLS[n]["schema"] for n in OFFER_TOOLS]
+    assert client.calls[0]["tools"] == [TOOLS[n]["schema"] for n in OFFER_TOOLS]
 
 
 async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(client, monkeypatch):
@@ -100,5 +94,4 @@ async def test_blob_collapses_to_the_forced_tool_when_forcing_is_not_honored(cli
     """
     monkeypatch.setattr("backend.workflows._forced_call.honors_forced_tool_choice", lambda *a, **k: False)
     await _run(client, "compose_image_prompt")
-    names = [t["function"]["name"] for t in client.calls[0]["tools"]]
-    assert names == ["compose_image_prompt"]
+    assert [t["function"]["name"] for t in client.calls[0]["tools"]] == ["compose_image_prompt"]

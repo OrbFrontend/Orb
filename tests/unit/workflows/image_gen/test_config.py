@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.image_gen.composer import enabled_scene_skills
@@ -71,8 +69,7 @@ def test_styles_hoist_out_of_external_comfy_and_a_current_list_wins():
     The normalizer runs on GET, on PUT, and on the value read back, so a legacy config hoists on first read and persists hoisted
     on first write -- there is no DB migration to write, and this is the only thing that makes that true.
     """
-    legacy = {"external_comfy": {"api_key": "k", "styles": [{"id": "legacy", "label": "Legacy", "prompt": "p"}]}}
-    cfg = normalize_config(legacy)
+    cfg = normalize_config({"external_comfy": {"api_key": "k", "styles": [{"id": "legacy", "label": "Legacy", "prompt": "p"}]}})
 
     assert [s["id"] for s in cfg["styles"]] == ["legacy"]
     assert "styles" not in cfg["external_comfy"]
@@ -242,8 +239,7 @@ def test_user_graphs_are_bounded_by_size_and_count():
 def test_a_user_graph_needs_positive_seed_and_output_but_not_negative_or_checkpoint():
     # A one-encoder prose graph has nothing to map negative to, and a self-contained graph keeps its own model rather than
     # exposing a checkpoint slot. Exact equality: normalization introduces no empty `references` key either.
-    stored = _stored(_user_graph(slots=dict(_BASE_SLOTS)))
-    assert stored["slots"] == _BASE_SLOTS
+    assert _stored(_user_graph(slots=dict(_BASE_SLOTS)))["slots"] == _BASE_SLOTS
 
     # The model-override slot must survive normalization, or the user's Orb model
     # selection would be silently dropped on save and never reach the graph.
@@ -290,8 +286,7 @@ def test_a_graph_stores_which_inputs_load_an_image_and_never_where_from():
     # A malformed slot names no widget to patch, so it is not stored as one.
     assert [r["slot"] for r in stored] == [["72", "image"], ["90", "image"]]
 
-    entries = [{"slot": [str(i), "image"]} for i in range(MAX_REFERENCE_SLOTS + 3)]
-    assert len(_references(*entries)) == MAX_REFERENCE_SLOTS
+    assert len(_references(*[{"slot": [str(i), "image"]} for i in range(MAX_REFERENCE_SLOTS + 3)])) == MAX_REFERENCE_SLOTS
 
 
 def test_one_entry_per_widget_so_the_style_answers_a_stable_position():
@@ -400,8 +395,7 @@ def test_switching_provider_keeps_the_other_providers_keys():
     ],
 )
 def test_a_cloud_base_url_override_rejects_credentials_and_plaintext(url, expected):
-    stored = _cloud(provider="custom", providers={"custom": {"base_url": url}})
-    assert stored["providers"]["custom"]["base_url"] == expected
+    assert _cloud(provider="custom", providers={"custom": {"base_url": url}})["providers"]["custom"]["base_url"] == expected
 
 
 # -- the render target, on the style ------------------------------------------
@@ -548,11 +542,9 @@ def test_a_comfyui_style_does_not_inherit_the_cloud_blocks_reference_setting():
     for a graph-bound style would silently start uploading conversation images to a
     ComfyUI server on the strength of a setting made for a commercial API."""
     cloud = {"provider": "xai", "reference_source": "character", "providers": {"xai": {"api_key": "k"}}}
-    on_comfy = _migrated(style={"connection": "comfy", "workflow": "user_a"}, references=[], cloud=cloud)
-    assert on_comfy["reference_source"] == ""
+    assert _migrated(style={"connection": "comfy", "workflow": "user_a"}, references=[], cloud=cloud)["reference_source"] == ""
     # The style it *was* made for still inherits it.
-    on_cloud = _migrated(style={"connection": "xai"}, references=[], cloud=cloud)
-    assert on_cloud["reference_source"] == "character"
+    assert _migrated(style={"connection": "xai"}, references=[], cloud=cloud)["reference_source"] == "character"
 
 
 def test_the_style_wins_over_both_legacy_shapes_and_the_migration_is_idempotent():
@@ -569,8 +561,7 @@ def test_the_style_wins_over_both_legacy_shapes_and_the_migration_is_idempotent(
 
     # Membership, not truthiness: a style that has switched its reference off must not
     # read as "absent, inherit" on the next read and turn it back on.
-    off = _migrated(style={**style, "reference_source": ""}, references=references)
-    assert off["reference_source"] == ""
+    assert _migrated(style={**style, "reference_source": ""}, references=references)["reference_source"] == ""
 
     # A fixed point: the hoist happens on the first read and the first write persists
     # it, so re-normalizing what came out must change nothing. Without this the graph's

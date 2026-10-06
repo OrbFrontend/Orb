@@ -28,9 +28,8 @@ export const S = {
   sceneIntro: null,
 
   personas: [],
-  activePersonaId: null,
 
-  settings: {},
+  settings: {}, // the server's settings row; settings_store.js writes it, the views below read it
   localMlFeatures: {}, // last /local-ml/status features map; other cards gate on it
   // Chat endpoints and Judge endpoints are separate pools.
   endpoints: [],
@@ -38,36 +37,10 @@ export const S = {
   activeEndpointId: null,
   modelConfigs: [],
   activeModelConfigId: null,
-  agentSameAsWriter: true,
   agentEndpointId: null,
   agentModelConfigs: [],
   agentModelConfigId: null,
-  agentEnabled: true,
-  enabledTools: {},
-  lengthGuardEnabled: false,
-  lengthGuardMaxWords: 240,
-  lengthGuardMaxParagraphs: 4,
-  lengthGuardEnforce: false,
-  agenticLorebookEnabled: false,
-  directorIndividualFragments: false,
-  hideUntilBaked: false, // keep the streaming reply out of the DOM until final
-  preventPromptOverrides: false, // ignore character-card prompt overrides
-  showEditorDiff: true, // show editor-pass diff highlights
-  showChatAvatars: false, // portrait gutter on chat messages
-  inspectorInline: false, // each reply's Inspector sections above its text in the chat
   personaAvatarVersion: 0, // bumped on a persona avatar save; busts the image URL
-  reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
-  reasoningPrefill: { director: "", writer: "", editor: "" },
-  editorAuditToggles: {
-    banned_phrases: true,
-    repetitive_openers: true,
-    repetitive_templates: true,
-    contrastive_negation: true,
-    phrase_repetition: true,
-    structural_repetition: true,
-    anti_echo: true,
-    negated_narration: false,
-  },
 
   messages: [],
   editingMsgId: null,
@@ -162,7 +135,58 @@ export const S = {
   workflowManifest: [], // fetched workflow metadata
 
   rejectedWorkflowAtts: [],
+  conversationStates: new Map(), // per-conversation views; conversationState() fills it
 };
+
+const flag = (value, fallback) =>
+  typeof value === "boolean" ? value : typeof value === "number" ? value !== 0 : fallback;
+const record = (value) => (value && typeof value === "object" ? value : {});
+
+// Read-only views of S.settings: a write throws, so every change goes through settings_store.js.
+const settingViews = {
+  activePersonaId: (s) => s.active_persona_id || null,
+  characterBrowserView: (s) => s.character_library_view || "grid",
+  characterBrowserSort: (s) => s.character_library_sort || "time-added",
+  agentSameAsWriter: (s) => flag(s.agent_same_as_writer, true),
+  agentEnabled: (s) => flag(s.enable_agent, true),
+  enabledTools: (s) => Object.freeze({ ...record(s.enabled_tools) }),
+  lengthGuardEnabled: (s) => Boolean(s.length_guard_enabled),
+  lengthGuardMaxWords: (s) => s.length_guard_max_words || 240,
+  lengthGuardMaxParagraphs: (s) => s.length_guard_max_paragraphs || 4,
+  lengthGuardEnforce: (s) => Boolean(s.length_guard_enforce),
+  agenticLorebookEnabled: (s) => Boolean(s.agentic_lorebook_enabled),
+  directorIndividualFragments: (s) => Boolean(s.director_individual_fragments),
+  hideUntilBaked: (s) => flag(s.hide_streaming_until_baked, false), // keep the streaming reply out of the DOM until final
+  preventPromptOverrides: (s) => flag(s.prevent_prompt_overrides, false), // ignore character-card prompt overrides
+  showEditorDiff: (s) => flag(s.show_editor_diff, true), // show editor-pass diff highlights
+  showChatAvatars: (s) => flag(s.show_chat_avatars, false), // portrait gutter on chat messages
+  inspectorInline: (s) => Boolean(s.inspector_inline), // each reply's Inspector sections above its text in the chat
+  reasoningEnabled: (s) =>
+    Object.freeze({
+      director: false,
+      writer: false,
+      editor: false,
+      scripter: false,
+      ...record(s.reasoning_enabled_passes),
+    }),
+  reasoningPrefill: (s) =>
+    Object.freeze({ director: "", writer: "", editor: "", ...record(s.reasoning_prefill_passes) }),
+  editorAuditToggles: (s) =>
+    Object.freeze({
+      banned_phrases: true,
+      repetitive_openers: true,
+      repetitive_templates: true,
+      contrastive_negation: true,
+      phrase_repetition: true,
+      structural_repetition: true,
+      anti_echo: true,
+      negated_narration: false,
+      ...record(s.editor_audit_toggles),
+    }),
+};
+for (const [key, view] of Object.entries(settingViews)) {
+  Object.defineProperty(S, key, { enumerable: true, get: () => view(S.settings) });
+}
 
 // UI reads the selected conversation; asynchronous operations retain this object.
 const conversationKeys = `
@@ -183,7 +207,6 @@ const defaults = Object.fromEntries(conversationKeys.map((key) => [key, S[key]])
 // Deep copies: the idle view is written while no chat is selected, and must
 // never seed the defaults a later conversation starts from.
 const idleView = structuredClone(defaults);
-S.conversationStates = new Map();
 
 /** Is *state*'s conversation the one on screen? A background turn keeps its data but paints nothing. */
 export function isViewing(state) {
@@ -302,6 +325,8 @@ const TOPICS = new Set([
   "messages",
   "conversations",
   "settings",
+  "local-ml",
+  "endpoints",
   "workflow-phase",
   "characters",
   "personas",

@@ -1,7 +1,5 @@
 """Shared behavioral contract for workflow-scoped locks."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager

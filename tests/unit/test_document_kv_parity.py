@@ -2,8 +2,6 @@
 replayed chat messages. Keep chat patch schemas outside the prompt and reasoning kwargs unchanged.
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.features.documents.audit import patch_document

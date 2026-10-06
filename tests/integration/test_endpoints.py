@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 import httpx
@@ -32,7 +30,7 @@ async def test_saved_keys_leave_the_server_only_through_the_reveal_route(client)
 
 
 async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch):
-    endpoint = (await client.post("/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "catalog-key"})).json()
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "catalog-key"})
     await client.put(f"/api/endpoints/{endpoint['id']}", json={"proxy": "http://localhost:8080"})
     seen = {}
 
@@ -45,16 +43,14 @@ async def test_discover_available_models_uses_saved_endpoint(client, monkeypatch
 
     monkeypatch.setattr(endpoint_routes, "LLMClient", FakeLLMClient)
 
-    resp = await client.get_json(f"/api/endpoints/{endpoint['id']}/available-models")
-
-    assert resp == {"models": ["model/a", "model/b"]}
+    assert (await client.get_json(f"/api/endpoints/{endpoint['id']}/available-models")) == {"models": ["model/a", "model/b"]}
     assert seen == {"base_url": "https://catalog.test/v1", "api_key": "catalog-key", "proxy": "http://localhost:8080"}
 
 
 async def test_discover_available_models_surfaces_provider_error_without_key(client, monkeypatch):
-    endpoint = (
-        await client.post("/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "secret-catalog-key"})
-    ).json()
+    endpoint = await client.post_json(
+        "/api/endpoints", json={"url": "https://catalog.test/v1", "api_key": "secret-catalog-key"}
+    )
 
     class FakeLLMClient:
         def __init__(self, *_args, **_kwargs):
@@ -81,8 +77,7 @@ async def test_delete_endpoint_removes_from_db(client, db):
     assert row["count"] == 1
 
     # Delete the endpoint
-    delete_resp = await client.delete_json(f"/api/endpoints/{endpoint_id}")
-    assert delete_resp == {"ok": True}
+    assert (await client.delete_json(f"/api/endpoints/{endpoint_id}")) == {"ok": True}
 
     # Verify it's gone from DB
     row = await db.one("SELECT COUNT(*) as count FROM endpoints WHERE id = ?", (endpoint_id,))
@@ -90,9 +85,7 @@ async def test_delete_endpoint_removes_from_db(client, db):
 
 
 async def test_delete_nonexistent_endpoint_returns_error(client, db):
-    resp = await client.delete("/api/endpoints/99999")
-    # Should return 404 or 400 depending on implementation
-    assert resp.status_code in (404, 400)
+    assert (await client.delete("/api/endpoints/99999")).status_code in (404, 400)
 
 
 async def test_create_model_config_persists_to_db(client, db):
@@ -122,7 +115,7 @@ async def test_create_model_config_persists_to_db(client, db):
 
 
 async def test_model_config_hyperparameters_can_be_explicitly_null(client, db):
-    endpoint = (await client.post("/api/endpoints", json={"url": "https://api.nullable.test"})).json()
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://api.nullable.test"})
     config = await client.post_checked(
         f"/api/endpoints/{endpoint['id']}/models",
         json={"model_name": "provider-defaults", "temperature": None, "max_tokens": None},
@@ -130,8 +123,7 @@ async def test_model_config_hyperparameters_can_be_explicitly_null(client, db):
     assert config.json()["temperature"] is None
     assert config.json()["max_tokens"] is None
 
-    updated = await client.put_json(f"/api/models/{config.json()['id']}", json={"top_p": None})
-    assert updated["top_p"] is None
+    assert (await client.put_json(f"/api/models/{config.json()['id']}", json={"top_p": None}))["top_p"] is None
 
     row = await db.one("SELECT temperature, top_p, max_tokens FROM model_configs WHERE id = ?", (config.json()["id"],))
     assert dict(row) == {"temperature": None, "top_p": None, "max_tokens": None}
@@ -154,8 +146,7 @@ async def test_list_model_configs_for_endpoint(client, db):
     await client.post(f"/api/endpoints/{endpoint_id}/models", json={"model_name": "model-b", "temperature": 0.9})
 
     # List model configs for this endpoint
-    resp = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
-    configs = resp
+    configs = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
 
     assert len(configs) >= 2  # Could have default configs
 
@@ -178,8 +169,7 @@ async def test_delete_model_config_removes_from_db(client, db):
     assert row["count"] == 1
 
     # Delete the model config
-    delete_resp = await client.delete_json(f"/api/models/{config_id}")
-    assert delete_resp == {"ok": True}
+    assert (await client.delete_json(f"/api/models/{config_id}")) == {"ok": True}
 
     # Verify it's gone from DB
     row = await db.one("SELECT COUNT(*) as count FROM model_configs WHERE id = ?", (config_id,))
@@ -236,8 +226,7 @@ async def test_settings_overlay_reasoning_effort(client, db):
     await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
     await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
 
-    resp = await client.get_json("/api/settings")
-    settings = resp
+    settings = await client.get_json("/api/settings")
     assert settings["reasoning_effort"] == "custom"
     assert settings["agent_reasoning_effort"] == "custom"
     assert settings["reasoning_effort_param"] == "reasoning_effort"
@@ -281,8 +270,7 @@ async def test_settings_overlay_extra_request(client, db):
     await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
     await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
 
-    resp = await client.get_json("/api/settings")
-    settings = resp
+    settings = await client.get_json("/api/settings")
     assert settings["extra_headers"] == "X-Provider: deepinfra"
     assert settings["extra_body"] == '{"seed": 7}'
     assert settings["agent_extra_headers"] == "X-Provider: deepinfra"
@@ -303,8 +291,7 @@ async def test_endpoint_crud_workflow(client, db):
     endpoint_id = await client.create("/api/endpoints", json={"url": "https://workflow.example.com", "api_key": "workflow-key"})
 
     # 2. Verify in list
-    list_resp = await client.get_json("/api/endpoints")
-    endpoints = list_resp
+    endpoints = await client.get_json("/api/endpoints")
     assert any(e["id"] == endpoint_id for e in endpoints)
 
     # 3. Create model config for endpoint
@@ -313,22 +300,19 @@ async def test_endpoint_crud_workflow(client, db):
     )
 
     # 4. Verify model config in list
-    models_resp = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
-    models = models_resp
+    models = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
     assert any(m["id"] == config_id for m in models)
 
     # 5. Delete model config
     await client.delete_checked(f"/api/models/{config_id}")
 
     # 6. Verify model config deleted
-    models_resp2 = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
-    models2 = models_resp2
+    models2 = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
     assert not any(m["id"] == config_id for m in models2)
 
     # 7. Delete endpoint
     await client.delete_checked(f"/api/endpoints/{endpoint_id}")
 
     # 8. Verify endpoint deleted
-    list_resp2 = await client.get_json("/api/endpoints")
-    endpoints2 = list_resp2
+    endpoints2 = await client.get_json("/api/endpoints")
     assert not any(e["id"] == endpoint_id for e in endpoints2)

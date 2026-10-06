@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from .. import database as db
+from ..core.settings import Settings
 from ..database.models import WorldRow
 from ..features.lorebook import dynamic_enabled, split_by_world
 from ..inference import CachedBase, agent_lane_from_settings, client_from_settings
@@ -42,7 +43,7 @@ async def _load_targets(world_ids: Sequence[str], conversation_id: str) -> tuple
 
 
 async def world_proposal_stage(
-    cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: WorldProposalTurn, kv_tracker=None
+    cfg: PipelineConfig, state: TurnState, *, settings: Settings, turn: WorldProposalTurn, kv_tracker=None
 ) -> AsyncIterator[CoreTurnEvent]:
     """Run World proposals into state with Editor-labelled reasoning and Inspector calls.
 

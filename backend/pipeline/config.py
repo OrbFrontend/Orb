@@ -6,6 +6,7 @@ from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
+from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import CachedBase, LLMClient
 from ..prompting.tool_catalog import enabled_schemas
@@ -21,7 +22,7 @@ from .state import ModelLane, PipelineConfig
 
 
 def resolve_pipeline_config(
-    settings: Mapping[str, Any],
+    settings: Settings,
     enabled_tools: Mapping[str, bool],
     *,
     macros: Macros,
@@ -141,7 +142,7 @@ def _names_only(schema: dict, fragment_ids: Collection[str]) -> dict:
 
 
 def build_writer_tools_blob(
-    settings: Mapping[str, Any],
+    settings: Settings,
     defined_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
     *,

@@ -6,8 +6,6 @@ tests/unit/test_resolve_persona_id.py; here we pin that the write paths and the 
 persist.
 """
 
-from __future__ import annotations
-
 
 async def _make_persona(client, name):
     return await client.create("/api/user-personas", json={"name": name})
@@ -37,7 +35,7 @@ async def test_character_lock_set_and_clear(client, db):
     resp = await client.put_json(f"/api/characters/{card_id}", json={"persona_lock_id": persona_id})
     assert resp["persona_lock_id"] == persona_id
     # The list projection also surfaces the lock (frontend reads it from there).
-    listed = (await client.get("/api/characters")).json()
+    listed = await client.get_json("/api/characters")
     assert any(c["id"] == card_id and c["persona_lock_id"] == persona_id for c in listed)
 
     resp = await client.put_json(f"/api/characters/{card_id}", json={"persona_lock_id": None})

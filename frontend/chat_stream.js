@@ -1,7 +1,7 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
-import { messageDisplaySource } from "./card_scripts.js";
+import { messageDisplaySource, setCardScriptRepaint } from "./card_scripts.js";
 import {
   applyWorkflowTextSegments,
   buildMsgToolbar,
@@ -112,6 +112,7 @@ function setGenerationStep(label) {
 let _paintFrame = 0;
 let _paintPending = null;
 let _paintedHtml = "";
+let _paintSource = null;
 let _streamScopeId = 0;
 const _streamScopes = new WeakMap();
 
@@ -126,6 +127,7 @@ function streamingDisplaySource(content) {
 
 function paintStreamingBody(text) {
   if (previewFrozen() || S.expressionBuffering) return;
+  _paintSource = text;
   const cid = S.activeConvId;
   const token = S.conversationViewToken;
   _paintPending = text;
@@ -168,7 +170,22 @@ export function cancelStreamingPaint() {
   _paintFrame = 0;
   _paintPending = null;
   _paintedHtml = "";
+  _paintSource = null;
 }
+
+setCardScriptRepaint(() => {
+  if (S.isStreaming && _paintSource !== null && S.pendingRefineDiff && S.editorDraftBaseline != null) {
+    const original = streamingDisplaySource(S.editorDraftBaseline);
+    S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(_paintSource)) };
+    if (S.showEditorDiff && !previewFrozen())
+      smoothUpdateBody(S.streamingBodyEl, renderMessageDiffHtml(S.pendingRefineDiff.ops));
+  } else if (!S.isStreaming && S.pendingRefineDiff?.msgId) {
+    settleRefineDiff(S.messages.find((message) => message.id === S.pendingRefineDiff.msgId));
+  }
+  renderMessages();
+  if (S.isStreaming && _paintSource !== null && !(S.pendingRefineDiff && S.showEditorDiff))
+    paintStreamingBody(_paintSource);
+});
 
 function smoothUpdateBody(el, newHtml, onComplete) {
   if (!el || el.innerHTML === newHtml) return;
@@ -300,6 +317,7 @@ export function restoreStreamingView() {
     S.streamingBodyEl?.closest(".message") || createStreamingDiv(S.currentSpeaker?.name, S.currentSpeaker?.member_id);
   if (S.streamOp.holder) S.streamOp.holder.el = div;
   if (S.streamingContent != null) {
+    _paintSource = S.streamingContent;
     if (S.pendingRefineDiff && S.editorDraftBaseline != null) {
       const original = streamingDisplaySource(S.editorDraftBaseline);
       S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(S.streamingContent)) };
@@ -613,6 +631,7 @@ export async function processSSEStream(resp, container, holder, signal, state = 
       }
       if (!isViewing(state) || previewFrozen() || state.expressionBuffering) return;
       cancelStreamingPaint(); // the rewrite replaces the body outright
+      _paintSource = text;
       if (state.streamingBodyEl) {
         const html =
           state.pendingRefineDiff && state.showEditorDiff

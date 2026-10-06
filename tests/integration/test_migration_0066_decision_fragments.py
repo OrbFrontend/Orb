@@ -1,7 +1,5 @@
 """Cover decision-fragment schema upgrades and legacy endpoint migration."""
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
 

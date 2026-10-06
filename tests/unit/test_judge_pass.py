@@ -1,7 +1,5 @@
 """Cover Judge pass results with a stubbed gateway."""
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field, replace
 
@@ -210,8 +208,7 @@ async def test_an_answer_below_the_confidence_floor_is_gated_and_not_cached(monk
     The floor means "this answer is not good enough to act on", so caching it
     would make one weak answer decide every later turn with the same situation.
     """
-    answers = {"outcome": ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.5)}
-    gateway = FakeGateway(answers=answers).install(monkeypatch)
+    gateway = FakeGateway(answers={"outcome": ChoiceAnswer("messy", {"clean": 0.4, "messy": 0.6}, 0.5)}).install(monkeypatch)
     candidate = _candidate(
         decision_type="choice",
         decision_criteria={"clean": "Clean win", "messy": "Messy win"},
@@ -359,8 +356,7 @@ async def test_changing_the_model_or_the_endpoint_invalidates_the_cache(monkeypa
 async def test_a_cache_hit_still_draws_fresh_dice(monkeypatch):
     FakeGateway(answers={"outcome": 0.5}).install(monkeypatch)
     roll = {"decision_resolution": "roll", "decision_threshold": None}
-    first = await judge_pass(_turn(_candidate(**roll)))
-    draws = {first.evaluations[0]["draw"]}
+    draws = {(await judge_pass(_turn(_candidate(**roll)))).evaluations[0]["draw"]}
     for _ in range(20):
         result = await judge_pass(_turn(_candidate(**roll)))
         assert result.evaluations[0]["answer_source"] == "cache"
@@ -373,8 +369,7 @@ async def test_an_unanswered_question_is_never_cached(monkeypatch):
     gateway = FakeGateway(answers={}).install(monkeypatch)
     await judge_pass(_turn(_candidate()))
     gateway.answers = {"outcome": 0.9}
-    result = await judge_pass(_turn(_candidate()))
-    assert _by_id(result)["outcome"]["answer_source"] == "live"
+    assert _by_id(await judge_pass(_turn(_candidate())))["outcome"]["answer_source"] == "live"
     assert len(gateway.batches) == 2
 
 
@@ -431,8 +426,7 @@ async def test_an_unavailable_macro_skips_rather_than_inferring_a_member(monkeyp
 async def test_empty_message_inputs_skip_with_empty_input(monkeypatch):
     FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
     empty = DecisionSnapshot(last_message="", last_assistant_message="", scope="solo")
-    result = await judge_pass(_turn(_candidate(), snapshot=empty))
-    assert _skips(result)["outcome"]["reason"] == SkipReason.EMPTY_INPUT
+    assert _skips(await judge_pass(_turn(_candidate(), snapshot=empty)))["outcome"]["reason"] == SkipReason.EMPTY_INPUT
 
 
 async def test_a_custom_template_supplying_its_own_situation_is_not_empty_input(monkeypatch):
@@ -488,8 +482,7 @@ async def test_a_provider_rejection_skips_without_extra_attempts(monkeypatch):
         host="example.test",
         model=CONFIG.model,
     )
-    result = await judge_pass(_turn(_candidate()))
-    assert _skips(result)["outcome"]["reason"] == SkipReason.TRANSPORT_FAILURE
+    assert _skips(await judge_pass(_turn(_candidate())))["outcome"]["reason"] == SkipReason.TRANSPORT_FAILURE
     assert len(gateway.batches) == 1
 
 
@@ -540,8 +533,7 @@ async def test_the_batch_cap_skips_the_rest(monkeypatch):
     # One distinct state each, so grouping cannot merge them.
     result = await judge_pass(_turn(*(_candidate(i, decision_state_template=f"State {i}: {{{{last_message}}}}") for i in ids)))
     assert len(gateway.batches) == 2
-    exhausted = [row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]
-    assert len(exhausted) == 2
+    assert len([row for row in result.skipped if row["reason"] == SkipReason.BUDGET_EXHAUSTED]) == 2
 
 
 # -- cancellation -------------------------------------------------------------
@@ -610,9 +602,7 @@ async def test_an_identical_regeneration_replays_a_read_off_outcome_without_a_re
     original = await _record_for(candidate, monkeypatch, probability=answer)
 
     gateway = FakeGateway(answers={"outcome": answer}).install(monkeypatch)
-    replayed = await judge_pass(_turn(candidate, replay_records=tuple(original)))
-
-    record = _by_id(replayed)["outcome"]
+    record = _by_id(await judge_pass(_turn(candidate, replay_records=tuple(original))))["outcome"]
     assert gateway.batches == []  # cold cache, and still no call
     assert record["answer_source"] == "replay"
     assert record["outcome"] == original[0]["outcome"]
@@ -674,8 +664,7 @@ async def test_a_drawn_record_whose_answer_cannot_be_read_back_is_asked_again(mo
 
 
 async def test_editing_only_the_output_changes_the_prompt_with_no_call_and_no_reroll(monkeypatch):
-    candidate = _candidate()
-    original = await _record_for(candidate, monkeypatch, probability=1.0)
+    original = await _record_for(_candidate(), monkeypatch, probability=1.0)
 
     edited = _candidate(
         label="Renamed", injection_label="Renamed", decision_outputs={"true": "New words for the same outcome.", "false": ""}
@@ -716,9 +705,7 @@ async def test_a_changed_policy_may_still_reuse_a_cached_answer_but_rerolls(monk
     original = (await judge_pass(_turn(_candidate()))).evaluations  # warms the cache
 
     roll = _candidate(decision_resolution="roll", decision_threshold=None)
-    replayed = await judge_pass(_turn(roll, replay_records=tuple(original)))
-
-    record = _by_id(replayed)["outcome"]
+    record = _by_id(await judge_pass(_turn(roll, replay_records=tuple(original))))["outcome"]
     assert len(gateway.batches) == 1  # the cache served the second
     assert record["answer_source"] == "cache"
     assert "draw" in record
@@ -741,16 +728,13 @@ async def test_a_skipped_decision_stores_nothing_and_is_asked_again(monkeypatch)
 
 
 async def test_a_lost_branch_anchor_re_asks_and_says_why(monkeypatch):
-    original = await _record_for(_candidate(), monkeypatch)
-    copied = envelope(original, [])
+    copied = envelope(await _record_for(_candidate(), monkeypatch), [])
     from backend.pipeline.passes.judge import remap_anchors
 
     orphaned = remap_anchors(copied, {})["evaluations"]
 
     gateway = FakeGateway(answers={"outcome": 0.9}).install(monkeypatch)
-    fresh = await judge_pass(_turn(_candidate(), replay_records=tuple(orphaned)))
-
-    record = _by_id(fresh)["outcome"]
+    record = _by_id(await judge_pass(_turn(_candidate(), replay_records=tuple(orphaned))))["outcome"]
     assert gateway.batches == [["outcome"]]
     assert record["answer_source"] == "live"
     assert record["replay_invalidated"] == SkipReason.MISSING_ANCHOR
@@ -781,8 +765,7 @@ async def test_stage_results_are_published_only_once_the_stage_finishes(monkeypa
     )
     await started.wait()
     assert not task.done()
-    result = await task
-    assert len(result.evaluations) == 2
+    assert len((await task).evaluations) == 2
 
 
 _GATED = {
@@ -797,8 +780,7 @@ _GATED = {
 async def test_a_holding_gate_resolves_to_it_without_a_draw_or_guidance(monkeypatch):
     """The idle-turn leak: a weighted draw would land on fail/win 15% of the time here."""
     _draws(monkeypatch)  # an empty sequence: any draw raises
-    answer = ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)
-    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    FakeGateway(answers={"outcome": ChoiceAnswer("none", {"none": 0.85, "fail": 0.05, "win": 0.10}, 0.9)}).install(monkeypatch)
     result = await judge_pass(_turn(_candidate(**_GATED)))
 
     record = _by_id(result)["outcome"]
@@ -812,8 +794,7 @@ async def test_a_gate_that_does_not_hold_draws_among_the_rest(monkeypatch):
     _draws(monkeypatch, 0.26)
     # Without the gate the rest split 0.25 / 0.75, so 0.26 lands on win; a plain
     # weighted draw at 0.26 would have landed on fail.
-    answer = ChoiceAnswer("win", {"none": 0.2, "fail": 0.2, "win": 0.6}, 0.9)
-    FakeGateway(answers={"outcome": answer}).install(monkeypatch)
+    FakeGateway(answers={"outcome": ChoiceAnswer("win", {"none": 0.2, "fail": 0.2, "win": 0.6}, 0.9)}).install(monkeypatch)
     record = _by_id(await judge_pass(_turn(_candidate(**_GATED))))["outcome"]
     assert (record["outcome"], record["draw"]) == ("win", 0.26)
     assert record["guidance"] == "win beat"

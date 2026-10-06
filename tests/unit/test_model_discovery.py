@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import httpx
 import pytest
 
@@ -47,7 +45,6 @@ class _ProbingCatalogClient:
         return httpx.Response(status, json=payload, request=request)
 
 
-@pytest.mark.asyncio
 async def test_list_models_uses_openai_contract_auth_and_proxy(monkeypatch):
     _CatalogClient.payload = {
         "object": "list",
@@ -73,7 +70,6 @@ async def test_list_models_uses_openai_contract_auth_and_proxy(monkeypatch):
     }
 
 
-@pytest.mark.asyncio
 async def test_list_models_rejects_non_openai_response(monkeypatch):
     _CatalogClient.payload = {"models": ["wrong-shape"]}
     _CatalogClient.seen = {}
@@ -83,20 +79,16 @@ async def test_list_models_rejects_non_openai_response(monkeypatch):
         await LLMClient("https://models.test/v1").list_models()
 
 
-@pytest.mark.asyncio
 async def test_anthropic_models_use_sibling_resource_and_native_auth(monkeypatch):
     _CatalogClient.payload = {"data": [{"id": "claude-opus-5"}]}
     _CatalogClient.seen = {}
     monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
 
-    models = await LLMClient("https://api.anthropic.com/v1/messages", "secret-key").list_models()
-
-    assert models == ["claude-opus-5"]
+    assert (await LLMClient("https://api.anthropic.com/v1/messages", "secret-key").list_models()) == ["claude-opus-5"]
     assert _CatalogClient.seen["url"] == "https://api.anthropic.com/v1/models"
     assert _CatalogClient.seen["headers"] == {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"}
 
 
-@pytest.mark.asyncio
 async def test_gemini_models_use_normalized_surface_and_strip_models_prefix(monkeypatch):
     _CatalogClient.payload = {"data": [{"id": "models/gemini-3-pro"}, {"id": "gemini-3-flash"}]}
     _CatalogClient.seen = {}
@@ -109,7 +101,6 @@ async def test_gemini_models_use_normalized_surface_and_strip_models_prefix(monk
     assert _CatalogClient.seen["headers"] == {"Authorization": "Bearer gemini-key"}
 
 
-@pytest.mark.asyncio
 async def test_gemini_proxy_catalogue_is_normalized_like_googles_own(monkeypatch):
     # The prefix is a property of the dialect, not of Google's hostname: a proxy mirroring /v1beta/openai relays the same
     # ``models/``-prefixed ids, and leaving them in put an unusable-looking id in the picker.
@@ -117,13 +108,10 @@ async def test_gemini_proxy_catalogue_is_normalized_like_googles_own(monkeypatch
     _CatalogClient.seen = {}
     monkeypatch.setattr(client_module.httpx, "AsyncClient", _CatalogClient)
 
-    models = await LLMClient("https://keys.example/v1beta/openai", "k").list_models()
-
-    assert models == ["gemini-3-pro"]
+    assert (await LLMClient("https://keys.example/v1beta/openai", "k").list_models()) == ["gemini-3-pro"]
     assert _CatalogClient.seen["url"] == "https://keys.example/v1beta/openai/models"
 
 
-@pytest.mark.asyncio
 async def test_non_gemini_catalogue_keeps_a_models_prefixed_id(monkeypatch):
     _CatalogClient.payload = {"data": [{"id": "models/local-thing"}]}
     _CatalogClient.seen = {}
@@ -132,7 +120,6 @@ async def test_non_gemini_catalogue_keeps_a_models_prefixed_id(monkeypatch):
     assert await LLMClient("http://localhost:8080/v1", "").list_models() == ["models/local-thing"]
 
 
-@pytest.mark.asyncio
 async def test_ambiguous_catalogue_detection_uses_no_provider_or_model_names(monkeypatch):
     from backend.inference import endpoint_profiles
 
@@ -147,9 +134,7 @@ async def test_ambiguous_catalogue_detection_uses_no_provider_or_model_names(mon
     monkeypatch.setattr(client_module.httpx, "AsyncClient", _ProbingCatalogClient)
 
     client = LLMClient("https://opaque.test", "secret-key")
-    models = await client.list_models()
-
-    assert models == ["model-7"]
+    assert (await client.list_models()) == ["model-7"]
     assert _ProbingCatalogClient.requests == [
         {"url": "https://opaque.test/models", "headers": {"Authorization": "Bearer secret-key"}},
         {"url": "https://opaque.test/models", "headers": {"x-api-key": "secret-key", "anthropic-version": "2023-06-01"}},

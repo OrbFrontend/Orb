@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import json
 
@@ -44,9 +42,29 @@ async def _seed_row(
     return await insert_workflow_attachment_row(mid, att)
 
 
+async def _insert(mid: int, data: bytes = b"S", **extra) -> tuple[int | None, dict | None]:
+    return await insert_workflow_attachment(
+        mid, {"filename": "new", "mime": "image/png", "data": data, "workflow_id": "wf", **extra}
+    )
+
+
 async def _set_budget(db, bytes_limit: int) -> None:
     await db.execute("UPDATE settings SET attachment_cache_budget_bytes = ? WHERE id = 1", (bytes_limit,))
     await db.commit()
+
+
+async def _counter(db) -> int:
+    return (await db.one("SELECT attachment_access_counter FROM settings WHERE id = 1"))["attachment_access_counter"]
+
+
+async def _accesses(db, by_id: dict[int, list[int]]) -> None:
+    for aid, accesses in by_id.items():
+        await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps(accesses), aid))
+    await db.commit()
+
+
+async def _evicted(aid: int) -> bool:
+    return (await must_get_workflow_attachment(aid))["data_b64"] == EVICTED_MARKER
 
 
 async def test_get_budget_bytes_reads_settings_value(client, db):
@@ -54,85 +72,49 @@ async def test_get_budget_bytes_reads_settings_value(client, db):
     assert await _get_budget_bytes_on(db) == 12345
 
 
-async def test_record_access_no_ids_no_counter_advance(client, db):
-    before_rows = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))
-    before = before_rows[0]["attachment_access_counter"]
+async def test_record_access_advances_the_counter_once_per_id(client, db):
+    _, mid = await _seed_message(client)
+    aid = await _seed_row(mid)
+    before = await _counter(db)
     await record_access([])
-    after_rows = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))
-    assert after_rows[0]["attachment_access_counter"] == before
+    assert await _counter(db) == before
+    await record_access([aid])
+    assert await _counter(db) == before + 1
+    # A missing id still consumes a slot; only the real row is updated.
+    await record_access([aid, 999999])
+    assert await _counter(db) == before + 3
 
 
 async def test_record_access_assigns_counters_in_input_order(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     ids = [await _seed_row(mid, data=b"%d" % i) for i in range(3)]
-    # Reset counter so values are deterministic.
     await db.execute("UPDATE settings SET attachment_access_counter = 100 WHERE id = 1")
     await db.execute("UPDATE workflow_attachments SET recent_accesses = NULL")
     await db.commit()
 
     await record_access(ids)
 
-    rows = list(
-        await db.execute_fetchall(
-            "SELECT id, recent_accesses FROM workflow_attachments WHERE id IN (?, ?, ?) ORDER BY id", tuple(ids)
-        )
-    )
-    parsed = {r["id"]: json.loads(r["recent_accesses"]) for r in rows}
-    assert parsed[ids[0]] == [101]
-    assert parsed[ids[1]] == [102]
-    assert parsed[ids[2]] == [103]
-    counter_after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))
-    assert counter_after[0]["attachment_access_counter"] == 103
+    rows = await db.all("SELECT id, recent_accesses FROM workflow_attachments WHERE id IN (?, ?, ?) ORDER BY id", tuple(ids))
+    assert [json.loads(r["recent_accesses"]) for r in rows] == [[101], [102], [103]]
+    assert await _counter(db) == 103
 
 
 async def test_record_access_trims_to_three(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     aid = await _seed_row(mid)
-    # Seed three entries directly, oldest last; bump counter past their values.
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([5, 4, 3]), aid))
+    await _accesses(db, {aid: [5, 4, 3]})
     await db.execute("UPDATE settings SET attachment_access_counter = 100 WHERE id = 1")
     await db.commit()
-
     await record_access([aid])
-    row = await must_get_workflow_attachment(aid)
-    parsed = json.loads(row["recent_accesses"])
-    assert len(parsed) == 3
     # New value first (101), then v1=5, v2=4; v3=3 dropped off the tail.
-    assert parsed[0] == 101
-    assert parsed[1:] == [5, 4]
+    assert json.loads((await must_get_workflow_attachment(aid))["recent_accesses"]) == [101, 5, 4]
 
 
-async def test_record_access_skips_missing_ids(client, db):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid)
-    counter_before = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    await record_access([aid, 999999])  # 999999 doesn't exist
-    counter_after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    # Counter still advances by 2 (the missing id consumes a slot); only the real row is updated.
-    assert counter_after - counter_before == 2
-
-
-async def test_record_access_counter_survives_reload(client, db):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid)
-    counter_before = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    await record_access([aid])
-    counter_after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    assert counter_after == counter_before + 1
-
-
-async def test_evict_sets_sentinel_and_preserves_other_columns(client, db):
-    cid, mid = await _seed_message(client)
+async def test_evict_sets_sentinel_preserves_other_columns_and_is_idempotent(client, db):
+    _, mid = await _seed_message(client)
     aid = await _seed_row(mid)
     before = await must_get_workflow_attachment(aid)
+    await evict(aid)
     await evict(aid)
     after = await must_get_workflow_attachment(aid)
     assert after["data_b64"] == EVICTED_MARKER
@@ -140,245 +122,130 @@ async def test_evict_sets_sentinel_and_preserves_other_columns(client, db):
         assert after[col] == before[col], f"column {col} changed during evict"
 
 
-async def test_evict_is_noop_on_already_evicted_row(client):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid)
-    await evict(aid)
-    await evict(aid)
-    row = await must_get_workflow_attachment(aid)
-    assert row["data_b64"] == EVICTED_MARKER
-
-
-async def test_insert_workflow_attachment_birth_recent_accesses_has_one_entry(client):
-    cid, mid = await _seed_message(client)
-    new_id, _ = await insert_workflow_attachment(
-        mid, {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"}
-    )
+async def test_insert_birth_is_one_access(client, db):
+    _, mid = await _seed_message(client)
+    before = await _counter(db)
+    new_id, _ = await _insert(mid, b"BIRTH")
     assert new_id is not None
-    row = await must_get_workflow_attachment(new_id)
-    parsed = json.loads(row["recent_accesses"])
-    assert len(parsed) == 1
+    assert len(json.loads((await must_get_workflow_attachment(new_id))["recent_accesses"])) == 1
+    assert await _counter(db) - before == 1
 
 
-async def test_insert_workflow_attachment_birth_advances_counter_by_one(client, db):
-    cid, mid = await _seed_message(client)
-    before = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    await insert_workflow_attachment(mid, {"filename": "x", "mime": "image/png", "data": b"BIRTH", "workflow_id": "wf"})
-    after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    assert after - before == 1
+@pytest.mark.parametrize(
+    "size,accesses,budget,evicted",
+    [
+        (10, [1, 999], 25, [True, False]),  # one row must go to fit a new 10-byte row
+        (5, [1, 2, 999], 10, [True, True, False]),  # two rows must go to fit a new 5-byte row
+    ],
+)
+async def test_insert_workflow_attachment_evicts_lowest_lru_rows_until_it_fits(client, db, size, accesses, budget, evicted):
+    _, mid = await _seed_message(client)
+    ids = [await _seed_row(mid, data=bytes([65 + i]) * size) for i in range(len(accesses))]
+    await _accesses(db, dict(zip(ids, ([n] for n in accesses))))
+    await _set_budget(db, budget)
+    new_id, _ = await _insert(mid, b"N" * size)
+    assert [await _evicted(aid) for aid in ids] == evicted, "lowest-access rows go first; the highest is protected"
+    assert new_id is not None and not await _evicted(new_id), "new row inserted with bytes"
 
 
-async def test_insert_workflow_attachment_evicts_lowest_lru_when_over_budget(client, db):
-    cid, mid = await _seed_message(client)
-    a1 = await _seed_row(mid, data=b"AAAAAAAAAA")  # 10 bytes
-    a2 = await _seed_row(mid, data=b"BBBBBBBBBB")
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([1]), a1))
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([999]), a2))
-    await db.commit()
-
-    # Set budget so adding new 10 bytes requires evicting one row (10+10+10 > 25).
-    await _set_budget(db, 25)
-
-    new_id, _ = await insert_workflow_attachment(
-        mid, {"filename": "new", "mime": "image/png", "data": b"NNNNNNNNNN", "workflow_id": "wf"}
-    )
-    assert new_id is not None
-    r1 = await must_get_workflow_attachment(a1)
-    r2 = await must_get_workflow_attachment(a2)
-    r_new = await must_get_workflow_attachment(new_id)
-    assert r1["data_b64"] == EVICTED_MARKER, "lowest-access row should be evicted"
-    assert r2["data_b64"] != EVICTED_MARKER, "highest-access row should be retained"
-    assert r_new["data_b64"] != EVICTED_MARKER, "new row inserted with bytes"
-
-
-async def test_insert_workflow_attachment_evicts_multiple_when_needed(client, db):
-    cid, mid = await _seed_message(client)
-    a1 = await _seed_row(mid, data=b"AAAAA")  # 5 bytes
-    a2 = await _seed_row(mid, data=b"BBBBB")
-    a3 = await _seed_row(mid, data=b"CCCCC")
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([1]), a1))
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([2]), a2))
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([999]), a3))
-    await db.commit()
-    # Budget so two rows must be evicted to fit a new 5-byte row.
-    await _set_budget(db, 10)
-
-    await insert_workflow_attachment(mid, {"filename": "new", "mime": "image/png", "data": b"NNNNN", "workflow_id": "wf"})
-    r1 = await must_get_workflow_attachment(a1)
-    r2 = await must_get_workflow_attachment(a2)
-    r3 = await must_get_workflow_attachment(a3)
-    assert r1["data_b64"] == EVICTED_MARKER
-    assert r2["data_b64"] == EVICTED_MARKER
-    assert r3["data_b64"] != EVICTED_MARKER, "highest-access row protected"
-
-
-async def test_insert_workflow_attachment_self_oversized_returns_rejection_without_evicting(client, db):
-    cid, mid = await _seed_message(client)
-    # Seed an existing byte-bearing row so we can verify the refusal does not evict anything in its attempt to make room.
+async def test_an_oversize_attachment_without_recovery_metadata_is_rejected_without_evicting(client, db):
+    _, mid = await _seed_message(client)
     existing = await _seed_row(mid, data=b"KEEP-ME")
-    # Budget = 1 byte; new row is 5 bytes AND lacks seed+generation_metadata so it cannot be marker-inserted -- rejection
-    # returns before any eviction, so the existing row stays byte-bearing.
+    # Budget = 1 byte; the new row lacks seed+generation_metadata, so rejection returns before any eviction.
     await _set_budget(db, 1)
-    att_dict = {"filename": "huge", "mime": "image/png", "data": b"HHHHH", "workflow_id": "wf"}
-    new_id, rejected = await insert_workflow_attachment(mid, att_dict)
-    assert new_id is None
-    assert rejected is not None
-    assert rejected["filename"] == "huge"
-    assert rejected["mime"] == "image/png"
-    assert rejected["data"] == b"HHHHH"
-    assert rejected["workflow_id"] == "wf"
-    assert rejected["reason"] == OVERSIZE_NO_METADATA_REASON
-    row = await must_get_workflow_attachment(existing)
-    assert row["data_b64"] != EVICTED_MARKER, "rejection must not have evicted real data"
+    new_id, rejected = await insert_workflow_attachment(
+        mid, {"filename": "huge", "mime": "image/png", "data": b"HHHHH", "workflow_id": "wf"}
+    )
+    assert new_id is None and rejected is not None
+    assert {k: rejected[k] for k in ("filename", "mime", "data", "workflow_id", "reason")} == {
+        "filename": "huge",
+        "mime": "image/png",
+        "data": b"HHHHH",
+        "workflow_id": "wf",
+        "reason": OVERSIZE_NO_METADATA_REASON,
+    }
+    assert not await _evicted(existing), "rejection must not have evicted real data"
+    # Non-serializable generation metadata is no recovery metadata either.
+    new_id, rejected = await _insert(mid, b"HHHHH", seed="seed", generation_metadata={"bad": {1, 2, 3}})
+    assert new_id is None and rejected is not None and rejected["reason"] == OVERSIZE_NO_METADATA_REASON
 
 
 async def test_insert_workflow_attachment_oversize_rehydratable_inserts_as_marker(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     existing = await _seed_row(mid, data=b"KEEP-ME")
-    # Budget = 1 byte; new row is 5 bytes BUT carries seed+generation_metadata so the cache marker-inserts (recoverable later
-    # via rehydrate). Existing row is preserved -- no eviction needed because the new row stores no bytes.
+    # The new row carries seed+generation_metadata, so the cache marker-inserts it; it stores no bytes, so nothing is evicted.
     await _set_budget(db, 1)
-    new_id, _ = await insert_workflow_attachment(
-        mid,
-        {
-            "filename": "huge",
-            "mime": "image/png",
-            "data": b"HHHHH",
-            "workflow_id": "wf",
-            "seed": "test-seed",
-            "generation_metadata": {},
-        },
-    )
-    assert new_id is not None
-    new_row = await must_get_workflow_attachment(new_id)
-    assert new_row["data_b64"] == EVICTED_MARKER, "rehydratable oversize stored as marker"
-    existing_row = await must_get_workflow_attachment(existing)
-    assert existing_row["data_b64"] != EVICTED_MARKER, "marker insert must not evict existing real bytes"
-
-
-async def test_insert_oversize_nonserializable_generation_metadata_is_rejected(client, db):
-    cid, mid = await _seed_message(client)
-    await _set_budget(db, 1)
-    new_id, rejected = await insert_workflow_attachment(
-        mid,
-        {
-            "filename": "huge",
-            "mime": "image/png",
-            "data": b"HHHHH",
-            "workflow_id": "wf",
-            "seed": "seed",
-            "generation_metadata": {"bad": {1, 2, 3}},
-        },
-    )
-    assert new_id is None
-    assert rejected is not None
-    assert rejected["reason"] == OVERSIZE_NO_METADATA_REASON
+    new_id, _ = await _insert(mid, b"HHHHH", seed="test-seed", generation_metadata={})
+    assert new_id is not None and await _evicted(new_id), "rehydratable oversize stored as marker"
+    assert not await _evicted(existing), "marker insert must not evict existing real bytes"
 
 
 async def test_non_rehydratable_existing_row_is_not_an_eviction_candidate(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     pinned = await _seed_row(mid, data=b"PINNED", recoverable=False)
     evictable = await _seed_row(mid, data=b"OLD", recoverable=True)
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([1]), pinned))
-    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([2]), evictable))
-    await db.commit()
+    await _accesses(db, {pinned: [1], evictable: [2]})
     await _set_budget(db, 7)
-
-    new_id, rejected = await insert_workflow_attachment(
-        mid,
-        {
-            "filename": "new",
-            "mime": "image/png",
-            "data": b"NEW",
-            "workflow_id": "wf",
-            "seed": "new-seed",
-            "generation_metadata": {},
-        },
-    )
-
+    new_id, rejected = await _insert(mid, b"NEW", seed="new-seed", generation_metadata={})
     assert new_id is not None and rejected is None
-    assert (await must_get_workflow_attachment(pinned))["data_b64"] != EVICTED_MARKER
-    assert (await must_get_workflow_attachment(evictable))["data_b64"] == EVICTED_MARKER
+    assert not await _evicted(pinned)
+    assert await _evicted(evictable)
 
 
 async def test_explicit_evict_refuses_to_destroy_unrecoverable_bytes(client):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     aid = await _seed_row(mid, data=b"ONLY-COPY", recoverable=False)
-
     with pytest.raises(ValueError, match="no usable recovery metadata"):
         await evict(aid)
-
-    assert (await must_get_workflow_attachment(aid))["data_b64"] != EVICTED_MARKER
+    assert not await _evicted(aid)
 
 
 async def test_rehydrate_refuses_when_only_unrecoverable_bytes_could_make_room(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     target = await _seed_row(mid, data=b"TARGET")
     await evict(target)
     pinned = await _seed_row(mid, data=b"PINNED", recoverable=False)
     await _set_budget(db, 6)
-
     with pytest.raises(ValueError, match="cannot fit without evicting unrecoverable artifacts"):
         await rehydrate_attachment(target, b"NEW")
-
-    assert (await must_get_workflow_attachment(target))["data_b64"] == EVICTED_MARKER
-    assert (await must_get_workflow_attachment(pinned))["data_b64"] != EVICTED_MARKER
-
-
-async def test_insert_workflow_attachment_mark_active_writes_root_pointer(client):
-    cid, mid = await _seed_message(client)
-    root_id = await _seed_row(mid)
-    new_id, _ = await insert_workflow_attachment(
-        mid, {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_id}
-    )
-    root = await must_get_workflow_attachment(root_id)
-    assert root["active_sibling_id"] == new_id
+    assert await _evicted(target)
+    assert not await _evicted(pinned)
 
 
-async def test_insert_workflow_attachment_mark_active_false_does_not_write(client):
-    cid, mid = await _seed_message(client)
+@pytest.mark.parametrize("mark_active", [True, False])
+async def test_insert_sibling_marks_the_root_active_unless_told_not_to(client, mark_active):
+    _, mid = await _seed_message(client)
     root_id = await _seed_row(mid)
     new_id, _ = await insert_workflow_attachment(
         mid,
         {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_id},
-        mark_active=False,
+        mark_active=mark_active,
     )
-    root = await must_get_workflow_attachment(root_id)
-    assert root["active_sibling_id"] is None
     assert new_id != root_id
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] == (new_id if mark_active else None)
 
 
 async def test_insert_workflow_attachment_root_insert_does_not_touch_active(client):
-    cid, mid = await _seed_message(client)
-    new_id, _ = await insert_workflow_attachment(mid, {"filename": "r", "mime": "image/png", "data": b"R", "workflow_id": "wf"})
+    _, mid = await _seed_message(client)
+    new_id, _ = await _insert(mid, b"R")
     assert new_id is not None
-    row = await must_get_workflow_attachment(new_id)
-    assert row["active_sibling_id"] is None
+    assert (await must_get_workflow_attachment(new_id))["active_sibling_id"] is None
 
 
 async def test_insert_workflow_attachment_policy_gate_unregistered_workflow(client, db):
-    cid, mid = await _seed_message(client)
+    _, mid = await _seed_message(client)
     existing = await _seed_row(mid, data=b"KEEP")
     await _set_budget(db, 100)
-
     new_id, rejected = await insert_workflow_attachment(
         mid, {"filename": "x.bin", "mime": "image/png", "data": b"X", "workflow_id": "stale"}
     )
-    assert new_id is None
-    assert rejected is not None
-    assert rejected["filename"] == "x.bin"
-    assert rejected["workflow_id"] == "stale"
+    assert new_id is None and rejected is not None
+    assert (rejected["filename"], rejected["workflow_id"]) == ("x.bin", "stale")
     assert rejected["reason"] == WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON
-
-    existing_row = await must_get_workflow_attachment(existing)
-    assert existing_row["data_b64"] != EVICTED_MARKER
-
-    new_rows = list(await db.execute_fetchall("SELECT id FROM workflow_attachments WHERE workflow_id = ?", ("stale",)))
-    assert new_rows == [], "policy-rejected attachment must not persist"
+    assert not await _evicted(existing)
+    assert await db.all("SELECT id FROM workflow_attachments WHERE workflow_id = ?", ("stale",)) == [], (
+        "policy-rejected attachment must not persist"
+    )
 
 
 async def test_insert_workflow_attachment_rejects_foreign_message_parent(client):
@@ -388,61 +255,22 @@ async def test_insert_workflow_attachment_rejects_foreign_message_parent(client)
     await set_active_leaf(cid, mid_b)
     root_on_a = await _seed_row(mid_a)
     with pytest.raises(ValueError, match="belongs to message"):
-        await insert_workflow_attachment(
-            mid_b,
-            {"filename": "sib", "mime": "image/png", "data": b"S", "workflow_id": "wf", "parent_attachment_id": root_on_a},
-        )
+        await _insert(mid_b, parent_attachment_id=root_on_a)
     foreign_root = await must_get_workflow_attachment(root_on_a)
     assert foreign_root["active_sibling_id"] is None, "cross-message rejection must not write the foreign root's active pointer"
 
 
-async def test_rehydrate_attachment_refuses_when_bytes_present(client):
-    cid, mid = await _seed_message(client)
+async def test_rehydrate_attachment_refuses_present_bytes_and_missing_rows(client):
+    _, mid = await _seed_message(client)
     aid = await _seed_row(mid, data=b"PRESENT")
     with pytest.raises(ValueError, match="bytes are present"):
         await rehydrate_attachment(aid, b"NEW")
-
-
-async def test_rehydrate_attachment_lookup_error_when_missing(client):  # noqa: ARG001
     with pytest.raises(LookupError):
         await rehydrate_attachment(999999, b"NEW")
 
 
-async def test_rehydrate_attachment_writes_bytes_back(client):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid, data=b"ORIGINAL")
-    await evict(aid)
-    await rehydrate_attachment(aid, b"RESTORED_BYTES")
-    row = await must_get_workflow_attachment(aid)
-    assert row["data_b64"] == base64.b64encode(b"RESTORED_BYTES").decode("ascii")
-
-
-async def test_rehydrate_attachment_counts_as_access(client, db):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid, data=b"OOO")
-    await evict(aid)
-    before = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    await rehydrate_attachment(aid, b"NEW")
-    after = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
-        "attachment_access_counter"
-    ]
-    assert after - before == 1
-
-
-async def test_rehydrate_attachment_writes_consumption_metadata_when_supplied(client):
-    cid, mid = await _seed_message(client)
-    aid = await _seed_row(mid, data=b"ORIGINAL")
-    await evict(aid)
-    await rehydrate_attachment(aid, b"NEW", consumption_metadata={"x": 1})
-    row = await must_get_workflow_attachment(aid)
-    assert row["data_b64"] == base64.b64encode(b"NEW").decode("ascii")
-    assert json.loads(row["consumption_metadata"]) == {"x": 1}
-
-
-async def test_rehydrate_attachment_does_not_mutate_generation_metadata(client):
-    cid, mid = await _seed_message(client)
+async def test_rehydrate_attachment_writes_bytes_back_as_an_access(client, db):
+    _, mid = await _seed_message(client)
     aid = await insert_workflow_attachment_row(
         mid,
         {
@@ -455,36 +283,29 @@ async def test_rehydrate_attachment_does_not_mutate_generation_metadata(client):
         },
     )
     await evict(aid)
+    before = await _counter(db)
+    await rehydrate_attachment(aid, b"RESTORED_BYTES")
+    row = await must_get_workflow_attachment(aid)
+    assert row["data_b64"] == base64.b64encode(b"RESTORED_BYTES").decode("ascii")
+    assert await _counter(db) - before == 1
+
+    await evict(aid)
     await rehydrate_attachment(aid, b"NEW", consumption_metadata={"x": 1})
     row = await must_get_workflow_attachment(aid)
-    assert json.loads(row["generation_metadata"]) == {"steps": 7}
+    assert row["data_b64"] == base64.b64encode(b"NEW").decode("ascii")
+    assert json.loads(row["consumption_metadata"]) == {"x": 1}
+    assert json.loads(row["generation_metadata"]) == {"steps": 7}, "rehydrate never mutates generation metadata"
 
 
-async def test_set_active_sibling_writes_value(client):
-    cid, mid = await _seed_message(client)
-    root_id = await _seed_row(mid)
-    sib_id = await _seed_row(mid, parent=root_id)
-    await set_active_sibling(root_id, sib_id)
-    root = await must_get_workflow_attachment(root_id)
-    assert root["active_sibling_id"] == sib_id
-
-
-async def test_set_active_sibling_null_clears(client):
-    cid, mid = await _seed_message(client)
-    root_id = await _seed_row(mid)
-    sib_id = await _seed_row(mid, parent=root_id)
-    await set_active_sibling(root_id, sib_id)
-    await set_active_sibling(root_id, None)
-    root = await must_get_workflow_attachment(root_id)
-    assert root["active_sibling_id"] is None
-
-
-async def test_set_active_sibling_leaves_other_columns_intact(client):
-    cid, mid = await _seed_message(client)
+async def test_set_active_sibling_writes_and_clears_only_the_pointer(client):
+    _, mid = await _seed_message(client)
     root_id = await _seed_row(mid)
     sib_id = await _seed_row(mid, parent=root_id)
     before = await must_get_workflow_attachment(root_id)
     await set_active_sibling(root_id, sib_id)
     after = await must_get_workflow_attachment(root_id)
+    assert after["active_sibling_id"] == sib_id
     for col in ("data_b64", "filename", "mime_type", "workflow_id", "annotation", "seed"):
         assert before[col] == after[col]
+    await set_active_sibling(root_id, None)
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] is None

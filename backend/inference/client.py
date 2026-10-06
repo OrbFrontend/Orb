@@ -11,6 +11,7 @@ from typing import Any, TypeVar, cast
 import httpx
 
 from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
+from ..core.settings import Settings
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
@@ -1075,7 +1076,7 @@ class LLMClient:
         yield {"type": "done", "message": message, "usage": usage}
 
 
-def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken | None = None) -> LLMClient:
+def client_from_settings(settings: Settings, *, abort_token: AbortToken | None = None) -> LLMClient:
     """Build the writer :class:`LLMClient` from a settings row.
 
     The single construction seam for writer clients: ``LLMClient`` is resolved from this module's globals at call time, so tests
@@ -1103,7 +1104,7 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
     )
 
 
-def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken | None = None) -> LLMClient:
+def agent_client_from_settings(settings: Settings, *, abort_token: AbortToken | None = None) -> LLMClient:
     """Build the dual-model agent :class:`LLMClient` from a settings row.
 
     Agent endpoint/key fall back to the writer's when the agent columns are
@@ -1130,7 +1131,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     )
 
 
-def separate_agent_lane_configured(settings: Mapping[str, Any]) -> bool:
+def separate_agent_lane_configured(settings: Settings) -> bool:
     """Whether the Agent runs on a lane of its own rather than the Writer's.
 
     Turning "Same as Writer" off chooses a separate lane, so one missing its endpoint or model raises
@@ -1150,7 +1151,7 @@ def separate_agent_lane_configured(settings: Mapping[str, Any]) -> bool:
 
 
 def agent_lane_from_settings(
-    settings: Mapping[str, Any], *, writer_client: LLMClient, abort_token: AbortToken | None = None
+    settings: Settings, *, writer_client: LLMClient, abort_token: AbortToken | None = None
 ) -> tuple[LLMClient, str]:
     """Resolve the client/model pair used by agentic off-turn work.
 
@@ -1160,7 +1161,7 @@ def agent_lane_from_settings(
     agent client. ``separate_agent_lane_configured`` already guarantees ``agent_model_name``.
     """
     if separate_agent_lane_configured(settings):
-        return (agent_client_from_settings(settings, abort_token=abort_token), settings["agent_model_name"])
+        return (agent_client_from_settings(settings, abort_token=abort_token), settings.get("agent_model_name", ""))
     return writer_client, settings["model_name"]
 
 

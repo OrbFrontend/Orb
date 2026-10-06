@@ -7,8 +7,6 @@ The budget passes straight through too: no call raises or lowers the configured 
 number every request carries.
 """
 
-from __future__ import annotations
-
 from typing import Any
 
 import backend.database as dbmod
@@ -26,7 +24,7 @@ async def _drain(agen) -> list[dict]:
 
 
 async def _config_id(client, endpoint_id: int, role: str) -> int:
-    models = (await client.get(f"/api/endpoints/{endpoint_id}/models")).json()
+    models = await client.get_json(f"/api/endpoints/{endpoint_id}/models")
     return next(m["id"] for m in models if m["role"] == role)
 
 
@@ -40,7 +38,7 @@ def _samplers(captured: list[dict], pass_name: str) -> dict[str, Any]:
 
 
 async def _two_lane_setup(client, agent_preset: dict) -> None:
-    writer_endpoint = (await client.get("/api/endpoints")).json()[0]["id"]
+    writer_endpoint = (await client.get_json("/api/endpoints"))[0]["id"]
     await client.put(f"/api/models/{await _config_id(client, writer_endpoint, 'writer')}", json=_WRITER_PRESET)
 
     # A new endpoint auto-provisions a writer and an agent model config; the agent
@@ -87,7 +85,7 @@ async def test_a_short_agent_budget_is_sent_as_configured(client, db, llm_mock):
 async def test_one_endpoint_for_both_lanes_keeps_sending_its_preset(client, db, llm_mock):
     """Single-model mode has no `agent_*` overlay: the agent passes read the same
     row the writer does, because it is the same endpoint they are calling."""
-    writer_endpoint = (await client.get("/api/endpoints")).json()[0]["id"]
+    writer_endpoint = (await client.get_json("/api/endpoints"))[0]["id"]
     await client.put(f"/api/models/{await _config_id(client, writer_endpoint, 'writer')}", json=_WRITER_PRESET)
     await client.put("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
 

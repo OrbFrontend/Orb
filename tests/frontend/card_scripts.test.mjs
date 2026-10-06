@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyCardScripts, messageDisplaySource, projectCardDisplay } from "../../frontend/card_scripts.js";
+import {
+  applyCardScripts,
+  cardScriptTurnedOff,
+  configureCardScriptGuard,
+  messageDisplaySource,
+  projectCardDisplay,
+  setCardScriptRepaint,
+} from "../../frontend/card_scripts.js";
+import { Worker as ThreadWorker } from "node:worker_threads";
+import { projectCardScripts } from "../../frontend/card_script_worker.js";
 import { S } from "../../frontend/state.js";
+
+// Exercise the same pure projection that production executes in its worker.
+const clearAll = () => configureCardScriptGuard({ project: projectCardScripts, storage: null, announce: () => {} });
+clearAll();
 
 const script = (extra = {}) => ({ findRegex: "/secret/g", replaceString: "visible", placement: [2], ...extra });
 
@@ -78,4 +91,78 @@ test("CSS pasted with its style tags from a creator's note is unwrapped", () => 
   const wrapped = { display_css: `Prose first.\n<style>${face}</style>\n<STYLE media="x">q { color: red; }` };
   assert.equal(projectCardDisplay("hi", wrapped, "assistant"), `<style>${face}\nq { color: red; }</style>\nhi`);
   assert.equal(projectCardDisplay("hi", { display_css: "<style></style>" }, "assistant"), "hi");
+});
+
+function memoryStorage() {
+  const items = new Map();
+  return { getItem: (k) => items.get(k) ?? null, setItem: (k, v) => items.set(k, String(v)), removeItem: (k) => items.delete(k) };
+}
+
+test("only the worker result for this exact input is displayed, then the message list repaints", async () => {
+  const pending = new Map();
+  configureCardScriptGuard({
+    project: (job) => new Promise((resolve) => pending.set(job.text, () => resolve(projectCardScripts(job)))),
+    storage: null, announce: () => {},
+  });
+  let repaints = 0;
+  setCardScriptRepaint(() => repaints++);
+  const scripts = [script({ findRegex: "/held/g", replaceString: "shown" })];
+  assert.equal(applyCardScripts("held", scripts, "assistant"), "held");
+  assert.equal(applyCardScripts("held", scripts, "assistant"), "held");
+  assert.equal(applyCardScripts("held back", scripts, "assistant"), "held back");
+  assert.equal(pending.size, 2);
+  pending.get("held")();
+  await new Promise(setImmediate);
+  assert.equal(repaints, 1);
+  assert.equal(applyCardScripts("held", scripts, "assistant"), "shown");
+  assert.equal(applyCardScripts("held back", scripts, "assistant"), "held back");
+  setCardScriptRepaint(() => {});
+  clearAll();
+});
+
+test("changed replacements and identity context invalidate the projection, and macros resolve between scripts", () => {
+  clearAll();
+  S.activeConvId = "c1";
+  S.conversations = [{ id: "c1", character_name: "Amy" }];
+  const scripts = [script({ replaceString: "{{char}}" }), script({ findRegex: "/Amy/", replaceString: "first" })];
+  assert.equal(applyCardScripts("secret", scripts, "assistant"), "first");
+  scripts[1].replaceString = "edited";
+  assert.equal(applyCardScripts("secret", scripts, "assistant"), "edited");
+  S.conversations[0].character_name = "Bea";
+  assert.equal(applyCardScripts("secret", scripts, "assistant"), "Bea");
+  S.conversations[0].character_name = "Amy";
+});
+
+test("a later catastrophic input is terminated off the page and its exact pattern stays disabled after reload", async (t) => {
+  const created = [];
+  const previousWorker = globalThis.Worker;
+  globalThis.Worker = class {
+    constructor(url) {
+      this.thread = new ThreadWorker(new URL("./card_script_worker_fixture.mjs", import.meta.url), { workerData: url.href });
+      this.ended = new Promise((resolve) => this.thread.once("exit", resolve));
+      created.push(this);
+    }
+    addEventListener(event, fn) { this.thread.on(event, event === "message" ? (data) => fn({ data }) : fn); }
+    postMessage(data) { this.thread.postMessage(data); }
+    terminate() { void this.thread.terminate(); }
+  };
+  t.after(() => { globalThis.Worker = previousWorker; clearAll(); });
+  const storage = memoryStorage();
+  const notices = [];
+  configureCardScriptGuard({ storage, announce: (message) => notices.push(message) });
+  const scripts = [script({ findRegex: "/^(?:(?:abcd)+)+$/", replaceString: "safe" })];
+  assert.equal(applyCardScripts("abcd", scripts, "assistant"), "abcd");
+  await created[0].ended;
+  assert.equal(applyCardScripts("abcd", scripts, "assistant"), "safe");
+  const malicious = "abcd".repeat(32) + "!";
+  assert.equal(applyCardScripts(malicious, scripts, "assistant"), malicious);
+  let responsive = false;
+  setTimeout(() => { responsive = true; }, 20);
+  await created[1].ended;
+  assert.ok(responsive, "the page's event loop stays responsive while the worker backtracks");
+  assert.ok(cardScriptTurnedOff(scripts[0].findRegex));
+  assert.match(notices[0], /too long to render/);
+  configureCardScriptGuard({ storage, announce: () => {} });
+  assert.equal(applyCardScripts(malicious, scripts, "assistant"), malicious);
+  assert.equal(created.length, 2, "a persisted disabled pattern starts no worker after reload");
 });

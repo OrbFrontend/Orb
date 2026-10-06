@@ -7,5 +7,3 @@ offered as ready-to-save regexes. Nothing reaches the bank until the user accept
 from __future__ import annotations
 
 from .runner import refresh_after_startup, refresh_if_stale, shutdown
-
-__all__ = ["refresh_after_startup", "refresh_if_stale", "shutdown"]

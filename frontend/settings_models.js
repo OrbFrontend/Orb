@@ -1,11 +1,11 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
-import { renderInspector } from "./chat.js";
 import { decisionConfig, loadDecisionConfig, setDecisionConfig } from "./decisions.js";
 import { CLOSE_ICON } from "./icons.js";
 import { showConfirmModal } from "./modal.js";
 import { filterModelChoices, mergeModelChoices } from "./model_catalog.js";
-import { S } from "./state.js";
+import { applySettings, loadSettingsRow, saveSettings } from "./settings_store.js";
+import { notify, S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -114,9 +114,8 @@ const AGENT_CTX = {
 };
 
 async function toggleAgentSameAsWriter(checked) {
-  S.agentSameAsWriter = checked;
   try {
-    await api.put("/settings", { agent_same_as_writer: checked });
+    await saveSettings({ agent_same_as_writer: checked });
   } catch (_e) {
     toast("Failed to save agent toggle", true);
     return;
@@ -129,7 +128,6 @@ async function toggleAgentSameAsWriter(checked) {
     _fillEndpointFields(AGENT_CTX);
   }
   updateAgentModelWarning();
-  renderInspector(); // the lane swap changes which endpoint gates the prefill box
 }
 
 export function renderEndpoints() {
@@ -1033,11 +1031,10 @@ async function enableClaudeCode() {
     await _loadConfigs(WRITER_CTX, endpoint.id);
     await _syncModelConfigRecord(WRITER_CTX, alias, {});
     const newAgentSetup = !S.agentEndpointId;
-    S.settings = await api.put("/settings", {
+    await saveSettings({
       active_endpoint_id: endpoint.id,
       ...(newAgentSetup ? { agent_same_as_writer: true } : {}),
     });
-    if (newAgentSetup) S.agentSameAsWriter = true;
     populateEndpointDatalist();
     renderEndpoints();
     _fillEndpointFields(WRITER_CTX);
@@ -1112,7 +1109,7 @@ async function _syncEndpointRecord(ctx, url) {
       Object.assign(existing, await api.put(`/endpoints/${existing.id}`, { api_key: apiKey }));
       _invalidateAvailableModels(existing.id);
     }
-    await api.put("/settings", { [ctx.settingsEndpointField]: existing.id });
+    await saveSettings({ [ctx.settingsEndpointField]: existing.id });
     if (!S[ctx.configsKey].length || S[ctx.configsKey][0]?.endpoint_id !== existing.id) {
       await _loadConfigs(ctx, existing.id);
     }
@@ -1123,7 +1120,7 @@ async function _syncEndpointRecord(ctx, url) {
     S.endpoints.push(ep);
     S[ctx.endpointIdKey] = ep.id;
     S[ctx.configIdKey] = null;
-    await api.put("/settings", { [ctx.settingsEndpointField]: ep.id });
+    await saveSettings({ [ctx.settingsEndpointField]: ep.id });
     populateEndpointDatalist();
     await _loadConfigs(ctx, ep.id);
     _showSavedKey(keyEl, ep);
@@ -1216,7 +1213,7 @@ async function _doSaveEndpointSetting(ctx, el) {
     });
   }
   try {
-    S.settings = await api.put("/settings", payload);
+    await saveSettings(payload);
     toast("Settings saved");
   } catch (e) {
     toast(`Failed: ${e.message}`, true);
@@ -1243,7 +1240,7 @@ async function _doSaveEndpointSetting(ctx, el) {
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {
       const configId = S[ctx.configIdKey];
       await api.put(`/models/${configId}`, { [baseKey]: v });
-      S.settings[key] = v;
+      applySettings({ [key]: v });
       const cfg = S[ctx.configsKey].find((m) => m.id === configId);
       if (cfg) cfg[baseKey] = v;
     }
@@ -1252,14 +1249,14 @@ async function _doSaveEndpointSetting(ctx, el) {
     toast(`Failed to sync ${key === ctx.modelField ? "model" : "endpoint"}: ${e.message}`, true);
   }
   if (key === ctx.urlField && (wasClaudeCode || v === CLAUDE_CODE_ENDPOINT)) {
-    S.settings = await api.get("/settings");
+    await loadSettingsRow();
     renderEndpoints();
     _fillEndpointFields(WRITER_CTX);
     _fillEndpointFields(AGENT_CTX);
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
-  renderInspector();
+  notify("endpoints");
 }
 
 async function _onHybridInputCtx(ctx, el) {
@@ -1311,7 +1308,7 @@ async function _onHybridInputCtx(ctx, el) {
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
-  renderInspector();
+  notify("endpoints");
 }
 
 function populateModelDatalist() {
@@ -1325,8 +1322,9 @@ async function loadModelConfigs(endpointId) {
   populateModelDatalist();
 }
 
-export async function loadAgentModelConfigs(endpointId) {
-  await _loadConfigs(AGENT_CTX, endpointId);
+export async function loadAgentModelConfigs() {
+  S.agentEndpointId = S.settings.agent_endpoint_id || null;
+  if (S.agentEndpointId) await _loadConfigs(AGENT_CTX, S.agentEndpointId);
 }
 
 async function saveSetting(el) {

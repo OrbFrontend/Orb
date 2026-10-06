@@ -1,7 +1,5 @@
 """Source routing. The interesting cases are the ones that must not raise."""
 
-from __future__ import annotations
-
 from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine import comfy_adapter, get_adapter, list_sources
 from backend.workflows.image_gen.engine.adapters.external_comfy import ExternalComfyAdapter

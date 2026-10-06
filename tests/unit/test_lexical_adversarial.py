@@ -1,7 +1,5 @@
 """Adversarial contracts for the shared word-level lexical primitives."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis.text.lexical import count_content_words, is_contiguous_subsequence, ngrams, normalize_word, tokenize

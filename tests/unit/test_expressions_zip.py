@@ -1,8 +1,6 @@
 """extract_expressions_zip: label/ext filtering + zip-bomb guards;
 _expression_pack: pulling a card's embedded chub expression pack."""
 
-from __future__ import annotations
-
 import base64
 import io
 import zipfile

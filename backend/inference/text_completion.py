@@ -208,9 +208,7 @@ def reasoning_enabled(params: Mapping[str, Any]) -> bool:
     if isinstance(ctk, dict) and "enable_thinking" in ctk:
         return bool(ctk["enable_thinking"])
     think = params.get("thinking")
-    if isinstance(think, dict) and think.get("type") == "disabled":
-        return False
-    return True
+    return not (isinstance(think, dict) and think.get("type") == "disabled")
 
 
 # Hyperparams /completion accepts unchanged.

@@ -1,7 +1,5 @@
 """Tests for choosing and encoding the advanced-cloning reference excerpt."""
 
-from __future__ import annotations
-
 import os
 
 import pytest
@@ -96,8 +94,7 @@ def test_a_clip_spoken_without_breaks_still_yields_an_excerpt():
     speech = _clip(("speech", 30.0))
     speech *= (0.6 + 0.4 * np.sin(np.arange(speech.size) * 2 * np.pi * 0.7 / RATE) ** 2).astype(np.float32)
     speech += rng.standard_normal(speech.size).astype(np.float32) * 0.001
-    ranges = reference.excerpt_ranges(speech)
-    assert 2.0 <= _seconds(ranges) <= reference.TARGET_SECONDS + 2 * reference.EDGE_MS / 1000
+    assert 2.0 <= _seconds(reference.excerpt_ranges(speech)) <= reference.TARGET_SECONDS + 2 * reference.EDGE_MS / 1000
 
 
 @pytest.mark.parametrize(
@@ -125,8 +122,7 @@ def test_every_excerpt_fits_the_prompt_ceiling():
 )
 def test_the_semantic_tokenizer_reads_fifty_tokens_a_second():
     pytest.importorskip("onnxruntime")
-    rng = np.random.default_rng(1)
-    signal = (rng.standard_normal(RATE * 3) * 0.1).astype(np.float32)
+    signal = (np.random.default_rng(1).standard_normal(RATE * 3) * 0.1).astype(np.float32)
     try:
         got = reference.semantic_tokens(signal)
         again = reference.semantic_tokens(signal)

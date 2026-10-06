@@ -10,6 +10,7 @@ from typing import Any
 
 from ....core import extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....core.settings import Settings
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.lorebook import director_pick_diagnostics
 from ....prompting.tool_schemas import SELECT_LOREBOOK_CHOICE
@@ -48,7 +49,7 @@ async def lorebook_select_step(
     client: LLMClient,
     base: CachedBase,
     *,
-    settings: Mapping[str, object],
+    settings: Settings,
     catalog: str,
     user_message: str,
     entries: Sequence[Mapping[str, object]] | None = None,

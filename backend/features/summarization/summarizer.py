@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Mapping, Sequence
 from typing import Any
 
 from ...core import ChatMessage, Macros, TurnCast, extract_hyperparams
+from ...core.settings import Settings
 from ...inference import LLMClient
 from ...prompting import build_prefix
 
@@ -16,7 +17,7 @@ DEFAULT_SUMMARY_INSTRUCTIONS = (
 
 
 class ConversationSummarizer:
-    def __init__(self, client: LLMClient, settings: Mapping[str, Any]):
+    def __init__(self, client: LLMClient, settings: Settings):
         self.client = client
         self.settings = settings
 

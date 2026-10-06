@@ -2,7 +2,7 @@
 card's extensions.orb.fragments (arbitrary imported-PNG JSON) into fragment-row
 shapes the pipeline can consume."""
 
-from __future__ import annotations
+import pytest
 
 from backend.core import DECISION_COLUMNS, STATE_COLUMNS
 from backend.database import card_embedded_fragments
@@ -146,9 +146,10 @@ def test_malformed_levels_yield_empty():
         assert card_embedded_fragments(card) == ([], [])
 
 
-def test_invalid_ids_skipped():
-    moods, _ = card_embedded_fragments(
-        _card(
+@pytest.mark.parametrize(
+    "frags,kind,ids",
+    [
+        (
             {
                 "mood": [
                     {"id": "has space", "label": "A", "prompt_text": "p"},
@@ -158,31 +159,39 @@ def test_invalid_ids_skipped():
                     {"id": "x" * 65, "label": "E", "prompt_text": "p"},
                     {"id": "fine_id-2", "label": "F", "prompt_text": "p"},
                 ]
-            }
-        )
-    )
-    assert [f["id"] for f in moods] == ["fine_id-2"]
-
-
-def test_reserved_interactive_ids_skipped():
-    # `moods` and `retire` are fixed tool parameters a fragment would overwrite.
-    _, interactive = card_embedded_fragments(
-        _card(
+            },
+            0,
+            ["fine_id-2"],
+        ),
+        # `moods` and `retire` are fixed tool parameters a fragment would overwrite.
+        (
             {
                 "interactive": [
                     {"id": "moods", "label": "A", "description": "d"},
                     {"id": "retire", "label": "B", "description": "d", "field_type": "state"},
                     {"id": "threads", "label": "C", "description": "d", "field_type": "state"},
                 ]
-            }
-        )
-    )
-    assert [f["id"] for f in interactive] == ["threads"]
-
-
-def test_missing_or_blank_label_skipped():
-    moods, _ = card_embedded_fragments(_card({"mood": [{"id": "a"}, {"id": "b", "label": "  "}, {"id": "c", "label": 7}]}))
-    assert moods == []
+            },
+            1,
+            ["threads"],
+        ),
+        ({"mood": [{"id": "a"}, {"id": "b", "label": "  "}, {"id": "c", "label": 7}]}, 0, []),  # a missing or blank label
+        ({"mood": [{"id": f"m{i}", "label": "M"} for i in range(200)]}, 0, [f"m{i}" for i in range(50)]),  # capped at 50
+        (
+            {
+                "mood": [{"id": "a", "label": "A", "enabled": False}, {"id": "b", "label": "B", "enabled": 0}],
+                "interactive": [{"id": "c", "label": "C", "enabled": True}],
+            },
+            1,
+            ["c"],
+        ),
+    ],
+)
+def test_unusable_fragments_are_skipped(frags, kind, ids):
+    rows = card_embedded_fragments(_card(frags))[kind]
+    assert [f["id"] for f in rows] == ids
+    if "mood" in frags and kind == 1:
+        assert card_embedded_fragments(_card(frags))[0] == []  # disabled moods too
 
 
 def test_unknown_enums_fall_back():
@@ -191,13 +200,6 @@ def test_unknown_enums_fall_back():
     )
     assert interactive[0]["field_type"] == "string"
     assert {column: interactive[0][column] for column in STATE_COLUMNS} == NO_STATE
-
-
-def test_post_processing_field_type_is_preserved():
-    _, interactive = card_embedded_fragments(
-        _card({"interactive": [{"id": "humanize", "label": "Humanize", "field_type": "post_processing"}]})
-    )
-    assert interactive[0]["field_type"] == "post_processing"
 
 
 def test_post_processing_gate_is_read_for_post_processing_only():
@@ -213,6 +215,7 @@ def test_post_processing_gate_is_read_for_post_processing_only():
             }
         )
     )
+    assert {row["field_type"] for row in interactive[:3]} == {"post_processing"}
     assert {row["id"]: row["post_processing_gate"] for row in interactive} == {
         "gated": "Is it long?",
         "ungated": "",
@@ -225,26 +228,7 @@ def test_duplicate_ids_first_wins():
     moods, _ = card_embedded_fragments(
         _card({"mood": [{"id": "a", "label": "First", "prompt_text": "p"}, {"id": "a", "label": "Second"}]})
     )
-    assert len(moods) == 1
-    assert moods[0]["label"] == "First"
-
-
-def test_disabled_skipped():
-    moods, interactive = card_embedded_fragments(
-        _card(
-            {
-                "mood": [{"id": "a", "label": "A", "enabled": False}, {"id": "b", "label": "B", "enabled": 0}],
-                "interactive": [{"id": "c", "label": "C", "enabled": True}],
-            }
-        )
-    )
-    assert moods == []
-    assert [f["id"] for f in interactive] == ["c"]
-
-
-def test_capped_at_50_per_type():
-    moods, _ = card_embedded_fragments(_card({"mood": [{"id": f"m{i}", "label": "M"} for i in range(200)]}))
-    assert len(moods) == 50
+    assert [m["label"] for m in moods] == ["First"]
 
 
 def test_non_string_text_fields_coerced_to_defaults():

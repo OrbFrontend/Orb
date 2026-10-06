@@ -5,8 +5,6 @@ legacy state across a branching tree, runs 0067, and then holds the result to an
 (``_state_conversion_oracle``).
 """
 
-from __future__ import annotations
-
 import importlib
 import json
 import sqlite3
@@ -114,8 +112,7 @@ def _folded(conn: sqlite3.Connection, leaf: int) -> dict[str, list[str]]:
         rows = [dict(r) for r in conn.execute("SELECT * FROM fragment_state_events")]
     finally:
         conn.row_factory = None
-    events = sorted((r for r in rows if r["message_id"] in rank), key=lambda r: (rank[r["message_id"]], r["id"]))
-    view = fold_events(events)
+    view = fold_events(sorted((r for r in rows if r["message_id"] in rank), key=lambda r: (rank[r["message_id"]], r["id"])))
     return {fid: [e.text for e in view.active(fid)] for fid in view.entries}
 
 
@@ -159,8 +156,7 @@ def test_converts_fragments_settings_and_every_branch_tip(tmp_path):
     # Set retains the entry id; a value that disappeared was retired.
     ops = conn.execute("SELECT message_id, fragment_id, op FROM fragment_state_events ORDER BY id").fetchall()
     assert (5, "trust", "revise") in ops and (5, "mood", "retire") in ops
-    retired = conn.execute("SELECT text FROM fragment_state_events WHERE message_id = 5 AND op = 'retire'").fetchone()
-    assert retired == ("calm",)
+    assert conn.execute("SELECT text FROM fragment_state_events WHERE message_id = 5 AND op = 'retire'").fetchone() == ("calm",)
     assert not any(message_id == 7 for message_id, _, _ in ops)
     conn.close()
 

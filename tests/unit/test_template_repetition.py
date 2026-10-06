@@ -56,9 +56,7 @@ class TestTruePositives:
     def test_partial_template_match(self):
         """Templates with significant word overlap should cluster."""
         text = "It was not a question but a statement. It was not the answer she expected. It was not even close to correct."
-        result = detect_template_repetition(text, max_words=3, flag_threshold=3)
-        # "it was not" should be a flagged template
-        assert len(result.flagged_templates) >= 1
+        assert len(detect_template_repetition(text, max_words=3, flag_threshold=3).flagged_templates) >= 1
 
     def test_long_range_template_repetition(self):
         """Templates appearing far apart should still be detected."""
@@ -67,8 +65,7 @@ class TestTruePositives:
             "The story continues in its usual way.\n\nCharacters develop and plot thickens.\n\n"
             "In the beginning there was nothing."
         )
-        result = detect_template_repetition(text, max_words=3, flag_threshold=2)
-        flagged = result.flagged_templates
+        flagged = detect_template_repetition(text, max_words=3, flag_threshold=2).flagged_templates
         # Should detect "in the beginning" pattern
         assert any("in the beginning" in ft.template for ft in flagged)
 
@@ -83,23 +80,17 @@ class TestFalsePositives:
 
     def test_no_repetition_below_threshold(self):
         """Single occurrence should not be flagged."""
-        text = "The question hangs in the air."
-        result = detect_template_repetition(text, flag_threshold=2)
-        assert len(result.flagged_templates) == 0
+        assert len(detect_template_repetition("The question hangs in the air.", flag_threshold=2).flagged_templates) == 0
 
     def test_dissimilar_templates(self):
         """Completely different sentence structures."""
         text = "The sun rose over the mountains. Birds chirped in the trees. A gentle breeze rustled the leaves."
-        result = detect_template_repetition(text, flag_threshold=2)
-        # Should have no flagged templates
-        assert len(result.flagged_templates) == 0
+        assert len(detect_template_repetition(text, flag_threshold=2).flagged_templates) == 0
 
     def test_high_flag_threshold_blocks_detection(self):
         """High threshold should prevent flagging."""
         text = "The question hangs in the air. The question is heavy."
-        result = detect_template_repetition(text, max_words=2, flag_threshold=3)
-        # Threshold is 3 but only 2 occurrences
-        assert len(result.flagged_templates) == 0
+        assert len(detect_template_repetition(text, max_words=2, flag_threshold=3).flagged_templates) == 0
 
 
 # ===============================================================================
@@ -121,8 +112,7 @@ class TestEdgeCases:
 
     def test_only_dialogue_no_narration(self):
         """Dialogue-only text - only attribution fragments remain after stripping."""
-        text = '"Hello there," he said. "How are you?" she asked.'
-        result = detect_template_repetition(text)
+        result = detect_template_repetition('"Hello there," he said. "How are you?" she asked.')
         # Dialogue is stripped, leaving only "he said" and "she asked" as narration fragments
         # These short fragments are below the 3-word minimum and are skipped
         assert result.total_sentences == 2
@@ -147,10 +137,7 @@ class TestEdgeCases:
         # With max_words=3, should match "it was the"
         result_small = detect_template_repetition(text, max_words=3, flag_threshold=2)
         # With max_words=4, might match more specifically
-        result_large = detect_template_repetition(text, max_words=4, flag_threshold=2)
-
-        # Both should find something
-        print(result_large)
+        print(detect_template_repetition(text, max_words=4, flag_threshold=2))
         assert len(result_small.flagged_templates) >= 1
 
     def test_normalization_lowercase(self):
@@ -177,10 +164,7 @@ class TestEdgeCases:
     def test_repetition_score_calculation(self):
         """Repetition score should reflect template reuse."""
         text = "Template A here. Template A again. Something completely different."
-        result = detect_template_repetition(text, max_words=2)
-        # Score should be > 0 since there's repetition.
-        # Note: templates are "template a" and "something completely", so no exact template is repeated 2+ times.
-        assert result.total_sentences == 3
+        assert detect_template_repetition(text, max_words=2).total_sentences == 3
 
     def test_similarity_threshold_effect(self):
         """Higher similarity threshold should reduce clustering."""
@@ -194,10 +178,7 @@ class TestEdgeCases:
 
     def test_exact_template_repetition_in_score(self):
         """Exact template repetition should affect score."""
-        text = "The cat sat. The cat sat. The cat sat."
-        result = detect_template_repetition(text, max_words=3)
-        # "the cat sat" appears 3 times
-        assert result.repetition_score > 0
+        assert detect_template_repetition("The cat sat. The cat sat. The cat sat.", max_words=3).repetition_score > 0
 
 
 if __name__ == "__main__":

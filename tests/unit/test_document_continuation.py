@@ -5,8 +5,6 @@ the chat/prefill paths, the delta filter, and the full parse_doc_macros contract
 macro coalescing).
 """
 
-from __future__ import annotations
-
 from backend.features.documents import (
     DOC_ASSIST_CONTINUE,
     DOC_ASSIST_INSTRUCTION,
@@ -217,9 +215,7 @@ def test_alternation_invariant_holds_on_adversarial_interleavings():
 async def test_chat_path_builds_system_user_and_suppresses_thinking():
     client = _StubClient("chat")
     cont = DocumentContinuer(client, {"temperature": 0.9, "max_tokens": 100})
-    out = await _drain(cont.stream("the prefix", "m"))
-
-    assert _deltas(out) == ["chat-out"]  # reasoning delta dropped
+    assert _deltas(await _drain(cont.stream("the prefix", "m"))) == ["chat-out"]  # reasoning delta dropped
     call = client.chat_calls[0]
     assert call["messages"] == [{"role": "system", "content": DOC_CHAT_INSTRUCTION}, {"role": "user", "content": "the prefix"}]
     # reasoning_cfg(False) spread in: thinking disabled.
@@ -230,10 +226,7 @@ async def test_chat_path_builds_system_user_and_suppresses_thinking():
 
 async def test_text_path_calls_complete_raw_with_verbatim_prompt():
     client = _StubClient("text")
-    cont = DocumentContinuer(client, {"max_tokens": 300})
-    out = await _drain(cont.stream("continue me", "m"))
-
-    assert _deltas(out) == ["raw-out"]
+    assert _deltas(await _drain(DocumentContinuer(client, {"max_tokens": 300}).stream("continue me", "m"))) == ["raw-out"]
     assert client.raw_calls[0]["prompt"] == "continue me"
     assert client.raw_calls[0]["params"]["max_tokens"] == 300
     assert not client.chat_calls
@@ -243,9 +236,7 @@ async def test_text_assisted_calls_complete_with_parsed_messages_and_prefill():
     client = _StubClient("text")
     cont = DocumentContinuer(client, {"max_tokens": 512})
     text = "### USER: be vivid\nThe old lighthouse"
-    out = await _drain(cont.stream(text, "m", assisted=True))
-
-    assert _deltas(out) == ["chat-out"]  # reasoning delta dropped
+    assert _deltas(await _drain(cont.stream(text, "m", assisted=True))) == ["chat-out"]  # reasoning delta dropped
     assert not client.raw_calls  # assisted goes through complete(), not complete_raw
     call = client.chat_calls[0]
     assert call["messages"] == [{"role": "system", "content": DOC_ASSIST_INSTRUCTION}, {"role": "user", "content": "be vivid"}]
@@ -258,9 +249,7 @@ async def test_text_assisted_calls_complete_with_parsed_messages_and_prefill():
 async def test_text_assisted_trailing_note_passes_none_prefill():
     client = _StubClient("text")
     cont = DocumentContinuer(client, {})
-    out = await _drain(cont.stream("prose\n### USER: write the ending", "m", assisted=True))
-
-    assert _deltas(out) == ["chat-out"]
+    assert _deltas(await _drain(cont.stream("prose\n### USER: write the ending", "m", assisted=True))) == ["chat-out"]
     call = client.chat_calls[0]
     # prefill=None -> client falls through to the generation-prompt branch;
     # reasoning kwargs still sent (load-bearing for the trailing-note case).
@@ -272,9 +261,7 @@ async def test_text_assisted_trailing_note_passes_none_prefill():
 async def test_chat_assisted_closes_prefill_and_appends_reanchor_turn():
     client = _StubClient("chat")
     cont = DocumentContinuer(client, {})
-    out = await _drain(cont.stream("### USER: be brief\nThe story so far", "m", assisted=True))
-
-    assert _deltas(out) == ["chat-out"]
+    assert _deltas(await _drain(cont.stream("### USER: be brief\nThe story so far", "m", assisted=True))) == ["chat-out"]
     call = client.chat_calls[0]
     # Chat transport can't hold an open prefill: close it + re-anchor with a user turn.
     assert call["messages"] == [
@@ -290,8 +277,7 @@ async def test_chat_assisted_closes_prefill_and_appends_reanchor_turn():
 
 async def test_chat_assisted_trailing_note_sends_messages_as_is():
     client = _StubClient("chat")
-    cont = DocumentContinuer(client, {})
-    await _drain(cont.stream("prose\n### USER: wrap it up", "m", assisted=True))
+    await _drain(DocumentContinuer(client, {}).stream("prose\n### USER: wrap it up", "m", assisted=True))
 
     call = client.chat_calls[0]
     # prefill is None -> no closed-prefill/re-anchor turns; messages end on the note.
@@ -306,8 +292,7 @@ async def test_token_probs_off_by_default_sends_no_prob_params():
     # Every branch: neither n_probs nor logprobs when the flag is unset.
     for mode, assisted in [("text", False), ("text", True), ("chat", False), ("chat", True)]:
         client = _StubClient(mode)
-        cont = DocumentContinuer(client, {})
-        out = await _drain(cont.stream("### USER: go\nsome prose", "m", assisted=assisted))
+        out = await _drain(DocumentContinuer(client, {}).stream("### USER: go\nsome prose", "m", assisted=assisted))
         params = (client.raw_calls or client.chat_calls)[0]["params"]
         assert "n_probs" not in params, (mode, assisted)
         assert "logprobs" not in params, (mode, assisted)
@@ -317,8 +302,7 @@ async def test_token_probs_off_by_default_sends_no_prob_params():
 
 async def test_text_raw_token_probs_adds_n_probs_and_forwards_chunks():
     client = _StubClient("text")
-    cont = DocumentContinuer(client, {})
-    out = await _drain(cont.stream("continue me", "m", token_probs=True))
+    out = await _drain(DocumentContinuer(client, {}).stream("continue me", "m", token_probs=True))
 
     assert client.raw_calls[0]["params"]["n_probs"] == 10  # _N_PROBS_TEXT
     # The token_probs chunk is forwarded unchanged; content still flows.
@@ -338,8 +322,7 @@ async def test_text_assisted_token_probs_adds_n_probs():
 
 async def test_chat_raw_token_probs_adds_logprobs_and_top_logprobs():
     client = _StubClient("chat")
-    cont = DocumentContinuer(client, {})
-    out = await _drain(cont.stream("the prefix", "m", token_probs=True))
+    out = await _drain(DocumentContinuer(client, {}).stream("the prefix", "m", token_probs=True))
 
     params = client.chat_calls[0]["params"]
     assert params["logprobs"] is True

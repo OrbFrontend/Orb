@@ -1,7 +1,5 @@
 """Failure-oriented tests for shared prose segmentation and markup parsing."""
 
-from __future__ import annotations
-
 from backend.analysis.detectors.anti_echo import detect_anti_echo
 from backend.analysis.text.markup import classify_axes
 from backend.analysis.text.roleplay import Dialogue
@@ -155,8 +153,7 @@ def test_markdown_bold_survives_format_normalization_byte_for_byte():
 
 
 def test_strip_ooc_preserves_ordinary_brackets_and_balances_nested_ooc():
-    text = 'Keep [door slams] this [OOC: remove [nested] "instruction"] end.'
-    assert strip_ooc(text) == "Keep [door slams] this   end."
+    assert strip_ooc('Keep [door slams] this [OOC: remove [nested] "instruction"] end.') == "Keep [door slams] this   end."
 
 
 def test_strip_ooc_removes_unclosed_tagged_tail_but_not_unclosed_stage_direction():

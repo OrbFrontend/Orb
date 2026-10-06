@@ -4,8 +4,6 @@ The blob renders ahead of the conversation in the cached prefix, so the fragment
 each call narrows to its live fields per call (see "Treat tools as part of the prompt" in docs/architecture/kv-cache.md).
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.core import RESERVED_FRAGMENT_IDS
@@ -99,8 +97,7 @@ class TestBlobSurvivesToggles:
 
     def test_editing_a_description_leaves_the_blob_byte_identical(self):
         reference, _ = _blob(_GLOBALS)
-        edited = [{**row, "description": "rewritten"} for row in _GLOBALS]
-        assert _blob(edited)[0] == reference
+        assert _blob([{**row, "description": "rewritten"} for row in _GLOBALS])[0] == reference
 
     def test_no_defined_fragment_of_a_kind_means_no_tool(self):
         _, enabled = _blob([row for row in _GLOBALS if row["field_type"] not in ("feedback", "post_processing")])
@@ -255,8 +252,7 @@ class TestDirectorUsesTheLiveView:
                 {"direct_scene": True},
             )
         ]
-        plan = base.schemas[1]["properties"][SPEAKING_PLAN_FIELD]  # type: ignore[index]
-        assert plan["description"] == SPEAKING_PLAN_SCHEMA_DESCRIPTION
+        assert base.schemas[1]["properties"][SPEAKING_PLAN_FIELD]["description"] == SPEAKING_PLAN_SCHEMA_DESCRIPTION
 
     async def test_resting_fields_leave_the_live_view(self):
         live = [row for row in _GLOBALS if row["id"] in ("intent", "next_event")]
@@ -289,5 +285,4 @@ async def test_feedback_narrows_and_drops_disabled_values():
 
 
 def test_offered_state_ids_reads_the_shared_schema():
-    base = _FakeBase(_shared_tools(), {}, "update_state")
-    assert offered_state_ids(base) == {"facts"}  # type: ignore[arg-type]
+    assert offered_state_ids(_FakeBase(_shared_tools(), {}, "update_state")) == {"facts"}  # type: ignore[arg-type]

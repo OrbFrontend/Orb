@@ -3,8 +3,6 @@
 Seed persona and constant lore so teardown can detect off-turn prefix drift.
 """
 
-from __future__ import annotations
-
 import base64
 import io
 import json
@@ -26,6 +24,28 @@ from backend.workflows.image_gen.engine import ImageResult
 
 def _tc(name: str, args: dict) -> list[dict]:
     return [{"id": "t1", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+
+
+def _enqueue(llm_mock, name: str, **args) -> None:
+    llm_mock.enqueue_workflow({"tool_calls": _tc(name, args)})
+
+
+_DONE_REVIEW = {"critique": "", "done": True, "reseed": False, "scene": None, "avoid": None}
+
+
+async def _configure(**extra) -> None:
+    await set_workflow_config(
+        "image_gen",
+        {"source": "external_comfy", "default_style": "anime", "external_comfy": {"api_url": "http://127.0.0.1:8188"}, **extra},
+    )
+
+
+async def _last_reply(cid: str) -> int:
+    return next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
+
+
+def _attachment_id(response) -> int:
+    return int(response.text.partition('"attachment_id":')[2].partition("}")[0])
 
 
 async def _armed_conversation(client, llm_mock) -> tuple[str, str]:
@@ -89,41 +109,21 @@ async def _fake_render(adapter, request, **kwargs):
 async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monkeypatch):
     cid, card_id = await _armed_conversation(client, llm_mock)
 
-    await set_workflow_config(
-        "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "scene_skills_enabled": True,  # both forced calls (select + compose) must fire
-            "prompter_reasoning": True,
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
-    )
+    await _configure(scene_skills_enabled=True, prompter_reasoning=True)  # both forced calls (select + compose) must fire
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _fake_render)
 
-    llm_mock.enqueue_workflow(
-        {"tool_calls": _tc("read_image_skills", {"skill_ids": ["first_person_hug"], "visible_subjects": ["Iris"]})}
-    )
-    llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "compose_image_prompt",
-                {"scene": "1girl, sitting, window, rain, night", "avoid": "", "visible_subjects": ["Iris"]},
-            )
-        }
+    _enqueue(llm_mock, "read_image_skills", **{"skill_ids": ["first_person_hug"], "visible_subjects": ["Iris"]})
+    _enqueue(
+        llm_mock,
+        "compose_image_prompt",
+        **{"scene": "1girl, sitting, window, rain, night", "avoid": "", "visible_subjects": ["Iris"]},
     )
 
-    msgs = await get_messages(cid)
-    mid = next(m["id"] for m in reversed(msgs) if m["role"] == "assistant")
-    resp = await client.post_checked(
-        f"/api/conversations/{cid}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": mid, "style_id": "anime"},
-    )
+    resp = await _generate(client, cid, await _last_reply(cid))
     assert "event: image_gen_done" in resp.text
-    attachment_id = int(resp.text.partition('"attachment_id":')[2].partition("}")[0])
-    attachment = await get_workflow_attachment_by_id(attachment_id)
+    attachment = await get_workflow_attachment_by_id(_attachment_id(resp))
     generation = json.loads(attachment["generation_metadata"])
     consumption = json.loads(attachment["consumption_metadata"])
     # Read the label off the shipped library rather than restating it: the recorded
@@ -171,15 +171,7 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
     renders before it. Each replayed call is answered by exactly one tool result, which
     says when the render came from a new seed but never which seed."""
     cid, card_id = await _armed_conversation(client, llm_mock)
-    await set_workflow_config(
-        "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "refine_turns": 2,
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
-    )
+    await _configure(refine_turns=2)
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
     seeds: list[int] = []
 
@@ -188,41 +180,23 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
         return await _fake_render(adapter, request, **kwargs)
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
-    llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "compose_image_prompt", {"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]}
-            )
-        }
+    _enqueue(
+        llm_mock, "compose_image_prompt", **{"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]}
     )
-    llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "refine_image_prompt",
-                {
-                    "critique": "no rain visible",
-                    "done": False,
-                    "reseed": True,
-                    "scene": "1girl, sitting, window, heavy rain",
-                    "avoid": None,
-                },
-            )
-        }
+    _enqueue(
+        llm_mock,
+        "refine_image_prompt",
+        **{
+            "critique": "no rain visible",
+            "done": False,
+            "reseed": True,
+            "scene": "1girl, sitting, window, heavy rain",
+            "avoid": None,
+        },
     )
-    llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "refine_image_prompt", {"critique": "", "done": True, "reseed": False, "scene": None, "avoid": None}
-            )
-        }
-    )
+    _enqueue(llm_mock, "refine_image_prompt", **_DONE_REVIEW)
 
-    mid = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
-    resp = await client.post_checked(
-        f"/api/conversations/{cid}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": mid, "style_id": "anime"},
-    )
-    assert resp.text.count("event: image_gen_render") == 2
+    assert (await _generate(client, cid, await _last_reply(cid))).text.count("event: image_gen_render") == 2
 
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     assert [c["tool_choice"]["function"]["name"] for c in wf] == [
@@ -272,31 +246,19 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     re-sends the image-bearing tail."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
-    base = {"source": "external_comfy", "default_style": "anime", "prompter_reference": True}
-    await set_workflow_config("image_gen", {**base, "external_comfy": {"api_url": "http://127.0.0.1:8188"}})
+    await _configure(prompter_reference=True)
     greeting, reply = [m["id"] for m in await get_messages(cid) if m["role"] == "assistant"]
 
-    llm_mock.enqueue_workflow(
-        {"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, earlier_scene_marker", "avoid": "earlier_avoid_marker"})}
-    )
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, earlier_scene_marker", "avoid": "earlier_avoid_marker"})
     first = await _generate(client, cid, greeting)
     assert "event: image_gen_done" in first.text
-    first_id = int(first.text.partition('"attachment_id":')[2].partition("}")[0])
+    first_id = _attachment_id(first)
     assert isinstance(llm_mock.captured[-1]["messages"][-1]["content"], str), "nothing came before the greeting"
 
-    await set_workflow_config(
-        "image_gen",
-        {**base, "scene_skills_enabled": True, "refine_turns": 1, "external_comfy": {"api_url": "http://127.0.0.1:8188"}},
-    )
-    llm_mock.enqueue_workflow({"tool_calls": _tc("read_image_skills", {"skill_ids": [], "visible_subjects": ["Iris"]})})
-    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, window, rain", "avoid": ""})})
-    llm_mock.enqueue_workflow(
-        {
-            "tool_calls": _tc(
-                "refine_image_prompt", {"critique": "", "done": True, "reseed": False, "scene": None, "avoid": None}
-            )
-        }
-    )
+    await _configure(prompter_reference=True, scene_skills_enabled=True, refine_turns=1)
+    _enqueue(llm_mock, "read_image_skills", **{"skill_ids": [], "visible_subjects": ["Iris"]})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, window, rain", "avoid": ""})
+    _enqueue(llm_mock, "refine_image_prompt", **_DONE_REVIEW)
     second = await _generate(client, cid, reply)
     assert "event: image_gen_done" in second.text
 
@@ -314,8 +276,7 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     assert "Earlier prompt:" not in request["text"]
     assert "Earlier negative prompt:" not in request["text"]
     assert review["messages"][: len(compose["messages"])] == compose["messages"], "the review re-sends the tail byte for byte"
-    rendered_id = int(second.text.partition('"attachment_id":')[2].partition("}")[0])
-    generation = json.loads((await get_workflow_attachment_by_id(rendered_id))["generation_metadata"])
+    generation = json.loads((await get_workflow_attachment_by_id(_attachment_id(second)))["generation_metadata"])
     assert generation["prompter_reference"] == f"attachment:{first_id}"
 
 
@@ -323,52 +284,33 @@ async def test_an_upload_is_not_sent_to_the_prompter_twice(client, llm_mock, mon
     """A user's upload already reaches the prompter as pixels in the prefix."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
-    await set_workflow_config(
-        "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "prompter_reference": True,
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
-    )
+    await _configure(prompter_reference=True)
     llm_mock.enqueue_writer("She studies the map.")
     llm_mock.enqueue_editor(None)
     upload = {"b64": base64.b64encode(_png()).decode("ascii"), "mime": "image/png", "filename": "map.png"}
-    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Look.", "attachments": [upload]})
-    _ = resp.text
-    reply = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Look.", "attachments": [upload]})).text
+    reply = await _last_reply(cid)
 
-    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, map", "avoid": ""})})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, map", "avoid": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, reply)).text
 
-    compose = [c for c in llm_mock.captured if c["pass"] == "workflow"][-1]
-    assert isinstance(compose["messages"][-1]["content"], str)
+    assert isinstance([c for c in llm_mock.captured if c["pass"] == "workflow"][-1]["messages"][-1]["content"], str)
 
 
 async def test_an_image_older_than_the_last_reply_is_not_sent_to_the_prompter(client, llm_mock, monkeypatch):
     """A picture from before the last reply shows a scene the story has left."""
     cid, _card_id = await _armed_conversation(client, llm_mock)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
-    await set_workflow_config(
-        "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "prompter_reference": True,
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
-    )
+    await _configure(prompter_reference=True)
     greeting = next(m["id"] for m in await get_messages(cid) if m["role"] == "assistant")
-    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, archive", "avoid": ""})})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, archive", "avoid": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, greeting)).text
     llm_mock.enqueue_writer("She leaves the archive.")
     llm_mock.enqueue_editor(None)
-    resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Go on."})
-    _ = resp.text
-    latest = next(m["id"] for m in reversed(await get_messages(cid)) if m["role"] == "assistant")
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Go on."})).text
+    latest = await _last_reply(cid)
 
-    llm_mock.enqueue_workflow({"tool_calls": _tc("compose_image_prompt", {"scene": "1girl, street", "avoid": ""})})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, street", "avoid": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, latest)).text
 
     compose = [c for c in llm_mock.captured if c["pass"] == "workflow"][-1]

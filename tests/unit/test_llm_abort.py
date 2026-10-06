@@ -1,7 +1,5 @@
 """Stop interrupts silent HTTP waits and closes the model request before settlement."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json

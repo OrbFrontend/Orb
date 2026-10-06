@@ -5,8 +5,6 @@ patch-prompt builders (patch byte-extends the generation prompt), and the per-sh
 JSON call, tail reattachment, patch-error surfacing).
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.analysis import AuditReport, report_to_dict, run_audit
@@ -82,8 +80,7 @@ def test_clean_context_assisted_strips_macro_lines():
 
 def test_clean_context_raw_strips_template_marker_lines():
     # Any line carrying a <|...|> token is template scaffold, not prose.
-    ctx = "<|im_start|>user\nWrite a haiku.<|im_end|>\nPlain prose line."
-    assert clean_context(ctx, assisted=False) == "Plain prose line."
+    assert clean_context("<|im_start|>user\nWrite a haiku.<|im_end|>\nPlain prose line.", assisted=False) == "Plain prose line."
 
 
 def test_clean_context_heuristics_are_mode_scoped():
@@ -97,8 +94,7 @@ def test_clean_context_plain_prose_is_untouched_and_capped():
     prose = "Just an ordinary paragraph."
     assert clean_context(prose, assisted=True) == prose
     assert clean_context(prose, assisted=False) == prose
-    long = "x" * 10000
-    assert len(clean_context(long, assisted=False)) == 8000
+    assert len(clean_context(("x" * 10000), assisted=False)) == 8000
 
 
 # -- doc_audit_toggles --------------------------------------------------------
@@ -109,8 +105,7 @@ def test_toggles_none_defaults_all_on():
 
 
 def test_toggles_intersected_with_doc_subset():
-    stored = {"banned_phrases": False, "anti_echo": True, "structural_repetition": False}
-    out = doc_audit_toggles(stored)
+    out = doc_audit_toggles({"banned_phrases": False, "anti_echo": True, "structural_repetition": False})
     assert set(out) == set(DOC_AUDIT_TYPES)  # chat-only keys never pass through
     assert out["banned_phrases"] is False
     assert out["repetitive_openers"] is True  # missing key defaults on
@@ -120,13 +115,11 @@ def test_toggles_intersected_with_doc_subset():
 
 
 def test_report_to_dict_clean_shape():
-    d = report_to_dict(AuditReport.clean())
-    assert d == {"total_issues": 0, "is_clean": True, "sections": {}}
+    assert report_to_dict(AuditReport.clean()) == {"total_issues": 0, "is_clean": True, "sections": {}}
 
 
 def test_report_to_dict_flagged_sections_shape():
-    text = f"She felt {_BANNED} at once. He ran fast. He jumped high. He sat down. He stood up."
-    d = report_to_dict(run_audit(text, _BANK))
+    d = report_to_dict(run_audit(f"She felt {_BANNED} at once. He ran fast. He jumped high. He sat down. He stood up.", _BANK))
     assert d["total_issues"] > 0 and d["is_clean"] is False
     hits = d["sections"]["banned_phrases"]
     assert any(_BANNED in item["phrase"] and item["sentence"] for item in hits)
@@ -176,8 +169,7 @@ async def test_audit_context_findings_are_excluded():
 
 async def test_audit_truncated_excludes_tail_fragment():
     # The banned phrase sits in the dangling half-sentence: never flagged.
-    draft = f"A clean opening sentence. She felt {_BANNED}"
-    res = await audit_document(draft, "", _BANK, None, assisted=False, truncated=True)
+    res = await audit_document(f"A clean opening sentence. She felt {_BANNED}", "", _BANK, None, assisted=False, truncated=True)
     assert res["tail_excluded"] is True
     assert res["report"]["is_clean"] is True
 

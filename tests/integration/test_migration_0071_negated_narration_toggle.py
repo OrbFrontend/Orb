@@ -1,7 +1,5 @@
 """Migration 0071 backfills only an absent `negated_narration` audit toggle."""
 
-from __future__ import annotations
-
 import importlib
 import json
 import sqlite3

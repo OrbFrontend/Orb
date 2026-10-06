@@ -3,8 +3,6 @@
 Tests helper functions without hitting the Edge TTS API.
 """
 
-from __future__ import annotations
-
 from backend.workflows.tts.engine.base import SpeakableChunk
 from backend.workflows.tts.engine.edge_adapter import EdgeTTSAdapter, _format_pitch, _format_rate
 
@@ -43,8 +41,7 @@ class TestChunksToText:
 
     def test_single_chunk(self):
         chunks = [SpeakableChunk(text="Hello.", emotion="neutral")]
-        text = self.adapter._chunks_to_text(chunks)
-        assert "Hello." in text
+        assert "Hello." in self.adapter._chunks_to_text(chunks)
 
     def test_multiple_chunks_joined(self):
         chunks = [
@@ -60,5 +57,4 @@ class TestChunksToText:
             SpeakableChunk(text="", emotion="neutral", pause_after_ms=1000),
             SpeakableChunk(text="After pause.", emotion="neutral"),
         ]
-        text = self.adapter._chunks_to_text(chunks)
-        assert "After pause." in text
+        assert "After pause." in self.adapter._chunks_to_text(chunks)

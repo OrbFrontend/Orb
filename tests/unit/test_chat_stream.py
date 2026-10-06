@@ -1,7 +1,5 @@
 """Stream parsers driven from payload lists, without an HTTP transport."""
 
-from __future__ import annotations
-
 import json
 from collections.abc import AsyncIterator
 
@@ -61,8 +59,7 @@ async def test_openai_streams_content_and_records_the_reasoning_field_name():
 
 async def test_openai_forced_call_buffers_content_instead_of_streaming_it():
     acc = ChatStream()
-    events = await _drain(_openai(acc, _delta(content='{"a":'), _delta(content="1}"), "[DONE]", forced=True))
-    assert events == []
+    assert (await _drain(_openai(acc, _delta(content='{"a":'), _delta(content="1}"), "[DONE]", forced=True))) == []
     assert "".join(acc.content_parts) == '{"a":1}'
 
 

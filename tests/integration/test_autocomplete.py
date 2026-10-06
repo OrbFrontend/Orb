@@ -1,8 +1,6 @@
 """Autocomplete route: 503 when the model is unavailable, 200 with a completion
 otherwise. The model itself is monkeypatched -- no GGUF needed here."""
 
-from __future__ import annotations
-
 import backend.database as dbmod
 
 
@@ -39,8 +37,7 @@ async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
     monkeypatch.setattr("backend.features.autocomplete.complete", boom)
     await dbmod.create_conversation("conv-ac3", "Chat", "Nova", "")
 
-    resp = await client.post_json("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "})
-    assert resp["completion"] == ""
+    assert (await client.post_json("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "}))["completion"] == ""
 
 
 async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, monkeypatch):
@@ -56,13 +53,11 @@ async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, mo
     monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
     aria = await client.create("/api/characters", json={"name": "Aria"})
     kael = await client.create("/api/characters", json={"name": "Kael"})
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
-        )
-    ).json()
-    members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
+    conv = await client.post_json(
+        "/api/conversations",
+        json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+    )
+    members = await client.get_json(f"/api/conversations/{conv['id']}/members")
     mid, _ = await dbmod.add_message(conv["id"], "assistant", "The fire gutters.", 0, speaker_member_id=members[1]["id"])
     await dbmod.set_active_leaf(conv["id"], mid)
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.tts.engine.base import SpeakableChunk
@@ -163,8 +161,7 @@ async def test_synthesis_without_an_enrolled_voice_says_so():
 
 async def test_empty_text_is_not_an_error():
     """The extractor can legitimately produce nothing speakable."""
-    result = await BuiltinSparkAdapter().synthesize(chunks=[SpeakableChunk(text="   ")], voice_id="cloned")
-    assert result.audio_bytes == b""
+    assert (await BuiltinSparkAdapter().synthesize(chunks=[SpeakableChunk(text="   ")], voice_id="cloned")).audio_bytes == b""
 
 
 async def test_synthesis_surfaces_the_readiness_reason_verbatim():

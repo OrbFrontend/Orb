@@ -9,9 +9,8 @@ Strategy:
 - Yield a raw aiosqlite connection for direct DB assertions.
 """
 
-from __future__ import annotations
-
 import asyncio
+import contextlib
 import shutil
 import socket
 from functools import partialmethod
@@ -219,10 +218,8 @@ async def streaming_client(db_path: Path, monkeypatch):
                 serve_task.cancel()
                 await asyncio.gather(serve_task, return_exceptions=True)
         # uvicorn closes the socket itself on a normal exit; cover the cancelled path where it never reaches that branch.
-        try:
+        with contextlib.suppress(OSError):
             sock.close()
-        except OSError:
-            pass
 
     try:
         loop = asyncio.get_running_loop()
@@ -238,8 +235,7 @@ async def streaming_client(db_path: Path, monkeypatch):
         # gap is scheduling noise, not behaviour: the three tests on this fixture failed intermittently with httpx.ReadTimeout
         # on a loaded box while asserting nothing about latency. Each one already bounds its own waits (gate events, the ~2s
         # lock-release poll), so the transport timeout is pure flake surface; raise it to a value only a real hang can reach.
-        timeout = httpx.Timeout(30.0, connect=10.0)
-        async with _Client(base_url=f"http://127.0.0.1:{port}", timeout=timeout) as ac:
+        async with _Client(base_url=f"http://127.0.0.1:{port}", timeout=httpx.Timeout(30.0, connect=10.0)) as ac:
             yield ac
     finally:
         await _shutdown()

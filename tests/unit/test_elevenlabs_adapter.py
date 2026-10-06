@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-import pytest
-
 from backend.workflows.tts.engine.base import SpeakableChunk
 from backend.workflows.tts.engine.elevenlabs_adapter import ElevenLabsAdapter
 
@@ -30,7 +26,6 @@ class FakeAsyncClient:
         return FakeResponse()
 
 
-@pytest.mark.asyncio
 async def test_elevenlabs_uses_profile_model_alias(monkeypatch):
     import backend.workflows.tts.engine.elevenlabs_adapter as adapter_module
 

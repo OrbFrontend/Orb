@@ -2,8 +2,6 @@
 weights are pruned. New specs automatically participate.
 """
 
-from __future__ import annotations
-
 import os
 
 from backend.inference.local_models import assets
@@ -132,8 +130,7 @@ def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
 def test_deleting_one_variant_leaves_shared_companions_alone(tmp_path, monkeypatch):
     """A variant's siblings still need them, so the companion sweep is scoped to a delete of the spec's OWN file."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
-    spec = MODELS["prose_rewriter"]
-    variant = spec.variants[0]
+    variant = MODELS["prose_rewriter"].variants[0]
     (tmp_path / variant.local_name).write_text("weights")
     assert assets.delete_model("prose_rewriter", variant.id) is True
     assert not (tmp_path / variant.local_name).exists()

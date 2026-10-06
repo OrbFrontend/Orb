@@ -8,13 +8,9 @@ The registry is process-global, so every test here builds its own hosts and unre
 module's list.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.inference.local_models.llama_server import manager
-
-pytestmark = pytest.mark.asyncio
 
 
 class _FakeHost:

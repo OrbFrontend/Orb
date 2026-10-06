@@ -2,18 +2,21 @@
 pass_id reasoning gating, and graceful degradation on every failure
 path."""
 
-from __future__ import annotations
-
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 
+from backend.inference import endpoint_profiles as ep
 from backend.prompting.tool_catalog import TOOLS, register_tool, require_tool
 from backend.workflows._forced_call import forced_tool_call
+from backend.workflows.contracts import readonly_view
 
 _TOOL_NAME = "editor_rewrite"
 _SETTINGS = {"model_name": "test-model"}
+_RESULT_X = [{"type": "result", "args": {"rewritten_text": "x"}}]
+_EMPTY = [{"type": "result", "args": {}}]
 
 
 class _RecordingTracker:
@@ -31,31 +34,28 @@ class _RecordingTracker:
         pass
 
 
-class _FakeClient:
-    """Drives `client.complete` with a programmable event stream."""
-
-    def __init__(self, events: list[dict], raise_on_stream: Exception | None = None) -> None:
-        self._events = events
-        self._raise = raise_on_stream
-        self.complete_kwargs: dict[str, Any] | None = None
-
-    async def complete(self, **kwargs) -> AsyncIterator[dict]:
-        self.complete_kwargs = kwargs
-        if self._raise is not None:
-            raise self._raise
-        for ev in self._events:
-            yield ev
-
-
 class _ReplayClient:
-    """Serves one programmed event list per ``complete`` call, recording each."""
+    """Serves one programmed event list per ``complete`` call, recording each (or raising *error*)."""
 
-    def __init__(self, streams: list[list[dict]]) -> None:
+    def __init__(self, *streams: list[dict], base_url: str | None = None, error: Exception | None = None) -> None:
         self._streams = streams
+        self._error = error
         self.seen: list[dict[str, Any]] = []
+        if base_url is not None:
+            self.base_url = base_url
+
+    @property
+    def complete_kwargs(self) -> dict[str, Any]:
+        return self.seen[-1]
+
+    @property
+    def tool_names(self) -> list[str]:
+        return [t["function"]["name"] for t in self.complete_kwargs["tools"]]
 
     async def complete(self, **kwargs) -> AsyncIterator[dict]:
         self.seen.append(kwargs)
+        if self._error is not None:
+            raise self._error
         for ev in self._streams[len(self.seen) - 1]:
             yield ev
 
@@ -64,258 +64,140 @@ def _done_event_with_tool_call(name: str, args: dict) -> dict:
     return {"type": "done", "message": {"tool_calls": [{"function": {"name": name, "arguments": args}}]}}
 
 
-async def _collect(gen: AsyncIterator[dict]) -> list[dict]:
+def _client(args: dict | None = None, name: str = _TOOL_NAME, **kwargs) -> _ReplayClient:
+    return _ReplayClient([_done_event_with_tool_call(name, {} if args is None else args)], **kwargs)
+
+
+async def _call(client, *, prefix=(), tail_messages=(), settings=_SETTINGS, **kwargs) -> list[dict]:
+    gen = forced_tool_call(
+        client=client, prefix=prefix, tail_messages=tail_messages, tool_name=_TOOL_NAME, settings=settings, **kwargs
+    )
     return [item async for item in gen]
 
 
 class TestKVTracker:
     async def test_kv_tracker_none_does_not_record(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        out = await _collect(
-            forced_tool_call(
-                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=None
-            )
-        )
-        assert out == [{"type": "result", "args": {"rewritten_text": "x"}}]
+        assert await _call(_client({"rewritten_text": "x"}), kv_tracker=None) == _RESULT_X
 
     async def test_kv_tracker_records_with_pass_id_label(self):
         tracker = _RecordingTracker()
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                pass_id="wf:p1",
-                kv_tracker=tracker,
-            )
-        )
-        assert len(tracker.calls) == 1
-        label, _, tools, model = tracker.calls[0]
-        assert label == "wf:p1"
-        assert model == "test-model"
-        assert len(tools) == 1
-        assert tools[0]["function"]["name"] == _TOOL_NAME
-
-    async def test_kv_tracker_records_the_endpoint_the_call_went_to(self):
-        # Half the lane key. In dual-model mode a workflow's forced call runs on the agent server while the writer runs on
-        # another, and the two can answer to the same model name -- without the endpoint the tracker measures one lane's calls
-        # against the other's and reports a bust for neither.
-        tracker = _RecordingTracker()
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        client.base_url = "https://api.example.com/v1"
-        await _collect(
-            forced_tool_call(
-                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=tracker
-            )
-        )
-        assert tracker.lanes == [("https://api.example.com/v1", "test-model", "")]
-
-    async def test_kv_tracker_records_a_distinct_prompt_shape(self):
-        tracker = _RecordingTracker()
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                kv_tracker=tracker,
-                cache_shape="format_consistency:voice_rewrite",
-            )
-        )
-        assert tracker.lanes == [("", "test-model", "format_consistency:voice_rewrite")]
+        await _call(_client({"rewritten_text": "x"}), pass_id="wf:p1", kv_tracker=tracker)
+        [(label, _, tools, model)] = tracker.calls
+        assert (label, model) == ("wf:p1", "test-model")
+        assert [tool["function"]["name"] for tool in tools] == [_TOOL_NAME]
 
     async def test_kv_tracker_default_label_when_no_pass_id(self):
         tracker = _RecordingTracker()
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(
-            forced_tool_call(
-                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, kv_tracker=tracker
-            )
-        )
+        await _call(_client(), kv_tracker=tracker)
         assert tracker.calls[0][0] == f"forced:{_TOOL_NAME}"
+
+    @pytest.mark.parametrize(
+        "base_url,shape,lane",
+        [
+            # In dual-model mode the agent and writer servers can share a model name; the endpoint keeps their lanes apart.
+            ("https://api.example.com/v1", None, ("https://api.example.com/v1", "test-model", "")),
+            (None, "format_consistency:voice_rewrite", ("", "test-model", "format_consistency:voice_rewrite")),
+        ],
+    )
+    async def test_kv_tracker_records_the_lane(self, base_url, shape, lane):
+        tracker = _RecordingTracker()
+        await _call(_client({}, base_url=base_url), kv_tracker=tracker, **({"cache_shape": shape} if shape else {}))
+        assert tracker.lanes == [lane]
 
 
 class TestReasoningForwarding:
     async def test_pass_id_set_forwards_reasoning_deltas(self):
-        client = _FakeClient(
+        client = _ReplayClient(
             [
                 {"type": "reasoning", "delta": "thinking..."},
                 {"type": "reasoning", "delta": " more"},
                 _done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"}),
             ]
         )
-        out = await _collect(
-            forced_tool_call(
-                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, pass_id="wf:p1"
-            )
-        )
-        assert out[:2] == [
+        assert await _call(client, pass_id="wf:p1") == [
             {"event": "reasoning", "data": {"pass": "wf:p1", "delta": "thinking..."}},
             {"event": "reasoning", "data": {"pass": "wf:p1", "delta": " more"}},
+            *_RESULT_X,
         ]
-        assert out[-1] == {"type": "result", "args": {"rewritten_text": "x"}}
 
     async def test_pass_id_none_suppresses_reasoning_deltas(self):
-        client = _FakeClient(
+        client = _ReplayClient(
             [{"type": "reasoning", "delta": "thinking..."}, _done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})]
         )
-        out = await _collect(
-            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, pass_id=None)
-        )
-        assert out == [{"type": "result", "args": {"rewritten_text": "x"}}]
+        assert await _call(client, pass_id=None) == _RESULT_X
 
 
-class TestTokenBudget:
-    """The agent lane's configured `max_tokens` is the budget, exactly."""
-
-    async def _sent_budget(self, settings: dict) -> int:
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "x"})])
-        await _collect(forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=settings))
-        assert client.complete_kwargs is not None
-        return client.complete_kwargs["max_tokens"]
-
-    async def test_a_short_budget_is_sent_as_configured(self):
-        assert await self._sent_budget({**_SETTINGS, "max_tokens": 600}) == 600
-
-    async def test_the_agent_lanes_own_budget_wins_when_it_resolves(self):
-        # Present only when a separate agent endpoint overlaid its model config;
-        # the forced call runs on that lane, so its budget outranks the writer's.
-        settings = {**_SETTINGS, "max_tokens": 600, "agent_max_tokens": 32768}
-        assert await self._sent_budget(settings) == 32768
-
-    async def test_settings_without_a_budget_fall_back_to_the_column_default(self):
-        assert await self._sent_budget(_SETTINGS) == 4096
+@pytest.mark.parametrize(
+    "settings,budget",
+    [
+        ({**_SETTINGS, "max_tokens": 600}, 600),
+        # Present only when a separate agent endpoint overlaid its model config; the forced call runs on that lane.
+        ({**_SETTINGS, "max_tokens": 600, "agent_max_tokens": 32768}, 32768),
+        (_SETTINGS, 4096),  # the column default
+    ],
+)
+async def test_the_agent_lanes_configured_max_tokens_is_the_budget(settings, budget):
+    client = _client({"rewritten_text": "x"})
+    await _call(client, settings=settings)
+    assert client.complete_kwargs["max_tokens"] == budget
 
 
 class TestToolsAssembly:
-    async def test_enabled_tools_none_single_schema(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(
-            forced_tool_call(
-                client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, enabled_tools=None
-            )
-        )
-        tools = client.complete_kwargs["tools"]
-        assert [t["function"]["name"] for t in tools] == [_TOOL_NAME]
-
-    async def test_enabled_tools_dict_matches_enabled_schemas(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                enabled_tools={"editor_rewrite": True, "editor_apply_patch": True, "direct_scene": False},
-            )
-        )
-        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-        # enabled_schemas walks TOOLS in registry insertion order; only the True entries survive.
-        assert names == ["editor_apply_patch", "editor_rewrite"]
+    @pytest.mark.parametrize(
+        "kwargs,base_url,names",
+        [
+            ({"enabled_tools": None}, None, [_TOOL_NAME]),
+            # enabled_schemas walks TOOLS in registry insertion order; only the True entries survive.
+            (
+                {"enabled_tools": {"editor_rewrite": True, "editor_apply_patch": True, "direct_scene": False}},
+                None,
+                ["editor_apply_patch", "editor_rewrite"],
+            ),
+            # A forced tool missing from the enabled dict is appended.
+            (
+                {"enabled_tools": {"editor_apply_patch": True, "editor_rewrite": False}},
+                None,
+                ["editor_apply_patch", _TOOL_NAME],
+            ),
+            (
+                {"offer_tools": ("editor_apply_patch", _TOOL_NAME)},
+                "http://localhost:5000/v1",
+                ["editor_apply_patch", _TOOL_NAME],
+            ),
+            # DeepSeek + thinking coerces the forced tool_choice to "auto"; a rival schema would then win, so only the forced
+            # tool may ship.
+            (
+                {"offer_tools": ("editor_apply_patch", _TOOL_NAME), "model_name": "deepseek-v4-pro", "reasoning_on": True},
+                "https://api.deepseek.com",
+                [_TOOL_NAME],
+            ),
+        ],
+    )
+    async def test_the_tools_array(self, kwargs, base_url, names):
+        client = _client(base_url=base_url)
+        await _call(client, **kwargs)
+        assert client.tool_names == names
 
     async def test_standalone_forced_tool_appended_to_array(self):
         tool = require_tool(_TOOL_NAME)
         register_tool(_TOOL_NAME, tool["schema"], tool["choice"], standalone=True)
         try:
-            client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-            await _collect(
-                forced_tool_call(
-                    client=client,
-                    prefix=[],
-                    tail_messages=[],
-                    tool_name=_TOOL_NAME,
-                    settings=_SETTINGS,
-                    enabled_tools={"editor_apply_patch": True},
-                )
-            )
-            names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-            assert _TOOL_NAME in names
-            assert "editor_apply_patch" in names
+            client = _client()
+            await _call(client, enabled_tools={"editor_apply_patch": True})
+            assert {_TOOL_NAME, "editor_apply_patch"} <= set(client.tool_names)
         finally:
             register_tool(_TOOL_NAME, tool["schema"], tool["choice"], standalone=False)
 
-    async def test_force_tool_missing_from_enabled_dict_appended(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                enabled_tools={"editor_apply_patch": True, "editor_rewrite": False},
-            )
-        )
-        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-        assert _TOOL_NAME in names
-
-    async def test_offer_tools_ships_the_shared_blob(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        client.base_url = "http://localhost:5000/v1"
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                offer_tools=("editor_apply_patch", _TOOL_NAME),
-            )
-        )
-        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-        assert names == ["editor_apply_patch", _TOOL_NAME]
-
-    async def test_offer_tools_collapses_when_forcing_is_dropped(self):
-        """DeepSeek + thinking coerces the forced tool_choice to "auto"; a rival
-        schema in the array then wins the model's pick, so only the forced tool
-        may ship."""
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        client.base_url = "https://api.deepseek.com"
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                model_name="deepseek-v4-pro",
-                reasoning_on=True,
-                offer_tools=("editor_apply_patch", _TOOL_NAME),
-            )
-        )
-        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-        assert names == [_TOOL_NAME]
-
     async def test_offer_tools_retries_alone_when_forcing_is_ignored(self):
-        """A provider that ignores tool_choice instead of rejecting it can only be
-        caught by the reply: the wrong tool came back, so retry with the forced
-        tool alone and remember the endpoint for the rest of the session."""
-        from backend.inference import endpoint_profiles as ep
-
+        """A provider that ignores tool_choice can only be caught by the reply: retry with the forced tool alone and remember
+        the endpoint for the rest of the session."""
         client = _ReplayClient(
-            [
-                [_done_event_with_tool_call("editor_apply_patch", {})],
-                [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "ok"})],
-            ]
+            [_done_event_with_tool_call("editor_apply_patch", {})],
+            [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "ok"})],
+            base_url="http://ignores-forcing.local",
         )
-        client.base_url = "http://ignores-forcing.local"
         try:
-            out = await _collect(
-                forced_tool_call(
-                    client=client,
-                    prefix=[],
-                    tail_messages=[],
-                    tool_name=_TOOL_NAME,
-                    settings=_SETTINGS,
-                    offer_tools=("editor_apply_patch", _TOOL_NAME),
-                )
-            )
+            out = await _call(client, offer_tools=("editor_apply_patch", _TOOL_NAME))
             assert out == [{"type": "result", "args": {"rewritten_text": "ok"}}]
             assert [[t["function"]["name"] for t in kw["tools"]] for kw in client.seen] == [
                 ["editor_apply_patch", _TOOL_NAME],
@@ -330,152 +212,74 @@ class TestToolsAssembly:
         """A reply with no tool call is not evidence that forcing was ignored.
 
         Truncation at max_tokens mid-reasoning, a content-only answer, or a provider-side finish_reason=error all land here;
-        branding the endpoint on one of those would drop the shared two-tool blob -- and with it the analyze/compose prefix --
-        for the rest of the session on a provider that does honor forcing. Degrade to empty args, no retry, nothing learned.
+        branding the endpoint on one of those would drop the shared two-tool blob for the rest of the session on a provider
+        that does honor forcing. Degrade to empty args, no retry, nothing learned.
         """
-        from backend.inference import endpoint_profiles as ep
-
         client = _ReplayClient(
-            [
-                [{"type": "done", "message": {"content": "I'll think about it", "finish_reason": "length"}}],
-                [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "unreachable"})],
-            ]
+            [{"type": "done", "message": {"content": "I'll think about it", "finish_reason": "length"}}],
+            [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "unreachable"})],
+            base_url="http://truncating.local",
         )
-        client.base_url = "http://truncating.local"
-        try:
-            out = await _collect(
-                forced_tool_call(
-                    client=client,
-                    prefix=[],
-                    tail_messages=[],
-                    tool_name=_TOOL_NAME,
-                    settings=_SETTINGS,
-                    offer_tools=("editor_apply_patch", _TOOL_NAME),
-                )
-            )
-            assert out == [{"type": "result", "args": {}}]
-            assert len(client.seen) == 1
-            assert ep.honors_forced_tool_choice("http://truncating.local", "test-model")
-        finally:
-            ep._FORCED_CHOICE_IGNORED.discard(("http://truncating.local", "test-model"))
+        assert await _call(client, offer_tools=("editor_apply_patch", _TOOL_NAME)) == _EMPTY
+        assert len(client.seen) == 1
+        assert ep.honors_forced_tool_choice("http://truncating.local", "test-model")
 
     async def test_enabled_tools_array_never_collapses(self):
-        """The pipeline's blob is the shared KV prefix: a wrong tool in the reply
-        degrades to empty args rather than re-issuing with a different array."""
-        client = _ReplayClient([[_done_event_with_tool_call("editor_apply_patch", {})]])
-        client.base_url = "http://ignores-forcing.local"
-        out = await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=[],
-                tail_messages=[],
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                enabled_tools={"editor_apply_patch": True, "editor_rewrite": True},
-            )
-        )
-        assert out == [{"type": "result", "args": {}}]
+        """The pipeline's blob is the shared KV prefix: a wrong tool in the reply degrades to empty args."""
+        client = _client(name="editor_apply_patch", base_url="http://ignores-forcing.local")
+        assert await _call(client, enabled_tools={"editor_apply_patch": True, "editor_rewrite": True}) == _EMPTY
         assert len(client.seen) == 1
 
     async def test_wrapped_prefix_unwrapped_to_plain_dicts(self):
-        """A workflow that passes ``pre_ctx.prefix`` (tuple of
-        MappingProxyType) must end up with plain dicts in the messages
-        list -- json.dumps fails on MappingProxyType, so this is the only
-        way prefix bytes match what the pipeline serializes."""
-        import json
-
-        from backend.workflows.contracts import readonly_view
-
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        wrapped_prefix = readonly_view([{"role": "system", "content": "x"}])
-        wrapped_tail = readonly_view([{"role": "user", "content": "y"}])
-        tracker = _RecordingTracker()
-        await _collect(
-            forced_tool_call(
-                client=client,
-                prefix=wrapped_prefix,
-                tail_messages=wrapped_tail,
-                tool_name=_TOOL_NAME,
-                settings=_SETTINGS,
-                kv_tracker=tracker,
-            )
+        """``pre_ctx.prefix`` (MappingProxyType) must reach the client and tracker as plain dicts, or json.dumps fails."""
+        client, tracker = _client(), _RecordingTracker()
+        await _call(
+            client,
+            prefix=readonly_view([{"role": "system", "content": "x"}]),
+            tail_messages=readonly_view([{"role": "user", "content": "y"}]),
+            kv_tracker=tracker,
         )
         messages = client.complete_kwargs["messages"]
-        # Every entry must be a plain dict so httpx + json.dumps succeed.
-        for m in messages:
+        assert messages == [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}]
+        for m in [*messages, *tracker.calls[0][1]]:
             assert type(m) is dict
             json.dumps(m)  # raises if any wrapper leaked through
-        assert messages == [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}]
-        # KV tracker also receives plain dicts.
-        recorded_messages = tracker.calls[0][1]
-        for m in recorded_messages:
-            assert type(m) is dict
 
-    async def test_messages_concatenate_prefix_and_tail(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        prefix = ({"role": "system", "content": "s"},)
-        tail = ({"role": "user", "content": "u"},)
-        await _collect(
-            forced_tool_call(client=client, prefix=prefix, tail_messages=tail, tool_name=_TOOL_NAME, settings=_SETTINGS)
-        )
-        assert client.complete_kwargs["messages"] == [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
-
-    async def test_tool_choice_forwarded(self):
-        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-        await _collect(forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS))
-        assert client.complete_kwargs["tool_choice"] == TOOLS[_TOOL_NAME]["choice"]
-
-    async def test_tools_in_prompt_forwarded(self):
-        """Default True; False reaches the client so chat mode keeps the tool
-        schema out of the server-rendered prompt (KV cache)."""
+    async def test_messages_tool_choice_and_tools_in_prompt_are_forwarded(self):
         for flag in (True, False):
-            client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
-            await _collect(
-                forced_tool_call(
-                    client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, tools_in_prompt=flag
-                )
+            client = _client()
+            await _call(
+                client,
+                prefix=({"role": "system", "content": "s"},),
+                tail_messages=({"role": "user", "content": "u"},),
+                tools_in_prompt=flag,
             )
+            assert client.complete_kwargs["messages"] == [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+            assert client.complete_kwargs["tool_choice"] == TOOLS[_TOOL_NAME]["choice"]
+            # False keeps the tool schema out of the server-rendered prompt (KV cache).
             assert client.complete_kwargs["tools_in_prompt"] is flag
 
 
 class TestGracefulDegradation:
-    async def test_tool_call_missing_yields_empty_args(self):
-        client = _FakeClient([{"type": "done", "message": {"content": "no calls"}}])
-        out = await _collect(
-            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
-        )
-        assert out == [{"type": "result", "args": {}}]
-
-    async def test_wrong_tool_name_in_response_falls_back_to_empty(self):
-        client = _FakeClient([_done_event_with_tool_call("not_the_one", {"x": 1})])
-        out = await _collect(
-            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
-        )
-        assert out == [{"type": "result", "args": {}}]
-
-    async def test_client_complete_raises_yields_empty_args(self):
-        client = _FakeClient([], raise_on_stream=RuntimeError("network broke"))
-        out = await _collect(
-            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
-        )
-        assert out == [{"type": "result", "args": {}}]
+    @pytest.mark.parametrize(
+        "client",
+        [
+            _ReplayClient([{"type": "done", "message": {"content": "no calls"}}]),
+            _client({"x": 1}, name="not_the_one"),
+            _ReplayClient(error=RuntimeError("network broke")),
+        ],
+        ids=["no-tool-call", "wrong-tool", "client-raises"],
+    )
+    async def test_a_failed_call_yields_empty_args(self, client):
+        assert await _call(client) == _EMPTY
 
     async def test_raise_errors_lets_the_provider_error_through(self):
-        client = _FakeClient([], raise_on_stream=RuntimeError("image input not supported"))
         with pytest.raises(RuntimeError, match="image input not supported"):
-            await _collect(
-                forced_tool_call(
-                    client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS, raise_errors=True
-                )
-            )
+            await _call(_ReplayClient(error=RuntimeError("image input not supported")), raise_errors=True)
 
     async def test_parse_failure_yields_empty_args(self, monkeypatch):
         def _raises(_msg):
             raise ValueError("corrupt")
 
         monkeypatch.setattr("backend.workflows._forced_call.parse_tool_calls", _raises)
-        client = _FakeClient([{"type": "done", "message": {"tool_calls": []}}])
-        out = await _collect(
-            forced_tool_call(client=client, prefix=[], tail_messages=[], tool_name=_TOOL_NAME, settings=_SETTINGS)
-        )
-        assert out == [{"type": "result", "args": {}}]
+        assert await _call(_ReplayClient([{"type": "done", "message": {"tool_calls": []}}])) == _EMPTY

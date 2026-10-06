@@ -16,6 +16,7 @@ from typing import Annotated, Any, TypeVar
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, Response, UploadFile
 
 from ...core import scrub_log, workflow_character_state_lock, workflow_config_lock, workflow_state_lock
+from ...core.settings import Settings
 from ...database import (
     conversation_attachment_ids,
     get_character_card,
@@ -115,7 +116,7 @@ async def _resolve_workflow_character(
 
 
 def _gate_workflow_sub(
-    sub: Subscription[_HookT] | None, wid: str, settings: Mapping[str, Any], *, action: str, detail: str
+    sub: Subscription[_HookT] | None, wid: str, settings: Settings, *, action: str, detail: str
 ) -> Subscription[_HookT]:
     """Shared missing-handler / disabled gate, applied before any lock is taken.
 
@@ -620,7 +621,7 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
 
 
 def _build_reroll_gen_ctx(
-    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client, *, replay: bool
+    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Settings, client, *, replay: bool
 ) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
@@ -677,7 +678,7 @@ async def api_reroll_gen_attachment(
 
 
 async def _reroll_gen(
-    cid: str, mid: int, aid: int, body: dict, sub: Subscription[RerollGenHook], settings_snapshot: Mapping[str, Any]
+    cid: str, mid: int, aid: int, body: dict, sub: Subscription[RerollGenHook], settings_snapshot: Settings
 ) -> dict:
     wid = sub.workflow_id
     # Resolve-and-lock the canonical root together (see regenerate): the in-lock
@@ -792,7 +793,7 @@ async def api_rehydrate_attachment(
     )
 
 
-async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Mapping[str, Any]) -> dict:
+async def _rehydrate(cid: str, mid: int, aid: int, seed: str, settings_snapshot: Settings) -> dict:
     # Serialize same-root rehydrates the way /regenerate and /reroll-gen already do for their sibling-tree mutations. Without
     # this, two concurrent callers would each run the full reroll_gen LLM call before the cache helper's transactional recheck
     # deduplicates them at the DB layer -- doubling LLM cost even though the row stays consistent. locked_attachment_group holds

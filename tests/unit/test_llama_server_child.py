@@ -5,8 +5,6 @@ CI does not cover is how ``NotImplementedError`` reached a user's chat bubble in
 exercised here against the same expectations.
 """
 
-from __future__ import annotations
-
 import asyncio
 import sys
 
@@ -15,8 +13,6 @@ import pytest
 from backend.inference.local_models.llama_server import binary as B
 from backend.inference.local_models.llama_server import client as C
 from backend.inference.local_models.llama_server import process as P
-
-pytestmark = pytest.mark.asyncio
 
 # A stand-in child: prints two lines (one non-ASCII, to pin the UTF-8 decode
 # that a Windows code page would otherwise mangle) then blocks until killed.

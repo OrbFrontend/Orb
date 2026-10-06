@@ -1,7 +1,5 @@
 """Regressions for imported data, model ownership, and cancelled persistence."""
 
-from __future__ import annotations
-
 import asyncio
 import hashlib
 import sqlite3

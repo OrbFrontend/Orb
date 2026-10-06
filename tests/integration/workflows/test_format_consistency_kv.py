@@ -1,7 +1,5 @@
 """Integration tests for the standalone voice-rewrite lane."""
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -74,8 +72,7 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
         }
     )
 
-    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
-    _ = send.text
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})).text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
     assert "workflow" in by_pass, f"voice rewrite never fired (passes: {sorted(by_pass)})"
@@ -106,8 +103,7 @@ async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):
     llm_mock.enqueue_director([{"id": "c1", "type": "function", "function": {"name": "direct_scene", "arguments": "{}"}}])
     llm_mock.enqueue_writer(DRIFTING_DRAFT)
 
-    send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})
-    _ = send.text
+    _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "and then?", "attachments": []})).text
 
     by_pass = {c["pass"]: c for c in llm_mock.captured}
     assert "workflow" not in by_pass
@@ -137,8 +133,7 @@ async def test_the_rewrite_prompt_does_not_grow_with_history(client, llm_mock, v
     for msg in ("and then?", "what happens next?"):
         _queue_turn()
         start = len(llm_mock.captured)
-        send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": msg, "attachments": []})
-        _ = send.text
+        _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": msg, "attachments": []})).text
         rewrites.append(next(c for c in llm_mock.captured[start:] if c["pass"] == "workflow"))
 
     first, second = rewrites

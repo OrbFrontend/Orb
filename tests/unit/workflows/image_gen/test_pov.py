@@ -4,8 +4,6 @@ No model and no network -- `local_ml.aclassify_pov` is monkeypatched everywhere,
 the grid math is exercised through the pure `pov_from_logits`.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis.text.markup import classify_axes, narration_only

@@ -5,8 +5,6 @@ of a single combined call. magic_rewrite routes through that same director pass,
 per-fragment call and the rewrite still lands as a new sibling.
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.database import get_message_by_id, get_messages, set_workflow_enabled
@@ -54,8 +52,7 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
     _ = send.text
 
-    original = [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]
-    return cid, original["id"]
+    return cid, [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]["id"]
 
 
 async def test_magic_rewrite_drives_the_per_fragment_director(client, llm_mock):

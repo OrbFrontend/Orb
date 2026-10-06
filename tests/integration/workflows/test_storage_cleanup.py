@@ -2,8 +2,6 @@
 recovery metadata, and remove diagnostic log data.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.database import insert_workflow_attachment_row
@@ -36,8 +34,7 @@ async def _attachment(db, mid: int, *, created_at: str, rehydratable: bool = Tru
 
 
 async def _data_b64(db, att_id: int) -> str:
-    rows = list(await db.execute_fetchall("SELECT data_b64 FROM workflow_attachments WHERE id = ?", (att_id,)))
-    return rows[0]["data_b64"]
+    return list(await db.execute_fetchall("SELECT data_b64 FROM workflow_attachments WHERE id = ?", (att_id,)))[0]["data_b64"]
 
 
 async def test_cleanup_evicts_only_old_rehydratable_artifacts(client, db):
@@ -47,8 +44,7 @@ async def test_cleanup_evicts_only_old_rehydratable_artifacts(client, db):
     fresh = await _attachment(db, mid, created_at=RECENT)
     seedless = await _attachment(db, mid, created_at=OLD, rehydratable=False)
 
-    resp = await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 7})
-    assert resp["artifacts_evicted"] == 2
+    assert (await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 7}))["artifacts_evicted"] == 2
 
     assert await _data_b64(db, old_a) == EVICTED_MARKER
     assert await _data_b64(db, old_b) == EVICTED_MARKER
@@ -57,16 +53,14 @@ async def test_cleanup_evicts_only_old_rehydratable_artifacts(client, db):
     assert await _data_b64(db, seedless) != EVICTED_MARKER
 
     # Evict is not delete: every row, including the evicted ones, is still there.
-    rows = list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM workflow_attachments"))
-    assert rows[0]["n"] == 4
+    assert list(await db.execute_fetchall("SELECT COUNT(*) AS n FROM workflow_attachments"))[0]["n"] == 4
 
 
 async def test_cleanup_days_zero_means_everything(client, db):
     _cid, mid = await _conversation(client)
     fresh = await _attachment(db, mid, created_at=RECENT)
 
-    resp = await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 0})
-    assert resp["artifacts_evicted"] == 1
+    assert (await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 0}))["artifacts_evicted"] == 1
     assert await _data_b64(db, fresh) == EVICTED_MARKER
 
 
@@ -118,9 +112,9 @@ async def test_log_wipe_respects_cutoff_and_keeps_the_row(client, db):
     assert resp["tool_calls"] == []
 
     # Nothing reclaimable left: the preview agrees and a repeat run is a no-op.
-    assert (await client.get("/api/storage?days=7")).json()["logs"]["count"] == 0
-    assert (await client.get("/api/storage?days=0")).json()["logs"]["count"] == 1  # the fresh row, still in scope
-    assert (await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})).json()["logs_wiped"] == 0
+    assert (await client.get_json("/api/storage?days=7"))["logs"]["count"] == 0
+    assert (await client.get_json("/api/storage?days=0"))["logs"]["count"] == 1  # the fresh row, still in scope
+    assert (await client.post_json("/api/storage/cleanup", json={"logs": True, "days": 7}))["logs_wiped"] == 0
 
 
 async def test_wipe_covers_every_column_not_whitelisted(client, db):
@@ -148,17 +142,17 @@ async def test_preview_matches_what_cleanup_reports(client, db):
     await _attachment(db, mid, created_at=OLD, rehydratable=False, data=b"b" * 900)
     await _attachment(db, mid, created_at=RECENT, data=b"c" * 900)
 
-    preview = (await client.get("/api/storage?days=7")).json()
+    preview = await client.get_json("/api/storage?days=7")
     # Only the one old rehydratable row is in scope; the seedless and the fresh
     # row are both excluded from the preview exactly as they are from the work.
     assert preview["artifacts"]["count"] == 1
     assert preview["artifacts"]["bytes"] == 900
 
-    resp = (await client.post("/api/storage/cleanup", json={"artifacts": True, "days": 7})).json()
+    resp = await client.post_json("/api/storage/cleanup", json={"artifacts": True, "days": 7})
     assert resp["artifacts_evicted"] == preview["artifacts"]["count"]
 
     # Preview is recomputed against the post-cleanup state: nothing left in scope.
-    assert (await client.get("/api/storage?days=7")).json()["artifacts"]["count"] == 0
+    assert (await client.get_json("/api/storage?days=7"))["artifacts"]["count"] == 0
 
 
 async def test_budget_setting_round_trips_and_has_a_floor(client):

@@ -7,8 +7,6 @@ whose verb the suffix tagger can't see ("we time it") were missed.
 bailed out early, and "not to push you away" read its object as a subject.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis.detectors.contrastive_negation import detect_contrastive_negation

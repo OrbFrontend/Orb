@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from backend.database import add_message, get_messages_before, insert_workflow_attachment_row, set_active_leaf
 
 
@@ -15,8 +13,7 @@ async def test_get_messages_before_returns_empty_for_root_message(client):
 
 
 async def test_get_messages_before_returns_empty_for_missing_message(client):
-    cid = await _new_conversation(client)
-    assert await get_messages_before(cid, 99999) == []
+    assert await get_messages_before((await _new_conversation(client)), 99999) == []
 
 
 async def test_get_messages_before_excludes_anchor(client):
@@ -26,8 +23,7 @@ async def test_get_messages_before_excludes_anchor(client):
     m3, _ = await add_message(cid, "user", "u3", 1, parent_id=m2)
     await set_active_leaf(cid, m3)
     msgs = await get_messages_before(cid, m3)
-    ids = [m["id"] for m in msgs]
-    assert ids == [m1, m2]
+    assert [m["id"] for m in msgs] == [m1, m2]
 
 
 async def test_get_messages_before_returns_root_to_leaf_order(client):

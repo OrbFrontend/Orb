@@ -8,8 +8,6 @@ wrong place. Nothing anywhere says so.
 Pinned against the repo root computed from *this* file, which sits at a known depth of its own.
 """
 
-from __future__ import annotations
-
 import os
 from pathlib import Path
 

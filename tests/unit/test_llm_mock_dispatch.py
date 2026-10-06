@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from tests.integration._llm_mock import _pass_from_tool_choice
@@ -18,28 +16,23 @@ def test_auto_routes_to_editor():
 
 
 def test_editor_apply_patch_routes_to_editor():
-    tc = {"type": "function", "function": {"name": "editor_apply_patch"}}
-    assert _pass_from_tool_choice(tc) == "editor"
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_apply_patch"}}) == "editor"
 
 
 def test_editor_rewrite_routes_to_editor():
-    tc = {"type": "function", "function": {"name": "editor_rewrite"}}
-    assert _pass_from_tool_choice(tc) == "editor"
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_rewrite"}}) == "editor"
 
 
 def test_editor_search_replace_routes_to_post_processing():
-    tc = {"type": "function", "function": {"name": "editor_search_replace"}}
-    assert _pass_from_tool_choice(tc) == "post_processing"
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_search_replace"}}) == "post_processing"
 
 
 def test_direct_scene_routes_to_director():
-    tc = {"type": "function", "function": {"name": "direct_scene"}}
-    assert _pass_from_tool_choice(tc) == "director"
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "direct_scene"}}) == "director"
 
 
 def test_arbitrary_function_name_routes_to_workflow():
-    tc = {"type": "function", "function": {"name": "custom_workflow_tool"}}
-    assert _pass_from_tool_choice(tc) == "workflow"
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "custom_workflow_tool"}}) == "workflow"
 
 
 def test_dict_without_function_name_raises():

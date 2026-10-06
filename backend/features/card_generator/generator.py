@@ -10,6 +10,7 @@ from typing import Any
 
 from ...core import AssistantToolMessage, WireMessage, agent_lane_cut_off, agent_lane_max_tokens
 from ...core.llm_types import ToolResultMessage
+from ...core.settings import Settings
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
     get_card_activity,
@@ -140,7 +141,7 @@ def tool_result(call_id: str, content: str) -> ToolResultMessage:
     return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
-def card_arguments(response: Mapping[str, Any], settings: Mapping[str, Any]) -> Mapping[str, Any]:
+def card_arguments(response: Mapping[str, Any], settings: Settings) -> Mapping[str, Any]:
     """The drafted card's arguments; a reply cut at the budget or without a card is unavailable."""
     if response.get("finish_reason") == "length":
         raise CardGenerationUnavailable(agent_lane_cut_off(settings))
@@ -196,7 +197,7 @@ async def generate_card(
     model: str,
     idea: str,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     reasoning_on: bool = False,
     library_digest: str = "",
 ) -> dict[str, Any]:

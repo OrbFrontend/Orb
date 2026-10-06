@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypedDict
+from typing import TypedDict
+
+from ....core.settings import Settings
 
 
 class LengthGuard(TypedDict):
@@ -28,7 +30,7 @@ LENGTH_GUARD_INSTRUCTIONS = (
 )
 
 
-def resolve_length_guard(settings: Mapping[str, Any], agent_on: bool) -> LengthGuard | None:
+def resolve_length_guard(settings: Settings, agent_on: bool) -> LengthGuard | None:
     """Resolve the length-guard config from *settings*, or ``None`` when disabled.
 
     Agent-gated: returns ``None`` when the agent is off. The returned dict is the

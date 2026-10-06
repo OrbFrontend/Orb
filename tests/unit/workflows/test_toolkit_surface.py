@@ -6,8 +6,6 @@ is dropped from the re-export, omitted from ``__all__``, or rebound to something
 object.
 """
 
-from __future__ import annotations
-
 from backend.core import locks
 from backend.workflows import toolkit
 

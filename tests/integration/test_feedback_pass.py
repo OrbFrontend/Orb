@@ -6,8 +6,6 @@ step is skipped when no feedback fragment is enabled, that it obeys the global `
 feature), and that no ``give_feedback`` content leaks into the writer's prompt.
 """
 
-from __future__ import annotations
-
 import json
 
 import backend.database as dbmod
@@ -41,9 +39,7 @@ async def test_feedback_event_fires_and_persists(client, db, llm_mock):
     llm_mock.enqueue_writer("She looks up at you, startled.")
     llm_mock.enqueue_feedback(_GIVE_FEEDBACK_CALL)
 
-    events = await _drain(handle_turn(cid, "hello"))
-
-    feedback_events = [e for e in events if e.get("event") == "feedback"]
+    feedback_events = [e for e in await _drain(handle_turn(cid, "hello")) if e.get("event") == "feedback"]
     assert len(feedback_events) == 1, f"expected one feedback event, got {len(feedback_events)}"
     assert feedback_events[0]["data"]["values"] == {"suggested_actions": _FEEDBACK_NOTE}
 
@@ -62,13 +58,10 @@ async def test_feedback_skipped_when_fragment_disabled(client, db, llm_mock):
 
     llm_mock.enqueue_writer("She looks up at you, startled.")
 
-    events = await _drain(handle_turn(cid, "hello"))
-
-    assert not [e for e in events if e.get("event") == "feedback"]
+    assert not [e for e in (await _drain(handle_turn(cid, "hello"))) if e.get("event") == "feedback"]
     # No feedback pass ran.
     assert not any(p == "feedback" for p, _ in llm_mock.calls)
-    logs = await dbmod.get_conversation_logs(cid)
-    assert logs[0]["feedback"] == {}
+    assert (await dbmod.get_conversation_logs(cid))[0]["feedback"] == {}
 
 
 async def test_feedback_obeys_global_agent_toggle(client, db, llm_mock):
@@ -82,12 +75,9 @@ async def test_feedback_obeys_global_agent_toggle(client, db, llm_mock):
     # Enqueued but must stay unconsumed: with the agent off the feedback step never runs, so this response is never requested.
     llm_mock.enqueue_feedback(_GIVE_FEEDBACK_CALL)
 
-    events = await _drain(handle_turn(cid, "hello"))
-
-    assert not [e for e in events if e.get("event") == "feedback"]
+    assert not [e for e in (await _drain(handle_turn(cid, "hello"))) if e.get("event") == "feedback"]
     assert not any(p == "feedback" for p, _ in llm_mock.calls)
-    logs = await dbmod.get_conversation_logs(cid)
-    assert logs[0]["feedback"] == {}
+    assert (await dbmod.get_conversation_logs(cid))[0]["feedback"] == {}
 
 
 async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
@@ -106,8 +96,7 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
 
     # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in single-model mode the writer ships it too --
     # byte-identical with the feedback call's blob. It is the *schema* that rides the blob, not the prompt.
-    tool_names = [t["function"]["name"] for t in (wc["tools"] or [])]
-    assert "give_feedback" in tool_names
+    assert "give_feedback" in [t["function"]["name"] for t in (wc["tools"] or [])]
 
     # The schema rides the tools blob, not the writer's messages: neither the tool
     # name nor the feedback fragment's id reach the writer prompt.
@@ -119,8 +108,7 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
     # only blob) and forces tool_choice to give_feedback.
     feedback_calls = [c for c in llm_mock.captured if c["pass"] == "feedback"]
     assert len(feedback_calls) == 1
-    fb_tool_names = [t["function"]["name"] for t in (feedback_calls[0]["tools"] or [])]
-    assert "give_feedback" in fb_tool_names
+    assert "give_feedback" in [t["function"]["name"] for t in (feedback_calls[0]["tools"] or [])]
     assert feedback_calls[0]["tool_choice"] == {"type": "function", "function": {"name": "give_feedback"}}
 
     # The feedback step reuses the writer's cached base verbatim: same tools blob.

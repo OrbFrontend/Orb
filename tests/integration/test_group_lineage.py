@@ -5,8 +5,6 @@ pin the three things that would quietly break that: every fork path joining the 
 deep the forking goes, and a family surviving the deletion of the conversation it started as.
 """
 
-from __future__ import annotations
-
 from backend.database import add_message, get_conversation, set_active_leaf
 
 
@@ -16,11 +14,10 @@ async def _card(client, name: str) -> str:
 
 async def _group(client, title: str = "Campfire") -> dict:
     aria, kael = await _card(client, "Aria"), await _card(client, "Kael")
-    response = await client.post_json(
+    return await client.post_json(
         "/api/conversations",
         json={"kind": "group", "title": title, "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
     )
-    return response
 
 
 async def _history(cid: str, turns: int = 3) -> None:
@@ -31,7 +28,7 @@ async def _history(cid: str, turns: int = 3) -> None:
 
 
 async def _root_ids(client) -> dict[str, str | None]:
-    rows = (await client.get("/api/conversations")).json()
+    rows = await client.get_json("/api/conversations")
     return {row["id"]: row["group_root_id"] for row in rows}
 
 
@@ -42,7 +39,7 @@ async def test_group_checkpoint_joins_the_family_instead_of_founding_one(client)
     conv = await _group(client)
     await _history(conv["id"])
 
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
+    checkpoint = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={})
 
     assert conv["group_root_id"] is None, "the original group is the root of its own family"
     assert checkpoint["group_root_id"] == conv["id"]
@@ -68,8 +65,8 @@ async def test_a_family_stays_flat_however_deep_the_forking_goes(client):
     conv = await _group(client)
     await _history(conv["id"])
 
-    first = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
-    second = (await client.post(f"/api/conversations/{first['id']}/checkpoint", json={})).json()
+    first = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={})
+    second = await client.post_json(f"/api/conversations/{first['id']}/checkpoint", json={})
 
     assert first["group_root_id"] == conv["id"]
     assert second["group_root_id"] == conv["id"], "not the checkpoint it was taken from"
@@ -77,15 +74,13 @@ async def test_a_family_stays_flat_however_deep_the_forking_goes(client):
 
 async def test_conversion_to_group_founds_a_family(client):
     card = await _card(client, "Ada")
-    conv = (await client.post("/api/conversations", json={"character_card_id": card})).json()
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card})
 
-    response = await client.post_json(f"/api/conversations/{conv['id']}/convert-to-group")
-    converted = response["conversation"]
+    converted = (await client.post_json(f"/api/conversations/{conv['id']}/convert-to-group"))["conversation"]
 
     assert converted["kind"] == "group" and converted["group_root_id"] is None
 
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
-    assert checkpoint["group_root_id"] == conv["id"]
+    assert (await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={}))["group_root_id"] == conv["id"]
 
 
 # -- new conversation in an existing group ------------------------------------
@@ -95,16 +90,16 @@ async def test_new_group_conversation_carries_the_cast_but_no_history(client):
     conv = await _group(client)
     await _history(conv["id"])
 
-    fresh = (await client.post(f"/api/conversations/{conv['id']}/group-conversation")).json()
+    fresh = await client.post_json(f"/api/conversations/{conv['id']}/group-conversation")
 
     assert fresh["kind"] == "group" and fresh["group_root_id"] == conv["id"]
-    assert (await client.get(f"/api/conversations/{fresh['id']}/messages")).json() == []
+    assert await client.get_json(f"/api/conversations/{fresh['id']}/messages") == []
 
     def roster(members):
         return [(m["speaker_key"], m["character_card_id"], m["display_name"]) for m in members]
 
-    source_members = (await client.get(f"/api/conversations/{conv['id']}/members")).json()
-    fresh_members = (await client.get(f"/api/conversations/{fresh['id']}/members")).json()
+    source_members = await client.get_json(f"/api/conversations/{conv['id']}/members")
+    fresh_members = await client.get_json(f"/api/conversations/{fresh['id']}/members")
     assert roster(fresh_members) == roster(source_members)
     # A new roster identity, not a shared one: members belong to a conversation.
     assert {m["id"] for m in fresh_members}.isdisjoint({m["id"] for m in source_members})
@@ -112,7 +107,7 @@ async def test_new_group_conversation_carries_the_cast_but_no_history(client):
 
 async def test_group_only_routes_reject_a_solo_conversation(client):
     card = await _card(client, "Solo")
-    conv = (await client.post("/api/conversations", json={"character_card_id": card})).json()
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card})
 
     assert (await client.post(f"/api/conversations/{conv['id']}/group-conversation")).status_code == 409
     assert (await client.delete(f"/api/conversations/{conv['id']}/group")).status_code == 409
@@ -129,8 +124,8 @@ async def test_deleting_the_root_promotes_the_oldest_survivor(client):
     """
     conv = await _group(client)
     await _history(conv["id"])
-    first = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
-    second = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Second"})).json()
+    first = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={})
+    second = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={"title": "Second"})
 
     assert (await client.delete(f"/api/conversations/{conv['id']}")).status_code == 200
 
@@ -143,11 +138,10 @@ async def test_deleting_the_root_promotes_the_oldest_survivor(client):
 async def test_deleting_the_group_takes_the_whole_family(client):
     conv = await _group(client)
     await _history(conv["id"])
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
+    checkpoint = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={})
     bystander = await _group(client, title="Elsewhere")
 
-    response = await client.delete_json(f"/api/conversations/{conv['id']}/group")
-    assert response["deleted"] == 2
+    assert (await client.delete_json(f"/api/conversations/{conv['id']}/group"))["deleted"] == 2
 
     remaining = await _root_ids(client)
     assert conv["id"] not in remaining and checkpoint["id"] not in remaining
@@ -158,10 +152,9 @@ async def test_deleting_the_group_from_a_fork_resolves_the_root_first(client):
     """The sidebar passes whichever conversation is open, root or not."""
     conv = await _group(client)
     await _history(conv["id"])
-    checkpoint = (await client.post(f"/api/conversations/{conv['id']}/checkpoint", json={})).json()
+    checkpoint = await client.post_json(f"/api/conversations/{conv['id']}/checkpoint", json={})
 
-    response = await client.delete_json(f"/api/conversations/{checkpoint['id']}/group")
-    assert response["deleted"] == 2
+    assert (await client.delete_json(f"/api/conversations/{checkpoint['id']}/group"))["deleted"] == 2
 
     remaining = await _root_ids(client)
     assert conv["id"] not in remaining and checkpoint["id"] not in remaining

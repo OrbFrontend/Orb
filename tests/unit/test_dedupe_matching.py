@@ -8,8 +8,6 @@ The bodies below are card-sized on purpose. The Jaccard thresholds are calibrate
 stand-in would make a one-word edit look like a rewrite.
 """
 
-from __future__ import annotations
-
 from backend.features.library_dedupe import (
     MAX_BLOCK,
     POSSIBLE,
@@ -108,17 +106,14 @@ def test_a_shared_name_alone_is_not_a_duplicate():
     Two unrelated characters called Lira are not the same card, and a library
     that flags them teaches the user to ignore the whole tool.
     """
-    a = _unrelated("a", "Lira", BODY)
-    b = _unrelated("b", "Lira", OTHER_BODY)
-    assert score_pair(a, b).tier == ""
+    assert score_pair(_unrelated("a", "Lira", BODY), _unrelated("b", "Lira", OTHER_BODY)).tier == ""
 
 
 def test_a_shared_name_and_creator_still_need_text_agreement():
     # Creator + name is corroboration, not proof: one prolific creator's whole catalogue would otherwise pair with itself on the
     # two cards that happen to share a protagonist name.
     a = _unrelated("a", "Lira", BODY, creator="mothwood")
-    b = _unrelated("b", "Lira", OTHER_BODY, creator="mothwood")
-    assert score_pair(a, b).tier == ""
+    assert score_pair(a, _unrelated("b", "Lira", OTHER_BODY, creator="mothwood")).tier == ""
 
 
 def test_two_cards_with_no_avatar_do_not_count_as_sharing_one():
@@ -173,8 +168,7 @@ def test_the_same_description_and_greeting_is_strong_even_with_a_new_name():
 
 def test_a_lightly_edited_copy_with_the_same_avatar_is_strong():
     a = _signals("a", avatar=AVATAR)
-    b = _signals("b", avatar=NEAR_AVATAR, name="Someone Else", description=LIGHT_EDIT)
-    pair = score_pair(a, b)
+    pair = score_pair(a, _signals("b", avatar=NEAR_AVATAR, name="Someone Else", description=LIGHT_EDIT))
     assert pair.tier == STRONG
     assert pair.jaccard >= 0.9
     assert "Same avatar" in pair.reasons
@@ -183,8 +177,7 @@ def test_a_lightly_edited_copy_with_the_same_avatar_is_strong():
 def test_high_text_overlap_with_a_different_avatar_says_so():
     # "Same character with a different avatar" is a reason the brief asks for by name: the text agrees, the art does not.
     a = _signals("a", avatar=AVATAR)
-    b = _signals("b", avatar=FAR_AVATAR, description=LIGHT_EDIT)
-    pair = score_pair(a, b)
+    pair = score_pair(a, _signals("b", avatar=FAR_AVATAR, description=LIGHT_EDIT))
     assert pair.tier == STRONG  # the name still matches and the text is 0.9+
     assert "Same character with a different avatar" in pair.reasons
 
@@ -194,8 +187,7 @@ def test_high_text_overlap_with_a_different_avatar_says_so():
 
 def test_the_same_avatar_with_different_text_is_only_possible():
     a = _unrelated("a", "Lira", BODY, avatar=AVATAR)
-    b = _unrelated("b", "Toma", OTHER_BODY, avatar=NEAR_AVATAR)
-    pair = score_pair(a, b)
+    pair = score_pair(a, _unrelated("b", "Toma", OTHER_BODY, avatar=NEAR_AVATAR))
     assert pair.tier == POSSIBLE
     assert "Same avatar, different text" in pair.reasons
 
@@ -203,8 +195,7 @@ def test_the_same_avatar_with_different_text_is_only_possible():
 def test_moderate_text_overlap_is_possible_and_reports_the_percentage():
     truncated = ". ".join(BODY.split(". ")[:6]) + ". The tide takes the boats out twice a day and the gulls follow."
     a = _unrelated("a", "Lira", BODY)
-    b = _unrelated("b", "Wrenna", truncated)
-    pair = score_pair(a, b)
+    pair = score_pair(a, _unrelated("b", "Wrenna", truncated))
     assert pair.tier == POSSIBLE
     assert any(reason.startswith("Nearly identical text (") for reason in pair.reasons)
 
@@ -212,8 +203,7 @@ def test_moderate_text_overlap_is_possible_and_reports_the_percentage():
 def test_a_renamed_and_re_avatared_copy_stays_possible_rather_than_strong():
     # Nothing corroborates the text: not the name, not the art, not a whole field. High overlap alone is a lead, not a verdict.
     a = _signals("a", avatar=AVATAR)
-    b = _signals("b", name="Wrenna", avatar=FAR_AVATAR, description=LIGHT_EDIT)
-    pair = score_pair(a, b)
+    pair = score_pair(a, _signals("b", name="Wrenna", avatar=FAR_AVATAR, description=LIGHT_EDIT))
     assert pair.jaccard >= 0.9  # the text alone would clear the strong bar
     assert pair.tier == POSSIBLE
 
@@ -258,8 +248,7 @@ def test_an_oversized_block_degrades_to_a_chain_instead_of_every_pair():
     pairs = candidate_pairs(members)
     assert len(pairs) == len(members) - 1
     # ...and the chain is still enough to collapse them into one strong group.
-    scored = [score_pair(by_id[a], by_id[b]) for a, b in pairs]
-    assert group_strong_edges(scored) == [sorted(by_id)]
+    assert group_strong_edges([score_pair(by_id[a], by_id[b]) for a, b in pairs]) == [sorted(by_id)]
 
 
 # -- Grouping -----------------------------------------------------------------

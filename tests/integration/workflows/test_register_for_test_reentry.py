@@ -5,8 +5,6 @@ with the registry record. A second ``with register_for_test(wf):`` on the same i
 duplicate-(workflow_id, hook_type) guard.
 """
 
-from __future__ import annotations
-
 from ._fixtures import make_workflow, register_for_test
 
 

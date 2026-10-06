@@ -4,8 +4,6 @@ Pins that the shared and model-specific prompts join shared-first, that a card's
 prevent_prompt_overrides is set, and that no card yields empty persona/example fields.
 """
 
-from __future__ import annotations
-
 from backend.prompting import char_context
 
 

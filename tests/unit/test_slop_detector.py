@@ -5,8 +5,6 @@ group. E.g. if the phrase bank has ["a dance of", "dancing"] and the text contai
 "a dance of".
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis import format_report, run_audit
@@ -40,8 +38,7 @@ class TestMatchedPhrase:
     def test_long_phrase_non_first_variant(self):
         """4+ token non-first variant (trigram path) is stored correctly."""
         phrase_bank = [["tension in the air", "the air is thick with tension"]]
-        text = "The air is thick with tension as they face each other."
-        result = detect_cliches(text, phrase_bank, threshold=0.4)
+        result = detect_cliches("The air is thick with tension as they face each other.", phrase_bank, threshold=0.4)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].cliches[0].phrase == "the air is thick with tension"
@@ -50,9 +47,7 @@ class TestMatchedPhrase:
         """unique_cliches lists the phrases that actually appeared, not group representatives."""
         phrase_bank = [["a dance of", "dancing"]]
         text = "She lets out a short laugh, her eyes dancing with amusement."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.unique_cliches == ["dancing"]
+        assert detect_cliches(text, phrase_bank).unique_cliches == ["dancing"]
 
 
 # ===============================================================================
@@ -64,8 +59,7 @@ class TestFormatReportPhrase:
     def test_report_shows_matched_phrase_not_group_representative(self):
         """Regression: the formatted report must show what was in the text."""
         phrase_bank = [["a dance of", "dancing"]]
-        text = "She lets out a short laugh, her eyes dancing with amusement."
-        report_text = format_report(run_audit(text, phrase_bank))
+        report_text = format_report(run_audit("She lets out a short laugh, her eyes dancing with amusement.", phrase_bank))
 
         assert '"dancing"' in report_text
         assert '"a dance of"' not in report_text
@@ -73,10 +67,7 @@ class TestFormatReportPhrase:
     def test_report_shows_first_variant_when_it_matched(self):
         """When the first variant matched, the report shows it correctly."""
         phrase_bank = [["a dance of", "dancing"]]
-        text = "It was a dance of shadows and light."
-        report_text = format_report(run_audit(text, phrase_bank))
-
-        assert '"a dance of"' in report_text
+        assert '"a dance of"' in format_report(run_audit("It was a dance of shadows and light.", phrase_bank))
 
 
 # ===============================================================================
@@ -88,8 +79,7 @@ class TestRegexGroups:
     def test_alternation_matches_and_reports_matched_text(self):
         """A regex group flags the sentence and reports the matched substring."""
         phrase_bank = [{"kind": "regex", "pattern": r"the air (is|was) (thick|heavy|charged)"}]
-        text = "The air was thick between them."
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches("The air was thick between them.", phrase_bank)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].cliches[0].phrase == "The air was thick"
@@ -97,31 +87,23 @@ class TestRegexGroups:
 
     def test_case_insensitive(self):
         phrase_bank = [{"kind": "regex", "pattern": r"\bvoid\b"}]
-        text = "A VOID opened beneath her."
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches("A VOID opened beneath her.", phrase_bank)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].cliches[0].phrase == "VOID"
 
     def test_word_boundary_avoids_substring(self):
         phrase_bank = [{"kind": "regex", "pattern": r"\bcat\b"}]
-        text = "The category was vague."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 0
+        assert detect_cliches("The category was vague.", phrase_bank).flagged_count == 0
 
     def test_flexible_spacing(self):
         phrase_bank = [{"kind": "regex", "pattern": r"heart\s+racing"}]
-        text = "Her heart   racing, she ran."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 1
+        assert detect_cliches("Her heart   racing, she ran.", phrase_bank).flagged_count == 1
 
     def test_invalid_pattern_is_skipped_not_raised(self):
         """A malformed pattern must not abort the audit; it is silently skipped."""
         phrase_bank = [{"kind": "regex", "pattern": r"(unclosed"}, ["a mix of"]]
-        text = "It was a mix of things."
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches("It was a mix of things.", phrase_bank)
 
         # The valid literal group still fires.
         assert result.flagged_count == 1
@@ -129,10 +111,7 @@ class TestRegexGroups:
 
     def test_regex_report_shows_matched_text(self):
         phrase_bank = [{"kind": "regex", "pattern": r"the air (is|was) (thick|heavy)"}]
-        text = "The air is heavy with smoke."
-        report_text = format_report(run_audit(text, phrase_bank))
-
-        assert '"The air is heavy"' in report_text
+        assert '"The air is heavy"' in format_report(run_audit("The air is heavy with smoke.", phrase_bank))
 
 
 # ===============================================================================
@@ -144,15 +123,11 @@ class TestSingleSentenceContainment:
     def test_greedy_pattern_does_not_cross_sentence_split(self):
         """A `.*` pattern cannot match across a normal sentence boundary."""
         phrase_bank = [{"kind": "regex", "pattern": r"the air.*thick"}]
-        text = "She breathed the air. The soup was thick."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 0
+        assert detect_cliches("She breathed the air. The soup was thick.", phrase_bank).flagged_count == 0
 
     def test_greedy_pattern_matches_within_one_sentence(self):
         phrase_bank = [{"kind": "regex", "pattern": r"the air.*thick"}]
-        text = "The air grew thick with smoke."
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches("The air grew thick with smoke.", phrase_bank)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].cliches[0].phrase == "The air grew thick"
@@ -161,10 +136,7 @@ class TestSingleSentenceContainment:
         """A no-space boundary ("clear.The") leaves the chunk un-split, but a
         match that bridges it is still rejected by the boundary guard."""
         phrase_bank = [{"kind": "regex", "pattern": r"air.*thick"}]
-        text = "The air was clear.The fog was thick."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 0
+        assert detect_cliches("The air was clear.The fog was thick.", phrase_bank).flagged_count == 0
 
 
 # ===============================================================================
@@ -178,8 +150,7 @@ class TestDialogueNarrationSeparation:
         narration fragment, not the quoted speech (regression: the editor was
         rewriting dialogue cited in the audit report)."""
         phrase_bank = [{"kind": "regex", "pattern": r"voice\W+(\w+\W+){0,2}(low|dangerous|dropping)"}]
-        text = '"You\'ve got some nerve, Kit," she says, her voice dropping an octave.'
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches('"You\'ve got some nerve, Kit," she says, her voice dropping an octave.', phrase_bank)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].sentence == "she says, her voice dropping an octave."
@@ -187,8 +158,7 @@ class TestDialogueNarrationSeparation:
     def test_hit_inside_dialogue_excludes_narration(self):
         """A banned phrase inside the quote flags only the quoted segment."""
         phrase_bank = [["don't you dare"]]
-        text = '"Don\'t you dare," she whispered, stepping closer.'
-        result = detect_cliches(text, phrase_bank)
+        result = detect_cliches('"Don\'t you dare," she whispered, stepping closer.', phrase_bank)
 
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].sentence == '"Don\'t you dare,"'

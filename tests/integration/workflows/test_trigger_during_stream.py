@@ -2,17 +2,13 @@
 the later post_pipeline hook: two increments must finish at n=2.
 """
 
-from __future__ import annotations
-
 from backend.database import add_message, get_workflow_state, set_active_leaf
 
 from ._fixtures import counter_on_demand_hook, counter_post_pipeline_hook, make_workflow, register_for_test
 
 
 async def _new_conversation(streaming_client) -> str:
-    resp = await streaming_client.post("/api/conversations", json={"title": "trigger-during-stream"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return (await streaming_client.post_checked("/api/conversations", json={"title": "trigger-during-stream"})).json()["id"]
 
 
 async def test_trigger_during_stream_no_lost_writes(streaming_client, llm_mock):
@@ -36,8 +32,7 @@ async def test_trigger_during_stream_no_lost_writes(streaming_client, llm_mock):
             ) as resp:
                 assert resp.status_code == 200
                 await writer_gate.reached.wait()
-                trigger_resp = await streaming_client.post(f"/api/conversations/{cid}/workflows/{wid}/trigger", json={})
-                assert trigger_resp.status_code == 200
+                await streaming_client.post_checked(f"/api/conversations/{cid}/workflows/{wid}/trigger", json={})
                 mid_state = await get_workflow_state(cid, wid)
                 assert mid_state == {"n": 1}, f"after trigger expected n=1, got {mid_state}"
                 writer_gate.release.set()

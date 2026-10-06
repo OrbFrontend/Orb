@@ -47,25 +47,20 @@ def test_embedded_thought_does_not_flip_narration_axis():
 
 
 def test_markdown_bullets_not_treated_as_emphasis():
-    text = "Here is a list:\n* first item\n* second item\nThat is all."
-    assert classify_axes(text).narration != Narration.ASTERISK
+    assert classify_axes("Here is a list:\n* first item\n* second item\nThat is all.").narration != Narration.ASTERISK
 
 
 def test_asterisk_inside_quotes_is_not_narration():
-    text = 'He said, "you are *so* dramatic," and rolled his eyes as she huffed.'
-    style = classify_axes(text)
-    assert style.dialogue == Dialogue.QUOTED
+    assert classify_axes('He said, "you are *so* dramatic," and rolled his eyes as she huffed.').dialogue == Dialogue.QUOTED
 
 
 def test_code_block_markup_does_not_sway_classification():
     text = "She nods.\n\n```\n*this is code* and ***bold*** stuff\n```\n\nShe leaves."
-    style = classify_axes(text)
-    assert style.narration != Narration.ASTERISK
+    assert classify_axes(text).narration != Narration.ASTERISK
 
 
 def test_emphasis_in_dialogue_not_misread_as_narration_axis():
-    text = '"You are *so* dramatic," he said, "and *always* late."'
-    style = classify_axes(text)
+    style = classify_axes('"You are *so* dramatic," he said, "and *always* late."')
     assert style.dialogue == Dialogue.QUOTED
     assert style.narration != Narration.ASTERISK
 
@@ -127,9 +122,7 @@ def test_a_beat_with_a_first_person_object_is_still_an_action_beat():
 
 
 def test_smart_quotes_classified_as_quoted_dialogue():
-    text = "She smiles and steps back. “I won’t go,” she says."
-    style = classify_axes(text)
-    assert style.dialogue == Dialogue.QUOTED
+    assert classify_axes("She smiles and steps back. “I won’t go,” she says.").dialogue == Dialogue.QUOTED
 
 
 # ---------- narration extraction ----------

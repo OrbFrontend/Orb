@@ -1,7 +1,5 @@
 """Progress ordering for the concurrent local prose rewriter."""
 
-from __future__ import annotations
-
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -9,8 +7,6 @@ import pytest
 
 from backend.inference.local_models.llama_server import LaunchProfile
 from backend.inference.local_models.prose_rewriter import rewrite
-
-pytestmark = pytest.mark.asyncio
 
 FIRST = "First " + "source " * 16
 SECOND = "Second " + "source " * 16

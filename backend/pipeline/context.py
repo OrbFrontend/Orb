@@ -17,6 +17,7 @@ from ..core import (
     is_decision_row,
     parse_decision_definition,
 )
+from ..core.settings import Settings
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -24,7 +25,6 @@ from ..database.models import (
     InteractiveFragmentRow,
     MoodFragmentRow,
     PhraseGroup,
-    SettingsRow,
     UserPersonaRow,
     WorldRow,
 )
@@ -69,7 +69,7 @@ class PipelineContext:
     endpoint. state_contract snapshots fragment config so concurrent settings edits cannot change the running turn.
     """
 
-    settings: SettingsRow
+    settings: Settings
     conv: ConversationRow
     card: CharacterCardRow | None
     # Seeded from director_state, then carried as mutable per-turn director state (active moods, cooldowns, the branch's folded
@@ -211,7 +211,7 @@ def _decision_candidates(
     return tuple(candidates), tuple(invalid)
 
 
-async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
+async def resolve_judge_config(settings: Settings) -> JudgeConfig:
     """Resolve the Judge endpoint and derive its decisions route."""
     endpoint_id = settings.get("decision_endpoint_id")
     model = str(settings.get("decision_model") or "")
@@ -229,7 +229,7 @@ async def resolve_judge_config(settings: Mapping[str, Any]) -> JudgeConfig:
 
 
 async def resolve_card_and_persona(
-    conv: Mapping[str, Any], settings: Mapping[str, Any]
+    conv: Mapping[str, Any], settings: Settings
 ) -> tuple[CharacterCardRow | None, UserPersonaRow | None]:
     """Fetch the conversation's card and resolve the effective persona row.
 
@@ -322,7 +322,7 @@ class TurnSetup:
 
 
 def build_lorebook_turn(
-    settings: Mapping[str, Any],
+    settings: Settings,
     entries: Sequence[Mapping[str, Any]],
     messages: Sequence[Mapping[str, Any]],
     macros: Macros,
@@ -350,7 +350,7 @@ async def prepare_turn(
     conversation_id: str,
     *,
     history: Sequence[Mapping[str, Any]],
-    settings: Mapping[str, Any],
+    settings: Settings,
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[PublicTurnEvent | TurnSetup]:

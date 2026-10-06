@@ -4,230 +4,114 @@ Pins the reroll-gen contract: the new sibling inherits the original's generation
 with a freshly minted seed, so an evict-then-rehydrate cycle on the sibling reproduces its output deterministically.
 """
 
-from __future__ import annotations
-
+import asyncio
 import json
 
-from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
+import pytest
+
+from backend.database import get_workflow_attachments_for_message, insert_workflow_attachment_row
+from backend.database.connection import get_db
 from backend.workflows.errors import WorkflowUserFacingError
 
-from ._fixtures import make_workflow, must_get_workflow_attachment, new_conversation, register_for_test
+from ._fixtures import (
+    attachment_action,
+    make_workflow,
+    must_get_workflow_attachment,
+    register_for_test,
+    reroll_workflow,
+    returning,
+    seed_attachment,
+)
 
 
-async def _seed_with_metadata(client) -> tuple[str, int, int]:
-    cid = await new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "scene", 0)
-    await set_active_leaf(cid, mid)
-    aid = await insert_workflow_attachment_row(
-        mid,
-        {
-            "filename": "x.png",
-            "mime": "image/png",
-            "data": b"OG",
-            "workflow_id": "img",
-            "seed": "ORIG-SEED",
-            "generation_metadata": {"steps": 4},
-        },
-    )
-    return cid, mid, aid
+async def _reroll(client, ids, value=b"N", calls=None, **body):
+    with reroll_workflow(returning(value, calls)):
+        return await attachment_action(client, *ids, "reroll-gen", **body)
 
 
 async def test_workflow_without_reroll_gen_hook_returns_404(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-    wf = make_workflow("img")  # no reroll_gen
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert resp.status_code == 404
+    ids = await seed_attachment(client)
+    with register_for_test(make_workflow("img")):  # no reroll_gen
+        assert (await attachment_action(client, *ids, "reroll-gen")).status_code == 404
 
 
 async def test_happy_path_inserts_new_sibling_with_fresh_seed_and_same_params(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-    captured: list = []
-
-    async def reroll(ctx, params, seed):
-        captured.append((dict(params), seed))
-        return b"NEW_BYTES"
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert resp.status_code == 200
-    new_id = resp.json()["attachment_id"]
-    new_row = await must_get_workflow_attachment(new_id)
+    ids = _, _, aid = await seed_attachment(client)
+    calls: list = []
+    response = await _reroll(client, ids, b"NEW_BYTES", calls)
+    assert response.status_code == 200
+    new_row = await must_get_workflow_attachment(response.json()["attachment_id"])
     assert new_row["parent_attachment_id"] == aid
     assert new_row["workflow_id"] == "img"
     assert json.loads(new_row["generation_metadata"]) == {"steps": 4, "source_text": "scene"}
     assert new_row["seed"] != "ORIG-SEED"
     assert isinstance(new_row["seed"], str) and len(new_row["seed"]) == 32
-    params_passed, seed_passed = captured[0]
-    assert params_passed == {"steps": 4}
-    assert seed_passed == new_row["seed"]
+    assert calls == [({"steps": 4}, new_row["seed"])]
+    # The dispatcher marks the new sibling active.
+    assert (await must_get_workflow_attachment(aid))["active_sibling_id"] == new_row["id"]
 
 
-async def test_dispatcher_marks_active_sibling_to_new_id(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-
-    async def reroll(ctx, params, seed):
-        return b"B"
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    new_id = resp.json()["attachment_id"]
-    root = await must_get_workflow_attachment(aid)
-    assert root["active_sibling_id"] == new_id
-
-
-async def test_empty_metadata_passes_empty_dict(client):
-    cid = await new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "x", 0)
-    await set_active_leaf(cid, mid)
-    aid = await insert_workflow_attachment_row(mid, {"filename": "x", "mime": "image/png", "data": b"O", "workflow_id": "img"})
-    captured: list = []
-
-    async def reroll(ctx, params, seed):
-        captured.append(params)
-        return b"N"
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert captured == [{}]
+@pytest.mark.parametrize("stored", [None, "not-json{{"])
+async def test_empty_or_malformed_metadata_passes_empty_dict(client, stored):
+    ids = await seed_attachment(client, content="x", seed=None, generation_metadata=None)
+    if stored is not None:
+        # insert_workflow_attachment_row rejects non-dict metadata, so reach past it.
+        async with get_db() as conn:
+            await conn.execute("UPDATE workflow_attachments SET generation_metadata = ? WHERE id = ?", (stored, ids[2]))
+            await conn.commit()
+    calls: list = []
+    await _reroll(client, ids, calls=calls)
+    assert [params for params, _ in calls] == [{}]
 
 
-async def test_malformed_metadata_falls_back_to_empty_dict(client):
-    cid = await new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "x", 0)
-    await set_active_leaf(cid, mid)
-    aid = await insert_workflow_attachment_row(mid, {"filename": "x", "mime": "image/png", "data": b"O", "workflow_id": "img"})
-    # insert_workflow_attachment_row rejects non-dict metadata, so reach
-    # past it to seed a string the production-path JSON parser will choke on.
-    from backend.database.connection import get_db
-
-    async with get_db() as conn:
-        await conn.execute("UPDATE workflow_attachments SET generation_metadata = ? WHERE id = ?", ("not-json{{", aid))
-        await conn.commit()
-
-    captured: list = []
-
-    async def reroll(ctx, params, seed):
-        captured.append(params)
-        return b"N"
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert captured == [{}]
-
-
-async def test_hook_raise_returns_500_and_no_insert(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-
-    async def reroll(ctx, params, seed):
-        raise RuntimeError("boom")
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert resp.status_code == 500
-    from backend.database import get_workflow_attachments_for_message
-
-    rows = await get_workflow_attachments_for_message(mid)
-    assert len(rows) == 1
-
-
-async def test_a_user_facing_hook_failure_is_relayed_not_swallowed(client):
-    """The reroll button's half of the render-failure contract.
-
-    A provider rejection reached the streaming path as the provider's own sentence and this route as "reroll_gen handler raised;
-    see server logs" -- the same failed render reading two different ways depending on which button was pressed. 502 rather than
-    500: the backend Orb depends on is what did not deliver.
-    """
-    cid, mid, aid = await _seed_with_metadata(client)
-    said = "OpenRouter rejected the request (HTTP 400): Google AI Studio: User location is not supported."
-
-    async def reroll(ctx, params, seed):
-        raise WorkflowUserFacingError(said)
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert resp.status_code == 502
-    assert resp.json()["detail"] == said
-
-    # A failed reroll still costs the user nothing: no sibling was written.
-    from backend.database import get_workflow_attachments_for_message
-
-    assert len(await get_workflow_attachments_for_message(mid)) == 1
-
-
-async def test_hook_returns_non_bytes_500(client):
-    cid, mid, aid = await _seed_with_metadata(client)
-
-    async def reroll(ctx, params, seed):
-        return "not bytes"  # type: ignore[return-value]
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json={})
-    assert resp.status_code == 500
+@pytest.mark.parametrize(
+    "failure,status",
+    [
+        (RuntimeError("boom"), 500),
+        ("not bytes", 500),
+        # A provider rejection is relayed as the provider's own sentence; 502, since the backend Orb depends on did not deliver.
+        (WorkflowUserFacingError("OpenRouter rejected the request (HTTP 400): User location is not supported."), 502),
+    ],
+)
+async def test_a_failed_hook_writes_no_sibling(client, failure, status):
+    ids = await seed_attachment(client)
+    response = await _reroll(client, ids, failure)
+    assert response.status_code == status
+    if isinstance(failure, WorkflowUserFacingError):
+        assert response.json()["detail"] == str(failure)
+    assert len(await get_workflow_attachments_for_message(ids[1])) == 1
 
 
 # -- caller-supplied overrides ------------------------------------------------
 
 
-async def _reroll_with_overrides(client, stored: dict, body: dict) -> tuple[dict, dict]:
-    """Reroll an attachment carrying `stored` params with `body`; return (params seen by
-    the hook, params the new sibling recorded)."""
-    cid = await new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "x", 0)
-    await set_active_leaf(cid, mid)
-    aid = await insert_workflow_attachment_row(
-        mid, {"filename": "x", "mime": "image/png", "data": b"O", "workflow_id": "img", "generation_metadata": stored}
-    )
-    captured: list = []
-
-    async def reroll(ctx, params, seed):
-        captured.append(dict(params))
-        return b"N"
-
-    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
-    with register_for_test(wf):
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen", json=body)
-    assert resp.status_code == 200
-    new_row = await must_get_workflow_attachment(resp.json()["attachment_id"])
-    stored = json.loads(new_row["generation_metadata"])
-    assert stored.pop("source_text") == "x"
-    return captured[0], stored
-
-
-async def test_override_reaches_the_hook_and_lands_in_the_new_sibling(client):
-    # The sibling recording the edit is what makes it stick: rerolling the sibling
-    # replays the edited prompt with no further plumbing.
-    seen, stored = await _reroll_with_overrides(client, {"prompt": "original", "steps": 4}, {"params": {"prompt": "edited"}})
-    assert seen == {"prompt": "edited", "steps": 4}
-    assert stored == {"prompt": "edited", "steps": 4}
-
-
-async def test_overrides_cannot_invent_or_retype_params(client):
-    # Only keys the artifact already recorded, and only string-for-string: a client may
-    # retarget a render it can see, not hand the workflow parameters it never wrote.
-    seen, stored = await _reroll_with_overrides(
-        client, {"prompt": "original", "steps": 4}, {"params": {"unknown": "x", "steps": "9", "prompt": 5}}
-    )
-    assert seen == {"prompt": "original", "steps": 4}
-    assert stored == {"prompt": "original", "steps": 4}
-
-
-async def test_a_non_dict_params_body_is_ignored(client):
-    seen, _ = await _reroll_with_overrides(client, {"prompt": "original"}, {"params": "edited"})
-    assert seen == {"prompt": "original"}
+@pytest.mark.parametrize(
+    "stored,body,expected",
+    [
+        # The sibling recording the edit is what makes it stick: rerolling the sibling replays the edited prompt.
+        ({"prompt": "original", "steps": 4}, {"params": {"prompt": "edited"}}, {"prompt": "edited", "steps": 4}),
+        # Only keys the artifact already recorded, and only string-for-string.
+        (
+            {"prompt": "original", "steps": 4},
+            {"params": {"unknown": "x", "steps": "9", "prompt": 5}},
+            {"prompt": "original", "steps": 4},
+        ),
+        ({"prompt": "original"}, {"params": "edited"}, {"prompt": "original"}),  # a non-dict params body is ignored
+    ],
+)
+async def test_overrides_reach_the_hook_and_land_in_the_new_sibling(client, stored, body, expected):
+    ids = await seed_attachment(client, content="x", seed=None, generation_metadata=stored)
+    calls: list = []
+    response = await _reroll(client, ids, calls=calls, **body)
+    assert response.status_code == 200
+    recorded = json.loads((await must_get_workflow_attachment(response.json()["attachment_id"]))["generation_metadata"])
+    assert recorded.pop("source_text") == "x"
+    assert calls[0][0] == expected
+    assert recorded == expected
 
 
 async def test_late_reroll_keeps_user_variant_and_old_source(client):
-    import asyncio
-
-    cid, mid, aid = await _seed_with_metadata(client)
+    cid, mid, aid = await seed_attachment(client)
     sibling = await insert_workflow_attachment_row(
         mid,
         {"filename": "chosen.png", "mime": "image/png", "data": b"chosen", "workflow_id": "img", "parent_attachment_id": aid},
@@ -241,19 +125,16 @@ async def test_late_reroll_keeps_user_variant_and_old_source(client):
         await release.wait()
         return b"late result"
 
-    with register_for_test(make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)):
+    with reroll_workflow(reroll):
         running = asyncio.create_task(client.post(base + "/reroll-gen", json={}))
         await entered.wait()
-        assert (await client.post(base + "/activate", json={"sibling_id": sibling})).status_code == 200
-        assert (
-            await client.post(
-                f"/api/conversations/{cid}/messages/{mid}/edit", json={"content": "new source", "regenerate": False}
-            )
-        ).status_code == 200
+        await client.post_checked(base + "/activate", json={"sibling_id": sibling})
+        await client.post_checked(
+            f"/api/conversations/{cid}/messages/{mid}/edit", json={"content": "new source", "regenerate": False}
+        )
         release.set()
         result = await running
     assert result.status_code == 200
-    root = await must_get_workflow_attachment(aid)
-    assert root["active_sibling_id"] == sibling
+    assert (await must_get_workflow_attachment(aid))["active_sibling_id"] == sibling
     new_row = await must_get_workflow_attachment(result.json()["attachment_id"])
     assert json.loads(new_row["generation_metadata"])["source_text"] == "scene"

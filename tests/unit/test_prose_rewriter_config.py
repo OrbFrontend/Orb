@@ -5,8 +5,6 @@ variant is re-resolved against the registry before its path is allowed anywhere 
 dropped in a refactor, nothing would fail -- the barrier would simply cease to exist -- so both are asserted directly.
 """
 
-from __future__ import annotations
-
 from dataclasses import replace
 
 import pytest
@@ -15,8 +13,6 @@ from backend.inference.local_models import assets
 from backend.inference.local_models.llama_server import client as C
 from backend.inference.local_models.prose_rewriter import catalog, config
 from backend.workflows import prose_rewriter_host
-
-pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture

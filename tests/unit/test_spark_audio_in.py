@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import io
 import wave
 
@@ -22,8 +20,7 @@ def wav_bytes(signal, rate: int, width: int = 2, channels: int = 1) -> bytes:
         elif width == 3:
             frames = (clipped * 8388607).astype("<i4").view(np.uint8).reshape(-1, 4)[:, :3].tobytes()
         else:
-            scale = {2: 32767, 4: 2147483647}[width]
-            frames = (clipped * scale).astype(f"<i{width}").tobytes()
+            frames = (clipped * {2: 32767, 4: 2147483647}[width]).astype(f"<i{width}").tobytes()
         handle.writeframes(frames)
     return buffer.getvalue()
 

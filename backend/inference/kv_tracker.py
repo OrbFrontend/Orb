@@ -76,9 +76,8 @@ def extract_cache_stats(usage: dict | None) -> dict:
         if v:
             cached, source = int(v), "prompt_tokens_details.cached_tokens"
 
-    if not cached:
-        if cache_read:
-            cached, source = cache_read, "cache_read_input_tokens"
+    if not cached and cache_read:
+        cached, source = cache_read, "cache_read_input_tokens"
 
     if not cached:
         v = usage.get("prompt_cache_hit_tokens") or 0

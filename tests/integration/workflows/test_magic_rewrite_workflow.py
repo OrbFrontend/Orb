@@ -4,8 +4,6 @@ Both routes run the full pipeline and persist a new sibling, so post-pipeline ef
 original remains intact. Magic rewrite additionally forwards the user's direction to the model.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -72,8 +70,7 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     send = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Tell me a story.", "attachments": []})
     _ = send.text
 
-    original = [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]
-    return cid, original["id"]
+    return cid, [m for m in await get_messages(cid) if m["role"] == "assistant"][-1]["id"]
 
 
 @pytest.mark.parametrize(("action", "payload"), [("regenerate", {}), ("magic_rewrite", {"direction": _DIRECTION})])
@@ -86,8 +83,7 @@ async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_m
         llm_mock.enqueue_writer("A fresh draft the probe will replace.")
         logs_before = len(await get_conversation_logs(cid))
         start = len(llm_mock.captured)
-        resp = await client.post_checked(f"/api/conversations/{cid}/messages/{original_id}/{action}", json=payload)
-        _ = resp.text
+        _ = (await client.post_checked(f"/api/conversations/{cid}/messages/{original_id}/{action}", json=payload)).text
         captured = llm_mock.captured[start:]
         logs_after = await get_conversation_logs(cid)
 
@@ -107,8 +103,7 @@ async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_m
     assert sibling_row["content"] == _REWRITTEN
 
     # The artifact and per-message state land on the sibling.
-    atts = [a for a in await get_workflow_attachments_for_message(sibling["id"]) if a["workflow_id"] == _WID]
-    assert len(atts) == 1
+    assert len([a for a in await get_workflow_attachments_for_message(sibling["id"]) if a["workflow_id"] == _WID]) == 1
     assert await get_workflow_message_state(sibling["id"], _WID) == {"touched": True}
 
     # The turn logged exactly once; magic rewrite additionally forwards its direction.

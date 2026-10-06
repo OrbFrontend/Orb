@@ -1,7 +1,5 @@
 """Decoding Whisper token ids back into text."""
 
-from __future__ import annotations
-
 import json
 
 from backend.inference.local_models.whisper.vocab import Vocabulary
@@ -17,8 +15,7 @@ def test_decode_reads_spaces_and_joins_split_characters():
 
 
 def test_decode_skips_what_it_is_told_to_and_what_it_does_not_know():
-    vocab = Vocabulary(_TOKENS)
-    assert vocab.decode([0, 5, 50364, 1], skip=(5,)) == "Hello there"
+    assert Vocabulary(_TOKENS).decode([0, 5, 50364, 1], skip=(5,)) == "Hello there"
 
 
 def test_a_character_cut_off_mid_way_does_not_raise():

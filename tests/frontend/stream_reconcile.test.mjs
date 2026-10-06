@@ -284,7 +284,7 @@ it("expression playback holds a group turn only from the first speaker with expr
   S.activeConvId = "group";
   S.settings.expression_rendering = "expression";
   S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
-  S.hideUntilBaked = false;
+  S.settings.hide_streaming_until_baked = false;
   S.contextSize = null;
   S.groupCast = { members: [{ id: 1, character_card_id: 7 }, { id: 2, character_card_id: 8 }] };
   S.allCharacters = [{ id: 7 }, { id: 8, has_expressions: 1 }];
@@ -532,4 +532,33 @@ it("two conversations keep independent buffers, reasoning, drafts, and targeted 
   assert.equal(S.messages.at(-1).id, 82);
   assert.equal(S.operations.has(opA.record.id), false);
   assert.equal(S.operations.has(opB.record.id), false);
+});
+
+it("a completed card projection repaints the live reply without another token", async (t) => {
+  const { configureCardScriptGuard } = await import("../../frontend/card_scripts.js");
+  const { projectCardScripts } = await import("../../frontend/card_script_worker.js");
+  const pending = [];
+  configureCardScriptGuard({
+    project: (job) => new Promise((resolve) => pending.push(() => resolve(projectCardScripts(job)))),
+    storage: null, announce: () => {},
+  });
+  t.after(() => {
+    stream.cancelStreamingPaint();
+    stream.setStreaming(false);
+    S.streamingBodyEl?.closest(".message")?.remove();
+    S.streamingBodyEl = null;
+    S.pendingRefineDiff = null;
+    configureCardScriptGuard();
+  });
+  S.conversations = [{ id: "c1", character_card_id: "render-card" }];
+  S.allCharacters = [{ id: "render-card", display_scripts: [{ findRegex: "/secret/g", replaceString: "visible", placement: [2] }] }];
+  S.groupCast = null;
+  S.expressionBuffering = false;
+  stoppedRegeneration({ streamed: "secret" });
+  stream.restoreStreamingView();
+  assert.equal(S.streamingBodyEl.textContent, "secret");
+  assert.equal(pending.length, 1);
+  pending[0]();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(S.streamingBodyEl.textContent, "visible");
 });

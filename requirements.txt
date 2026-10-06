@@ -9,3 +9,5 @@ python-multipart==0.0.32
 edge-tts>=7.2.8
 regex>=2026.9.10
 jsonschema>=4.23,<5
+# Imported directly for ReadOnly TypedDict items; pydantic already requires at least this version.
+typing-extensions>=4.14.1

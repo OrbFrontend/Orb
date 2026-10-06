@@ -4,15 +4,15 @@ Empty-input parity is the load-bearing property: when no workflow yields a syste
 must match the shape produced when neither extension exists.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.prompting import build_prefix, format_message_with_attachments
 
-_BASE_KWARGS = dict(
-    system_prompt="You are an assistant.", char_persona="A test character.", char_scenario="In a test scenario."
-)
+_BASE_KWARGS = {
+    "system_prompt": "You are an assistant.",
+    "char_persona": "A test character.",
+    "char_scenario": "In a test scenario.",
+}
 
 
 def _system_body(prefix: list[dict]) -> str:
@@ -31,17 +31,12 @@ def test_build_prefix_no_extras_kwarg_matches_unspecified():
 
 
 def test_build_prefix_extras_appended_with_blank_line_separator():
-    out = build_prefix(extra_system_blocks=["EXTRA_BLOCK"], **_BASE_KWARGS)
-    body = _system_body(out)
-    assert body.endswith("\n\nEXTRA_BLOCK")
+    assert _system_body(build_prefix(extra_system_blocks=["EXTRA_BLOCK"], **_BASE_KWARGS)).endswith("\n\nEXTRA_BLOCK")
 
 
 def test_build_prefix_multiple_extras_appended_in_order():
-    out = build_prefix(extra_system_blocks=["FIRST", "SECOND"], **_BASE_KWARGS)
-    body = _system_body(out)
-    first_idx = body.index("FIRST")
-    second_idx = body.index("SECOND")
-    assert first_idx < second_idx
+    body = _system_body(build_prefix(extra_system_blocks=["FIRST", "SECOND"], **_BASE_KWARGS))
+    assert body.index("FIRST") < body.index("SECOND")
     # Each extra is on its own block with a blank line before it.
     assert "\n\nFIRST" in body
     assert "\n\nSECOND" in body
@@ -91,13 +86,11 @@ def test_build_prefix_user_section_present_with_description():
 
 
 def test_build_prefix_omits_user_section_when_description_empty():
-    body = _system_body(build_prefix(user_description="", **_BASE_KWARGS))
-    assert "## User:" not in body
+    assert "## User:" not in _system_body(build_prefix(user_description="", **_BASE_KWARGS))
 
 
 def test_build_prefix_omits_user_section_when_description_whitespace_only():
-    body = _system_body(build_prefix(user_description="   \n\t  ", **_BASE_KWARGS))
-    assert "## User:" not in body
+    assert "## User:" not in _system_body(build_prefix(user_description="   \n\t  ", **_BASE_KWARGS))
 
 
 # -- format_message_with_attachments source branching ---------------------
@@ -109,8 +102,7 @@ def test_format_no_attachments_returns_string_content():
 
 
 def test_format_no_attachments_empty_content_returns_empty_string():
-    msg = {"role": "user", "content": ""}
-    assert format_message_with_attachments(msg, macros=None) == {"role": "user", "content": ""}
+    assert format_message_with_attachments({"role": "user", "content": ""}, macros=None) == {"role": "user", "content": ""}
 
 
 def test_format_user_attachment_only_produces_multimodal_parts():

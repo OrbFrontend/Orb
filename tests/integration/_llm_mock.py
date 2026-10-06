@@ -3,8 +3,6 @@
 Dispatch by tool_choice, not call order: Director can be skipped and Editor can iterate multiple times.
 """
 
-from __future__ import annotations
-
 import asyncio
 import copy
 import json
@@ -13,15 +11,19 @@ from typing import Any
 
 from backend.inference import AbortToken, LLMClient
 
-_EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
-_POST_PROCESSING_FUNCTION_NAMES = {"editor_search_replace"}
-_DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
-_FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
-_STATE_FUNCTION_NAMES = {"update_state"}
-_WORLD_CHANGE_FUNCTION_NAMES = {"propose_world_changes"}
-# The library auto-tagger. Named here rather than left to the "workflow" catch-all below because that branch is also the one
-# *exempted* from the tools-blob check -- falling into it would mislabel the pass and under-check it at the same time.
-_AUTO_TAG_FUNCTION_NAMES = {"assign_character_tags"}
+# Forced function name -> the pass that owns it. The library auto-tagger is named here rather than left to the "workflow"
+# catch-all because that branch is also the one *exempted* from the tools-blob check.
+_PASS_BY_FUNCTION = {
+    "editor_apply_patch": "editor",
+    "editor_rewrite": "editor",
+    "editor_search_replace": "post_processing",
+    "direct_scene": "director",
+    "give_feedback": "feedback",
+    "update_state": "state",
+    "propose_world_changes": "world_change",
+    "assign_character_tags": "auto_tag",
+}
+_PASSES = ("director", "writer", "editor", "post_processing", "feedback", "state", "world_change", "auto_tag", "workflow")
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
@@ -71,24 +73,10 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
         return "editor"
     if isinstance(tool_choice, dict):
         name = tool_choice.get("function", {}).get("name")
-        if name in _EDITOR_FUNCTION_NAMES:
-            return "editor"
-        if name in _POST_PROCESSING_FUNCTION_NAMES:
-            return "post_processing"
-        if name in _DIRECTOR_FUNCTION_NAMES:
-            return "director"
-        if name in _FEEDBACK_FUNCTION_NAMES:
-            return "feedback"
-        if name in _STATE_FUNCTION_NAMES:
-            return "state"
-        if name in _WORLD_CHANGE_FUNCTION_NAMES:
-            return "world_change"
-        if name in _AUTO_TAG_FUNCTION_NAMES:
-            return "auto_tag"
         # Any other forced function name belongs to a workflow tool: the toolkit's forced_tool_call helper passes the same dict
-        # shape via TOOLS[<wid_registered_name>]["choice"], but the name is not one of the four core pass tools.
+        # shape via TOOLS[<wid_registered_name>]["choice"], but the name is not one of the core pass tools.
         if name:
-            return "workflow"
+            return _PASS_BY_FUNCTION.get(name, "workflow")
     # No production pass emits any other shape (writer -> None/"none", editor -> "auto"/forced dict, director/workflow -> forced
     # dict with a name). An earlier version returned "director" here as a catch-all, which silently mis-routed an unrecognized
     # tool_choice to the director queue -- a wrong tool_choice convention would then bind responses to the wrong pass and the
@@ -109,17 +97,7 @@ class FakeLLMClient:
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, list[dict]] = {
-            "director": [],
-            "writer": [],
-            "editor": [],
-            "post_processing": [],
-            "feedback": [],
-            "state": [],
-            "world_change": [],
-            "auto_tag": [],
-            "workflow": [],
-        }
+        self._queues: dict[str, list[dict]] = {name: [] for name in _PASSES}
         # Raw text-completion queue (complete_raw, document text mode) -- separate from the tool_choice-dispatched chat queues
         # above; keyed by the call, not by a pass. capture prompt+params for assertions. Each entry is {"content": str, "probs":
         # list} so a test can attach per-token probs.
@@ -130,17 +108,7 @@ class FakeLLMClient:
         # render_prompt captures (doc-mode text+assisted patch re-render).
         self.render_calls: list[dict] = []
         self.completion_mode = "chat"
-        self._gates: dict[str, list[PassGate]] = {
-            "director": [],
-            "writer": [],
-            "editor": [],
-            "post_processing": [],
-            "feedback": [],
-            "state": [],
-            "world_change": [],
-            "auto_tag": [],
-            "workflow": [],
-        }
+        self._gates: dict[str, list[PassGate]] = {name: [] for name in _PASSES}
         # One-shot failures, FIFO per pass: [calls still to let through, exception, mid_stream].
         self._failures: dict[str, list[list]] = {}
         # Mirror LLMClient: the turn's clients share one abort token, so an abort signalled on any of them is visible to all.
@@ -480,7 +448,6 @@ def llm_factory(fake: FakeLLMClient):
     def make(*args, **kwargs):
         if "completion_mode" in kwargs:
             fake.completion_mode = kwargs["completion_mode"]
-        url = args[0] if args else kwargs.get("base_url", "")
-        return _EndpointBound(fake, str(url or ""))
+        return _EndpointBound(fake, str((args[0] if args else kwargs.get("base_url", "")) or ""))
 
     return make

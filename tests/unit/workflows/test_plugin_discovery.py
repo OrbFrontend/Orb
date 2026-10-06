@@ -5,8 +5,6 @@ subscriptions as ``WORKFLOW``. Discovery registers them in package-name order,
 which is the manifest order the frontend loads workflow modules in.
 """
 
-from __future__ import annotations
-
 import importlib
 from pathlib import Path
 

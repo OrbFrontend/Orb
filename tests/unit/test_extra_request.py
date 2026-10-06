@@ -1,7 +1,5 @@
 """Per-model extra headers/body: parsers, save-time validation, merge, factory threading."""
 
-from __future__ import annotations
-
 import pytest
 from pydantic import ValidationError
 
@@ -159,14 +157,12 @@ def test_headers_replace_authorization_case_insensitively():
 
 async def test_wire_extra_body_reaches_the_request():
     client = LLMClient("http://localhost:5000/v1", extra_body='{"provider": {"only": ["deepinfra"]}}')
-    body = await _wire_body(client)
-    assert body["provider"] == {"only": ["deepinfra"]}
+    assert (await _wire_body(client))["provider"] == {"only": ["deepinfra"]}
 
 
 async def test_wire_extra_body_overrides_a_computed_key():
     client = LLMClient("http://localhost:5000/v1", extra_body='{"temperature": 0.1}')
-    body = await _wire_body(client, temperature=0.9)
-    assert body["temperature"] == 0.1
+    assert (await _wire_body(client, temperature=0.9))["temperature"] == 0.1
 
 
 # --- settings threading ----------------------------------------------------

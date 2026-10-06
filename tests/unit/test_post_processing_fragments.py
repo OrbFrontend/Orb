@@ -1,7 +1,5 @@
 """Post-processing fragment gates, prompts, schemas, and exact patch safety."""
 
-from __future__ import annotations
-
 from backend.pipeline.config import build_writer_tools_blob, split_interactive_fragments
 from backend.pipeline.passes.editor import apply_search_replace_patches, post_processing_active
 from backend.pipeline.passes.editor.prompts import build_post_processing_prompt
@@ -62,8 +60,7 @@ def test_tool_blob_does_not_activate_when_agent_is_off():
 
 def test_post_processing_never_enters_director_schema_or_scene_direction():
     fragment = _fragment("humanize", "post_processing")
-    properties = build_direct_scene_tool([fragment])["function"]["parameters"]["properties"]
-    assert "humanize" not in properties
+    assert "humanize" not in build_direct_scene_tool([fragment])["function"]["parameters"]["properties"]
     assert "Rewrite me" not in build_style_injection(
         [], interactive_fragments=[fragment], extra_fields={"humanize": "Rewrite me"}
     )

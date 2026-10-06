@@ -1,7 +1,5 @@
 """The Character Library duplicate finder, from scan through guarded removal."""
 
-from __future__ import annotations
-
 import json
 
 import backend.api.routes.library as library_routes
@@ -45,8 +43,7 @@ async def _card(client, name: str, **extra) -> str:
 
 
 async def _scan(client) -> dict:
-    response = await client.post_checked("/api/library/duplicates/scan")
-    done = [data for name, data in _events(response.text) if name == "done"]
+    done = [data for name, data in _events((await client.post_checked("/api/library/duplicates/scan")).text) if name == "done"]
     assert len(done) == 1
     assert isinstance(done[0], dict)
     return done[0]
@@ -70,8 +67,7 @@ async def test_a_scan_finds_two_cards_that_differ_only_in_tags(client):
 
     report = await _scan(client)
 
-    pair = _strong_pair(report, left, right)
-    assert pair["reasons"][0] == "Identical content"
+    assert _strong_pair(report, left, right)["reasons"][0] == "Identical content"
     assert "description" not in json.dumps(report)
     assert {item["id"] for item in report["cards"]} == {left, right}
 
@@ -100,21 +96,20 @@ async def test_a_scan_does_not_make_the_library_pending_for_retagging(client):
     card_id = await _card(client, "Mara", avatar_b64=_PNG_1X1_B64, avatar_mime="image/png")
     vocabulary = ["Fantasy"]
     await replace_vocabulary(vocabulary, expected=[], new_hash=vocabulary_hash(vocabulary))
-    card = (await client.get(f"/api/characters/{card_id}")).json()
+    card = await client.get_json(f"/api/characters/{card_id}")
     assert await apply_auto_tags(card_id, ["Fantasy"], vocabulary_hash(vocabulary), card["updated_at"])
-    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+    assert (await client.get_json("/api/library/tags"))["pending"] == 0
 
     await _scan(client)
 
-    assert (await client.get("/api/library/tags")).json()["pending"] == 0
+    assert (await client.get_json("/api/library/tags"))["pending"] == 0
 
 
 async def test_a_dismissed_pair_stops_being_reported_and_an_edit_reopens_it(client):
     """Dismissals are pair-local and lapse only when meaningful card content changes."""
     left = await _card(client, "Mara")
     right = await _card(client, "Mara")
-    report = await _scan(client)
-    pair = _strong_pair(report, left, right)
+    pair = _strong_pair(await _scan(client), left, right)
 
     dismissed = await client.post("/api/library/duplicates/dismiss", json={"pairs": [[pair["a"], pair["b"]]]})
     assert dismissed.status_code == 200 and dismissed.json() == {"dismissed": 1}
@@ -163,12 +158,12 @@ async def test_relinking_moves_conversations_to_the_keeper(client):
     """Relinking rewrites both the card id and denormalized keeper fields."""
     keep = await _card(client, "Keeper", scenario="Keeper scenario")
     remove = await _card(client, "Doomed", scenario="Doomed scenario")
-    conversation = (await client.post("/api/conversations", json={"character_card_id": remove})).json()
+    conversation = await client.post_json("/api/conversations", json={"character_card_id": remove})
 
     response = await client.post("/api/library/duplicates/resolve", json={"keep_id": keep, "remove_id": remove, "relink": True})
 
     assert response.status_code == 200 and response.json()["impact"]["conversations"] == 1
-    moved = next(item for item in (await client.get("/api/conversations")).json() if item["id"] == conversation["id"])
+    moved = next(item for item in await client.get_json("/api/conversations") if item["id"] == conversation["id"])
     assert moved["character_card_id"] == keep
     assert moved["character_name"] == "Keeper" and moved["character_scenario"] == "Keeper scenario"
     assert (await client.get(f"/api/characters/{remove}")).status_code == 404
@@ -178,17 +173,15 @@ async def test_relinking_a_group_chat_that_already_casts_the_keeper_drops_the_du
     """The active-member partial unique index is respected instead of raising."""
     keep = await _card(client, "Keeper")
     remove = await _card(client, "Doomed")
-    conversation = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "members": [{"character_card_id": keep}, {"character_card_id": remove}]},
-        )
-    ).json()
+    conversation = await client.post_json(
+        "/api/conversations",
+        json={"kind": "group", "members": [{"character_card_id": keep}, {"character_card_id": remove}]},
+    )
 
     response = await client.post("/api/library/duplicates/resolve", json={"keep_id": keep, "remove_id": remove, "relink": True})
 
     assert response.status_code == 200 and response.json()["impact"]["collisions"] == 1
-    members = (await client.get(f"/api/conversations/{conversation['id']}/members")).json()
+    members = await client.get_json(f"/api/conversations/{conversation['id']}/members")
     assert [member["character_card_id"] for member in members] == [keep]
 
 
@@ -223,7 +216,7 @@ async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
     keep = await _card(client, "Mallory")
     first = await _card(client, "Mallory")
     second = await _card(client, "Mallory")
-    conversation = (await client.post("/api/conversations", json={"character_card_id": first})).json()
+    conversation = await client.post_json("/api/conversations", json={"character_card_id": first})
 
     response = await client.post_json(
         "/api/library/duplicates/resolve-group", json={"keep_id": keep, "remove_ids": [first, second], "relink": True}
@@ -232,7 +225,7 @@ async def test_keeping_one_copy_of_three_removes_the_rest_in_one_call(client):
     assert response["removed"] == 2 and response["impact"]["conversations"] == 1
     assert (await client.get(f"/api/characters/{first}")).status_code == 404
     assert (await client.get(f"/api/characters/{second}")).status_code == 404
-    moved = next(item for item in (await client.get("/api/conversations")).json() if item["id"] == conversation["id"])
+    moved = next(item for item in await client.get_json("/api/conversations") if item["id"] == conversation["id"])
     assert moved["character_card_id"] == keep
 
 

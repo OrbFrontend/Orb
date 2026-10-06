@@ -20,6 +20,7 @@ from ...analysis import (
 )
 from ...core import ChatMessage, extract_hyperparams
 from ...core.llm_types import CompletionMessage
+from ...core.settings import Settings
 from ...core.text_segmentation import ends_with_sentence_terminator, sentence_boundary_ends
 from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_catalog import require_tool
@@ -191,7 +192,7 @@ async def patch_document(
     context: str,
     phrase_bank: list[PhraseGroup],
     toggles: Mapping[str, Any] | None,
-    settings: Mapping[str, Any],
+    settings: Settings,
     *,
     assisted: bool,
     truncated: bool,

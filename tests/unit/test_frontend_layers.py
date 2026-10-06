@@ -1,11 +1,15 @@
 """Regression checks for the frontend import boundaries."""
 
+import re
+
 from scripts.check_frontend_layers import (
     has_computed_dynamic_import,
     import_cycle,
     imported_paths,
     remote_asset_count,
     served_specifier,
+    state_ownership_errors,
+    state_writes,
     unregistered_actions,
     unused_exports,
     workflow_import_allowed,
@@ -92,3 +96,28 @@ def test_an_export_counts_only_while_something_imports_it(tmp_path):
 
     # deadChain is re-exported, but nothing imports the re-export, so neither end counts as used.
     assert unused == {(fe / "core.js").resolve(): {"orphan", "deadChain"}, (fe / "barrel.js").resolve(): {"deadChain"}}
+
+
+def test_state_writes_see_every_write_form():
+    source = """S.a = 1; S.b.c[0] = 2; S.d ??= 3; S.e++; --S.f; S.g.push(4); delete S.h[x]; Object.assign(S.i, y);
+state.turn = 5; state.local = 6; // S.commented = 7
+if (S.j === 1 || S.k == 2) S.l.find(f); const m = (S.n) => S.o; S.p.get(q);"""
+
+    assert state_writes(source, {"turn"}) == {"a", "b", "d", "e", "f", "g", "h", "i", "turn"}
+
+
+def test_state_keys_keep_one_writer_unless_listed():
+    writers = {
+        "owned": {"a.js"},
+        "spread": {"a.js", "b.js"},
+        "listed": {"a.js", "b.js"},
+        "grown": {"a.js", "b.js", "c.js"},
+        "view": {"a.js"},
+        "stray": {"a.js"},
+    }
+    declared = {"owned", "spread", "listed", "grown", "gone"}
+    shared = {"listed": {"a.js", "b.js"}, "grown": {"a.js", "b.js"}, "gone": {"a.js", "b.js"}}
+
+    errors = state_ownership_errors(writers, declared, shared)
+
+    assert sorted(re.search(r"S\.(\w+)", error).group(1) for error in errors) == ["gone", "grown", "spread", "stray", "view"]

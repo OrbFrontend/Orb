@@ -7,8 +7,6 @@ second LLM call. The bytes-write race is also closed by the cache helper's ``BEG
 re-read in the handler is what prevents double work on the upstream side.
 """
 
-from __future__ import annotations
-
 import asyncio
 import base64
 

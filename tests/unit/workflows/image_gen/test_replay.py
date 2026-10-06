@@ -5,8 +5,6 @@ style points at *today*, and for rehydrate -- which promises to restore evicted 
 different image and reports success.
 """
 
-from __future__ import annotations
-
 import base64
 
 import pytest
@@ -32,8 +30,7 @@ def _config(default_style: str = "anime", **external) -> dict:
 
 def _target(config: dict, style_id: str, replay: dict | None = None):
     """What the render path resolves: the style's adapter, asked about that style."""
-    style = resolve_style(config, style_id)
-    return get_adapter(config, style).resolve_target(replay)
+    return get_adapter(config, resolve_style(config, style_id)).resolve_target(replay)
 
 
 def test_a_fresh_render_follows_the_style():
@@ -99,8 +96,7 @@ def test_a_replay_pins_the_resolution_it_was_generated_at():
     ids=["recorded pins win", "no recorded model falls through to the style"],
 )
 def test_replay_prefers_what_the_stored_image_recorded(replay, expected):
-    config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
-    target = _target(config, "anime", replay)
+    target = _target(_config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}]), "anime", replay)
     assert (target.target_id, target.model) == expected
     assert target.notes == ()
 
@@ -143,7 +139,6 @@ def _edit_config(monkeypatch):
     monkeypatch.setattr(hooks, "get_workflow_config", get_config)
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
 async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
     """`workflow_id` and `backend_model` name things the OLD style owned, so the
@@ -165,7 +160,6 @@ async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
         await hooks.reroll_gen(_RerollCtx("edit"), params, "1")
 
 
-@pytest.mark.asyncio
 async def test_a_two_reference_render_replays_both_origins_byte_identically(monkeypatch):
     """A stored render carrying two *different* origins still rerolls to both of them.
 
@@ -243,7 +237,6 @@ async def test_a_two_reference_render_replays_both_origins_byte_identically(monk
     assert [entry["origin"] for entry in params["references"]] == ["character:card-a", "character:card-b"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
 async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused():
     """Submitting anyway would ship the new graph's exporter filenames, which
@@ -256,7 +249,6 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("prompt", ["", " ", "\n\t "])
 async def test_a_reroll_with_nothing_to_draw_is_refused_before_the_provider_is_asked(prompt):
     """The prompt on a reroll may be the one edited in the render details, so blank is a state a person can reach -- and `" "`
@@ -345,7 +337,6 @@ def _sized_comfy(monkeypatch, request):
     return captured
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("style_id", "expected"),
     [("anime", (1024, 1536, "new.safetensors")), ("other", (704, 1408, "other.safetensors"))],
@@ -363,7 +354,6 @@ async def test_a_reroll_renders_on_the_style_as_it_stands_now(_sized_comfy, styl
     assert (target.width, target.height, target.model) == expected
 
 
-@pytest.mark.asyncio
 async def test_a_rehydrate_still_pins_what_the_row_recorded(_sized_comfy):
     """The other half: these bytes are meant to *be* the ones the row lost, so today's picker must not reshape them."""
     params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "anime", **STORED_COMFY}
@@ -374,7 +364,6 @@ async def test_a_rehydrate_still_pins_what_the_row_recorded(_sized_comfy):
     assert (target.width, target.height, target.model) == (512, 512, "old.safetensors")
 
 
-@pytest.mark.asyncio
 async def test_the_rerolled_sibling_records_the_render_it_actually_got(_sized_comfy):
     """`params` is what the route persists as the sibling's generation_metadata, and
     that sibling is itself rehydratable. Left naming the parent's target, its own
@@ -390,7 +379,6 @@ async def test_the_rerolled_sibling_records_the_render_it_actually_got(_sized_co
     assert (consumption["width"], consumption["height"]) == (704, 1408)
 
 
-@pytest.mark.asyncio
 async def test_reroll_preserves_stored_composition_skill_attribution(_sized_comfy):
     skills = [{"id": "first_person_hug", "label": "First-person hug"}]
     params = {
@@ -407,7 +395,6 @@ async def test_reroll_preserves_stored_composition_skill_attribution(_sized_comf
     assert consumption["composition_skills"] == skills
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("_sized_comfy", [False], indirect=True)
 async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
     """The display half is a claim about the image, so it takes only a graded answer.
@@ -428,7 +415,6 @@ async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
 # -- routing, when the replayed style is not the default one ------------------
 
 
-@pytest.mark.asyncio
 async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypatch):
     """The regression this plan is fixing. `normalize_config` derives `source` from the *default* style, and `/rehydrate` calls
     the hook with the attachment's stored `style_id` -- whatever the image was originally made with. Routing on `source`
@@ -558,7 +544,6 @@ def _styled(quality: str, reference_source: str) -> dict:
     )
 
 
-@pytest.mark.asyncio
 async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_cloud_reroll):
     """The names are written in `hooks._REPLAYED_FACTS` and read in the adapter's `resolve_target`: two files matched by nothing
     but a string.
@@ -587,7 +572,6 @@ async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_clo
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("replay", [True, False], ids=["rehydrate", "reroll"])
 async def test_only_a_replay_calls_its_substitutions_a_mismatch(_cloud_reroll, replay):
     """ "it will not match" reports a broken promise, and only a replay made one.
@@ -612,7 +596,6 @@ async def test_only_a_replay_calls_its_substitutions_a_mismatch(_cloud_reroll, r
     assert captured["request"].references == ()
 
 
-@pytest.mark.asyncio
 async def test_a_cloud_reroll_with_references_off_drops_them_and_says_so(_cloud_reroll):
     """Submitting them anyway is what sent a stored WebP into an edits endpoint
     that had declared PNG/JPEG -- the target's slot list is empty, so there was no
@@ -628,7 +611,6 @@ async def test_a_cloud_reroll_with_references_off_drops_them_and_says_so(_cloud_
     assert params["references"] == []
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("style_id", ["anime", "realistic"], ids=["same style", "style changed"])
 async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(_cloud_reroll, style_id):
     """A style change carries the reference over: refusing it was right only for

@@ -1,9 +1,9 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
-import { renderMessages } from "./chat_core.js";
 import { EDIT_ICON } from "./icons.js";
 import { confirmDelete, setModalDismiss, showCropModal, showModal } from "./modal.js";
-import { charactersView, S } from "./state.js";
+import { saveSettings } from "./settings_store.js";
+import { charactersView, notify, S } from "./state.js";
 import {
   $,
   avatarCell,
@@ -23,12 +23,7 @@ export async function loadPersonas() {
     console.error("Failed to load personas:", e);
     S.personas = [];
   }
-  repaintUserAvatars();
-}
-
-/** Repaint the chat gutter when persona state changes. */
-function repaintUserAvatars() {
-  if (S.showChatAvatars) renderMessages();
+  notify("personas");
 }
 
 // The image chosen in the crop modal, held until savePersona() posts it.
@@ -274,8 +269,7 @@ async function deletePersona(personaId) {
     try {
       await api.del(`/user-personas/${personaId}`);
       if (S.activePersonaId === personaId) {
-        await api.put("/settings", { active_persona_id: null });
-        S.activePersonaId = null;
+        await saveSettings({ active_persona_id: null });
         updateUserBtn();
       }
       await loadPersonas();
@@ -293,8 +287,7 @@ async function activatePersona(personaId) {
   const repin = !!conv && !!pinnedId && pinnedId !== personaId;
   if (S.activePersonaId === personaId && !repin) return;
   try {
-    await api.put("/settings", { active_persona_id: personaId });
-    S.activePersonaId = personaId;
+    await saveSettings({ active_persona_id: personaId });
     if (repin) {
       await api.put(`/conversations/${conv.id}`, { persona_lock_id: personaId });
       conv.persona_lock_id = personaId;

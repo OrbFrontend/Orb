@@ -3,9 +3,8 @@
 Starting from the latest schema would miss columns lacking an upgrade migration.
 """
 
-from __future__ import annotations
-
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -19,22 +18,16 @@ _BASELINE = Path(__file__).parent.parent / "fixtures" / "schema_pre_group_chats.
 
 def _columns(path: Path) -> dict[str, set[str]]:
     """``{table: {column, ...}}`` for every non-internal table."""
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
         return {t: {c[1] for c in conn.execute(f"PRAGMA table_info({t})")} for t in tables}  # nosec B608 -- from sqlite_master
-    finally:
-        conn.close()
 
 
 async def test_migration_chain_reaches_current_schema(tmp_path: Path, monkeypatch):
     upgraded = tmp_path / "upgraded.db"
-    conn = sqlite3.connect(upgraded)
-    try:
+    with closing(sqlite3.connect(upgraded)) as conn:
         conn.executescript(_BASELINE.read_text())
         conn.commit()
-    finally:
-        conn.close()
     run_pending(upgraded)
 
     fresh = tmp_path / "fresh.db"
@@ -75,8 +68,7 @@ async def test_migration_chain_reaches_current_schema(tmp_path: Path, monkeypatc
 def test_settings_rebuild_keeps_what_later_migrations_read(tmp_path: Path):
     """0066 rebuilds ``settings`` from today's DDL; 0067 and 0068 still read columns that DDL lacks."""
     upgraded = tmp_path / "upgraded.db"
-    conn = sqlite3.connect(upgraded)
-    try:
+    with closing(sqlite3.connect(upgraded)) as conn:
         conn.executescript(_BASELINE.read_text())
         conn.execute(
             "INSERT INTO settings (id, endpoint_url, model_name, feedback_enabled, direction_notes_record, "
@@ -87,18 +79,13 @@ def test_settings_rebuild_keeps_what_later_migrations_read(tmp_path: Path):
             "VALUES ('fb', 'FB', 'd', 'feedback', 'FB')"
         )
         conn.commit()
-    finally:
-        conn.close()
     run_pending(upgraded)
 
-    conn = sqlite3.connect(upgraded)
-    try:
+    with closing(sqlite3.connect(upgraded)) as conn:
         feedback = conn.execute("SELECT enabled FROM interactive_fragments WHERE id = 'fb'").fetchone()
         notes = conn.execute(
             "SELECT field_type, state_update, state_inject FROM interactive_fragments WHERE id = 'characterization'"
         ).fetchone()
-    finally:
-        conn.close()
     assert feedback == (0,), "0068 must keep feedback fragments off for an install that had feedback off"
     assert notes == ("state", "after_reply", "writer"), "0067 must convert direction notes with the recorded settings"
 
@@ -107,8 +94,7 @@ def test_settings_rebuild_keeps_what_later_migrations_read(tmp_path: Path):
 async def test_initialization_upgrades_unstamped_existing_schema(tmp_path: Path, monkeypatch, populated):
     """Empty tables or a missing ledger do not make an old schema fresh."""
     path = tmp_path / "legacy.db"
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         conn.executescript(_BASELINE.read_text())
         if populated:
             conn.execute(
@@ -117,14 +103,11 @@ async def test_initialization_upgrades_unstamped_existing_schema(tmp_path: Path,
             )
             conn.execute("INSERT INTO worlds (id, name, created_at, updated_at) VALUES ('legacy', 'Keep my world', 't', 't')")
             conn.commit()
-    finally:
-        conn.close()
 
     monkeypatch.setattr(db_connection, "DB_PATH", str(path))
     assert await init_db() == len(MIGRATIONS)
     assert await init_db() == 0
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         assert {r[0] for r in conn.execute("SELECT id FROM schema_migrations")} == set(MIGRATIONS)
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         if populated:
@@ -134,5 +117,3 @@ async def test_initialization_upgrades_unstamped_existing_schema(tmp_path: Path,
                 "SELECT p.name, p.description FROM user_personas p JOIN settings s ON p.id = s.active_persona_id"
             ).fetchone() == ("Legacy User", "Keep my persona")
             assert conn.execute("SELECT name FROM worlds WHERE id = 'legacy'").fetchone() == ("Keep my world",)
-    finally:
-        conn.close()

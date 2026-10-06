@@ -10,6 +10,7 @@ from ...core import (
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
 )
+from ...core.settings import Settings
 from ...database import get_endpoint, get_settings, update_decision_config
 from ...inference import RAW_ANSWER_CACHE, DecisionTransportError, LLMCallError
 from ...pipeline import resolve_judge_config
@@ -26,7 +27,7 @@ from ..schemas import DecisionConfigUpdate
 router = APIRouter()
 
 
-def _config_payload(settings, config) -> dict:
+def _config_payload(settings: Settings, config) -> dict:
     return {
         "decision_endpoint_id": settings.get("decision_endpoint_id"),
         "decision_model": settings.get("decision_model", ""),

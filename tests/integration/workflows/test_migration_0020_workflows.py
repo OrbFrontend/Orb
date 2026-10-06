@@ -6,11 +6,10 @@ copied, TTS config reshaped, voice profiles moved per-card with the vestigial en
 the runner is synchronous and takes a connection.
 """
 
-from __future__ import annotations
-
 import importlib
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -84,8 +83,7 @@ def _stage_upgrade(conn: sqlite3.Connection) -> None:
 
 
 def test_upgrade_converges_on_final_schema(mig_db: Path):
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         _migrate(conn)
         conn.commit()
@@ -102,26 +100,20 @@ def test_upgrade_converges_on_final_schema(mig_db: Path):
         assert "workflow_state" in _cols(conn, "conversations")
         assert "workflow_state" in _cols(conn, "messages")
         assert "workflow_state" in _cols(conn, "character_cards")
-    finally:
-        conn.close()
 
 
 def test_upgrade_copies_user_rows_skipping_orphans(mig_db: Path):
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         _migrate(conn)
         conn.commit()
         rows = conn.execute("SELECT id, message_id, mime_type, filename, size FROM user_attachments ORDER BY id").fetchall()
         assert rows == [(10, 1, "image/png", "u.png", 5)]
         assert conn.execute("SELECT COUNT(*) FROM workflow_attachments").fetchone()[0] == 0
-    finally:
-        conn.close()
 
 
 def test_upgrade_ports_tts_to_final_shape(mig_db: Path):
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         _migrate(conn)
         conn.commit()
@@ -129,9 +121,7 @@ def test_upgrade_ports_tts_to_final_shape(mig_db: Path):
         wc = json.loads(conn.execute("SELECT workflow_config FROM settings WHERE id=1").fetchone()[0])
         assert wc["tts"] == {"auto_play": True, "volume": 0.42}
 
-        card_state = json.loads(conn.execute("SELECT workflow_state FROM character_cards WHERE id='card1'").fetchone()[0])
-        # Full dict: endpoint_id dropped, enabled coerced to bool, empty api_* preserved as "".
-        assert card_state["tts"] == {
+        assert json.loads(conn.execute("SELECT workflow_state FROM character_cards WHERE id='card1'").fetchone()[0])["tts"] == {
             "backend": "edge",
             "voice_id": "v1",
             "language": "en-US",
@@ -142,14 +132,11 @@ def test_upgrade_ports_tts_to_final_shape(mig_db: Path):
             "api_key": "",
             "model": "",
         }
-    finally:
-        conn.close()
 
 
 def test_tts_port_preserves_unrelated_workflow_config_keys(mig_db: Path):
     """The port reassigns only workflow_config["tts"]; another workflow's slot already present in the config must survive."""
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         conn.execute("ALTER TABLE settings ADD COLUMN workflow_config TEXT NOT NULL DEFAULT '{}'")
         conn.execute("UPDATE settings SET workflow_config = ? WHERE id=1", (json.dumps({"other_wf": {"k": 1}}),))
@@ -161,13 +148,10 @@ def test_tts_port_preserves_unrelated_workflow_config_keys(mig_db: Path):
         wc = json.loads(conn.execute("SELECT workflow_config FROM settings WHERE id=1").fetchone()[0])
         assert wc["other_wf"] == {"k": 1}
         assert wc["tts"] == {"auto_play": True, "volume": 0.42}
-    finally:
-        conn.close()
 
 
 def test_does_not_clobber_existing_card_tts_profile(mig_db: Path):
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         live = {"tts": {"backend": "openai", "voice_id": "nova", "enabled": False}}
         conn.execute("ALTER TABLE character_cards ADD COLUMN workflow_state TEXT DEFAULT NULL")
@@ -179,13 +163,10 @@ def test_does_not_clobber_existing_card_tts_profile(mig_db: Path):
 
         card_state = json.loads(conn.execute("SELECT workflow_state FROM character_cards WHERE id='card1'").fetchone()[0])
         assert card_state["tts"] == {"backend": "openai", "voice_id": "nova", "enabled": False}
-    finally:
-        conn.close()
 
 
 def test_idempotent_rerun(mig_db: Path):
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         _stage_upgrade(conn)
         _migrate(conn)
         conn.commit()
@@ -197,15 +178,12 @@ def test_idempotent_rerun(mig_db: Path):
         assert conn.execute("SELECT workflow_config FROM settings WHERE id=1").fetchone()[0] == first_wc
         assert "message_attachments" not in _tables(conn)
         assert conn.execute("SELECT id FROM user_attachments ORDER BY id").fetchall() == [(10,)]
-    finally:
-        conn.close()
 
 
 def test_no_legacy_tts_leaves_config_empty(mig_db: Path):
     """A settings row with neither tts_* columns nor a voice_profiles table (a
     fresh-branch shape) gets workflow_config left untouched by the TTS port."""
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         conn.executescript(
             """
             CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id=1), workflow_config TEXT NOT NULL DEFAULT '{}');
@@ -219,8 +197,6 @@ def test_no_legacy_tts_leaves_config_empty(mig_db: Path):
         _migrate(conn)
         conn.commit()
         assert json.loads(conn.execute("SELECT workflow_config FROM settings WHERE id=1").fetchone()[0]) == {}
-    finally:
-        conn.close()
 
 
 def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
@@ -231,8 +207,7 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
     from backend.database.migrations import MIGRATIONS
     from backend.database.schema import CREATE_TABLES_SQL
 
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         conn.executescript(CREATE_TABLES_SQL)
         conn.execute("INSERT INTO settings (id) VALUES (1)")
         conn.execute(
@@ -242,17 +217,11 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
             if name != "0020_workflows":
                 conn.execute("INSERT OR IGNORE INTO schema_migrations (id) VALUES (?)", (name,))
         conn.commit()
-    finally:
-        conn.close()
 
     run_pending(mig_db)
 
-    conn = sqlite3.connect(str(mig_db))
-    try:
+    with closing(sqlite3.connect(str(mig_db))) as conn:
         tables = _tables(conn)
         assert "message_attachments" not in tables
         assert {"user_attachments", "workflow_attachments"}.issubset(tables)
-        applied = {r[0] for r in conn.execute("SELECT id FROM schema_migrations")}
-        assert "0020_workflows" in applied
-    finally:
-        conn.close()
+        assert "0020_workflows" in {r[0] for r in conn.execute("SELECT id FROM schema_migrations")}

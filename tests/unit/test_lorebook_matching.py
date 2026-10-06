@@ -4,14 +4,11 @@ The scan feeds the *trailing* block only -- constant entries ride the cached sys
 constants are selected (KV-cache prefix parity; see test_constant_lorebook_prefix.py for the seam).
 """
 
-from __future__ import annotations
-
 from backend.prompting.lorebook import select_active_entries, select_keyword_entries
 
 
 def _entry(**kw):
-    base = {"id": 1, "name": "E", "content": "c", "keywords": ["doom"], "case_insensitive": True, "constant": 0}
-    return {**base, **kw}
+    return {**{"id": 1, "name": "E", "content": "c", "keywords": ["doom"], "case_insensitive": True, "constant": 0}, **kw}
 
 
 def _msgs(text):

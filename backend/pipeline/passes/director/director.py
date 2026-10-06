@@ -20,6 +20,7 @@ from ....core import (
     value_text,
 )
 from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....core.settings import Settings
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
@@ -201,7 +202,7 @@ async def director_pass(
     client: LLMClient,
     base: CachedBase,
     user_message: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
@@ -456,7 +457,7 @@ async def director_stage(
     cfg: PipelineConfig,
     state: TurnState,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     scene_fragments: Sequence[Mapping[str, Any]],

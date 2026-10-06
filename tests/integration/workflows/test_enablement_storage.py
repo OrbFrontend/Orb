@@ -6,8 +6,6 @@ the manifest keeps listing a disabled workflow with no ``enabled`` field (the fr
 so a server-resolved field would just go stale).
 """
 
-from __future__ import annotations
-
 from backend.database import get_settings, set_workflow_enabled, update_settings
 from backend.workflows import prose_rewriter_host
 
@@ -15,15 +13,13 @@ from backend.workflows import prose_rewriter_host
 async def test_per_key_write_keeps_both_keys(client):
     await set_workflow_enabled("tts", False)
     await set_workflow_enabled("format_consistency", False)
-    s = await get_settings()
-    assert s.get("workflow_enabled") == {"tts": False, "format_consistency": False}
+    assert (await get_settings()).get("workflow_enabled") == {"tts": False, "format_consistency": False}
 
 
 async def test_per_key_flip_back_to_true(client):
     await set_workflow_enabled("tts", False)
     await set_workflow_enabled("tts", True)
-    s = await get_settings()
-    assert s.get("workflow_enabled", {})["tts"] is True
+    assert (await get_settings()).get("workflow_enabled", {})["tts"] is True
 
 
 async def test_global_flag_round_trip(client):
@@ -34,8 +30,7 @@ async def test_global_flag_round_trip(client):
 
 
 async def test_toggle_route_returns_decoded_map_without_clobber(client):
-    resp = await client.post_json("/api/workflows/tts/enabled", json={"enabled": False})
-    assert resp["workflow_enabled"] == {"tts": False}
+    assert (await client.post_json("/api/workflows/tts/enabled", json={"enabled": False}))["workflow_enabled"] == {"tts": False}
 
     resp2 = await client.post_json("/api/workflows/format_consistency/enabled", json={"enabled": False})
     assert resp2["workflow_enabled"] == {"tts": False, "format_consistency": False}
@@ -52,17 +47,14 @@ async def test_toggle_route_missing_body_is_422(client):
 
 async def test_manifest_lists_disabled_workflow_with_no_enabled_field(client):
     await set_workflow_enabled("tts", False)
-    body = (await client.get("/api/workflows")).json()
-    tts = next((w for w in body if w["id"] == "tts"), None)
+    tts = next((w for w in await client.get_json("/api/workflows") if w["id"] == "tts"), None)
     assert tts is not None, "a disabled workflow must stay in the manifest"
     assert set(tts.keys()) == {"id", "display_name", "config_schema", "config_defaults"}
 
 
 async def test_manifest_lists_prose_rewriter_as_a_secondary_workflow(client):
-    body = (await client.get("/api/workflows")).json()
-    prose = next((workflow for workflow in body if workflow["id"] == "prose_rewriter"), None)
-
-    assert prose == {
+    body = await client.get_json("/api/workflows")
+    assert next((workflow for workflow in body if workflow["id"] == "prose_rewriter"), None) == {
         "id": "prose_rewriter",
         "display_name": "Prose Rewriter",
         "config_schema": {
@@ -94,4 +86,4 @@ async def test_prose_rewriter_config_normalizes_the_automatic_switch(client):
 
     resp = await client.put("/api/workflows/prose_rewriter/config", json={"config": {"automatic": False}})
     assert resp.json() == {"config": {"automatic": False}}
-    assert (await client.get("/api/workflows/prose_rewriter/config")).json() == {"config": {"automatic": False}}
+    assert await client.get_json("/api/workflows/prose_rewriter/config") == {"config": {"automatic": False}}

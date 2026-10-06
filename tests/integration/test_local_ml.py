@@ -6,8 +6,6 @@ them, which is the guard that matters here: these are the two calls that would o
 file loads a model or starts a child process.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.inference.local_models import assets, dependencies
@@ -76,7 +74,7 @@ async def test_download_unknown_feature_404(client):
 async def test_status_covers_every_registered_feature(client):
     # The Settings card is generic over MODELS, so a new entry (pov_classifier)
     # only reaches the UI if status enumerates the registry rather than a list.
-    st = (await client.get("/api/local-ml/status")).json()
+    st = await client.get_json("/api/local-ml/status")
     assert set(st["features"]) == set(assets.MODELS)
     assert st["features"]["pov_classifier"]["size_mb"] == assets.MODELS["pov_classifier"].size_mb
 
@@ -85,16 +83,14 @@ async def test_enable_toggle_roundtrips(client):
     resp = await client.post_json("/api/local-ml/autocomplete/enabled", json={"enabled": False})
     assert resp["local_ml_enabled"] == {"autocomplete": False}
     # Status reflects the flip.
-    st = (await client.get("/api/local-ml/status")).json()
-    assert st["features"]["autocomplete"]["enabled"] is False
+    assert (await client.get_json("/api/local-ml/status"))["features"]["autocomplete"]["enabled"] is False
 
 
 # -- prose rewriter: the variant-bearing shape --------------------------------
 
 
 async def test_status_enumerates_the_rewriter_variants(client):
-    st = (await client.get("/api/local-ml/status")).json()
-    info = st["features"]["prose_rewriter"]
+    info = (await client.get_json("/api/local-ml/status"))["features"]["prose_rewriter"]
     assert [v["id"] for v in info["variants"]] == [v.id for v in catalog.variants()]
     assert all({"id", "label", "detail", "size_mb", "present"} <= set(v) for v in info["variants"])
     # Nothing downloaded in CI, so nothing is selected and the card offers downloads rather than a selector.
@@ -109,7 +105,7 @@ async def test_status_reports_deps_per_feature_not_globally(client):
 
     One global answer would gray out a button that works.
     """
-    st = (await client.get("/api/local-ml/status")).json()
+    st = await client.get_json("/api/local-ml/status")
     assert {"deps_ok", "reason"} <= set(st["features"]["prose_rewriter"])
     assert {"deps_ok", "reason"} <= set(st["features"]["autocomplete"])
 
@@ -120,7 +116,7 @@ async def test_config_roundtrips_variant_gpu_and_batch_size(client, batch_size):
         "/api/local-ml/prose_rewriter/config", json={"variant": "1.7b-q8", "gpu": False, "batch_size": batch_size}
     )
     assert resp["local_ml_config"]["prose_rewriter"] == {"variant": "1.7b-q8", "gpu": False, "batch_size": batch_size}
-    st = (await client.get("/api/local-ml/status")).json()
+    st = await client.get_json("/api/local-ml/status")
     assert st["features"]["prose_rewriter"]["selected"] == "1.7b-q8"
     assert st["features"]["prose_rewriter"]["gpu"] is False
     assert st["features"]["prose_rewriter"]["batch_size"] == batch_size
@@ -156,8 +152,7 @@ async def test_config_404s_for_an_unknown_feature(client):
 async def test_spark_config_roundtrips_gpu(client):
     resp = await client.post_json("/api/local-ml/spark_tts_llm/config", json={"gpu": False})
     assert resp["local_ml_config"]["spark_tts_llm"] == {"gpu": False}
-    st = (await client.get("/api/local-ml/status")).json()
-    assert st["features"]["spark_tts_llm"]["gpu"] is False
+    assert (await client.get_json("/api/local-ml/status"))["features"]["spark_tts_llm"]["gpu"] is False
 
 
 async def test_the_spark_gpu_switch_retargets_the_child(client, monkeypatch, _empty_model_dir):
@@ -211,8 +206,7 @@ async def test_the_runtime_fetch_is_never_reached_by_accident(client, monkeypatc
 
 
 async def _select(client) -> str | None:
-    st = (await client.get("/api/local-ml/status")).json()
-    return st["features"]["prose_rewriter"]["selected"]
+    return (await client.get_json("/api/local-ml/status"))["features"]["prose_rewriter"]["selected"]
 
 
 async def test_a_download_arms_the_feature_when_nothing_usable_is_selected(
@@ -243,7 +237,7 @@ async def test_a_second_download_never_steals_a_working_selection(client, monkey
 
     assert await _select(client) == first.id
     # And the fields it did not come to change are left alone.
-    st = (await client.get("/api/local-ml/status")).json()["features"]["prose_rewriter"]
+    st = (await client.get_json("/api/local-ml/status"))["features"]["prose_rewriter"]
     assert st["gpu"] is False
     assert st["batch_size"] == 1
 
@@ -288,7 +282,7 @@ async def test_status_payload_keys_are_unchanged(client):
     dropped in that split would not fail anything else: ``frontend/settings.js`` reads these with ``?.`` and would simply render
     an empty row.
     """
-    st = (await client.get("/api/local-ml/status")).json()
+    st = await client.get_json("/api/local-ml/status")
     assert set(st) == {"deps_ok", "reason", "install_cmd", "features"}
 
     plain = st["features"]["autocomplete"]
@@ -311,9 +305,7 @@ async def test_status_payload_keys_are_unchanged(client):
 async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monkeypatch):
     monkeypatch.setattr(llama_binary, "fetch", lambda: "/bin/llama-bin/gpu/llama-server")
 
-    resp = await client.post_json("/api/local-ml/runtime", json={})
-
-    assert resp == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
+    assert (await client.post_json("/api/local-ml/runtime", json={})) == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
 
 
 async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch):

@@ -50,6 +50,9 @@ LAYERS = {
     # The avatar crop box as pure geometry (hit test, move, aspect-locked
     # resize), split from modal.js so it can be tested without a canvas.
     "crop_geometry.js": 0,
+    "identity_macros.js": 0,
+    # Projects untrusted card display scripts off the page's thread; also owns the pure pattern/replacement rules.
+    "card_script_worker.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,
@@ -74,6 +77,8 @@ LAYERS = {
     # only utils.js, so it sits alongside it rather than with the features.
     "world_proposals.js": 1,
     "group_cast.js": 1,
+    # The one writer of S.settings: saves, local applies, and the "settings" notice each change sends.
+    "settings_store.js": 1,
     "library_dedupe_view.js": 1,
     # L2 services.
     "tabLock.js": 2,
@@ -211,6 +216,44 @@ FROZEN_ABI = {
     "setWorkflowState",
     "localMlReady",
     "refreshLocalMlStatus",
+}
+
+# -- 6. State ownership ---------------------------------------------------------
+# A key of S has one module that writes it; the others call that module. These keys are still written from several
+# modules, each set exactly as it stands: a new writer fails, and so does a writer that is gone but still listed.
+SHARED_STATE = {
+    "attachments": {"chat_composer.js", "chat_stream.js"},
+    "consumedSpeakerId": {"chat_conversations.js", "chat_stream.js", "group_setup.js"},
+    "conversations": {"chat_conversations.js", "group_setup.js"},
+    "directorState": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
+    "editingMsgId": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
+    "editingPendingUserMsg": {"chat_messages.js", "chat_stream.js"},
+    "expressionBuffering": {"chat_stream.js", "expression_playback.js"},
+    "groupCast": {"chat_conversations.js", "group_setup.js"},
+    "inspectedDirectorData": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
+    "inspectedMsgId": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
+    "lastDecisions": {"chat_conversations.js", "chat_stream.js"},
+    "lastDirectorData": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
+    "lastFeedback": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
+    "lastState": {"chat_conversations.js", "chat_messages.js", "chat_stream.js"},
+    "magicInputMsgId": {"chat_conversations.js", "chat_stream.js"},
+    "messages": {"chat_conversations.js", "chat_core.js", "chat_messages.js", "chat_stream.js"},
+    "pendingRefineDiff": {"chat_inspector.js", "chat_stream.js"},
+    "pendingUserMsg": {"chat_messages.js", "chat_stream.js"},
+    "pendingUserMsgEdit": {"chat_messages.js", "chat_stream.js"},
+    "pinnedSpeakerId": {"chat_conversations.js", "group_setup.js"},
+    "queuedEdits": {"chat_messages.js", "chat_stream.js"},
+    "reasoningByPass": {"chat_conversations.js", "chat_stream.js", "workflow_registry.js"},
+    "reasoningDirector": {"chat_conversations.js", "chat_stream.js"},
+    "reasoningEditor": {"chat_conversations.js", "chat_stream.js"},
+    "reasoningPassActive": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
+    "reasoningPassSelected": {"chat_conversations.js", "chat_inspector.js", "chat_stream.js"},
+    "reasoningUserOverride": {"chat_inspector.js", "chat_stream.js"},
+    "reasoningWriter": {"chat_conversations.js", "chat_stream.js"},
+    "rejectedWorkflowAtts": {"chat_core.js", "chat_workflow.js"},
+    "renderWindowStart": {"chat_core.js", "chat_messages.js"},
+    "streamCutoffIndex": {"chat_messages.js", "chat_stream.js"},
+    "turnError": {"chat_error.js", "chat_stream.js"},
 }
 
 # -- Parsing helpers ----------------------------------------------------------
@@ -399,6 +442,52 @@ def unused_exports(
     return {path: names for path, names in unused.items() if names}
 
 
+# A write to S, or to a conversation's state object (`state.key`), through a path: assignment, ++/--, a mutating
+# method, delete, or Object.assign. Computed keys (`S[name]`) are out of reach.
+_STATE_PATH = r"(?<![\w$.])(S|state)\.([\w$]+)((?:\??\.[\w$]+|\[[^\]\n]*\])*)"
+_STATE_WRITES = [
+    re.compile(_STATE_PATH + r"\s*(?:[-+*/%&|^]|\*\*|<<|>>>?|&&|\|\||\?\?)?=(?![=>])"),
+    re.compile(_STATE_PATH + r"\s*(?:\+\+|--)"),
+    re.compile(_STATE_PATH + r"\.(?:push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin|set|delete|clear|add)\("),
+    re.compile(r"(?:\+\+|--|\bdelete\s+|Object\.assign\(\s*)(S|state)\.([\w$]+)"),
+]
+
+
+def state_declarations(text: str) -> tuple[set[str], set[str]]:
+    """The keys state.js's S literal declares, which are the writable ones, and its per-conversation keys."""
+    start = text.index("export const S = {")
+    declared = set(re.findall(r"^  ([\w$]+):", text[start : text.index("\n};", start)], re.MULTILINE))
+    conversation = re.search(r"const conversationKeys = `([^`]*)`", text)
+    return declared, set(conversation.group(1).split()) if conversation else set()
+
+
+def state_writes(text: str, conversation_keys: set[str]) -> set[str]:
+    """The S keys *text* writes; `state.key` counts only for a per-conversation key."""
+    text = _COMMENT.sub("", text)
+    keys: set[str] = set()
+    for pattern in _STATE_WRITES:
+        for match in pattern.finditer(text):
+            target, key = match.group(1), match.group(2)
+            if target == "S" or key in conversation_keys:
+                keys.add(key)
+    return keys
+
+
+def state_ownership_errors(writers: dict[str, set[str]], declared: set[str], shared: dict[str, set[str]]) -> list[str]:
+    errors = []
+    for key, modules in sorted(writers.items()):
+        names = ", ".join(sorted(modules))
+        if key not in declared:
+            errors.append(f"[state] {names} writes S.{key}, which is not a writable key of the S literal in state.js")
+        elif key in shared and modules != shared[key]:
+            errors.append(f"[state] S.{key} is written by {names}; SHARED_STATE lists {', '.join(sorted(shared[key]))}")
+        elif key not in shared and len(modules) > 1:
+            errors.append(f"[state] S.{key} is written by {names}; give it one owner and have the others call it")
+    for key in sorted(set(shared) - set(writers)):
+        errors.append(f"[state] SHARED_STATE lists S.{key}, which nothing writes now; drop the entry")
+    return errors
+
+
 def unregistered_actions(text: str, registered: set[str], *, workflow_id: str | None = None) -> set[str]:
     """Unknown literal actions, including a plug-in's WORKFLOW_ID templates."""
     if workflow_id is not None:
@@ -520,10 +609,20 @@ def main() -> int:
             f"[export] {path.relative_to(FE)}: nothing imports {', '.join(sorted(names))}; drop the export or the declaration"
         )
 
+    # 6. Each S key has one writer, apart from the SHARED_STATE keys and their listed writers.
+    state_text = (FE / "state.js").read_text(encoding="utf-8")
+    declared, conversation_keys = state_declarations(state_text)
+    writers: dict[str, set[str]] = {}
+    for path in top_files:
+        for key in state_writes(path.read_text(encoding="utf-8"), conversation_keys):
+            writers.setdefault(key, set()).add(path.name)
+    errors.extend(state_ownership_errors(writers, declared, SHARED_STATE))
+
     # Report.
     print(
         f"frontend layer check: {len(top_files)} modules, {len(registered)} actions, "
         f"underscore imports={us}, "
+        f"shared state keys={len(SHARED_STATE)}, "
         f"ABI v{abi_version} ({len(exports)} exports)"
     )
     if errors:

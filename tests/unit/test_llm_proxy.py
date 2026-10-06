@@ -11,8 +11,6 @@ Proxy lives on the ``endpoints`` row (next to ``url`` / ``api_key``). Three seam
     get_settings() overlay keys (``proxy`` / ``agent_proxy``) into the client.
 """
 
-from __future__ import annotations
-
 import pytest
 from pydantic import ValidationError
 
@@ -30,8 +28,7 @@ def test_llmclient_empty_proxy_normalizes_to_none():
 
 
 def test_llmclient_preserves_real_proxy():
-    c = LLMClient("http://localhost:9999", proxy="socks5://127.0.0.1:1080")
-    assert c.proxy == "socks5://127.0.0.1:1080"
+    assert LLMClient("http://localhost:9999", proxy="socks5://127.0.0.1:1080").proxy == "socks5://127.0.0.1:1080"
 
 
 @pytest.mark.parametrize("url", ["http://proxy:8080", "https://proxy:8443", "socks5://127.0.0.1:1080"])
@@ -66,8 +63,7 @@ def test_client_from_settings_threads_proxy():
 
 
 def test_client_from_settings_empty_proxy_is_none():
-    s = {"endpoint_url": "http://w:1", "proxy": ""}
-    assert client_from_settings(s).proxy is None
+    assert client_from_settings({"endpoint_url": "http://w:1", "proxy": ""}).proxy is None
 
 
 def test_agent_client_uses_agent_proxy():
@@ -83,5 +79,4 @@ def test_agent_client_uses_agent_proxy():
 def test_agent_client_falls_back_to_writer_proxy():
     # No agent_proxy key: the agent client inherits the writer's proxy, mirroring
     # how agent_endpoint_url falls back to endpoint_url in the same factory.
-    s = {"endpoint_url": "http://w:1", "proxy": "socks5://writer:1"}
-    assert agent_client_from_settings(s).proxy == "socks5://writer:1"
+    assert agent_client_from_settings({"endpoint_url": "http://w:1", "proxy": "socks5://writer:1"}).proxy == "socks5://writer:1"

@@ -449,7 +449,7 @@ async def _dismissal_stamps(pairs: list[tuple[str, str]]) -> list[tuple[str, str
     """Read just-dismissed cards and stamp pairs with their meaningful bodies."""
     ids = sorted({card_id for pair in pairs for card_id in pair})
     cards = await asyncio.gather(*(get_character_card(card_id) for card_id in ids))
-    by_id = {card_id: card for card_id, card in zip(ids, cards, strict=True)}
+    by_id = dict(zip(ids, cards, strict=True))
     missing = next((card_id for card_id, card in by_id.items() if card is None), None)
     if missing is not None:
         raise HTTPException(status_code=404, detail="Character card not found")

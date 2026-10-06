@@ -4,8 +4,6 @@
 must not serialize different-pair callers so unrelated workflows on the same conversation run in parallel.
 """
 
-from __future__ import annotations
-
 import asyncio
 import time
 
@@ -22,9 +20,7 @@ async def test_n_concurrent_triggers_no_lost_writes(client):
     cid = await _new_conversation(client)
     wid = "counter_wf"
 
-    wf = make_workflow(wid, on_demand=counter_on_demand_hook(wid, "n"))
-
-    with register_for_test(wf):
+    with register_for_test(make_workflow(wid, on_demand=counter_on_demand_hook(wid, "n"))):
         n = 20
         results = await asyncio.gather(
             *[client.post(f"/api/conversations/{cid}/workflows/{wid}/trigger", json={}) for _ in range(n)]

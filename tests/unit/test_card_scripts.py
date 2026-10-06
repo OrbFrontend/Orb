@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.core import CardScripts, Macros, TurnCast
@@ -85,8 +83,7 @@ def test_unflagged_script_reaches_both_views_like_a_rewritten_row(flags, channel
 
 @pytest.mark.parametrize("bad", ["/[broken/g", "/(unclosed/g", "/a/x"])
 def test_bad_pattern_skipped_without_losing_valid_scripts(bad, caplog):
-    scripts = compile_scripts(script(bad), script())
-    assert scripts.apply("secret", "prompt", "assistant") == "visible"
+    assert compile_scripts(script(bad), script()).apply("secret", "prompt", "assistant") == "visible"
     assert "card regex" in caplog.text
 
 

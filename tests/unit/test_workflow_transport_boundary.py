@@ -5,8 +5,6 @@ responses is the API layer's job. A Starlette/FastAPI import anywhere under ``ba
 coupling the on-demand streaming refactor removed, so this guards the boundary permanently.
 """
 
-from __future__ import annotations
-
 import ast
 import pathlib
 

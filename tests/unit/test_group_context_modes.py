@@ -5,8 +5,6 @@ These tests pin both halves at once, because a field that silently appears in bo
 neither is silently lost.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.core import CastMember, Macros, TurnCast
@@ -292,13 +290,11 @@ def test_prevent_prompt_overrides_still_suppresses_post_history_in_every_mode(mo
 @pytest.mark.parametrize("mode", MODES)
 def test_no_mode_reads_a_card_system_prompt_or_scenario(mode):
     """Swap substitutes identity, never control instructions -- see group_context.py."""
-    system = _system(mode, ARIA)
-    assert "legacy persona" not in system
+    assert "legacy persona" not in _system(mode, ARIA)
 
 
 def test_a_solo_turn_renders_no_cast_section_whatever_the_mode_says():
-    solo = TurnCast(False, (ARIA,), ARIA, "swap")
-    assert render_cast_section(solo, MACROS) == ""
+    assert render_cast_section(TurnCast(False, (ARIA,), ARIA, "swap"), MACROS) == ""
 
 
 # -- Context-size components -------------------------------------------------
@@ -365,8 +361,7 @@ def test_description_scopes_to_the_member_like_char_does():
     counterpart -- and, since it is the override when a scene sets one, it tracks a scene that has moved while the card still
     asserts turn one.
     """
-    scoped = member_macros(MACROS, KAEL, "Aria, Kael")
-    assert scoped.resolve_message("{{char}}: {{description}}") == "Kael: KAEL SHEET"
+    assert member_macros(MACROS, KAEL, "Aria, Kael").resolve_message("{{char}}: {{description}}") == "Kael: KAEL SHEET"
     # ARIA carries a scene override, which resolve_private_sheet returns in place of
     # the card join -- the macro reads the same field, so it inherits that.
     assert member_macros(MACROS, ARIA, "Aria, Kael").description == ARIA.private_sheet
@@ -376,5 +371,4 @@ def test_description_scopes_to_the_member_like_char_does():
 
 def test_scoped_description_resolves_the_members_own_char_macro():
     aria = _member("a", "Aria", private="{{char}} keeps watch over {{user}}")
-    scoped = member_macros(MACROS, aria, "Aria, Kael")
-    assert scoped.resolve_message("{{description}}") == "Aria keeps watch over User"
+    assert member_macros(MACROS, aria, "Aria, Kael").resolve_message("{{description}}") == "Aria keeps watch over User"

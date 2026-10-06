@@ -2,9 +2,8 @@
 and deepest-first deletes; small correctness fixtures cannot expose scan costs.
 """
 
-from __future__ import annotations
-
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -67,14 +66,11 @@ async def test_every_foreign_key_a_message_delete_touches_is_indexed(db_path: Pa
     Derived from the live schema so a new table that cascades off messages -- another attachment kind, say -- is covered the day
     it lands instead of quietly making deletion quadratic again.
     """
-    conn = sqlite3.connect(db_path)
-    try:
+    with closing(sqlite3.connect(db_path)) as conn:
         closure = _delete_closure(conn, "messages")
         # Sanity: the closure really is the delete fan-out, not just {messages}.
         assert {"messages", "user_attachments", "workflow_attachments", "fragment_state_events"} <= closure
         offenders = _unindexed_child_keys(conn, closure)
-    finally:
-        conn.close()
 
     assert offenders == [], (
         "foreign-key child columns without a leading index, reachable from a message delete: "
@@ -91,8 +87,7 @@ async def test_subtree_walk_seeks_on_parent_id(db_path: Path, sql_name: str, exp
     walk scan every message in the chat; the queries defeat that with SQLite's ``+`` no-index operator on the conversation guard
     (see ``_SAME_CONVERSATION``). Losing the ``+`` is a silent, large regression, so assert the plan rather than the wording.
     """
-    conn = sqlite3.connect(db_path)
-    try:
+    with closing(sqlite3.connect(db_path)) as conn:
         plan = [
             row[3]
             for row in conn.execute(
@@ -110,8 +105,6 @@ async def test_subtree_walk_seeks_on_parent_id(db_path: Path, sql_name: str, exp
                 ("c", 1, "c"),
             )
         ]
-    finally:
-        conn.close()
 
     steps = [line for line in plan if line.startswith(("SEARCH", "SCAN"))]
     assert any(expected_index in line and "parent_id=?" in line for line in steps), (
@@ -130,11 +123,7 @@ def test_levels_deepest_first_groups_by_descending_depth():
     other, so each level can go out in a single statement.
     """
     # (depth, id) -- deliberately unsorted, with several rows sharing a depth.
-    pairs = [(0, 10), (2, 30), (1, 20), (2, 31), (0, 11), (1, 21)]
-
-    levels = _levels_deepest_first(pairs)
-
-    assert levels == [[30, 31], [20, 21], [10, 11]]
+    assert _levels_deepest_first([(0, 10), (2, 30), (1, 20), (2, 31), (0, 11), (1, 21)]) == [[30, 31], [20, 21], [10, 11]]
 
 
 def test_levels_deepest_first_handles_an_empty_subtree():

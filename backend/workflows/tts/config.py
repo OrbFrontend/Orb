@@ -38,10 +38,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     volume_raw = source.get("volume")
     if isinstance(volume_raw, (int, float)) and not isinstance(volume_raw, bool):
         volume = float(volume_raw)
-        if not math.isfinite(volume):
-            volume = CONFIG_DEFAULTS["volume"]
-        else:
-            volume = min(1.0, max(0.0, volume))
+        volume = CONFIG_DEFAULTS["volume"] if not math.isfinite(volume) else min(1.0, max(0.0, volume))
     else:
         volume = CONFIG_DEFAULTS["volume"]
 

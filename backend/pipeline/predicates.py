@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from ..core.settings import Settings
+
 if TYPE_CHECKING:
     from ..inference import LLMClient
 
@@ -14,7 +16,7 @@ def is_dual_model(agent_client: LLMClient | None) -> bool:
     return agent_client is not None
 
 
-def agent_enabled(settings: Mapping[str, Any]) -> bool:
+def agent_enabled(settings: Settings) -> bool:
     """Return whether the global Agent toggle is on."""
     return bool(settings.get("enable_agent", 1))
 

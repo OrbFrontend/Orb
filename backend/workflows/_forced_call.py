@@ -10,6 +10,7 @@ from typing import Any
 
 from ..core import AssistantToolMessage, ReasoningChannel, agent_lane_max_tokens, mark_call_start
 from ..core.llm_types import CompletionMessage
+from ..core.settings import Settings
 from ..inference import (
     KVCacheTracker,
     LLMClient,
@@ -70,7 +71,7 @@ async def forced_tool_call(
     prefix: Sequence[Mapping[str, Any]],
     tail_messages: Sequence[Mapping[str, Any]],
     tool_name: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     pass_id: str | None = None,
     enabled_tools: Mapping[str, bool] | None = None,
     schema_overrides: Mapping[str, Mapping[str, Any]] | None = None,

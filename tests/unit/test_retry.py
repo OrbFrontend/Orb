@@ -5,8 +5,6 @@ a failed request only while no event has been streamed yet. Tests patch the docu
 ``_stream_completion``) so no sockets are touched, and use ``delay=0`` so retries are instant.
 """
 
-from __future__ import annotations
-
 import httpx
 import pytest
 
@@ -191,13 +189,10 @@ async def test_complete_raw_is_retried():
 
 
 async def test_sleep_or_abort_true_when_not_aborted():
-    client = LLMClient("http://x/v1")
-    assert await client._sleep_or_abort(0) is True
+    assert await LLMClient("http://x/v1")._sleep_or_abort(0) is True
 
 
 async def test_sleep_or_abort_false_when_already_aborted():
     token = AbortToken()
     token.abort()
-    client = LLMClient("http://x/v1", abort_token=token)
-    # A long delay still returns at once (False) because the event is already set.
-    assert await client._sleep_or_abort(30) is False
+    assert await LLMClient("http://x/v1", abort_token=token)._sleep_or_abort(30) is False

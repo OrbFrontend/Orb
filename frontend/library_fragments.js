@@ -13,7 +13,7 @@ import {
   repaintDecisionSection,
 } from "./library_decisions.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
-import { S, upgradeLegacyFragment } from "./state.js";
+import { S, subscribe, upgradeLegacyFragment } from "./state.js";
 import { refreshState, updateStateTab } from "./state_panel.js";
 import { $, boolFlag, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -190,6 +190,9 @@ export async function loadInteractiveFragments() {
     throw error;
   }
 }
+
+// Direction gates before-Writer state updates, which the fragment list notes.
+subscribe("settings", (patch) => ("enable_agent" in patch || "enabled_tools" in patch) && renderInteractiveFragments());
 
 export function renderInteractiveFragments() {
   updateStateTab();

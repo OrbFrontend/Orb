@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
@@ -52,8 +50,7 @@ async def test_valid_id_recorded(client, db):
     resp = await client.post_json(f"/api/conversations/{cid}/workflow-attachments/access", json={"ids": [aid]})
     assert resp == {"ok": True, "recorded": 1}
     row = await must_get_workflow_attachment(aid)
-    parsed = json.loads(row["recent_accesses"])
-    assert parsed[0] == 101
+    assert json.loads(row["recent_accesses"])[0] == 101
 
 
 async def test_cross_conversation_id_dropped(client):

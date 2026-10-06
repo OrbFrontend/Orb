@@ -38,10 +38,7 @@ def normalise_lorebook_entry(item: dict) -> dict:
     keywords = _str_list(item.get("keys") or item.get("key") or [])
     secondary_keys = _str_list(item.get("secondary_keys") or item.get("keysecondary") or [])
     name = item.get("name") or item.get("comment") or ""
-    if "disable" in item:
-        enabled = not item["disable"]
-    else:
-        enabled = bool(item.get("enabled", True))
+    enabled = not item["disable"] if "disable" in item else bool(item.get("enabled", True))
     priority = int(item.get("priority") or item.get("insertion_order") or item.get("order") or 100)
     # A standalone World Info file keeps its non-V2 entry fields at the top level; a card-embedded `character_book` parks the
     # same fields under `extensions` (position, depth, case_sensitive, ...). Read both spellings so either export lands intact.

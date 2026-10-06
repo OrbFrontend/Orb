@@ -4,8 +4,6 @@ Covers the on-demand dispatch route: 404 surfaces (smoke 19.6), happy-path
 return value, body pass-through, and 500 isolation on hook raise.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import pytest
@@ -29,8 +27,7 @@ async def test_workflow_without_on_demand_hook_returns_404(client):
     # The workflow IS registered -- it simply lacks an on_demand hook. The 404 must say so, not claim the workflow is
     # unregistered (which would be a lie and indistinguishable from the genuinely-missing case above).
     cid = await _make_conversation(client)
-    wf = make_workflow("inert", display_name="Inert")
-    with register_for_test(wf):
+    with register_for_test(make_workflow("inert", display_name="Inert")):
         resp = await client.post(f"/api/conversations/{cid}/workflows/inert/trigger", json={})
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Workflow 'inert' has no on_demand handler"}
@@ -40,8 +37,7 @@ async def test_missing_conversation_returns_404(client):
     async def on_demand(ctx, payload):
         return {"ok": True}
 
-    wf = make_workflow("registered", display_name="Registered", on_demand=on_demand)
-    with register_for_test(wf):
+    with register_for_test(make_workflow("registered", display_name="Registered", on_demand=on_demand)):
         resp = await client.post("/api/conversations/no-such-conv/workflows/registered/trigger", json={})
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Conversation not found"}
@@ -53,8 +49,7 @@ async def test_happy_path_returns_hook_payload(client):
     async def on_demand(ctx, payload):
         return {"ok": True, "echo": payload, "cid": ctx.conversation_id}
 
-    wf = make_workflow("echo", display_name="Echo", on_demand=on_demand)
-    with register_for_test(wf):
+    with register_for_test(make_workflow("echo", display_name="Echo", on_demand=on_demand)):
         resp = await client.post(f"/api/conversations/{cid}/workflows/echo/trigger", json={"hello": "world"})
     assert resp.status_code == 200
     assert resp.json() == {"ok": True, "echo": {"hello": "world"}, "cid": cid}
@@ -68,8 +63,7 @@ async def test_empty_body_resolves_to_empty_dict(client):
         captured.append(payload)
         return {"received": payload}
 
-    wf = make_workflow("capture", display_name="Capture", on_demand=on_demand)
-    with register_for_test(wf):
+    with register_for_test(make_workflow("capture", display_name="Capture", on_demand=on_demand)):
         resp = await client.post(f"/api/conversations/{cid}/workflows/capture/trigger")
     assert resp.status_code == 200
     assert captured == [{}]
@@ -85,8 +79,7 @@ async def test_hook_raise_returns_500_and_isolated(client):
             raise RuntimeError("simulated failure")
         return {"recovered": True}
 
-    wf = make_workflow("flaky", display_name="Flaky", on_demand=on_demand)
-    with register_for_test(wf):
+    with register_for_test(make_workflow("flaky", display_name="Flaky", on_demand=on_demand)):
         bad = await client.post_checked(f"/api/conversations/{cid}/workflows/flaky/trigger", json={}, expected_status=500)
         assert bad.json() == {"detail": "On-demand handler raised; see server logs"}
 

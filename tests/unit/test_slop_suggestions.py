@@ -1,7 +1,5 @@
 """Phrase Bank suggestion miner: keys, bank patterns, and the overuse statistic."""
 
-from __future__ import annotations
-
 import re
 
 import pytest
@@ -91,11 +89,9 @@ def test_grammar_used_at_equal_rates_scores_about_one():
     key = "n:the X of the X"
 
     def character(index: int):
-        sentences_ = [("n", {key} if i % 10 < 3 else set()) for i in range(100)]
-        return [(index % 2 == 0, sentences_)]
+        return [(index % 2 == 0, [("n", {key} if i % 10 < 3 else set()) for i in range(100)])]
 
-    characters = [character(i) for i in range(50)]
-    counts = count_candidates(characters, {hash(key)})
+    counts = count_candidates([character(i) for i in range(50)], {hash(key)})
     card = [("n", {key} if i % 10 < 3 else set()) for i in range(3000)]
     totals, observed = count_card(card, [key])
     assert 0.9 < key_stats(counts, totals, observed)[key].lb < 1.05
@@ -108,10 +104,7 @@ def _stats(key: str) -> KeyStats:
 def test_a_lane_fills_past_keys_whose_regex_fails():
     ranked = [_stats(k) for k in ("n:a beat X", "n:a beat", "n:the X of", "n:then X", "n:the X of the X", "n:as if")]
     rejected = {"n:a beat X", "n:then X"}
-    kept = fill_lane(ranked, lambda s: None if s.key in rejected else s.key, limit=3)
-    # A rejected key blocks nothing, not even "a beat" inside it; "the X of the X"
-    # contains a kept key and is passed over without an attempt.
-    assert kept == ["n:a beat", "n:the X of", "n:as if"]
+    assert fill_lane(ranked, lambda s: None if s.key in rejected else s.key, limit=3) == ["n:a beat", "n:the X of", "n:as if"]
     assert fill_lane(ranked, lambda s: s.key, limit=3, attempts=1) == ["n:a beat X"]
 
 

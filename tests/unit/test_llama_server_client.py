@@ -5,16 +5,11 @@ stop token is a property of a checkpoint's chat template. This pins both halves 
 and that a caller without one sends a body with no ``stop`` key at all rather than an empty list.
 """
 
-from __future__ import annotations
-
 import json
 
 import httpx
-import pytest
 
 from backend.inference.local_models.llama_server import client as C
-
-pytestmark = pytest.mark.asyncio
 
 _PROFILE = C.LaunchProfile(
     model_id="test",
@@ -54,9 +49,7 @@ async def test_completion_body_carries_the_callers_stop_sequence(monkeypatch):
 
 async def test_a_caller_with_no_stop_sequence_sends_no_stop_key(monkeypatch):
     sent: list[dict] = []
-    server = _client(monkeypatch, sent)
-
-    await server.generate("prompt", n_predict=64, temperature=0.9, top_p=0.9)
+    await _client(monkeypatch, sent).generate("prompt", n_predict=64, temperature=0.9, top_p=0.9)
 
     assert "stop" not in sent[0]
 
@@ -127,9 +120,7 @@ async def test_generate_tokens_omits_optional_sampling_keys(monkeypatch):
     """A caller that names neither must send the body a caller with no opinion
     would send, rather than pinning llama.cpp's own defaults from out here."""
     sent: list[dict] = []
-    server = _token_client(monkeypatch, sent, _AUDIO_STREAM)
-
-    await server.generate_tokens([1], n_predict=8, temperature=0.8, top_p=0.95)
+    await _token_client(monkeypatch, sent, _AUDIO_STREAM).generate_tokens([1], n_predict=8, temperature=0.8, top_p=0.95)
 
     assert "top_k" not in sent[0]
     assert "seed" not in sent[0]

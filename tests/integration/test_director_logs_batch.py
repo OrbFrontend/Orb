@@ -1,7 +1,5 @@
 """The batched Inspector read that backs the in-chat Inspector blocks."""
 
-from __future__ import annotations
-
 import backend.database as dbmod
 
 
@@ -33,11 +31,10 @@ async def test_batch_matches_single_reads(client, db):
         [{"fragment_id": "hp", "entry_id": "e-hp", "op": "add", "text": "5", "fragment_label": "HP", "source": "agent"}],
     )
     # The user message has no log: it gets the fallback shape.
-    resp = await client.get_json(f"/api/conversations/{cid}/director-logs", params={"ids": f"{a1},{a2},{u2}"})
-    batch = resp
+    batch = await client.get_json(f"/api/conversations/{cid}/director-logs", params={"ids": f"{a1},{a2},{u2}"})
     assert set(batch) == {str(a1), str(a2), str(u2)}
     for mid in (a1, a2, u2):
-        single = (await client.get(f"/api/conversations/{cid}/messages/{mid}/director-log")).json()
+        single = await client.get_json(f"/api/conversations/{cid}/messages/{mid}/director-log")
         assert batch[str(mid)] == single
     assert batch[str(a2)]["injection_block"] == "second block, retried"
     assert [c["text"] for c in batch[str(a2)]["state"]["changes"]] == ["5"]

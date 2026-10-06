@@ -3,8 +3,6 @@
 The error strings are fed back to the model verbatim as the tool result, so they are part of the contract and asserted as such.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis import PatchError, PatchErrorKind, Target, apply_id_patches

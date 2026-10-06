@@ -1,7 +1,5 @@
 """Offline launch requires the mandatory runtime, without loading Orb or ML."""
 
-from __future__ import annotations
-
 import os
 import shlex
 import shutil

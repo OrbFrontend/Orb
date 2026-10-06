@@ -20,6 +20,7 @@ from ...core import (
     resolve_inline,
 )
 from ...core.llm_types import ContentDelta, ReasoningDelta
+from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
 from ..events import CoreTurnEvent
@@ -122,7 +123,7 @@ def build_writer_content(
 async def writer_pass(
     client: LLMClient,
     base: CachedBase,
-    settings: Mapping[str, Any],
+    settings: Settings,
     content: str | list[ContentPart],
     *,
     kv_tracker: KVCacheTracker | None = None,
@@ -162,7 +163,7 @@ async def writer_stage(
     cfg: PipelineConfig,
     state: TurnState,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: KVCacheTracker,
     depth_block: str = "",

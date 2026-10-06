@@ -7,8 +7,6 @@ Also pins the two things the id method made load-bearing: the ids the model answ
 shown, and a re-audit renumbers them with the change stated to the model.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Sequence
 from unittest.mock import patch
@@ -92,79 +90,70 @@ async def _run(
     return events[1:]
 
 
-def _patch_call(patches: list[dict]) -> dict:
+def _call(name: str, arguments: dict) -> dict:
     return {
         "type": "done",
         "message": {
             "content": "",
-            "tool_calls": [
-                {"id": "tc1", "function": {"name": "editor_apply_patch", "arguments": json.dumps({"patches": patches})}}
-            ],
+            "tool_calls": [{"id": "tc1", "function": {"name": name, "arguments": json.dumps(arguments)}}],
         },
     }
 
 
+def _patch_call(patches: list[dict]) -> dict:
+    return _call("editor_apply_patch", {"patches": patches})
+
+
+def _client(*responses: dict, seen: list | None = None, mode: str = "chat") -> LLMClient:
+    """A client whose `complete` answers *responses* in order (repeating the last), recording each request into *seen*."""
+    client = LLMClient("http://localhost:9999", completion_mode=mode)
+    calls: list[dict] = [] if seen is None else seen
+
+    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
+        calls.append({"messages": [dict(m) for m in messages], "tool_choice": tool_choice, "params": params})
+        yield responses[min(len(calls), len(responses)) - 1]
+
+    client.complete = fake_complete  # type: ignore[method-assign]
+    return client
+
+
+def _tool_turns(call: dict) -> list[str]:
+    return [m["content"] for m in call["messages"] if m.get("role") == "tool"]
+
+
+THREE = "Sentence 0. Sentence 1. Sentence 2."
+
+
 async def test_chat_path_emits_draft_update_per_iteration():
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
-
-    client.complete = fake_complete
-
     # Initial audit: 2 issues (loop starts). Post-patch: clean (loop stops).
+    client = _client(_patch_call([{"id": 1, "replace": "Fixed 0."}]))
     events = await _run(client, [_make_report(["Sentence 0.", "Sentence 1."]), _make_report([])], "Sentence 0. Sentence 1.")
-
-    assert [e["type"] for e in events] == ["draft_update", "done"]
-    assert events[0]["draft"] == "Fixed 0. Sentence 1."
-    assert events[1]["draft"] == "Fixed 0. Sentence 1."
+    assert [(e["type"], e["draft"]) for e in events] == [
+        ("draft_update", "Fixed 0. Sentence 1."),
+        ("done", "Fixed 0. Sentence 1."),
+    ]
 
 
 async def test_null_rewritten_text_stops_the_loop():
-    # `"rewritten_text": null` is the model declining the rewrite. The default on the .get() only covers an absent key, so a
-    # null used to reach .strip() and abort the whole turn -- in a group exchange, mid-exchange. It must read as an empty
-    # rewrite and stop the loop with the draft intact.
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        yield {
-            "type": "done",
-            "message": {
-                "content": "",
-                "tool_calls": [
-                    {"id": "tc1", "function": {"name": "editor_rewrite", "arguments": json.dumps({"rewritten_text": None})}}
-                ],
-            },
-        }
-
-    client.complete = fake_complete
-
+    # `"rewritten_text": null` is the model declining the rewrite; it must read as an empty rewrite, not reach .strip() and
+    # abort the turn, and stop the loop with the draft intact.
+    client = _client(_call("editor_rewrite", {"rewritten_text": None}))
     events = await _run(client, [_make_report(["Sentence 0.", "Sentence 1."])], "Sentence 0. Sentence 1.")
-
-    assert [e["type"] for e in events] == ["done"]  # no draft_update: nothing was applied
-    assert events[-1]["draft"] is None  # draft unchanged
+    assert [(e["type"], e["draft"]) for e in events] == [("done", None)]  # nothing applied
 
 
 async def test_findings_with_no_target_end_the_pass_without_a_call():
-    # Neither flagged sentence is in the draft, so neither gets an id. A finding that could not even be located is no reason to
-    # rewrite the whole draft, even with editor_rewrite on offer: there is nothing to send.
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        pytest.fail("the editor sent a call with nothing addressable")
-        yield {}
-
-    client.complete = fake_complete
-
+    # Neither flagged sentence is in the draft, so neither gets an id; with nothing addressable, even editor_rewrite on offer
+    # is no reason to send a call.
+    seen: list = []
     events = await _run(
-        client,
+        _client(seen=seen),
         [_make_report(["Not in the draft.", "Nor is this."])],
         "Sentence 0. Sentence 1.",
         tools=("editor_apply_patch", "editor_rewrite"),
     )
-
-    assert [e["type"] for e in events] == ["done"]
-    assert events[0]["draft"] is None
+    assert seen == []
+    assert [(e["type"], e["draft"]) for e in events] == [("done", None)]
 
 
 @pytest.mark.parametrize(
@@ -172,105 +161,61 @@ async def test_findings_with_no_target_end_the_pass_without_a_call():
     [(("editor_apply_patch",), "editor_apply_patch"), (("editor_apply_patch", "editor_rewrite"), "editor_rewrite")],
 )
 async def test_structural_repetition_forces_a_rewrite_only_when_the_blob_carries_it(tools, forced):
-    # Forcing a tool the request does not carry gets prose back, never a call,
-    # so without editor_rewrite in the blob the patchable findings get patched.
-    client = LLMClient("http://localhost:9999")
-    choices: list = []
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        choices.append(tool_choice)
-        yield {"type": "done", "message": {"content": "", "tool_calls": []}}
-
-    client.complete = fake_complete
-
+    # Forcing a tool the request does not carry gets prose back, never a call, so without editor_rewrite the patchable findings
+    # get patched.
+    seen: list = []
     report = _make_report(["Sentence 0.", "Sentence 1."])
     report.structural_repetition_result = StructuralResult(
         is_repetitive=True, min_similarity=0.9, mean_similarity=0.9, shared_skeleton=None, messages=[]
     )
-    await _run(client, [report], "Sentence 0. Sentence 1.", tools=tools)
-
-    assert [choice["function"]["name"] for choice in choices] == [forced]
+    await _run(
+        _client({"type": "done", "message": {"content": "", "tool_calls": []}}, seen=seen),
+        [report],
+        "Sentence 0. Sentence 1.",
+        tools=tools,
+    )
+    assert [call["tool_choice"]["function"]["name"] for call in seen] == [forced]
 
 
 async def test_text_path_takes_the_same_single_call():
-    # Text endpoints used to issue one prefilled call per finding; they now take
-    # the same id-anchored call, grammar-constrained from the tool schema.
-    client = LLMClient("http://localhost:9999", completion_mode="text")
-    calls: list[dict] = []
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        calls.append({"tool_choice": tool_choice, "params": params})
-        yield _patch_call([{"id": 1, "replace": "NEW"}, {"id": 2, "replace": "ALSO NEW"}])
-
-    client.complete = fake_complete
-
+    # Text endpoints take the same id-anchored call as chat, grammar-constrained from the tool schema, not prefilled per finding.
+    seen: list = []
+    client = _client(_patch_call([{"id": 1, "replace": "NEW"}, {"id": 2, "replace": "ALSO NEW"}]), seen=seen, mode="text")
     events = await _run(client, [_make_report(["Sentence 0.", "Sentence 1."]), _make_report([])], "Sentence 0. Sentence 1.")
-
-    assert len(calls) == 1
-    assert "prefill" not in calls[0]["params"]
-    assert "grammar" not in calls[0]["params"]
+    [call] = seen
+    assert "prefill" not in call["params"] and "grammar" not in call["params"]
     assert [e["type"] for e in events] == ["draft_update", "done"]
     assert events[-1]["draft"] == "NEW ALSO NEW"
 
 
 async def test_ids_address_the_report_the_model_was_shown():
     """Every id patches its own sentence -- the second id must not be resolved against the post-first-patch text."""
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        yield _patch_call([{"id": 3, "replace": "C."}, {"id": 1, "replace": "A much longer replacement."}])
-
-    client.complete = fake_complete
-
+    client = _client(_patch_call([{"id": 3, "replace": "C."}, {"id": 1, "replace": "A much longer replacement."}]))
     draft = "Alpha one. Beta two. Gamma three."
     events = await _run(client, [_make_report(["Alpha one.", "Beta two.", "Gamma three."]), _make_report([])], draft)
     assert events[-1]["draft"] == "A much longer replacement. Beta two. C."
 
 
 async def test_structured_replay_tells_the_model_the_ids_moved():
-    """Reasoning models see their own previous call replayed beside a freshly
-    numbered report, so the renumbering has to be stated, not inferred."""
-    client = LLMClient("http://localhost:9999")
-    sent: list[list[dict]] = []
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        sent.append([dict(m) for m in messages])
-        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
-
-    client.complete = fake_complete
-
-    # 3 issues -> 2 issues -> clean: two LLM calls, so the second one carries the replayed tool result.
-    await _run(
-        client,
-        [
-            _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
-            _make_report(["Sentence 1.", "Sentence 2."]),
-            _make_report([]),
-        ],
-        "Sentence 0. Sentence 1. Sentence 2.",
-        reasoning_on=True,
-    )
-
-    assert len(sent) == 2
-    tool_msgs = [m for m in sent[1] if m.get("role") == "tool"]
-    assert len(tool_msgs) == 1
-    assert EDITOR_RENUMBER_NOTICE in tool_msgs[0]["content"]
-    assert "[1]" in tool_msgs[0]["content"]
+    """Reasoning models see their own previous call replayed beside a freshly numbered report, so the renumbering is stated."""
+    seen: list = []
+    reports = [
+        _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
+        _make_report(["Sentence 1.", "Sentence 2."]),
+        _make_report([]),
+    ]
+    await _run(_client(_patch_call([{"id": 1, "replace": "Fixed 0."}]), seen=seen), reports, THREE, reasoning_on=True)
+    assert len(seen) == 2  # the second call carries the replayed tool result
+    [tool_msg] = _tool_turns(seen[1])
+    assert EDITOR_RENUMBER_NOTICE in tool_msg
+    assert "[1]" in tool_msg
 
 
 async def test_request_carries_only_the_flagged_kinds_rules():
-    client = LLMClient("http://localhost:9999")
-    sent: list[list[dict]] = []
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        sent.append([dict(m) for m in messages])
-        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
-
-    client.complete = fake_complete
-
+    seen: list = []
+    client = _client(_patch_call([{"id": 1, "replace": "Fixed 0."}]), seen=seen)
     await _run(client, [_make_report(["Sentence 0.", "Sentence 1."]), _make_report([])], "Sentence 0. Sentence 1.")
-
-    request = sent[0][-1]["content"]
+    request = seen[0]["messages"][-1]["content"]
     assert "PATCHING RULES:" in request
     assert PATCH_CATEGORY_RULES["banned_phrases"] in request
     assert not any(rule in request for kind, rule in PATCH_CATEGORY_RULES.items() if kind != "banned_phrases")
@@ -286,63 +231,34 @@ def test_patch_instructions_owe_the_whole_block_until_one_was_sent():
 
 
 async def test_structured_replay_adds_rules_for_newly_flagged_kinds():
-    """Later reports reach reasoning models as tool results, so a kind first
-    flagged there brings its rule along, and rules already sent are not repeated."""
-    client = LLMClient("http://localhost:9999")
-    sent: list[list[dict]] = []
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        sent.append([dict(m) for m in messages])
-        yield _patch_call([{"id": 1, "replace": "Fixed 0."}])
-
-    client.complete = fake_complete
-
-    await _run(
-        client,
-        [
-            _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
-            _make_report(["Sentence 1."], not_but=["Sentence 2."]),
-            _make_report([]),
-        ],
-        "Sentence 0. Sentence 1. Sentence 2.",
-        reasoning_on=True,
-    )
-
-    assert len(sent) == 2
-    tool_msg = next(m for m in sent[1] if m.get("role") == "tool")["content"]
+    """A kind first flagged in a later report brings its rule along; rules already sent are not repeated."""
+    seen: list = []
+    reports = [
+        _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
+        _make_report(["Sentence 1."], not_but=["Sentence 2."]),
+        _make_report([]),
+    ]
+    await _run(_client(_patch_call([{"id": 1, "replace": "Fixed 0."}]), seen=seen), reports, THREE, reasoning_on=True)
+    assert len(seen) == 2
+    tool_msg = _tool_turns(seen[1])[0]
     assert PATCH_CATEGORY_RULES["contrastive_negation"] in tool_msg
     assert PATCH_CATEGORY_RULES["banned_phrases"] not in tool_msg
     assert "PATCHING RULES:" not in tool_msg
 
 
 async def test_apply_errors_reach_the_model_in_id_vocabulary():
-    client = LLMClient("http://localhost:9999")
-    sent: list[list[dict]] = []
-    call = 0
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        nonlocal call
-        sent.append([dict(m) for m in messages])
-        call += 1
-        # First call names an id the report never issued; second one is valid.
-        yield _patch_call([{"id": 99, "replace": "X."}] if call == 1 else [{"id": 1, "replace": "Fixed 0."}])
-
-    client.complete = fake_complete
-
-    await _run(
-        client,
-        [
-            _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
-            _make_report(["Sentence 1.", "Sentence 2."]),
-            _make_report([]),
-        ],
-        "Sentence 0. Sentence 1. Sentence 2.",
-        reasoning_on=True,
-    )
-
-    tool_msgs = [m for m in sent[1] if m.get("role") == "tool"]
-    assert "no finding with id 99" in tool_msgs[0]["content"]
-    assert "Valid ids: 1-3." in tool_msgs[0]["content"]
+    # The first call names an id the report never issued; the second one is valid.
+    seen: list = []
+    client = _client(_patch_call([{"id": 99, "replace": "X."}]), _patch_call([{"id": 1, "replace": "Fixed 0."}]), seen=seen)
+    reports = [
+        _make_report(["Sentence 0.", "Sentence 1.", "Sentence 2."]),
+        _make_report(["Sentence 1.", "Sentence 2."]),
+        _make_report([]),
+    ]
+    await _run(client, reports, THREE, reasoning_on=True)
+    tool_msg = _tool_turns(seen[1])[0]
+    assert "no finding with id 99" in tool_msg
+    assert "Valid ids: 1-3." in tool_msg
 
 
 # -- The protected-sequence guard, in the loop ---------------------------------
@@ -363,20 +279,15 @@ async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
     # Both replacements copy protected dialogue, so nothing applies, the issue count cannot move, and the no-progress stop
     # fires. One bad patch per target abandons both repairs -- defensible (intact writer text beats a corrupt splice) but worth
     # seeing asserted before any retry policy lands.
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        yield _patch_call(
+    client = _client(
+        _patch_call(
             [
                 {"id": 1, "replace": "Don't touch it, she whispered again."},
                 {"id": 2, "replace": "I wasn't going to, he said again."},
             ]
         )
-
-    client.complete = fake_complete
-
-    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2
-    events = await _run(client, audits, GUARDED_DRAFT)
+    )
+    events = await _run(client, [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2, GUARDED_DRAFT)
 
     assert [e["type"] for e in events] == ["draft_update", "done"]
     assert events[0]["draft"] == GUARDED_DRAFT  # the iteration changed nothing
@@ -386,13 +297,9 @@ async def test_every_patch_rejected_stops_the_loop_with_the_draft_intact():
 async def test_a_rejected_patch_does_not_block_its_neighbour():
     # One clone, one clean replacement: the clean one lands, the flagged span behind the rejection keeps the writer's original
     # text, and when the retry clones again the no-progress stop ends the pass with it still unrepaired.
-    client = LLMClient("http://localhost:9999")
-
-    async def fake_complete(*args, **kwargs):
-        yield _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}])
-
-    client.complete = fake_complete
-
+    client = _client(
+        _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}])
+    )
     audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), *[_make_report([GUARDED_NARRATION])] * 2]
     events = await _run(client, audits, GUARDED_DRAFT)
 
@@ -400,31 +307,14 @@ async def test_a_rejected_patch_does_not_block_its_neighbour():
     assert GUARDED_NARRATION in events[-1]["draft"]
 
 
-def _scripted(responses: list[dict], seen: list[list]):
-    """A fake `complete` that answers with *responses* in order, recording messages."""
-
-    async def fake_complete(messages, model, tools=None, tool_choice=None, **params):
-        seen.append(list(messages))
-        yield responses[min(len(seen) - 1, len(responses) - 1)]
-
-    return fake_complete
-
-
-def _tool_turns(messages: list) -> list[str]:
-    return [m["content"] for m in messages if m.get("role") == "tool"]
-
-
 async def test_thinking_mode_is_told_when_and_why_a_patch_was_rejected():
     # Without this the model is left believing its patch landed: the rejected target keeps the writer's text, and its retry
     # repeats the rejected clone unless the tool-result turn carries the reason.
-    client = LLMClient("http://localhost:9999")
-    seen: list[list] = []
-    client.complete = _scripted(
-        [
-            _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}]),
-            _patch_call([{"id": 1, "replace": "Her hand fell away from the latch."}]),
-        ],
-        seen,
+    seen: list = []
+    client = _client(
+        _patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}, {"id": 2, "replace": "Nobody spoke."}]),
+        _patch_call([{"id": 1, "replace": "Her hand fell away from the latch."}]),
+        seen=seen,
     )
 
     audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER]), _make_report([GUARDED_NARRATION]), _make_report([])]
@@ -443,12 +333,9 @@ async def test_thinking_mode_is_told_when_and_why_a_patch_was_rejected():
 async def test_the_rejection_is_explained_once_not_chased_forever():
     # The extra iteration buys the model one informed attempt, not a retry loop:
     # a model that copies again gets the ordinary no-progress stop.
-    client = LLMClient("http://localhost:9999")
-    seen: list[list] = []
-    client.complete = _scripted([_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}])], seen)
-
-    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 3
-    events = await _run(client, audits, GUARDED_DRAFT, reasoning_on=True)
+    seen: list = []
+    client = _client(_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}]), seen=seen)
+    events = await _run(client, [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 3, GUARDED_DRAFT, reasoning_on=True)
 
     assert len(seen) == 2  # one explanation, then the stop
     assert "copies protected text" in _tool_turns(seen[1])[0]
@@ -458,12 +345,9 @@ async def test_the_rejection_is_explained_once_not_chased_forever():
 async def test_non_thinking_mode_still_stops_quietly():
     # The flat recap has no tool-result slot to carry the reason, so a pass whose only patch was rejected makes no progress and
     # stops: the flagged span keeps its slop, and the rejection is logged rather than replayed.
-    client = LLMClient("http://localhost:9999")
-    seen: list[list] = []
-    client.complete = _scripted([_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}])], seen)
-
-    audits = [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2
-    events = await _run(client, audits, GUARDED_DRAFT)
+    seen: list = []
+    client = _client(_patch_call([{"id": 1, "replace": "Don't touch it, she whispered again."}]), seen=seen)
+    events = await _run(client, [_make_report([GUARDED_NARRATION, GUARDED_CLOSER])] * 2, GUARDED_DRAFT)
 
     assert len(seen) == 1
     assert events[-1]["draft"] is None
@@ -476,8 +360,7 @@ async def test_patching_an_ellipsis_beat_does_not_strand_its_continuation():
     draft = "Heidi doesn't flinch. Her expression still open, although her emerald eyes seem a bit... more still than usual."
     beat = "Her expression still open, although her emerald eyes seem a bit... more still than usual."
 
-    report = _make_report([beat])
-    targets = build_targets(report, draft)
+    targets = build_targets(_make_report([beat]), draft)
 
     assert [t.span for t in targets] == [beat]  # the whole beat, not the half before the ellipsis
 

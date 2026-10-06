@@ -1,72 +1,111 @@
+import { compileCardScriptPattern, displayScripts } from "./card_script_worker.js";
+import { toast } from "./notify.js";
 import { charactersView, S } from "./state.js";
-import { resolvePlaceholders } from "./utils.js";
+import { placeholderNames, resolvePlaceholders } from "./utils.js";
 
-const MAX_TEXT_LENGTH = 100_000;
-const JS_FLAGS = /^(?!.*?(.).*?\1)[gmixXsuUAJ]+$/; // Accepted by the source parser.
-const ENGINE_FLAGS = /^[gimsu]*$/; // Supported by both projections.
-const TOKEN = /\$(?:[$&`']|<[^>]*>|[0-9]{1,2})/g;
+export { compileCardScriptPattern } from "./card_script_worker.js";
 
-/** Compile a JavaScript pattern literal, or the whole string when it is not one. */
-export function compileCardScriptPattern(source) {
-  let pattern = source;
-  let flags = "";
-  const end = source.startsWith("/") ? source.lastIndexOf("/") : 0;
-  const declared = end > 0 ? source.slice(end + 1) : "";
-  if (end > 0 && (!declared || JS_FLAGS.test(declared))) {
-    pattern = source.slice(1, end);
-    flags = declared;
+const OFF_KEY = "orb.cardScriptOff.v1";
+const DEADLINE_MS = 2000;
+let guard;
+let disabled;
+let projections;
+const recent = new Map();
+let repaint = () => {};
+
+export function setCardScriptRepaint(fn) {
+  repaint = fn;
+}
+
+/** Replace the projector/storage/announcer in tests; production always executes in a worker. */
+export function configureCardScriptGuard(options = {}) {
+  let storage = null;
+  try {
+    storage = globalThis.localStorage ?? null;
+  } catch {}
+  guard = { project: projectInWorker, storage, announce: (message) => toast(message, true), ...options };
+  projections = new WeakMap();
+  recent.clear();
+  try {
+    disabled = new Set(JSON.parse(guard.storage?.getItem(OFF_KEY) ?? "[]"));
+  } catch {
+    disabled = new Set();
   }
-  if (!ENGINE_FLAGS.test(flags)) return null;
-  return new RegExp(pattern, flags);
 }
 
-/** Expand the shared JavaScript-compatible replacement tokens. */
-function expandReplacement(template, captures, groups, offset, source) {
-  const expanded = template.replace(/\{\{match\}\}/gi, "$0").replace(TOKEN, (token) => {
-    const key = token.slice(1);
-    if (key === "$") return "$";
-    if (key === "&") return captures[0];
-    if (key === "`") return source.slice(0, offset);
-    if (key === "'") return source.slice(offset + captures[0].length);
-    if (key.startsWith("<")) return groups?.[key.slice(1, -1)] ?? "";
-    const index = Number(key);
-    if (index === 0) return captures[0];
-    if (index > 0 && index < captures.length) return captures[index] ?? "";
-    if (key.length === 2 && Number(key[0]) > 0 && Number(key[0]) < captures.length)
-      return (captures[Number(key[0])] ?? "") + key[1];
-    return token;
-  });
-  return expanded.includes("{{") ? resolvePlaceholders(expanded) : expanded;
+export function cardScriptTurnedOff(source) {
+  try {
+    return disabled.has(compileCardScriptPattern(source)?.toString());
+  } catch {
+    return false;
+  }
 }
 
-/** Apply display-side card scripts before HTML memoization. */
-export function applyCardScripts(text, scripts, role) {
-  const placement = { user: 1, assistant: 2 }[role];
-  if (!placement || !Array.isArray(scripts) || text.length > MAX_TEXT_LENGTH) return text;
-  const original = text;
-  for (const script of scripts.slice(0, 50)) {
-    if (!script || script.disabled || !Array.isArray(script.placement) || !script.placement.includes(placement))
-      continue;
-    if (script.promptOnly && !script.markdownOnly) continue;
-    const source = script.findRegex;
-    if (typeof source !== "string" || !source || source.length > 4096) continue;
-    const replacement = script.replaceString ?? "";
-    if (typeof replacement !== "string") continue;
+function turnOff(source) {
+  if (disabled.has(source)) return;
+  disabled.add(source);
+  try {
+    guard.storage?.setItem(OFF_KEY, JSON.stringify([...disabled].slice(-512)));
+  } catch {}
+  guard.announce("Turned off a card display script on this device because it took too long to render.");
+}
+
+/** The timer terminates the actual replacement, including patterns that only hang on later inputs. */
+function projectInWorker(job) {
+  return new Promise((resolve) => {
+    let worker;
     try {
-      const pattern = compileCardScriptPattern(source);
-      if (!pattern) throw new SyntaxError("unsupported regex flags");
-      text = text.replace(pattern, (...args) => {
-        const named = typeof args.at(-1) === "object" ? args.at(-1) : undefined;
-        const tail = named ? 3 : 2;
-        return expandReplacement(replacement, args.slice(0, -tail), named, args.at(-tail), args.at(-tail + 1));
-      });
+      worker = new Worker(new URL("./card_script_worker.js", import.meta.url), { type: "module" });
     } catch {
-      console.warn("Ignoring invalid or unsupported card regex");
+      resolve({ text: job.text });
+      return;
     }
-    if (text.length > MAX_TEXT_LENGTH) return original;
-  }
-  return text;
+    let running;
+    const finish = (result) => {
+      clearTimeout(deadline);
+      worker.terminate();
+      resolve(result);
+    };
+    const deadline = setTimeout(() => finish({ text: job.text, disabled: running ? [running] : [] }), DEADLINE_MS);
+    worker.addEventListener("message", ({ data }) => {
+      if (data.running) running = data.running;
+      else finish(data);
+    });
+    worker.addEventListener("error", () => finish({ text: job.text }));
+    worker.postMessage(job);
+  });
 }
+
+/** Show canonical text while pending, then repaint from a result keyed by the exact input and identity context. */
+export function applyCardScripts(text, scripts, role, owner = null) {
+  if (text.length > 100_000) return text;
+  scripts = displayScripts(scripts, role).filter((script) => !cardScriptTurnedOff(script.findRegex));
+  if (!scripts.length) return text;
+  const names = placeholderNames();
+  const key = JSON.stringify([text, scripts, role, names]);
+  // Each saved row/live bubble keeps a few inputs (including an editor-diff baseline) without retaining discarded rows.
+  const cache = owner ? (projections.get(owner) ?? new Map()) : recent;
+  if (owner) projections.set(owner, cache);
+  const cached = cache.get(key);
+  if (cached) return cached.text;
+  const entry = { text };
+  cache.set(key, entry);
+  if (cache.size > (owner ? 4 : 128)) cache.delete(cache.keys().next().value);
+  const currentGuard = guard;
+  const done = (result) => {
+    if (guard !== currentGuard) return;
+    for (const source of result.disabled ?? []) turnOff(source);
+    if (cache.get(key) !== entry) return;
+    entry.text = result.text;
+    if (entry.text !== text || result.disabled?.length) repaint();
+  };
+  const result = guard.project({ text, scripts, role, names });
+  if (result instanceof Promise) result.then(done, () => done({ text }));
+  else done(result);
+  return entry.text;
+}
+
+configureCardScriptGuard();
 
 const STYLE_ELEMENT_RE = /<style\b[^>]*>([\s\S]*?)(?:<\/style\s*>|$)/gi;
 
@@ -76,8 +115,8 @@ function stylesheetText(css) {
 }
 
 /** Project card CSS through the existing message sanitizer and scope. */
-export function projectCardDisplay(text, card, role) {
-  text = applyCardScripts(text, card?.display_scripts, role);
+export function projectCardDisplay(text, card, role, owner = null) {
+  text = applyCardScripts(text, card?.display_scripts, role, owner);
   const css = typeof card?.display_css === "string" ? stylesheetText(card.display_css) : "";
   if (role === "assistant" && css.trim()) {
     // Keep card CSS from terminating the injected style element.
@@ -93,5 +132,10 @@ export function messageDisplaySource(message) {
       S.groupCast.members?.find((m) => m.id === message.speaker_member_id)?.character_card_id)
     : conv?.character_card_id;
   const card = cardId ? charactersView().find((c) => c.id === cardId) : null;
-  return projectCardDisplay(resolvePlaceholders(message.content || ""), card, message.role);
+  return projectCardDisplay(
+    resolvePlaceholders(message.content || ""),
+    card,
+    message.role,
+    message.id ? S.messages?.find((row) => row.id === message.id) : S.streamingBodyEl,
+  );
 }

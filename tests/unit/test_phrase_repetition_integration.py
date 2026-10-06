@@ -5,8 +5,6 @@ The phrase_repetition detector is a cross-message check: it flags distinctive n-
 previous assistant messages. It runs with require_last_message=True, so only phrases present in the draft surface.
 """
 
-from __future__ import annotations
-
 from backend.pipeline.passes.editor.editor import _run_contextual_audit
 
 # The default threshold is 3 messages, so a flag needs the draft plus two

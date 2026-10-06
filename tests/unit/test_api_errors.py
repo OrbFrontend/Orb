@@ -1,7 +1,5 @@
 """HTTP errors keep their meaning across guards and preserve diagnostic logging."""
 
-from __future__ import annotations
-
 import logging
 
 import httpx
@@ -86,8 +84,7 @@ async def test_an_unread_upstream_error_body_does_not_mask_the_status():
     @app.get("/failure")
     async def fail():
         request = httpx.Request("POST", "https://provider.invalid")
-        response = httpx.Response(503, request=request, stream=httpx.ByteStream(b"unread"))
-        response.raise_for_status()
+        httpx.Response(503, request=request, stream=httpx.ByteStream(b"unread")).raise_for_status()
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://orb") as client:
         response = await client.get("/failure")

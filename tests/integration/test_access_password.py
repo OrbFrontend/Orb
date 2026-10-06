@@ -1,9 +1,8 @@
 """The access password gate."""
 
-from __future__ import annotations
-
 import itertools
 import sqlite3
+from contextlib import closing
 
 import httpx
 import pytest
@@ -115,11 +114,8 @@ async def test_presets_never_carry_the_password_and_restore_keeps_the_live_one(c
 
     await client.put_checked("/api/access/password", json={"password": "old"})
     export = await client.post_json("/api/presets/export", json={"domains": list(ALL_DOMAINS), "strip_keys": False})
-    snapshot = sqlite3.connect(str(db_path.parent / "snapshots" / export["name"]))
-    try:
+    with closing(sqlite3.connect(str(db_path.parent / "snapshots" / export["name"]))) as snapshot:
         assert snapshot.execute("SELECT COUNT(*) FROM access_password").fetchone()[0] == 0
-    finally:
-        snapshot.close()
 
     await client.put_checked("/api/access/password", json={"password": "new"})
     live_before = await db.one("SELECT password_hash, session_key FROM access_password")

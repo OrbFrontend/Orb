@@ -36,8 +36,7 @@ def test_thought_attribution_does_not_admit_another_paragraphs_bare_speech():
     ["I think you need to rest.", "She thought you knew.", "He thinks I should leave.", "They think the bridge is safe."],
 )
 def test_a_thought_verb_with_a_clause_is_not_an_attribution(speech):
-    text = f"*Mara hesitated by the doorway.* {speech}"
-    assert narration_only(text, Dialogue.BARE) == "Mara hesitated by the doorway."
+    assert narration_only(f"*Mara hesitated by the doorway.* {speech}", Dialogue.BARE) == "Mara hesitated by the doorway."
 
 
 def test_a_thought_tag_inside_quoted_speech_cannot_affect_extraction():
@@ -46,8 +45,7 @@ def test_a_thought_tag_inside_quoted_speech_cannot_affect_extraction():
 
 
 def test_removing_a_quote_does_not_attach_its_thought_tag_to_an_action():
-    text = '*Mara sat.* "I should go," she thinks.'
-    assert narration_only(text, Dialogue.QUOTED) == "*Mara sat.* she thinks."
+    assert narration_only('*Mara sat.* "I should go," she thinks.', Dialogue.QUOTED) == "*Mara sat.* she thinks."
 
 
 def test_inline_emphasis_before_a_thought_verb_remains_narration():

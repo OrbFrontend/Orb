@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from ...core.domain_types import EndpointKind
+from ...core.settings import Settings
 from ...database import (
     create_endpoint,
     create_model_config,
@@ -47,7 +48,7 @@ def public_endpoint(row: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def public_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
+def public_settings(settings: Settings) -> dict[str, Any]:
     """Settings as responses show them, without the keys overlaid from the active endpoints; their rows carry the hints."""
     return {key: value for key, value in settings.items() if key not in ("api_key", "agent_api_key")}
 

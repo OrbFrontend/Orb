@@ -462,7 +462,7 @@ test("search never reports a hidden remainder, so no “show all” is offered",
 
 function withPersona({ personas = [], activeId = null, conv = null } = {}) {
   S.personas = personas;
-  S.activePersonaId = activeId;
+  S.settings = { ...S.settings, active_persona_id: activeId };
   S.conversations = conv ? [conv] : [];
   S.activeConvId = conv?.id ?? null;
   S.personaAvatarVersion = 0;

@@ -1,7 +1,5 @@
 """Captured llama.cpp renders plus regressions for discovery and prompt state."""
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

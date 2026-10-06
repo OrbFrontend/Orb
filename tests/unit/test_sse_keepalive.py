@@ -5,8 +5,6 @@ idle-timeout proxy drops the SSE connection and strands the still-running backen
 line so the frontend parser ignores it, and real events must still pass through untouched.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json

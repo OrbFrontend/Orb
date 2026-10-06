@@ -5,8 +5,6 @@ Director's tail, the Writer's Scene Guidance, atomic persistence, group scope, r
 call.
 """
 
-from __future__ import annotations
-
 import json
 
 import httpx
@@ -68,7 +66,7 @@ class Gateway:
 
 async def _configure(client, *, agent: bool = True, url: str = "https://openrouter.ai/api/v1") -> None:
     """Point decisions at a judge endpoint of their own and set the Agent lane."""
-    endpoint = (await client.post("/api/endpoints", json={"url": url, "api_key": "k", "kind": "judge"})).json()
+    endpoint = await client.post_json("/api/endpoints", json={"url": url, "api_key": "k", "kind": "judge"})
     response = await client.put_json(
         "/api/decisions/config", json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"}
     )
@@ -77,7 +75,7 @@ async def _configure(client, *, agent: bool = True, url: str = "https://openrout
 
 
 async def _add_decision(client, **overrides) -> dict:
-    existing = {row["id"] for row in (await client.get("/api/interactive-fragments")).json()}
+    existing = {row["id"] for row in await client.get_json("/api/interactive-fragments")}
     path = "/api/interactive-fragments/outcome" if "outcome" in existing else "/api/interactive-fragments"
     response = (
         await client.put(path, json={**DEFINITION, "enabled": True, **overrides})
@@ -103,8 +101,24 @@ async def _turn(llm_mock, cid: str, message: str, *, director: dict | None = Non
     return await _drain(handle_turn(cid, message))
 
 
+async def _replies(cid: str) -> list[dict]:
+    return [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"]
+
+
 async def _last_assistant(cid: str) -> dict:
-    return next(message for message in reversed(await dbmod.get_messages(cid)) if message["role"] == "assistant")
+    return (await _replies(cid))[-1]
+
+
+def _record(message: dict) -> dict:
+    return message["decision_evaluations"]["evaluations"][0]
+
+
+async def _regenerate(llm_mock, cid: str, message_id: int, *plan: str, reply: str = "again", steer: str = "") -> list[dict]:
+    llm_mock.enqueue_director(_direct_scene(moods=[], **({"speaking_plan": list(plan)} if plan else {})))
+    llm_mock.enqueue_writer(reply)
+    if steer:
+        return await _drain(handle_magic_rewrite(cid, message_id, steer))
+    return await _drain(handle_regenerate(cid, message_id))
 
 
 def _event(events: list[dict], name: str) -> dict:
@@ -126,9 +140,9 @@ def _tail_text(call: dict) -> str:
     return "\n".join(part.get("text", "") for part in content)
 
 
-async def _solo_scene(client, cid: str = "conv-decision") -> str:
+async def _solo_scene(client, cid: str = "conv-decision", agent: bool = True) -> str:
     await dbmod.create_conversation(cid, "scene", "Maren", "a doorway")
-    await _configure(client)
+    await _configure(client, agent=agent)
     await _add_decision(client)
     return cid
 
@@ -144,7 +158,7 @@ async def test_a_valid_decision_round_trips_through_the_api(client, db):
     assert created["decision_criteria"] == DEFINITION["decision_criteria"]
     assert created["decision_threshold"] == 0.5
 
-    listed = next(f for f in (await client.get("/api/interactive-fragments")).json() if f["id"] == "outcome")
+    listed = next(f for f in await client.get_json("/api/interactive-fragments") if f["id"] == "outcome")
     assert listed["decision_outputs"]["true"] == "Alric holds the doorway."
 
     # The columns hold JSON text; the read boundary decodes them.
@@ -187,7 +201,7 @@ async def test_a_partial_update_is_validated_against_the_merged_row(client, db):
 
 async def test_switching_a_decision_to_another_type_clears_its_decision_columns(client, db):
     await _add_decision(client)
-    updated = (await client.put("/api/interactive-fragments/outcome", json={"field_type": "string"})).json()
+    updated = await client.put_json("/api/interactive-fragments/outcome", json={"field_type": "string"})
     assert updated["field_type"] == "string"
     assert updated["decision_instructions"] is None
     assert updated["decision_criteria"] is None
@@ -216,52 +230,52 @@ async def test_a_decision_shares_the_director_priority_lane(client, db):
 
 
 async def test_configuration_derives_the_route(client, db):
-    before = (await client.get("/api/decisions/config")).json()
+    before = await client.get_json("/api/decisions/config")
     assert before["configured"] is False
     assert before["default_state_template"]
     assert "last_message" in before["state_macros"]
 
     await _configure(client)
-    after = (await client.get("/api/decisions/config")).json()
-    assert after["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
+    assert (await client.get_json("/api/decisions/config"))["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
 
 
-async def test_a_judge_endpoint_that_names_the_route_keeps_that_spelling(client, db):
-    # The route is derived from the endpoint URL, including custom routes.
-    await _configure(client, url="https://gw.test/v2/judge/decisions")
-    config = (await client.get("/api/decisions/config")).json()
-    assert config["resolved_url"] == "https://gw.test/v2/judge/decisions"
-
-
-async def test_the_route_prefix_is_not_doubled_when_the_endpoint_already_carries_it(client, db):
-    await _configure(client, url="https://openrouter.ai/api/alpha")
-    config = (await client.get("/api/decisions/config")).json()
-    assert config["resolved_url"] == "https://openrouter.ai/api/alpha/decisions"
+@pytest.mark.parametrize(
+    "url,resolved",
+    [
+        # The route is derived from the endpoint URL, including custom routes.
+        ("https://gw.test/v2/judge/decisions", "https://gw.test/v2/judge/decisions"),
+        # The prefix is not doubled when the endpoint already carries it.
+        ("https://openrouter.ai/api/alpha", "https://openrouter.ai/api/alpha/decisions"),
+    ],
+)
+async def test_a_judge_endpoint_route_is_derived_from_its_url(client, db, url, resolved):
+    await _configure(client, url=url)
+    assert (await client.get_json("/api/decisions/config"))["resolved_url"] == resolved
 
 
 async def test_a_chat_endpoint_cannot_be_selected_as_the_judge(client, db):
-    chat = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})).json()
+    chat = await client.post_json("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})
     await client.put_checked(
         "/api/decisions/config",
         json={"decision_endpoint_id": chat["id"], "decision_model": "typesafe/jev-1.13"},
         expected_status=422,
     )
-    assert (await client.get("/api/decisions/config")).json()["configured"] is False
+    assert (await client.get_json("/api/decisions/config"))["configured"] is False
 
 
 async def test_the_two_endpoint_pools_are_listed_apart(client, db):
     await _configure(client)
-    chat = (await client.post("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})).json()
+    chat = await client.post_json("/api/endpoints", json={"url": "https://openrouter.ai/api/v1"})
 
-    chat_pool = (await client.get("/api/endpoints", params={"kind": "chat"})).json()
-    judge_pool = (await client.get("/api/endpoints", params={"kind": "judge"})).json()
+    chat_pool = await client.get_json("/api/endpoints", params={"kind": "chat"})
+    judge_pool = await client.get_json("/api/endpoints", params={"kind": "judge"})
 
     assert [row["id"] for row in chat_pool] == [row["id"] for row in chat_pool if row["kind"] == "chat"]
     assert chat["id"] in [row["id"] for row in chat_pool]
     assert chat["id"] not in [row["id"] for row in judge_pool]
     assert [row["kind"] for row in judge_pool] == ["judge"]
     # A judge row has no model configs: the classifier takes a model name and nothing a model config carries.
-    assert (await client.get(f"/api/endpoints/{judge_pool[0]['id']}/models")).json() == []
+    assert await client.get_json(f"/api/endpoints/{judge_pool[0]['id']}/models") == []
 
 
 async def test_the_removed_preview_route_is_not_available(client):
@@ -271,7 +285,7 @@ async def test_the_removed_preview_route_is_not_available(client):
 async def test_the_connection_test_sends_a_synthetic_scene(client, db, monkeypatch):
     await _configure(client)
     gateway = Gateway(monkeypatch, answers={"connection_test": 0.42})
-    body = (await client.post("/api/decisions/test")).json()
+    body = await client.post_json("/api/decisions/test")
 
     assert body["ok"] is True
     assert body["probability"] == 0.42
@@ -283,7 +297,7 @@ async def test_the_connection_test_sends_a_synthetic_scene(client, db, monkeypat
 async def test_the_connection_test_reports_a_failure_as_a_result(client, db, monkeypatch):
     await _configure(client)
     Gateway(monkeypatch, error=RuntimeError("boom"))
-    body = (await client.post("/api/decisions/test")).json()
+    body = await client.post_json("/api/decisions/test")
     assert body["ok"] is False
     assert "boom" in body["error"]
 
@@ -302,7 +316,7 @@ async def test_a_rejected_test_names_the_status_and_what_to_look_at(client, db, 
     )
     Gateway(monkeypatch, error=rejection)
 
-    body = (await client.post("/api/decisions/test")).json()
+    body = await client.post_json("/api/decisions/test")
     assert body["ok"] is False
     assert body["status"] == 404
     assert body["error"].startswith("HTTP 404")
@@ -311,7 +325,7 @@ async def test_a_rejected_test_names_the_status_and_what_to_look_at(client, db, 
 
 
 async def test_the_connection_test_says_so_when_nothing_is_configured(client, db):
-    body = (await client.post("/api/decisions/test")).json()
+    body = await client.post_json("/api/decisions/test")
     assert body["ok"] is False
     assert "configured" in body["error"]
 
@@ -356,8 +370,7 @@ async def test_inject_routes_the_guidance_to_the_named_pass(client, db, llm_mock
 
     assert _event(events, "decisions")["evaluations"][0]["inject"] == inject
     injection = _event(events, "director_done")["injection_block"]
-    director_tail = _tail_text(_captured(llm_mock, "director")[0])
-    assert ("Doorway: Alric holds the doorway." in director_tail) is to_director
+    assert ("Doorway: Alric holds the doorway." in _tail_text(_captured(llm_mock, "director")[0])) is to_director
     assert ("Doorway: Alric holds the doorway." in injection) is to_writer
 
 
@@ -367,9 +380,7 @@ async def test_a_director_only_decision_is_not_asked_while_the_director_is_off(c
     await client.put("/api/settings", json={"enabled_tools": {"direct_scene": False}})
     gateway = Gateway(monkeypatch, answers={"outcome": 0.9})
 
-    events = await _turn(llm_mock, cid, "I shove the door.")
-
-    published = _event(events, "decisions")
+    published = _event(await _turn(llm_mock, cid, "I shove the door."), "decisions")
     assert published["evaluations"] == []
     assert published["skipped"] == [
         {"fragment_id": "outcome", "fragment_label": "Outcome", "source": "global", "reason": "director_off"}
@@ -428,10 +439,7 @@ async def test_the_guidance_survives_the_directors_own_output(client, db, llm_mo
 
 
 async def test_the_writer_still_receives_guidance_with_the_director_disabled(client, db, llm_mock, monkeypatch):
-    cid = "conv-decision-no-director"
-    await dbmod.create_conversation(cid, "scene", "Maren", "a doorway")
-    await _configure(client, agent=False)
-    await _add_decision(client)
+    cid = await _solo_scene(client, agent=False)
     Gateway(monkeypatch)
 
     events = await _turn(llm_mock, cid, "I shove the door.")
@@ -491,10 +499,10 @@ async def test_the_conversation_log_carries_the_replys_evaluations(client, db, l
     await _turn(llm_mock, cid, "one", director={"moods": []})
     reply = await _last_assistant(cid)
 
-    log = (await client.get(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")).json()
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")
     assert log["decision_evaluations"]["evaluations"][0]["outcome"] == "true"
 
-    logs = (await client.get(f"/api/conversations/{cid}/logs")).json()
+    logs = await client.get_json(f"/api/conversations/{cid}/logs")
     assert any(row["decision_evaluations"] for row in logs)
 
 
@@ -538,13 +546,11 @@ async def test_regeneration_replays_the_targets_own_outcome(client, db, llm_mock
 
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
     target = await _last_assistant(cid)
-    original = target["decision_evaluations"]["evaluations"][0]
+    original = _record(target)
     RAW_ANSWER_CACHE.clear()  # a cold cache must not change the answer
 
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("again")
-    await _drain(handle_regenerate(cid, target["id"]))
-    replayed = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, cid, target["id"])
+    replayed = _record(await _last_assistant(cid))
 
     assert len(gateway.batches) == 1  # no second call
     assert replayed["answer_source"] == "replay"
@@ -561,13 +567,11 @@ async def test_regeneration_rerolls_a_drawn_outcome_on_the_stored_odds(client, d
 
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
     target = await _last_assistant(cid)
-    original = target["decision_evaluations"]["evaluations"][0]
+    original = _record(target)
     RAW_ANSWER_CACHE.clear()  # the stored answer, not the cache, is what spares the call
 
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("again")
-    events = await _drain(handle_regenerate(cid, target["id"]))
-    rerolled = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+    events = await _regenerate(llm_mock, cid, target["id"])
+    rerolled = _record(await _last_assistant(cid))
 
     assert len(gateway.batches) == 1  # no second call
     assert (original["outcome"], rerolled["outcome"]) == ("true", "false")
@@ -584,14 +588,12 @@ async def test_editing_the_guidance_changes_the_prompt_without_a_call_or_a_rerol
     gateway = Gateway(monkeypatch)
     await _turn(llm_mock, cid, "one", director={"moods": []})
     target = await _last_assistant(cid)
-    original = target["decision_evaluations"]["evaluations"][0]
+    original = _record(target)
 
     await client.put(
         "/api/interactive-fragments/outcome", json={"decision_outputs": {"true": "He keeps the doorway, barely.", "false": "x"}}
     )
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("again")
-    events = await _drain(handle_regenerate(cid, target["id"]))
+    events = await _regenerate(llm_mock, cid, target["id"])
 
     assert len(gateway.batches) == 1
     record = _event(events, "decisions")["evaluations"][0]
@@ -608,9 +610,7 @@ async def test_a_changed_question_asks_again_on_regeneration(client, db, llm_moc
     target = await _last_assistant(cid)
 
     await client.put("/api/interactive-fragments/outcome", json={"decision_instructions": "Does Maren hold the door?"})
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("again")
-    events = await _drain(handle_regenerate(cid, target["id"]))
+    events = await _regenerate(llm_mock, cid, target["id"])
 
     assert len(gateway.batches) == 2
     assert _event(events, "decisions")["evaluations"][0]["answer_source"] == "live"
@@ -620,11 +620,9 @@ async def test_a_fresh_send_of_identical_text_creates_a_new_occurrence(client, d
     cid = await _solo_scene(client)
     Gateway(monkeypatch)
     await _turn(llm_mock, cid, "same words", director={"moods": []})
-    first = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+    first = _record(await _last_assistant(cid))
     await _turn(llm_mock, cid, "same words", director={"moods": []})
-    second = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
-
-    assert second["occurrence_id"] != first["occurrence_id"]
+    assert _record(await _last_assistant(cid))["occurrence_id"] != first["occurrence_id"]
 
 
 async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, llm_mock, monkeypatch):
@@ -632,11 +630,11 @@ async def test_a_checkpoint_copies_records_and_remaps_their_anchors(client, db, 
     Gateway(monkeypatch)
     await _turn(llm_mock, cid, "one", director={"moods": []})
     source = await _last_assistant(cid)
-    source_anchor = source["decision_evaluations"]["evaluations"][0]["input_branch_anchor"]
+    source_anchor = _record(source)["input_branch_anchor"]
 
     copied_id = await client.create(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})
     copied = await _last_assistant(copied_id)
-    record = copied["decision_evaluations"]["evaluations"][0]
+    record = _record(copied)
 
     assert copied["decision_cooldowns"] == source["decision_cooldowns"]
     assert record["input_branch_anchor"] is not None
@@ -696,7 +694,7 @@ async def test_a_malformed_card_decision_is_reported_and_asks_nothing(client, db
 
 async def test_validate_route_reports_a_card_decisions_problems(client):
     entry = {key: value for key, value in DEFINITION.items() if key != "description"}
-    assert (await client.post("/api/decisions/validate", json=entry)).json() == {"ok": True}
+    assert await client.post_json("/api/decisions/validate", json=entry) == {"ok": True}
 
     response = await client.post_json(
         "/api/decisions/validate", json={**entry, "decision_instructions": ""}, expected_status=422
@@ -707,41 +705,47 @@ async def test_validate_route_reports_a_card_decisions_problems(client):
 # -- group scope --------------------------------------------------------------
 
 
-async def _group(client, speakers: int = 2) -> dict:
-    cards = [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
-    return (
-        await client.post(
-            "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Doorway",
-                "group_turn_mode": "director",
-                "group_max_speakers": speakers,
-                "members": [{"character_card_id": card} for card in cards],
-            },
-        )
-    ).json()
+async def _group(client, cards=None, speakers: int = 2) -> dict:
+    cards = cards or [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
+    members = [{"character_card_id": card} for card in cards]
+    return await client.post_json(
+        "/api/conversations",
+        json={
+            "kind": "group",
+            "title": "Doorway",
+            "group_turn_mode": "director",
+            "group_max_speakers": speakers,
+            "members": members,
+        },
+    )
+
+
+async def _group_scene(client, monkeypatch, **decision) -> tuple[dict, Gateway]:
+    conv = await _group(client)
+    await _configure(client)
+    await _add_decision(client, **decision)
+    return conv, Gateway(monkeypatch)
+
+
+async def _exchange(llm_mock, conv: dict, *, plan=("aria — go", "kael — then you"), replies=("aria speaks", "kael speaks")):
+    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=list(plan)))
+    for reply in replies:
+        llm_mock.enqueue_writer(reply)
+    return await _drain(handle_turn(conv["id"], "I shove the door."))
 
 
 async def test_a_group_exchange_evaluates_once_and_copies_onto_every_reply(client, db, llm_mock, monkeypatch):
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client, cooldown_turns=2)
-    gateway = Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
-    llm_mock.enqueue_writer("aria speaks")
-    llm_mock.enqueue_writer("kael speaks")
-    events = await _drain(handle_turn(conv["id"], "I shove the door."))
+    conv, gateway = await _group_scene(client, monkeypatch, cooldown_turns=2)
+    events = await _exchange(llm_mock, conv)
 
     # One evaluation for the whole exchange.
     assert gateway.batches == [["outcome"]]
     assert len(_events(events, "decisions")) == 1
 
-    replies = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
+    replies = await _replies(conv["id"])
     assert len(replies) == 2
-    occurrences = {reply["decision_evaluations"]["evaluations"][0]["occurrence_id"] for reply in replies}
-    draws = {reply["decision_evaluations"]["evaluations"][0]["outcome"] for reply in replies}
+    occurrences = {_record(reply)["occurrence_id"] for reply in replies}
+    draws = {_record(reply)["outcome"] for reply in replies}
     # The same occurrence on both, so each reply stays independently inspectable without the exchange having been judged twice.
     assert len(occurrences) == 1
     assert len(draws) == 1
@@ -750,15 +754,8 @@ async def test_a_group_exchange_evaluates_once_and_copies_onto_every_reply(clien
 
 
 async def test_a_group_decision_reaches_every_speakers_writer(client, db, llm_mock, monkeypatch):
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client)
-    Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
-    llm_mock.enqueue_writer("aria speaks")
-    llm_mock.enqueue_writer("kael speaks")
-    await _drain(handle_turn(conv["id"], "I shove the door."))
+    conv, _ = await _group_scene(client, monkeypatch)
+    await _exchange(llm_mock, conv)
 
     writer_tails = [_tail_text(call) for call in _captured(llm_mock, "writer")]
     assert len(writer_tails) == 2
@@ -766,43 +763,23 @@ async def test_a_group_decision_reaches_every_speakers_writer(client, db, llm_mo
 
 
 async def test_a_group_template_needing_the_description_is_skipped(client, db, llm_mock, monkeypatch):
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client, decision_state_template="About {{description}}: {{last_message}}")
-    gateway = Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go"]))
-    llm_mock.enqueue_writer("aria speaks")
-    events = await _drain(handle_turn(conv["id"], "one"))
-
-    decisions = _event(events, "decisions")
+    conv, gateway = await _group_scene(client, monkeypatch, decision_state_template="About {{description}}: {{last_message}}")
+    decisions = _event(await _exchange(llm_mock, conv, plan=["aria — go"], replies=["aria speaks"]), "decisions")
     assert gateway.batches == []
     assert decisions["evaluations"] == []
     assert decisions["skipped"][0]["reason"] == "unavailable_context"
 
 
 async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db, llm_mock, monkeypatch):
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client, cooldown_turns=2)
-    gateway = Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
-    llm_mock.enqueue_writer("aria speaks")
-    llm_mock.enqueue_writer("kael speaks")
-    await _drain(handle_turn(conv["id"], "I shove the door."))
-
-    replies = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
-    later = replies[-1]
-    original = later["decision_evaluations"]["evaluations"][0]
+    conv, gateway = await _group_scene(client, monkeypatch, cooldown_turns=2)
+    await _exchange(llm_mock, conv)
+    later = await _last_assistant(conv["id"])
+    original = _record(later)
     RAW_ANSWER_CACHE.clear()
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
-    llm_mock.enqueue_writer("kael again")
-    await _drain(handle_regenerate(conv["id"], later["id"]))
-
-    regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
-    record = regenerated["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, conv["id"], later["id"], "kael — again", reply="kael again")
+    regenerated = await _last_assistant(conv["id"])
+    record = _record(regenerated)
 
     # The exchange's committed record, taken as is: no second call, no reroll,
     # and the cooldown is not charged to the exchange twice.
@@ -813,12 +790,12 @@ async def test_a_later_speaker_regeneration_reuses_the_exchange_input(client, db
 
 async def test_a_preset_round_trips_a_decision_like_any_other_fragment(client, db):
     await _add_decision(client, enabled=True)
-    name = (await client.post("/api/presets/export", json={"domains": ["fragments"], "label": "shared"})).json()["name"]
+    name = (await client.post_json("/api/presets/export", json={"domains": ["fragments"], "label": "shared"}))["name"]
     await client.delete("/api/interactive-fragments/outcome")
 
     assert (await client.post(f"/api/presets/{name}/apply")).status_code == 200
 
-    imported = next(f for f in (await client.get("/api/interactive-fragments")).json() if f["id"] == "outcome")
+    imported = next(f for f in await client.get_json("/api/interactive-fragments") if f["id"] == "outcome")
     assert imported["decision_instructions"] == DEFINITION["decision_instructions"]
     assert imported["enabled"] == 1
 
@@ -836,21 +813,19 @@ async def test_the_message_listing_does_not_carry_evaluation_records(client, db,
     Gateway(monkeypatch)
     await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
 
-    listed = (await client.get(f"/api/conversations/{cid}/messages")).json()
+    listed = await client.get_json(f"/api/conversations/{cid}/messages")
     reply = next(message for message in reversed(listed) if message["role"] == "assistant")
     assert "decision_evaluations" not in reply
 
     # The Inspector's own route still carries them in full.
-    log = (await client.get(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")).json()
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")
     assert log["decision_evaluations"]["evaluations"][0]["rendered_state"]
 
 
 async def test_the_live_event_summarises_rather_than_streaming_every_record(client, db, llm_mock, monkeypatch):
     cid = await _solo_scene(client)
     Gateway(monkeypatch)
-    events = await _turn(llm_mock, cid, "I shove the door.", director={"moods": []})
-
-    published = _event(events, "decisions")["evaluations"][0]
+    published = _event(await _turn(llm_mock, cid, "I shove the door.", director={"moods": []}), "decisions")["evaluations"][0]
     assert published["outcome"] == "true"
     assert published["fragment_id"] == "outcome"
     # The progress indicator needs the outcome, not the classifier input.
@@ -872,9 +847,7 @@ async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db,
     await db.commit()
     gateway = Gateway(monkeypatch)
 
-    events = await _turn(llm_mock, cid, "one", director={"moods": []})
-
-    published = _event(events, "decisions")
+    published = _event(await _turn(llm_mock, cid, "one", director={"moods": []}), "decisions")
     assert gateway.batches == []
     assert published["evaluations"] == []
     assert published["skipped"][0] == {
@@ -889,14 +862,14 @@ async def test_an_unparseable_global_decision_is_recorded_as_skipped(client, db,
 # -- cancellation -------------------------------------------------------------
 
 
-async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mock, monkeypatch):
-    """Cancellation stops the turn; it is not a provider failure.
+@pytest.mark.parametrize("group", [False, True])
+async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mock, monkeypatch, group):
+    """Cancellation stops the turn (solo or group exchange); it is not a provider failure.
 
-    `director_pass` already refuses to call once the token is set, so nothing was ever billed. What the solo path was missing is
-    the group driver's early return: without it a cancelled turn still announced a directing phase it was not going to run, and
-    no decision guidance is produced either way.
+    `director_pass` already refuses to call once the token is set, so nothing was ever billed. A cancelled turn must not announce
+    a directing phase (or, in a group, a speaking plan) it is not going to run.
     """
-    cid = await _solo_scene(client)
+    cid = (await _group_scene(client, monkeypatch))[0]["id"] if group else await _solo_scene(client)
     gateway = Gateway(monkeypatch)
     token = llm_mock.abort_token
 
@@ -906,42 +879,15 @@ async def test_a_stop_during_the_decision_stage_ends_the_turn(client, db, llm_mo
         raise DecisionCancelled("stopped")
 
     monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
-
     events = await _drain(handle_turn(cid, "I shove the door.", abort_token=token))
 
     assert gateway.batches == [["outcome"]]
     assert _captured(llm_mock, "director") == []
     assert _captured(llm_mock, "writer") == []
-    # The decision step starts, then the turn ends: no director_start for a directing phase that will not happen.
     assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
     assert _events(events, "step_start") == [{"step": "judge"}]
     # No reply was retained, so no decision cooldown was committed either.
-    assert [m for m in await dbmod.get_messages(cid) if m["role"] == "assistant"] == []
-
-
-async def test_a_stop_during_the_decision_stage_ends_a_group_exchange(client, db, llm_mock, monkeypatch):
-    """The group driver opens its turn through the same step, so it stops the same way."""
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client)
-    gateway = Gateway(monkeypatch)
-    token = llm_mock.abort_token
-
-    async def _decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
-        gateway.batches.append([question.key for question in questions])
-        token.abort()
-        raise DecisionCancelled("stopped")
-
-    monkeypatch.setattr(judge_module.DecisionClient, "decide", _decide)
-
-    events = await _drain(handle_turn(conv["id"], "I shove the door.", abort_token=token))
-
-    assert gateway.batches == [["outcome"]]
-    assert _captured(llm_mock, "director") == []
-    assert _captured(llm_mock, "writer") == []
-    # No speaking plan either: who speaks is the Director's to settle.
-    assert [event["event"] for event in events if event["event"] != "user_message_created"] == ["step_start", "done"]
-    assert [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"] == []
+    assert await _replies(cid) == []
 
 
 # -- steered regeneration -----------------------------------------------------
@@ -953,25 +899,13 @@ async def test_a_steered_group_regeneration_reuses_the_exchange_input(client, db
     Without the rewind the decision reads the replaced reply as ``{{last_assistant_message}}`` -- substituting the reply for the
     original exchange input. (A later speaker never asks at all; see the inheritance tests.)
     """
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client)
-    gateway = Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
-    llm_mock.enqueue_writer("aria speaks")
-    llm_mock.enqueue_writer("kael speaks")
-    await _drain(handle_turn(conv["id"], "I shove the door."))
-
-    first = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][0]
+    conv, gateway = await _group_scene(client, monkeypatch)
+    await _exchange(llm_mock, conv)
+    first = (await _replies(conv["id"]))[0]
     RAW_ANSWER_CACHE.clear()
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — again"]))
-    llm_mock.enqueue_writer("aria again")
-    await _drain(handle_magic_rewrite(conv["id"], first["id"], "slower, more reluctant"))
-
-    regenerated = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"][-1]
-    record = regenerated["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, conv["id"], first["id"], "aria — again", reply="aria again", steer="slower, more reluctant")
+    record = _record(await _last_assistant(conv["id"]))
 
     # The steering is part of the current request, so this is a new occurrence and a second call -- but it is asked about the
     # exchange's own input, with neither speaker's reply standing in for it.
@@ -993,10 +927,8 @@ async def test_a_steered_solo_regeneration_reuses_the_turns_input(client, db, ll
     target = await _last_assistant(cid)
     RAW_ANSWER_CACHE.clear()
 
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("rewritten")
-    await _drain(handle_magic_rewrite(cid, target["id"], "slower, more reluctant"))
-    record = (await _last_assistant(cid))["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, cid, target["id"], reply="rewritten", steer="slower, more reluctant")
+    record = _record(await _last_assistant(cid))
 
     assert len(gateway.batches) == 2
     assert "the reply being replaced" not in gateway.states[-1]
@@ -1006,17 +938,14 @@ async def test_a_steered_solo_regeneration_reuses_the_turns_input(client, db, ll
 
 
 async def _two_speaker_roll_exchange(client, llm_mock, monkeypatch, draws) -> tuple[dict, dict, dict, Gateway]:
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client, decision_resolution="roll", decision_threshold=None, cooldown_turns=2)
-    gateway = Gateway(monkeypatch, answers={"outcome": 0.5})
+    conv, gateway = await _group_scene(
+        client, monkeypatch, decision_resolution="roll", decision_threshold=None, cooldown_turns=2
+    )
+    gateway.answers = {"outcome": 0.5}
     rolls = iter(draws)
     monkeypatch.setattr(judge_module, "draw_uniform", lambda: next(rolls))
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go", "kael — then you"]))
-    llm_mock.enqueue_writer("aria: you get through")
-    llm_mock.enqueue_writer("kael speaks")
-    await _drain(handle_turn(conv["id"], "I shove the door."))
-    first, later = [m for m in await dbmod.get_messages(conv["id"]) if m["role"] == "assistant"]
+    await _exchange(llm_mock, conv, replies=["aria: you get through", "kael speaks"])
+    first, later = await _replies(conv["id"])
     RAW_ANSWER_CACHE.clear()
     return conv, first, later, gateway
 
@@ -1026,14 +955,12 @@ async def test_a_later_speaker_regeneration_keeps_the_rolled_outcome_its_parent_
     written to this one, on the same branch. The draw after 0.1 would flip it."""
     conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
-    llm_mock.enqueue_writer("kael again")
-    events = await _drain(handle_regenerate(conv["id"], later["id"]))
+    events = await _regenerate(llm_mock, conv["id"], later["id"], "kael — again", reply="kael again")
     regenerated = (await dbmod.get_messages(conv["id"]))[-1]
 
-    expected = first["decision_evaluations"]["evaluations"][0]
+    expected = _record(first)
     assert regenerated["parent_id"] == first["id"]
-    assert regenerated["decision_evaluations"]["evaluations"][0] == expected
+    assert _record(regenerated) == expected
     assert regenerated["decision_cooldowns"] == first["decision_cooldowns"]
     assert len(gateway.batches) == 1
     assert _event(events, "decisions")["inherited"] == 1
@@ -1043,9 +970,7 @@ async def test_a_later_speaker_regeneration_keeps_the_rolled_outcome_its_parent_
 async def test_a_steered_later_speaker_keeps_its_exchanges_outcome(client, db, llm_mock, monkeypatch):
     conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — again"]))
-    llm_mock.enqueue_writer("kael again")
-    await _drain(handle_magic_rewrite(conv["id"], later["id"], "slower, more reluctant"))
+    await _regenerate(llm_mock, conv["id"], later["id"], "kael — again", reply="kael again", steer="slower, more reluctant")
     regenerated = (await dbmod.get_messages(conv["id"]))[-1]
 
     assert len(gateway.batches) == 1
@@ -1056,10 +981,8 @@ async def test_the_first_speaker_still_rerolls_on_regeneration(client, db, llm_m
     """Nothing on the new branch was written to the old draw, so the dice roll again."""
     conv, first, _later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
 
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — again"]))
-    llm_mock.enqueue_writer("aria again")
-    await _drain(handle_regenerate(conv["id"], first["id"]))
-    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, conv["id"], first["id"], "aria — again", reply="aria again")
+    record = _record((await dbmod.get_messages(conv["id"]))[-1])
 
     assert len(gateway.batches) == 1
     assert (record["answer_source"], record["draw"], record["outcome"]) == ("replay", 0.9, "false")
@@ -1068,11 +991,8 @@ async def test_the_first_speaker_still_rerolls_on_regeneration(client, db, llm_m
 async def test_giving_the_floor_after_a_rest_judges_the_unanswered_message(client, db, llm_mock, monkeypatch):
     """Manual mode with nobody picked rests; the chip click that follows is a
     ``/speak`` with no message of its own, answering the one that rested."""
-    conv = await _group(client)
+    conv, gateway = await _group_scene(client, monkeypatch)
     await client.put(f"/api/conversations/{conv['id']}", json={"group_turn_mode": "manual"})
-    await _configure(client)
-    await _add_decision(client)
-    gateway = Gateway(monkeypatch)
 
     await _drain(handle_turn(conv["id"], "I shove the door."))
     assert gateway.batches == []  # the rest runs nothing
@@ -1080,16 +1000,13 @@ async def test_giving_the_floor_after_a_rest_judges_the_unanswered_message(clien
     member = (await dbmod.get_group_members(conv["id"]))[0]
     llm_mock.enqueue_director(_direct_scene(moods=[]))
     llm_mock.enqueue_writer("aria speaks")
-    events = await _drain(handle_speak(conv["id"], member["id"]))
-    assert _event(events, "decisions")["evaluations"][0]["outcome"] == "true"
+    assert _event((await _drain(handle_speak(conv["id"], member["id"]))), "decisions")["evaluations"][0]["outcome"] == "true"
     assert gateway.states == ["Previous reply:\n\n\nCurrent request:\nI shove the door."]
 
-    reply = next(m for m in reversed(await dbmod.get_messages(conv["id"])) if m["role"] == "assistant")
+    reply = await _last_assistant(conv["id"])
     RAW_ANSWER_CACHE.clear()
-    llm_mock.enqueue_director(_direct_scene(moods=[]))
-    llm_mock.enqueue_writer("aria again")
-    await _drain(handle_regenerate(conv["id"], reply["id"]))
-    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
+    await _regenerate(llm_mock, conv["id"], reply["id"], reply="aria again")
+    record = _record((await dbmod.get_messages(conv["id"]))[-1])
 
     # The regeneration's parent is that message, so it reads the same input and replays.
     assert len(gateway.batches) == 1
@@ -1097,21 +1014,13 @@ async def test_giving_the_floor_after_a_rest_judges_the_unanswered_message(clien
 
 
 async def test_giving_the_floor_with_nothing_to_judge_is_a_routine_skip(client, db, llm_mock, monkeypatch):
-    conv = await _group(client)
-    await _configure(client)
-    await _add_decision(client, decision_state_template="Current request:\n{{last_message}}")
-    gateway = Gateway(monkeypatch)
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["aria — go"]))
-    llm_mock.enqueue_writer("aria speaks")
-    await _drain(handle_turn(conv["id"], "I shove the door."))
+    conv, gateway = await _group_scene(client, monkeypatch, decision_state_template="Current request:\n{{last_message}}")
+    await _exchange(llm_mock, conv, plan=["aria — go"], replies=["aria speaks"])
 
     member = (await dbmod.get_group_members(conv["id"]))[1]
     llm_mock.enqueue_director(_direct_scene(moods=[]))
     llm_mock.enqueue_writer("kael speaks")
-    events = await _drain(handle_speak(conv["id"], member["id"]))
-
-    skipped = _event(events, "decisions")["skipped"][0]
+    skipped = _event(await _drain(handle_speak(conv["id"], member["id"])), "decisions")["skipped"][0]
     assert len(gateway.batches) == 1
     assert skipped["reason"] == "empty_input"
     assert "failed" not in skipped
@@ -1123,27 +1032,9 @@ async def test_a_card_decision_in_a_group_reads_its_own_character(client, db, ll
         decision_state_template="{{char}}: {{description}}\n\n{{last_message}}",
         decision_instructions="Does {{char}} hold the doorway?",
     )
-    other = await client.create("/api/characters", json={"name": "Kael"})
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={
-                "kind": "group",
-                "title": "Doorway",
-                "group_turn_mode": "director",
-                "group_max_speakers": 1,
-                "members": [{"character_card_id": other}, {"character_card_id": card_id}],
-            },
-        )
-    ).json()
+    conv = await _group(client, [await client.create("/api/characters", json={"name": "Kael"}), card_id], speakers=1)
     await _configure(client)
     gateway = Gateway(monkeypatch, answers={"card_outcome": 0.9})
-
-    llm_mock.enqueue_director(_direct_scene(moods=[], speaking_plan=["kael — go"]))
-    llm_mock.enqueue_writer("kael speaks")
-    events = await _drain(handle_turn(conv["id"], "I shove the door."))
-
-    assert _event(events, "decisions")["skipped"] == []
+    assert _event((await _exchange(llm_mock, conv, plan=["kael — go"], replies=["kael speaks"])), "decisions")["skipped"] == []
     assert gateway.states[0].startswith("Alric: ")
-    record = (await dbmod.get_messages(conv["id"]))[-1]["decision_evaluations"]["evaluations"][0]
-    assert record["rendered_instructions"] == "Does Alric hold the doorway?"
+    assert _record((await dbmod.get_messages(conv["id"]))[-1])["rendered_instructions"] == "Does Alric hold the doorway?"

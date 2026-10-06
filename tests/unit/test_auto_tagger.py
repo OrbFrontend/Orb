@@ -5,8 +5,6 @@ honouring neither strict JSON schema nor a GBNF grammar can return anything. ``c
 storable at all, so it is the piece that gets tested.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.features.library_tags import (
@@ -63,10 +61,7 @@ def test_a_missing_or_malformed_tags_field_rejects_the_answer(args):
 def test_the_tool_schema_constrains_tags_to_the_vocabulary():
     tool = build_tag_tool(VOCAB)
     assert tool["function"]["name"] == TAG_TOOL_NAME
-    items = tool["function"]["parameters"]["properties"]["tags"]["items"]
-    # A bare {"type","enum"} node: strictify_schema only rewrites nodes that have "properties", so this reaches an OpenAI strict
-    # response_format intact, and llama.cpp text mode compiles it into the forced call's grammar.
-    assert items == {"type": "string", "enum": VOCAB}
+    assert tool["function"]["parameters"]["properties"]["tags"]["items"] == {"type": "string", "enum": VOCAB}
     tags_schema = tool["function"]["parameters"]["properties"]["tags"]
     assert tags_schema["maxItems"] == MAX_TAGS_PER_CARD
     assert tags_schema["uniqueItems"] is True
@@ -76,8 +71,7 @@ def test_the_tool_schema_survives_the_strict_response_format_rewrite():
     # Structured-output endpoints send the schema as a strict response_format instead of a tools array, and uniqueItems is
     # outside that subset: with it on the wire the endpoint answers 400 and every card in the run fails. Neither constraint is
     # load-bearing here -- clean_tags dedupes and caps the answer regardless -- but the enum must still reach the provider.
-    strict = strictify_schema(build_tag_tool(VOCAB)["function"]["parameters"])
-    tags_schema = strict["properties"]["tags"]
+    tags_schema = strictify_schema(build_tag_tool(VOCAB)["function"]["parameters"])["properties"]["tags"]
     assert "uniqueItems" not in tags_schema
     assert tags_schema["items"]["enum"] == VOCAB
 
@@ -107,8 +101,7 @@ def test_a_card_cannot_write_its_own_fence():
 
 
 def test_the_card_message_truncates_a_huge_description():
-    message = build_card_message({"name": "Lira", "description": "x" * 50_000})
-    assert len(message) < 5_000
+    assert len(build_card_message({"name": "Lira", "description": "x" * 50_000})) < 5_000
 
 
 def test_the_card_message_includes_source_tags_and_dialogue_evidence():

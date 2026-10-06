@@ -4,8 +4,6 @@ Pure functions, no app stack. These decide what "the same card" means, so each t
 exists -- a threshold that drifts here silently changes what the scan reports.
 """
 
-from __future__ import annotations
-
 import io
 
 import pytest
@@ -87,8 +85,7 @@ def test_moving_text_between_two_fields_changes_the_body_hash():
 
 def test_a_card_with_no_content_at_all_has_no_body_hash():
     # "" is the skip signal everywhere downstream. Two blank cards must not block together on the emptiness they share.
-    blank = {key: "" for key in _card()}
-    assert body_hash(blank) == ""
+    assert body_hash({key: "" for key in _card()}) == ""
 
 
 # -- Field hashes -------------------------------------------------------------
@@ -126,8 +123,7 @@ def test_shingle_hashes_are_stable_across_processes():
 
 
 def test_the_sketch_is_the_smallest_hashes_and_is_capped():
-    long_text = " ".join(f"word{i}" for i in range(400))
-    values = shingles({"description": long_text})
+    values = shingles({"description": " ".join(f"word{i}" for i in range(400))})
     sketch = shingle_sketch(values)
     assert len(sketch) == SKETCH_SIZE
     assert list(sketch) == sorted(values)[:SKETCH_SIZE]

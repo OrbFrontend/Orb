@@ -4,8 +4,6 @@ Covers profile normalization, the reproduction record (seed + generation metadat
 paths depend on -- all with a stub adapter, no network or DB.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -155,8 +153,7 @@ def test_alignable_tokens_keeps_alnum_drops_punctuation_and_nonascii():
 def test_backend_matches_workflow_alignment_contract():
     fixture = Path(__file__).parents[1] / "fixtures" / "tts_alignment_cases.json"
     for case in json.loads(fixture.read_text(encoding="utf-8")):
-        keys = [synth._alignment_key(token) for token in synth._alignable_tokens(case["text"])]
-        assert keys == case["keys"], case["text"]
+        assert [synth._alignment_key(token) for token in synth._alignable_tokens(case["text"])] == case["keys"], case["text"]
 
 
 def test_estimate_word_spans_count_monotonic_and_empty():

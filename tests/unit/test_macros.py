@@ -5,9 +5,9 @@ Covers the {{random::a::b}} grammar, the fresh-roll persist-boundary entry (reso
 the persist boundary relies on (resolving already resolved text is a no-op).
 """
 
-from __future__ import annotations
-
 import time
+
+import pytest
 
 from backend.core.macros import (
     Macros,
@@ -21,41 +21,84 @@ from backend.core.macros import (
 # -- grammar / resolve_inline -------------------------------------------------
 
 
-def test_random_two_options_picks_a_member():
-    assert resolve_inline("{{random::red::blue}}") in {"red", "blue"}
-
-
-def test_random_single_option_is_deterministic():
-    assert resolve_inline("go {{random::north}}") == "go north"
-
-
-def test_random_empty_options_resolve_to_empty_string():
-    assert resolve_inline("{{random::}}") == ""
-    assert resolve_inline("x{{random::a::}}y") in {"xay", "xy"}
-
-
-def test_random_case_insensitive():
-    assert resolve_inline("{{RANDOM::up}}") == "up"
-    assert resolve_inline("{{Random::up}}") == "up"
-
-
-def test_random_multiline_options():
-    assert resolve_inline("{{random::line1\nline2}}") == "line1\nline2"
-
-
-def test_random_non_greedy_terminates_at_first_close():
+_INLINE = {
+    "random_single_option_is_deterministic": ("go {{random::north}}", "go north"),
+    "random_empty_options_resolve_to_empty_string": ("{{random::}}", ""),
+    "random_case_insensitive": ("{{RANDOM::up}}{{Random::up}}", "upup"),
+    "random_multiline_options": ("{{random::line1\nline2}}", "line1\nline2"),
     # Two macros on one line must not merge into one greedy match.
-    assert resolve_inline("{{random::a}} and {{random::b}}") == "a and b"
-    assert resolve_inline("{{random::a}}{{random::b}}") == "ab"
+    "random_non_greedy_terminates_at_first_close": ("{{random::a}} and {{random::b}}{{random::c}}", "a and bc"),
+    "roll_still_fires_and_random_leaves_user_char_alone": (
+        "{{roll::2d1}} {{random::x}} {{user}} {{char}}",
+        "2 x {{user}} {{char}}",
+    ),
+    "empty": ("", ""),
+    # A lone backtick opens no span; spans don't cross newlines.
+    "unpaired_backtick_does_not_escape": ("` {{random::a}}", "` a"),
+    "multiline_backticks_do_not_escape": ("`no close\n{{random::a}}`", "`no close\na`"),
+    "pick_is_random_alias": ("{{PICK::up}}", "up"),
+    "date_in_backticks_stays_literal": ("say `{{date}}`", "say `{{date}}`"),
+    # A comment on its own line leaves no blank line behind.
+    "comment_stripped_with_its_line": ("a\n{{// note to self}}\nb", "a\nb"),
+    "comment_inline": ("keep {{// drop}}this", "keep this"),
+    "comment_multiline_and_repeated": (
+        "# SHEET\n{{//\n- all start at 1\n- max 5\n}}\n## PHYSICAL\n{{// second }}\nStrength: 1",
+        "# SHEET\n## PHYSICAL\nStrength: 1",
+    ),
+    # Comments are stripped before every other inline macro, so a nested macro is deleted rather than resolved.
+    "macro_inside_comment_does_not_fire": ("{{// dice: {{roll::1d6}} }}x", "x"),
+    # The comment closes on its own `}}`, not the nested macro's.
+    "comment_body_may_contain_a_nested_macro": ("{{// see {{user}} }}", ""),
+    "comment_body_nested_with_tail": ("{{// a {{b}} c }}tail", "tail"),
+    "comment_body_nested_multiline": ("{{// a\nb {{user}} c\n}}", ""),
+    # Closing on the nested macro's `}}` left the rest of the note in the stored row.
+    "comment_does_not_publish_the_tail_of_a_note": ("Note {{// remember {{user}} likes tea }} ok", "Note  ok"),
+    # Documented limit: a brace-free nested form keeps the scan linear, so two-deep nesting still closes early.
+    "comment_body_ends_early_when_nested_two_deep": ("{{// deep {{a {{b}} c}} }}", " }}"),
+    # A line-opening comment takes itself, never the writing (or the lines) after it.
+    "comment_does_not_eat_the_prose_that_follows_it": ("{{// note }}Hello {{user}}\nBody", "Hello {{user}}\nBody"),
+    "comment_does_not_eat_a_plain_tail": ("{{// note }}plain tail\nBody", "plain tail\nBody"),
+    "comment_does_not_eat_following_lines": ("{{// note }}one\ntwo {{char}}\nthree", "one\ntwo {{char}}\nthree"),
+    "comment_does_not_eat_to_a_later_close": ("{{// note }}x\nmore\ny}}\ntail", "x\nmore\ny}}\ntail"),
+    # Several comments alone on a line still take the line, spacing included.
+    "run_of_comments_owns_its_line": ("{{// a }}{{// b }}\nBody", "Body"),
+    "spaced_run_of_comments_owns_its_line": ("  {{// a }} {{// b }}  \nBody", "Body"),
+    # `\r` is not horizontal whitespace, so CRLF own-line comments must still take their line.
+    "comment_owns_its_line_in_a_crlf_card": ("a\r\n{{// note }}\r\nb", "a\r\nb"),
+    "comment_run_in_a_crlf_card": ("{{// a }}{{// b }}\r\nBody", "Body"),
+    "trim_joins_across_newlines": ("a\n{{trim}}\nb", "ab"),
+    "trim_joins_across_many_newlines": ("a\n\n\n{{trim}}\n\nb", "ab"),
+    "trim_inline": ("x{{trim}}y", "xy"),
+    # Card fields commonly arrive CRLF; \r must go with the \n it belongs to.
+    "trim_eats_crlf_newlines": ("a\r\n{{trim}}\r\n\r\nb", "ab"),
+    "trim_at_start": ("{{trim}}\n\nBody", "Body"),
+    "trim_at_end": ("Body\n\n{{trim}}", "Body"),
+    "trim_case_insensitive_and_repeated": ("a\n{{TRIM}}\nb\n{{Trim}}\nc", "abc"),
+    # The card idiom: a header comment followed by {{trim}}; the comment's line branch must not swallow the trim.
+    "trim_after_comment": ("{{// note }}{{trim}}\n\nBody", "Body"),
+    "trim_after_comment_crlf": ("{{// note }}{{trim}}\r\n\r\nBody", "Body"),
+    "trim_on_the_line_after_a_comment": ("{{// note }}\n{{trim}}\nBody", "Body"),
+    "trim_after_an_own_line_comment": ("A\n{{// note }}\n{{trim}}B", "AB"),
+    "trim_leaves_horizontal_whitespace_alone": ("a \n{{trim}}\n b", "a  b"),
+    "backticked_trim_stays_literal": ("write `{{trim}}` to join lines", "write `{{trim}}` to join lines"),
+    # {{description}} resolves on read like {{user}}, so the persist boundary stores it raw.
+    "description_is_not_an_inline_macro": ("{{description}}", "{{description}}"),
+    "roll_with_no_sides_is_left_raw": ("{{roll::1d0}}", "{{roll::1d0}}"),
+    "roll_with_too_many_dice_is_left_raw": ("{{roll::1001d6}}", "{{roll::1001d6}}"),
+    "roll_at_the_dice_limit": ("{{roll::1000d1}}", "1000"),
+    "roll_of_no_dice": ("{{roll::0d6}}", "0"),
+}
 
 
-def test_roll_still_fires_and_random_leaves_user_char_alone():
-    out = resolve_inline("{{roll::2d1}} {{random::x}} {{user}} {{char}}")
-    assert out == "2 x {{user}} {{char}}"
+@pytest.mark.parametrize("text,expected", _INLINE.values(), ids=_INLINE.keys())
+def test_resolve_inline(text, expected):
+    assert resolve_inline(text) == expected
 
 
-def test_resolve_inline_handles_empty_and_none():
-    assert resolve_inline("") == ""
+def test_random_picks_a_member():
+    assert resolve_inline("{{random::red::blue}}") in {"red", "blue"}
+    assert resolve_inline("x{{random::a::}}y") in {"xay", "xy"}
+    assert resolve_inline("{{pick::red::blue}}") in {"red", "blue"}
     assert resolve_inline(None) == ""  # type: ignore[arg-type]
 
 
@@ -74,8 +117,7 @@ def test_has_inline_macros():
 
 
 def test_resolve_message_idempotent_on_resolved_text():
-    text = "{{user}} rolls {{roll::3d1}} and picks {{random::only}} for {{char}}"
-    once = resolve_message(text, "Alice", "Bot")
+    once = resolve_message("{{user}} rolls {{roll::3d1}} and picks {{random::only}} for {{char}}", "Alice", "Bot")
     assert once == "Alice rolls 3 and picks only for Bot"
     assert resolve_message(once, "Alice", "Bot") == once
 
@@ -113,8 +155,7 @@ def test_seeded_roll_is_deterministic():
     assert first == m.resolve_message(text)
     assert "{{roll" not in first
     # Different seed = an independent conversation rolls its own dice.
-    counts = {Macros("A", "B", seed=f"conv-{i}").resolve_message("{{roll::10d100}}") for i in range(20)}
-    assert len(counts) > 1
+    assert len({Macros("A", "B", seed=f"conv-{i}").resolve_message("{{roll::10d100}}") for i in range(20)}) > 1
 
 
 def test_unseeded_roll_rolls_fresh():
@@ -159,8 +200,7 @@ def test_stored_random_edited_options_reroll_fresh():
 
 def test_stored_random_leaves_roll_and_plain_text_alone():
     choices: dict[str, str] = {}
-    out = resolve_stored_random(["plain {{roll::2d6}}", "", None], choices, "x")  # type: ignore[list-item]
-    assert out == ["plain {{roll::2d6}}", "", ""]
+    assert resolve_stored_random(["plain {{roll::2d6}}", "", None], choices, "x") == ["plain {{roll::2d6}}", "", ""]
     assert choices == {}
 
 
@@ -182,8 +222,7 @@ def test_backticked_literal_next_to_live_macro():
 
 
 def test_backtick_literal_is_idempotent_across_passes():
-    text = "keep `{{random::x::y}}` and {{random::only}}"
-    once = resolve_message(text, "A", "B")
+    once = resolve_message("keep `{{random::x::y}}` and {{random::only}}", "A", "B")
     assert once == "keep `{{random::x::y}}` and only"
     assert resolve_message(once, "A", "B") == once
     assert resolve_inline(once) == once
@@ -194,18 +233,7 @@ def test_has_inline_macros_ignores_backticked():
     assert has_inline_macros("`{{random::a::b}}` and {{roll::1d6}}")
 
 
-def test_unpaired_or_multiline_backticks_do_not_escape():
-    # A lone backtick opens no span; spans don't cross newlines.
-    assert resolve_inline("` {{random::a}}") == "` a"
-    assert resolve_inline("`no close\n{{random::a}}`") == "`no close\na`"
-
-
 # -- {{pick}} alias and {{time}} ----------------------------------------------
-
-
-def test_pick_is_random_alias():
-    assert resolve_inline("{{pick::red::blue}}") in {"red", "blue"}
-    assert resolve_inline("{{PICK::up}}") == "up"
 
 
 def test_time_resolves_to_hh_mm():
@@ -221,47 +249,13 @@ def test_date_resolves_to_iso_date():
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolve_inline("{{date}}"))
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolve_message("{{DATE}}", "U", "C", seed="conv-1"))
     assert has_inline_macros("today is {{date}}")
-    assert resolve_inline("say `{{date}}`") == "say `{{date}}`"
 
 
 # -- {{// comment }} (the author-note macro) ----------------------------------
 
 
-def test_comment_stripped_with_its_line():
-    # A comment on its own line leaves no blank line behind.
-    assert resolve_inline("a\n{{// note to self}}\nb") == "a\nb"
-    assert resolve_inline("keep {{// drop}}this") == "keep this"
-
-
-def test_comment_multiline_and_repeated():
-    text = "# SHEET\n{{//\n- all start at 1\n- max 5\n}}\n## PHYSICAL\n{{// second }}\nStrength: 1"
-    assert resolve_inline(text) == "# SHEET\n## PHYSICAL\nStrength: 1"
-
-
-def test_macro_inside_comment_does_not_fire():
-    # Comments are stripped before every other inline macro, so a nested macro is
-    # deleted rather than resolved, and takes the rest of the note with it.
-    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == "x"
+def test_macro_inside_comment_does_not_fire_in_messages():
     assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == "y"
-
-
-def test_comment_body_may_contain_a_nested_macro():
-    # The comment closes on its own `}}`, not the nested macro's.
-    assert resolve_inline("{{// see {{user}} }}") == ""
-    assert resolve_inline("{{// a {{b}} c }}tail") == "tail"
-    assert resolve_inline("{{// a\nb {{user}} c\n}}") == ""
-
-
-def test_comment_does_not_publish_the_tail_of_a_note():
-    # Closing on the nested macro's `}}` left the rest of the note in the text,
-    # and resolve_inline is the persist boundary, so it reached the stored row.
-    assert resolve_inline("Note {{// remember {{user}} likes tea }} ok") == "Note  ok"
-
-
-def test_comment_body_ends_early_when_nested_two_deep():
-    # Documented limit: a brace-free nested form keeps the scan linear, so a
-    # macro inside a macro inside a comment still closes early.
-    assert resolve_inline("{{// deep {{a {{b}} c}} }}") == " }}"
 
 
 def test_comment_with_unclosed_braces_stays_linear():
@@ -273,77 +267,12 @@ def test_comment_with_unclosed_braces_stays_linear():
     assert time.monotonic() - start < 2.0
 
 
-def test_comment_does_not_eat_the_prose_that_follows_it():
-    # A line-opening comment takes itself, never the writing after it. The line branch used to backtrack past its own `}}`
-    # looking for one followed by a newline, so a trailing macro -- the usual way a line ends -- handed it the whole line to
-    # delete.
-    assert resolve_inline("{{// note }}Hello {{user}}\nBody") == "Hello {{user}}\nBody"
-    assert resolve_inline("{{// note }}plain tail\nBody") == "plain tail\nBody"
-
-
-def test_comment_does_not_eat_following_lines():
-    # Same backtracking, at range: any later line-ending `}}` dragged every line between it and the comment along with it.
-    assert resolve_inline("{{// note }}one\ntwo {{char}}\nthree") == "one\ntwo {{char}}\nthree"
-    assert resolve_inline("{{// note }}x\nmore\ny}}\ntail") == "x\nmore\ny}}\ntail"
-
-
-def test_run_of_comments_owns_its_line():
-    # Several comments alone on a line still take the line with them; spacing between and around them is part of the run.
-    assert resolve_inline("{{// a }}{{// b }}\nBody") == "Body"
-    assert resolve_inline("  {{// a }} {{// b }}  \nBody") == "Body"
-
-
-def test_comment_owns_its_line_in_a_crlf_card():
-    # `\r` is not horizontal whitespace, so a line branch ending in a bare `\n` never fired on CRLF text -- every own-line
-    # comment left the blank line it is supposed to take with it.
-    assert resolve_inline("a\r\n{{// note }}\r\nb") == "a\r\nb"
-    assert resolve_inline("{{// a }}{{// b }}\r\nBody") == "Body"
-
-
 # -- {{trim}} (joins what the newlines around it separated) -------------------
 
 
-def test_trim_joins_across_newlines():
-    assert resolve_inline("a\n{{trim}}\nb") == "ab"
-    assert resolve_inline("a\n\n\n{{trim}}\n\nb") == "ab"
-    assert resolve_inline("x{{trim}}y") == "xy"
-
-
-def test_trim_eats_crlf_newlines():
-    # Card fields commonly arrive CRLF; \r must go with the \n it belongs to.
-    assert resolve_inline("a\r\n{{trim}}\r\n\r\nb") == "ab"
-
-
-def test_trim_at_either_end():
-    assert resolve_inline("{{trim}}\n\nBody") == "Body"
-    assert resolve_inline("Body\n\n{{trim}}") == "Body"
-
-
-def test_trim_case_insensitive_and_repeated():
-    assert resolve_inline("a\n{{TRIM}}\nb\n{{Trim}}\nc") == "abc"
-
-
-def test_trim_after_comment_is_the_card_idiom():
-    # The shape real cards use: a header comment followed by {{trim}} to drop the blank lines it would otherwise leave. The
-    # comment's own line-eating branch must not swallow the {{trim}} that follows it.
-    assert resolve_inline("{{// note }}{{trim}}\n\nBody") == "Body"
-    assert resolve_inline("{{// note }}{{trim}}\r\n\r\nBody") == "Body"
-    assert resolve_inline("{{// note }}\n{{trim}}\nBody") == "Body"
-    assert resolve_inline("A\n{{// note }}\n{{trim}}B") == "AB"
-
-
-def test_trim_leaves_horizontal_whitespace_alone():
-    # Newlines only -- spaces and tabs around the macro survive.
-    assert resolve_inline("a \n{{trim}}\n b") == "a  b"
-
-
-def test_backticked_trim_stays_literal():
-    assert resolve_inline("write `{{trim}}` to join lines") == "write `{{trim}}` to join lines"
-    assert not has_inline_macros("write `{{trim}}` to join lines")
-
-
-def test_trim_registers_as_an_inline_macro():
+def test_trim_registers_as_an_inline_macro_unless_backticked():
     assert has_inline_macros("a\n{{trim}}\nb")
+    assert not has_inline_macros("write `{{trim}}` to join lines")
 
 
 def test_trim_is_idempotent_and_resolves_in_messages():
@@ -362,8 +291,7 @@ def test_description_expands_into_text():
 
 
 def test_description_is_case_insensitive():
-    m = Macros("Alice", "Bot", description="prose")
-    assert m.resolve_message("{{DESCRIPTION}} {{Description}}") == "prose prose"
+    assert Macros("Alice", "Bot", description="prose").resolve_message("{{DESCRIPTION}} {{Description}}") == "prose prose"
 
 
 def test_description_resolves_its_own_macros():
@@ -420,10 +348,7 @@ def test_backticked_description_stays_literal():
 
 
 def test_description_is_not_an_inline_macro():
-    # It resolves on read, like {{user}}/{{char}} -- the persist boundary must
-    # store it raw rather than baking one turn's card into history.
     assert not has_inline_macros("{{description}}")
-    assert resolve_inline("{{description}}") == "{{description}}"
 
 
 def test_from_settings_carries_the_description():
@@ -453,13 +378,6 @@ def test_names_are_inserted_literally_not_as_regex_templates():
     shrug = r"¯\_(ツ)_/¯"
     assert resolve_message("{{user}} and {{char}}", shrug, r"A\1\g<0>") == shrug + r" and A\1\g<0>"
     assert Macros(user="U", char="C", cast=r"B\2").resolve_message("{{cast}}") == r"B\2"
-
-
-def test_a_roll_with_no_sides_or_too_many_dice_is_left_raw():
-    assert resolve_inline("{{roll::1d0}}") == "{{roll::1d0}}"
-    assert resolve_inline("{{roll::1001d6}}") == "{{roll::1001d6}}"
-    assert resolve_inline("{{roll::1000d1}}") == "1000"
-    assert resolve_inline("{{roll::0d6}}") == "0"
 
 
 def test_every_name_can_be_a_random_option():

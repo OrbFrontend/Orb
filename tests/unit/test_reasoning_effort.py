@@ -1,7 +1,5 @@
 """Per-model reasoning-effort: reasoning_cfg shape, body injection, factory threading."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.inference import EndpointConfigError
@@ -103,14 +101,12 @@ def test_client_factory_threads_effort():
 
 def test_agent_factory_falls_back_to_writer_effort():
     settings = {"endpoint_url": "http://localhost:5000/v1", "reasoning_effort": "low"}
-    client = agent_client_from_settings(settings)
-    assert client.reasoning_effort == "low"
+    assert agent_client_from_settings(settings).reasoning_effort == "low"
 
 
 def test_agent_factory_prefers_agent_effort():
     settings = {"endpoint_url": "http://localhost:5000/v1", "reasoning_effort": "low", "agent_reasoning_effort": "high"}
-    client = agent_client_from_settings(settings)
-    assert client.reasoning_effort == "high"
+    assert agent_client_from_settings(settings).reasoning_effort == "high"
 
 
 def test_agent_lane_reuses_writer_client_in_single_model():
@@ -154,8 +150,7 @@ def test_agent_lane_uses_configured_dual_model_client():
 
 
 async def test_wire_level_reaches_body():
-    client = LLMClient("http://localhost:5000/v1", reasoning_effort="high")
-    body = await _wire_body(client, **reasoning_cfg(True))
+    body = await _wire_body(LLMClient("http://localhost:5000/v1", reasoning_effort="high"), **reasoning_cfg(True))
     assert body["reasoning_effort"] == "high"
     assert body["reasoning"] == {"enabled": True, "effort": "high"}
 
@@ -173,7 +168,6 @@ async def test_wire_custom_param_reaches_body():
 
 
 async def test_wire_reasoning_off_sends_no_effort():
-    client = LLMClient("http://localhost:5000/v1", reasoning_effort="high")
-    body = await _wire_body(client, **reasoning_cfg(False))
+    body = await _wire_body(LLMClient("http://localhost:5000/v1", reasoning_effort="high"), **reasoning_cfg(False))
     assert "reasoning_effort" not in body
     assert body["reasoning"] == {"effort": "none", "enabled": False}

@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
 from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core.settings import Settings
 from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
 PROFILE_TOOL_NAME = "draft_public_profile"
@@ -166,7 +167,7 @@ def build_scene_message(
     return "\n\n".join(parts)
 
 
-async def _draft(client: LLMClient, model: str, system: str, user: str, settings: Mapping[str, Any]) -> PublicProfileDraft:
+async def _draft(client: LLMClient, model: str, system: str, user: str, settings: Settings) -> PublicProfileDraft:
     """One forced ``draft_public_profile`` call, drained and contract-checked.
 
     ``LLMCallError`` propagates untouched -- it already carries the provider's own
@@ -194,7 +195,7 @@ async def _draft(client: LLMClient, model: str, system: str, user: str, settings
 
 
 async def draft_card_profile(
-    client: LLMClient, model: str, card: Mapping[str, Any], *, settings: Mapping[str, Any]
+    client: LLMClient, model: str, card: Mapping[str, Any], *, settings: Settings
 ) -> PublicProfileDraft:
     """Draft the card-level public profile for *card*. Never persists."""
     return await _draft(client, model, CARD_SYSTEM_PROMPT, build_card_message(card), settings)
@@ -205,7 +206,7 @@ async def draft_scene_profile(
     model: str,
     card: Mapping[str, Any],
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     display_name: str = "",
     cast_names: Sequence[str] = (),
     premise: str = "",

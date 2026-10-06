@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncGenerator, Mapping
-from typing import Any, Literal, TypedDict
+from collections.abc import AsyncGenerator
+from typing import Literal, TypedDict
 
 from ...core import ChatMessage, extract_hyperparams
 from ...core.llm_types import ContentDelta, TokenProbsEvent
+from ...core.settings import Settings
 from ...inference import LLMClient, reasoning_cfg
 
 
@@ -148,7 +149,7 @@ def build_generation_messages(prompt: str, *, assisted: bool, completion_mode: s
 
 
 class DocumentContinuer:
-    def __init__(self, client: LLMClient, settings: Mapping[str, Any]):
+    def __init__(self, client: LLMClient, settings: Settings):
         self.client = client
         self.settings = settings
         self.params = extract_hyperparams(settings)

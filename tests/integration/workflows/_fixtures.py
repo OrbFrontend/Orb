@@ -5,17 +5,13 @@ catalog-owned operations on exit, so a failed assertion inside the ``with`` bloc
 tests. The same ``Workflow`` instance is held by both the test and the registry (see clear at end of ``register_for_test``).
 """
 
-from __future__ import annotations
-
-import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any
 
 import pytest
 
-from backend.database import add_message, set_active_leaf
+from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.database.queries.conversations import get_workflow_state, set_workflow_state
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 from backend.prompting.tool_catalog import restore_catalog, snapshot_catalog
@@ -24,9 +20,7 @@ from backend.workflows import registry as _registry
 
 
 async def new_conversation(client, title: str = "Workflow test") -> str:
-    resp = await client.post("/api/conversations", json={"title": title})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return (await client.post_checked("/api/conversations", json={"title": title})).json()["id"]
 
 
 async def seed_message(
@@ -36,6 +30,38 @@ async def seed_message(
     mid, _ = await add_message(cid, role, content, 0)
     await set_active_leaf(cid, mid)
     return cid, mid
+
+
+async def seed_attachment(client, *, content: str = "scene", insert_as_evicted: bool = False, **row) -> tuple[str, int, int]:
+    """A conversation whose active leaf carries one ``img`` attachment (stored seed and params unless overridden)."""
+    cid, mid = await seed_message(client, content=content)
+    base = {"filename": "x.png", "mime": "image/png", "data": b"OG", "workflow_id": "img", "seed": "ORIG-SEED"}
+    row = {**base, "generation_metadata": {"steps": 4}, **row}
+    return cid, mid, await insert_workflow_attachment_row(mid, row, insert_as_evicted=insert_as_evicted)
+
+
+def returning(value, calls: list | None = None):
+    """A reroll_gen hook answering *value*, recording ``(params, seed)`` into *calls*."""
+
+    async def reroll(ctx, params, seed):
+        if calls is not None:
+            calls.append((dict(params), seed))
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    return reroll
+
+
+@contextmanager
+def reroll_workflow(reroll, workflow_id: str = "img") -> Iterator[Workflow]:
+    workflow = make_workflow(workflow_id, regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
+    with register_for_test(workflow):
+        yield workflow
+
+
+async def attachment_action(client, cid: str, mid: int, aid: int, action: str, **body):
+    return await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/{action}", json=body)
 
 
 async def must_get_workflow_attachment(att_id: int) -> dict:
@@ -147,65 +173,6 @@ def registered_artifact_workflow(workflow_id: str = "wf") -> Iterator[Workflow]:
         yield workflow
 
 
-# Each factory below returns ``(hook, gate, release)``: the hook awaits ``gate`` before its body and sets ``release`` once past
-# it, so tests can both block a hook mid-execution and observe when it has actually entered. Per-hook signatures match the
-# kind's contract in backend/workflows/contracts.py: pre/post are async generators taking ``(ctx)``, on_demand and regenerate
-# are coroutines taking ``(ctx, body)``, reroll_gen takes ``(ctx, params, seed)``.
-
-
-def _gated_async_generator(gate: asyncio.Event, release: asyncio.Event):
-    async def hook(_ctx):
-        await gate.wait()
-        release.set()
-        if False:
-            yield  # pragma: no cover -- async generator with no yields
-
-    return hook
-
-
-def gated_pre_pipeline_hook() -> tuple[Any, asyncio.Event, asyncio.Event]:
-    gate, release = asyncio.Event(), asyncio.Event()
-    return _gated_async_generator(gate, release), gate, release
-
-
-def gated_post_pipeline_hook() -> tuple[Any, asyncio.Event, asyncio.Event]:
-    gate, release = asyncio.Event(), asyncio.Event()
-    return _gated_async_generator(gate, release), gate, release
-
-
-def gated_on_demand_hook() -> tuple[Any, asyncio.Event, asyncio.Event]:
-    gate, release = asyncio.Event(), asyncio.Event()
-
-    async def hook(_ctx, _body):
-        await gate.wait()
-        release.set()
-        return {}
-
-    return hook, gate, release
-
-
-def gated_regen_hook() -> tuple[Any, asyncio.Event, asyncio.Event]:
-    gate, release = asyncio.Event(), asyncio.Event()
-
-    async def hook(_ctx, _body):
-        await gate.wait()
-        release.set()
-        return []
-
-    return hook, gate, release
-
-
-def gated_reroll_gen_hook(bytes_to_return: bytes) -> tuple[Any, asyncio.Event, asyncio.Event]:
-    gate, release = asyncio.Event(), asyncio.Event()
-
-    async def hook(_ctx, _params, _seed):
-        await gate.wait()
-        release.set()
-        return bytes_to_return
-
-    return hook, gate, release
-
-
 def counter_on_demand_hook(wid: str, key: str):
     """Returns an on_demand callable that does RMW counter increment on the conversation's workflow_state slot. Caller
     serialization is expected to come from ``api_trigger_workflow`` holding ``workflow_state_lock``.
@@ -233,14 +200,3 @@ def counter_post_pipeline_hook(wid: str, key: str):
             yield  # pragma: no cover -- async generator with no yields
 
     return hook
-
-
-class CallRecorder:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, Any]] = []
-
-    def append(self, label: str, arg: Any = None) -> None:
-        self.calls.append((label, arg))
-
-    def count(self, label: str) -> int:
-        return sum(1 for c in self.calls if c[0] == label)

@@ -2,8 +2,6 @@
 system lore and removal of inline comments. Teardown checks prefix stability.
 """
 
-from __future__ import annotations
-
 import re
 
 # The World Info export shape: entries as an object, `comment` as the
@@ -43,7 +41,7 @@ _ST_PAYLOAD = {
 
 
 async def _import_v20(client) -> str:
-    world = (await client.post("/api/worlds", json={"is_global": True, "name": "V20"})).json()
+    world = await client.post_json("/api/worlds", json={"is_global": True, "name": "V20"})
     await client.post_checked(f"/api/worlds/{world['id']}/import", json=_ST_PAYLOAD)
     return world["id"]
 
@@ -112,11 +110,11 @@ async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
     world_id = await _import_v20(client)
     cid = await _make_conversation(client)
 
-    with_world = (await client.get(f"/api/conversations/{cid}/context-size")).json()
+    with_world = await client.get_json(f"/api/conversations/{cid}/context-size")
     assert with_world["breakdown"]["lorebook_depth"]["chars"] > 0
     assert with_world["breakdown"]["lorebook_constant"]["chars"] > 0
 
     assert (await client.put(f"/api/worlds/{world_id}", json={"is_global": False})).status_code == 200
-    without = (await client.get(f"/api/conversations/{cid}/context-size")).json()
+    without = await client.get_json(f"/api/conversations/{cid}/context-size")
     assert without["breakdown"]["lorebook_depth"]["chars"] == 0
     assert without["total_chars"] < with_world["total_chars"]

@@ -35,5 +35,3 @@ WORKFLOW = Workflow(
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,
 )
-
-__all__ = ["WORKFLOW", "WORKFLOW_ID", "normalize_config"]

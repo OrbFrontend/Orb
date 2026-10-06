@@ -8,8 +8,6 @@ propagates out of ``run_pipeline``) rather than being swallowed, so a failed pas
 never producing a half-processed draft.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import sqlite3
@@ -49,77 +47,76 @@ async def _drain(gen) -> list[dict]:
     return [e async for e in gen]
 
 
+def _settings(tool: str) -> dict:
+    return {"model_name": "test", "enable_agent": 1, "enabled_tools": {tool: True}, "reasoning_enabled_passes": {}}
+
+
+async def _run(client, tool: str, *, director=None, writer=None, editor=None, reported: bool = False) -> list[dict]:
+    """Drive ``run_pipeline`` with the named passes patched.
+
+    ``editor_apply_patch`` is not a Director-loop tool, so the Director is skipped; a non-None phrase_bank makes do_edit=True.
+    """
+    settings = _settings(tool)
+    extra = {"phrase_bank": [[]]} if tool == "editor_apply_patch" else {}
+    gen = run_pipeline(
+        client, settings, _DIRECTOR_STATE, [], [], "hello", **extra, **_pipeline_kwargs(settings["enabled_tools"])
+    )
+    passes = {
+        "backend.pipeline.passes.director.director.director_pass": director,
+        "backend.pipeline.passes.writer.writer_pass": writer,
+        "backend.pipeline.passes.editor.editor.editor_pass": editor,
+    }
+    with contextlib.ExitStack() as stack:
+        for target, fake in passes.items():
+            if fake is not None:
+                stack.enter_context(patch(target, new=fake))
+        return await _drain(reported_once(gen, client.abort_token) if reported else gen)
+
+
+def _counting(calls: list, event: dict):
+    async def fake_pass(*args, **kwargs):
+        calls.append(1)
+        yield event
+
+    return fake_pass
+
+
+def _raising(message: str, before=None):
+    async def fake_pass(*args, **kwargs):
+        if before:
+            before()
+        raise RuntimeError(message)
+        yield  # pragma: no cover -- makes this an async generator
+
+    return fake_pass
+
+
+def _drafting(text: str, *, abort: bool = False):
+    async def fake_pass(c, *args, **kwargs):
+        if abort:
+            c.abort()
+        yield {"type": "content", "delta": text}
+
+    return fake_pass
+
+
 class TestAbortPropagation:
     async def test_abort_after_director_skips_writer_pass(self):
-        """Writer pass must not be called when abort is signalled during the director pass."""
-        client = _make_client()
-        writer_calls = [0]
+        writer_calls: list = []
 
         async def mock_director(c, *args, **kwargs):
             c.abort()
             yield {"type": "done", "result": DirectorResult()}
 
-        async def mock_writer(*args, **kwargs):
-            writer_calls[0] += 1
-            yield {"type": "content", "delta": "should not appear"}
-
-        settings = {
-            "model_name": "test",
-            "enable_agent": 1,
-            "enabled_tools": {"direct_scene": True},
-            "reasoning_enabled_passes": {},
-        }
-
-        with (
-            patch("backend.pipeline.passes.director.director.director_pass", new=mock_director),
-            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
-        ):
-            await _drain(
-                run_pipeline(client, settings, _DIRECTOR_STATE, [], [], "hello", **_pipeline_kwargs(settings["enabled_tools"]))
-            )
-
-        assert writer_calls[0] == 0, "writer pass must not fire after director-phase abort"
+        writer = _counting(writer_calls, {"type": "content", "delta": "should not appear"})
+        await _run(_make_client(), "direct_scene", director=mock_director, writer=writer)
+        assert writer_calls == [], "writer pass must not fire after director-phase abort"
 
     async def test_abort_after_writer_skips_editor_pass(self):
-        """Editor pass must not be called when abort is signalled during the writer pass."""
-        client = _make_client()
-        editor_calls = [0]
-
-        async def mock_writer(c, *args, **kwargs):
-            c.abort()
-            yield {"type": "content", "delta": "partial text"}
-
-        async def mock_editor(*args, **kwargs):
-            editor_calls[0] += 1
-            yield {"type": "done", "draft": "edited"}
-
-        # editor_apply_patch is not a Director-loop tool, so the Director is skipped.
-        # phrase_bank being non-None makes do_edit=True.
-        settings = {
-            "model_name": "test",
-            "enable_agent": 1,
-            "enabled_tools": {"editor_apply_patch": True},
-            "reasoning_enabled_passes": {},
-        }
-
-        with (
-            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
-            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
-        ):
-            await _drain(
-                run_pipeline(
-                    client,
-                    settings,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    phrase_bank=[[]],
-                    **_pipeline_kwargs(settings["enabled_tools"]),
-                )
-            )
-
-        assert editor_calls[0] == 0, "editor pass must not fire after writer-phase abort"
+        editor_calls: list = []
+        editor = _counting(editor_calls, {"type": "done", "draft": "edited"})
+        await _run(_make_client(), "editor_apply_patch", writer=_drafting("partial text", abort=True), editor=editor)
+        assert editor_calls == [], "editor pass must not fire after writer-phase abort"
 
 
 class TestErrorAborts:
@@ -128,126 +125,38 @@ class TestErrorAborts:
     Editor only refines a finished draft, so its failure is a warning."""
 
     async def test_director_error_aborts_and_skips_writer(self):
-        """An error in the director pass propagates and the writer never runs."""
-        client = _make_client()
-        writer_calls = [0]
-
-        async def mock_director(*args, **kwargs):
-            raise RuntimeError("director endpoint exploded")
-            yield  # pragma: no cover -- makes this an async generator
-
-        async def mock_writer(*args, **kwargs):
-            writer_calls[0] += 1
-            yield {"type": "content", "delta": "should not appear"}
-
-        settings = {
-            "model_name": "test",
-            "enable_agent": 1,
-            "enabled_tools": {"direct_scene": True},
-            "reasoning_enabled_passes": {},
-        }
-
-        with (
-            patch("backend.pipeline.passes.director.director.director_pass", new=mock_director),
-            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
-        ):
-            with pytest.raises(RuntimeError, match="director endpoint exploded"):
-                await _drain(
-                    run_pipeline(
-                        client, settings, _DIRECTOR_STATE, [], [], "hello", **_pipeline_kwargs(settings["enabled_tools"])
-                    )
-                )
-
-        assert writer_calls[0] == 0, "writer must not fire after a director-pass error"
+        writer_calls: list = []
+        writer = _counting(writer_calls, {"type": "content", "delta": "should not appear"})
+        with pytest.raises(RuntimeError, match="director endpoint exploded"):
+            await _run(_make_client(), "direct_scene", director=_raising("director endpoint exploded"), writer=writer)
+        assert writer_calls == [], "writer must not fire after a director-pass error"
 
     async def test_editor_error_warns_and_completes_the_turn(self):
-        """An error escaping the editor pass is a warning: the turn keeps the
-        Writer's draft and still completes with ``_result``."""
-        client = _make_client()
-
-        async def mock_writer(*args, **kwargs):
-            yield {"type": "content", "delta": "the full draft"}
-
-        async def mock_editor(*args, **kwargs):
-            raise RuntimeError("editor endpoint exploded")
-            yield  # pragma: no cover -- makes this an async generator
-
-        # editor_apply_patch is not a Director-loop tool, so the Director is skipped;
-        # phrase_bank being non-None makes do_edit=True over the Writer draft.
-        settings = {
-            "model_name": "test",
-            "enable_agent": 1,
-            "enabled_tools": {"editor_apply_patch": True},
-            "reasoning_enabled_passes": {},
-        }
-
-        with (
-            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
-            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
-        ):
-            events = await _drain(
-                run_pipeline(
-                    client,
-                    settings,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    phrase_bank=[[]],
-                    **_pipeline_kwargs(settings["enabled_tools"]),
-                )
-            )
-
+        """The turn keeps the Writer's draft and still completes with ``_result``."""
+        events = await _run(
+            _make_client(),
+            "editor_apply_patch",
+            writer=_drafting("the full draft"),
+            editor=_raising("editor endpoint exploded"),
+        )
         warning = next(e["data"] for e in events if e["event"] == "warning")
         assert warning["headline"] == "The Editor didn't finish."
         assert warning["stage"] == "editor pass"
         assert "editor endpoint exploded" in warning["sentence"]
-        result = next(e["data"] for e in events if e["event"] == "_result")
-        assert result["resp_text"] == "the full draft"
+        assert next(e["data"] for e in events if e["event"] == "_result")["resp_text"] == "the full draft"
 
     async def test_an_editor_error_after_stop_is_not_reported(self):
-        """A failure racing the user's Stop is explained by the Stop itself: no
-        warning reaches the turn's stream, and the stopped turn still saves the Writer's draft."""
+        """A failure racing the user's Stop is explained by the Stop itself; the stopped turn still saves the draft."""
         client = _make_client()
-
-        async def mock_writer(*args, **kwargs):
-            yield {"type": "content", "delta": "the full draft"}
-
-        async def mock_editor(*args, **kwargs):
-            client.abort()
-            raise RuntimeError("stream closed by stop")
-            yield  # pragma: no cover -- makes this an async generator
-
-        settings = {
-            "model_name": "test",
-            "enable_agent": 1,
-            "enabled_tools": {"editor_apply_patch": True},
-            "reasoning_enabled_passes": {},
-        }
-
-        with (
-            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
-            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
-        ):
-            events = await _drain(
-                reported_once(
-                    run_pipeline(
-                        client,
-                        settings,
-                        _DIRECTOR_STATE,
-                        [],
-                        [],
-                        "hello",
-                        phrase_bank=[[]],
-                        **_pipeline_kwargs(settings["enabled_tools"]),
-                    ),
-                    client.abort_token,
-                )
-            )
-
+        events = await _run(
+            client,
+            "editor_apply_patch",
+            writer=_drafting("the full draft"),
+            editor=_raising("stream closed by stop", before=client.abort),
+            reported=True,
+        )
         assert not [e for e in events if e["event"] == "warning"]
-        result = next(e["data"] for e in events if e["event"] == "_result")
-        assert result["resp_text"] == "the full draft"
+        assert next(e["data"] for e in events if e["event"] == "_result")["resp_text"] == "the full draft"
 
 
 class TestStoppedTurnPersistence:
@@ -328,9 +237,7 @@ class TestStoppedTurnPersistence:
             writes.append(args)
 
         monkeypatch.setattr(persistence.db, "update_director_state", update_director_state)
-        saved = await persistence._persist_result("c1", TurnState(resp_text="  "), {"enable_agent": 1}, 1, 2)
-
-        assert saved == (None, [], [])
+        assert (await persistence._persist_result("c1", TurnState(resp_text="  "), {"enable_agent": 1}, 1, 2)) == (None, [], [])
         assert writes == []
 
     async def test_a_failure_after_stop_ends_quietly_but_a_failed_save_is_reported(self, monkeypatch):

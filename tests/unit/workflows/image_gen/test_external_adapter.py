@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 
 import httpx
@@ -100,7 +98,6 @@ def _bound(config: dict, style_id: str) -> ExternalComfyAdapter:
 # -- test connection ----------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("models", "expected"),
     [
@@ -121,7 +118,6 @@ async def test_connection_test_reports_whatever_checkpoints_it_could_discover(mo
     assert result["models"] == expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("overridden", [True, False], ids=["override validated", "graph's own pin surfaced"])
 async def test_validation_checks_the_model_that_will_actually_run(monkeypatch, overridden):
     """The graph pins "gone.safetensors" from another machine. With a checkpoint
@@ -144,7 +140,6 @@ async def test_validation_checks_the_model_that_will_actually_run(monkeypatch, o
             await ExternalComfyAdapter(config).validate_connection()
 
 
-@pytest.mark.asyncio
 async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_test(monkeypatch):
     calls = {"object_info": 0}
     inner = _handler(httpx.Response(200, json=["anime.safetensors"]))
@@ -167,7 +162,6 @@ async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_tes
     assert calls["object_info"] == 2
 
 
-@pytest.mark.asyncio
 async def test_the_style_that_fails_validation_is_named(monkeypatch):
     """Test connection walks every style with a workflow, and now that the sources are
     the style's, two styles on one workflow can genuinely disagree about whether it
@@ -191,7 +185,6 @@ async def test_the_style_that_fails_validation_is_named(monkeypatch):
 # -- slot typing for the importer ---------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(monkeypatch):
     """The picker's typing crosses the wire as a verdict, not as /object_info: a real
     install reports ~2000 node types, tens of megabytes, and handing that to a
@@ -211,7 +204,6 @@ async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(m
     assert "Nope" not in roles
 
 
-@pytest.mark.asyncio
 async def test_only_inputs_literally_named_width_and_height_type_as_a_size(monkeypatch):
     """Exact names, unlike `seed`'s substring rule: a bare INT called `grounding_px`
     or `tile_size` is not an output size, and offering it lets the user map a slot
@@ -272,8 +264,7 @@ def test_a_rehydrate_fills_the_slots_the_stored_render_filled_not_the_style_of_t
     config = _config(user_graphs=[EDIT_USER_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_edit"}])
     # The migration turned the graph's own pin into the style's answer; switch it off,
     # as someone editing the style since the render would have.
-    off = normalize_config({**config, "styles": [{**config["styles"][0], "reference_source": ""}]})
-    adapter = _bound(off, "s")
+    adapter = _bound(normalize_config({**config, "styles": [{**config["styles"][0], "reference_source": ""}]}), "s")
     assert adapter.resolve_target(None).reference_slots == ()
 
     replay = {"references": [{"slot": ["0", "image"], "source": "character", "origin": "character:card-1"}]}
@@ -290,14 +281,12 @@ def test_a_default_resolution_on_an_unmapped_graph_says_nothing():
     """A note that fires on every render of every unmapped graph is one users learn
     to ignore. Untouched settings are not a disclosure."""
     config = _config(user_graphs=[USER_GRAPH], styles=[{"id": "own", "label": "Own", "workflow": "user_1"}])
-    target = _bound(config, "own").resolve_target(None)
-    assert target.notes == ()
+    assert _bound(config, "own").resolve_target(None).notes == ()
 
 
 # -- generation ---------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_generate_uploads_each_reference_once_and_patches_the_widget(monkeypatch):
     uploads: list[str] = []
     submitted: dict = {}
@@ -349,7 +338,6 @@ async def test_generate_uploads_each_reference_once_and_patches_the_widget(monke
     assert result.backend_info["references"][0]["comfy_name"] == "orb/orb_deadbeefdeadbeef.png"
 
 
-@pytest.mark.asyncio
 async def test_a_sized_graph_submits_the_styles_resolution_and_records_it(monkeypatch):
     """End to end through `patch_graph`: the size the style asked for reaches the
     node Orb mapped, and the attachment records that node's value rather than the
@@ -427,7 +415,6 @@ def _render_handler(submitted: dict, *, node_info: dict | None = None):
     return handler
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("node_info", "expected"),
     [
@@ -442,8 +429,7 @@ async def test_a_seed_too_large_for_the_graphs_seed_node_is_folded_before_submis
     submitted: dict = {}
     _install_client(monkeypatch, _render_handler(submitted, node_info=node_info))
     invalidate_object_info()
-    config = _config(user_graphs=[SEED_NODE_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_seeded"}])
-    adapter = _bound(config, "s")
+    adapter = _bound(_config(user_graphs=[SEED_NODE_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_seeded"}]), "s")
     request = ImageRequest(prompt="p", negative_prompt="", seed=18257206749444865874, style_id="s", timeout_seconds=5)
 
     result = await adapter.generate(request, target=adapter.resolve_target(None))

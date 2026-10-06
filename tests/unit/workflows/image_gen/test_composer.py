@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.image_gen import composer, prompts
@@ -129,13 +127,11 @@ async def test_selection_filters_caps_deduplicates_and_restores_library_order(mo
     ],
 )
 async def test_malformed_selection_degrades_to_broad_behavior(monkeypatch, payload):
-    selection = await _select(monkeypatch, payload, skills=[_skill("hug")])
-    assert selection == SkillSelection()
+    assert (await _select(monkeypatch, payload, skills=[_skill("hug")])) == SkillSelection()
 
 
 async def test_selector_exception_and_empty_usable_library_skip_safely(monkeypatch):
-    failed = await _select(monkeypatch, RuntimeError("offline"), skills=[_skill("hug")])
-    assert failed == SkillSelection()
+    assert (await _select(monkeypatch, RuntimeError("offline"), skills=[_skill("hug")])) == SkillSelection()
 
     calls: list[dict] = []
     skipped = await _select(

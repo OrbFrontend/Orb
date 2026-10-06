@@ -1,4 +1,4 @@
-import { compileCardScriptPattern } from "./card_scripts.js";
+import { cardScriptTurnedOff, compileCardScriptPattern } from "./card_scripts.js";
 import { CHEVRON_DOWN_ICON, CHEVRON_RIGHT_ICON, CHEVRON_UP_ICON, CLOSE_ICON } from "./icons.js";
 import { esc, escAttr } from "./utils.js";
 
@@ -42,6 +42,8 @@ function warningFor(script, index) {
   } else if (find) {
     try {
       if (!compileCardScriptPattern(find)) warnings.push("Unsupported flags; use g, i, m, s or u.");
+      else if (cardScriptTurnedOff(find))
+        warnings.push("Turned off on this device because it took too long to render; edit the pattern to try again.");
     } catch {
       warnings.push("Invalid display regex; check the search pattern.");
     }

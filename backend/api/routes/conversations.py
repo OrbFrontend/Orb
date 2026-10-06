@@ -419,8 +419,7 @@ async def api_update_conversation(
     # the API is the only guard against locking to a nonexistent persona.
     if update_data.get("persona_lock_id") is not None and not await get_user_persona(update_data["persona_lock_id"]):
         raise HTTPException(status_code=400, detail="Persona not found")
-    result = await update_conversation(cid, update_data)
-    return result
+    return await update_conversation(cid, update_data)
 
 
 @router.post("/api/conversations/{cid}/summarize")

@@ -1,7 +1,5 @@
 """The render seam applies explicit settings without interpreting remote prose."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.image_gen.engine.contracts import ImageRequest, ImageResult, RenderTarget
@@ -39,7 +37,6 @@ class _Adapter:
         return ImageResult(image_bytes=b"PNG", mime="image/png", backend_info={"seed": request.seed})
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "message, kind",
     [
@@ -61,7 +58,6 @@ async def test_remote_messages_are_raised_after_one_attempt(message, kind):
     assert adapter.requests[0].seed == 2**63
 
 
-@pytest.mark.asyncio
 async def test_a_user_configured_seed_ceiling_is_applied_before_the_only_attempt():
     adapter = _Adapter()
     maximum = 2**31 - 1
@@ -73,7 +69,6 @@ async def test_a_user_configured_seed_ceiling_is_applied_before_the_only_attempt
     assert result.backend_info["seed"] == adapter.requests[0].seed
 
 
-@pytest.mark.asyncio
 async def test_a_seed_ceiling_does_not_make_a_seedless_provider_send_one():
     adapter = _Adapter()
     original = 2**63

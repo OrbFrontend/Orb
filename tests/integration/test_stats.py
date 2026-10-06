@@ -5,8 +5,6 @@ after the feature ships), then advanced by ``add_generated_chars`` after each su
 messages table.
 """
 
-from __future__ import annotations
-
 import uuid
 from datetime import UTC
 
@@ -37,8 +35,7 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
 
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, f"{name} chat", name, "")
-    stamp = (datetime.now(UTC) - timedelta(hours=48)) if old else datetime.now(UTC)
-    created_at = stamp.isoformat()
+    created_at = ((datetime.now(UTC) - timedelta(hours=48)) if old else datetime.now(UTC)).isoformat()
 
     async with aiosqlite.connect(_db_conn.DB_PATH) as conn:
         await conn.execute("BEGIN")
@@ -61,8 +58,7 @@ async def test_counter_seeds_from_assistant_rows_on_first_read(client, db):
     assert await dbmod.get_generated_chars() == 40
 
     # The seed is persisted on the settings row, not recomputed per read.
-    row = await db.one("SELECT generated_chars FROM settings WHERE id = 1")
-    assert row["generated_chars"] == 40
+    assert (await db.one("SELECT generated_chars FROM settings WHERE id = 1"))["generated_chars"] == 40
 
 
 async def test_counter_is_lifetime_and_survives_conversation_deletion(client, db):
@@ -95,8 +91,7 @@ async def test_first_increment_on_unseeded_counter_does_not_double_count(client,
 async def test_stats_endpoint_derives_tokens_from_counter(client, db):
     await _add_messages(client, "u" * 10, "a" * 40)
 
-    resp = await client.get_json("/api/stats")
-    body = resp
+    body = await client.get_json("/api/stats")
     assert body["estimated_tokens"] == 10  # 40 chars / CHARS_PER_TOKEN(4)
     # "Words written" still comes from user-typed chars only.
     assert body["total_words"] == 2  # 10 chars / 5
@@ -107,8 +102,7 @@ async def test_spotlight_falls_back_to_favorite_when_nothing_qualifies(client, d
     # "missed" theme is never a candidate and the favorite always shows.
     await _seed_character("Alice", 4)
 
-    resp = await client.get_json("/api/stats")
-    sp = resp["character_spotlight"]
+    sp = (await client.get_json("/api/stats"))["character_spotlight"]
     assert sp is not None
     assert sp["theme"] == "favorite"
     assert sp["name"] == "Alice"
@@ -125,8 +119,7 @@ async def test_stats_message_count_excludes_swiped_branches(client, db):
     await dbmod.add_message(cid, "assistant", "swiped reply", 1, parent_id=u1)  # off-path
     await dbmod.set_active_leaf(cid, a_active)
 
-    resp = await client.get_json("/api/stats")
-    body = resp
+    body = await client.get_json("/api/stats")
     assert body["total_messages"] == 2
     sp = body["character_spotlight"]
     assert sp["name"] == "Sara"
@@ -147,8 +140,7 @@ async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
 
     monkeypatch.setattr("backend.api.routes.stats.random.choice", lambda options: options[-1])
 
-    resp = await client.get_json("/api/stats")
-    sp = resp["character_spotlight"]
+    sp = (await client.get_json("/api/stats"))["character_spotlight"]
     assert sp["theme"] == "missed"
     assert sp["name"] == "Bob"
 
@@ -178,6 +170,6 @@ async def test_the_spotlight_counts_a_group_member_and_a_solo_character_alike(cl
         )
     await dbmod.set_active_leaf(group["id"], parent)
 
-    sp = (await client.get("/api/stats")).json()["character_spotlight"]
+    sp = (await client.get_json("/api/stats"))["character_spotlight"]
     assert sp["name"] == "Vela", sp
     assert sp["messages"] == 3, sp

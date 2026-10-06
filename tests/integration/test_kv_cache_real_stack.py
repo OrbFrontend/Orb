@@ -3,8 +3,6 @@
 FakeLLMClient captures messages/tools; profile serialization and provider template/cache behavior remain outside this test.
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.database import get_messages
@@ -93,8 +91,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
 
     # Inv-1/2 -- every pass starts with that identical system+history prefix.
     for c in calls:
-        head = _serialize_messages(c["messages"][: len(prefix)])
-        assert head == prefix_bytes, (
+        assert _serialize_messages(c["messages"][: len(prefix)]) == prefix_bytes, (
             f"CACHE BUST: pass {c['pass']!r} (tool_choice={c['tool_choice']}) does not start with the "
             "shared prefix — build_prefix or a pass rendered the system/history differently across passes."
         )
@@ -162,8 +159,7 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
     # Director's dynamic schema, rebuilt from get_interactive_fragments() each turn, must be byte-identical across turns (this
     # is the ONLY place a DB row-order instability in the fragment query would show up).
     tools1 = {_wire_tools(c["tools"]) for c in turn1 if c["tools"]}
-    tools2 = {_wire_tools(c["tools"]) for c in turn2 if c["tools"]}
-    assert tools1 == tools2 and len(tools1) == 1, (
+    assert tools1 == {_wire_tools(c["tools"]) for c in turn2 if c["tools"]} and len(tools1) == 1, (
         "CACHE BUST: the tools blob is not byte-stable across turns — the dynamic "
         "director schema (or fragment row order) drifted, busting the tools region every turn."
     )
@@ -192,12 +188,10 @@ async def test_attachment_in_shared_history_is_byte_stable_across_passes_and_tur
 
     # Within turn 2: every pass ships the byte-identical prefix -- which now
     # contains the image. If any pass re-encoded the attachment, this rings.
-    w2 = next(c for c in turn2 if c["pass"] == "writer")
-    prefix2 = w2["messages"][:-1]
+    prefix2 = next(c for c in turn2 if c["pass"] == "writer")["messages"][:-1]
     prefix2_bytes = _serialize_messages(prefix2)
     for c in turn2:
-        head = _serialize_messages(c["messages"][: len(prefix2)])
-        assert head == prefix2_bytes, (
+        assert _serialize_messages(c["messages"][: len(prefix2)]) == prefix2_bytes, (
             f"CACHE BUST: pass {c['pass']!r} encoded the in-history image differently from the other passes."
         )
 
@@ -209,6 +203,5 @@ async def test_attachment_in_shared_history_is_byte_stable_across_passes_and_tur
     )
 
     # Cross-turn append-only still holds with an attachment in the carried history.
-    w1 = next(c for c in turn1 if c["pass"] == "writer")
-    p1_bytes = _serialize_messages(w1["messages"][:-1])
+    p1_bytes = _serialize_messages(next(c for c in turn1 if c["pass"] == "writer")["messages"][:-1])
     assert prefix2_bytes.startswith(p1_bytes), "CACHE BUST: image-bearing history broke append-only cross-turn growth."

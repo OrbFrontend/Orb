@@ -5,8 +5,6 @@ which reads as a bad model rather than a bad lookup. So the walk-back rules -- a
 -- are pinned here rather than left to the end-to-end path.
 """
 
-from __future__ import annotations
-
 import base64
 import hashlib
 import io
@@ -105,7 +103,6 @@ def _no_db(monkeypatch):
     monkeypatch.setattr(refs, "get_workflow_character_state", unavailable)
 
 
-@pytest.mark.asyncio
 async def test_no_mapped_slots_resolves_to_nothing():
     """A plain text-to-image graph must not pay for any of this."""
     assert await _resolve([], []) == ()
@@ -113,7 +110,6 @@ async def test_no_mapped_slots_resolves_to_nothing():
 
 # Every rule the walk back applies, as one table. `anchor` is the message being
 # visualized, and `origin` is the row those rules must land on.
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("history", "anchor", "origin"),
     [
@@ -148,7 +144,6 @@ async def test_the_walk_back_lands_on_the_image_the_user_is_looking_at(history, 
     assert (resolved[0].origin, resolved[0].slot) == (origin, ("72", "image"))
 
 
-@pytest.mark.asyncio
 async def test_the_walk_back_stops_before_the_whole_branch():
     """Unbounded, the first image in a conversation permanently retires the
     character reference: `previous_or_character` would find something forever, and a
@@ -163,7 +158,6 @@ async def test_the_walk_back_stops_before_the_whole_branch():
     assert refs._previous_image(ancient + since[:-1], 99) is not None
 
 
-@pytest.mark.asyncio
 async def test_only_a_required_slot_fails_when_nothing_resolves():
     """A cloud provider's synthetic slot is optional: the same model has a plain
     generations endpoint one field away, so refusing would make turning reference
@@ -181,7 +175,6 @@ async def test_only_a_required_slot_fails_when_nothing_resolves():
     assert "previous image" in str(raised.value) and "character reference" in str(raised.value)
 
 
-@pytest.mark.asyncio
 async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
     """The per-source cache, which is what makes a two-`Load Image` graph work in a solo chat: both rows on the character
     reference receive the same bytes. This is why `cast` is a source of its own rather than a redefinition of `character` --
@@ -352,7 +345,6 @@ def test_a_style_with_no_source_plans_nothing_on_either_shape():
     assert refs.plan_slots(_comfy_target("", ("41",)), cast, previous=None) == ()
 
 
-@pytest.mark.asyncio
 async def test_a_graph_resolves_and_uploads_its_one_picture_once(_avatars):
     """Three inputs, one fetch, one digest -- the engine dedupes the upload on it."""
     resolved = await _resolve(
@@ -365,7 +357,6 @@ async def test_a_graph_resolves_and_uploads_its_one_picture_once(_avatars):
     assert len({r.digest for r in resolved}) == 1
 
 
-@pytest.mark.asyncio
 async def test_each_array_slot_resolves_its_own_subject(_avatars):
     cast = (_subject("card-a"), _subject("card-b"))
     slots = refs.plan_slots(_cloud_target("character"), cast, previous=None)
@@ -376,7 +367,6 @@ async def test_each_array_slot_resolves_its_own_subject(_avatars):
     assert len({r.digest for r in resolved}) == 2
 
 
-@pytest.mark.asyncio
 async def test_two_group_speakers_resolve_to_two_comfy_references(_avatars):
     """The regression: two round speakers plus two Load Image nodes must upload two
     different likenesses, not patch both nodes with the reply speaker's digest."""
@@ -390,7 +380,6 @@ async def test_two_group_speakers_resolve_to_two_comfy_references(_avatars):
     assert len({r.digest for r in resolved}) == 2
 
 
-@pytest.mark.asyncio
 async def test_a_render_with_no_subject_has_no_likeness_to_send(_avatars):
     """A narrator line in a group resolves no primary. `character` is then a missing
     source and a required slot says so, rather than drawing whoever spoke last."""
@@ -414,7 +403,6 @@ def _stored_webp(monkeypatch):
     monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
 
 
-@pytest.mark.asyncio
 async def test_a_reroll_refetches_strictly_by_recorded_origin(monkeypatch):
     async def by_id(att_id):
         assert att_id == 10
@@ -427,7 +415,6 @@ async def test_a_reroll_refetches_strictly_by_recorded_origin(monkeypatch):
     assert (resolved[0].data, resolved[0].origin) == (PNG, "attachment:10")
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("row", [None, {"id": 10, "mime_type": "image/png", "data_b64": "[evicted]"}])
 async def test_a_gone_or_evicted_origin_fails_rather_than_substituting(monkeypatch, row):
     """A reroll promises the same picture with a different seed. Re-resolving would
@@ -442,13 +429,11 @@ async def test_a_gone_or_evicted_origin_fails_rather_than_substituting(monkeypat
         await refs.refetch_references(RECORDED)
 
 
-@pytest.mark.asyncio
 async def test_nothing_recorded_replays_as_no_references():
     assert await refs.refetch_references(None) == ()
     assert await refs.refetch_references([]) == ()
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 @pytest.mark.parametrize(
     ("recorded_slot", "slots", "expected_slot"),
@@ -473,7 +458,6 @@ async def test_a_replay_rekeys_onto_the_slot_that_will_actually_carry_it(recorde
     assert resolved[0].mime in tuple(slots[0]["mimes"])
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_a_recorded_reference_with_no_slot_left_is_dropped_not_submitted():
     """The caller counts what came back and discloses the drop. Submitting it against
@@ -486,7 +470,6 @@ async def test_a_recorded_reference_with_no_slot_left_is_dropped_not_submitted()
     assert len(await refs.refetch_references(recorded, slots=CLOUD_SLOTS)) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_a_required_slot_with_nothing_recorded_for_it_refuses_the_replay():
     required = [{**CLOUD_SLOTS[0], "required": True, "label": "Load Image (#r)"}]
@@ -495,7 +478,6 @@ async def test_a_required_slot_with_nothing_recorded_for_it_refuses_the_replay()
         await refs.refetch_references([], slots=required)
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_an_origin_whose_bytes_were_replaced_refuses_rather_than_substituting():
     """Rehydrate rewrites an evicted row *in place*, and on a seedless provider those
@@ -515,7 +497,6 @@ async def test_an_origin_whose_bytes_were_replaced_refuses_rather_than_substitut
         await refs.refetch_references(recorded, slots=CLOUD_SLOTS)
 
 
-@pytest.mark.asyncio
 async def test_a_character_origin_rereads_the_current_profile_and_is_exempt_from_that_check(monkeypatch):
     """It addresses a *setting*, not a chat row, so "change the character reference,
     then reroll" is documented to apply -- a changed digest there is the point."""
@@ -537,7 +518,6 @@ async def test_a_character_origin_rereads_the_current_profile_and_is_exempt_from
     assert len(await refs.refetch_references(recorded, slots=CLOUD_SLOTS)) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_a_replay_records_the_bytes_it_actually_sent():
     """`digest` names the bytes on the wire (ComfyUI dedupes uploads by it);

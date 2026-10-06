@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
@@ -295,8 +293,7 @@ def test_one_source_switches_every_declared_slot_on_or_none_of_them():
 
 def test_render_params_are_read_back_off_the_graph_that_executes():
     graph, slots = _core()
-    params = describe_render_params(graph, slots)
-    assert params == {
+    assert describe_render_params(graph, slots) == {
         "width": 1024,
         "height": 1024,
         # False because `_core()` maps no size slots, so the pair above came from the scan. The value is still recorded -- it is

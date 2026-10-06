@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from copy import deepcopy
 
 import pytest
@@ -21,8 +19,7 @@ def _empty_registry():
 
 
 async def test_empty_registry_returns_empty_list(client):
-    resp = await client.get_json("/api/workflows")
-    assert resp == []
+    assert (await client.get_json("/api/workflows")) == []
 
 
 async def test_registered_workflow_appears_with_all_fields(client):
@@ -44,8 +41,7 @@ async def test_registered_workflow_appears_with_all_fields(client):
     with register_for_test(wf):
         resp = await client.get("/api/workflows")
     assert resp.status_code == 200
-    body = resp.json()
-    assert body == [
+    assert resp.json() == [
         {
             "id": "scene_cg",
             "display_name": "Scene CG",
@@ -61,5 +57,4 @@ async def test_manifest_follows_registration_order(client):
     third = make_workflow("aaa", display_name="Third registered")
     with register_for_test(first), register_for_test(second), register_for_test(third):
         resp = await client.get("/api/workflows")
-    ids = [w["id"] for w in resp.json()]
-    assert ids == ["first", "zzz", "aaa"]
+    assert [w["id"] for w in resp.json()] == ["first", "zzz", "aaa"]

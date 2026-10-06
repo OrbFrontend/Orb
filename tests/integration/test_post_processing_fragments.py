@@ -1,7 +1,5 @@
 """Conversation-turn coverage for post-processing interactive fragments."""
 
-from __future__ import annotations
-
 import asyncio
 import importlib
 import json
@@ -81,8 +79,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
         ]
     )
 
-    workflow = make_workflow("post_observer", post_pipeline=post_hook)
-    with register_for_test(workflow):
+    with register_for_test(make_workflow("post_observer", post_pipeline=post_hook)):
         events = await _drain(handle_turn(cid, "hello"))
 
     assert [name for name, _ in llm_mock.calls if name in ("post_processing", "feedback")] == [
@@ -101,8 +98,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     assert "## First Edit" in post_calls[0]["messages"][-1]["content"]
     assert "## Second Edit" in post_calls[1]["messages"][-1]["content"]
 
-    feedback_call = next(call for call in llm_mock.captured if call["pass"] == "feedback")
-    assert feedback_call["messages"][-2]["content"] == "Hey, friend."
+    assert next(call for call in llm_mock.captured if call["pass"] == "feedback")["messages"][-2]["content"] == "Hey, friend."
     assert seen_by_workflow == ["Hey, friend."]
 
     [writer_done] = [event for event in events if event.get("event") == "writer_done"]
@@ -209,8 +205,7 @@ async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, ll
     llm_mock.enqueue_post_processing(_call("Changed", "Changed again", call_id="unused2"))
     gate = llm_mock.gate("post_processing")
 
-    workflow = make_workflow("abort_observer", post_pipeline=post_hook)
-    with register_for_test(workflow):
+    with register_for_test(make_workflow("abort_observer", post_pipeline=post_hook)):
         task = asyncio.create_task(_drain(handle_turn(cid, "hello")))
         await gate.reached.wait()
         llm_mock.abort()
@@ -259,7 +254,7 @@ class _Judge:
 
 
 async def _configure_judge(client) -> None:
-    endpoint = (await client.post("/api/endpoints", json={"url": "https://judge.test/api/v1", "kind": "judge"})).json()
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://judge.test/api/v1", "kind": "judge"})
     response = await client.put(
         "/api/decisions/config", json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"}
     )
@@ -267,8 +262,7 @@ async def _configure_judge(client) -> None:
 
 
 async def _director_log(client, cid: str, message_id: int) -> dict:
-    response = await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
-    return response
+    return await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
 
 
 def _gate_records(calls: list[dict]) -> list[dict]:
@@ -304,8 +298,7 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
         ]
     )
 
-    workflow = make_workflow("gate_observer", post_pipeline=post_hook)
-    with register_for_test(workflow):
+    with register_for_test(make_workflow("gate_observer", post_pipeline=post_hook)):
         events = await _drain(handle_turn(cid, "Where is Mara?"))
 
     assert judge.states == ["Current request:\nWhere is Mara?\n\nReply:\nMara sat down."] * 2
@@ -401,12 +394,10 @@ def _sse_events(body: str) -> list[tuple[str, object]]:
 
 async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monkeypatch):
     cards = [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "title": "Camp", "members": [{"character_card_id": card} for card in cards]},
-        )
-    ).json()
+    conv = await client.post_json(
+        "/api/conversations",
+        json={"kind": "group", "title": "Camp", "members": [{"character_card_id": card} for card in cards]},
+    )
     await client.put("/api/settings", json={"enable_agent": True})
     await _configure_judge(client)
     await _create_fragment(client, "trim", "Trim.", 8, gate="Do more than two actions happen?")

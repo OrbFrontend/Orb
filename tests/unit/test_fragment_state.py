@@ -1,7 +1,5 @@
 """Unit tests for the state-fragment core: fold, operation contract, parsing, rendering."""
 
-from __future__ import annotations
-
 import itertools
 
 from backend.core import (
@@ -282,8 +280,7 @@ def test_request_shares_value_instruction_across_fields():
 
 
 def test_parse_maps_aliases_back_and_orders_retires_first():
-    view = fold_events([_add("threads", "t1", "find the key")])
-    aliases = entry_aliases([ENTRIES], view)
+    aliases = entry_aliases([ENTRIES], fold_events([_add("threads", "t1", "find the key")]))
     calls = [{"name": "update_state", "arguments": {"threads": ["new one"], "retire": "[E1]", "place": "docks", "other": "x"}}]
     ops, rejections = parse_state_call(calls, [VALUE, ENTRIES], aliases, known_ids=frozenset({"other"}))
     assert [(o.op, o.fragment_id, o.entry_id or o.text) for o in ops] == [
@@ -307,8 +304,7 @@ def test_parse_takes_a_lone_string_as_one_entry_but_never_splits_or_joins():
 
 
 def test_parse_reads_blank_values_of_any_shape_as_keep():
-    view = fold_events([_add("threads", "t1", "find the key")])
-    aliases = entry_aliases([ENTRIES], view)
+    aliases = entry_aliases([ENTRIES], fold_events([_add("threads", "t1", "find the key")]))
     for arguments in (
         {"threads": "", "place": [], "retire": ""},
         {"threads": "  ", "place": "", "retire": [""]},

@@ -1,7 +1,5 @@
 """Tests for how Spark-TTS synthesis drives the model, with a fake llama-server."""
 
-from __future__ import annotations
-
 import contextlib
 
 import pytest

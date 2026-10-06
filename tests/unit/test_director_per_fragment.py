@@ -4,8 +4,6 @@ Covers ``build_director_scene_step_prompt`` (pure) and the branch in ``director_
 call per interactive fragment when ``director_individual_fragments`` is on.
 """
 
-from __future__ import annotations
-
 import json
 
 from backend.inference import CachedBase
@@ -188,8 +186,7 @@ class TestPerFragmentLoop:
         base = _FakeBase(_FRAGMENTS, responses)
         await _run(base, _FRAGMENTS, self._toggle_on())
         # The keywords call (second) must show the user_intent decided in the first.
-        keywords_call = base.calls[1][1]
-        assert "wants X" in keywords_call
+        assert "wants X" in base.calls[1][1]
 
     async def test_moods_call_last_sees_decided_scene(self):
         # Moods run last and are shown the interactive fields decided this turn.
@@ -209,23 +206,19 @@ class TestPerFragmentLoop:
         # Moods stage is last; an empty moods call clears the prior active moods.
         responses = [_ds_message({"user_intent": "x"}), _ds_message({})]
         base = _FakeBase(_FRAGMENTS[:1], responses)
-        result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
-        assert result.active_moods == []
+        assert (await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})).active_moods == []
 
     async def test_null_moods_clear_like_an_omission(self):
         # A model that declines the moods step by emitting `"moods": null` must land on [], not None -- director_stage
         # set()-unions active_moods, so a None there aborts the whole turn.
         responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": None})]
         base = _FakeBase(_FRAGMENTS[:1], responses)
-        result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
-        assert result.active_moods == []
+        assert (await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})).active_moods == []
 
     async def test_non_string_moods_are_dropped(self):
         # Nothing but a fragment id can be a mood, and an unhashable item would blow up the same set() union.
         responses = [_ds_message({"user_intent": "x"}), _ds_message({"moods": ["tense", {"id": "tense"}, 7]})]
-        base = _FakeBase(_FRAGMENTS[:1], responses)
-        result = await _run(base, _FRAGMENTS[:1], self._toggle_on())
-        assert result.active_moods == ["tense"]
+        assert (await _run(_FakeBase(_FRAGMENTS[:1], responses), _FRAGMENTS[:1], self._toggle_on())).active_moods == ["tense"]
 
     async def test_failed_fragment_call_is_skipped_not_fatal(self):
         # Second fragment's call raises; the pass must skip it and still finish,
@@ -252,8 +245,7 @@ class TestPerFragmentLoop:
         assert result.extra_fields == {"user_intent": "wants X", "next_event": "she leaves"}  # failed keywords absent
 
     async def test_toggle_off_uses_single_call(self):
-        responses = [_ds_message({"moods": ["tense"], "user_intent": "x", "keywords": ["k"]})]
-        base = _FakeBase(_FRAGMENTS, responses)
+        base = _FakeBase(_FRAGMENTS, [_ds_message({"moods": ["tense"], "user_intent": "x", "keywords": ["k"]})])
         result = await _run(base, _FRAGMENTS, {"director_individual_fragments": 0})
         assert len(base.calls) == 1
         assert result.extra_fields == {"user_intent": "x", "keywords": ["k"]}
@@ -293,9 +285,7 @@ class TestDirectSceneRequiredStripped:
         return blob
 
     def test_required_dropped_when_per_fragment_on(self):
-        blob = self._blob(1)
-        assert blob["direct_scene"]["function"]["parameters"]["required"] == []
+        assert self._blob(1)["direct_scene"]["function"]["parameters"]["required"] == []
 
     def test_required_dropped_when_per_fragment_off(self):
-        blob = self._blob(0)
-        assert blob["direct_scene"]["function"]["parameters"]["required"] == []
+        assert self._blob(0)["direct_scene"]["function"]["parameters"]["required"] == []

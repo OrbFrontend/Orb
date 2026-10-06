@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime
 import json
@@ -880,16 +881,12 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
                 raise PresetError(f"Import would corrupt foreign keys ({len(problems)} violations); aborted.")
             conn.execute("COMMIT")
         except Exception:
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute("ROLLBACK")
-            except sqlite3.OperationalError:
-                pass
             raise
         finally:
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):
                 conn.execute("DETACH DATABASE preset")
-            except sqlite3.OperationalError:
-                pass
             conn.close()
         # A replacing merge (restore_partial) rewrites whole domains in one
         # transaction -- the same database-sized WAL write as a full restore.
@@ -899,10 +896,8 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
         for sfx in ("", "-wal", "-shm"):
             p = work + sfx
             if os.path.exists(p):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(p)
-                except OSError:
-                    pass
 
 
 def restore_partial(preset_path: str) -> dict:
@@ -1033,10 +1028,8 @@ def restore_full(name: str) -> None:
         for sfx in ("", "-wal", "-shm"):
             p = tmp + sfx
             if os.path.exists(p):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(p)
-                except OSError:
-                    pass
 
 
 def list_library() -> list[dict]:
@@ -1070,10 +1063,8 @@ def delete_library_entry(name: str) -> None:
 def prune_auto(keep: int = 10) -> None:
     autos = sorted((e for e in list_library() if e["kind"] == "auto"), key=lambda x: x["mtime"], reverse=True)
     for entry in autos[keep:]:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(os.path.join(_snapshots_dir(), entry["name"]))
-        except OSError:
-            pass
 
 
 def check_and_upgrade(path: str) -> None:

@@ -8,10 +8,9 @@ delete of what it targets, and the shape the preset engine derives its mechanics
 edges alike.
 """
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -156,16 +155,13 @@ async def test_existing_database_migrates_before_latest_schema_indexes_run(tmp_p
     async with api_module.lifespan(FastAPI()):
         pass
 
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(lorebook_entries)")}
         indexes = {row[1] for row in conn.execute("PRAGMA index_list(lorebook_entries)")}
         assert "entry_layer" in columns
         assert "idx_lorebook_overlay" in indexes
         assert conn.execute("SELECT COUNT(*) FROM lorebook_entries").fetchone() == (2,)
         assert conn.execute("SELECT COUNT(*) FROM schema_migrations WHERE id = '0053_dynamic_worlds'").fetchone() == (1,)
-    finally:
-        conn.close()
 
 
 def test_upgraded_fk_shape_matches_a_fresh_install(tmp_path):

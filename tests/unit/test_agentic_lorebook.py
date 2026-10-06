@@ -5,8 +5,6 @@ Covers the direct_scene ``selected_lorebook_entries`` parameter, the Director ca
 gating, and keyword-scan parity.
 """
 
-from __future__ import annotations
-
 import logging
 
 from backend.features.lorebook import (
@@ -70,23 +68,18 @@ class TestSelectLorebookTool:
 
 class TestComputeAgenticLorebookBlock:
     def test_name_match(self):
-        entries = [_entry("Dragon"), _entry("Castle")]
-        block = compute_agentic_lorebook_block(entries, ["Dragon"])
+        block = compute_agentic_lorebook_block([_entry("Dragon"), _entry("Castle")], ["Dragon"])
         assert "Dragon: Dragon content" in block
         assert "Castle" not in block
 
     def test_name_match_case_insensitive_and_trimmed(self):
-        entries = [_entry("Dragon")]
-        block = compute_agentic_lorebook_block(entries, ["  dRaGoN "])
-        assert "Dragon: Dragon content" in block
+        assert "Dragon: Dragon content" in compute_agentic_lorebook_block([_entry("Dragon")], ["  dRaGoN "])
 
     def test_unknown_names_ignored(self):
-        entries = [_entry("Dragon")]
-        assert compute_agentic_lorebook_block(entries, ["Nonexistent"]) == ""
+        assert compute_agentic_lorebook_block([_entry("Dragon")], ["Nonexistent"]) == ""
 
     def test_duplicate_names_activate_all(self):
-        entries = [_entry("Dup", content="A"), _entry("Dup", content="B")]
-        block = compute_agentic_lorebook_block(entries, ["Dup"])
+        block = compute_agentic_lorebook_block([_entry("Dup", content="A"), _entry("Dup", content="B")], ["Dup"])
         assert "Dup: A" in block and "Dup: B" in block
 
     def test_director_pick_naming_constant_stays_excluded(self):
@@ -98,8 +91,7 @@ class TestComputeAgenticLorebookBlock:
         assert compute_agentic_lorebook_block([_entry("A")], []) == ""
 
     def test_priority_sort_desc(self):
-        entries = [_entry("Low", priority=10), _entry("High", priority=200)]
-        block = compute_agentic_lorebook_block(entries, ["Low", "High"])
+        block = compute_agentic_lorebook_block([_entry("Low", priority=10), _entry("High", priority=200)], ["Low", "High"])
         assert block.index("High") < block.index("Low")
 
     def test_render_order_stable_under_input_permutation(self):
@@ -109,16 +101,14 @@ class TestComputeAgenticLorebookBlock:
         b = {**_entry("Ellis"), "id": 2, "sort_order": 0}
         c = {**_entry("Bob"), "id": 3, "sort_order": 0}
         first = render_lorebook_block([a, b, c])
-        second = render_lorebook_block([b, c, a])  # permuted input
-        assert first == second
+        assert first == render_lorebook_block([b, c, a])
         assert first.index("Robin") < first.index("Ellis") < first.index("Bob")
 
     def test_substring_scan_activates_in_parallel(self):
         # Director overlooks "Natlan", but the keyword scan catches it.
         entries = [_entry("Natlan", keywords=["Natlan"])]
         msgs = [{"role": "user", "content": "Tell me about Natlan."}]
-        block = compute_agentic_lorebook_block(entries, [], messages=msgs)
-        assert "Natlan: Natlan content" in block
+        assert "Natlan: Natlan content" in compute_agentic_lorebook_block(entries, [], messages=msgs)
 
     def test_substring_scan_unions_with_director(self):
         entries = [_entry("Dragon"), _entry("Natlan", keywords=["natlan"])]
@@ -130,8 +120,7 @@ class TestComputeAgenticLorebookBlock:
     def test_substring_and_director_not_duplicated(self):
         entries = [_entry("Natlan", keywords=["Natlan"])]
         msgs = [{"role": "user", "content": "Natlan again."}]
-        block = compute_agentic_lorebook_block(entries, ["Natlan"], messages=msgs)
-        assert block.count("Natlan: Natlan content") == 1
+        assert compute_agentic_lorebook_block(entries, ["Natlan"], messages=msgs).count("Natlan: Natlan content") == 1
 
     def test_substring_scan_limited_to_current_turn(self):
         # The keyword appears only in older history, not in the current turn
@@ -150,8 +139,7 @@ class TestComputeAgenticLorebookBlock:
 
 class TestBuildLorebookCatalog:
     def test_excludes_constants(self):
-        entries = [_entry("Const", constant=True, keywords=["k"]), _entry("Var", keywords=["v"])]
-        cat = build_lorebook_catalog(entries)
+        cat = build_lorebook_catalog([_entry("Const", constant=True, keywords=["k"]), _entry("Var", keywords=["v"])])
         assert "Const" not in cat
         assert "- [Var] — v" in cat
 
@@ -159,8 +147,7 @@ class TestBuildLorebookCatalog:
         assert build_lorebook_catalog([_entry("C", constant=True)]) == ""
 
     def test_keywords_joined(self):
-        cat = build_lorebook_catalog([_entry("A", keywords=["k1", "k2", "k3"])])
-        assert "- [A] — k1, k2, k3" in cat
+        assert "- [A] — k1, k2, k3" in build_lorebook_catalog([_entry("A", keywords=["k1", "k2", "k3"])])
 
     def test_entry_without_keywords_has_no_dash(self):
         cat = build_lorebook_catalog([_entry("Solo", keywords=[])])
@@ -187,20 +174,17 @@ class TestBuildLorebookCatalog:
 class TestKeywordScanParity:
     def test_constant_excluded_keyword_still_matches(self):
         msgs = [{"role": "user", "content": "I draw my sword"}]
-        entries = [_entry("Const", constant=True), _entry("Var", keywords=["sword"])]
-        block = compute_lorebook_injection_block(msgs, entries)
+        block = compute_lorebook_injection_block(msgs, [_entry("Const", constant=True), _entry("Var", keywords=["sword"])])
         assert "Const" not in block
         assert "Var: Var content" in block
 
     def test_case_insensitive_match(self):
         msgs = [{"role": "user", "content": "A SWORD"}]
-        entries = [_entry("Var", keywords=["sword"], case_insensitive=True)]
-        assert "Var" in compute_lorebook_injection_block(msgs, entries)
+        assert "Var" in compute_lorebook_injection_block(msgs, [_entry("Var", keywords=["sword"], case_insensitive=True)])
 
     def test_case_sensitive_no_match(self):
         msgs = [{"role": "user", "content": "i draw my sword"}]
-        entries = [_entry("Var", keywords=["Sword"], case_insensitive=False)]
-        assert compute_lorebook_injection_block(msgs, entries) == ""
+        assert compute_lorebook_injection_block(msgs, [_entry("Var", keywords=["Sword"], case_insensitive=False)]) == ""
 
     def test_no_match_returns_empty(self):
         msgs = [{"role": "user", "content": "nothing relevant here"}]
@@ -222,8 +206,7 @@ class TestRenderMacros:
             def resolve_message(self, text):
                 return text.upper()
 
-        block = render_lorebook_block([_entry("name", content="body")], _Upper())
-        assert "NAME: BODY" in block
+        assert "NAME: BODY" in render_lorebook_block([_entry("name", content="body")], _Upper())
 
 
 # -- compute_constant_lorebook_block: the system-prefix section ---------------
@@ -231,8 +214,7 @@ class TestRenderMacros:
 
 class TestComputeConstantLorebookBlock:
     def test_only_constants_included(self):
-        entries = [_entry("Const", constant=True), _entry("Var", keywords=["v"])]
-        block = compute_constant_lorebook_block(entries)
+        block = compute_constant_lorebook_block([_entry("Const", constant=True), _entry("Var", keywords=["v"])])
         assert "Const: Const content" in block
         assert "Var" not in block
 
@@ -252,8 +234,7 @@ class TestComputeConstantLorebookBlock:
             def resolve_message(self, text):
                 return text.upper()
 
-        block = compute_constant_lorebook_block([_entry("name", content="body", constant=True)], _Upper())
-        assert "NAME: BODY" in block
+        assert "NAME: BODY" in compute_constant_lorebook_block([_entry("name", content="body", constant=True)], _Upper())
 
 
 # -- constants-only pool: trailing block stays empty --------------------------
@@ -268,12 +249,10 @@ class TestConstantsOnlyTrailing:
         assert compute_agentic_lorebook_block(self._entries, ["Const"], None, msgs) == ""
 
     def test_writer_block_empty_and_no_separator(self):
-        lt = LorebookTurn(entries=self._entries, messages=[], agentic=True)
-        block = lt.writer_block(["Const"])
+        block = LorebookTurn(entries=self._entries, messages=[], agentic=True).writer_block(["Const"])
         assert block == ""
         # An empty block must not leave a stray ___ separator in the writer content.
-        content = build_writer_content(block, "", False, "hi", None, None)
-        assert content == "___\n\nhi\n\n"
+        assert build_writer_content(block, "", False, "hi", None, None) == "___\n\nhi\n\n"
 
 
 # -- select_active_entries: the unified three-source core ---------------------
@@ -360,8 +339,7 @@ class TestDirectorPickDelimiters:
         assert caplog.text == ""
 
     def test_the_block_renders_from_a_bracketed_pick(self):
-        block = compute_agentic_lorebook_block(self._entries, ["[The Ashen Seal]"])
-        assert "The Ashen Seal: The Ashen Seal content" in block
+        assert "The Ashen Seal: The Ashen Seal content" in compute_agentic_lorebook_block(self._entries, ["[The Ashen Seal]"])
 
 
 # -- LorebookTurn --------------------------------------------------------------

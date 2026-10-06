@@ -60,16 +60,3 @@ def llm_ready() -> tuple[bool, str]:
     if not llama_server.runtime_ok():
         return False, "The llama-server runtime is not installed."
     return True, ""
-
-
-__all__ = [
-    "FEATURE_CODEC",
-    "FEATURE_LLM",
-    "FEATURE_REFERENCE",
-    "codec_ready",
-    "decoder_path",
-    "llm_ready",
-    "reference_ready",
-    "semantic_tokenizer_path",
-    "speaker_encoder_path",
-]

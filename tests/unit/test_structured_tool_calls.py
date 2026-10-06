@@ -1,7 +1,5 @@
 """Structured forced calls: profile gating, strict-schema massage, chat rewrite."""
 
-from __future__ import annotations
-
 import json
 from unittest.mock import patch
 
@@ -57,8 +55,7 @@ def test_strictify_recurses_into_array_items():
         },
         "required": ["patches"],
     }
-    out = strictify_schema(schema)
-    items = out["properties"]["patches"]["items"]
+    items = strictify_schema(schema)["properties"]["patches"]["items"]
     assert items["additionalProperties"] is False
     assert set(items["required"]) == {"search", "replace"}
 
@@ -152,8 +149,7 @@ async def _run(client: LLMClient, lines, *, messages=None, **kwargs):
 
 async def _run_raw(client: LLMClient, lines, *, messages=None, **kwargs):
     """Every request the call made, in order. *lines* may be a list per request."""
-    per_request = lines if lines and isinstance(lines[0], list) else [lines]
-    fake = _ReplayAsyncClient(list(per_request))
+    fake = _ReplayAsyncClient(list(lines if lines and isinstance(lines[0], list) else [lines]))
     events = []
     with patch.object(llm_mod.httpx, "AsyncClient", lambda *a, **k: fake):
         async for ev in client.complete(messages if messages is not None else [], "TEE/glm-5.2:thinking", **kwargs):
@@ -180,8 +176,7 @@ async def test_forced_call_rewritten_as_structured_output():
     assert not [e for e in events if e["type"] == "content"]
     assert [e for e in events if e["type"] == "reasoning"]
 
-    message = events[-1]["message"]
-    calls = parse_tool_calls(message)
+    calls = parse_tool_calls(events[-1]["message"])
     assert calls == [{"name": "direct_scene", "arguments": {"history-summary": "so far", "moods": ["eerie"]}}]
 
 
@@ -189,8 +184,7 @@ async def test_json_schema_override_narrows_structured_schema():
     client = LLMClient("https://nano-gpt.com/api/v1")
     narrow = {"type": "object", "properties": {"moods": {"type": "array", "items": {"type": "string"}}}, "required": ["moods"]}
     body, _ = await _run(client, _content_lines('{"moods": []}'), tools=[DIRECT_SCENE], tool_choice=FORCED, json_schema=narrow)
-    props = body["response_format"]["json_schema"]["schema"]["properties"]
-    assert list(props) == ["moods"]
+    assert list(body["response_format"]["json_schema"]["schema"]["properties"]) == ["moods"]
 
 
 async def test_unknown_endpoint_keeps_forced_tool_choice():
@@ -278,8 +272,7 @@ async def test_real_tool_calls_win_over_synthesis():
         "data: [DONE]",
     ]
     _, events = await _run(client, lines, tools=[DIRECT_SCENE], tool_choice=FORCED)
-    message = events[-1]["message"]
-    assert message["tool_calls"][0]["id"] == "c1"
+    assert events[-1]["message"]["tool_calls"][0]["id"] == "c1"
 
 
 async def test_unparseable_content_degrades_to_empty_args():
@@ -289,8 +282,7 @@ async def test_unparseable_content_degrades_to_empty_args():
     _, events = await _run(
         client, _content_lines("not json at all"), tools=[DIRECT_SCENE], tool_choice=FORCED, tools_in_prompt=False
     )
-    calls = parse_tool_calls(events[-1]["message"])
-    assert calls == [{"name": "direct_scene", "arguments": {}}]
+    assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {}}]
 
 
 # -- learned demotion: a route that accepts the schema and ignores it ----------

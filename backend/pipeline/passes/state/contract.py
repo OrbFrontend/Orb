@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....core import DECISION_FIELD_TYPE, STATE_FIELD_TYPE, StateFragment, state_fragments_of
+from ....core.settings import Settings
 from ...predicates import agent_enabled
 
 # Fragment types that are not the Director's per-turn scene values.
@@ -21,14 +22,14 @@ class StateContract:
     updates_on: bool = False
 
     @classmethod
-    def capture(cls, settings: Mapping[str, Any], state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
+    def capture(cls, settings: Settings, state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
         return cls(
             fragments=tuple(fragment for fragment in state_fragments_of(state_rows) if fragment.enabled),
             updates_on=agent_enabled(settings),
         )
 
     @classmethod
-    def defined(cls, settings: Mapping[str, Any], state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
+    def defined(cls, settings: Settings, state_rows: Sequence[Mapping[str, Any]]) -> StateContract:
         """Every defined state fragment, enabled or not: what the shared tool schemas offer.
 
         The tools blob precedes the conversation in the cached prefix, so it is built from this contract and an enable toggle

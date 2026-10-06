@@ -1,7 +1,5 @@
 """Check host payloads, narrowing and the internal/public persistence seam."""
 
-from __future__ import annotations
-
 import ast
 import json
 import re
@@ -28,6 +26,7 @@ from backend.pipeline.events import (
     ResultEvent, SpeakerDoneData, TurnStateEvent,
 )
 from backend.pipeline.failures import reported_once, staged
+from backend.core.settings import Settings
 from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.persistence import consume_pipeline, conversation_log_writer
 from backend.pipeline.state import TurnResultData, TurnState
@@ -35,12 +34,12 @@ from backend.pipeline.state import TurnResultData, TurnState
 async def boundaries(
     client: LLMClient, events: AsyncIterator[PipelineEvent],
     public: AsyncIterator[PublicTurnEvent], req: Request,
-    internal: AsyncIterator[ResultEvent | TurnStateEvent],
+    internal: AsyncIterator[ResultEvent | TurnStateEvent], settings: Settings,
 ) -> None:
-    assert_type(run_pipeline(client, {}, {"conversation_id": "c", "keywords": [], "macro_choices": {}, "active_moods": []}, [], [], "hi", prefix=[],
+    assert_type(run_pipeline(client, settings, {"conversation_id": "c", "keywords": [], "macro_choices": {}, "active_moods": []}, [], [], "hi", prefix=[],
                             enabled_tools={}, turn_scratch={}, kv_tracker=KVCacheTracker(),
                             schema_overrides={}), AsyncIterator[PipelineEvent])
-    assert_type(consume_pipeline(events, "c", {}, 1, 2), AsyncIterator[PublicTurnEvent])
+    assert_type(consume_pipeline(events, "c", settings, 1, 2), AsyncIterator[PublicTurnEvent])
     assert_type(reported_once(public, None), AsyncIterator[PublicTurnEvent])
     assert_type(staged("writer", events), AsyncIterator[PipelineEvent])
     assert_type(handle_turn("c", "hi"), AsyncIterator[PublicTurnEvent])
@@ -121,8 +120,7 @@ def test_turn_contracts_check_payloads_and_public_handoff(tmp_path):
     assert result.returncode in (0, 1), result.stdout + result.stderr
     errors = [d for d in json.loads(result.stdout)["generalDiagnostics"] if d["severity"] == "error"]
     expected = {i for i, line in enumerate(_SOURCE.splitlines()) if line.endswith("# rejected")}
-    actual = {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source}
-    assert actual == expected, json.dumps(errors, indent=2)
+    assert {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source} == expected, json.dumps(errors, indent=2)
     assert all(Path(d["file"]) == source for d in errors), json.dumps(errors, indent=2)
 
 
@@ -136,5 +134,4 @@ def test_ownership_covers_turn_emitters_and_browser_dispatcher():
                     if isinstance(key, ast.Constant) and key.value == "event" and isinstance(value, ast.Constant):
                         emitted.add(value.value)
     dispatched = set(re.findall(r'(?:case |event === )"(\w+)"', (ROOT / "frontend/chat_stream.js").read_text()))
-    public = {name for name in emitted | dispatched if not name.startswith("_")}
-    assert public - SHARED_HOOK_EVENTS == PROTECTED_TURN_EVENTS
+    assert {name for name in emitted | dispatched if not name.startswith("_")} - SHARED_HOOK_EVENTS == PROTECTED_TURN_EVENTS

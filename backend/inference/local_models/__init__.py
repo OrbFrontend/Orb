@@ -34,30 +34,3 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
     if not assets.present(feature):
         return False, f"model file not found: {assets.resolve_path(feature)}"
     return True, ""
-
-
-__all__ = [
-    "MODELS",
-    "ModelFileSpec",
-    "ModelSpec",
-    "ModelVariantSpec",
-    "RuntimeKind",
-    "assets",
-    "available",
-    "catalog",
-    "delete_model",
-    "dependencies",
-    "deps_ok",
-    "download",
-    "file_path",
-    "import_llama",
-    "install_cmd",
-    "missing_files",
-    "model_dir",
-    "present",
-    "prune_stale",
-    "resolve_path",
-    "variant_path",
-    "variant_present",
-    "variant_spec",
-]

@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
+from ..core.settings import Settings
 from ..features import lorebook
 from ..workflows.attachment_cache import project_rejected_attachment
 from .events import HookEvent, PipelineEvent, PublicTurnEvent, WorldChangeData
@@ -74,7 +75,7 @@ async def _stage_world_proposals(res: TurnState, user_msg_id: int | None, asst_i
 async def _persist_result(
     conversation_id: str,
     res: TurnState,
-    settings: Mapping[str, Any],
+    settings: Settings,
     user_msg_id: int | None,
     turn_index: int,
     speaker_member_id: str | None = None,
@@ -133,22 +134,21 @@ async def _persist_result(
             logger.exception("Failed to update generated-chars counter; row already committed")
         proposals = await _stage_world_proposals(res, world_source_user_msg_id, asst_id)
         return asst_id, rejected, proposals
-    else:
-        logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
-        if res.state_events:
-            logger.info("Dropping %d state change(s): turn produced no assistant message", len(res.state_events))
-        if res.world_proposals:
-            logger.info(
-                "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
-                len(res.world_proposals),
-            )
-        return None, [], []
+    logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
+    if res.state_events:
+        logger.info("Dropping %d state change(s): turn produced no assistant message", len(res.state_events))
+    if res.world_proposals:
+        logger.info(
+            "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
+            len(res.world_proposals),
+        )
+    return None, [], []
 
 
 async def _fallback_persist(
     conversation_id: str,
     res: TurnState,
-    settings: Mapping[str, Any],
+    settings: Settings,
     user_msg_id: int | None,
     turn_index: int,
     *,
@@ -238,7 +238,7 @@ async def _shielded_log_save(extra_on_result: ResultCallback, res: TurnState, as
 async def consume_pipeline(
     pipeline: AsyncIterator[PipelineEvent],
     conversation_id: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     user_msg_id: int | None,
     turn_index: int,
     *,

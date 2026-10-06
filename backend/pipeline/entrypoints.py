@@ -10,6 +10,7 @@ from typing import Any
 
 from .. import database as db
 from ..core import card_description, resolve_inline
+from ..core.settings import Settings
 from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
@@ -288,7 +289,7 @@ async def _open_turn(
     conversation_id: str,
     *,
     history: Sequence[Mapping[str, Any]],
-    settings: Mapping[str, Any],
+    settings: Settings,
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
     decision_history: Sequence[Mapping[str, Any]],
@@ -349,7 +350,7 @@ async def _generate_reply(
     conversation_id: str,
     *,
     history: Sequence[Mapping[str, Any]],
-    settings: Mapping[str, Any],
+    settings: Settings,
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
     user_message: str,

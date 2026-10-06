@@ -6,27 +6,16 @@ them. Consumption routes stay open. The tool-union strip removes a disabled work
 blob.
 """
 
-from __future__ import annotations
+import pytest
 
 from backend.api import deps
-from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf, set_workflow_enabled, update_settings
+from backend.database import set_workflow_enabled, update_settings
 from backend.inference import LLMClient
 from backend.pipeline.config import resolve_pipeline_config
 from backend.workflows import ToolSpec
 from backend.workflows.attachment_cache import evict
 
-from ._fixtures import make_workflow, register_for_test
-
-
-async def _new_conversation(client) -> str:
-    return await client.create("/api/conversations", json={"title": "gating"})
-
-
-async def _seed_conv_with_message(client) -> tuple[str, int]:
-    cid = await _new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "scene draft", 0)
-    await set_active_leaf(cid, mid)
-    return cid, mid
+from ._fixtures import attachment_action, make_workflow, register_for_test, seed_attachment
 
 
 def _artifact_workflow(calls: list):
@@ -41,72 +30,39 @@ def _artifact_workflow(calls: list):
     return make_workflow("img", regenerate=regen, reroll_gen=reroll, produces_artifacts=True)
 
 
-async def test_regenerate_404_when_locally_disabled_no_lock_no_hook(client):
-    cid, mid = await _seed_conv_with_message(client)
-    aid = await insert_workflow_attachment_row(
-        mid, {"filename": "x.png", "mime": "image/png", "data": b"DATA", "workflow_id": "img"}
-    )
+@pytest.mark.parametrize(
+    "action,disable",
+    [
+        ("regenerate", {"workflow_enabled": {"img": False}}),
+        ("regenerate", {"workflows_globally_enabled": False}),
+        ("rehydrate", {"workflow_enabled": {"img": False}}),  # must not re-run the generative hook
+    ],
+)
+async def test_production_routes_404_when_disabled_without_lock_or_hook(client, action, disable):
+    cid, mid, aid = await seed_attachment(client, data=b"DATA")
+    if action == "rehydrate":
+        await evict(aid)  # data_b64 -> EVICTED_MARKER, so the route reaches the gate
     calls: list[str] = []
     with register_for_test(_artifact_workflow(calls)):
-        await set_workflow_enabled("img", False)
+        if "workflow_enabled" in disable:
+            await set_workflow_enabled("img", False)
+        else:
+            await update_settings(disable)
         deps._workflow_root_locks.clear()
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
-
+        resp = await attachment_action(client, cid, mid, aid, action)
     assert resp.status_code == 404
-    assert calls == [], "the regenerate hook must not run for a disabled workflow"
+    assert calls == [], "the hook must not run for a disabled workflow"
     assert deps._workflow_root_locks == {}, "the root lock must not be taken before the 404"
-
-
-async def test_regenerate_404_when_globally_disabled(client):
-    cid, mid = await _seed_conv_with_message(client)
-    aid = await insert_workflow_attachment_row(
-        mid, {"filename": "x.png", "mime": "image/png", "data": b"DATA", "workflow_id": "img"}
-    )
-    calls: list[str] = []
-    with register_for_test(_artifact_workflow(calls)):
-        await update_settings({"workflows_globally_enabled": False})
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate", json={})
-
-    assert resp.status_code == 404
-    assert calls == []
-
-
-async def test_rehydrate_404_when_disabled_does_not_run_hook(client):
-    cid, mid = await _seed_conv_with_message(client)
-    aid = await insert_workflow_attachment_row(
-        mid,
-        {
-            "filename": "x.png",
-            "mime": "image/png",
-            "data": b"ORIGINAL",
-            "workflow_id": "img",
-            "seed": "STORED-SEED",
-            "generation_metadata": {"steps": 4},
-        },
-    )
-    await evict(aid)  # data_b64 -> EVICTED_MARKER, so the route reaches the gate
-    calls: list[str] = []
-    with register_for_test(_artifact_workflow(calls)):
-        await set_workflow_enabled("img", False)
-        resp = await client.post(f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate", json={})
-
-    assert resp.status_code == 404
-    assert calls == [], "rehydrate must not re-run the generative hook for a disabled workflow"
 
 
 async def test_access_route_unaffected_when_disabled(client):
     # Access reporting is consumption (no hook, no lock): it must keep working so
     # LRU eviction bookkeeping stays accurate even while the workflow is off.
-    cid, mid = await _seed_conv_with_message(client)
-    aid = await insert_workflow_attachment_row(
-        mid, {"filename": "x.png", "mime": "image/png", "data": b"DATA", "workflow_id": "img"}
-    )
+    cid, _, aid = await seed_attachment(client, data=b"DATA")
     with register_for_test(_artifact_workflow([])):
         await set_workflow_enabled("img", False)
-        resp = await client.post(f"/api/conversations/{cid}/workflow-attachments/access", json={"ids": [aid]})
-
-    assert resp.status_code == 200
-    assert resp.json()["recorded"] == 1
+        resp = await client.post_json(f"/api/conversations/{cid}/workflow-attachments/access", json={"ids": [aid]})
+    assert resp["recorded"] == 1
 
 
 # -- tool-union strip (3.5) --------------------------------------------------

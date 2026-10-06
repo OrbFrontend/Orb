@@ -1,7 +1,5 @@
 """The lane cascade `extract_hyperparams` applies to a settings row."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.core import agent_lane_cut_off, agent_lane_max_tokens, extract_hyperparams
@@ -10,13 +8,11 @@ _WRITER = {"temperature": 0.8, "max_tokens": 4096, "top_p": 0.95, "min_p": 0.0, 
 
 
 def test_the_writer_lane_never_reads_the_agent_overlay():
-    params = extract_hyperparams({**_WRITER, "agent_temperature": 0.2, "agent_max_tokens": 512})
-    assert params == _WRITER
+    assert extract_hyperparams({**_WRITER, "agent_temperature": 0.2, "agent_max_tokens": 512}) == _WRITER
 
 
 def test_the_agent_lane_prefers_its_own_values():
-    settings = {**_WRITER, "agent_temperature": 0.2, "agent_max_tokens": 512}
-    params = extract_hyperparams(settings, lane="agent")
+    params = extract_hyperparams({**_WRITER, "agent_temperature": 0.2, "agent_max_tokens": 512}, lane="agent")
     assert params["temperature"] == 0.2
     assert params["max_tokens"] == 512
 
@@ -24,8 +20,7 @@ def test_the_agent_lane_prefers_its_own_values():
 def test_a_partial_mapping_falls_back_per_key():
     # A real settings row is all-or-nothing -- every `agent_` twin comes from the same overlay of six NOT NULL columns -- so
     # this guards callers that hand in a hand-built mapping rather than a state the database can reach.
-    params = extract_hyperparams({**_WRITER, "agent_temperature": 0.2}, lane="agent")
-    assert params == {**_WRITER, "temperature": 0.2}
+    assert extract_hyperparams({**_WRITER, "agent_temperature": 0.2}, lane="agent") == {**_WRITER, "temperature": 0.2}
 
 
 def test_explicit_null_omits_a_parameter():
@@ -35,8 +30,7 @@ def test_explicit_null_omits_a_parameter():
 
 
 def test_agent_explicit_null_does_not_fall_back_to_writer_value():
-    params = extract_hyperparams({**_WRITER, "agent_temperature": None}, lane="agent")
-    assert "temperature" not in params
+    assert "temperature" not in extract_hyperparams({**_WRITER, "agent_temperature": None}, lane="agent")
 
 
 def test_the_budget_goes_out_as_configured():

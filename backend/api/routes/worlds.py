@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any, Literal
 
@@ -271,10 +272,8 @@ async def api_apply_changeset(
         # The revision check and this bookkeeping update are deliberately separate: the failed apply rolled back without
         # changing the World. A concurrent reject may have decided the proposal in between; that is still a clean conflict
         # response, not a reason to turn this request into a 500 while trying to overwrite the winning decision.
-        try:
+        with contextlib.suppress(OverlayStateConflict):
             await lorebook.close_changeset(int(changeset["id"]), "stale")
-        except OverlayStateConflict:
-            pass
         raise HTTPException(
             status_code=409,
             detail=(
