@@ -1,14 +1,12 @@
 """Unit tests for lorebook activation.
 
-Covers the direct_scene ``selected_lorebook_entries`` parameter, the Director catalog, the unified three-source selection core
-(``select_active_entries`` and its two named wrappers), macro resolution, the ``LorebookTurn`` per-turn bundle, activation
-gating, and keyword-scan parity.
+Covers the standalone selection tool, the Director catalog, mutually exclusive Director and keyword activation,
+macro resolution, the ``LorebookTurn`` per-turn bundle, activation gating, and keyword-scan parity.
 """
 
 import logging
 
 from backend.features.lorebook import (
-    AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
     agentic_lorebook_active,
     build_lorebook_catalog,
@@ -104,34 +102,15 @@ class TestComputeAgenticLorebookBlock:
         assert first == render_lorebook_block([b, c, a])
         assert first.index("Robin") < first.index("Ellis") < first.index("Bob")
 
-    def test_substring_scan_activates_in_parallel(self):
-        # Director overlooks "Natlan", but the keyword scan catches it.
-        entries = [_entry("Natlan", keywords=["Natlan"])]
-        msgs = [{"role": "user", "content": "Tell me about Natlan."}]
-        assert "Natlan: Natlan content" in compute_agentic_lorebook_block(entries, [], messages=msgs)
-
-    def test_substring_scan_unions_with_director(self):
+    def test_keywords_do_not_add_unselected_entries(self):
         entries = [_entry("Dragon"), _entry("Natlan", keywords=["natlan"])]
-        msgs = [{"role": "user", "content": "We travel to Natlan."}]
-        block = compute_agentic_lorebook_block(entries, ["Dragon"], messages=msgs)
+        block = compute_agentic_lorebook_block(entries, ["Dragon"])
         assert "Dragon: Dragon content" in block
-        assert "Natlan: Natlan content" in block
+        assert "Natlan: Natlan content" not in block
 
-    def test_substring_and_director_not_duplicated(self):
+    def test_duplicate_picks_not_duplicated(self):
         entries = [_entry("Natlan", keywords=["Natlan"])]
-        msgs = [{"role": "user", "content": "Natlan again."}]
-        assert compute_agentic_lorebook_block(entries, ["Natlan"], messages=msgs).count("Natlan: Natlan content") == 1
-
-    def test_substring_scan_limited_to_current_turn(self):
-        # The keyword appears only in older history, not in the current turn
-        # (last assistant + user), so the fallback must not activate it.
-        entries = [_entry("Natlan", keywords=["Natlan"])]
-        msgs = [
-            {"role": "user", "content": "We arrive in Natlan."},
-            {"role": "assistant", "content": "The city greets you."},
-            {"role": "user", "content": "Let's keep going."},
-        ]
-        assert compute_agentic_lorebook_block(entries, [], messages=msgs) == ""
+        assert compute_agentic_lorebook_block(entries, ["Natlan", "natlan"]).count("Natlan: Natlan content") == 1
 
 
 # -- build_lorebook_catalog ---------------------------------------------------
@@ -246,16 +225,16 @@ class TestConstantsOnlyTrailing:
     def test_wrappers_return_empty(self):
         msgs = [{"role": "user", "content": "hello"}]
         assert compute_lorebook_injection_block(msgs, self._entries) == ""
-        assert compute_agentic_lorebook_block(self._entries, ["Const"], None, msgs) == ""
+        assert compute_agentic_lorebook_block(self._entries, ["Const"]) == ""
 
     def test_writer_block_empty_and_no_separator(self):
-        block = LorebookTurn(entries=self._entries, messages=[], agentic=True).writer_block(["Const"])
+        block = LorebookTurn(entries=self._entries, agentic=True).writer_block(["Const"])
         assert block == ""
         # An empty block must not leave a stray ___ separator in the writer content.
         assert build_writer_content(block, "", False, "hi", None, None) == "___\n\nhi\n\n"
 
 
-# -- select_active_entries: the unified three-source core ---------------------
+# -- select_active_entries: mutually exclusive activation modes --------------
 
 
 class TestSelectActiveEntries:
@@ -270,11 +249,23 @@ class TestSelectActiveEntries:
         ]
         assert select_active_entries(entries, msgs, scan_depth=LOREBOOK_SCAN_DEPTH) == select_keyword_entries(msgs, entries)
 
-    def test_agentic_union_matches_wrapper(self):
+    def test_director_selection_replaces_keyword_matches(self):
         entries = [_entry("Dragon"), _entry("Natlan", keywords=["natlan"])]
         msgs = [{"role": "user", "content": "we travel to natlan"}]
-        core = compute_lorebook_block(entries, msgs, scan_depth=AGENTIC_LOREBOOK_SCAN_DEPTH, director_selected=["Dragon"])
-        assert core == compute_agentic_lorebook_block(entries, ["Dragon"], None, msgs)
+        core = compute_lorebook_block(entries, msgs, director_selected=["Dragon"])
+        assert core == compute_agentic_lorebook_block(entries, ["Dragon"])
+        assert "Dragon: Dragon content" in core
+        assert "Natlan" not in core
+
+    def test_empty_director_selection_does_not_fall_back_to_keywords(self):
+        entries = [_entry("Natlan", keywords=["natlan"])]
+        msgs = [{"role": "user", "content": "we travel to natlan"}]
+        assert select_active_entries(entries, msgs, director_selected=[]) == []
+
+    def test_unmatched_director_selection_does_not_fall_back_to_keywords(self):
+        entries = [_entry("Natlan", keywords=["natlan"])]
+        msgs = [{"role": "user", "content": "we travel to natlan"}]
+        assert select_active_entries(entries, msgs, director_selected=["Unknown"]) == []
 
 
 # -- Catalog delimiters on Director picks -------------------------------------
@@ -290,7 +281,7 @@ class TestDirectorPickDelimiters:
     _entries = [_entry("The Ashen Seal", keywords=["wax seal", "raven crest"])]
 
     def _names(self, pick):
-        return [e["name"] for e in select_active_entries(self._entries, [], scan_depth=2, director_selected=[pick])]
+        return [e["name"] for e in select_active_entries(self._entries, director_selected=[pick])]
 
     def test_bracketed_pick_activates_the_entry(self):
         assert self._names("[The Ashen Seal]") == ["The Ashen Seal"]
@@ -309,7 +300,7 @@ class TestDirectorPickDelimiters:
         # Two delimited names in one string: the leading bracket closes early, so
         # nothing is unwrapped and the malformed pick matches nothing.
         entries = [*self._entries, _entry("Captain Ilyra")]
-        picked = select_active_entries(entries, [], scan_depth=2, director_selected=["[The Ashen Seal] and [Captain Ilyra]"])
+        picked = select_active_entries(entries, director_selected=["[The Ashen Seal] and [Captain Ilyra]"])
         assert picked == []
 
     def test_a_name_that_contains_brackets_is_matched_as_stored(self):
@@ -317,7 +308,7 @@ class TestDirectorPickDelimiters:
         # the pick is unwrapped, so both the bare and the wrapped form land.
         entries = [_entry("[Redacted] File")]
         for pick in ("[Redacted] File", "[[Redacted] File]"):
-            picked = select_active_entries(entries, [], scan_depth=2, director_selected=[pick])
+            picked = select_active_entries(entries, director_selected=[pick])
             assert [e["name"] for e in picked] == ["[Redacted] File"]
 
     def test_a_recovered_pick_is_logged_as_a_warning(self, caplog):
@@ -351,7 +342,6 @@ class TestLorebookTurn:
         # block; director_selected is ignored and nothing is recomputed.
         lt = LorebookTurn(
             entries=[_entry("X", keywords=["x"])],
-            messages=[{"role": "user", "content": "x"}],
             agentic=False,
             block="**Lorebook**\n\nFixed: value",
         )
@@ -359,9 +349,8 @@ class TestLorebookTurn:
 
     def test_agentic_writer_block_matches_compute_agentic(self):
         entries = [_entry("Dragon"), _entry("Natlan", keywords=["natlan"])]
-        msgs = [{"role": "user", "content": "go to natlan"}]
-        lt = LorebookTurn(entries=entries, messages=msgs, agentic=True)
-        assert lt.writer_block(["Dragon"]) == compute_agentic_lorebook_block(entries, ["Dragon"], None, msgs)
+        lt = LorebookTurn(entries=entries, agentic=True)
+        assert lt.writer_block(["Dragon"]) == compute_agentic_lorebook_block(entries, ["Dragon"])
 
 
 # -- agentic_lorebook_active: gating ------------------------------------------

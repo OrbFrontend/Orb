@@ -9,9 +9,6 @@ from typing import Any
 from ..core import Macros
 
 LOREBOOK_SCAN_DEPTH = 6
-# The agentic fallback scan only looks at the current turn (previous assistant
-# message + current user message), since the Director already saw the history.
-AGENTIC_LOREBOOK_SCAN_DEPTH = 2
 
 # The heading Agent-managed lore renders under, in every block. Kept distinct from the authored heading so the model (and the
 # user reading a prompt dump) can always tell established lore from state the roleplay itself produced.
@@ -199,26 +196,25 @@ def director_pick_diagnostics(entries: Sequence[Mapping[str, Any]], picks: Seque
 
 def select_active_entries(
     entries: Sequence[Mapping[str, Any]],
-    messages: Sequence[Mapping[str, Any]] | None,
+    messages: Sequence[Mapping[str, Any]] | None = None,
     *,
-    scan_depth: int,
-    director_selected: Sequence[str] = (),
+    scan_depth: int = LOREBOOK_SCAN_DEPTH,
+    director_selected: Sequence[str] | None = None,
 ) -> list[Mapping[str, Any]]:
-    """Select effective non-constant entries by recent keywords or normalized Director names.
+    """Select effective non-constant entries by Director names or recent keywords.
 
-    Scan at most scan_depth messages, preserve input order, and exclude constants already carried by the cached system prefix.
+    An explicit Director selection, including an empty one, replaces keyword activation. Otherwise scan at most scan_depth
+    messages. Preserve input order and exclude constants already carried by the system prefix or depth block.
     """
     effective = select_effective_entries(entries)
     candidates = [e for e in effective if not e.get("constant")]
+    if director_selected is None:
+        return select_keyword_entries(messages or [], candidates, scan_depth)
+
     director_named, _, _ = _resolve_director_picks(
         director_selected, {_fold_name(e) for e in candidates}, {_fold_name(e) for e in effective}
     )
-    keyword_hit = {id(e) for e in select_keyword_entries(messages or [], candidates, scan_depth)}
-
-    def is_active(entry: Mapping[str, Any]) -> bool:
-        return id(entry) in keyword_hit or _fold_name(entry) in director_named
-
-    return [e for e in candidates if is_active(e)]
+    return [e for e in candidates if _fold_name(e) in director_named]
 
 
 def _render_section(entries: Sequence[Mapping[str, Any]], resolve, header: str) -> list[str]:
@@ -264,13 +260,13 @@ def render_lorebook_block(
 
 def compute_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
-    messages: Sequence[Mapping[str, Any]] | None,
+    messages: Sequence[Mapping[str, Any]] | None = None,
     *,
-    scan_depth: int,
-    director_selected: Sequence[str] = (),
+    scan_depth: int = LOREBOOK_SCAN_DEPTH,
+    director_selected: Sequence[str] | None = None,
     macros: Macros | None = None,
 ) -> str:
-    """Select active entries (all sources) and render the ``**Lorebook**`` block.
+    """Select entries by the active mode and render the ``**Lorebook**`` block.
 
     The shared core behind both named entry points below.
     """
@@ -295,18 +291,15 @@ def compute_agentic_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
     selected_names: Sequence[str],
     macros: Macros | None = None,
-    messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Agentic path: build the trailing lorebook block from the Director's selection.
 
-    Includes entries whose ``name`` matches *selected_names* (case-insensitive, trimmed) + entries triggered by a keyword scan
-    over the current turn (``AGENTIC_LOREBOOK_SCAN_DEPTH``), so keywords the Director overlooks still activate their entries.
+    Includes only entries whose ``name`` matches *selected_names* (case-insensitive, trimmed). Keywords never activate entries
+    in this mode; an empty or unmatched selection produces an empty block.
     Constant entries are excluded -- they ride the cached system prefix (:func:`compute_constant_lorebook_block`) or, with
     ``at_depth``, the depth block (:func:`compute_depth_lorebook_block`). Returns ``""`` when nothing matches.
     """
-    return compute_lorebook_block(
-        entries, messages or [], scan_depth=AGENTIC_LOREBOOK_SCAN_DEPTH, director_selected=selected_names or (), macros=macros
-    )
+    return compute_lorebook_block(entries, director_selected=selected_names, macros=macros)
 
 
 def compute_constant_lorebook_block(entries: Sequence[Mapping[str, Any]], macros: Macros | None = None) -> str:

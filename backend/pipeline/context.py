@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -250,6 +250,7 @@ def _build_prefix_from_ctx(
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
     speaker: CastMember | None = None,
+    include_constant_lore: bool = True,
 ) -> list[ChatMessage]:
     """Build the LLM prefix from ctx."""
     conv = ctx.conv
@@ -268,7 +269,7 @@ def _build_prefix_from_ctx(
         history,
         macros,
         user_description,
-        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
+        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros) if include_constant_lore else "",
         extra_system_blocks=extra_system_blocks,
         cast=cast,
         speaker_names=ctx.speaker_names,
@@ -333,7 +334,6 @@ def build_lorebook_turn(
     agentic = agentic_lorebook_active(settings, entries, agent_on=agent_enabled(settings))
     return LorebookTurn(
         entries=entries,
-        messages=messages,
         agentic=agentic,
         # Director-facing context: the agentic catalog, or the keyword-scanned block
         # (which the writer block reuses verbatim in substring mode).
@@ -425,6 +425,22 @@ async def prepare_turn(
         prefix, agent_prefix = build_prefixes(ctx, history, extra_system_blocks=extras)
     else:
         prefix, agent_prefix = prefix_base, agent_prefix_base
+
+    if lorebook.agentic:
+        # Selection has its own stable prefix without constant lore. Ordinary Director, Writer and Editor calls retain their
+        # shared prefix, including constants, so the Editor can still reuse the Writer's request and draft.
+        lorebook = replace(
+            lorebook,
+            selection_prefix=tuple(
+                _build_prefix_from_ctx(
+                    ctx,
+                    history,
+                    system_prompt=ctx.agent_system_prompt,
+                    extra_system_blocks=extras,
+                    include_constant_lore=False,
+                )
+            ),
+        )
 
     yield TurnSetup(
         prefix=prefix,

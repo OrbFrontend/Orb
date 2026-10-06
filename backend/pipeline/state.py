@@ -239,10 +239,11 @@ class LorebookTurn:
     """Lorebook inputs threaded through one pipeline turn."""
 
     entries: Sequence[Mapping[str, Any]]
-    messages: Sequence[Mapping[str, Any]]
     agentic: bool
     block: str = ""  # Director-facing lore context in substring mode.
     catalog: str = ""  # Director-facing pick catalog in agentic mode.
+    # Lorebook selection alone omits constants; other passes keep their shared prefix.
+    selection_prefix: tuple[ChatMessage, ...] | None = None
     # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
 
@@ -250,7 +251,7 @@ class LorebookTurn:
         """Return the lorebook block appended to the Writer prompt."""
         if not self.agentic:
             return self.block
-        return compute_agentic_lorebook_block(self.entries, director_selected, macros, self.messages)
+        return compute_agentic_lorebook_block(self.entries, director_selected, macros)
 
 
 @dataclass(frozen=True, slots=True)

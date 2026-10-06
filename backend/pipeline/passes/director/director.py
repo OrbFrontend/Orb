@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from ....core import (
@@ -551,9 +551,14 @@ async def director_stage(
     # scene-direction tool is enabled. Runs before director_done so its picks ride state.calls into the inspector/log.
     if lorebook.agentic:
         yield {"event": "step_start", "data": {"step": "lorebook"}}
+        selection_base = (
+            replace(cfg.agent_lane.base, prefix=lorebook.selection_prefix)
+            if lorebook.selection_prefix is not None
+            else cfg.agent_lane.base
+        )
         async for event in lorebook_select_step(
             cfg.agent_lane.client,
-            cfg.agent_lane.base,
+            selection_base,
             settings=settings,
             catalog=lorebook.catalog,
             user_message=state.user_message,
@@ -673,6 +678,6 @@ async def director_stage(
     }
 
     # The writer's lorebook block, computed once from the per-turn bundle. In substring mode this reuses the keyword-scanned
-    # block already built up front; in agentic mode it is the union of constants, the current-turn keyword scan, and the
-    # Director's selection (computed now that the selection is known).
+    # block already built up front; in agentic mode it contains only the Director's selection. Constants are carried separately
+    # by the system prefix or depth block.
     state.writer_lorebook_block = lorebook.writer_block(state.selected_lorebook_entries, macros)

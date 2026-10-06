@@ -161,6 +161,13 @@ model's base instead.
 
 ### Keep optional work on the same path
 
+Agentic Lorebook selection uses the same model and tool blob as the Agent lane,
+with a dedicated prefix that omits constant lore. Its catalog also omits constants.
+That prefix stays stable across turns and includes the same history and workflow
+system blocks. Ordinary Director, Writer, and Editor calls retain their existing
+prefixes, so the Editor still extends the Writer's request and draft. This gives
+selection its own cache lane without changing the other passes' prompt bytes.
+
 Feedback, state updates, and document auditing extend the relevant prompt in
 the same way as the Editor. Image prompting rebuilds the neutral scene prefix
 through the shared cast resolver, so off-turn calls use the same group history

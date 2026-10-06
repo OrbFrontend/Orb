@@ -133,7 +133,8 @@ def build_lorebook_select_prompt(catalog: str, user_message: str, *, reasoning_o
         (
             "Call ONLY select_lorebook. From the catalog below, choose ONLY the entries relevant to the "
             "current scene and the user's next message (quoted after the catalog); leave the selection "
-            "empty if none apply."
+            "empty if none apply. Your selection fully controls activation of these entries; "
+            "keywords are relevance hints and do not activate entries automatically."
         ),
         catalog,
         f'User\'s next message:\n"""{user_message}"""',

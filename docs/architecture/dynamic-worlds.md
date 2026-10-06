@@ -40,7 +40,8 @@ pool. It:
 
 Dynamic entries follow authored entries under `Dynamic World State`. They use
 the normal lorebook activation rules: `constant` for always-known facts and
-keywords for local state.
+keywords for local state. When Agentic Lorebook is active, Director selection
+replaces keyword activation for dynamic entries as well as authored ones.
 
 ## Proposing changes
 

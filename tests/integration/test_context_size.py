@@ -110,13 +110,12 @@ async def test_context_size_counts_prompt_rendered_message(client):
 
 
 async def test_agentic_lorebook_bills_only_what_the_writer_can_receive(client):
-    """With agentic lorebook on, the Writer's block comes from the Director's picks plus a shallow keyword scan, so a keyword
-    four messages back -- inside the substring scan, outside the agentic one -- must stop being billed."""
+    """Agentic lorebook bills no non-constant entries before the Director picks, even when the latest message matches."""
     world = await create_world({"name": "Armory", "is_global": True})
     await create_lorebook_entry(world["id"], {"name": "Sword", "content": "A legendary blade.", "keywords": ["sword"]})
     cid = await client.create("/api/conversations", json={"title": "Armory"})
     parent = None
-    for role, text in [("user", "Bring the sword."), ("assistant", "Done."), ("user", "Thanks."), ("assistant", "Sure.")]:
+    for role, text in [("user", "Bring the sword."), ("assistant", "Here is the sword.")]:
         parent, _ = await add_message(cid, role, text, 0, parent_id=parent)
     await set_active_leaf(cid, parent)
 

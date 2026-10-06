@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...prompting.lorebook import (
-    AGENTIC_LOREBOOK_SCAN_DEPTH,
     DYNAMIC_SECTION_TITLE,
     LOREBOOK_SCAN_DEPTH,
     build_lorebook_catalog,

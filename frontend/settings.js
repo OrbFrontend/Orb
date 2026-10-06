@@ -479,7 +479,7 @@ export function renderToolsPanel() {
     alOn,
     "Agentic Lorebook",
     'data-wf-action="settings:agenticLorebook" data-wf-on="change"',
-    '<div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>',
+    '<div class="tool-card-desc">Agent selection · No keyword activation</div>',
   );
 
   const cardById = {};

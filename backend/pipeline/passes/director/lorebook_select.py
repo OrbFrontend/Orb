@@ -89,7 +89,7 @@ async def lorebook_select_step(
             yield event
     except Exception as exc:
         # A failed call selects nothing but must not propagate: the writer still runs
-        # with the deterministic constant/keyword lorebook entries.
+        # with constant lore, without falling back to keyword activation.
         logger.exception("Lorebook-select call failed; selecting nothing")
         yield {"type": "failure", "error": exc}
         yield {"type": "done", "result": LorebookSelectResult()}

@@ -24,7 +24,8 @@ Choose the placement with **Constant** and **@ Depth**:
 
 ## Keyword triggers
 
-Orb scans the latest six messages for keywords.
+Orb scans the latest six messages for keywords when Agentic Lorebook is off or
+the global Agent is off.
 
 - Matching is case-insensitive by default and uses substring matching.
 - **Case sensitive** changes the case behavior.
@@ -47,8 +48,9 @@ keyword-activated entries roll once per conversation. A constant entry with
 
 ## Agentic and dynamic Worlds
 
-[Agentic Lorebook](agentic-lorebook.md) lets the Director add entries by reading
-the scene. Keyword matches still apply. [Dynamic Worlds](dynamic-worlds.md) lets
+[Agentic Lorebook](agentic-lorebook.md) lets the Director choose entries by reading
+the scene. It replaces keyword activation; Constant entries stay active.
+[Dynamic Worlds](dynamic-worlds.md) lets
 the Agent propose new, revised, or retracted entries for your review.
 
 ## Import and export

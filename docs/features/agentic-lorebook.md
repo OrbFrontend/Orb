@@ -9,12 +9,13 @@ A [World](lorebooks.md) contains lorebook entries. An entry can be active becaus
 it is:
 
 - **Constant**: always included in the character context.
-- **Keyword-activated**: included when its keywords match recent messages.
+- **Keyword-activated**: included when its keywords match recent messages, while Agentic Lorebook is off.
 - **Selected by the Agent**: chosen by the Director for the current scene.
 
-Agentic selection adds to the normal rules. Constant entries stay active, and the
-keyword scan still runs. The Director cannot remove a constant entry or cancel a
-keyword match.
+When Agentic Lorebook is on, the Director has full control over non-constant
+entries. Keyword activation is disabled, so only the Director's picks are
+included. An empty selection or a failed selection call includes no non-constant
+entries. Constant entries stay active.
 
 ## What the agent sees
 
@@ -22,7 +23,10 @@ How does the agent decide which entries are relevant? These info will be sent to
 
 - The lorebook's name
 - The entries' names
-- Each entry' activation keywords (capped to 5 max)
+- Each entry's keywords as relevance hints (up to three, excluding the entry name)
+
+Constant entries are excluded from both the catalog and the selection call's
+system prompt. They remain in the ordinary Director, Writer, and Editor context.
 
 ## Enable it
 
@@ -31,6 +35,7 @@ toggle must also be on.
 
 The Director receives a short catalog of non-constant entries and selects the
 ones that fit the current scene. This uses one additional lightweight model call
-per turn. If there are no selectable entries, Orb uses the normal keyword scan.
+per turn. If there are no selectable entries, no selection call is needed.
+Turning off Agentic Lorebook or the global Agent restores normal keyword activation.
 
 See [Lorebooks](lorebooks.md) for entry types, triggers, macros, and import rules.

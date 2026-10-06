@@ -170,7 +170,7 @@ async def run_pipeline(
     if attachments is None:
         attachments = []
     if lorebook is None:
-        lorebook = LorebookTurn(entries=(), messages=(), agentic=False)
+        lorebook = LorebookTurn(entries=(), agentic=False)
 
     user_message = _resolve_user_message(user_message, macros, card=card, speaker=speaker)
 
