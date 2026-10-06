@@ -295,7 +295,7 @@ async function activatePersona(personaId) {
       toast(`Re-pinned this chat to "${name}"`);
     }
     updateUserBtn();
-    repaintUserAvatars();
+    notify("personas");
     showUserModal();
   } catch (e) {
     toast(`Failed: ${e.message}`, true);
@@ -315,7 +315,7 @@ async function setPersonaConversationLock(personaId, locked) {
     await api.put(`/conversations/${conv.id}`, { persona_lock_id: val });
     conv.persona_lock_id = val;
     updateUserBtn();
-    repaintUserAvatars();
+    notify("personas");
     toast(
       locked ? (replacing ? "Re-pinned this chat" : "Pinned to this conversation") : "Unpinned from this conversation",
     );
@@ -347,7 +347,7 @@ async function setPersonaCharacterLock(personaId, locked) {
     await api.put(`/characters/${card.id}`, { persona_lock_id: val });
     card.persona_lock_id = val;
     updateUserBtn();
-    repaintUserAvatars();
+    notify("personas");
     toast(
       locked ? (replacing ? "Re-pinned this character" : "Pinned to this character") : "Unpinned from this character",
     );

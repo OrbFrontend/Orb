@@ -133,6 +133,89 @@ test("changed replacements and identity context invalidate the projection, and m
   S.conversations[0].character_name = "Amy";
 });
 
+function controlledWorkers(t) {
+  const created = [];
+  const active = new Set();
+  let peak = 0;
+  const previousWorker = globalThis.Worker;
+  globalThis.Worker = class {
+    constructor() {
+      this.listeners = new Map();
+      created.push(this);
+      active.add(this);
+      peak = Math.max(peak, active.size);
+    }
+    addEventListener(event, listener) { this.listeners.set(event, listener); }
+    postMessage(job) { this.job = job; }
+    complete() { this.listeners.get("message")({ data: projectCardScripts(this.job) }); }
+    terminate() { active.delete(this); }
+  };
+  t.after(() => {
+    clearAll();
+    globalThis.Worker = previousWorker;
+  });
+  configureCardScriptGuard({ storage: null, announce: () => {} });
+  return { created, active, get peak() { return peak; } };
+}
+
+async function finishWorkers(workers) {
+  for (let i = 0; i < 100; i++) {
+    await new Promise(setImmediate);
+    if (!workers.active.size) return;
+    for (const worker of [...workers.active]) worker.complete();
+  }
+  assert.fail("workers did not finish");
+}
+
+test("history projections share a bounded worker pool and queued messages still render", async (t) => {
+  const workers = controlledWorkers(t);
+  const owners = Array.from({ length: 20 }, () => ({}));
+  const scripts = [script()];
+  for (const [i, owner] of owners.entries())
+    assert.equal(applyCardScripts(`secret ${i}`, scripts, "assistant", owner), `secret ${i}`);
+  await new Promise(setImmediate);
+  assert.equal(workers.active.size, 2);
+  assert.equal(workers.created.length, 2);
+  await finishWorkers(workers);
+  assert.equal(workers.created.length, owners.length);
+  assert.equal(workers.peak, 2);
+  for (const [i, owner] of owners.entries())
+    assert.equal(applyCardScripts(`secret ${i}`, scripts, "assistant", owner), `visible ${i}`);
+});
+
+test("streaming cancels evicted projections and ignores results from terminated workers", async (t) => {
+  const workers = controlledWorkers(t);
+  const owner = {};
+  const scripts = [script()];
+  applyCardScripts("secret 0", scripts, "assistant", owner);
+  applyCardScripts("secret 1", scripts, "assistant", owner);
+  await new Promise(setImmediate);
+  const obsolete = [...workers.active];
+  for (let i = 2; i < 100; i++) applyCardScripts(`secret ${i}`, scripts, "assistant", owner);
+  assert.ok(obsolete.every((worker) => !workers.active.has(worker)), "eviction terminates running workers");
+  for (const worker of obsolete)
+    worker.listeners.get("message")({ data: { text: "stale", disabled: ["/secret/g"] } });
+  await finishWorkers(workers);
+  assert.equal(workers.peak, 2);
+  assert.equal(workers.created.length, 6, "only the two original and four retained inputs start workers");
+  assert.equal(cardScriptTurnedOff("/secret/g"), false);
+  assert.equal(applyCardScripts("secret 99", scripts, "assistant", owner), "visible 99");
+});
+
+test("resetting the guard cancels both active and queued projections", async (t) => {
+  const workers = controlledWorkers(t);
+  for (let i = 0; i < 10; i++) applyCardScripts(`secret ${i}`, [script()], "assistant", {});
+  await new Promise(setImmediate);
+  configureCardScriptGuard({ storage: null, announce: () => {} });
+  await new Promise(setImmediate);
+  assert.equal(workers.active.size, 0);
+  assert.equal(workers.created.length, 2);
+  const owner = {};
+  applyCardScripts("secret new", [script()], "assistant", owner);
+  await finishWorkers(workers);
+  assert.equal(applyCardScripts("secret new", [script()], "assistant", owner), "visible new");
+});
+
 test("a later catastrophic input is terminated off the page and its exact pattern stays disabled after reload", async (t) => {
   const created = [];
   const previousWorker = globalThis.Worker;
@@ -152,12 +235,14 @@ test("a later catastrophic input is terminated off the page and its exact patter
   configureCardScriptGuard({ storage, announce: (message) => notices.push(message) });
   const scripts = [script({ findRegex: "/^(?:(?:abcd)+)+$/", replaceString: "safe" })];
   assert.equal(applyCardScripts("abcd", scripts, "assistant"), "abcd");
+  await new Promise(setImmediate);
   await created[0].ended;
   assert.equal(applyCardScripts("abcd", scripts, "assistant"), "safe");
   const malicious = "abcd".repeat(32) + "!";
   assert.equal(applyCardScripts(malicious, scripts, "assistant"), malicious);
   let responsive = false;
   setTimeout(() => { responsive = true; }, 20);
+  await new Promise(setImmediate);
   await created[1].ended;
   assert.ok(responsive, "the page's event loop stays responsive while the worker backtracks");
   assert.ok(cardScriptTurnedOff(scripts[0].findRegex));

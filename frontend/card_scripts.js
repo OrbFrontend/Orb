@@ -7,6 +7,11 @@ export { compileCardScriptPattern } from "./card_script_worker.js";
 
 const OFF_KEY = "orb.cardScriptOff.v1";
 const DEADLINE_MS = 2000;
+const MAX_WORKERS = 2;
+const queuedJobs = [];
+const activeJobs = new Set();
+const jobs = new Set();
+let pumpPending = false;
 let guard;
 let disabled;
 let projections;
@@ -19,6 +24,7 @@ export function setCardScriptRepaint(fn) {
 
 /** Replace the projector/storage/announcer in tests; production always executes in a worker. */
 export function configureCardScriptGuard(options = {}) {
+  for (const job of jobs) job.cancel();
   let storage = null;
   try {
     storage = globalThis.localStorage ?? null;
@@ -50,30 +56,66 @@ function turnOff(source) {
   guard.announce("Turned off a card display script on this device because it took too long to render.");
 }
 
-/** The timer terminates the actual replacement, including patterns that only hang on later inputs. */
-function projectInWorker(job) {
-  return new Promise((resolve) => {
-    let worker;
-    try {
-      worker = new Worker(new URL("./card_script_worker.js", import.meta.url), { type: "module" });
-    } catch {
-      resolve({ text: job.text });
-      return;
+function scheduleWorkers() {
+  if (pumpPending) return;
+  pumpPending = true;
+  queueMicrotask(() => {
+    pumpPending = false;
+    while (activeJobs.size < MAX_WORKERS && queuedJobs.length) {
+      const task = queuedJobs.shift();
+      activeJobs.add(task);
+      task.start();
     }
-    let running;
-    const finish = (result) => {
-      clearTimeout(deadline);
-      worker.terminate();
-      resolve(result);
-    };
-    const deadline = setTimeout(() => finish({ text: job.text, disabled: running ? [running] : [] }), DEADLINE_MS);
-    worker.addEventListener("message", ({ data }) => {
-      if (data.running) running = data.running;
-      else finish(data);
-    });
-    worker.addEventListener("error", () => finish({ text: job.text }));
-    worker.postMessage(job);
   });
+}
+
+/** Bound worker concurrency; the timer still terminates patterns that hang on later inputs. */
+function projectInWorker(job) {
+  let resolve;
+  const result = new Promise((done) => {
+    resolve = done;
+  });
+  let worker;
+  let deadline;
+  let running;
+  let finished = false;
+  const finish = (projection) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(deadline);
+    worker?.terminate();
+    activeJobs.delete(task);
+    jobs.delete(task);
+    const index = queuedJobs.indexOf(task);
+    if (index !== -1) queuedJobs.splice(index, 1);
+    resolve(projection);
+    scheduleWorkers();
+  };
+  const task = {
+    cancel: () => finish({ text: job.text }),
+    start() {
+      const scripts = job.scripts.filter((script) => !cardScriptTurnedOff(script.findRegex));
+      if (!scripts.length) return finish({ text: job.text });
+      try {
+        worker = new Worker(new URL("./card_script_worker.js", import.meta.url), { type: "module" });
+        deadline = setTimeout(() => finish({ text: job.text, disabled: running ? [running] : [] }), DEADLINE_MS);
+        worker.addEventListener("message", ({ data }) => {
+          if (finished) return;
+          if (data.running) running = data.running;
+          else finish(data);
+        });
+        worker.addEventListener("error", () => finish({ text: job.text }));
+        worker.postMessage({ ...job, scripts });
+      } catch {
+        finish({ text: job.text });
+      }
+    },
+  };
+  jobs.add(task);
+  queuedJobs.push(task);
+  result.cancel = task.cancel;
+  scheduleWorkers();
+  return result;
 }
 
 /** Show canonical text while pending, then repaint from a result keyed by the exact input and identity context. */
@@ -90,9 +132,15 @@ export function applyCardScripts(text, scripts, role, owner = null) {
   if (cached) return cached.text;
   const entry = { text };
   cache.set(key, entry);
-  if (cache.size > (owner ? 4 : 128)) cache.delete(cache.keys().next().value);
+  if (cache.size > (owner ? 4 : 128)) {
+    const oldest = cache.keys().next().value;
+    const evicted = cache.get(oldest);
+    cache.delete(oldest);
+    evicted.cancel?.();
+  }
   const currentGuard = guard;
   const done = (result) => {
+    delete entry.cancel;
     if (guard !== currentGuard) return;
     for (const source of result.disabled ?? []) turnOff(source);
     if (cache.get(key) !== entry) return;
@@ -100,8 +148,10 @@ export function applyCardScripts(text, scripts, role, owner = null) {
     if (entry.text !== text || result.disabled?.length) repaint();
   };
   const result = guard.project({ text, scripts, role, names });
-  if (result instanceof Promise) result.then(done, () => done({ text }));
-  else done(result);
+  if (result instanceof Promise) {
+    entry.cancel = () => result.cancel?.();
+    result.then(done, () => done({ text }));
+  } else done(result);
   return entry.text;
 }
 

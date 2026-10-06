@@ -8,5 +8,12 @@
   },
   "files": {
     "includes": ["frontend/**/*.js", "!frontend/vendor/**"]
+  },
+  "linter": {
+    "rules": {
+      "correctness": {
+        "noUndeclaredVariables": "error"
+      }
+    }
   }
 }

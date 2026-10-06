@@ -90,6 +90,8 @@ limit, Orb keeps the original message text for that projection.
 
 Display scripts run in a worker. Chat shows the original text while its
 projection is pending, then repaints the result. Each changed message, script,
-or identity context gets a fresh projection. A slow or stalled display pattern
+or identity context gets a fresh projection. At most two display workers run
+at once, and discarded cached inputs cancel their pending projections.
+A slow or stalled display pattern
 is turned off on this device, including after a reload; the card editor names
 that pattern so it can be edited and tried again.
