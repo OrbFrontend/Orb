@@ -1,11 +1,11 @@
 // Build shared panel and in-chat Inspector sections from live turn state or cached
 // director logs. Open states are shared except the chat's Reasoning block.
-import { api } from "./api.js";
 import { decisionOutcomes, decisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { sectionHtml } from "./inspector_section.js";
 import { preserveScroll } from "./scroll_follow.js";
-import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S } from "./state.js";
+import { saveSettings } from "./settings_store.js";
+import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S, subscribe } from "./state.js";
 import { convUrl, esc, escAttr } from "./utils.js";
 
 export const REASONING_PASSES = [
@@ -34,14 +34,14 @@ const OPEN_STATE_FIELDS = {
 function saveInspectorOpenStates() {
   const states = {};
   for (const [key, field] of Object.entries(OPEN_STATE_FIELDS)) states[key] = S[field];
-  api.put("/settings", { inspector_open_states: states }).catch(() => {});
+  saveSettings({ inspector_open_states: states }).catch(() => {});
 }
 
-export function loadInspectorOpenStates(saved) {
+subscribe("settings", ({ inspector_open_states: saved }) => {
   for (const [key, field] of Object.entries(OPEN_STATE_FIELDS)) {
     if (typeof saved?.[key] === "boolean") S[field] = saved[key];
   }
-}
+});
 
 const isOpen = (key) => Boolean(S[OPEN_STATE_FIELDS[key]]);
 const openAttr = (key) => (isOpen(key) ? " open" : "");

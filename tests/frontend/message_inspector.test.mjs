@@ -38,7 +38,7 @@ const reply = { id: 7, role: "assistant", content: "Hi." };
 beforeEach(() => {
   S.activeConvId = "c1";
   S.messages = [{ id: 6, role: "user", content: "Hello" }, reply];
-  S.inspectorInline = true;
+  S.settings.inspector_inline = true;
   S.inlineInspectorOpen = true;
   S.inlineReasoningOpen = true;
   S.reasoningOpen = true;
@@ -145,7 +145,7 @@ test("the chat renders a cached reply's block only while the setting is on", () 
   // Reasoning comes first.
   assert.match(inlineInspectorHtml(reply), /draft[\s\S]*Scene Guidance/);
   assert.equal(inlineInspectorHtml(S.messages[0]), "");
-  S.inspectorInline = false;
+  S.settings.inspector_inline = false;
   assert.equal(inlineInspectorHtml(reply), "");
 });
 
@@ -178,13 +178,13 @@ test("the streaming reply's Reasoning block opens the running pass's box for the
     reasoningPassActive: 0,
     reasoningPassSelected: 0,
   });
-  S.reasoningEnabled = { director: true, writer: false, editor: false };
+  S.settings.reasoning_enabled_passes = { director: true };
   assert.equal(renderLiveInspector(), true);
   assert.ok(slot.querySelector("#reasoning-box"));
   assert.equal(slot.querySelector('[data-inspect-section="inline"]'), null);
 
   // With the pass off and nothing else to show yet, the slot stays empty.
-  S.reasoningEnabled = { director: false, writer: false, editor: false };
+  S.settings.reasoning_enabled_passes = { director: false };
   assert.equal(renderLiveInspector(), false);
   assert.equal(slot.innerHTML, "");
 

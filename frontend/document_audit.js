@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import { AUDIT_TYPE_DEFS, persistSettings, showPhraseBankModal } from "./settings.js";
+import { AUDIT_TYPE_DEFS, showPhraseBankModal } from "./settings.js";
+import { persistSettings } from "./settings_store.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 

@@ -90,7 +90,7 @@ test("the generated editor restores Manager after save or cancel", async () => {
   const { showCharacterBrowserModal } = await import("../../frontend/library_browser.js");
   const { S } = await import("../../frontend/state.js");
   const tick = () => new Promise((resolve) => setImmediate(resolve));
-  S.characterBrowserView = "list";
+  S.settings.character_library_view = "list";
   api.get = async (path) => path === "/library/tags"
     ? { vocabulary: [], total: 0, pending: 0, tagged: 0, revision: "test" }
     : [];

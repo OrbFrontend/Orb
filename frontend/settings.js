@@ -1,15 +1,13 @@
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
-import { renderInspector, renderInspectorWorkflows, renderMessages } from "./chat.js";
 import { expressionPlaybackEnabled } from "./expression_playback.js";
 import { CLOSE_ICON } from "./icons.js";
-import { renderInteractiveFragments } from "./library_fragments.js";
-import { loadInspectorOpenStates } from "./message_inspector.js";
 import { closeModal, confirmDelete, setModalDismiss, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { loadAgentModelConfigs, loadEndpoints, loadJudgeConfig, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
-import { effectiveWorkflowEnabled, localMlReady, S } from "./state.js";
+import { applySettings, loadSettingsRow, persistSettings, saveSettings } from "./settings_store.js";
+import { effectiveWorkflowEnabled, localMlReady, notify, S } from "./state.js";
 import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -42,57 +40,8 @@ export async function initThemeList() {
 }
 
 export async function loadSettings() {
-  S.settings = await api.get("/settings");
-  S.activePersonaId = S.settings.active_persona_id || null;
-  S.characterBrowserView = S.settings.character_library_view || "grid";
-  S.characterBrowserSort = S.settings.character_library_sort || "time-added";
-  if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
-  if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
-
-  S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
-  S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
-
-  S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
-
-  S.directorIndividualFragments = Boolean(S.settings.director_individual_fragments);
-
-  if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
-  if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
-  if (S.settings.reasoning_enabled_passes)
-    S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
-  if (S.settings.reasoning_prefill_passes)
-    S.reasoningPrefill = { ...S.reasoningPrefill, ...S.settings.reasoning_prefill_passes };
-
-  loadInspectorOpenStates(S.settings.inspector_open_states);
-
-  if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
-  else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
-
-  if (typeof S.settings.show_chat_avatars === "number") S.showChatAvatars = S.settings.show_chat_avatars !== 0;
-  else if (typeof S.settings.show_chat_avatars === "boolean") S.showChatAvatars = S.settings.show_chat_avatars;
-
-  S.inspectorInline = Boolean(S.settings.inspector_inline);
-
-  if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
-    S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
-
-  if (typeof S.settings.hide_streaming_until_baked === "number")
-    S.hideUntilBaked = S.settings.hide_streaming_until_baked !== 0;
-  else if (typeof S.settings.hide_streaming_until_baked === "boolean")
-    S.hideUntilBaked = S.settings.hide_streaming_until_baked;
-
-  if (typeof S.settings.prevent_prompt_overrides === "number")
-    S.preventPromptOverrides = S.settings.prevent_prompt_overrides !== 0;
-  else if (typeof S.settings.prevent_prompt_overrides === "boolean")
-    S.preventPromptOverrides = S.settings.prevent_prompt_overrides;
-
-  if (typeof S.settings.agent_same_as_writer === "number") S.agentSameAsWriter = S.settings.agent_same_as_writer !== 0;
-  else if (typeof S.settings.agent_same_as_writer === "boolean") S.agentSameAsWriter = S.settings.agent_same_as_writer;
-  S.agentEndpointId = S.settings.agent_endpoint_id || null;
-
-  if (S.agentEndpointId) {
-    await loadAgentModelConfigs(S.agentEndpointId);
-  }
+  await loadSettingsRow();
+  await loadAgentModelConfigs();
 
   const endpointsSection = $("endpoints-section");
   if (endpointsSection && (!S.settings.endpoint_url || S.settings.endpoint_url.trim() === "")) {
@@ -199,10 +148,10 @@ function syncHideUntilBakedCard() {
 }
 
 const SETTING_TOGGLES = {
-  hideUntilBaked: toggleHideUntilBaked,
-  showChatAvatars: toggleShowChatAvatars,
-  inspectorInline: toggleInspectorInline,
-  preventPromptOverrides: togglePreventPromptOverrides,
+  hideUntilBaked: "hide_streaming_until_baked",
+  showChatAvatars: "show_chat_avatars",
+  inspectorInline: "inspector_inline",
+  preventPromptOverrides: "prevent_prompt_overrides",
 };
 
 function wireSettingsToggles(el) {
@@ -213,12 +162,10 @@ function wireSettingsToggles(el) {
   });
   el.addEventListener("change", (ev) => {
     const input = ev.target.closest("[data-setting-toggle]");
-    if (input) SETTING_TOGGLES[input.dataset.settingToggle]?.(input.checked);
+    const key = SETTING_TOGGLES[input?.dataset.settingToggle];
+    if (key) void persistSettings({ [key]: input.checked }, renderSettings);
     if (ev.target.matches("[data-expression-rendering]")) {
-      S.settings.expression_rendering = ev.target.value;
-      renderMessages(); // Classic ends any playback in progress
-      syncHideUntilBakedCard();
-      void persistSettings({ expression_rendering: ev.target.value });
+      void persistSettings({ expression_rendering: ev.target.value }, syncHideUntilBakedCard);
     }
   });
 }
@@ -258,7 +205,7 @@ function publishLocalMlFeatures(features) {
   S.localMlFeatures = features || {};
   if (mlReadySignature() === before) return;
   renderToolsPanel();
-  if (!S.isStreaming) renderMessages(); // the prose rewrite button gates on it
+  notify("local-ml");
 }
 
 const mlReadySignature = () =>
@@ -370,8 +317,7 @@ function onLocalMLChange(ev) {
 
 function applyLocalMlResponse(res) {
   if (!res || typeof res !== "object") return;
-  if (typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
-  renderMessages();
+  if (typeof res.local_ml_enabled === "object") applySettings({ local_ml_enabled: res.local_ml_enabled });
 }
 
 async function downloadLocalMlModel(feature, btn) {
@@ -443,101 +389,12 @@ export const AUDIT_TYPE_DEFS = [
   },
 ];
 
-export async function persistSettings(payload) {
-  try {
-    S.settings = await api.put("/settings", payload);
-  } catch (_e) {
-    toast("Failed to save setting", true);
-  }
-}
-
 function toggleToolsPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
     closeUtilityPanel("tools-panel", "tools-panel-btn");
   } else {
     openUtilityPanel("tools-panel", "tools-panel-btn", renderToolsPanel);
   }
-}
-
-async function setAgentEnabled(on) {
-  S.agentEnabled = on;
-  $("tools-panel-btn").style.opacity = on ? "1" : "0.5";
-  renderToolsPanel();
-  renderInteractiveFragments();
-  await persistSettings({ enable_agent: on });
-}
-
-async function toggleToolEnabled(id, on) {
-  S.enabledTools[id] = on;
-  renderToolsPanel();
-  // Direction gates before-Writer state updates, which the fragment list notes.
-  renderInteractiveFragments();
-  await persistSettings({ enabled_tools: S.enabledTools });
-}
-
-async function toggleLengthGuard(on) {
-  S.lengthGuardEnabled = on;
-  renderToolsPanel();
-  await persistSettings({ length_guard_enabled: on });
-}
-
-async function toggleLengthGuardEnforce(on) {
-  S.lengthGuardEnforce = on;
-  renderToolsPanel();
-  await persistSettings({ length_guard_enforce: on });
-}
-
-async function toggleAgenticLorebook(on) {
-  S.agenticLorebookEnabled = on;
-  renderToolsPanel();
-  await persistSettings({ agentic_lorebook_enabled: on });
-}
-
-async function toggleDirectorIndividualFragments(on) {
-  S.directorIndividualFragments = on;
-  renderToolsPanel();
-  await persistSettings({ director_individual_fragments: on });
-}
-
-async function toggleShowEditorDiff(on) {
-  S.showEditorDiff = on;
-  renderMessages();
-  renderToolsPanel();
-  await persistSettings({ show_editor_diff: on });
-}
-
-async function toggleAuditType(type, on) {
-  S.editorAuditToggles = { ...S.editorAuditToggles, [type]: on };
-  renderToolsPanel();
-  await persistSettings({ editor_audit_toggles: S.editorAuditToggles });
-}
-
-async function toggleHideUntilBaked(on) {
-  S.hideUntilBaked = on;
-  renderMessages();
-  renderSettings();
-  await persistSettings({ hide_streaming_until_baked: on });
-}
-
-async function toggleShowChatAvatars(on) {
-  S.showChatAvatars = on;
-  renderMessages();
-  renderSettings();
-  await persistSettings({ show_chat_avatars: on });
-}
-
-async function toggleInspectorInline(on) {
-  S.inspectorInline = on;
-  renderMessages();
-  renderInspector();
-  renderSettings();
-  await persistSettings({ inspector_inline: on });
-}
-
-async function togglePreventPromptOverrides(on) {
-  S.preventPromptOverrides = on;
-  renderSettings();
-  await persistSettings({ prevent_prompt_overrides: on });
 }
 
 async function saveLengthGuardConfig() {
@@ -553,33 +410,22 @@ async function saveLengthGuardConfig() {
     toast(parasValidation.error, true);
     return;
   }
-  S.lengthGuardMaxWords = words;
-  S.lengthGuardMaxParagraphs = paras;
   try {
-    S.settings = await api.put("/settings", { length_guard_max_words: words, length_guard_max_paragraphs: paras });
+    await saveSettings({ length_guard_max_words: words, length_guard_max_paragraphs: paras });
     toast("Length guard saved");
   } catch (_e) {
     toast("Failed to save length guard config", true);
   }
 }
 
-async function toggleWorkflowsGlobal(on) {
-  await persistSettings({ workflows_globally_enabled: on });
-  renderToolsPanel();
-  renderMessages();
-  renderInspectorWorkflows();
-}
-
 async function toggleWorkflowEnabled(wid, on) {
   try {
     const res = await api.post(`/workflows/${wid}/enabled`, { enabled: on });
-    if (res && typeof res.workflow_enabled === "object") S.settings.workflow_enabled = res.workflow_enabled;
+    if (res && typeof res.workflow_enabled === "object") applySettings({ workflow_enabled: res.workflow_enabled });
   } catch (_e) {
     toast("Failed to toggle workflow", true);
   }
   renderToolsPanel();
-  renderMessages();
-  renderInspectorWorkflows();
 }
 
 function buildWorkflowToggleRows() {
@@ -1126,7 +972,7 @@ async function showCleanupModal() {
       closeModal();
       const tail = r.compacted ? "" : " — disk space is returned on next restart";
       toast(`Freed ${formatBytes(r.bytes_reclaimed)}${tail}`);
-      renderMessages();
+      notify("attachments");
     } catch (e) {
       toast(`Cleanup failed: ${e.message}`, true);
       btn.disabled = false;
@@ -1161,16 +1007,21 @@ registerActions("settings", {
   accessPasswordKey: (_el, e) => e.key === "Enter" && setAccessPassword(),
   accessPasswordSet: () => setAccessPassword(),
   toggleToolsPanel: () => toggleToolsPanel(),
-  agentEnabled: (el) => setAgentEnabled(el.checked),
-  toolEnabled: (el) => toggleToolEnabled(el.dataset.toolId, el.checked),
-  auditType: (el) => toggleAuditType(el.dataset.auditKey, el.checked),
-  editorDiff: (el) => toggleShowEditorDiff(el.checked),
-  individualFragments: (el) => toggleDirectorIndividualFragments(el.checked),
-  agenticLorebook: (el) => toggleAgenticLorebook(el.checked),
-  lengthGuard: (el) => toggleLengthGuard(el.checked),
-  lengthGuardEnforce: (el) => toggleLengthGuardEnforce(el.checked),
+  agentEnabled: (el) => persistSettings({ enable_agent: el.checked }, renderToolsPanel),
+  toolEnabled: (el) =>
+    persistSettings({ enabled_tools: { ...S.enabledTools, [el.dataset.toolId]: el.checked } }, renderToolsPanel),
+  auditType: (el) =>
+    persistSettings(
+      { editor_audit_toggles: { ...S.editorAuditToggles, [el.dataset.auditKey]: el.checked } },
+      renderToolsPanel,
+    ),
+  editorDiff: (el) => persistSettings({ show_editor_diff: el.checked }, renderToolsPanel),
+  individualFragments: (el) => persistSettings({ director_individual_fragments: el.checked }, renderToolsPanel),
+  agenticLorebook: (el) => persistSettings({ agentic_lorebook_enabled: el.checked }, renderToolsPanel),
+  lengthGuard: (el) => persistSettings({ length_guard_enabled: el.checked }, renderToolsPanel),
+  lengthGuardEnforce: (el) => persistSettings({ length_guard_enforce: el.checked }, renderToolsPanel),
   lengthGuardConfig: () => saveLengthGuardConfig(),
-  workflowsGlobal: (el) => toggleWorkflowsGlobal(el.checked),
+  workflowsGlobal: (el) => persistSettings({ workflows_globally_enabled: el.checked }, renderToolsPanel),
   workflowEnabled: (el) => toggleWorkflowEnabled(el.dataset.workflowId, el.checked),
   phraseBank: () => showPhraseBankModal(),
   newPhraseGroup: () => showAddPhraseGroupModal(),

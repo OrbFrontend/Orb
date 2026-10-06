@@ -9,8 +9,6 @@ export { renderMessages } from "./chat_core.js";
 export {
   clearWorkflowPhase,
   loadWorkflowManifest,
-  renderInspector,
-  renderInspectorWorkflows,
   selectWorkflowPipelinePass,
   setWorkflowPhase,
   toggleInspector,

@@ -57,8 +57,24 @@ export function canStartGeneration() {
   return requestSendPermission();
 }
 
+// Settings the message list paints from.
+const MESSAGE_SETTINGS = [
+  "show_editor_diff",
+  "show_chat_avatars",
+  "hide_streaming_until_baked",
+  "inspector_inline",
+  "expression_rendering",
+  "local_ml_enabled",
+  "workflows_globally_enabled",
+  "workflow_enabled",
+];
+
 subscribe("cast", () => renderMessages());
 subscribe("expression-playback", () => renderMessages(true));
+subscribe("settings", (patch) => MESSAGE_SETTINGS.some((key) => key in patch) && renderMessages());
+subscribe("local-ml", () => S.isStreaming || renderMessages()); // the prose rewrite button gates on it
+subscribe("personas", () => S.showChatAvatars && renderMessages());
+subscribe("attachments", () => renderMessages());
 
 function normalizeMessages(msgs) {
   if (!Array.isArray(msgs)) return msgs;

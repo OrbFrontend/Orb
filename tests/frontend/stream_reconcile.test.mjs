@@ -284,7 +284,7 @@ it("expression playback holds a group turn only from the first speaker with expr
   S.activeConvId = "group";
   S.settings.expression_rendering = "expression";
   S.localMlFeatures.emotion_classifier = { present: true, enabled: true, deps_ok: true };
-  S.hideUntilBaked = false;
+  S.settings.hide_streaming_until_baked = false;
   S.contextSize = null;
   S.groupCast = { members: [{ id: 1, character_card_id: 7 }, { id: 2, character_card_id: 8 }] };
   S.allCharacters = [{ id: 7 }, { id: 8, has_expressions: 1 }];

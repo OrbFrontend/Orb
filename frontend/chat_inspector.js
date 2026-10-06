@@ -22,6 +22,7 @@ import {
 } from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
+import { applySettings, persistSettings } from "./settings_store.js";
 import {
   charactersView,
   conversationState,
@@ -166,12 +167,11 @@ function _passTextMode(key) {
 
 document.addEventListener("input", (e) => {
   if (e.target.id !== "reasoning-prefill") return;
-  S.reasoningPrefill[e.target.dataset.pass] = e.target.value;
+  applySettings({ reasoning_prefill_passes: { ...S.reasoningPrefill, [e.target.dataset.pass]: e.target.value } });
   S.reasoningUserOverride = true;
 });
 document.addEventListener("change", (e) => {
-  if (e.target.id === "reasoning-prefill")
-    api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
+  if (e.target.id === "reasoning-prefill") void persistSettings({ reasoning_prefill_passes: S.reasoningPrefill });
 });
 /** Rebuild the reasoning views. Returns whether any reasoning box now holds the full text. */
 function _refreshReasoningSection() {
@@ -280,7 +280,7 @@ export function selectWorkflowPipelinePass(pipelineId, passId) {
 }
 
 /** Workflow pipelines and cards, below the Main tab's own sections. */
-export function renderInspectorWorkflows() {
+function renderInspectorWorkflows() {
   const el = $("inspector-workflow-content");
   if (el) el.innerHTML = _buildWorkflowReasoningHtml() + _buildWorkflowCardsHtml();
 }
@@ -388,9 +388,9 @@ export async function loadWorkflowManifest() {
 }
 
 async function toggleReasoningPass(passKey) {
-  S.reasoningEnabled[passKey] = !S.reasoningEnabled[passKey];
-  _refreshReasoningSection();
-  await api.put("/settings", { reasoning_enabled_passes: { ...S.reasoningEnabled } });
+  await persistSettings({
+    reasoning_enabled_passes: { ...S.reasoningEnabled, [passKey]: !S.reasoningEnabled[passKey] },
+  });
 }
 
 function clearRefineDiff() {
@@ -617,6 +617,12 @@ async function _expressionTick() {
 }
 
 subscribe("expression-playback", () => void _expressionTick());
+subscribe("settings", (patch) => {
+  if ("inspector_inline" in patch || "agent_same_as_writer" in patch) renderInspector();
+  else if ("workflows_globally_enabled" in patch || "workflow_enabled" in patch) renderInspectorWorkflows();
+  else if ("reasoning_enabled_passes" in patch) _refreshReasoningSection();
+});
+subscribe("endpoints", () => renderInspector()); // the lane in use gates the prefill box
 
 export async function showAvatarPopup() {
   const charId = expressionCharId();

@@ -16,6 +16,7 @@ import { matchesFilter, tagsAttrFor, topTags } from "./library_filter.js";
 import { renderLibraryManager } from "./library_manager.js";
 import { avatarBust, loadCharacters } from "./library_sidebar.js";
 import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
+import { saveSettings } from "./settings_store.js";
 import { charactersView, S } from "./state.js";
 import { $, avatarCell, avatarUrl, convActivity, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -225,8 +226,7 @@ function setCharBrowserView(mode) {
   // Only the two card views are sticky. Internet and Manager are somewhere you go on purpose, not where you want the
   // library to open next time -- which also settles the long-standing quirk of Internet persisting itself.
   if (mode === "grid" || mode === "list") {
-    S.characterBrowserView = mode;
-    api.put("/settings", { character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));
+    saveSettings({ character_library_view: mode }).catch((e) => console.error("Failed to save view mode", e));
   }
   document.querySelectorAll("#char-browser-view-toggle .view-toggle-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === mode);
@@ -251,8 +251,7 @@ function onCharBrowserSearch() {
 
 function setCharBrowserSort(sortBy) {
   _browserSortBy = sortBy;
-  S.characterBrowserSort = sortBy;
-  api.put("/settings", { character_library_sort: sortBy }).catch((e) => console.error("Failed to save sort mode", e));
+  saveSettings({ character_library_sort: sortBy }).catch((e) => console.error("Failed to save sort mode", e));
   const select = document.getElementById("char-browser-sort");
   if (select) select.value = sortBy;
   renderCharBrowserItems();
