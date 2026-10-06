@@ -52,6 +52,44 @@ test('A to B to A selection rejects both older responses and blocks sending duri
   assert.equal(document.getElementById('send-btn').disabled, false);
 });
 
+test('opening a chat with inline Inspector loads saved replies and their logs', async (t) => {
+  const inline = S.settings.inspector_inline;
+  S.settings.inspector_inline = true;
+  t.after(() => { S.settings.inspector_inline = inline; });
+  S.conversations = [{ id: 'inline-chat', title: 'Inline chat' }];
+  const messages = [
+    { id: 20, role: 'assistant', content: 'First saved reply.' },
+    { id: 21, role: 'user', content: 'Continue.' },
+    { id: 22, role: 'assistant', content: 'Latest saved reply.' },
+  ];
+  const logs = {
+    20: { reasoning_writer: 'First saved thoughts.' },
+    22: { reasoning_writer: 'Latest saved thoughts.' },
+  };
+  const reads = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    const path = String(url);
+    reads.push(path);
+    const body = path.endsWith('/messages') ? messages
+      : path.includes('/director-logs?') ? logs
+      : path.endsWith('/director-log') ? logs[22]
+      : path.endsWith('/worlds') ? { world_ids: [] } : {};
+    return Response.json(body);
+  });
+
+  await selectConversation('inline-chat');
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(S.conversationLoading, false, document.getElementById('toast-stack').textContent);
+  assert.equal(document.getElementById('chat-input').disabled, false);
+  assert.equal(document.getElementById('send-btn').disabled, false);
+  assert.deepEqual(S.messages.map(message => message.id), [20, 21, 22]);
+  assert.ok(reads.includes('/api/conversations/inline-chat/director-logs?ids=20,22'));
+  const firstReply = document.querySelector('.message[data-msg-id="20"]');
+  assert.match(firstReply.textContent, /First saved reply\./);
+  assert.match(firstReply.querySelector('.msg-reasoning').textContent, /First saved thoughts\./);
+});
+
 test('dirty Generate reserves one run before saving and Stop blocks a replacement until settled', async (t) => {
   let row = { id: 'doc-a', title: 'A', revision: 0, content: 'Start', generated_spans: [] };
   S.documents = [row];

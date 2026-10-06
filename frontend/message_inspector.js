@@ -1,5 +1,6 @@
 // Build shared panel and in-chat Inspector sections from live turn state or cached
 // director logs. Open states are shared except the chat's Reasoning block.
+import { api } from "./api.js";
 import { decisionOutcomes, decisionsHtml } from "./chat_decisions.js";
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
 import { sectionHtml } from "./inspector_section.js";
