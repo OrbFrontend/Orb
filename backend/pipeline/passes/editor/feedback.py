@@ -10,6 +10,7 @@ from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage
+from ....core.settings import Settings
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import GIVE_FEEDBACK_CHOICE, build_feedback_tool
 from .prompts import build_feedback_prompt
@@ -48,7 +49,7 @@ async def feedback_step(
     client: LLMClient,
     base: CachedBase,
     reply_text: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     feedback_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],

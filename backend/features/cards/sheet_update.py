@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, TypedDict
 
 from ...core import agent_lane_cut_off, agent_lane_max_tokens
+from ...core.settings import Settings
 from ...inference import BRACES, LLMClient, ReplyCutOff, forced_draft, normalize
 
 SHEET_TOOL_NAME = "update_character_sheet"
@@ -138,7 +139,7 @@ def build_update_message(*, member_name: str, sheet: str, transcript: str) -> st
 
 
 async def propose_sheet_update(
-    client: LLMClient, model: str, *, member_name: str, sheet: str, transcript: str, settings: Mapping[str, Any]
+    client: LLMClient, model: str, *, member_name: str, sheet: str, transcript: str, settings: Settings
 ) -> SheetUpdate | None:
     """Drain and validate one forced sheet-update call; None means no durable change.
 

@@ -12,6 +12,7 @@ import httpx
 
 from ...core import WireMessage, agent_lane_cut_off, agent_lane_max_tokens
 from ...core.llm_types import CompletionMessage
+from ...core.settings import Settings
 from ...database import run_library_query
 from ...inference import (
     LLMCallError,
@@ -196,7 +197,7 @@ def _step_args(arguments: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _broken_step(response: Mapping[str, Any], query: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> str:
+def _broken_step(response: Mapping[str, Any], query: Mapping[str, Any] | None, settings: Settings) -> str:
     """Why a research reply is unusable, as a sentence, or ``""`` when it is a real choice.
 
     A reply cut at the budget, or a query whose arguments did not decode (the client degrades those to ``{}``), says nothing
@@ -222,7 +223,7 @@ def _stopped(step: int, reason: str, queries_run: int) -> str:
 
 
 async def generate_deep_card(
-    client: LLMClient, model: str, idea: str, *, settings: Mapping[str, Any], digest: str
+    client: LLMClient, model: str, idea: str, *, settings: Settings, digest: str
 ) -> AsyncIterator[DeepProgress | DeepDone]:
     """Research the library and draft a card, yielding progress and one done event."""
     messages: list[WireMessage] = [

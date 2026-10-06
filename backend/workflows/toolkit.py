@@ -33,6 +33,7 @@ from ..core import (
     workflow_state_lock,
 )
 from ..core.domain_types import AgentLane, CastMember, TurnCast
+from ..core.settings import Settings
 from ..core.text_segmentation import (
     CLOSE_QUOTES,
     OPEN_QUOTES,
@@ -141,6 +142,7 @@ __all__ = [
     "PostEvent",
     "PreEvent",
     "PublicEvent",
+    "Settings",
     "SetMessageStateEvent",
     "SystemPromptEvent",
     "ExportCtx",
@@ -238,7 +240,7 @@ def local_feature_available(feature: str) -> tuple[bool, str]:
     return _local_ml.available(feature)
 
 
-def local_feature_ready(feature: str, settings: Mapping[str, Any]) -> bool:
+def local_feature_ready(feature: str, settings: Settings) -> bool:
     """Return whether a local-ML feature is available and enabled."""
     available, _reason = local_feature_available(feature)
     enabled = settings.get("local_ml_enabled")
@@ -264,7 +266,7 @@ async def classify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
 _MARKUP_FEATURE = "markup_classifier"
 
 
-async def markup_axes(text: str, settings: Mapping[str, Any]) -> AxisStyle:
+async def markup_axes(text: str, settings: Settings) -> AxisStyle:
     """*text*'s markup convention: the local markup classifier's reading, or
     ``classify_axes`` when that model is off, missing, or failing.
 
@@ -305,7 +307,7 @@ def spark_voice_clean_reference_text(raw: object) -> str:
     return _spark_tts_host.clean_reference_text(raw)
 
 
-async def spark_voice_enroll(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> dict[str, Any]:
+async def spark_voice_enroll(data: bytes, settings: Settings, *, filename: str = "") -> dict[str, Any]:
     """Enroll an uploaded clip as a voice, with the advanced reference when it can be prepared.
 
     Returns ``speaker_tokens``, ``reference_tokens``, ``reference_text``, and ``reference_note`` (why the reference is missing
@@ -324,7 +326,7 @@ async def spark_voice_enroll(data: bytes, settings: Mapping[str, Any], *, filena
 async def spark_voice_speak(
     text: str,
     speaker_tokens: Sequence[int],
-    settings: Mapping[str, Any],
+    settings: Settings,
     *,
     reference_tokens: Sequence[int] = (),
     reference_text: str = "",
@@ -348,7 +350,7 @@ async def get_scene_cast(conversation_id: str) -> TurnCast:
 
 async def _turn_macros(
     conv: Mapping[str, Any],
-    settings: Mapping[str, Any],
+    settings: Settings,
     card: Mapping[str, Any] | None,
     cast: TurnCast,
     *,
@@ -363,7 +365,7 @@ async def _turn_macros(
     )
 
 
-async def conversation_macros(conversation_id: str, settings: Mapping[str, Any], *, seed: str | None = None) -> Macros:
+async def conversation_macros(conversation_id: str, settings: Settings, *, seed: str | None = None) -> Macros:
     """Build the macros for workflow-owned text in a conversation."""
     conv = await get_conversation(conversation_id)
     if conv is None:
@@ -374,7 +376,7 @@ async def conversation_macros(conversation_id: str, settings: Mapping[str, Any],
     return macros
 
 
-async def build_offturn_prefix(conversation_id: str, history, settings, *, lane: AgentLane = "writer") -> list[Any]:
+async def build_offturn_prefix(conversation_id: str, history, settings: Settings, *, lane: AgentLane = "writer") -> list[Any]:
     """Build the character and persona prefix for an off-turn call."""
     if lane not in ("writer", "agent"):
         raise ValueError(f"unknown off-turn model lane {lane!r}")

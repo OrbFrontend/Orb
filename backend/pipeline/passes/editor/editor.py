@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
+from ....core.settings import Settings
 from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
 from ..judge import JudgeConfig
@@ -138,7 +139,7 @@ async def editor_pass(
     base: CachedBase,
     effective_msg: str,
     draft: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     phrase_bank: list[PhraseGroup],
     audit_enabled: bool = True,
     length_guard: LengthGuard | None = None,
@@ -272,7 +273,7 @@ async def editor_stage(
     cfg: PipelineConfig,
     state: TurnState,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     phrase_bank: list[PhraseGroup] | None,
     feedback_fragments: Sequence[Mapping[str, Any]],
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
@@ -379,7 +380,7 @@ async def _run_edit_loop(
     base: CachedBase,
     effective_msg: str,
     draft: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     phrase_bank: list[PhraseGroup],
     audit_enabled: bool = True,
     length_guard: LengthGuard | None = None,

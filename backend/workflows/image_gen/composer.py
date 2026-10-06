@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
-from ..toolkit import forced_tool_call
+from ..toolkit import Settings, forced_tool_call
 from .config import DEFAULT_PROMPT_FORMAT
 from .pov import THIRD
 from .prompts import OFFER_TOOLS, compose_ooc, refine_ooc, render_result, select_skills_ooc
@@ -95,7 +95,7 @@ async def _forced_result(
     prefix,
     tail,
     tool_name,
-    settings,
+    settings: Settings,
     reasoning_on,
     call_id: str | None = None,
     raise_errors: bool = False,
@@ -148,7 +148,7 @@ async def read_image_skills(
     client: Any,
     model_name: str,
     prefix: Sequence[dict],
-    settings: Mapping[str, Any],
+    settings: Settings,
     skills: Sequence[Mapping[str, Any]],
     pov: str = THIRD,
     reasoning_on: bool = False,
@@ -219,7 +219,7 @@ async def compose_scene(
     client: Any,
     model_name: str,
     prefix: Sequence[dict],
-    settings: Mapping[str, Any],
+    settings: Settings,
     prompt_format: str = DEFAULT_PROMPT_FORMAT,
     pov: str = THIRD,
     reasoning_on: bool = False,
@@ -297,7 +297,7 @@ async def refine_scene(
     client: Any,
     model_name: str,
     prefix: Sequence[dict],
-    settings: Mapping[str, Any],
+    settings: Settings,
     thread: RefineThread,
     image_url: str,
     render: int,

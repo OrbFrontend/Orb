@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from ..core.settings import Settings
 from ..database import get_settings, set_local_ml_config
 from ..inference.local_models import whisper
 from ..inference.local_models.spark_tts import audio_in, catalog, codec, config, enroll, reference, service, tokens
@@ -42,30 +43,30 @@ def clean_reference_text(raw: object) -> str:
     return " ".join(str(raw or "").split())[: tokens.MAX_REFERENCE_TEXT]
 
 
-def _stored(settings: Mapping[str, Any], feature: str) -> dict:
+def _stored(settings: Settings, feature: str) -> dict:
     configs = settings.get("local_ml_config")
     stored = configs.get(feature) if isinstance(configs, Mapping) else None
     return dict(stored) if isinstance(stored, Mapping) else {}
 
 
-def _enabled(settings: Mapping[str, Any], feature: str) -> bool:
+def _enabled(settings: Settings, feature: str) -> bool:
     raw = settings.get("local_ml_enabled")
     return not isinstance(raw, Mapping) or raw.get(feature, True) is not False
 
 
-def use_gpu(settings: Mapping[str, Any]) -> bool:
+def use_gpu(settings: Settings) -> bool:
     """Whether the child is asked for a GPU build. Defaults on, like the rewriter."""
     return bool(_stored(settings, FEATURE_LLM).get("gpu", True))
 
 
-def enrollment_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
+def enrollment_ready(settings: Settings) -> tuple[bool, str]:
     """Can a clip be turned into 32 speaker tokens right now?"""
     if not _enabled(settings, FEATURE_CODEC):
         return False, "The Spark-TTS voice codec is switched off. Turn it on from the cloned voice in TTS settings."
     return catalog.codec_ready()
 
 
-def reference_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
+def reference_ready(settings: Settings) -> tuple[bool, str]:
     """Whether enrollment can prepare an advanced reference."""
     ok, reason = enrollment_ready(settings)
     if not ok:
@@ -79,7 +80,7 @@ def reference_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
     return whisper.ready()
 
 
-def synthesis_ready(settings: Mapping[str, Any]) -> tuple[bool, str]:
+def synthesis_ready(settings: Settings) -> tuple[bool, str]:
     """Can a line be spoken right now? Needs both halves and both toggles."""
     if not _enabled(settings, FEATURE_LLM):
         return False, "The Spark-TTS voice model is switched off. Turn it on from the cloned voice in TTS settings."
@@ -136,7 +137,7 @@ async def enroll_upload(data: bytes, *, filename: str = "", with_reference: bool
     return await asyncio.to_thread(run)
 
 
-async def enroll_voice(data: bytes, settings: Mapping[str, Any], *, filename: str = "") -> Enrollment:
+async def enroll_voice(data: bytes, settings: Settings, *, filename: str = "") -> Enrollment:
     """Enroll a clip for the TTS workflow, with the advanced reference when it can be prepared.
 
     An unreadable file raises ``WorkflowInputError`` and a voice model that is not set up raises ``WorkflowUnavailableError``,
@@ -169,7 +170,7 @@ async def reference_audio(reference_tokens: Sequence[int], speaker_tokens: Seque
 async def synthesize(
     text: str,
     speaker_tokens: Sequence[int],
-    settings: Mapping[str, Any],
+    settings: Settings,
     *,
     reference_tokens: Sequence[int] = (),
     reference_text: str = "",
@@ -185,7 +186,7 @@ async def synthesize(
 class _LlmManagement:
     """Local ML route hooks for the llama-server half."""
 
-    async def status_extra(self, settings: Mapping[str, Any]) -> dict:
+    async def status_extra(self, settings: Settings) -> dict:
         return {"gpu": use_gpu(settings), **service.state()}
 
     async def apply_config(self, body: Mapping[str, Any]) -> dict:

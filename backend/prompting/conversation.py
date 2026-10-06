@@ -10,9 +10,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..core import Macros, card_description
+from ..core.settings import Settings
 
 
-def resolve_persona_id(conv: Mapping[str, Any], card: Mapping[str, Any] | None, settings: Mapping[str, Any]) -> int | None:
+def resolve_persona_id(conv: Mapping[str, Any], card: Mapping[str, Any] | None, settings: Settings) -> int | None:
     """Return the effective persona id for a turn.
 
     Priority: conversation pin -> character-card pin -> global active persona.
@@ -28,7 +29,7 @@ def conversation_macro_seed(conv: Mapping[str, Any]) -> str:
 
 
 def persona_macros(
-    settings: Mapping[str, Any],
+    settings: Settings,
     char_name: str,
     persona: Mapping[str, Any] | None,
     seed: str = "",
@@ -49,7 +50,7 @@ def persona_macros(
 
 
 def char_context(
-    settings: Mapping[str, Any], card: Mapping[str, Any] | None, shared_key: str = "shared_system_prompt"
+    settings: Settings, card: Mapping[str, Any] | None, shared_key: str = "shared_system_prompt"
 ) -> tuple[str, str, str]:
     """Resolve the effective system prompt, persona, and example messages.
 

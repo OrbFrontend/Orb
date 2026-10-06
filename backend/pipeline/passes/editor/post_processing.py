@@ -11,6 +11,7 @@ from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....core.settings import Settings
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
 from ..judge import JudgeConfig
@@ -76,7 +77,7 @@ async def post_processing_step(
     client: LLMClient,
     base: CachedBase,
     draft: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     post_processing_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],

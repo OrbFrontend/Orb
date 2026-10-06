@@ -7,6 +7,7 @@ from typing import Any
 
 from .domain_types import AgentLane
 from .llm_types import ContentPart
+from .settings import Settings
 
 #: Heuristic characters-per-token ratio used for rough context-size estimates.
 #: This is the one convention referenced throughout (see AGENTS.md -> Context
@@ -36,7 +37,7 @@ def scrub_log(value: object) -> str:
 _HYPERPARAM_KEYS = ("temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty")
 
 
-def extract_hyperparams(settings: Mapping[str, Any], *, lane: AgentLane = "writer") -> dict:
+def extract_hyperparams(settings: Settings, *, lane: AgentLane = "writer") -> dict:
     """Extract hyperparameters for the calling lane.
 
     Agent keys fall back per key to Writer values when absent. Explicit None omits a parameter. Every value goes out exactly as
@@ -46,10 +47,7 @@ def extract_hyperparams(settings: Mapping[str, Any], *, lane: AgentLane = "write
     params: dict[str, Any] = {}
     for key in _HYPERPARAM_KEYS:
         lane_key = f"{prefix}{key}"
-        if prefix and lane_key in settings:
-            value = settings[lane_key]
-        else:
-            value = settings.get(key)
+        value = settings.get(lane_key) if prefix and lane_key in settings else settings.get(key)
         if value is not None:
             params[key] = value
     return params
@@ -59,7 +57,7 @@ def extract_hyperparams(settings: Mapping[str, Any], *, lane: AgentLane = "write
 _DEFAULT_MAX_TOKENS = 4096
 
 
-def agent_lane_max_tokens(settings: Mapping[str, Any]) -> int:
+def agent_lane_max_tokens(settings: Settings) -> int:
     """The agent lane's configured reply budget.
 
     The lane cascade is ``extract_hyperparams``'; this is the spelling for a
@@ -68,7 +66,7 @@ def agent_lane_max_tokens(settings: Mapping[str, Any]) -> int:
     return int(extract_hyperparams(settings, lane="agent").get("max_tokens") or _DEFAULT_MAX_TOKENS)
 
 
-def agent_lane_cut_off(settings: Mapping[str, Any]) -> str:
+def agent_lane_cut_off(settings: Settings) -> str:
     """The sentence for an agent-lane reply that stopped at its budget.
 
     It names the field the user edits: the ``agent_`` twin is present only when a separate Agent lane resolves, and otherwise

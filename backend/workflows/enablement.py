@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
+from ..core.settings import Settings
 from .registry import list_workflows
 
 
-def effective_workflow_enabled(workflow_id: str, settings: Mapping) -> bool:
+def effective_workflow_enabled(workflow_id: str, settings: Settings) -> bool:
     """True when *workflow_id* is enabled both globally and per-workflow.
 
     The ``isinstance(dict)`` coercion (rather than ``or {}``) is deliberate: if the ``workflow_enabled`` decode in
@@ -22,7 +21,7 @@ def effective_workflow_enabled(workflow_id: str, settings: Mapping) -> bool:
     return global_on and local_on
 
 
-def disabled_workflow_tool_names(settings: Mapping) -> set[str]:
+def disabled_workflow_tool_names(settings: Settings) -> set[str]:
     """Tool names owned by workflows that are currently disabled.
 
     Empty when no disabled workflow declares tools (the case today), so its one

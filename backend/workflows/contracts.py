@@ -9,6 +9,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
+from ..core.settings import Settings
+
 if TYPE_CHECKING:
     from ..inference import KVCacheTracker, LLMClient
 
@@ -93,7 +95,7 @@ class PreCtx:
     conversation_id: str
     history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: Mapping[str, Any]
+    settings: Settings
     prefix: tuple[Mapping[str, Any], ...]
     enabled_tools_pre_merge: Mapping[str, bool]
     turn_scratch: dict[str, Any]
@@ -118,7 +120,7 @@ class PostCtx:
     draft: str
     effective_msg: str
     director_output: Mapping[str, Any]
-    settings: Mapping[str, Any]
+    settings: Settings
     prefix: tuple[Mapping[str, Any], ...]
     enabled_tools: Mapping[str, bool]
     turn_scratch: dict[str, Any]
@@ -143,7 +145,7 @@ class OnDemandCtx:
     conversation_id: str
     history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: Mapping[str, Any]
+    settings: Settings
     client: LLMClient
     agent_client: LLMClient
     agent_model_name: str
@@ -161,7 +163,7 @@ class RegenCtx:
     original_attachment: Mapping[str, Any]
     history: tuple[Mapping[str, Any], ...]
     last_user_message: str
-    settings: Mapping[str, Any]
+    settings: Settings
     client: LLMClient
     agent_client: LLMClient
     agent_model_name: str
@@ -185,7 +187,7 @@ class RerollGenCtx:
     message_id: int
     attachment_id: int
     original_attachment: Mapping[str, Any]
-    settings: Mapping[str, Any]
+    settings: Settings
     client: LLMClient
     prior_consumption_metadata: Mapping[str, Any] | None = None
     # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it required -- so the default covers only a ctx
@@ -199,7 +201,7 @@ class RerollGenCtx:
 class QueryCtx:
     """Inputs available to a workflow's query hook."""
 
-    settings: Mapping[str, Any]
+    settings: Settings
 
 
 @dataclass(frozen=True)
@@ -210,7 +212,7 @@ class UploadCtx:
     any state it rewrites, so slow processing of the file holds nothing.
     """
 
-    settings: Mapping[str, Any]
+    settings: Settings
     character_id: str
     character: Mapping[str, Any]
     filename: str

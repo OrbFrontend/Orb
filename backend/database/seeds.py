@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..core.settings import ConnectionSettings, Settings
+
 SEED_MOOD_FRAGMENTS = [
     {
         "id": "talkative",
@@ -278,7 +280,7 @@ DEFAULT_ENABLED_TOOLS = {"direct_scene": True, "editor_apply_patch": False, "edi
 
 # The endpoint and model a fresh install or a reset starts on. They seed the endpoints row and its Writer and Agent
 # model_configs; the settings table has no columns for them.
-DEFAULT_CONNECTION = {
+DEFAULT_CONNECTION: ConnectionSettings = {
     "endpoint_url": "http://localhost:5000/v1",
     "api_key": "",
     "model_name": "default",
@@ -290,7 +292,7 @@ DEFAULT_CONNECTION = {
     "max_tokens": 4096,
 }
 
-DEFAULT_SETTINGS = {
+DEFAULT_SETTINGS: Settings = {
     # get_settings() overlays these keys from the active endpoint and model config; with no settings row at all they read as
     # the default connection.
     **DEFAULT_CONNECTION,

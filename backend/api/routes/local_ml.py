@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from fastapi import APIRouter, Body, HTTPException
 
+from ...core.settings import Settings
 from ...database import get_settings, set_local_ml_enabled
 from ...inference import local_ml
 from ...inference.local_models import assets, catalog, dependencies, llama_server, onnx_runtime
@@ -32,7 +33,7 @@ class _FeatureManagement(Protocol):
     Keep behaviour here rather than on inference ModelSpec to avoid upward dependencies.
     """
 
-    async def status_extra(self, settings: Mapping[str, Any]) -> dict: ...
+    async def status_extra(self, settings: Settings) -> dict: ...
 
     async def on_enabled(self, enabled: bool) -> None: ...
 

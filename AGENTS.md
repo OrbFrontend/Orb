@@ -30,6 +30,7 @@ Before changing prompt assembly, pass ordering, tool schemas, or streaming behav
 - Type SQLite flags as `int` (`0` or `1`), not `bool`.
 - Decode JSON columns at the boundary where they are read; keep free-form JSON untyped unless a contract is needed.
 - Keep Pyright at zero errors. Prefer widening a consumer to `Mapping` or `Sequence` over adding an ignore.
+- Code that reads settings takes `backend.core.settings.Settings` (plug-ins import it from the toolkit), never a bare mapping. Add a new key to `Settings` before reading it; `tests/unit/test_settings_contract.py` rejects untyped settings and undeclared keys.
 - A leading underscore means module-private. Give a name a public spelling before another module imports it; both layer checkers reject cross-module `_name` imports.
 - When changing the schema, update the schema definition, models, API schemas where applicable, seeds, and migrations together.
 - Add routes under `api/routes/` and register their router in `api/routes/__init__.py`.

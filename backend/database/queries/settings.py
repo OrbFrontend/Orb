@@ -4,26 +4,22 @@ import json
 from collections.abc import Mapping
 from typing import Any, cast
 
+from ...core.settings import ConnectionSettings, Settings
 from ..connection import build_set_clause, get_db, select_rows
-from ..models import CardSourceAuth, SettingsRow
+from ..models import CardSourceAuth
 from ..seeds import DEFAULT_CONNECTION, DEFAULT_SETTINGS
 
 # What get_settings() reports when no active endpoint, or no active Writer model config on it, supplies these keys: no
 # connection and no model, so a turn fails at the client instead of reaching a server nobody selected, and the default
 # connection's samplers.
-_UNSELECTED_CONNECTION: dict[str, Any] = {
-    "endpoint_url": "",
-    "api_key": "",
-    "model_name": "",
-    **{key: DEFAULT_CONNECTION[key] for key in ("temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens")},
-}
+_UNSELECTED_CONNECTION: ConnectionSettings = {**DEFAULT_CONNECTION, "endpoint_url": "", "api_key": "", "model_name": ""}
 
 
-async def get_settings() -> SettingsRow:
+async def get_settings() -> Settings:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM settings WHERE id = 1"))
         if not rows:
-            return cast(SettingsRow, DEFAULT_SETTINGS)
+            return DEFAULT_SETTINGS
         s = dict(rows[0])
         s["enabled_tools"] = json.loads(s.get("enabled_tools") or "{}")
         s["reasoning_enabled_passes"] = json.loads(
@@ -162,7 +158,7 @@ async def get_settings() -> SettingsRow:
         for field in ("reasoning_effort", "reasoning_effort_param", "reasoning_effort_value", "extra_headers", "extra_body"):
             s.setdefault(field, "")
             s.setdefault(f"agent_{field}", s[field])
-        return cast(SettingsRow, s)
+        return cast(Settings, s)
 
 
 # Empty slot returns {} here; per-workflow default fallback lives in the registry wrapper that owns the Workflow objects, so
@@ -247,7 +243,7 @@ async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
         await db.commit()
 
 
-async def update_settings(data: dict) -> SettingsRow:
+async def update_settings(data: dict) -> Settings:
     async with get_db() as db:
         allowed = [
             # The connection, model name and hyperparameters are not settings columns: they are edited on the endpoint
@@ -343,7 +339,7 @@ async def set_card_source_auth(source: str, auth: CardSourceAuth | None) -> None
 
 # -- Decision classifier configuration --
 # Keep endpoint-kind validation out of the generic settings writer.
-async def update_decision_config(data: Mapping[str, Any]) -> SettingsRow:
+async def update_decision_config(data: Mapping[str, Any]) -> Settings:
     sets, vals = build_set_clause(["decision_endpoint_id", "decision_model"], dict(data))
     if sets:
         async with get_db() as db:

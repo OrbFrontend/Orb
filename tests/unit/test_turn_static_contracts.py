@@ -28,6 +28,7 @@ from backend.pipeline.events import (
     ResultEvent, SpeakerDoneData, TurnStateEvent,
 )
 from backend.pipeline.failures import reported_once, staged
+from backend.core.settings import Settings
 from backend.pipeline.orchestrator import run_pipeline
 from backend.pipeline.persistence import consume_pipeline, conversation_log_writer
 from backend.pipeline.state import TurnResultData, TurnState
@@ -35,12 +36,12 @@ from backend.pipeline.state import TurnResultData, TurnState
 async def boundaries(
     client: LLMClient, events: AsyncIterator[PipelineEvent],
     public: AsyncIterator[PublicTurnEvent], req: Request,
-    internal: AsyncIterator[ResultEvent | TurnStateEvent],
+    internal: AsyncIterator[ResultEvent | TurnStateEvent], settings: Settings,
 ) -> None:
-    assert_type(run_pipeline(client, {}, {"conversation_id": "c", "keywords": [], "macro_choices": {}, "active_moods": []}, [], [], "hi", prefix=[],
+    assert_type(run_pipeline(client, settings, {"conversation_id": "c", "keywords": [], "macro_choices": {}, "active_moods": []}, [], [], "hi", prefix=[],
                             enabled_tools={}, turn_scratch={}, kv_tracker=KVCacheTracker(),
                             schema_overrides={}), AsyncIterator[PipelineEvent])
-    assert_type(consume_pipeline(events, "c", {}, 1, 2), AsyncIterator[PublicTurnEvent])
+    assert_type(consume_pipeline(events, "c", settings, 1, 2), AsyncIterator[PublicTurnEvent])
     assert_type(reported_once(public, None), AsyncIterator[PublicTurnEvent])
     assert_type(staged("writer", events), AsyncIterator[PipelineEvent])
     assert_type(handle_turn("c", "hi"), AsyncIterator[PublicTurnEvent])

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Mapping
-from typing import Any
+from collections.abc import AsyncIterator
 
 from .. import database as db
+from ..core.settings import Settings
 from ..features.cards import SHEET_TOOL_NAME, SheetUpdateUnavailable, build_exchange_transcript, propose_sheet_update
 from .events import CoreTurnEvent
 from .failures import STAGE_AFTER_REPLY, step_failure_warning
@@ -27,7 +27,7 @@ def _exchange_transcript(turn: SheetUpdateTurn, state: TurnState, speaker_name: 
 
 
 async def sheet_update_stage(
-    cfg: PipelineConfig, state: TurnState, *, settings: Mapping[str, Any], turn: SheetUpdateTurn
+    cfg: PipelineConfig, state: TurnState, *, settings: Settings, turn: SheetUpdateTurn
 ) -> AsyncIterator[CoreTurnEvent]:
     """Propose and stage sheet updates for the members this exchange touched.
 

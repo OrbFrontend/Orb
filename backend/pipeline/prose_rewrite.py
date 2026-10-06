@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .. import database as db
+from ..core.settings import Settings
 from ..database.models import CharacterCardRow, ConversationRow
 from ..inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings
 from ..workflows.prose_rewriter_host import RERUN_AFTER_REWRITE
@@ -42,7 +43,7 @@ async def _speaker_card(conv: ConversationRow | None, message: Mapping[str, Any]
 
 
 async def rerun_after_prose_rewrite(
-    cid: str, message: Mapping[str, Any], draft: str, settings: Mapping[str, Any], abort_token: AbortToken
+    cid: str, message: Mapping[str, Any], draft: str, settings: Settings, abort_token: AbortToken
 ) -> str:
     """Re-run the post workflows a rewrite invalidates on *draft*, as the character who wrote *message*."""
     history = await db.get_messages_before(cid, message["id"])

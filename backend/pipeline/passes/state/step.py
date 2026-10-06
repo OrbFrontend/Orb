@@ -20,6 +20,7 @@ from ....core import (
     plan_state_ops,
 )
 from ....core.llm_types import CompletionMessage
+from ....core.settings import Settings
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import UPDATE_STATE_CHOICE, build_state_tool
 from .prompts import AliasedEntry, build_state_request, entry_aliases
@@ -128,7 +129,7 @@ async def state_step(
     client: LLMClient,
     base: CachedBase,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     fragments: Sequence[StateFragment],
     view: StateView,
     placement: str,

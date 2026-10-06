@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
 from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macros, StateView, carry_events
+from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
 from .config import resolve_pipeline_config, split_interactive_fragments
@@ -77,7 +78,7 @@ async def run_director_stage(
     cfg: PipelineConfig,
     state: TurnState,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
@@ -122,7 +123,7 @@ async def run_director_stage(
 
 async def run_pipeline(
     client: LLMClient,
-    settings: Mapping[str, Any],
+    settings: Settings,
     director: BranchBaseline,
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],

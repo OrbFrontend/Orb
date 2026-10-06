@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
+from ..core.settings import Settings
 from ..database.queries.workflow_attachments import staging_root
 from ..inference import AbortToken, KVCacheTracker, LLMClient, until_aborted
 from ..prompting.tool_catalog import has_tool
@@ -87,7 +88,7 @@ async def run_post_pipeline(
     history: Sequence[Mapping[str, Any]] | None,
     effective_msg: str,
     director_output: dict,
-    settings: Mapping[str, Any],
+    settings: Settings,
     prefix: list[ChatMessage],
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
@@ -323,7 +324,7 @@ async def iterate_pre_pipeline_hooks(
     card: Mapping[str, Any] | None = None,
     history: Sequence[Mapping[str, Any]],
     last_user_message: str,
-    settings: Mapping[str, Any],
+    settings: Settings,
     prefix_base: list[ChatMessage],
     enabled_tools_pre_merge: Mapping[str, bool],
     turn_scratch: dict,

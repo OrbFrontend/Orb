@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...core.macros import Macros, card_description, resolve_inline
+from ...core.settings import Settings
 from ...database import (
     clear_writer_draft,
     delete_message_with_descendants,
@@ -244,7 +245,7 @@ async def api_magic_rewrite_msg(
 
 
 async def _stream_prose_rewrite_message(
-    cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Mapping[str, Any] | None = None
+    cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Settings | None = None
 ) -> AsyncIterator[PublicEvent]:
     """Stream the retained draft or saved text through the local rewriter.
 

@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any
 
 from ..toolkit import (
+    Settings,
     markup_axes,
     spark_voice_clean_reference_text,
     spark_voice_clean_reference_tokens,
@@ -210,7 +211,7 @@ def build_generation_metadata(text: str, profile: dict, blocks: list[dict] | Non
     return md
 
 
-def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
+def _backend_kwargs(profile: dict, settings: Settings | None) -> dict:
     """Pass optional backend profile fields through a shared kwargs shape.
 
     Include Spark speaker/reference tokens only for its profile. Preserve absent
@@ -225,7 +226,7 @@ def _backend_kwargs(profile: dict, settings: Mapping[str, Any] | None) -> dict:
     }
 
 
-async def synthesize(text: str, profile: dict, *, settings: Mapping[str, Any] | None = None) -> tuple[bytes, str]:
+async def synthesize(text: str, profile: dict, *, settings: Settings | None = None) -> tuple[bytes, str]:
     """Render ``text`` to audio under ``profile``. Returns ``(bytes, mime)``.
 
     Raises ``ValueError`` for an unknown backend (from ``get_adapter``) or when the backend produces no audio.
@@ -339,7 +340,7 @@ async def synthesize_blocks(
     text: str,
     profile: dict,
     *,
-    settings: Mapping[str, Any] | None = None,
+    settings: Settings | None = None,
     speech_chunks: Sequence[dict] | None = None,
     legacy: bool = False,
 ) -> tuple[bytes, str, list[dict]]:

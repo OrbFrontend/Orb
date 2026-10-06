@@ -8,6 +8,8 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from datetime import datetime
 from typing import Any, NamedTuple
 
+from .settings import Settings
+
 # Internal helpers
 
 
@@ -255,7 +257,7 @@ class Macros(NamedTuple):
     @classmethod
     def from_settings(
         cls,
-        settings: Mapping[str, Any],
+        settings: Settings,
         char_name: str,
         active_persona: Mapping[str, Any] | None = None,
         seed: str = "",

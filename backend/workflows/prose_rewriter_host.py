@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
+from ..core.settings import Settings
 from ..database import get_settings, set_local_ml_config
 from ..inference.local_models.llama_server import LaunchProfile
 from ..inference.local_models.prose_rewriter import catalog, config
@@ -32,7 +33,7 @@ _BACKGROUND: set[asyncio.Task] = set()
 _WARMING: set[asyncio.Task] = set()
 
 
-def resolve_config(settings: Mapping[str, Any]) -> ProseRewriteConfig | None:
+def resolve_config(settings: Settings) -> ProseRewriteConfig | None:
     """Resolve the model selection used by automatic and manual rewrites.
 
     The workflow toggle is the rewriter's on/off switch for both paths; the
@@ -95,7 +96,7 @@ async def _prewarm(profile: LaunchProfile) -> None:
         logger.warning("Prose rewriter pre-warm failed", exc_info=True)
 
 
-def _stored(settings: Mapping[str, Any]) -> dict:
+def _stored(settings: Settings) -> dict:
     configs = settings.get("local_ml_config")
     stored = configs.get(FEATURE) if isinstance(configs, Mapping) else None
     return dict(stored) if isinstance(stored, Mapping) else {}
@@ -108,7 +109,7 @@ def _apply(profile: LaunchProfile | None) -> None:
         _spawn(_prewarm(profile), _WARMING)
 
 
-async def status_extra(settings: Mapping[str, Any]) -> dict:
+async def status_extra(settings: Settings) -> dict:
     """Return Local ML status fields specific to this workflow's engine."""
     stored = _stored(settings)
     return {
@@ -152,7 +153,7 @@ async def apply_config(body: Mapping[str, Any]) -> dict:
     return settings.get("local_ml_config", {})
 
 
-async def _stored_profile(settings: Mapping[str, Any]) -> LaunchProfile | None:
+async def _stored_profile(settings: Settings) -> LaunchProfile | None:
     stored = _stored(settings)
     return config.profile_for_selection(
         catalog.resolve(str(stored.get("variant") or "")),

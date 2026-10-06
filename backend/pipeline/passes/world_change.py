@@ -10,6 +10,7 @@ from typing import Any
 
 from ...core import ChatMessage, ContentPart, extract_hyperparams
 from ...core.llm_types import CompletionMessage, ParsedToolCall
+from ...core.settings import Settings
 from ...features.lorebook import build_world_change_catalog, parse_proposal_call, validate_proposal
 from ...inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ...prompting.tool_schemas import PROPOSE_WORLD_CHANGES_CHOICE, PROPOSE_WORLD_CHANGES_TOOL
@@ -42,7 +43,7 @@ async def world_change_step(
     client: LLMClient,
     base: CachedBase,
     *,
-    settings: Mapping[str, Any],
+    settings: Settings,
     entries: Sequence[Mapping[str, Any]],
     worlds: Sequence[Mapping[str, Any]] = (),
     reply_text: str,

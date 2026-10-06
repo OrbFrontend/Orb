@@ -25,13 +25,14 @@ from backend.inference.chat_stream import ChatStream, consume_openai
 from backend.inference.claude_code import ClaudeCodeClient
 from backend.inference.cached_call import cached_complete
 from backend.inference.text_completion import forced_tool_message, normalize_prob_records
+from backend.core.settings import Settings
 from backend.pipeline.passes.writer import writer_pass
 from backend.pipeline.state import TurnState
 
 async def boundaries(
     client: LLMClient, cli: ClaudeCodeClient, base: CachedBase,
     payloads: AsyncIterable[str], document: DocumentContinuer,
-    readonly: Mapping[str, Any], events: AsyncIterator[CompletionEvent],
+    readonly: Mapping[str, Any], events: AsyncIterator[CompletionEvent], settings: Settings,
 ) -> None:
     assert_type(client.complete([], "m"), AsyncIterator[CompletionEvent])
     assert_type(client.complete_raw("prompt", "m"), AsyncIterator[CompletionEvent])
@@ -49,7 +50,7 @@ async def boundaries(
     assert_type(parse_tool_calls(readonly), list[ParsedToolCall])
     assert_type(forced_tool_message("tool", "{}"), CompletionMessage)
     assert_type(normalize_prob_records([]), list[TokenProbability])
-    assert_type(writer_pass(client, base, {}, "prompt"), AsyncIterator[ContentDelta | ReasoningDelta])
+    assert_type(writer_pass(client, base, settings, "prompt"), AsyncIterator[ContentDelta | ReasoningDelta])
     assert_type(TurnState().calls, list[ParsedToolCall])
     assert_type(await forced_turn(client, "m", messages=[], tools=[], forced="tool", max_tokens=10, reasoning_on=False), CompletionMessage)
     async for event in document.stream("prompt", "m"):
