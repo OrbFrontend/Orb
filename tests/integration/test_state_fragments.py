@@ -7,8 +7,6 @@ validation, branch behaviour, carried corrections, group exchanges, partial save
 tab routes, and the tools-blob invariants.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 from unittest.mock import patch
@@ -126,8 +124,7 @@ async def test_after_reply_entries_update_replays_the_reply_and_commits_with_it(
     assert "Current State" not in _injection(events)
     llm_mock.enqueue_writer("Later.")
     llm_mock.enqueue_state(_state_call())
-    later = await _drain(handle_turn(cid, "next"))
-    assert f"Threads:\n- {_THREAD}" in _injection(later)
+    assert f"Threads:\n- {_THREAD}" in _injection(await _drain(handle_turn(cid, "next")))
 
 
 async def test_before_writer_entries_update_reaches_the_same_replys_writer(client, db, llm_mock):
@@ -145,8 +142,7 @@ async def test_before_writer_entries_update_reaches_the_same_replys_writer(clien
     assert order.index("director") < order.index("state") < order.index("writer")
     assert f"Threads:\n- {_THREAD}" in _injection(events)
     # The step sees the user's message and the scene direction it reflects on.
-    request = _requests(llm_mock, "state")[0]
-    assert '"""hello"""' in request
+    assert '"""hello"""' in _requests(llm_mock, "state")[0]
     assert await _active_state(cid) == {"threads": [_THREAD]}
 
 
@@ -171,17 +167,12 @@ async def test_before_writer_value_rides_direct_scene_with_old_to_new_for_the_wr
 
     llm_mock.enqueue_director(_direct(trust="wary"))
     llm_mock.enqueue_writer("One.")
-    first = await _drain(handle_turn(cid, "one"))
-    assert "Trust: wary" in _injection(first)
+    assert "Trust: wary" in _injection(await _drain(handle_turn(cid, "one")))
     first_id = (await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"]))[0]["entry_id"]
 
     llm_mock.enqueue_director(_direct(trust="warming"))
     llm_mock.enqueue_writer("Two.")
-    second = await _drain(handle_turn(cid, "two"))
-
-    # The Writer sees the transition on the turn it changes; the Director saw the
-    # prior value in its own update lines, not a second time in an injected block.
-    assert "Trust: wary -> warming" in _injection(second)
+    assert "Trust: wary -> warming" in _injection(await _drain(handle_turn(cid, "two")))
     director_request = _requests(llm_mock, "director")[-1]
     assert "Saved state fields - leave a field empty to keep it" in director_request
     assert "* trust: wary" in director_request
@@ -197,8 +188,7 @@ async def test_before_writer_value_rides_direct_scene_with_old_to_new_for_the_wr
     # Omitted -- or empty -- keeps the value, and the Writer still sees it.
     llm_mock.enqueue_director(_direct(trust=""))
     llm_mock.enqueue_writer("Three.")
-    third = await _drain(handle_turn(cid, "three"))
-    assert "Trust: warming" in _injection(third)
+    assert "Trust: warming" in _injection(await _drain(handle_turn(cid, "three")))
     assert await _active_state(cid) == {"trust": ["warming"]}
 
 
@@ -292,7 +282,7 @@ async def test_disabled_fragment_is_neither_updated_nor_injected(client, db, llm
 
     assert [p for p, _ in llm_mock.calls].count("state") == 1
     assert "Threads" not in _injection(events)
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     threads = next(f for f in panel["fragments"] if f["fragment_id"] == "threads")
     # Disabling stops updates but keeps the saved state, shown read-only.
     assert threads["read_only"] and [e["text"] for e in threads["entries"]] == [_THREAD]
@@ -309,9 +299,7 @@ async def test_injection_targets_are_per_fragment(client, db, llm_mock):
 
     llm_mock.enqueue_director(_direct())
     llm_mock.enqueue_writer("A reply.")
-    events = await _drain(handle_turn(cid, "hello"))
-
-    writer_block = _injection(events)
+    writer_block = _injection(await _drain(handle_turn(cid, "hello")))
     director_request = _requests(llm_mock, "director")[0]
     assert "- to_writer" in writer_block and "- to_both" in writer_block
     assert "- to_director" not in writer_block and "- to_none" not in writer_block
@@ -368,7 +356,7 @@ async def test_keep_semantics_for_skipped_empty_and_malformed_calls(client, db, 
     assert {r["reason"] for r in rejected} == {"malformed", "unknown_entry", "unknown_fragment"}
     # The Inspector reads them back from the reply's log.
     last = await _last_assistant(cid)
-    log = (await client.get(f"/api/conversations/{cid}/messages/{last['id']}/director-log")).json()
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{last['id']}/director-log")
     assert {r["reason"] for r in log["state"]["rejected"]} == {"malformed", "unknown_entry", "unknown_fragment"}
     assert log["state"]["changes"] == []
 
@@ -383,7 +371,7 @@ async def test_over_limit_add_is_rejected_and_the_fragment_shows_full(client, db
 
     assert len((await _active_state(cid))["threads"]) == MAX_ACTIVE_ENTRIES
     assert [r["reason"] for r in _state_payloads(events)[-1]["rejected"]] == ["full", "full"]
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     assert next(f for f in panel["fragments"] if f["fragment_id"] == "threads")["full"] is True
 
     # The next request tells the updater the list is full.
@@ -455,15 +443,14 @@ async def test_mode_switch_writes_nothing_and_keeps_entry_ids(client, db, llm_mo
     llm_mock.enqueue_writer("One.")
     llm_mock.enqueue_state(_state_call(place="The docks."))
     await _drain(handle_turn(cid, "one"))
-    all_events = await db.execute_fetchall("SELECT COUNT(*) AS n FROM fragment_state_events")
-    count = all_events[0]["n"]
+    count = (await db.execute_fetchall("SELECT COUNT(*) AS n FROM fragment_state_events"))[0]["n"]
     original_id = (await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"]))[0]["entry_id"]
 
     # To multiple entries: no event, same entry, same id.
     resp = await client.put("/api/interactive-fragments/place", json={"state_mode": "entries"})
     assert resp.status_code == 200 and resp.json()["state_mode"] == "entries"
     assert (await db.execute_fetchall("SELECT COUNT(*) AS n FROM fragment_state_events"))[0]["n"] == count
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     place = next(f for f in panel["fragments"] if f["fragment_id"] == "place")
     assert [(e["entry_id"], e["text"]) for e in place["entries"]] == [(original_id, "The docks.")]
 
@@ -478,20 +465,18 @@ async def test_mode_switch_writes_nothing_and_keeps_entry_ids(client, db, llm_mo
 
     # Back to one value: both entries stay, render together everywhere, and the panel says the next update replaces them.
     await client.put("/api/interactive-fragments/place", json={"state_mode": "value"})
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     assert next(f for f in panel["fragments"] if f["fragment_id"] == "place")["several_values"] is True
     llm_mock.enqueue_writer("Three.")
     llm_mock.enqueue_state(_state_call(place="The rooftop."))
-    events = await _drain(handle_turn(cid, "three"))
-    assert "Place:\n- The docks.\n- The warehouse." in _injection(events)
-    request = _requests(llm_mock, "state")[-1]
-    assert "several entries; a new value replaces them all" in request
+    assert "Place:\n- The docks.\n- The warehouse." in _injection(await _drain(handle_turn(cid, "three")))
+    assert "several entries; a new value replaces them all" in _requests(llm_mock, "state")[-1]
 
     # The next set retires them all and adds one; the originals remain in history.
     rows = await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"])
     assert [r["op"] for r in rows] == ["retire", "retire", "add"]
     assert await _active_state(cid) == {"place": ["The rooftop."]}
-    history = (await client.get(f"/api/conversations/{cid}/state/history", params={"fragment_id": "place"})).json()
+    history = await client.get_json(f"/api/conversations/{cid}/state/history", params={"fragment_id": "place"})
     assert {h["text"] for h in history if h["op"] == "add"} >= {"The docks.", "The warehouse.", "The rooftop."}
 
 
@@ -532,7 +517,7 @@ async def test_manual_correction_is_carried_to_the_regenerated_reply(client, db,
     llm_mock.enqueue_state(_state_call(threads=["from the reply"]))
     await _drain(handle_turn(cid, "two"))
     target = await _last_assistant(cid)
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     threads = next(f for f in panel["fragments"] if f["fragment_id"] == "threads")
     entries = {e["text"]: e["entry_id"] for e in threads["entries"]}
 
@@ -562,7 +547,7 @@ async def test_manual_correction_is_carried_to_the_regenerated_reply(client, db,
         ("revise", "kept, corrected", "user"),
     ]
     assert await _active_state(cid) == {"threads": ["kept, corrected", "user fact"]}
-    log = (await client.get(f"/api/conversations/{cid}/messages/{new_reply['id']}/director-log")).json()
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{new_reply['id']}/director-log")
     assert [d["entry_id"] for d in log["state"]["dropped"]] == [entries["from the reply"]]
 
 
@@ -578,11 +563,7 @@ async def test_regeneration_folds_state_anchored_on_its_parent_user_message(clie
 
     llm_mock.enqueue_writer("Still at the docks.")
     llm_mock.enqueue_state(_state_call(place="Harbor"))
-    events = await _drain(handle_regenerate(cid, reply))
-
-    # The regeneration starts from the same state as the reply it replaces, so the
-    # model's new value revises the user's entry instead of adding a second one.
-    assert "Place: Docks" in _injection(events)
+    assert "Place: Docks" in _injection(await _drain(handle_regenerate(cid, reply)))
     assert "Current value: Docks" in _requests(llm_mock, "state")[-1]
     assert await _active_state(cid) == {"place": ["Harbor"]}
 
@@ -593,12 +574,10 @@ async def test_regeneration_folds_state_anchored_on_its_parent_user_message(clie
 async def _group(client) -> str:
     aria = await client.create("/api/characters", json={"name": "Aria"})
     kael = await client.create("/api/characters", json={"name": "Kael"})
-    conv = (
-        await client.post(
-            "/api/conversations",
-            json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
-        )
-    ).json()
+    conv = await client.post_json(
+        "/api/conversations",
+        json={"kind": "group", "title": "Campfire", "members": [{"character_card_id": aria}, {"character_card_id": kael}]},
+    )
     return conv["id"]
 
 
@@ -648,8 +627,7 @@ async def test_stopped_reply_keeps_its_before_writer_changes(client, db, llm_moc
     with patch("backend.pipeline.passes.writer.writer_pass", new=stopped_writer):
         await _drain(handle_turn(cid, "hello"))
 
-    reply = await _last_assistant(cid)
-    assert reply["content"] == "Partial te"
+    assert (await _last_assistant(cid))["content"] == "Partial te"
     assert "state" not in [p for p, _ in llm_mock.calls]  # after-reply never runs
     assert await _active_state(cid) == {"trust": ["wary"]}
 
@@ -751,7 +729,7 @@ async def test_manual_operations_anchor_to_the_active_leaf_and_validate(client, 
 
 
 async def test_manual_write_during_generation_is_rejected_as_busy(streaming_client, llm_mock):
-    cid = (await streaming_client.post("/api/conversations", json={"title": "busy"})).json()["id"]
+    cid = (await streaming_client.post_json("/api/conversations", json={"title": "busy"}))["id"]
     await _fragment(streaming_client, "threads", mode="entries", update="manual")
     leaf, _ = await dbmod.add_message(cid, "user", "hi", 0, advance_leaf=True)
     gate = llm_mock.gate("writer")
@@ -797,15 +775,15 @@ async def test_deleted_fragment_state_is_read_only_and_deletable(client, db, llm
     await client.post(f"/api/conversations/{cid}/state", json={"fragment_id": "threads", "op": "add", "text": "x"})
     await client.delete("/api/interactive-fragments/threads")
 
-    panel = (await client.get(f"/api/conversations/{cid}/state")).json()
+    panel = await client.get_json(f"/api/conversations/{cid}/state")
     orphan = next(f for f in panel["fragments"] if f["fragment_id"] == "threads")
     assert orphan["configured"] is False and orphan["read_only"] is True and orphan["label"] == "Old threads"
     await client.post_checked(
         f"/api/conversations/{cid}/state", json={"fragment_id": "threads", "op": "add", "text": "y"}, expected_status=409
     )
 
-    assert (await client.delete(f"/api/conversations/{cid}/state/threads")).json() == {"deleted": 1}
-    assert (await client.get(f"/api/conversations/{cid}/state")).json()["has_state"] is False
+    assert await client.delete_json(f"/api/conversations/{cid}/state/threads") == {"deleted": 1}
+    assert (await client.get_json(f"/api/conversations/{cid}/state"))["has_state"] is False
 
 
 # -- Cache invariants ---------------------------------------------------------

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from pathlib import Path
 
@@ -33,8 +31,7 @@ async def test_concurrent_same_wid_no_lost_writes():
     wid = "wf_under_test"
     n = 20
     await asyncio.gather(*[_rmw_increment_locked(wid, "counter") for _ in range(n)])
-    final = await get_workflow_config(wid)
-    assert final == {"counter": n}
+    assert (await get_workflow_config(wid)) == {"counter": n}
 
 
 async def test_disjoint_wid_paths_compose_under_json_set():

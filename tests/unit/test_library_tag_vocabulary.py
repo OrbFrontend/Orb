@@ -4,8 +4,6 @@ Pure functions, no app stack. These are the rules the whole idempotency contract
 pending, and the diff decides whether a save costs zero model calls or a full re-pass over the library.
 """
 
-from __future__ import annotations
-
 from backend.features.library_tags import (
     MAX_TAG_LENGTH,
     MAX_VOCABULARY,
@@ -34,8 +32,7 @@ def test_pipe_is_stripped_because_it_delimits_the_filter_attribute():
 
 
 def test_names_are_capped_and_retrimmed_at_the_boundary():
-    long = "x" * (MAX_TAG_LENGTH + 20)
-    assert normalize_vocabulary([long]) == ["x" * MAX_TAG_LENGTH]
+    assert normalize_vocabulary([("x" * (MAX_TAG_LENGTH + 20))]) == ["x" * MAX_TAG_LENGTH]
     # A cut landing on a space must not leave a trailing one behind.
     assert normalize_vocabulary(["y" * (MAX_TAG_LENGTH - 1) + " zzz"]) == ["y" * (MAX_TAG_LENGTH - 1)]
 

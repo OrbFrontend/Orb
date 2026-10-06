@@ -136,10 +136,7 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
 
     # Determine stable card ID: prefer the embedded orb_id, fall back to SHA-256
     # of the raw PNG bytes so that reimporting the exact same file is idempotent.
-    if orb_id:
-        card_id = orb_id
-    else:
-        card_id = str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
+    card_id = orb_id or str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
 
     # Store the full PNG as the avatar
     avatar_b64 = base64.b64encode(content).decode("ascii")

@@ -1,7 +1,5 @@
 """Upgrade coverage for nullable endpoint model parameters."""
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
 

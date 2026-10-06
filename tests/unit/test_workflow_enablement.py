@@ -6,8 +6,6 @@ defensive coercion that turns a stray non-dict ``workflow_enabled`` into "enable
 ``list_workflows`` (monkeypatched here so the test owns the registry view without touching process-global state).
 """
 
-from __future__ import annotations
-
 from backend.workflows import ToolSpec, Workflow, enablement
 from backend.workflows.enablement import disabled_workflow_tool_names, effective_workflow_enabled
 
@@ -54,9 +52,7 @@ def test_disabled_workflow_tool_names(monkeypatch):
     assert disabled_workflow_tool_names(disabled_local) == {"probe_tool"}
 
     # Everything enabled -> empty set (the no-op case real callers hit today).
-    all_on = {"workflows_globally_enabled": 1, "workflow_enabled": {}}
-    assert disabled_workflow_tool_names(all_on) == set()
+    assert disabled_workflow_tool_names({"workflows_globally_enabled": 1, "workflow_enabled": {}}) == set()
 
     # Global off disables both; only the tool-bearing one contributes a name.
-    global_off = {"workflows_globally_enabled": 0}
-    assert disabled_workflow_tool_names(global_off) == {"probe_tool"}
+    assert disabled_workflow_tool_names({"workflows_globally_enabled": 0}) == {"probe_tool"}

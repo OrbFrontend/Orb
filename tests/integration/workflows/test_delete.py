@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from backend.database import add_message, insert_workflow_attachment_row
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 
@@ -40,8 +38,7 @@ async def test_variant_delete_of_active_nulls_root_pointer(client):
     assert body["root_id"] == root
     assert body["active_sibling_id"] is None
     assert await get_workflow_attachment_by_id(sib) is None
-    row = await must_get_workflow_attachment(root)
-    assert row["active_sibling_id"] is None
+    assert (await must_get_workflow_attachment(root))["active_sibling_id"] is None
 
 
 async def test_variant_delete_of_non_active_keeps_root_pointer(client):
@@ -56,8 +53,7 @@ async def test_variant_delete_of_non_active_keeps_root_pointer(client):
     assert body["deleted_ids"] == [sib1]
     assert body["active_sibling_id"] == sib2
     assert await get_workflow_attachment_by_id(sib1) is None
-    row = await must_get_workflow_attachment(root)
-    assert row["active_sibling_id"] == sib2
+    assert (await must_get_workflow_attachment(root))["active_sibling_id"] == sib2
 
 
 async def test_variant_delete_of_root_promotes_survivor_and_carries_annotation(client):
@@ -78,8 +74,7 @@ async def test_variant_delete_of_root_promotes_survivor_and_carries_annotation(c
     assert new_root["parent_attachment_id"] is None
     assert new_root["annotation"] == "ROOT"
     assert new_root["active_sibling_id"] == sib2
-    other = await must_get_workflow_attachment(sib2)
-    assert other["parent_attachment_id"] == sib1
+    assert (await must_get_workflow_attachment(sib2))["parent_attachment_id"] == sib1
 
 
 async def test_variant_delete_of_active_root_resets_active_to_null(client):
@@ -93,8 +88,7 @@ async def test_variant_delete_of_active_root_resets_active_to_null(client):
     body = resp.json()
     assert body["root_id"] == sib1
     assert body["active_sibling_id"] is None
-    new_root = await must_get_workflow_attachment(sib1)
-    assert new_root["active_sibling_id"] is None
+    assert (await must_get_workflow_attachment(sib1))["active_sibling_id"] is None
 
 
 async def test_variant_delete_of_singleton_root_empties_group(client):
@@ -125,24 +119,18 @@ async def test_group_delete_removes_root_and_all_siblings(client):
 async def test_anchor_on_other_conversation_returns_404(client):
     _, mid = await seed_message(client)
     root = await _insert(mid)
-    other_cid = await new_conversation(client)
-    resp = await _delete(client, other_cid, mid, root, "group")
-    assert resp.status_code == 404
+    assert (await _delete(client, await new_conversation(client), mid, root, "group")).status_code == 404
 
 
 async def test_attachment_on_other_message_returns_404(client):
     cid, mid = await seed_message(client)
     other_mid, _ = await add_message(cid, "assistant", "other", 1, parent_id=mid)
-    root_other = await _insert(other_mid)
-    resp = await _delete(client, cid, mid, root_other, "variant")
-    assert resp.status_code == 404
+    assert (await _delete(client, cid, mid, await _insert(other_mid), "variant")).status_code == 404
 
 
 async def test_bad_scope_returns_400(client):
     cid, mid = await seed_message(client)
-    root = await _insert(mid)
-    resp = await _delete(client, cid, mid, root, "nonsense")
-    assert resp.status_code == 400
+    assert (await _delete(client, cid, mid, await _insert(mid), "nonsense")).status_code == 400
 
 
 async def test_missing_scope_returns_400(client):

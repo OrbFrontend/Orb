@@ -5,27 +5,6 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator
 
-__all__ = [
-    "CLOSE_QUOTES",
-    "HARD_LINE_BREAK_RE",
-    "OPEN_QUOTES",
-    "PARA_SPLIT",
-    "PROTECTED_MARKUP_RE",
-    "TOGGLE_QUOTES",
-    "count_sentences",
-    "ends_with_question",
-    "ends_with_sentence_terminator",
-    "extract_unquoted_text",
-    "find_quote_spans",
-    "map_prose",
-    "remove_quoted_spans",
-    "sentence_boundary_ends",
-    "split_paragraphs",
-    "split_sentence_units",
-    "split_sentences",
-    "strip_protected_markup",
-]
-
 # Python ``str.splitlines`` recognizes this complete set.  Keep an explicit
 # pattern for callers that need to preserve or inspect the separators.
 HARD_LINE_BREAK_RE = re.compile(r"\r\n|[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]")

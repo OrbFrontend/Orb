@@ -1,7 +1,5 @@
 """Tests for the NumPy mel implementation used by Spark-TTS."""
 
-from __future__ import annotations
-
 import pytest
 
 np = pytest.importorskip("numpy")

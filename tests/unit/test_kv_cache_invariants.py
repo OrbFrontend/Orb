@@ -4,8 +4,6 @@ Compare captured messages/tools with tracker records, covering shared system/ hi
 extension, dual-model tool omission and append-only history across turns. See docs/architecture/kv-cache.md.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from typing import Any
@@ -64,6 +62,14 @@ _INTERACTIVE_FRAGMENTS = [
 ]
 
 
+def _tool_message(call_id: str, name: str, arguments: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}],
+    }
+
+
 class CapturingClient:
     """Deterministic ``LLMClient`` stand-in that records the exact ``messages`` and ``tools`` of every ``complete()`` call.
 
@@ -92,40 +98,15 @@ class CapturingClient:
         are rebuilt per audit, so a fixed sentence drops out and the ones after
         it shift down -- which is why the drivers below queue the same id each
         time rather than a stable per-sentence one."""
-        self._editor_queue.append(
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": f"p{len(self._editor_queue)}",
-                        "type": "function",
-                        "function": {
-                            "name": "editor_apply_patch",
-                            "arguments": json.dumps({"patches": [{"id": tid, "replace": replace}]}),
-                        },
-                    }
-                ],
-            }
-        )
+        arguments = json.dumps({"patches": [{"id": tid, "replace": replace}]})
+        self._editor_queue.append(_tool_message(f"p{len(self._editor_queue)}", "editor_apply_patch", arguments))
 
     def enqueue_editor_rewrite(self, text: str) -> None:
         """Queue an ``editor_rewrite`` call returning *text* as the new draft.
         Used to drive the rewrite branch of the ReAct loop (length guard /
         structural rewrite), which is where the tool list used to be narrowed."""
-        self._editor_queue.append(
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": f"r{len(self._editor_queue)}",
-                        "type": "function",
-                        "function": {"name": "editor_rewrite", "arguments": json.dumps({"rewritten_text": text})},
-                    }
-                ],
-            }
-        )
+        arguments = json.dumps({"rewritten_text": text})
+        self._editor_queue.append(_tool_message(f"r{len(self._editor_queue)}", "editor_rewrite", arguments))
 
     @property
     def is_aborted(self) -> bool:
@@ -178,62 +159,29 @@ class CapturingClient:
             return
 
         if label == "feedback":
-            yield {
-                "type": "done",
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "f1",
-                            "type": "function",
-                            "function": {"name": "give_feedback", "arguments": '{"next_actions": "Ask her name."}'},
-                        }
-                    ],
-                },
-            }
+            yield {"type": "done", "message": _tool_message("f1", "give_feedback", '{"next_actions": "Ask her name."}')}
             return
 
         if label == "update_state":
-            yield {
-                "type": "done",
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "p1",
-                            "type": "function",
-                            "function": {"name": "update_state", "arguments": '{"trajectory": ["Heading north."]}'},
-                        }
-                    ],
-                },
-            }
+            yield {"type": "done", "message": _tool_message("p1", "update_state", '{"trajectory": ["Heading north."]}')}
             return
 
         # director:* -- return a well-formed forced call so the parse path runs.
         name = label.split(":", 1)[1]
         args = '{"moods": ["tense"], "pacing": "urgent"}' if name == "direct_scene" else "{}"
-        yield {
-            "type": "done",
-            "message": {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"id": "c1", "type": "function", "function": {"name": name, "arguments": args}}],
-            },
-        }
+        yield {"type": "done", "message": _tool_message("c1", name, args)}
 
 
 def _make_prefix(system: str, n_pairs: int) -> list[dict]:
-    prefix: list[dict] = [{"role": "system", "content": system}]
-    for i in range(n_pairs):
-        prefix.append({"role": "user", "content": f"user turn {i}"})
-        prefix.append({"role": "assistant", "content": f"assistant turn {i}"})
-    return prefix
+    turns = [
+        [{"role": "user", "content": f"user turn {i}"}, {"role": "assistant", "content": f"assistant turn {i}"}]
+        for i in range(n_pairs)
+    ]
+    return [{"role": "system", "content": system}, *(message for pair in turns for message in pair)]
 
 
 def _base_settings(**overrides) -> dict:
-    settings = {
+    return {
         "model_name": "writer-model",
         "enable_agent": 1,
         "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
@@ -241,9 +189,8 @@ def _base_settings(**overrides) -> dict:
         "length_guard_enabled": 1,
         "length_guard_max_words": 5,  # tiny, so _WRITER_DRAFT always trips the guard
         "length_guard_max_paragraphs": 1,
+        **overrides,
     }
-    settings.update(overrides)
-    return settings
 
 
 async def _run_turn(
@@ -388,8 +335,7 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
 
     # Inv-3 -- tools blob byte-identical across all three passes, and non-empty. Compare WIRE-FAITHFUL bytes (insertion order
     # preserved), not the tracker's sort_keys view, so a key-order drift between passes also rings.
-    wire = _wire_tools_by_label(client)
-    all_blobs = {b for blobs in wire.values() for b in blobs}
+    all_blobs = {b for blobs in _wire_tools_by_label(client).values() for b in blobs}
     assert len(all_blobs) == 1, (
         "CACHE BUST: the tools blob differs across passes — the schema list is not "
         "threaded byte-identically (Director and Editor must share one tools blob; "
@@ -447,8 +393,7 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     )
 
     # The single shared blob actually carries give_feedback (rides the blob, not a swap).
-    the_blob = next(iter(all_blobs))
-    assert '"give_feedback"' in the_blob, "give_feedback schema is missing from the shared tools blob"
+    assert '"give_feedback"' in next(iter(all_blobs)), "give_feedback schema is missing from the shared tools blob"
 
     # Explicit cross-pass equality: feedback's blob == writer's blob == editor's.
     assert wire["feedback"] == wire["writer"] == wire["editor"], (
@@ -510,8 +455,7 @@ async def test_state_step_reuses_shared_blob_no_cache_bust():
         sorted(len(b) for b in all_blobs)
     )
 
-    the_blob = next(iter(all_blobs))
-    assert '"update_state"' in the_blob, "update_state schema is missing from the shared tools blob"
+    assert '"update_state"' in next(iter(all_blobs)), "update_state schema is missing from the shared tools blob"
 
     assert wire["update_state"] == wire["writer"] == wire["editor"], (
         "state/writer/editor tools blobs differ -- the state step is not reusing the frozen shared base."
@@ -711,8 +655,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
     # newlines are escaped), so splitting on "\n" yields one line per message.
     bottom = _serialize_messages(prefix + [{"role": "user", "content": writer_user}])
     for i, c in enumerate(editor_calls):
-        head = "\n".join(c["msgs_serialized"].split("\n")[: len(prefix) + 1])
-        assert head == bottom, (
+        assert "\n".join(c["msgs_serialized"].split("\n")[: len(prefix) + 1]) == bottom, (
             f"CACHE BUST: editor iteration {i + 1} changed the cached bottom "
             "(system + history + the writer's user message) — the multi-thousand-token "
             "prefix is re-billed on every editor round."
@@ -737,8 +680,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
             )
     else:
         # Flat mode: the list length is constant; only the last two pancakes move.
-        msg_counts = {c["msgs_serialized"].count("\n") for c in editor_calls}
-        assert len(msg_counts) == 1, (
+        assert len({c["msgs_serialized"].count("\n") for c in editor_calls}) == 1, (
             "flat-mode editor changed its message count between iterations — it must "
             "rewrite the top two pancakes in place, not grow or rebuild the list."
         )
@@ -810,6 +752,12 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 
 def _entry(tracker: KVCacheTracker, label: str, body: str, *, model: str = "m", endpoint: str = "", shape: str = "") -> None:
     tracker.record(label, [{"role": "user", "content": body}], None, model=model, endpoint=endpoint, shape=shape)
+
+
+def _report(tracker: KVCacheTracker, caplog) -> str:
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        tracker.log_summary()
+    return caplog.text
 
 
 def test_the_report_prints_each_call_once_across_a_multi_speaker_exchange(caplog):
@@ -891,11 +839,7 @@ def test_a_later_call_compares_against_its_own_lane(caplog):
     _entry(tracker, "director:direct_scene", "SHARED-AGENT-BODY", endpoint=agent)
     _entry(tracker, "writer", "different writer body", endpoint=writer)
     _entry(tracker, "forced:voice_rewrite", "SHARED-AGENT-BODY-plus", endpoint=agent)
-
-    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
-        tracker.log_summary()
-
-    rewrite_row = next(line for line in caplog.text.splitlines() if "forced:voice_rewrite" in line)
+    rewrite_row = next(line for line in _report(tracker, caplog).splitlines() if "forced:voice_rewrite" in line)
     assert "vs 'director:direct_scene'" in rewrite_row
     assert "vs 'writer'" not in rewrite_row
 
@@ -907,12 +851,7 @@ def test_a_standalone_shape_cannot_break_the_shared_group_exchange_lane(caplog):
     _entry(tracker, "writer", "conversation-prefix-plus-writer")
     _entry(tracker, "forced:voice_rewrite", "short-rewrite-prefix", shape="format_consistency:voice_rewrite")
     _entry(tracker, "director:direct_scene", "conversation-prefix-plus-speaker-one")
-
-    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
-        tracker.log_summary()
-
-    rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
-    second_director = rows[-1]
+    second_director = [line for line in _report(tracker, caplog).splitlines() if "  provider:" in line][-1]
     assert "vs 'writer'" in second_director
     assert "vs 'forced:voice_rewrite'" not in second_director
     assert "L2=m@local [format_consistency:voice_rewrite]" in caplog.text
@@ -922,11 +861,7 @@ def test_the_report_names_the_lanes_when_a_turn_spans_more_than_one(caplog):
     tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a", model="gemma", endpoint="https://api.example.com/v1")
     _entry(tracker, "writer", "b", model="gemma", endpoint="http://localhost:8080/v1")
-
-    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
-        tracker.log_summary()
-
-    assert "L1=gemma@api.example.com" in caplog.text
+    assert "L1=gemma@api.example.com" in _report(tracker, caplog)
     assert "L2=gemma@localhost:8080" in caplog.text
     rows = [line for line in caplog.text.splitlines() if "  provider:" in line]
     assert rows[0].strip().startswith("L1 ") and rows[1].strip().startswith("L2 ")
@@ -936,11 +871,7 @@ def test_the_lane_legend_does_not_log_endpoint_credentials(caplog):
     tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a", endpoint="https://alice:secret@api.example.com/v1")
     _entry(tracker, "writer", "b", endpoint="http://localhost:8080/v1")
-
-    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
-        tracker.log_summary()
-
-    assert "api.example.com" in caplog.text
+    assert "api.example.com" in _report(tracker, caplog)
     assert "alice" not in caplog.text
     assert "secret" not in caplog.text
 
@@ -950,9 +881,5 @@ def test_a_single_lane_report_carries_no_lane_noise(caplog):
     tracker = KVCacheTracker(conversation_id=None)
     _entry(tracker, "director:direct_scene", "a")
     _entry(tracker, "writer", "b")
-
-    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
-        tracker.log_summary()
-
-    assert "lanes:" not in caplog.text
+    assert "lanes:" not in _report(tracker, caplog)
     assert "L1 " not in caplog.text

@@ -289,9 +289,7 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
 
     # 2. Elided subject (verb immediately after boundary, or boundary + conjunction)
     if not same_subject:
-        if aff_verb_idx == boundary + 1:
-            same_subject = True
-        elif aff_verb_idx == boundary + 2 and tokens[boundary + 1].lower() in _CONJUNCTIONS:
+        if aff_verb_idx == boundary + 1 or aff_verb_idx == boundary + 2 and tokens[boundary + 1].lower() in _CONJUNCTIONS:
             same_subject = True
 
     if not same_subject:

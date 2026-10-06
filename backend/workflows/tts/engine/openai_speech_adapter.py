@@ -131,10 +131,9 @@ class OpenAISpeechAdapter(TTSAdapter):
                 ]
                 if filtered:
                     return filtered
-            else:
-                # Compatible endpoint -- return all models, let the user pick
-                if models:
-                    return [{"id": m["id"], "name": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
+            # Compatible endpoint -- return all models, let the user pick
+            elif models:
+                return [{"id": m["id"], "name": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
         except Exception as e:
             logger.debug("Failed to fetch models from %s: %s", base_url, e)
 

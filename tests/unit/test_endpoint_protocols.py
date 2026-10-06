@@ -1,7 +1,5 @@
 """Protocol resolution, Anthropic adaptation/streaming, and bounded probing."""
 
-from __future__ import annotations
-
 import json
 from unittest.mock import patch
 
@@ -26,27 +24,26 @@ TOOL = {
 FORCED = {"type": "function", "function": {"name": "direct_scene"}}
 
 
+_LEARNED = (
+    ep._RESOLVED_ROUTES,
+    ep._TOOL_CHOICE_AUTO_ONLY,
+    ep._TOOL_CHOICE_UNSUPPORTED,
+    ep._REASONING_EFFORT_UNSUPPORTED,
+    ep._REASONING_REPLAY_UNSUPPORTED,
+    ep._CACHE_MARKERS_REFUSED,
+    ep._BODY_FIELDS_REFUSED,
+    anthropic._SAMPLING_UNSUPPORTED,
+    anthropic._THINKING_UNSUPPORTED,
+)
+
+
 @pytest.fixture(autouse=True)
 def _clear_learned_state():
-    ep._RESOLVED_ROUTES.clear()
-    ep._TOOL_CHOICE_AUTO_ONLY.clear()
-    ep._TOOL_CHOICE_UNSUPPORTED.clear()
-    ep._REASONING_EFFORT_UNSUPPORTED.clear()
-    ep._REASONING_REPLAY_UNSUPPORTED.clear()
-    ep._CACHE_MARKERS_REFUSED.clear()
-    ep._BODY_FIELDS_REFUSED.clear()
-    anthropic._SAMPLING_UNSUPPORTED.clear()
-    anthropic._THINKING_UNSUPPORTED.clear()
+    for learned in _LEARNED:
+        learned.clear()
     yield
-    ep._RESOLVED_ROUTES.clear()
-    ep._TOOL_CHOICE_AUTO_ONLY.clear()
-    ep._TOOL_CHOICE_UNSUPPORTED.clear()
-    ep._REASONING_EFFORT_UNSUPPORTED.clear()
-    ep._REASONING_REPLAY_UNSUPPORTED.clear()
-    ep._CACHE_MARKERS_REFUSED.clear()
-    ep._BODY_FIELDS_REFUSED.clear()
-    anthropic._SAMPLING_UNSUPPORTED.clear()
-    anthropic._THINKING_UNSUPPORTED.clear()
+    for learned in _LEARNED:
+        learned.clear()
 
 
 @pytest.mark.parametrize(
@@ -177,8 +174,7 @@ def test_rejected_reasoning_effort_is_learned_and_dropped_for_the_session():
     body = {"model": model, "reasoning_effort": "xhigh"}
     rejection = '{"error":{"code":400,"message":"Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, none","status":"INVALID_ARGUMENT"}}'
 
-    fix = ep.recover_from_error(url, model, body, 400, rejection)
-    assert fix is not None and "reasoning_effort" not in body
+    assert ep.recover_from_error(url, model, body, 400, rejection) is not None and "reasoning_effort" not in body
 
     # The recovery persists through the set, not the in-place pop: the client
     # rebuilds the outbound body from scratch on every retry.
@@ -327,12 +323,9 @@ ANTHROPIC_TOOL_STREAM = [
 ]
 
 
-async def _run(client: LLMClient, fake: _HTTP, model="claude-haiku-4-5", **kwargs):
-    events = []
+async def _run(client: LLMClient, fake: _HTTP, model="claude-haiku-4-5", messages=None, **kwargs):
     with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kw: fake):
-        async for event in client.complete([{"role": "user", "content": "hi"}], model, **kwargs):
-            events.append(event)
-    return events
+        return [event async for event in client.complete(messages or [{"role": "user", "content": "hi"}], model, **kwargs)]
 
 
 async def test_anthropic_wire_headers_body_and_stream_translation():
@@ -388,171 +381,78 @@ async def test_gemini_uses_normalized_openai_route_structured_output_and_effort(
     assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "bright"}}]
 
 
-async def test_indexless_tool_call_deltas_stay_separate_calls():
-    """Google's compatibility surface omits ``index`` from tool-call deltas.
+def _tool_delta(**call) -> str:
+    return _line({"choices": [{"delta": {"tool_calls": [call]}}]})
 
-    Reached on any Gemini-compat route that still sends ``tools`` -- a proxy the profile does not claim, or a pair demoted by
-    ``note_structured_output_ignored``. Keying on a 0 default merged both calls into one entry whose name was the two names
-    concatenated and whose arguments were unparseable.
-    """
-    lines = [
-        _line(
-            {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "id": "0",
-                                    "type": "function",
-                                    "function": {"name": "direct_scene", "arguments": '{"mood":"eerie"}'},
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
+
+def _call(name: str, arguments: str, **extra) -> dict:
+    return {**extra, "type": "function", "function": {"name": name, "arguments": arguments}}
+
+
+_TOOL_CALLS_DONE = [_line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}), "data: [DONE]"]
+
+
+@pytest.mark.parametrize(
+    "url,deltas,expected",
+    [
+        # Google's compatibility surface omits ``index`` from tool-call deltas; keying on a 0 default merged both calls.
+        (
+            "https://gemini-proxy.test/v1/chat/completions",
+            [
+                _tool_delta(**_call("direct_scene", '{"mood":"eerie"}', id="0")),
+                _tool_delta(**_call("editor_rewrite", '{"text":"hi"}', id="1")),
+            ],
+            [{"name": "direct_scene", "arguments": {"mood": "eerie"}}, {"name": "editor_rewrite", "arguments": {"text": "hi"}}],
         ),
-        _line(
-            {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "id": "1",
-                                    "type": "function",
-                                    "function": {"name": "editor_rewrite", "arguments": '{"text":"hi"}'},
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
+        # Only a delta that STARTS a call opens a slot; a bare ``arguments`` fragment continues the open call.
+        (
+            "https://gemini-proxy.test/v1/chat/completions",
+            [
+                _tool_delta(**_call("direct_scene", '{"mood"', id="0")),
+                _tool_delta(function={"arguments": ':"eerie"}'}),
+            ],
+            [{"name": "direct_scene", "arguments": {"mood": "eerie"}}],
         ),
-        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
-        "data: [DONE]",
-    ]
-    events = await _run(
-        LLMClient("https://gemini-proxy.test/v1/chat/completions"),
-        _HTTP([_Response(lines=lines)]),
-        model="gemini-3-pro",
-        tools=[TOOL],
-        tool_choice="auto",
-    )
-    assert parse_tool_calls(events[-1]["message"]) == [
-        {"name": "direct_scene", "arguments": {"mood": "eerie"}},
-        {"name": "editor_rewrite", "arguments": {"text": "hi"}},
-    ]
-
-
-async def test_indexless_argument_fragments_append_to_the_open_call():
-    """Only a delta that STARTS a call opens a slot; continuations append.
-
-    The OpenAI contract sends ``id``/``name`` on a call's first chunk alone, so
-    a bare ``arguments`` fragment must not be mistaken for a second call.
-    """
-    lines = [
-        _line(
-            {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {"id": "0", "type": "function", "function": {"name": "direct_scene", "arguments": '{"mood"'}}
-                            ]
-                        }
-                    }
-                ]
-            }
+        # The ordinary OpenAI shape is keyed by its own index, so the late index-0 chunk still leads.
+        (
+            "https://openai.test/v1/chat/completions",
+            [
+                _tool_delta(**_call("editor_rewrite", "{}", index=1, id="b")),
+                _tool_delta(**_call("direct_scene", "{}", index=0, id="a")),
+            ],
+            [{"name": "direct_scene", "arguments": {}}, {"name": "editor_rewrite", "arguments": {}}],
         ),
-        _line({"choices": [{"delta": {"tool_calls": [{"function": {"arguments": ':"eerie"}'}}]}}]}),
-        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
-        "data: [DONE]",
-    ]
-    events = await _run(
-        LLMClient("https://gemini-proxy.test/v1/chat/completions"),
-        _HTTP([_Response(lines=lines)]),
-        model="gemini-3-pro",
-        tools=[TOOL],
-        tool_choice="auto",
-    )
-    assert parse_tool_calls(events[-1]["message"]) == [{"name": "direct_scene", "arguments": {"mood": "eerie"}}]
+    ],
+)
+async def test_tool_call_deltas_assemble_by_index_or_start(url, deltas, expected):
+    fake = _HTTP([_Response(lines=[*deltas, *_TOOL_CALLS_DONE])])
+    events = await _run(LLMClient(url), fake, model="gemini-3-pro", tools=[TOOL], tool_choice="auto")
+    assert parse_tool_calls(events[-1]["message"]) == expected
 
 
-async def test_indexed_tool_call_deltas_are_unaffected():
-    """The ordinary OpenAI shape must still be keyed by its own index."""
-    lines = [
-        _line(
-            {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "index": 1,
-                                    "id": "b",
-                                    "type": "function",
-                                    "function": {"name": "editor_rewrite", "arguments": "{}"},
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
+@pytest.mark.parametrize(
+    "url,lines",
+    [
+        (
+            "https://api.anthropic.com/v1/messages",
+            [
+                _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "partial"}}),
+                _line({"type": "error", "error": {"type": "overloaded_error", "message": "busy sk-secret"}}),
+            ],
         ),
-        _line(
-            {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "index": 0,
-                                    "id": "a",
-                                    "type": "function",
-                                    "function": {"name": "direct_scene", "arguments": "{}"},
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
+        (
+            "https://openai.test/v1/chat/completions",
+            [
+                _line({"choices": [{"delta": {"content": "partial"}}]}),
+                _line({"error": {"message": "busy sk-secret"}}),
+                "data: [DONE]",
+            ],
         ),
-        _line({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
-        "data: [DONE]",
-    ]
-    events = await _run(
-        LLMClient("https://openai.test/v1/chat/completions"),
-        _HTTP([_Response(lines=lines)]),
-        model="openai-model",
-        tools=[TOOL],
-        tool_choice="auto",
-    )
-    # Sorted by index, so the late index-0 chunk still leads.
-    assert [call["name"] for call in parse_tool_calls(events[-1]["message"])] == ["direct_scene", "editor_rewrite"]
-
-
-async def test_anthropic_midstream_error_uses_sanitized_llm_error():
-    lines = [
-        _line({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "partial"}}),
-        _line({"type": "error", "error": {"type": "overloaded_error", "message": "busy sk-secret"}}),
-    ]
+    ],
+)
+async def test_midstream_error_uses_sanitized_llm_error(url, lines):
     with pytest.raises(LLMCallError) as caught:
-        await _run(LLMClient("https://api.anthropic.com/v1/messages", "sk-secret"), _HTTP([_Response(lines=lines)]))
-    assert caught.value.response.status_code == 502
-    assert caught.value.sentence == "busy [redacted]"
-    assert "sk-secret" not in caught.value.body
-
-
-async def test_openai_midstream_error_uses_sanitized_llm_error():
-    lines = [
-        _line({"choices": [{"delta": {"content": "partial"}}]}),
-        _line({"error": {"message": "busy sk-secret"}}),
-        "data: [DONE]",
-    ]
-    with pytest.raises(LLMCallError) as caught:
-        await _run(LLMClient("https://openai.test/v1/chat/completions", "sk-secret"), _HTTP([_Response(lines=lines)]))
+        await _run(LLMClient(url, "sk-secret"), _HTTP([_Response(lines=lines)]))
     assert caught.value.response.status_code == 502
     assert caught.value.sentence == "busy [redacted]"
     assert "sk-secret" not in caught.value.body
@@ -703,8 +603,7 @@ async def test_streamed_reasoning_keeps_the_providers_field_name(key):
         _line({"choices": [{"delta": {key: "think."}}]}),
         "data: [DONE]",
     ]
-    events = await _run(LLMClient("https://compat.test/v1"), _HTTP([_Response(lines=lines)]), model="m")
-    message = events[-1]["message"]
+    message = (await _run(LLMClient("https://compat.test/v1"), _HTTP([_Response(lines=lines)]), model="m"))[-1]["message"]
     assert message[key] == "Let me think."
     assert replay_reasoning(message) == {key: "Let me think."}
 
@@ -825,8 +724,7 @@ def test_reasoning_fields_are_dropped_and_learned_on_rejection():
     assert body["output_config"] == {"effort": "high"}
 
     rejection = '{"error":{"message":"thinking: Extra inputs are not permitted"}}'
-    fix = anthropic.recover_thinking_error(url, "haiku-4-5-via-proxy", body, 400, rejection)
-    assert fix is not None
+    assert anthropic.recover_thinking_error(url, "haiku-4-5-via-proxy", body, 400, rejection) is not None
     assert "thinking" not in body and "output_config" not in body
 
     # Learned for the rest of the session, so the rebuilt body omits them too.
@@ -875,8 +773,7 @@ OPENAI_DONE = ['data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"sto
 
 
 async def _run_transcript(client: LLMClient, fake: _HTTP, model: str, **kwargs):
-    with patch.object(llm_mod.httpx, "AsyncClient", lambda *args, **kw: fake):
-        return [event async for event in client.complete(CACHE_TRANSCRIPT, model, **kwargs)]
+    return await _run(client, fake, model, CACHE_TRANSCRIPT, **kwargs)
 
 
 def _marked_indexes(messages):
@@ -904,8 +801,7 @@ async def test_chat_requests_mark_the_shared_base_and_name_their_lane():
 
 async def test_configured_headers_override_the_derived_lane_id():
     fake = _HTTP([_Response(lines=OPENAI_DONE)])
-    client = LLMClient("https://openrouter.ai/api/v1", "key", extra_headers="X-Session-Id: mine")
-    await _run_transcript(client, fake, "m")
+    await _run_transcript(LLMClient("https://openrouter.ai/api/v1", "key", extra_headers="X-Session-Id: mine"), fake, "m")
     sent = {key: value for key, value in fake.requests[0]["headers"].items() if key.lower() == "x-session-id"}
     assert sent == {"X-Session-Id": "mine"}
 
@@ -913,8 +809,7 @@ async def test_configured_headers_override_the_derived_lane_id():
 @pytest.mark.parametrize("endpoint", ["https://openrouter.ai/api/v1", "https://api.anthropic.com/v1/messages"])
 async def test_configured_cache_control_replaces_the_breakpoints(endpoint):
     automatic = {"type": "ephemeral", "ttl": "1h"}
-    done = [_line({"type": "message_stop"})] if endpoint.endswith("/messages") else OPENAI_DONE
-    fake = _HTTP([_Response(lines=done)])
+    fake = _HTTP([_Response(lines=[_line({"type": "message_stop"})] if endpoint.endswith("/messages") else OPENAI_DONE)])
     client = LLMClient(endpoint, "key", extra_body=json.dumps({"cache_control": automatic}))
 
     await _run_transcript(client, fake, "m", cache_prefix_len=3)
@@ -975,9 +870,7 @@ async def test_a_strict_server_is_walked_field_by_field_and_remembered():
     client = LLMClient("https://strict.test/v1", "key")
     params = {"temperature": 0.8, "max_tokens": 64, "min_p": 0.05, "top_k": 40, "repetition_penalty": 1.0}
 
-    events = await _run_transcript(client, fake, "m", **params, **reasoning_cfg(False))
-
-    assert events[-1]["message"]["content"] == "ok"
+    assert (await _run_transcript(client, fake, "m", **params, **reasoning_cfg(False)))[-1]["message"]["content"] == "ok"
     sent = fake.requests[-1]["body"]
     assert not set(refused) & set(sent)
     assert sent["temperature"] == 0.8 and sent["max_tokens"] == 64

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 import json
 from types import MappingProxyType
@@ -28,9 +26,10 @@ DRIFTING_DRAFT = "*She steps closer, watching him carefully.* Are you sure about
 NORMALIZED = 'She steps closer, watching him carefully. "Are you sure about this?"'
 CONSISTENT_DRAFT = 'He nods slowly. "I understand," he replies.'
 CONSISTENT_NARRATION = "He nods slowly. he replies."
-
 ASTERISK_MSG = "*She smiles and steps back, turning to the window.* I won't go."
-
+BASELINE = [{"role": "assistant", "content": QUOTED_BASELINE}]
+REPLACED = [{"type": "draft_replaced", "draft": NORMALIZED}]
+UNUSED = "should not be used"
 
 WRITER_CLIENT = object()
 AGENT_CLIENT = object()
@@ -77,16 +76,31 @@ async def _labels(msg) -> tuple[str, str] | None:
     return await voice.labels_for(msg, classify_axes(msg["content"]))
 
 
-async def test_yields_draft_replaced_on_drift():
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "user", "content": "and then?"}]
-    events = await _collect(_ctx(DRIFTING_DRAFT, history))
+def _raising(exc: Exception):
+    def boom(*args, **kwargs):
+        raise exc
 
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    async def aboom(*args, **kwargs):
+        raise exc
+
+    return boom, aboom
+
+
+@pytest.mark.parametrize(
+    "draft,history,expected",
+    [
+        (DRIFTING_DRAFT, [*BASELINE, {"role": "user", "content": "and then?"}], REPLACED),
+        # An unstable baseline, an already-consistent draft, and no assistant baseline all leave the draft alone.
+        ('She frowns. "What now?"', [*BASELINE, {"role": "assistant", "content": ASTERISK_MSG}], []),
+        (CONSISTENT_DRAFT, BASELINE, []),
+        (DRIFTING_DRAFT, [{"role": "user", "content": "hello"}], []),
+    ],
+)
+async def test_markup_drift_is_normalized_only_against_a_stable_baseline(draft, history, expected):
+    assert await _collect(_ctx(draft, history)) == expected
 
 
 async def test_reports_format_check_progress_to_the_turn_status(monkeypatch):
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}]
-
     async def voice_enabled(_ctx):
         return True
 
@@ -95,38 +109,13 @@ async def test_reports_format_check_progress_to_the_turn_status(monkeypatch):
 
     monkeypatch.setattr(hooks, "_voice_enabled", voice_enabled)
     monkeypatch.setattr(hooks, "_hold_voice", hold_voice)
-
-    events = await _collect(_ctx(CONSISTENT_DRAFT, history), include_status=True)
-
-    assert events == [
+    assert await _collect(_ctx(CONSISTENT_DRAFT, BASELINE), include_status=True) == [
         {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "label": "Matching voice and format…"}},
         {"event": "phase_status", "data": {"channel": "workflow:format_consistency", "state": "done"}},
     ]
 
 
-async def test_no_yield_when_baseline_unstable():
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "assistant", "content": ASTERISK_MSG}]
-    events = await _collect(_ctx('She frowns. "What now?"', history))
-
-    assert events == []
-
-
-async def test_no_yield_when_already_consistent():
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}]
-    events = await _collect(_ctx(CONSISTENT_DRAFT, history))
-
-    assert events == []
-
-
-async def test_no_yield_when_no_assistant_baseline():
-    history = [{"role": "user", "content": "hello"}]
-    events = await _collect(_ctx(DRIFTING_DRAFT, history))
-
-    assert events == []
-
-
 async def test_the_aggregate_convention_only_reaches_the_markup_target(monkeypatch):
-    """Use the aggregate convention only as the markup target."""
     _voice_on(monkeypatch)
     convention = AxisStyle(Dialogue.QUOTED, Narration.BARE)
     votes: list[list[AxisStyle]] = []
@@ -150,10 +139,7 @@ async def test_the_aggregate_convention_only_reaches_the_markup_target(monkeypat
     monkeypatch.setattr(hooks, "vote_axes", fake_vote)
     monkeypatch.setattr(hooks, "_hold_voice", fake_hold)
     monkeypatch.setattr(hooks, "normalize_to_baseline", fake_normalize)
-
-    events = await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == []
+    assert await _collect(_ctx(CONSISTENT_DRAFT, BASELINE)) == []
     assert votes == [[classify_axes(QUOTED_BASELINE)]]
 
 
@@ -165,6 +151,7 @@ THIRD_PRESENT = ("third", "present")
 
 VOICE_DRIFTING_DRAFT = 'You step closer, watching him carefully. "Are you sure about this?"'
 VOICE_DRIFTING_NARRATION = "You step closer, watching him carefully."
+VOICE_DRIFT = {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT}
 
 
 def _voice_on(monkeypatch, *, enabled: bool = True):
@@ -210,9 +197,45 @@ def _forced_call(monkeypatch, rewritten: str) -> list[dict]:
     return calls
 
 
+async def _voice_run(monkeypatch, draft, answers, chunks=None, rewritten=UNUSED, history=BASELINE, ctx=None):
+    """Voice check on, classifier answering *answers*/*chunks*, rewrite answering *rewritten*."""
+    _voice_on(monkeypatch)
+    seen = _classifier(monkeypatch, answers, chunks)
+    calls = _forced_call(monkeypatch, rewritten)
+    return await _collect(ctx or _ctx(draft, history)), calls, seen
+
+
+def _cache(monkeypatch, stored: dict | None, *, writes: bool = True) -> list[dict]:
+    """Serve *stored* as the row's cached labels and record every write (or refuse writes)."""
+    written: list[dict] = []
+
+    async def cached(message_id, workflow_id):
+        assert (message_id, workflow_id) == (7, "format_consistency")
+        return stored
+
+    async def record(message_id, workflow_id, payload):
+        if not writes:
+            raise AssertionError("this read must not write the label cache")
+        written.append(payload)
+
+    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
+    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+    return written
+
+
+def _labels_payload(content: str, pov="third", tense="past", **extra) -> dict:
+    return {
+        "pov": pov,
+        "tense": tense,
+        "dialogue": "quoted",
+        "content_sha256": voice._content_digest(content),
+        "classifier": voice.local_model_identity(voice.FEATURE),
+        **extra,
+    }
+
+
 def test_voice_rewrite_declares_its_own_compatible_standalone_schema():
     function = VOICE_REWRITE_TOOL.schema["function"]
-
     assert VOICE_REWRITE_TOOL.name == VOICE_REWRITE_TOOL_NAME
     assert VOICE_REWRITE_TOOL.standalone is True
     assert function["name"] == VOICE_REWRITE_TOOL_NAME
@@ -222,41 +245,12 @@ def test_voice_rewrite_declares_its_own_compatible_standalone_schema():
     assert "length constraint" not in function["description"].lower()
 
 
-async def test_voice_drift_and_markup_drift_compose_into_one_event(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}]
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-    assert len(calls) == 1
-
-
-async def test_the_rewrite_runs_on_the_agent_lane(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    ctx = _ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}])
-    await _collect(ctx)
-
-    [call] = calls
+async def test_the_rewrite_is_a_self_contained_call_on_the_agent_lane(monkeypatch):
+    ctx = _ctx(VOICE_DRIFTING_DRAFT, BASELINE)
+    _, [call], _ = await _voice_run(monkeypatch, None, VOICE_DRIFT, rewritten=DRIFTING_DRAFT, ctx=ctx)
     assert call["client"] is AGENT_CLIENT
     assert call["model_name"] == "agent-model"
     assert call["tool_name"] == VOICE_REWRITE_TOOL_NAME
-
-
-async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    ctx = _ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}])
-    await _collect(ctx)
-
-    [call] = calls
     assert call["enabled_tools"] is None
     assert call["cache_shape"] == "format_consistency:voice_rewrite"
     assert call["prefix"] != ctx.prefix
@@ -271,342 +265,173 @@ async def test_the_rewrite_is_a_self_contained_lane(monkeypatch):
     assert ctx.effective_msg not in tail["content"]
 
 
-async def test_only_the_drifting_axis_is_named(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: ("second", "past")})
-    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
+@pytest.mark.parametrize(
+    "draft,answers,chunks,present,absent",
+    [
+        # Only the drifting axis is named.
+        (
+            VOICE_DRIFTING_DRAFT,
+            {**VOICE_DRIFT, VOICE_DRIFTING_NARRATION: ("second", "past")},
+            None,
+            ["third person"],
+            ["tense"],
+        ),
+        # `second` is the "He tells you" register: a bare "second person" instruction would make the narration's subject "you".
+        (
+            CONSISTENT_DRAFT,
+            {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("first", "present")},
+            None,
+            ["third person for the speaking character"],
+            ["second person"],
+        ),
+        # A draft that never addresses "you" still drifts from `second`.
+        (
+            CONSISTENT_DRAFT,
+            {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
+            {CONSISTENT_NARRATION: [("third", "present"), ("ambiguous", "present"), ("third", "present")]},
+            ["third person for the speaking character"],
+            [],
+        ),
+        # Precedence runs one way: one `second` window drifts from third whatever the rest reads.
+        (
+            VOICE_DRIFTING_DRAFT,
+            {QUOTED_BASELINE_NARRATION: THIRD_PAST},
+            {VOICE_DRIFTING_NARRATION: [("second", "past"), ("third", "past"), ("third", "past")]},
+            ["third person throughout"],
+            [],
+        ),
+        # Windows combine each axis on its own.
+        (
+            CONSISTENT_DRAFT,
+            {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
+            {CONSISTENT_NARRATION: [("third", "past"), ("second", "past")]},
+            ["present tense"],
+            ["person"],
+        ),
+    ],
+)
+async def test_the_rewrite_instruction_names_only_the_target_voice(monkeypatch, draft, answers, chunks, present, absent):
+    _, [call], _ = await _voice_run(monkeypatch, draft, answers, chunks, rewritten=draft)
+    instruction = call["tail_messages"][0]["content"]
+    assert all(phrase in instruction for phrase in present)
+    assert not any(phrase in instruction for phrase in absent)
 
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
-    instruction = calls[0]["tail_messages"][0]["content"]
-    assert "third person" in instruction
-    assert "tense" not in instruction
-
-
-async def test_the_second_person_target_asks_for_the_character_in_third(monkeypatch):
-    """`second` is the "He tells you" register, not "You tell".
-
-    The label is a precedence rule over the pronouns present, so a bare "second person" instruction gets the other reading: a
-    copy editor makes the narration's subject "you" and rewrites the speaking character's own actions into the reader's, which
-    is strictly worse than the drift it was sent to fix.
-    """
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: SECOND_PRESENT, CONSISTENT_NARRATION: ("first", "present")})
-    calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    instruction = calls[0]["tail_messages"][0]["content"]
-    assert "third person for the speaking character" in instruction
-    assert "second person" not in instruction
-
-
-def test_no_pov_instruction_invites_a_name_the_passage_lacks(monkeypatch):
+def test_no_pov_instruction_invites_a_name_the_passage_lacks():
     """The system rules forbid introducing a name, so no target may ask for one."""
     assert "name" in hooks._SYSTEM
     for phrase in voice._POV_PHRASE.values():
         assert "name" not in phrase
 
 
-async def test_consistent_voice_makes_no_llm_call(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    events = await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
+@pytest.mark.parametrize(
+    "draft,answers,chunks",
+    [
+        (CONSISTENT_DRAFT, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST}, None),
+        # The label is a precedence rule: one "you" anywhere in the narration makes a draft (or a baseline row) `second`.
+        (
+            CONSISTENT_DRAFT,
+            {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
+            {CONSISTENT_NARRATION: [("third", "present"), ("second", "present"), ("third", "present")]},
+        ),
+        (
+            VOICE_DRIFTING_DRAFT,
+            {VOICE_DRIFTING_NARRATION: ("second", "past")},
+            {QUOTED_BASELINE_NARRATION: [("third", "past"), ("second", "past"), ("third", "past")]},
+        ),
+        # Inner monologue reads `first` in one window of a deep-third reply; it must not vote the baseline into first person.
+        (
+            VOICE_DRIFTING_DRAFT,
+            {VOICE_DRIFTING_NARRATION: THIRD_PRESENT},
+            {QUOTED_BASELINE_NARRATION: [THIRD_PRESENT] * 3 + [("first", "present"), THIRD_PRESENT] * 2},
+        ),
+        # A tense flip in one window is not drift.
+        (
+            CONSISTENT_DRAFT,
+            {QUOTED_BASELINE_NARRATION: THIRD_PAST},
+            {CONSISTENT_NARRATION: [("third", "present"), ("third", "past"), ("third", "past")]},
+        ),
+    ],
+)
+async def test_a_matching_voice_makes_no_llm_call(monkeypatch, draft, answers, chunks):
+    events, calls, _ = await _voice_run(monkeypatch, draft, answers, chunks)
     assert events == []
     assert calls == []
 
 
 async def test_an_unstable_baseline_voice_makes_no_llm_call(monkeypatch):
-    _voice_on(monkeypatch)
-    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, ASTERISK_MSG: SECOND_PRESENT})
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    history = [{"role": "assistant", "content": QUOTED_BASELINE}, {"role": "assistant", "content": ASTERISK_MSG}]
-    await _collect(_ctx(CONSISTENT_DRAFT, history))
-
+    history = [*BASELINE, {"role": "assistant", "content": ASTERISK_MSG}]
+    answers = {QUOTED_BASELINE_NARRATION: THIRD_PAST, ASTERISK_MSG: SECOND_PRESENT}
+    _, calls, seen = await _voice_run(monkeypatch, CONSISTENT_DRAFT, answers, history=history)
     assert calls == []
     assert CONSISTENT_DRAFT not in seen
-
-
-async def test_a_draft_that_addresses_you_before_its_tail_is_second(monkeypatch):
-    """The tail reads `third` whenever its last sentences skip "you", but the label
-    is a precedence rule: one "you" anywhere in the narration makes it `second`."""
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
-        chunks={CONSISTENT_NARRATION: [("third", "present"), ("second", "present"), ("third", "present")]},
-    )
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert calls == []
-
-
-async def test_a_baseline_row_that_addresses_you_before_its_tail_is_second(monkeypatch):
-    """Baseline rows get the same whole-narration reading as the draft. A row read
-    by its tail alone would vote `third` and send a `second` draft to have its
-    "you" stripped."""
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {VOICE_DRIFTING_NARRATION: ("second", "past")},
-        chunks={QUOTED_BASELINE_NARRATION: [("third", "past"), ("second", "past"), ("third", "past")]},
-    )
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert calls == []
-
-
-async def test_a_draft_that_never_addresses_you_still_drifts_from_second(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
-        chunks={CONSISTENT_NARRATION: [("third", "present"), ("ambiguous", "present"), ("third", "present")]},
-    )
-    calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert len(calls) == 1
-    assert "third person for the speaking character" in calls[0]["tail_messages"][0]["content"]
-
-
-async def test_one_window_that_addresses_you_drifts_from_third_whatever_the_rest_reads(monkeypatch):
-    """Precedence runs one way: a `second` window already contains the "you" a
-    third-person target rules out, so third-reading windows elsewhere cannot excuse it."""
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: THIRD_PAST},
-        chunks={VOICE_DRIFTING_NARRATION: [("second", "past"), ("third", "past"), ("third", "past")]},
-    )
-    calls = _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert len(calls) == 1
-    assert "third person throughout" in calls[0]["tail_messages"][0]["content"]
-
-
-async def test_inner_monologue_in_a_third_person_row_is_not_first_person(monkeypatch):
-    """A thought paragraph ("If I look, I'll see the disgust") reads `first` in one
-    window of a deep-third reply. That must not vote the baseline into first person
-    and send a third-person draft to be rewritten as "I"."""
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {VOICE_DRIFTING_NARRATION: THIRD_PRESENT},
-        chunks={QUOTED_BASELINE_NARRATION: [THIRD_PRESENT] * 3 + [("first", "present"), THIRD_PRESENT] * 2},
-    )
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert calls == []
-
-
-async def test_a_tense_flip_in_one_window_is_not_drift(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: THIRD_PAST},
-        chunks={CONSISTENT_NARRATION: [("third", "present"), ("third", "past"), ("third", "past")]},
-    )
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert calls == []
-
-
-async def test_windows_combine_each_axis_on_its_own(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(
-        monkeypatch,
-        {QUOTED_BASELINE_NARRATION: SECOND_PRESENT},
-        chunks={CONSISTENT_NARRATION: [("third", "past"), ("second", "past")]},
-    )
-    calls = _forced_call(monkeypatch, CONSISTENT_DRAFT)
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    instruction = calls[0]["tail_messages"][0]["content"]
-    assert "present tense" in instruction
-    assert "person" not in instruction
 
 
 async def test_config_off_classifies_nothing(monkeypatch):
     _voice_on(monkeypatch, enabled=False)
     seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    calls = _forced_call(monkeypatch, UNUSED)
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == REPLACED
     assert seen == []
     assert calls == []
 
 
 async def test_classifier_absent_never_reads_the_config_slot(monkeypatch):
-    async def boom(workflow_id):
-        raise AssertionError("the config slot must not be read without the classifier")
-
+    _, boom = _raising(AssertionError("the config slot must not be read without the classifier"))
     monkeypatch.setattr(hooks, "get_workflow_config", boom)
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == REPLACED
 
 
-async def test_a_raising_classifier_degrades_instead_of_aborting(monkeypatch):
-    _voice_on(monkeypatch)
-
-    async def boom(text: str):
-        raise RuntimeError("model failed to load")
-
-    monkeypatch.setattr(voice, "classify_pov_tense_chunks", boom)
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-    assert calls == []
-
-
-async def test_a_raising_forced_call_degrades_instead_of_aborting(monkeypatch):
+@pytest.mark.parametrize("failure", ["classifier", "forced_call", "config_slot", "label_cache", "empty_rewrite"])
+async def test_a_failing_voice_step_still_normalizes_markup(monkeypatch, failure):
+    sync_boom, async_boom = _raising(RuntimeError(failure))
     _voice_on(monkeypatch)
     _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
+    calls = _forced_call(monkeypatch, "" if failure == "empty_rewrite" else UNUSED)
+    target, name, fake = {
+        "classifier": (voice, "classify_pov_tense_chunks", async_boom),
+        "forced_call": (hooks, "forced_tool_call", sync_boom),
+        "config_slot": (hooks, "get_workflow_config", async_boom),
+        "label_cache": (voice, "get_workflow_message_state", async_boom),
+    }.get(failure, (None, "", None))
+    if target is not None:
+        monkeypatch.setattr(target, name, fake)
 
-    def boom(**kwargs):
-        raise RuntimeError("endpoint down")
-
-    monkeypatch.setattr(hooks, "forced_tool_call", boom)
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-
-
-async def test_an_unreachable_config_slot_still_normalizes_markup(monkeypatch):
-    monkeypatch.setattr(hooks, "local_feature_ready", lambda feature, settings: True)
-
-    async def boom(workflow_id):
-        raise RuntimeError("no such table: workflow_config")
-
-    monkeypatch.setattr(hooks, "get_workflow_config", boom)
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-
-
-async def test_an_unreachable_label_cache_still_normalizes_markup(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
-
-    async def boom(message_id, workflow_id):
-        raise RuntimeError("database is locked")
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", boom)
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"id": 7, "role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-
-
-async def test_an_empty_rewrite_falls_through_to_the_markup_path(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, DRIFTING_DRAFT: SECOND_PRESENT})
-    _forced_call(monkeypatch, "")
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    history = [{"id": 7, **BASELINE[0]}] if failure == "label_cache" else BASELINE
+    assert await _collect(_ctx(DRIFTING_DRAFT, history)) == REPLACED
+    if failure == "classifier":
+        assert calls == []
 
 
 async def test_a_cached_message_id_is_not_reclassified(monkeypatch):
-    _voice_on(monkeypatch)
-    seen = _classifier(monkeypatch, {VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    async def cached(message_id, workflow_id):
-        assert (message_id, workflow_id) == (7, "format_consistency")
-        return {
-            "pov": "third",
-            "tense": "past",
-            "dialogue": "quoted",
-            "content_sha256": voice._content_digest(QUOTED_BASELINE),
-            "classifier": voice.local_model_identity(voice.FEATURE),
-        }
-
-    async def no_write(message_id, workflow_id, payload):
-        raise AssertionError("a cache hit must not write")
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
-    monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
-
-    history = [{"id": 7, "role": "assistant", "content": QUOTED_BASELINE}]
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    _cache(monkeypatch, _labels_payload(QUOTED_BASELINE), writes=False)
+    events, _, seen = await _voice_run(
+        monkeypatch,
+        VOICE_DRIFTING_DRAFT,
+        {VOICE_DRIFTING_NARRATION: SECOND_PRESENT},
+        rewritten=DRIFTING_DRAFT,
+        history=[{"id": 7, **BASELINE[0]}],
+    )
+    assert events == REPLACED
     assert seen == [VOICE_DRIFTING_NARRATION]
 
 
 async def test_a_cache_miss_backfills_the_labels(monkeypatch):
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
-    written: list[tuple] = []
-
-    async def empty(message_id, workflow_id):
-        return None
-
-    async def record(message_id, workflow_id, payload):
-        written.append((message_id, workflow_id, payload))
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", empty)
-    monkeypatch.setattr(voice, "set_workflow_message_state", record)
-
-    history = [{"id": 7, "role": "assistant", "content": QUOTED_BASELINE}]
-    await _collect(_ctx(CONSISTENT_DRAFT, history))
-
-    assert written == [
-        (
-            7,
-            "format_consistency",
-            {
-                "pov": "third",
-                "tense": "past",
-                "dialogue": "quoted",
-                "content_sha256": voice._content_digest(QUOTED_BASELINE),
-                "classifier": voice.local_model_identity(voice.FEATURE),
-            },
-        )
-    ]
+    written = _cache(monkeypatch, None)
+    answers = {QUOTED_BASELINE_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST}
+    await _voice_run(monkeypatch, CONSISTENT_DRAFT, answers, history=[{"id": 7, **BASELINE[0]}])
+    assert written == [_labels_payload(QUOTED_BASELINE)]
 
 
 async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch):
     """Classify only the narration from bare-dialogue messages."""
-    _voice_on(monkeypatch)
     baseline = (
         "As president of the Literature Club, it's my duty to make the club fun and "
         "exciting for everyone! *Heidi smiles kindly at you.* Tell me, what brings you here today?"
     )
     draft = "Welcome to the club. *Heidi waits by the desk.* Please, take a seat."
-    seen = _classifier(
-        monkeypatch, {"Heidi smiles kindly at you.": ("third", "present"), "Heidi waits by the desk.": ("third", "present")}
-    )
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    events = await _collect(_ctx(draft, [{"role": "assistant", "content": baseline}]))
-
+    answers = {"Heidi smiles kindly at you.": THIRD_PRESENT, "Heidi waits by the desk.": THIRD_PRESENT}
+    events, calls, seen = await _voice_run(monkeypatch, draft, answers, history=[{"role": "assistant", "content": baseline}])
     assert events == []
     assert calls == []
     assert seen == ["Heidi smiles kindly at you.", "Heidi waits by the desk."]
@@ -614,279 +439,152 @@ async def test_bare_dialogue_is_removed_before_voice_classification(monkeypatch)
 
 @pytest.mark.parametrize("cached_dialogue", [None, "quoted"])
 async def test_labels_are_reclassified_when_the_cached_convention_differs(monkeypatch, cached_dialogue):
-    """Reclassify cached labels when the message's convention changes."""
     msg = {"id": 7, "role": "assistant", "content": "Stay with me. *Heidi waits by the desk.* We can talk here."}
-    cached_payload = {"pov": "second", "tense": "present", "other": "preserved"}
-    cached_payload["content_sha256"] = voice._content_digest(msg["content"])
-    cached_payload["classifier"] = voice.local_model_identity(voice.FEATURE)
-    if cached_dialogue is not None:
-        cached_payload["dialogue"] = cached_dialogue
+    stored = _labels_payload(msg["content"], "second", "present", other="preserved")
+    if cached_dialogue is None:
+        del stored["dialogue"]
     seen = _classifier(monkeypatch, {"Heidi waits by the desk.": THIRD_PAST})
-    written: list[dict] = []
-
-    async def cached(message_id, workflow_id):
-        return cached_payload
-
-    async def record(message_id, workflow_id, payload):
-        written.append(payload)
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
-    monkeypatch.setattr(voice, "set_workflow_message_state", record)
+    written = _cache(monkeypatch, stored)
 
     assert classify_axes(msg["content"]).dialogue == Dialogue.BARE
     assert await _labels(msg) == THIRD_PAST
     assert seen == ["Heidi waits by the desk."]
-    assert written == [
+    assert written == [{**_labels_payload(msg["content"], other="preserved"), "dialogue": "bare"}]
+
+
+@pytest.mark.parametrize(
+    "stale",
+    [
+        _labels_payload("You wait by the door.", "second", "present"),  # the message content changed
+        {**_labels_payload(QUOTED_BASELINE, "second", "present", other="preserved"), "classifier": None},
         {
-            "pov": "third",
-            "tense": "past",
-            "other": "preserved",
-            "dialogue": "bare",
-            "content_sha256": voice._content_digest(msg["content"]),
-            "classifier": voice.local_model_identity(voice.FEATURE),
-        }
-    ]
-
-
-async def test_labels_are_reclassified_when_message_content_changes(monkeypatch):
-    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
+            **_labels_payload(QUOTED_BASELINE, "second", "present", other="preserved"),
+            "classifier": "chartreuse-verte/ettin-povtense-17m@old-revision",
+        },
+    ],
+)
+async def test_stale_labels_are_reclassified(monkeypatch, stale):
     seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST})
-    written: list[dict] = []
-
-    async def stale(message_id, workflow_id):
-        return {
-            "pov": "second",
-            "tense": "present",
-            "dialogue": "quoted",
-            "content_sha256": voice._content_digest("You wait by the door."),
-            "classifier": voice.local_model_identity(voice.FEATURE),
-        }
-
-    async def record(message_id, workflow_id, payload):
-        written.append(payload)
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
-    monkeypatch.setattr(voice, "set_workflow_message_state", record)
-
-    assert await _labels(msg) == THIRD_PAST
+    written = _cache(monkeypatch, stale)
+    assert await _labels({"id": 7, "role": "assistant", "content": QUOTED_BASELINE}) == THIRD_PAST
     assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["content_sha256"] == voice._content_digest(QUOTED_BASELINE)
-
-
-@pytest.mark.parametrize("classifier", [None, "chartreuse-verte/ettin-povtense-17m@old-revision"])
-async def test_old_model_labels_are_reclassified(monkeypatch, classifier):
-    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
-    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST})
-    written = []
-
-    async def stale(message_id, workflow_id):
-        return {
-            "pov": "second",
-            "tense": "present",
-            "dialogue": "quoted",
-            "content_sha256": voice._content_digest(QUOTED_BASELINE),
-            "classifier": classifier,
-            "other": "preserved",
-        }
-
-    async def record(message_id, workflow_id, payload):
-        written.append(payload)
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
-    monkeypatch.setattr(voice, "set_workflow_message_state", record)
-    assert await _labels(msg) == THIRD_PAST
-    assert seen == [QUOTED_BASELINE_NARRATION]
     assert written[0]["classifier"] == voice.local_model_identity(voice.FEATURE)
-    assert written[0]["other"] == "preserved"
+    assert written[0].get("other") == stale.get("other")
 
 
 @pytest.mark.parametrize("policy", [b"", b"narration-v2\0"])
 async def test_cached_labels_are_refreshed_after_the_reading_policy_changes(monkeypatch, policy):
     """Labels from an older extraction policy, or from tail-only reads, are stale."""
     text = "*You can do this. You have to keep moving.* she thinks, waiting."
-    seen = _classifier(monkeypatch, {"she thinks, waiting.": ("third", "present")})
-    written = []
-
-    async def stale(message_id, workflow_id):
-        return {
+    seen = _classifier(monkeypatch, {"she thinks, waiting.": THIRD_PRESENT})
+    written = _cache(
+        monkeypatch,
+        {
             "pov": "ambiguous",
             "tense": "ambiguous",
             "dialogue": classify_axes(text).dialogue.value,
             "classifier": voice.local_model_identity(voice.FEATURE),
             "content_sha256": hashlib.sha256(policy + text.encode()).hexdigest(),
-        }
-
-    async def record(message_id, workflow_id, payload):
-        written.append(payload)
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", stale)
-    monkeypatch.setattr(voice, "set_workflow_message_state", record)
-    assert await _labels({"id": 7, "content": text}) == ("third", "present")
+        },
+    )
+    assert await _labels({"id": 7, "content": text}) == THIRD_PRESENT
     assert seen == ["she thinks, waiting."]
     assert written[0]["content_sha256"] == voice._content_digest(text)
 
 
 async def test_classifier_failure_is_not_cached(monkeypatch):
-    async def empty(message_id, workflow_id):
-        return None
-
-    async def boom(text: str):
-        raise RuntimeError("model failed to load")
-
-    async def no_write(message_id, workflow_id, payload):
-        raise AssertionError("a transient failure must not poison the cache")
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", empty)
-    monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
-    monkeypatch.setattr(voice, "classify_pov_tense_chunks", boom)
-
-    msg = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
-    assert await _labels(msg) is None
+    _cache(monkeypatch, None, writes=False)
+    monkeypatch.setattr(voice, "classify_pov_tense_chunks", _raising(RuntimeError("model failed to load"))[1])
+    assert await _labels({"id": 7, "role": "assistant", "content": QUOTED_BASELINE}) is None
 
 
 # ---------- source parsing: every text under its own convention ----------
 
 
+WINDOW_NARRATION = "She smiles, stepping back toward the window."
+BARE_ROW = f"*{WINDOW_NARRATION}* Hello there."
+
+
 async def test_a_quoted_draft_is_parsed_as_quoted_in_a_bare_dialogue_chat(monkeypatch):
-    """Parse a quoted draft under its own convention."""
-    _voice_on(monkeypatch)
-    baseline = "*She smiles, stepping back toward the window.* Hello there."
+    baseline = BARE_ROW
     draft = 'You step closer, watching him. "Are you sure about this?"'
     draft_narration = "You step closer, watching him."
-
     assert baseline_axes([baseline]).dialogue == Dialogue.BARE
     assert narration_only(draft, Dialogue.BARE) == ""  # what the old code passed on
 
-    seen = _classifier(
-        monkeypatch, {"She smiles, stepping back toward the window.": THIRD_PAST, draft_narration: SECOND_PRESENT}
+    _, calls, seen = await _voice_run(
+        monkeypatch,
+        draft,
+        {WINDOW_NARRATION: THIRD_PAST, draft_narration: SECOND_PRESENT},
+        rewritten="*She steps closer, watching him.* Are you sure about this?",
+        history=[{"role": "assistant", "content": baseline}],
     )
-    calls = _forced_call(monkeypatch, "*She steps closer, watching him.* Are you sure about this?")
-
-    await _collect(_ctx(draft, [{"role": "assistant", "content": baseline}]))
-
-    assert seen == ["She smiles, stepping back toward the window.", draft_narration]
+    assert seen == [WINDOW_NARRATION, draft_narration]
     assert len(calls) == 1  # the drift was seen, not swallowed
 
 
 async def test_a_bare_dialogue_draft_keeps_its_speech_out_of_the_classifier(monkeypatch):
-    """Keep bare-dialogue speech out of voice classification."""
-    _voice_on(monkeypatch)
     draft = "*She waits by the desk.* Tell me, what brings you here today?"
-
     assert classify_axes(draft).dialogue == Dialogue.BARE
-    seen = _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, "She waits by the desk.": THIRD_PAST})
-    calls = _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(draft, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
+    answers = {QUOTED_BASELINE_NARRATION: THIRD_PAST, "She waits by the desk.": THIRD_PAST}
+    _, calls, seen = await _voice_run(monkeypatch, draft, answers)
     assert seen == [QUOTED_BASELINE_NARRATION, "She waits by the desk."]
     assert calls == []  # both ends third/past: no drift, and no speech voted
 
 
 async def test_each_history_row_is_classified_under_its_own_convention(monkeypatch):
-    """Classify each history row under its own convention."""
-    _voice_on(monkeypatch)
-    bare_row = "*She smiles, stepping back toward the window.* Hello there."
-    quoted_row = 'He nods slowly. "I understand," he replies.'
+    assert classify_axes(BARE_ROW).dialogue == Dialogue.BARE
+    assert classify_axes(CONSISTENT_DRAFT).dialogue == Dialogue.QUOTED
 
-    assert classify_axes(bare_row).dialogue == Dialogue.BARE
-    assert classify_axes(quoted_row).dialogue == Dialogue.QUOTED
-
-    seen = _classifier(
+    _, _, seen = await _voice_run(
         monkeypatch,
-        {
-            "She smiles, stepping back toward the window.": THIRD_PAST,
-            CONSISTENT_NARRATION: THIRD_PAST,
-            VOICE_DRIFTING_NARRATION: SECOND_PRESENT,
-        },
+        VOICE_DRIFTING_DRAFT,
+        {WINDOW_NARRATION: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT},
+        rewritten=CONSISTENT_DRAFT,
+        history=[{"role": "assistant", "content": CONSISTENT_DRAFT}, {"role": "assistant", "content": BARE_ROW}],
     )
-    _forced_call(monkeypatch, CONSISTENT_DRAFT)
-
-    history = [{"role": "assistant", "content": quoted_row}, {"role": "assistant", "content": bare_row}]
-    await _collect(_ctx(VOICE_DRIFTING_DRAFT, history))
-
-    assert seen == ["She smiles, stepping back toward the window.", CONSISTENT_NARRATION, VOICE_DRIFTING_NARRATION]
+    assert seen == [WINDOW_NARRATION, CONSISTENT_NARRATION, VOICE_DRIFTING_NARRATION]
 
 
 async def test_a_changed_window_majority_does_not_invalidate_a_cached_row(monkeypatch):
-    """Changing nearby messages does not invalidate an unchanged cached row."""
     _voice_on(monkeypatch)
-    row = {"id": 7, "role": "assistant", "content": QUOTED_BASELINE}
-    cache = {
-        "pov": "third",
-        "tense": "past",
-        "dialogue": "quoted",
-        "content_sha256": voice._content_digest(QUOTED_BASELINE),
-        "classifier": voice.local_model_identity(voice.FEATURE),
-    }
-
-    async def cached(message_id, workflow_id):
-        return cache
-
-    async def no_write(message_id, workflow_id, payload):
-        raise AssertionError("an unchanged message must not be reclassified")
-
-    monkeypatch.setattr(voice, "get_workflow_message_state", cached)
-    monkeypatch.setattr(voice, "set_workflow_message_state", no_write)
+    _cache(monkeypatch, _labels_payload(QUOTED_BASELINE), writes=False)
     seen = _classifier(monkeypatch, {})
-
     for neighbour in (CONSISTENT_DRAFT, ASTERISK_MSG):
-        assert await _labels(row) == THIRD_PAST
+        assert await _labels({"id": 7, "role": "assistant", "content": QUOTED_BASELINE}) == THIRD_PAST
         assert baseline_axes([QUOTED_BASELINE, neighbour]) is not None
-
     assert seen == []
 
 
 # ---------- the rewrite is not trusted on sight ----------
 
 
-async def test_a_rewrite_that_changes_the_story_is_discarded(monkeypatch):
-    """Discard a rewrite that changes dialogue content."""
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    _forced_call(monkeypatch, "*She steps closer, watching him carefully.* Are you certain about this?")
+@pytest.mark.parametrize(
+    "rewritten,expected",
+    [
+        # A rewrite that changes the dialogue is discarded.
+        ("*She steps closer, watching him carefully.* Are you certain about this?", []),
+        # The Editor may have just cut this draft for the length guard; a rewrite that regrows it is discarded.
+        (
+            "She steps closer, watching him with great care and no small amount of worry, "
+            'and after a long moment she finally speaks. "Are you sure about this?"',
+            [],
+        ),
+        # A faithful rewrite is accepted even when its markup moved, and voice and markup drift compose into one event.
+        (DRIFTING_DRAFT, REPLACED),
+        # A schema-less lane can echo the call syntax into the argument.
+        (f'{VOICE_REWRITE_TOOL_NAME}("{DRIFTING_DRAFT}")', REPLACED),
+    ],
+)
+async def test_the_rewrite_is_checked_before_it_is_trusted(monkeypatch, rewritten, expected):
+    events, calls, _ = await _voice_run(monkeypatch, VOICE_DRIFTING_DRAFT, VOICE_DRIFT, rewritten=rewritten)
+    assert events == expected
+    assert len(calls) == 1
 
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
 
-    assert events == []
+def test_the_story_guard_rejects_changed_dialogue():
     assert guard.rejection(VOICE_DRIFTING_DRAFT, "*She steps closer.* Are you certain about this?")
-
-
-async def test_a_rewrite_that_regrows_past_the_editor_is_discarded(monkeypatch):
-    """The Editor may have just cut this draft for the length guard."""
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    _forced_call(
-        monkeypatch,
-        "She steps closer, watching him with great care and no small amount of worry, "
-        'and after a long moment she finally speaks. "Are you sure about this?"',
-    )
-
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == []
-
-
-async def test_a_rewrite_that_only_moved_the_markup_is_still_accepted(monkeypatch):
-    """Accept a faithful rewrite even when its markup convention changes."""
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    _forced_call(monkeypatch, DRIFTING_DRAFT)
-
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-
-
-async def test_a_rewrite_wrapped_in_its_own_tool_call_is_healed(monkeypatch):
-    """A schema-less lane can echo the call syntax into the argument."""
-    _voice_on(monkeypatch)
-    _classifier(monkeypatch, {QUOTED_BASELINE_NARRATION: THIRD_PAST, VOICE_DRIFTING_NARRATION: SECOND_PRESENT})
-    _forced_call(monkeypatch, f'{VOICE_REWRITE_TOOL_NAME}("{DRIFTING_DRAFT}")')
-
-    events = await _collect(_ctx(VOICE_DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
 
 
 # ---------- opt-in capture of the normalizer's exact inputs ----------
@@ -896,19 +594,14 @@ async def test_markup_capture_is_off_unless_configured(monkeypatch):
     monkeypatch.delenv(capture.ENV, raising=False)
     written: list[str] = []
     monkeypatch.setattr(capture, "_append", lambda path, line: written.append(line))
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == REPLACED
     assert written == []
 
 
 async def test_markup_capture_records_the_draft_the_normalizer_received(monkeypatch, tmp_path):
     path = tmp_path / "capture.jsonl"
     monkeypatch.setenv(capture.ENV, str(path))
-    history = [{"id": 3, "role": "assistant", "content": QUOTED_BASELINE}, {"id": 4, "role": "user", "content": "and then?"}]
-
-    await _collect(_ctx(DRIFTING_DRAFT, history))
+    await _collect(_ctx(DRIFTING_DRAFT, [{"id": 3, **BASELINE[0]}, {"id": 4, "role": "user", "content": "and then?"}]))
 
     [row] = [json.loads(line) for line in path.read_text().splitlines()]
     assert row["draft"] == row["hook_input"] == DRIFTING_DRAFT
@@ -922,10 +615,7 @@ async def test_markup_capture_records_the_draft_the_normalizer_received(monkeypa
 
 async def test_a_failing_capture_never_blocks_normalization(monkeypatch, tmp_path):
     monkeypatch.setenv(capture.ENV, str(tmp_path))  # a directory: the append fails
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == REPLACED
 
 
 # ---------- the markup classifier reads convention when it is installed ----------
@@ -947,59 +637,39 @@ def _markup_model(monkeypatch, answers: dict[str, tuple[str, str]]) -> list[str]
 
 async def test_the_markup_classifier_decides_both_ends_of_the_rewrite(monkeypatch):
     seen = _markup_model(monkeypatch, {QUOTED_BASELINE: ("bare", "quoted"), DRIFTING_DRAFT: ("asterisk", "quoted")})
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    # The heuristic reads the draft's bare run as speech and quotes it (NORMALIZED).
-    # Read as quoted-dialogue prose, that run is narration and stays unquoted.
-    assert events == [{"type": "draft_replaced", "draft": "She steps closer, watching him carefully. Are you sure about this?"}]
+    # Read as quoted-dialogue prose, the draft's bare run is narration and stays unquoted.
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == [
+        {"type": "draft_replaced", "draft": "She steps closer, watching him carefully. Are you sure about this?"}
+    ]
     assert seen == [QUOTED_BASELINE, DRIFTING_DRAFT]
 
 
 async def test_a_window_the_markup_classifier_cannot_read_leaves_the_draft_alone(monkeypatch):
     _markup_model(monkeypatch, {QUOTED_BASELINE: ("unknown", "unknown"), DRIFTING_DRAFT: ("asterisk", "bare")})
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == []
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == []
 
 
-async def test_a_failing_markup_classifier_falls_back_to_the_heuristic(monkeypatch):
-    _markup_model(monkeypatch, {})
-
-    async def boom(text: str) -> tuple[str, str]:
-        raise RuntimeError("failed to load: wrong head?")
-
-    monkeypatch.setattr(local_ml, "aclassify_markup", boom)
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}]))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
-
-
-async def test_a_disabled_markup_classifier_is_never_consulted(monkeypatch):
+async def test_a_failing_or_disabled_markup_classifier_falls_back_to_the_heuristic(monkeypatch):
     seen = _markup_model(monkeypatch, {})
-    settings = {"local_ml_enabled": {"markup_classifier": False}}
-
-    events = await _collect(_ctx(DRIFTING_DRAFT, [{"role": "assistant", "content": QUOTED_BASELINE}], settings))
-
-    assert events == [{"type": "draft_replaced", "draft": NORMALIZED}]
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE, {"local_ml_enabled": {"markup_classifier": False}})) == REPLACED
     assert seen == []
+
+    monkeypatch.setattr(local_ml, "aclassify_markup", _raising(RuntimeError("failed to load: wrong head?"))[1])
+    assert await _collect(_ctx(DRIFTING_DRAFT, BASELINE)) == REPLACED
 
 
 async def test_one_markup_reading_per_window_row_serves_both_halves(monkeypatch):
-    """The voice check extracts narration under the markup classifier's reading, and
-    the row is read once for the markup target and the voice check together."""
-    _voice_on(monkeypatch)
+    """The voice check extracts narration under the markup classifier's reading; the row is read once for both halves."""
     row = "Stay with me. *Heidi waits by the desk.* We can talk here."
     assert classify_axes(row).dialogue == Dialogue.BARE
     seen = _markup_model(monkeypatch, {row: ("bare", "quoted"), CONSISTENT_DRAFT: ("bare", "quoted")})
     narration = narration_only(row, Dialogue.QUOTED)
-    voiced = _classifier(monkeypatch, {narration: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST})
-    _forced_call(monkeypatch, "should not be used")
-
-    await _collect(_ctx(CONSISTENT_DRAFT, [{"role": "assistant", "content": row}]))
-
+    _, _, voiced = await _voice_run(
+        monkeypatch,
+        CONSISTENT_DRAFT,
+        {narration: THIRD_PAST, CONSISTENT_NARRATION: THIRD_PAST},
+        history=[{"role": "assistant", "content": row}],
+    )
     assert voiced[0] == narration
     assert narration != narration_only(row, Dialogue.BARE)
     assert seen.count(row) == 1

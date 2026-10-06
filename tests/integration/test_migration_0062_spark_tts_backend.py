@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import importlib
 import json
 import sqlite3
@@ -95,5 +93,4 @@ def test_is_idempotent():
 
 
 def test_survives_a_database_that_predates_the_tables():
-    conn = sqlite3.connect(":memory:")
-    _migrate(conn)
+    _migrate(sqlite3.connect(":memory:"))

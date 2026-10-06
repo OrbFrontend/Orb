@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -44,6 +42,4 @@ def test_decode_can_preserve_the_untrimmed_waveform(monkeypatch):
     )
     monkeypatch.setattr(codec.onnx_runtime, "load", lambda _: _DecoderSession(waveform))
 
-    pcm = codec.decode([1, 2, 3], [0] * 32, trim=False)
-
-    assert len(pcm) == waveform.size * 2
+    assert len(codec.decode([1, 2, 3], [0] * 32, trim=False)) == waveform.size * 2

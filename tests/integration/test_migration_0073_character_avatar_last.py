@@ -4,10 +4,9 @@ A column stored after a large avatar is reachable only by walking the avatar's
 overflow chain, so the library list paid for every avatar it never read.
 """
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from backend.database import schema
@@ -59,8 +58,7 @@ def test_rebuild_moves_the_avatar_last_and_keeps_every_value():
     _migration.migrate(conn)
 
     assert _columns(conn)[-1] == "avatar_b64"
-    after = dict(zip(_columns(conn), conn.execute("SELECT * FROM character_cards").fetchone(), strict=True))
-    assert after == before
+    assert dict(zip(_columns(conn), conn.execute("SELECT * FROM character_cards").fetchone(), strict=True)) == before
     # Dropping the parent with FKs on would have cascaded into the expressions.
     assert conn.execute("SELECT label FROM character_expressions").fetchall() == [("joy",)]
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
@@ -85,8 +83,5 @@ def test_the_upgrade_chain_ends_with_the_avatar_last(tmp_path: Path):
     conn.executescript(_BASELINE.read_text())
     conn.close()
     run_pending(db)
-    conn = sqlite3.connect(db)
-    try:
+    with closing(sqlite3.connect(db)) as conn:
         assert _columns(conn)[-1] == "avatar_b64"
-    finally:
-        conn.close()

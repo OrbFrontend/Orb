@@ -3,8 +3,6 @@
 Exercises chunk stitching and payload shape against a fake sidecar.
 """
 
-from __future__ import annotations
-
 import io
 import json
 import wave
@@ -78,7 +76,6 @@ def fake_client(monkeypatch):
 
 
 class TestSynthesize:
-    @pytest.mark.asyncio
     async def test_sends_one_request_per_chunk_with_prosody(self, fake_client):
         await SparkTTSAdapter().synthesize(
             chunks=[SpeakableChunk(text="One."), SpeakableChunk(text="Two.")],
@@ -95,7 +92,6 @@ class TestSynthesize:
         assert first["url"] == "http://localhost:9300/v1/tts"
         assert first["json"] == {"text": "One.", "voice": "spark_male_deep", "speed": 1.25, "pitch": 0.8, "lang": "en-US"}
 
-    @pytest.mark.asyncio
     async def test_pauses_become_real_silence_between_clips(self, fake_client):
         fake_client.post_responses = [clip(100), clip(100)]
 
@@ -109,7 +105,6 @@ class TestSynthesize:
         # 200 speech frames plus two 500 ms gaps at 16 kHz.
         assert len(pcm) == (200 + 2 * 8000) * 2
 
-    @pytest.mark.asyncio
     async def test_leading_pause_on_first_chunk_is_dropped(self, fake_client):
         result = await SparkTTSAdapter().synthesize(
             chunks=[SpeakableChunk(text="One.", pause_before_ms=1000)], voice_id="spark_female_warm"
@@ -118,7 +113,6 @@ class TestSynthesize:
         pcm, _ = strip_header(result.audio_bytes)
         assert len(pcm) == 100 * 2
 
-    @pytest.mark.asyncio
     async def test_sample_rate_follows_the_sidecar(self, fake_client):
         fake_client.post_responses = [clip(240, sample_rate=24000)]
 
@@ -128,7 +122,6 @@ class TestSynthesize:
             assert handle.getframerate() == 24000
         assert result.duration_ms == 10
 
-    @pytest.mark.asyncio
     async def test_blank_chunks_make_no_request(self, fake_client):
         result = await SparkTTSAdapter().synthesize(chunks=[SpeakableChunk(text="   ")], voice_id="spark_female_warm")
 
@@ -136,7 +129,6 @@ class TestSynthesize:
         assert result.content_type == "audio/wav"
         assert fake_client.requests == []
 
-    @pytest.mark.asyncio
     async def test_api_key_is_forwarded_when_set(self, fake_client):
         await SparkTTSAdapter().synthesize(chunks=[SpeakableChunk(text="One.")], voice_id="spark_female_warm", api_key="secret")
 
@@ -144,22 +136,17 @@ class TestSynthesize:
 
 
 class TestListVoices:
-    @pytest.mark.asyncio
     async def test_returns_presets_from_the_sidecar(self, fake_client):
         fake_client.get_response = b'[{"id": "spark_female_warm", "name": "Warm Female"}]'
 
-        voices = await SparkTTSAdapter().list_voices(language="en")
-
-        assert voices == [{"id": "spark_female_warm", "name": "Warm Female"}]
+        assert (await SparkTTSAdapter().list_voices(language="en")) == [{"id": "spark_female_warm", "name": "Warm Female"}]
         assert fake_client.requests[0]["params"] == {"language": "en"}
 
-    @pytest.mark.asyncio
     async def test_unreachable_sidecar_yields_no_voices(self, fake_client):
         fake_client.get_error = RuntimeError("connection refused")
 
         assert await SparkTTSAdapter().list_voices() == []
 
-    @pytest.mark.asyncio
     async def test_entries_without_an_id_are_dropped(self, fake_client):
         fake_client.get_response = b'[{"name": "nameless"}, {"id": "ok", "name": "Ok"}]'
 

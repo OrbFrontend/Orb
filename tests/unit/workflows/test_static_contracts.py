@@ -5,8 +5,6 @@ produce an error; every other line must pass. Exact ``assert_type`` checks also
 fail if a lookup silently erases a hook to Any or a broad Callable again.
 """
 
-from __future__ import annotations
-
 import json
 import subprocess
 import sys
@@ -137,9 +135,7 @@ def test_workflow_contracts_are_checked_at_declaration_lookup_and_dispatch(tmp_p
         check=False,
     )
     assert result.returncode in (0, 1), result.stdout + result.stderr
-    diagnostics = json.loads(result.stdout)["generalDiagnostics"]
-    errors = [d for d in diagnostics if d["severity"] == "error"]
+    errors = [d for d in json.loads(result.stdout)["generalDiagnostics"] if d["severity"] == "error"]
     expected = {i for i, line in enumerate(_SOURCE.splitlines()) if line.endswith("# rejected")}
-    actual = {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source}
-    assert actual == expected, json.dumps(errors, indent=2)
+    assert {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source} == expected, json.dumps(errors, indent=2)
     assert all(Path(d["file"]) == source for d in errors), json.dumps(errors, indent=2)

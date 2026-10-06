@@ -5,8 +5,6 @@ name and type only. In single-model mode the Writer runs on the Director's lane,
 would steer the reply toward what the user disabled the fragment to avoid.
 """
 
-from __future__ import annotations
-
 import json
 
 import backend.database as dbmod

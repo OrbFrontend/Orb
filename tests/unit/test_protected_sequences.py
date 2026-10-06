@@ -4,8 +4,6 @@ Vary markup while holding target text fixed. Permit short/common runs, text
 already in the target, and text from other mutable targets.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis import Target, apply_id_patches

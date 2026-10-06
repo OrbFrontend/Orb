@@ -6,8 +6,6 @@ the framework toggle is the sole on/off for format_consistency's markup normaliz
 config of its own, off by default -- so with the toggle on, markup is what this drives.)
 """
 
-from __future__ import annotations
-
 from backend.inference import KVCacheTracker
 from backend.pipeline.workflow_bridge import PostPipelineResult, iterate_pre_pipeline_hooks, run_post_pipeline
 
@@ -68,8 +66,7 @@ async def test_pre_global_off_suppresses_every_workflow():
     async def hook(_ctx):
         yield {"event": "probe_fired"}
 
-    w = make_workflow("probe", pre_pipeline=hook)
-    with register_for_test(w):
+    with register_for_test(make_workflow("probe", pre_pipeline=hook)):
         on = await _pre_events({"model_name": "test"})
         off = await _pre_events({"model_name": "test", "workflows_globally_enabled": 0})
 
@@ -98,8 +95,7 @@ async def test_post_local_off_suppresses_probe():
     async def hook(_ctx):
         yield {"event": "probe_post"}
 
-    w = make_workflow("probe", post_pipeline=hook)
-    with register_for_test(w):
+    with register_for_test(make_workflow("probe", post_pipeline=hook)):
         on = await _post_event_names({"model_name": "test"})
         off = await _post_event_names({"model_name": "test", "workflow_enabled": {"probe": False}})
 

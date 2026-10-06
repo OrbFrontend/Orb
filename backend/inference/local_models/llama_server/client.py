@@ -246,6 +246,12 @@ class LlamaServerClient:
         if banned:
             payload["logit_bias"] = [[int(token), False] for token in banned]
         tokens: list[int] = []
+        # One id per chunk on b10549, but the field is an array and a future build batching them must not be silently truncated.
+        stopped = await self._stream(payload, lambda message: tokens.extend(int(t) for t in message.get("tokens") or ()))
+        return tokens, stopped
+
+    async def _stream(self, payload: dict, on_message) -> bool:
+        """POST a streaming /completion, handing each data message to *on_message*; return whether the model ended it."""
         stopped = False
         headers = {"Accept": "text/event-stream"}
         async with self._http().stream("POST", "/completion", json=payload, headers=headers, timeout=600.0) as response:
@@ -262,18 +268,16 @@ class LlamaServerClient:
                 message = json.loads(line[5:])
                 if message.get("error"):
                     raise RuntimeError(_error_text(json.dumps(message["error"])))
-                # One id per chunk on b10549, but the field is an array and a
-                # future build batching them must not be silently truncated.
-                chunk = message.get("tokens")
-                if chunk:
-                    tokens.extend(int(token) for token in chunk)
+                on_message(message)
                 if message.get("stop"):
+                    # Newer builds report `stop_type`; older ones report the three booleans. Either way the question is the same
+                    # one: did it end, or did it run out of budget?
                     stop_type = message.get("stop_type")
                     if stop_type is not None:
                         stopped = stop_type in ("eos", "word")
                     else:
                         stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
-        return tokens, stopped
+        return stopped
 
     async def tokenize(self, text: str, *, parse_special: bool = False) -> list[int]:
         """*text* as token ids from the model's own vocabulary.
@@ -313,31 +317,5 @@ class LlamaServerClient:
         if stop:
             payload["stop"] = list(stop)
         parts: list[str] = []
-        stopped = False
-        headers = {"Accept": "text/event-stream"}
-        async with self._http().stream("POST", "/completion", json=payload, headers=headers, timeout=600.0) as response:
-            if response.status_code != 200:
-                raise RuntimeError(_error_text((await response.aread()).decode("utf-8", "replace")))
-            async for raw in response.aiter_lines():
-                line = raw.rstrip("\r\n")
-                if not line:
-                    continue
-                if line.startswith("error:"):
-                    raise RuntimeError(_error_text(line[6:]))
-                if not line.startswith("data:"):
-                    continue
-                message = json.loads(line[5:])
-                if message.get("error"):
-                    raise RuntimeError(_error_text(json.dumps(message["error"])))
-                content = message.get("content") or ""
-                if content:
-                    parts.append(content)
-                if message.get("stop"):
-                    # Newer builds report `stop_type`; older ones report the three booleans. Either way the question is the same
-                    # one: did it end, or did it run out of budget?
-                    stop_type = message.get("stop_type")
-                    if stop_type is not None:
-                        stopped = stop_type in ("eos", "word")
-                    else:
-                        stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
+        stopped = await self._stream(payload, lambda message: parts.append(message.get("content") or ""))
         return "".join(parts), stopped

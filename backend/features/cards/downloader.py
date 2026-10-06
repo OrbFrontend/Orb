@@ -267,7 +267,7 @@ def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, 
     finally:
         os.unlink(tmp_path)
 
-    card_id = orb_id if orb_id else str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
+    card_id = orb_id or str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
     avatar_b64 = base64.b64encode(content).decode("ascii")
     return card_dict, avatar_b64, "image/png", card_id
 
@@ -560,7 +560,7 @@ async def _download_chararc_card(token: str):
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Bernkastel")
 
     # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the card path.
-    seed = avatar_bytes if avatar_bytes else token.encode("utf-8")
+    seed = avatar_bytes or token.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id
@@ -974,7 +974,7 @@ async def _download_wyvern_card(full_path: str):
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(obj.get("avatar"), "Wyvern")
 
     # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the character id.
-    seed = avatar_bytes if avatar_bytes else char_id.encode("utf-8")
+    seed = avatar_bytes or char_id.encode("utf-8")
     card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
     return card_dict, avatar_b64, avatar_mime, card_id

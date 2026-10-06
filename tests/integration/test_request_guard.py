@@ -1,7 +1,5 @@
 """A hostile page cannot reach the server through a visitor's browser; LAN, Tailscale and proxied browsers still can."""
 
-from __future__ import annotations
-
 import pytest
 
 SECRET = "sk-GUARD-SECRET"

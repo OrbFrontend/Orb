@@ -1,7 +1,5 @@
 """Which Host names an open server answers, and which pages may change its state."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.features.access import parse_allowed_hosts, rebind_safe_host, same_origin_write

@@ -1,8 +1,6 @@
 """A card-site sign-in widens what the site lists: the saved session rides every browse until the site rejects it, and the
 token itself never leaves the backend through the settings payload."""
 
-from __future__ import annotations
-
 import json
 
 import httpx
@@ -18,8 +16,7 @@ class _FakeBotbooru:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         auth = request.headers.get("Authorization")
         if request.url.path == "/auth/token":
-            form = dict(x.split("=", 1) for x in request.content.decode().split("&"))
-            if form.get("password") != "right":
+            if dict(x.split("=", 1) for x in request.content.decode().split("&")).get("password") != "right":
                 return httpx.Response(401, json={"detail": "Incorrect username or password"})
             return httpx.Response(200, json={"access_token": _TOKEN, "token_type": "bearer"})
         if request.url.path == "/auth/me":

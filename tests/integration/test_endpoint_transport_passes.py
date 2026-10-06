@@ -4,8 +4,6 @@ The normal integration mock replaces ``LLMClient.complete`` wholesale. This test
 Director/Writer/Editor request shapes and stream translation run for OpenAI, Anthropic, and Gemini transports.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 from unittest.mock import patch

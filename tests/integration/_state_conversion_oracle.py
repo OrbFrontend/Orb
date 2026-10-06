@@ -4,8 +4,6 @@ Compare folded events with the latest non-empty progressive snapshot and ordered
 lists above the cap. Exclude messages/events added after migration because they have no legacy source.
 """
 
-from __future__ import annotations
-
 import json
 import sqlite3
 from dataclasses import dataclass, field

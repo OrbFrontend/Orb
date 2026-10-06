@@ -1,7 +1,5 @@
 """Cover decision validation for API writes and card-embedded definitions."""
 
-from __future__ import annotations
-
 from backend.core import (
     DECISION_COLUMNS,
     DEFAULT_STATE_TEMPLATE,
@@ -125,8 +123,7 @@ def test_noul_criteria_are_normalized_to_outcome_order():
 
 
 def test_criteria_may_arrive_as_json_text():
-    row = _row(decision_criteria='{"true": "a", "false": "b"}')
-    definition = parse_decision_definition(row)
+    definition = parse_decision_definition(_row(decision_criteria='{"true": "a", "false": "b"}'))
     assert definition is not None and definition.criteria == {"true": "a", "false": "b"}
     assert parse_decision_definition(_row(decision_criteria="not json")) is None
 

@@ -228,14 +228,3 @@ def reference_signal(wav: np.ndarray, min_seconds: int = 6, hop: int = 320) -> n
     if audio.size < minimum:
         return np.ascontiguousarray(np.tile(audio, minimum // audio.size + 1)[:minimum], dtype=np.float32)
     return np.ascontiguousarray(audio[: audio.size // hop * hop], dtype=np.float32)
-
-
-__all__ = [
-    "MAX_SOURCE_SECONDS",
-    "TARGET_RATE",
-    "UnsupportedAudio",
-    "decode",
-    "reference_signal",
-    "resample",
-    "volume_normalize",
-]

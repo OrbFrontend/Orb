@@ -1,8 +1,6 @@
 """Integration of the negated-narration detector with the audit, targets,
 patching, serializers, Editor prompts, and Document-mode exclusion."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis import (
@@ -92,8 +90,7 @@ def test_min_hits_is_exposed():
 
 def test_filter_preserves_findings_for_the_same_draft():
     report = _audit(_DRAFT)
-    filtered = filter_audit_report_to_text(report, _DRAFT)
-    assert filtered.negation_result is report.negation_result
+    assert filter_audit_report_to_text(report, _DRAFT).negation_result is report.negation_result
 
 
 def test_filter_rejects_a_stale_source_instead_of_relocating():
@@ -126,8 +123,7 @@ def test_targets_are_anchored_and_numbered_with_reasons():
         'narrates what doesn\'t happen: 2 consecutive denials, before the payoff "She just slowly straightens…"'
     ]
     assert targets[1].reasons == ["narrates what doesn't happen"]
-    report_text = format_numbered_report(targets)
-    assert "[1] She doesn't jump." in report_text
+    assert "[1] She doesn't jump." in format_numbered_report(targets)
 
 
 def test_every_shape_kind_has_a_reason():
@@ -141,8 +137,7 @@ def test_every_shape_kind_has_a_reason():
 
 def test_outer_markers_trim_within_the_interval_and_inner_markers_stay():
     draft = "*She doesn't move.* *Doesn't breathe.* Why would you ask? *She just stares.*\n\n*Nobody speaks.*"
-    report = _audit(draft)
-    targets = build_targets(report, draft)
+    targets = build_targets(_audit(draft), draft)
     assert [t.span for t in targets] == ["She doesn't move.* *Doesn't breathe.", "Nobody speaks."]
     for t in targets:
         assert draft[t.start : t.end] == t.span
@@ -164,11 +159,9 @@ def test_repeated_text_in_an_earlier_thought_is_not_targeted():
 
 def test_overlap_with_contrastive_negation_is_one_target_with_both_reasons():
     draft = "She doesn't answer. Not a request, but an order.\n\nHe didn't move."
-    toggles = {**_ON, "contrastive_negation": True}
-    report = _audit(draft, toggles=toggles)
+    report = _audit(draft, toggles={**_ON, "contrastive_negation": True})
     assert report.not_but_result, "fixture must also trip contrastive negation"
-    targets = build_targets(report, draft)
-    both = [t for t in targets if len(t.categories) == 2]
+    both = [t for t in build_targets(report, draft) if len(t.categories) == 2]
     assert len(both) == 1
     assert set(both[0].categories) == {"contrastive_negation", "negated_narration"}
     # Both findings count, one target is patched.
@@ -202,8 +195,7 @@ def test_format_report_has_a_negated_narration_section():
 
 def test_multi_sentence_target_is_patched_once_with_surroundings_intact():
     draft = "Rain taps the glass. *She doesn't move.* *Doesn't breathe.* \"Hey.\" *Nobody answers.*\n\nEnd."
-    report = _audit(draft)
-    targets = build_targets(report, draft)
+    targets = build_targets(_audit(draft), draft)
     first = targets[0]
     assert first.span == "She doesn't move.* *Doesn't breathe."
     out, errors = apply_id_patches(draft, targets, [{"id": first.tid, "replace": "She holds perfectly still."}])
@@ -222,8 +214,7 @@ def test_unchanged_patch_is_a_no_op_error():
 
 
 def test_document_audit_excludes_negated_narration_even_when_enabled():
-    report = _audit_sync(_DRAFT, "", [], {"negated_narration": True})
-    assert report.negation_result is None
+    assert _audit_sync(_DRAFT, "", [], {"negated_narration": True}).negation_result is None
 
 
 async def test_document_audit_payload_has_no_negated_narration_section():
@@ -251,5 +242,4 @@ def test_rewrite_prompt_carries_the_content_rule_without_patch_instructions():
 
 def test_rewrite_prompt_is_unchanged_for_other_categories():
     with_other = build_editor_prompt(True, "REPORT", True, "LENGTH", patch_categories={"banned_phrases"})
-    without = build_editor_prompt(True, "REPORT", True, "LENGTH")
-    assert with_other == without
+    assert with_other == build_editor_prompt(True, "REPORT", True, "LENGTH")

@@ -5,8 +5,6 @@ collision), before the active_moods prune so an active card mood survives. api_g
 estimate.
 """
 
-from __future__ import annotations
-
 from backend.database import update_director_state
 from backend.pipeline.context import load_pipeline_context
 
@@ -33,8 +31,8 @@ EXT = {
 
 
 async def _make_card_conv(client, ext=EXT):
-    card = (await client.post("/api/characters", json={"name": "FragChar", "extensions": ext})).json()
-    conv = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()
+    card = await client.post_json("/api/characters", json={"name": "FragChar", "extensions": ext})
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card["id"]})
     return card["id"], conv["id"]
 
 
@@ -86,8 +84,8 @@ async def test_card_row_shadowing_a_disabled_global_keeps_the_blob_slot(client, 
 
 
 async def test_conversation_without_card_fragments_unaffected(client, db):
-    card = (await client.post("/api/characters", json={"name": "Plain"})).json()
-    conv = (await client.post("/api/conversations", json={"character_card_id": card["id"]})).json()
+    card = await client.post_json("/api/characters", json={"name": "Plain"})
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card["id"]})
     ctx = await load_pipeline_context(conv["id"])
     assert ctx is not None
     assert not any(f["id"].startswith("card_") for f in ctx.mood_fragments)

@@ -1,7 +1,5 @@
 """Cover decision resolution, cooldowns, and replay fingerprints."""
 
-from __future__ import annotations
-
 from backend.core import DEFAULT_STATE_TEMPLATE, parse_decision_definition
 from backend.inference import DecisionQuestion
 from backend.pipeline.passes.judge import (
@@ -216,8 +214,7 @@ def test_an_exchange_with_nothing_to_record_stores_no_envelope():
 
 
 def test_a_record_from_a_newer_orb_is_not_replayed():
-    future = {"version": EVALUATIONS_VERSION + 1, "evaluations": [{"fragment_id": "outcome"}]}
-    assert stored_evaluations(future) == []
+    assert stored_evaluations({"version": EVALUATIONS_VERSION + 1, "evaluations": [{"fragment_id": "outcome"}]}) == []
     assert stored_evaluations(None) == []
 
 

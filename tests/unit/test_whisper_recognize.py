@@ -1,7 +1,5 @@
 """The greedy Whisper loop, against fake encoder and merged-decoder sessions."""
 
-from __future__ import annotations
-
 import json
 from types import SimpleNamespace
 

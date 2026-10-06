@@ -6,13 +6,12 @@ belong to a domain (or be excluded), every FK must resolve, and no secret-lookin
 that check, plus a full round-trip that drives the generic engine across every domain at once.
 """
 
-from __future__ import annotations
-
 import base64
 import importlib
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -40,43 +39,50 @@ def test_live_schema_is_fully_covered(tmp_path):
     """Every current table maps to a domain, every FK resolves, every secret column
     is declared. This is the test that fails the day someone adds a table or a
     sensitive column without updating preset_schema.py."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         assert presets.schema_coverage_problems(conn) == []
-    finally:
-        conn.close()
 
 
 def test_every_nonexcluded_table_resolves_to_one_domain(tmp_path):
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         schema = presets._build_schema_model(conn)
         for name in schema.tables:
             assert schema.domain_of(name) is not None, name
         # The excluded set is exactly machinery -- never something with a domain.
         for excluded in presets.ps.EXCLUDED_TABLES:
             assert excluded not in schema.tables
-    finally:
-        conn.close()
 
 
-def test_coverage_flags_a_rogue_root_table(tmp_path):
-    """A new top-level table with no DOMAIN_ROOT entry must be reported, naming it."""
-    conn = _fresh_schema_db(tmp_path, "CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL);")
-    try:
+@pytest.mark.parametrize(
+    "extra_sql,policy,expected",
+    [
+        # A new top-level table with no DOMAIN_ROOT entry, or an undeclared secret column, is reported by name.
+        ("CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL);", {}, ["widgets"]),
+        ("ALTER TABLE settings ADD COLUMN refresh_token TEXT NOT NULL DEFAULT '';", {}, ["refresh_token"]),
+        # A deferred FK edge (a self ref here) is inserted NULL during the merge, so a NOT NULL one would fail every import.
+        (
+            "CREATE TABLE tree_nodes ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,"
+            "  parent_id INTEGER NOT NULL REFERENCES tree_nodes(id) ON DELETE CASCADE"
+            ");",
+            {},
+            ["tree_nodes.parent_id", "NOT NULL"],
+        ),
+        # A DOMAIN_ROOTS key that is an owned child (messages cascades from conversations) cannot declare a domain.
+        ("", {"DOMAIN_ROOTS": {"messages": "chats"}}, ["messages", "not a true root"]),
+        # A stale SECRET_COLUMNS entry is reported, not surfaced later as an OperationalError mid-export.
+        ("", {"SECRET_COLUMNS": {("settings", "ghost_token"): ""}}, ["ghost_token"]),
+    ],
+)
+def test_coverage_flags_policy_drift(tmp_path, monkeypatch, extra_sql, policy, expected):
+    for name, extra in policy.items():
+        monkeypatch.setattr(presets.ps, name, {**getattr(presets.ps, name), **extra})
+    with closing(_fresh_schema_db(tmp_path, extra_sql)) as conn:
+        if "tree_nodes" in extra_sql:
+            assert ("tree_nodes", "parent_id") in presets._build_schema_model(conn).deferred
         problems = presets.schema_coverage_problems(conn)
-        assert any("widgets" in p for p in problems), problems
-    finally:
-        conn.close()
-
-
-def test_coverage_flags_an_undeclared_secret_column(tmp_path):
-    conn = _fresh_schema_db(tmp_path, "ALTER TABLE settings ADD COLUMN refresh_token TEXT NOT NULL DEFAULT '';")
-    try:
-        problems = presets.schema_coverage_problems(conn)
-        assert any("refresh_token" in p for p in problems), problems
-    finally:
-        conn.close()
+    assert any(all(part in p for part in expected) for p in problems), problems
 
 
 def test_new_cascade_child_is_handled_with_zero_edits(tmp_path):
@@ -93,34 +99,12 @@ def test_new_cascade_child_is_handled_with_zero_edits(tmp_path):
     )
     try:
         schema = presets._build_schema_model(conn)
-        t = schema.tables["message_notes"]
-        assert t.kind == "surrogate"  # autoincrement id -> reinsert with remap
+        assert schema.tables["message_notes"].kind == "surrogate"  # autoincrement id -> reinsert with remap
         assert schema.domain_of("message_notes") == "chats"  # joins messages -> conversations
         assert schema.root_of("message_notes").name == "conversations"
         # ordered after its owner, and fully covered.
         assert schema.order.index("message_notes") > schema.order.index("messages")
         assert presets.schema_coverage_problems(conn) == []
-    finally:
-        conn.close()
-
-
-def test_coverage_flags_a_not_null_deferred_edge(tmp_path):
-    """A deferred FK edge (self ref, or a crossref broken to break a cycle) is
-    inserted NULL during the merge, so a NOT NULL one would fail every import. The
-    coverage check must surface that the moment such a column is added."""
-    conn = _fresh_schema_db(
-        tmp_path,
-        "CREATE TABLE tree_nodes ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,"
-        "  parent_id INTEGER NOT NULL REFERENCES tree_nodes(id) ON DELETE CASCADE"
-        ");",
-    )
-    try:
-        schema = presets._build_schema_model(conn)
-        assert ("tree_nodes", "parent_id") in schema.deferred  # a self edge -> deferred
-        problems = presets.schema_coverage_problems(conn)
-        assert any("tree_nodes.parent_id" in p and "NOT NULL" in p for p in problems), problems
     finally:
         conn.close()
 
@@ -131,45 +115,6 @@ def test_domain_list_is_frozen():
     rename into a CI failure; *adding* a domain is a deliberate one-line edit here
     (append only)."""
     assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "fragments", "lorebooks", "phrase_bank"]
-
-
-# -- reverse policy validation (a stale/typo'd constant must be caught) -----------
-
-
-def test_coverage_flags_a_non_root_domain_key(tmp_path):
-    """A DOMAIN_ROOTS key that is actually an owned child (not a true root) must be
-    reported -- children inherit their root's domain, they cannot declare one."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
-        # messages is owned by conversations via ON DELETE CASCADE -> not a root.
-        monkey = dict(presets.ps.DOMAIN_ROOTS, messages="chats")
-        orig = presets.ps.DOMAIN_ROOTS
-        presets.ps.DOMAIN_ROOTS = monkey
-        try:
-            problems = presets.schema_coverage_problems(conn)
-        finally:
-            presets.ps.DOMAIN_ROOTS = orig
-        assert any("messages" in p and "not a true root" in p for p in problems), problems
-    finally:
-        conn.close()
-
-
-def test_coverage_flags_a_stale_secret_column(tmp_path):
-    """A SECRET_COLUMNS entry whose column no longer exists must be reported, not
-    surface later as a raw OperationalError mid-export."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
-        monkey = dict(presets.ps.SECRET_COLUMNS)
-        monkey[("settings", "ghost_token")] = ""
-        orig = presets.ps.SECRET_COLUMNS
-        presets.ps.SECRET_COLUMNS = monkey
-        try:
-            problems = presets.schema_coverage_problems(conn)
-        finally:
-            presets.ps.SECRET_COLUMNS = orig
-        assert any("ghost_token" in p for p in problems), problems
-    finally:
-        conn.close()
 
 
 # -- fresh-vs-migrated equivalence (the 0026 class of bug) ------------------------
@@ -192,8 +137,7 @@ def test_fresh_vs_migrated_equivalence_and_0027_repair(tmp_path):
     """The runtime gate must flag the pre-0027 persona_lock_id divergence (the exact
     0026 bug: an ALTER-added bare INTEGER where a fresh install has an FK), and
     migration 0027 must repair it so the live schema equals a fresh install again."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         for table in ("conversations", "character_cards"):
             _strip_persona_lock_fk(conn, table)
         conn.commit()
@@ -211,8 +155,6 @@ def test_fresh_vs_migrated_equivalence_and_0027_repair(tmp_path):
         for table in ("conversations", "character_cards"):
             assert _mig_0027._has_persona_lock_fk(conn, table)
         presets.assert_schema_safe(conn)  # no longer raises
-    finally:
-        conn.close()
 
 
 def test_schema_safety_problems_is_non_fatal_but_preset_ops_stay_fatal(tmp_path):
@@ -220,8 +162,7 @@ def test_schema_safety_problems_is_non_fatal_but_preset_ops_stay_fatal(tmp_path)
     same divergence ``assert_schema_safe`` raises on, but returns it as a list instead
     of throwing -- so a schema quirk warns at boot while every preset op still fails
     hard on the identical problems."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         _strip_persona_lock_fk(conn, "conversations")
         conn.commit()
 
@@ -243,8 +184,6 @@ def test_schema_safety_problems_is_non_fatal_but_preset_ops_stay_fatal(tmp_path)
             presets.assert_schema_safe(clean)  # must not raise
         finally:
             clean.close()
-    finally:
-        conn.close()
 
 
 def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
@@ -262,27 +201,30 @@ def test_fully_migrated_fresh_install_satisfies_gate(tmp_path):
     conn.close()
     run_pending(str(db))
 
-    conn = sqlite3.connect(str(db))
-    try:
+    with closing(sqlite3.connect(str(db))) as conn:
         assert presets.schema_equivalence_problems(conn) == []
         assert presets.schema_coverage_problems(conn) == []
         presets.assert_schema_safe(conn)  # must not raise
-    finally:
-        conn.close()
 
 
 # -- merge regressions (PR #90 audit) --------------------------------------------
 
 
+def _two_fresh_dbs(tmp_path) -> tuple[str, str]:
+    paths = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
+    for path in paths:
+        with closing(sqlite3.connect(path)) as conn:
+            conn.executescript(CREATE_TABLES_SQL)
+            conn.commit()
+    return paths
+
+
 def _seed(path: str, sql_pairs: list[tuple[str, tuple]]) -> None:
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         conn.execute("PRAGMA foreign_keys=OFF")  # may seed deliberately malformed source rows
         for sql, params in sql_pairs:
             conn.execute(sql, params)
         conn.commit()
-    finally:
-        conn.close()
 
 
 def _merge(main_path: str, preset_path: str, included: set, *, replace: bool = False) -> None:
@@ -303,12 +245,7 @@ def test_persona_lock_survives_gapped_persona_ids(tmp_path):
     """Regression: a character locked to a file persona whose ids have gaps used to
     be double-remapped (phase C resolves it, phase E remapped it again through the
     same map), silently re-pointing it at the wrong persona. The lock must survive."""
-    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
-    for p in (main, preset):
-        c = sqlite3.connect(p)
-        c.executescript(CREATE_TABLES_SQL)
-        c.commit()
-        c.close()
+    main, preset = _two_fresh_dbs(tmp_path)
     ts = "2024-01-01"
     # File personas have a gap: ids {2, 5} reinsert as {1, 2}, so new id 2 collides
     # with file old id 2 -- the trigger for the double remap.
@@ -325,13 +262,10 @@ def test_persona_lock_survives_gapped_persona_ids(tmp_path):
         ],
     )
     _merge(main, preset, {"characters", "configs"})
-    conn = sqlite3.connect(main)
-    try:
+    with closing(sqlite3.connect(main)) as conn:
         locked = conn.execute(
             "SELECT cc.name, up.name FROM character_cards cc LEFT JOIN user_personas up ON cc.persona_lock_id = up.id"
         ).fetchall()
-    finally:
-        conn.close()
     assert locked == [("Locked", "Bob")], locked
 
 
@@ -339,12 +273,7 @@ def test_orphan_surrogate_row_is_dropped_not_crashed(tmp_path):
     """Regression: a surrogate row dropped during insert (an external preset whose
     workflow_attachment points at an absent message) used to raise KeyError in the
     deferred fixup and abort the whole apply. It must be skipped instead."""
-    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
-    for p in (main, preset):
-        c = sqlite3.connect(p)
-        c.executescript(CREATE_TABLES_SQL)
-        c.commit()
-        c.close()
+    main, preset = _two_fresh_dbs(tmp_path)
     ts = "2024-01-01"
     _seed(
         preset,
@@ -363,24 +292,16 @@ def test_orphan_surrogate_row_is_dropped_not_crashed(tmp_path):
         ],
     )
     _merge(main, preset, {"chats", "characters"})  # must not raise
-    conn = sqlite3.connect(main)
-    try:
+    with closing(sqlite3.connect(main)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM workflow_attachments").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 1
-    finally:
-        conn.close()
 
 
 def test_self_parented_message_is_healed_to_root(tmp_path):
     """Regression: a self-parented (or cyclic) message in the source used to import
     as a faithful loop the app's tree-walk can spin on. The fixup must null the
     closing edge so the chain reaches root."""
-    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
-    for p in (main, preset):
-        c = sqlite3.connect(p)
-        c.executescript(CREATE_TABLES_SQL)
-        c.commit()
-        c.close()
+    main, preset = _two_fresh_dbs(tmp_path)
     ts = "2024-01-01"
     _seed(
         preset,
@@ -394,11 +315,8 @@ def test_self_parented_message_is_healed_to_root(tmp_path):
         ],
     )
     _merge(main, preset, {"chats", "characters"})
-    conn = sqlite3.connect(main)
-    try:
+    with closing(sqlite3.connect(main)) as conn:
         parents = conn.execute("SELECT parent_id FROM messages").fetchall()
-    finally:
-        conn.close()
     assert parents == [(None,)], parents
 
 
@@ -406,8 +324,7 @@ def test_self_parented_message_is_healed_to_root(tmp_path):
 
 
 def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         ts = "2024-01-01T00:00:00"
         conn.execute(
             "INSERT INTO conversations (id, title, created_at, persona_lock_id) VALUES (?, ?, ?, ?)",
@@ -426,8 +343,6 @@ def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
         conn.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (m2, cid))
         conn.execute("INSERT INTO director_state (conversation_id, active_moods) VALUES (?, '[]')", (cid,))
         conn.commit()
-    finally:
-        conn.close()
 
 
 # The tables the round-trip's _signature() actually reads (declared explicitly so a new table can't silently drop out of
@@ -564,11 +479,8 @@ def test_signature_covers_every_domain_table(tmp_path):
     tables it deliberately skips, must partition the whole schema. Adding a table
     then fails this until the developer either extends _signature or consciously
     allowlists it -- a new table can never silently drop out of round-trip coverage."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         all_tables = set(presets._build_schema_model(conn).tables)
-    finally:
-        conn.close()
     assert SIGNATURE_TABLES & SIGNATURE_ALLOWLIST == set(), "a table is both signatured and allowlisted"
     assert SIGNATURE_TABLES | SIGNATURE_ALLOWLIST == all_tables, {
         "unaccounted (extend _signature or allowlist)": all_tables - SIGNATURE_TABLES - SIGNATURE_ALLOWLIST,
@@ -608,8 +520,7 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     # above -- a nullable cross-domain reference) and one pending proposal. Together these cover the overlay metadata, the
     # self-FK on supersedes_entry_id, and the world_changesets -> messages/conversations pointers.
     await client.put(f"/api/worlds/{w1}/dynamic", json={"enabled": True})
-    dyn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as dyn:
         ts = "2026-01-01T00:00:00"
         target = dyn.execute("SELECT id FROM lorebook_entries WHERE name = 'Lore A'").fetchone()[0]
         asst = dyn.execute("SELECT id FROM messages WHERE conversation_id = 'conv-keep' AND role = 'assistant'").fetchone()[0]
@@ -634,14 +545,11 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
             (w1, ts),
         )
         dyn.commit()
-    finally:
-        dyn.close()
 
     # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
     # mood fragment (stable upsert) so those domains carry real data round-trip.
     await client.put("/api/settings", json={"user_name": "Ada", "system_prompt": "keep me"})
-    seed = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as seed:
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
         # A dismissed suggestion is a phrase-bank decision and must come back; a
         # stored suggestion is derived, quotes chat text, and must not ship.
@@ -666,30 +574,22 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
             (locked,),
         )
         seed.commit()
-    finally:
-        seed.close()
 
     before = _signature(path)
 
     name = (
-        await client.post(
+        await client.post_json(
             "/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": False, "label": "roundtrip"}
         )
-    ).json()["name"]
+    )["name"]
     preset_path = presets._library_path(name)
-    exported = sqlite3.connect(preset_path)
-    try:
+    with closing(sqlite3.connect(preset_path)) as exported:
         assert exported.execute("SELECT COUNT(*) FROM slop_suggestions").fetchone()[0] == 0
-    finally:
-        exported.close()
 
     # Scramble the live DB across domains: delete, edit, and add rows everywhere.
-    scramble = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as scramble:
         scramble.execute("DELETE FROM slop_dismissals")
         scramble.commit()
-    finally:
-        scramble.close()
     await client.delete(f"/api/characters/{linked}")
     await client.put(f"/api/characters/{locked}", json={"name": "Renamed"})
     await client.post("/api/characters", json={"name": "Intruder"})
@@ -710,11 +610,8 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     assert summary["chats"] == 1 and summary["characters"] == 4 and summary["configs"] == 1
 
     # And the committed state has no dangling foreign keys.
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-    finally:
-        conn.close()
 
 
 # -- excluded-table tripwires (data must never hide in EXCLUDED_TABLES) ------------
@@ -724,16 +621,13 @@ def test_excluded_data_tables_are_empty_in_fresh_schema(tmp_path):
     """Every excluded table other than the meta/migration bookkeeping must be empty
     on a fresh install -- excluded tables are invisible to export and merge, so any
     rows they carry would silently never be backed up."""
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         for tbl in presets.ps.EXCLUDED_TABLES:
             if tbl in presets._EXCLUDED_MAY_HAVE_ROWS:
                 continue
             if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
                 continue
             assert conn.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0] == 0, tbl
-    finally:
-        conn.close()
 
 
 async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
@@ -743,8 +637,7 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
 
     path = str(db_path)
     await client.post("/api/characters", json={"name": "Keep"})
-    seed = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as seed:
         seed.execute("PRAGMA foreign_keys=OFF")  # message_attachments.message_id NOT NULL; we only need a row to exist
         # Fresh installs no longer carry this legacy table (schema.py dropped it when first-boot migration stamping landed);
         # recreate it as an upgraded pre-0020 DB would still have it.
@@ -759,8 +652,6 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
             "VALUES (1, 'image/png', 'AAA', '2024-01-01')"
         )
         seed.commit()
-    finally:
-        seed.close()
 
     with pytest.raises(presets.PresetError) as exc:
         await asyncio.to_thread(presets.build_preset, ["characters"], False)
@@ -851,8 +742,7 @@ def test_every_free_form_workflow_json_column_is_declared(tmp_path):
     The three ``workflow_state`` columns are the same free-form per-workflow slot, written through the same toolkit helpers;
     only one holds a credential today. All of them must therefore be a deliberate declaration rather than an oversight.
     """
-    conn = _fresh_schema_db(tmp_path)
-    try:
+    with closing(_fresh_schema_db(tmp_path)) as conn:
         columns = set()
         for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
             if table in presets.ps.EXCLUDED_TABLES:
@@ -860,8 +750,6 @@ def test_every_free_form_workflow_json_column_is_declared(tmp_path):
             for row in conn.execute(f"PRAGMA table_info({table})").fetchall():
                 if row[1] in _WORKFLOW_JSON_COLUMNS:
                     columns.add((table, row[1]))
-    finally:
-        conn.close()
     assert columns == {key for key in presets.ps.SECRET_JSON_PATHS if key[1] in _WORKFLOW_JSON_COLUMNS}
 
 
@@ -889,19 +777,13 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
         },
         "tts": {"auto_play": True},
     }
-    seed = sqlite3.connect(str(db_path))
-    try:
+    with closing(sqlite3.connect(str(db_path))) as seed:
         seed.execute("UPDATE settings SET workflow_config = ?", (json.dumps(blob),))
         seed.commit()
-    finally:
-        seed.close()
 
-    name = (await client.post("/api/presets/export", json={"domains": ["characters"], "strip_keys": False})).json()["name"]
-    exported = sqlite3.connect(presets._library_path(name))
-    try:
+    name = (await client.post_json("/api/presets/export", json={"domains": ["characters"], "strip_keys": False}))["name"]
+    with closing(sqlite3.connect(presets._library_path(name))) as exported:
         stored = json.loads(exported.execute("SELECT workflow_config FROM settings WHERE id = 1").fetchone()[0])
-    finally:
-        exported.close()
 
     assert stored["image_gen"]["external_comfy"]["api_key"] == ""
     assert stored["image_gen"]["cloud"]["providers"]["xai"]["api_key"] == ""
@@ -954,8 +836,7 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     await client.post("/api/characters", json={"name": "Canary"})
 
     json_canaries: list[bytes] = []
-    seed = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as seed:
         for table, col in presets.ps.SECRET_COLUMNS:
             seed.execute(f"UPDATE {table} SET {col} = ?", (canary(table, col).decode(),))
         for (table, col), paths in presets.ps.SECRET_JSON_PATHS.items():
@@ -968,8 +849,6 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
                 _deep_merge(payload, _nest(leaf, value.decode()))
             seed.execute(f"UPDATE {table} SET {col} = ?", (json.dumps(payload),))
         seed.commit()
-    finally:
-        seed.close()
     assert json_canaries, "SECRET_JSON_PATHS declares no path; this test would prove nothing"
 
     all_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS] + json_canaries
@@ -981,15 +860,14 @@ async def test_no_secret_canary_leaks_in_exports(client, db_path):
     ]
 
     # (a) every single domain that does NOT pull in configs -> nothing personal ships.
-    non_configs = [d for d in presets.ALL_DOMAINS if d != "configs"]
-    for domain in non_configs:
-        name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
+    for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
+        name = (await client.post_json("/api/presets/export", json={"domains": [domain], "strip_keys": False}))["name"]
         blob = Path(presets._library_path(name)).read_bytes()
         leaked = [c.decode() for c in all_canaries if c in blob]
         assert leaked == [], (domain, leaked)
 
     # (b) full export with strip_keys -> only the credential sentinels must be gone.
-    name = (await client.post("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True})).json()[
+    name = (await client.post_json("/api/presets/export", json={"domains": list(presets.ALL_DOMAINS), "strip_keys": True}))[
         "name"
     ]
     blob = Path(presets._library_path(name)).read_bytes()
@@ -1004,6 +882,5 @@ async def test_persona_avatar_never_ships_without_the_configs_domain(client, db_
     )
 
     for domain in [d for d in presets.ALL_DOMAINS if d != "configs"]:
-        name = (await client.post("/api/presets/export", json={"domains": [domain], "strip_keys": False})).json()["name"]
-        blob = Path(presets._library_path(name)).read_bytes()
-        assert canary not in blob, domain
+        name = (await client.post_json("/api/presets/export", json={"domains": [domain], "strip_keys": False}))["name"]
+        assert canary not in Path(presets._library_path(name)).read_bytes(), domain

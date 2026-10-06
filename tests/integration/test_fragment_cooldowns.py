@@ -1,7 +1,5 @@
 """Turn-level coverage for branch-aware Director fragment cooldowns."""
 
-from __future__ import annotations
-
 import backend.database as dbmod
 from backend.pipeline import handle_regenerate, handle_turn
 
@@ -25,6 +23,20 @@ async def _setup(client, cid: str) -> None:
     await client.put("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
 
 
+_STORMY = {"id": "stormy", "label": "Stormy", "description": "Use during conflict.", "cooldown_turns": 3}
+_TRUST = {
+    "id": "trust",
+    "label": "Trust",
+    "description": "Current trust level.",
+    "field_type": "state",
+    "state_mode": "value",
+    "state_update": "before_writer",
+    "state_inject": "writer",
+    "injection_label": "Trust",
+    "cooldown_turns": 2,
+}
+
+
 def _director_data(events: list[dict]) -> dict:
     return next(event["data"] for event in events if event.get("event") == "director_done")
 
@@ -38,14 +50,7 @@ async def test_mood_is_blocked_for_exact_cooldown_without_negative_prompt(client
     await _setup(client, cid)
     await client.post(
         "/api/fragments",
-        json={
-            "id": "stormy",
-            "label": "Stormy",
-            "description": "Use during conflict.",
-            "prompt_text": "Write with stormy intensity.",
-            "negative_prompt": "Return to a calmer register.",
-            "cooldown_turns": 3,
-        },
+        json={**_STORMY, "prompt_text": "Write with stormy intensity.", "negative_prompt": "Return to a calmer register."},
     )
 
     first = _director_data(await _turn(llm_mock, cid, "one", {"moods": ["stormy"]}))
@@ -67,20 +72,7 @@ async def test_mood_is_blocked_for_exact_cooldown_without_negative_prompt(client
 async def test_resting_state_value_is_kept_and_injected_without_restarting_cooldown(client, db, llm_mock):
     cid = "conv-fragment-cooldown-state"
     await _setup(client, cid)
-    await client.post(
-        "/api/interactive-fragments",
-        json={
-            "id": "trust",
-            "label": "Trust",
-            "description": "Current trust level.",
-            "field_type": "state",
-            "state_mode": "value",
-            "state_update": "before_writer",
-            "state_inject": "writer",
-            "injection_label": "Trust",
-            "cooldown_turns": 2,
-        },
-    )
+    await client.post("/api/interactive-fragments", json=_TRUST)
 
     await _turn(llm_mock, cid, "one", {"moods": [], "trust": "guarded"})
     resting = _director_data(await _turn(llm_mock, cid, "two", {"moods": [], "trust": "model changed it"}))
@@ -98,20 +90,7 @@ async def test_resting_state_value_is_kept_and_injected_without_restarting_coold
 async def test_state_value_cooldown_starts_only_when_the_value_changes(client, db, llm_mock):
     cid = "conv-fragment-cooldown-state-echo"
     await _setup(client, cid)
-    await client.post(
-        "/api/interactive-fragments",
-        json={
-            "id": "trust",
-            "label": "Trust",
-            "description": "Current trust level.",
-            "field_type": "state",
-            "state_mode": "value",
-            "state_update": "before_writer",
-            "state_inject": "writer",
-            "injection_label": "Trust",
-            "cooldown_turns": 2,
-        },
-    )
+    await client.post("/api/interactive-fragments", json=_TRUST)
 
     assert _director_data(await _turn(llm_mock, cid, "one", {"moods": [], "trust": "guarded"}))["fragment_cooldowns"] == {
         "trust": 2
@@ -119,8 +98,7 @@ async def test_state_value_cooldown_starts_only_when_the_value_changes(client, d
     await _turn(llm_mock, cid, "two", {"moods": []})
     await _turn(llm_mock, cid, "three", {"moods": []})
     # Echoing the saved value changes nothing, so the fragment stays available.
-    echoed = _director_data(await _turn(llm_mock, cid, "four", {"moods": [], "trust": "guarded"}))
-    assert echoed["fragment_cooldowns"] == {}
+    assert _director_data(await _turn(llm_mock, cid, "four", {"moods": [], "trust": "guarded"}))["fragment_cooldowns"] == {}
     assert await dbmod.get_state_events_for_message((await _last_assistant(cid))["id"]) == []
     changed = _director_data(await _turn(llm_mock, cid, "five", {"moods": [], "trust": "warming"}))
     assert changed["fragment_cooldowns"] == {"trust": 2}
@@ -129,16 +107,7 @@ async def test_state_value_cooldown_starts_only_when_the_value_changes(client, d
 async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client, db, llm_mock):
     cid = "conv-fragment-cooldown-branch"
     await _setup(client, cid)
-    await client.post(
-        "/api/fragments",
-        json={
-            "id": "stormy",
-            "label": "Stormy",
-            "description": "Use during conflict.",
-            "prompt_text": "Stormy prose.",
-            "cooldown_turns": 3,
-        },
-    )
+    await client.post("/api/fragments", json={**_STORMY, "prompt_text": "Stormy prose."})
 
     await _turn(llm_mock, cid, "one", {"moods": ["stormy"]})
     await _turn(llm_mock, cid, "two", {"moods": ["stormy"]})
@@ -152,8 +121,7 @@ async def test_regenerate_rewinds_cooldown_and_checkpoint_copies_snapshot(client
         assert (await _last_assistant(cid))["fragment_cooldowns"] == {"stormy": 2}
 
     response = await client.post_json(f"/api/conversations/{cid}/checkpoint", json={"title": "copy"})
-    copied = await _last_assistant(response["id"])
-    assert copied["fragment_cooldowns"] == {"stormy": 2}
+    assert (await _last_assistant(response["id"]))["fragment_cooldowns"] == {"stormy": 2}
 
 
 async def test_inspector_distinguishes_missing_mood_history_from_empty_selection(client, db, llm_mock):
@@ -162,12 +130,12 @@ async def test_inspector_distinguishes_missing_mood_history_from_empty_selection
     await _turn(llm_mock, cid, "hello", {"moods": []})
     reply = await _last_assistant(cid)
     url = f"/api/conversations/{cid}/messages/{reply['id']}/director-log"
-    recorded = (await client.get(url)).json()
+    recorded = await client.get_json(url)
     assert recorded["mood_data_available"] is True
     assert recorded["active_moods"] == []
 
     await db.execute("DELETE FROM conversation_logs WHERE conversation_id = ?", (cid,))
     await db.commit()
-    missing = (await client.get(url)).json()
+    missing = await client.get_json(url)
     assert missing["mood_data_available"] is False
     assert missing["active_moods"] == []

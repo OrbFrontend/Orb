@@ -4,8 +4,6 @@ The `tts` workflow registers at import, so these tests do not clear the registry
 DB. A stub adapter stands in for a real TTS backend.
 """
 
-from __future__ import annotations
-
 import base64
 import json
 from types import MappingProxyType
@@ -111,9 +109,7 @@ async def test_post_pipeline_skips_when_profile_disabled(client, fake_adapter):
     await set_workflow_config("tts", {"auto_play": False, "volume": 0.75})
     await set_workflow_character_state(char_id, "tts", {"enabled": False, "backend": "edge", "voice_id": "v1"})
 
-    events = [ev async for ev in hooks.post_pipeline(_post_ctx(cid, char_id, "Hello."))]
-
-    assert events == []
+    assert [ev async for ev in hooks.post_pipeline(_post_ctx(cid, char_id, "Hello."))] == []
 
 
 async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_adapter):
@@ -166,8 +162,7 @@ async def test_full_send_turn_persists_audio_attachment(client, llm_mock, fake_a
     resp = await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "hi", "attachments": []})
     _ = resp.text  # drain the buffered SSE stream so the turn completes
 
-    msgs = await get_messages(cid)
-    assistant = [m for m in msgs if m["role"] == "assistant"]
+    assistant = [m for m in await get_messages(cid) if m["role"] == "assistant"]
     assert assistant, "no assistant message persisted"
     atts = [a for a in (assistant[-1].get("workflow_attachments") or []) if a.get("workflow_id") == "tts"]
     assert len(atts) == 1, f"expected one tts attachment on the reply, got {len(atts)}"
@@ -298,13 +293,11 @@ async def test_config_round_trip(client):
         }
     }
     assert put == expected
-    got = await client.get("/api/workflows/tts/config")
-    assert got.json() == expected
+    assert (await client.get("/api/workflows/tts/config")).json() == expected
 
 
 async def test_config_defaults_on_fresh_slot(client):
-    got = await client.get("/api/workflows/tts/config")
-    assert got.json() == {
+    assert (await client.get("/api/workflows/tts/config")).json() == {
         "config": {
             "auto_play": False,
             "volume": 0.75,
@@ -319,16 +312,14 @@ async def test_profile_get_set_round_trip(client):
     cid, char_id = await _seed()
     base = f"/api/conversations/{cid}/workflows/tts/trigger"
 
-    got = await client.post_json(base, json={"action": "get_profile"})
-    assert got["profile"]["enabled"] is False
+    assert (await client.post_json(base, json={"action": "get_profile"}))["profile"]["enabled"] is False
 
     saved = await client.post_json(
         base, json={"action": "set_profile", "profile": {"enabled": True, "backend": "edge", "voice_id": "v9", "rate": 1.2}}
     )
     assert saved["ok"] is True
 
-    again = await client.post(base, json={"action": "get_profile"})
-    profile = again.json()["profile"]
+    profile = (await client.post(base, json={"action": "get_profile"})).json()["profile"]
     assert profile["enabled"] is True
     assert profile["voice_id"] == "v9"
     assert profile["rate"] == 1.2
@@ -346,8 +337,7 @@ def test_tts_binds_both_dispatch_hooks():
 async def test_query_route_lists_backends_without_a_conversation(client):
     # list_backends reads the static backend registry: no conversation, no character, no backend probe -- exactly what QUERY
     # exists to answer, and why it moved off the per-conversation trigger.
-    resp = await client.post_json("/api/workflows/tts/query", json={"action": "list_backends"})
-    backends = resp["backends"]
+    backends = (await client.post_json("/api/workflows/tts/query", json={"action": "list_backends"}))["backends"]
     assert isinstance(backends, list) and backends
     assert all("id" in b for b in backends)
 
@@ -388,8 +378,7 @@ async def test_query_route_says_when_there_is_no_excerpt(client):
 
 
 async def test_query_route_rejects_unknown_action_in_band(client):
-    resp = await client.post_json("/api/workflows/tts/query", json={"action": "does_not_exist"})
-    assert "unknown action" in resp["error"]
+    assert "unknown action" in (await client.post_json("/api/workflows/tts/query", json={"action": "does_not_exist"}))["error"]
 
 
 async def test_discovery_actions_left_the_conversation_trigger(client):
@@ -398,5 +387,4 @@ async def test_discovery_actions_left_the_conversation_trigger(client):
     cid, _ = await _seed()
     base = f"/api/conversations/{cid}/workflows/tts/trigger"
     for action in ("list_backends", "list_voices", "list_models", "preview"):
-        resp = await client.post_checked(base, json={"action": action})
-        assert "unknown action" in resp.json()["error"], action
+        assert "unknown action" in (await client.post_checked(base, json={"action": action})).json()["error"], action

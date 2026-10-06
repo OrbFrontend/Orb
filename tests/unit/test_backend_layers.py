@@ -5,8 +5,6 @@ violation is the kind of thing that gets written and committed between two lint 
 script's docstring for why a grep is the wrong tool here.
 """
 
-from __future__ import annotations
-
 import ast
 import importlib.util
 import sys

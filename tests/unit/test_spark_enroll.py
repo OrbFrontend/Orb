@@ -1,7 +1,5 @@
 """Tests for Spark-TTS enrollment with the real speaker encoder."""
 
-from __future__ import annotations
-
 import os
 
 import pytest
@@ -65,8 +63,7 @@ def test_different_signals_enroll_differently():
     """Different signals produce different speaker tokens."""
     rng = np.random.default_rng(11)
     a = enroll.enroll_signal(enroll.reference_clip(rng.standard_normal(96000).astype(np.float32) * 0.1))
-    b = enroll.enroll_signal(enroll.reference_clip(np.zeros(96000, dtype=np.float32)))
-    assert a != b
+    assert a != enroll.enroll_signal(enroll.reference_clip(np.zeros(96000, dtype=np.float32)))
 
 
 @pytest.mark.skipif(not os.path.exists(_REFERENCE_WAV), reason="upstream reference clip not checked out")
@@ -81,8 +78,7 @@ def test_reproduces_the_torch_reference():
 
 def test_a_long_clip_is_enrolled_past_its_first_six_seconds():
     """Speech after six seconds contributes to enrollment."""
-    rng = np.random.default_rng(5)
-    head = (rng.standard_normal(96000) * 0.1).astype(np.float32)
+    head = (np.random.default_rng(5).standard_normal(96000) * 0.1).astype(np.float32)
     tail = np.sin(np.arange(20 * 16000) * 2 * np.pi * 220 / 16000).astype(np.float32) * 0.3
     only_head = enroll.enroll_signal(enroll.reference_clip(head))
     assert enroll.enroll_signal(enroll.reference_clip(np.concatenate([head, tail]))) != only_head

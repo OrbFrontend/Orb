@@ -6,8 +6,6 @@ text resolves against the per-conversation ``director_state.macro_choices`` map 
 turn (and carried by checkpoint), and director-authored interactive values roll fresh on every emission.
 """
 
-from __future__ import annotations
-
 import json
 
 import backend.database as dbmod
@@ -71,8 +69,7 @@ async def test_plain_edit_resolves_inline_macros(client, db, llm_mock):
 
     await client.post_checked(f"/api/conversations/{cid}/messages/{user_id}/edit", json={"content": "changed to {{roll::3d1}}"})
 
-    row = await db.one("SELECT content FROM messages WHERE id = ?", (user_id,))
-    assert row["content"] == "changed to 3"
+    assert (await db.one("SELECT content FROM messages WHERE id = ?", (user_id,)))["content"] == "changed to 3"
 
 
 # -- greetings: re-roll until first user message, then frozen -----------------
@@ -105,8 +102,7 @@ async def test_greeting_rerolls_until_first_user_message(client, db, llm_mock):
     llm_mock.enqueue_writer("hi")
     await _drain(handle_turn(cid, "hello there"))
     for _ in range(5):
-        contents = await _greeting_contents(client, cid)
-        assert before in contents  # the replied-to greeting kept its bytes
+        assert before in (await _greeting_contents(client, cid))  # the replied-to greeting kept its bytes
 
 
 async def test_alternate_greetings_resolved_with_templates(client, db):
@@ -134,8 +130,7 @@ async def test_editing_greeting_drops_template_and_stops_reroll(client, db):
     cid = await client.create(
         "/api/conversations", json={"title": "g", "character_name": "Bot", "first_mes": "Hi {{random::X::Y}}"}
     )
-    msgs = await dbmod.get_messages(cid)
-    greeting_id = msgs[0]["id"]
+    greeting_id = (await dbmod.get_messages(cid))[0]["id"]
 
     await client.post_checked(f"/api/conversations/{cid}/messages/{greeting_id}/edit", json={"content": "Hand-written opening"})
 
@@ -181,8 +176,7 @@ async def test_mood_fragment_random_fixed_per_conversation(client, db, llm_mock)
     # Second turn re-reads the committed map: byte-identical injection.
     llm_mock.enqueue_director(_direct_scene({"moods": ["vivid"]}))
     llm_mock.enqueue_writer("second")
-    second_block = _injection_block(await _drain(handle_turn(cid, "again")))
-    assert second_block == first_block
+    assert _injection_block(await _drain(handle_turn(cid, "again"))) == first_block
 
     state = await dbmod.get_director_state(cid)
     assert state["macro_choices"] == {"mood:vivid:{{random::crimson::azure}}:0": pick}
@@ -211,8 +205,7 @@ async def test_interactive_fragment_value_random_rolls_fresh(client, db, llm_moc
         assert "{{random" not in block
         assert any(f"make it {w}" in block for w in ("loud", "quiet"))
 
-    state = await dbmod.get_director_state(cid)
-    assert state["macro_choices"] == {}
+    assert (await dbmod.get_director_state(cid))["macro_choices"] == {}
 
 
 async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
@@ -226,8 +219,7 @@ async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
 
     new_cid = await client.create(f"/api/conversations/{cid}/checkpoint", json={"title": "cp"})
 
-    copied = await dbmod.get_director_state(new_cid)
-    assert copied["macro_choices"] == source["macro_choices"]
+    assert (await dbmod.get_director_state(new_cid))["macro_choices"] == source["macro_choices"]
 
     # Seeded {{random}} (persona/scenario fields) must not re-roll under the copy's new id: the copy pins the source's seed,
     # transitively (a checkpoint of a checkpoint keeps the original seed).

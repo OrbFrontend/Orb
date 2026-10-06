@@ -1,7 +1,5 @@
 """The Spark-TTS host's advanced-cloning composition, with the models stubbed."""
 
-from __future__ import annotations
-
 import pytest
 
 from backend.inference.local_models import whisper
@@ -83,10 +81,8 @@ async def test_enroll_upload_prepares_the_reference_only_when_asked(stubbed, mon
     monkeypatch.setattr(host.enroll, "reference_clip", lambda wav: wav)
     monkeypatch.setattr(host.enroll, "enroll_signal", lambda signal: list(VALID))
 
-    basic = await host.enroll_upload(b"clip")
-    assert basic == host.Enrollment(VALID)
-    advanced = await host.enroll_upload(b"clip", with_reference=True)
-    assert advanced == host.Enrollment(VALID, EXCERPT, "One must know it.", "")
+    assert (await host.enroll_upload(b"clip")) == host.Enrollment(VALID)
+    assert (await host.enroll_upload(b"clip", with_reference=True)) == host.Enrollment(VALID, EXCERPT, "One must know it.", "")
 
 
 @pytest.mark.parametrize(

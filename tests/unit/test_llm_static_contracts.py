@@ -1,7 +1,5 @@
 """Guard the model-call contract through transports, caching, and consumers."""
 
-from __future__ import annotations
-
 import json
 import subprocess
 import sys
@@ -107,6 +105,5 @@ def test_llm_contracts_survive_transport_cache_and_consumer_boundaries(tmp_path)
     assert result.returncode in (0, 1), result.stdout + result.stderr
     errors = [d for d in json.loads(result.stdout)["generalDiagnostics"] if d["severity"] == "error"]
     expected = {i for i, line in enumerate(_SOURCE.splitlines()) if line.endswith("# rejected")}
-    actual = {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source}
-    assert actual == expected, json.dumps(errors, indent=2)
+    assert {d["range"]["start"]["line"] for d in errors if Path(d["file"]) == source} == expected, json.dumps(errors, indent=2)
     assert all(Path(d["file"]) == source for d in errors), json.dumps(errors, indent=2)

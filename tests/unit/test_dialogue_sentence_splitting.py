@@ -70,13 +70,11 @@ class TestSlopSplitterDialogueQuotes:
 
     def test_plain_period_split_unaffected(self):
         """Ordinary '. ' boundaries still split correctly."""
-        sentences = slop_split("He walked. She ran. They stopped.")
-        assert sentences == ["He walked.", "She ran.", "They stopped."]
+        assert slop_split("He walked. She ran. They stopped.") == ["He walked.", "She ran.", "They stopped."]
 
     def test_exclamation_no_quote_unaffected(self):
         """'! ' without a following quote still splits correctly."""
-        sentences = slop_split("He yelled! She ran. They stopped.")
-        assert sentences == ["He yelled!", "She ran.", "They stopped."]
+        assert slop_split("He yelled! She ran. They stopped.") == ["He yelled!", "She ran.", "They stopped."]
 
     def test_mid_sentence_quote_separates_segments(self):
         """A quoted word inside a sentence is its own segment -- dialogue and
@@ -109,8 +107,7 @@ class TestContrastiveNegationSplitterDialogueQuotes:
         assert not any("she screamed" in s and "I want" in s for s in sentences)
 
     def test_mid_sentence_quote_no_spurious_split(self):
-        sentences = neg_split('She said "hello" to him. He nodded.')
-        assert sentences == ['She said "hello" to him.', "He nodded."]
+        assert neg_split('She said "hello" to him. He nodded.') == ['She said "hello" to him.', "He nodded."]
 
 
 # ===============================================================================
@@ -129,6 +126,4 @@ class TestReportStripsDanglingQuotes:
 
     def test_apostrophe_survives_in_report(self):
         # Straight ' is not an outer marker -- contractions must stay intact.
-        draft = "She said the plan wouldn't fail this time."
-        report = format_report(run_audit(draft, [["wouldn't fail"]]))
-        assert "wouldn't fail" in report
+        assert "wouldn't fail" in format_report(run_audit("She said the plan wouldn't fail this time.", [["wouldn't fail"]]))

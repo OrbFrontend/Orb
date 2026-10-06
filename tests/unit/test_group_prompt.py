@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from backend.core import CastMember, Macros, TurnCast, fold_events
 from backend.database.queries.group_members import allocate_speaker_key
 from backend.pipeline.cast import choose_speakers, parse_speaking_plan, plan_cue, round_robin_member
@@ -15,8 +13,7 @@ def _member(mid: str, name: str, public: str, private: str) -> CastMember:
 
 def test_group_base_contains_only_public_profiles_and_labelled_history():
     aria = _member("a", "Aria", "Role: scout", "ARIA PRIVATE")
-    kael = _member("k", "Kael", "Role: mage", "KAEL PRIVATE")
-    cast = TurnCast(True, (aria, kael))
+    cast = TurnCast(True, (aria, _member("k", "Kael", "Role: mage", "KAEL PRIVATE")))
     prefix = build_prefix(
         "system",
         "legacy private",
@@ -84,8 +81,7 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
         {"id": "k", "speaker_key": "kael", "display_name": "Kael", "active": 1, "muted": 0},
         {"id": "m", "speaker_key": "mira", "display_name": "Mira", "active": 1, "muted": 1},
     ]
-    schema = build_direct_scene_override([], grouped=True)
-    prop = schema["function"]["parameters"]["properties"]["speaking_plan"]
+    prop = build_direct_scene_override([], grouped=True)["function"]["parameters"]["properties"]["speaking_plan"]
     # The blob is the cached prefix (kv-cache.md, Invariant 3), so it names the field and never the cast: a mute toggle changes
     # nothing here, and the live roster is stated on the Director's trailing request instead.
     assert "speaker_key" in prop["description"]

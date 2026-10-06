@@ -1,12 +1,6 @@
-from __future__ import annotations
-
-
 async def test_list_mood_fragments_returns_seeded_data(client, db):
-    resp = await client.get_json("/api/fragments")
-    mood_fragments = resp
-    ids = {f["id"] for f in mood_fragments}
-    # These are seeded by init_db
-    assert "talkative" in ids
+    mood_fragments = await client.get_json("/api/fragments")
+    assert "talkative" in {f["id"] for f in mood_fragments}
 
 
 async def test_create_mood_fragment_persists_to_db(client, db):
@@ -63,8 +57,7 @@ async def test_delete_mood_fragment_removes_from_db(client, db):
 
     await client.delete_checked("/api/fragments/del-frag")
 
-    row = await db.one("SELECT id FROM mood_fragments WHERE id = 'del-frag'")
-    assert row is None
+    assert (await db.one("SELECT id FROM mood_fragments WHERE id = 'del-frag'")) is None
 
 
 async def test_delete_nonexistent_mood_fragment_returns_404(client, db):

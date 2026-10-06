@@ -2,8 +2,6 @@
 fragments. Resetting the counter would invert eviction order across old and new artifacts.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -66,8 +64,7 @@ async def test_reset_keeps_counter_above_retained_recent_accesses(client, db):
     ]
     ra_row = list(await db.execute_fetchall("SELECT recent_accesses FROM workflow_attachments WHERE id = ?", (att_id,)))[0]
     assert ra_row["recent_accesses"] is not None
-    retained_max = max(json.loads(ra_row["recent_accesses"]))
-    assert counter >= retained_max
+    assert counter >= max(json.loads(ra_row["recent_accesses"]))
 
 
 async def test_reset_retains_attachment_rows_and_clears_settings(client, db):
@@ -79,8 +76,7 @@ async def test_reset_retains_attachment_rows_and_clears_settings(client, db):
     await reset_to_defaults()
 
     # The attachment row survives.
-    rows = list(await db.execute_fetchall("SELECT id FROM workflow_attachments WHERE id = ?", (att_id,)))
-    assert len(rows) == 1
+    assert len(list(await db.execute_fetchall("SELECT id FROM workflow_attachments WHERE id = ?", (att_id,)))) == 1
     # The tuned setting is back to its default.
     words = list(await db.execute_fetchall("SELECT length_guard_max_words FROM settings WHERE id = 1"))[0]
     assert words["length_guard_max_words"] == DEFAULT_SETTINGS["length_guard_max_words"]

@@ -1,7 +1,5 @@
 """Integration coverage for pass reasoning buffers."""
 
-from __future__ import annotations
-
 import backend.database as dbmod
 from backend.pipeline import handle_turn
 

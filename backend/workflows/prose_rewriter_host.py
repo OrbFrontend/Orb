@@ -178,19 +178,3 @@ async def on_enabled(enabled: bool) -> None:
 def model_deletion():
     """Release the mmap and child process, and keep them released, through a model file delete."""
     return HOST.exclusive_release()
-
-
-__all__ = [
-    "FEATURE",
-    "ProseRewriteConfig",
-    "UnknownVariant",
-    "UnsupportedBatchSize",
-    "apply_config",
-    "model_deletion",
-    "on_enabled",
-    "post_pipeline",
-    "resolve_config",
-    "rewrite_events",
-    "status_extra",
-    "sync_selection",
-]

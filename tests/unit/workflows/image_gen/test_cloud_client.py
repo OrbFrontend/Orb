@@ -5,8 +5,6 @@ ComfyUI's totally opaque message this one echoes an excerpt -- which makes "what
 pinning, not a comment.
 """
 
-from __future__ import annotations
-
 import base64
 
 import httpx
@@ -32,7 +30,6 @@ def _ok(payload):
 # -- decoding -----------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_b64_json_is_decoded_without_a_second_request():
     seen: list[str] = []
 
@@ -50,7 +47,6 @@ async def test_b64_json_is_decoded_without_a_second_request():
     assert image.mime in ("image/webp", "image/png")
 
 
-@pytest.mark.asyncio
 async def test_a_hosted_url_is_fetched_and_the_cost_unit_is_carried_verbatim():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/images/generations"):
@@ -68,14 +64,12 @@ async def test_a_hosted_url_is_fetched_and_the_cost_unit_is_carried_verbatim():
     assert image.cost == {"provider": "xai", "unit": "usd_ticks", "value": 1400}
 
 
-@pytest.mark.asyncio
 async def test_a_plaintext_result_url_is_refused():
     handler = _ok({"data": [{"url": "http://cdn.example.test/out.png"}]})
     with pytest.raises(CloudImageError, match="insecure"):
         await _client(handler).create_image("/images/generations", {}, provider_id="xai", timeout=10)
 
 
-@pytest.mark.asyncio
 async def test_an_oversized_download_is_refused_while_streaming():
     """The cap is enforced against bytes actually read, not against `content-length`
     -- a server is free to understate that header, and by the time you notice you
@@ -91,7 +85,6 @@ async def test_an_oversized_download_is_refused_while_streaming():
         await _client(handler).create_image("/images/generations", {}, provider_id="xai", timeout=10)
 
 
-@pytest.mark.asyncio
 async def test_a_non_image_payload_is_refused():
     handler = _ok({"data": [{"b64_json": base64.b64encode(b"<html>nope</html>").decode()}]})
     with pytest.raises(CloudImageError, match="not a supported image"):
@@ -101,7 +94,6 @@ async def test_a_non_image_payload_is_refused():
 # -- model listing ------------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "shape, payload, expected",
     [
@@ -136,7 +128,6 @@ async def test_every_declared_model_list_shape_is_read(shape, payload, expected)
     assert await _client(_ok(payload)).list_models("/models", shape) == expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "shape", ["nanogpt_image_map", "bare_list"], ids=["a map shape pointed at a list", "a list shape pointed at a map"]
 )
@@ -147,7 +138,6 @@ async def test_a_shape_mismatch_is_malformed_rather_than_empty(shape):
     assert excinfo.value.kind == "malformed"
 
 
-@pytest.mark.asyncio
 async def test_a_relative_models_path_climbs_off_the_version_prefix():
     """NanoGPT serves `/api/v1/images/*` but `/api/models`, so the preset reaches it
     with `../models` rather than the base URL being wrong for everything else."""
@@ -161,7 +151,6 @@ async def test_a_relative_models_path_climbs_off_the_version_prefix():
     assert seen == ["/models"]
 
 
-@pytest.mark.asyncio
 async def test_verify_key_raises_auth_on_a_401_and_is_silent_otherwise():
     """The endpoint exists because NanoGPT serves its model list to anonymous
     callers: resting Test connection on that list reports "Connected" for a key that
@@ -183,7 +172,6 @@ async def test_verify_key_raises_auth_on_a_401_and_is_silent_otherwise():
     assert excinfo.value.kind == "auth"
 
 
-@pytest.mark.asyncio
 async def test_a_type_filter_keeps_only_that_modality():
     """Together hosts one catalogue for everything: 271 entries, 29 of them image
     models. Unfiltered, the picker is mostly chat models that cannot render."""
@@ -193,11 +181,9 @@ async def test_a_type_filter_keeps_only_that_modality():
         {"id": "whisper", "type": "audio"},
         {"id": "seedream", "type": "image"},
     ]
-    models = await _client(_ok(entries)).list_models("/models", "bare_list", "type_image")
-    assert models == ["flux-schnell", "seedream"]
+    assert (await _client(_ok(entries)).list_models("/models", "bare_list", "type_image")) == ["flux-schnell", "seedream"]
 
 
-@pytest.mark.asyncio
 async def test_a_modality_filter_reads_outputs_and_never_inputs():
     """OpenRouter's 337-entry catalogue has no `type` field at all, and matching on
     `input_modalities` would keep every text model that can *read* a picture -- which
@@ -220,7 +206,6 @@ async def test_a_modality_filter_reads_outputs_and_never_inputs():
     assert models == ["google/gemini-2.5-flash-image"]
 
 
-@pytest.mark.asyncio
 async def test_an_id_filter_is_the_only_rule_openai_s_catalogue_supports():
     """OpenAI's 125 entries carry `id`, `object`, `created` and `owned_by` -- no `type` like Together, no `architecture` like
     OpenRouter. Nothing in the payload answers "does this make images", so the id is read, and the images path answers *"The
@@ -233,7 +218,6 @@ async def test_an_id_filter_is_the_only_rule_openai_s_catalogue_supports():
     assert models == ["chatgpt-image-latest", "dall-e-3", "gpt-image-1"]
 
 
-@pytest.mark.asyncio
 async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
     """The filter is an optimisation, never a gate. A provider that stops tagging
     its entries should cost a longer list, not an empty picker that reads to the
@@ -245,7 +229,6 @@ async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
 # -- the error funnel ---------------------------------------------------------
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status, payload, expected, kind",
     [
@@ -264,7 +247,6 @@ async def test_every_status_shows_only_what_the_provider_said(status, payload, e
     assert exc.value.kind == kind
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload, expected",
     [
@@ -284,7 +266,6 @@ async def test_an_unenumerated_body_shape_still_says_something(payload, expected
     assert expected in str(exc.value)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "message",
     [
@@ -304,7 +285,6 @@ async def test_ordinary_api_english_is_not_read_as_a_content_refusal(message):
     assert "content policy" not in str(exc.value)
 
 
-@pytest.mark.asyncio
 async def test_a_content_refusal_still_reaches_the_user_in_the_provider_s_own_words():
     """The case the deleted branch existed for. For roleplay imagery on a commercial
     API a refusal is the dominant failure mode -- it just does not need Orb to
@@ -316,7 +296,6 @@ async def test_a_content_refusal_still_reaches_the_user_in_the_provider_s_own_wo
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
 
 
-@pytest.mark.asyncio
 async def test_a_refusal_keeps_the_reason_it_puts_last():
     """OpenAI's live refusal body, verbatim. It is 203 characters and spends the first 175 on a support address and a request
     id, so the category -- the only part a user can act on -- is last. A 200-character cap ended it at
@@ -339,7 +318,6 @@ async def test_a_refusal_keeps_the_reason_it_puts_last():
     assert exc.value.kind == "request"
 
 
-@pytest.mark.asyncio
 async def test_a_timeout_is_not_reported_as_a_broken_network():
     """On a render this is the *expected* failure, and "could not communicate" sent
     the user to look at their connection for a provider that was merely slow."""
@@ -353,7 +331,6 @@ async def test_a_timeout_is_not_reported_as_a_broken_network():
     assert "did not respond within 10s" in str(exc.value)
 
 
-@pytest.mark.asyncio
 async def test_a_200_that_is_not_json_is_named_as_such():
     """A proxy or captive portal answering in the provider's place. Reported as
     "could not communicate" it sent the user to their network for a request that
@@ -365,7 +342,6 @@ async def test_a_200_that_is_not_json_is_named_as_such():
     assert "malformed response (HTTP 200)" in str(exc.value)
 
 
-@pytest.mark.asyncio
 async def test_a_404_is_classified_without_rewriting_the_remote_message():
     message = "no such model"
     handler = lambda _request: httpx.Response(404, json={"error": {"message": message}})  # noqa: E731
@@ -377,7 +353,6 @@ async def test_a_404_is_classified_without_rewriting_the_remote_message():
     assert str(exc.value) == message
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "message",
     ["Invalid image model specified.", "The model 'gpt-image-0' does not exist.", "Unable to access the supplied image."],
@@ -390,7 +365,6 @@ async def test_human_facing_prose_never_classifies_a_model_failure(message):
     assert str(exc.value) == message
 
 
-@pytest.mark.asyncio
 async def test_an_unknown_model_is_recognised_from_the_code_when_the_message_is_prose():
     """NanoGPT puts `invalid_model` in `error.code` and again at the top level. The
     branch reads the codes rather than resting on the human sentence, which a
@@ -407,7 +381,6 @@ async def test_an_unknown_model_is_recognised_from_the_code_when_the_message_is_
     assert exc.value.kind == MODEL_NOT_FOUND
 
 
-@pytest.mark.asyncio
 async def test_a_broker_refusal_is_not_decorated_with_metadata():
     handler = lambda _request: httpx.Response(  # noqa: E731
         400,
@@ -424,7 +397,6 @@ async def test_a_broker_refusal_is_not_decorated_with_metadata():
     assert str(exc.value) == "User location is not supported for the API use."
 
 
-@pytest.mark.asyncio
 async def test_a_render_failure_is_user_facing_so_the_json_routes_may_relay_it():
     """The streaming path always relayed a provider's own words; regenerate, reroll
     and rehydrate answered "see server logs" for the identical failure. The subclass
@@ -436,7 +408,6 @@ async def test_a_render_failure_is_user_facing_so_the_json_routes_may_relay_it()
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
 
 
-@pytest.mark.asyncio
 async def test_a_numeric_error_code_does_not_break_the_code_reader():
     """OpenRouter answers `{"error": {"message": ..., "code": 404}}` -- an *int* where
     xAI and NanoGPT put a string. `_body_codes` skips it rather than choking, and the
@@ -453,7 +424,6 @@ async def test_a_numeric_error_code_does_not_break_the_code_reader():
     assert "No model found" in str(exc.value)
 
 
-@pytest.mark.asyncio
 async def test_a_top_level_cost_is_read_when_there_is_no_usage_block():
     """NanoGPT reports `{"cost": 0.0034}` beside `data`, in plain USD, and nothing
     under `usage`. Reading `usage` alone showed no cost row on a render that had
@@ -463,7 +433,6 @@ async def test_a_top_level_cost_is_read_when_there_is_no_usage_block():
     assert image.cost == {"provider": "nanogpt", "unit": "usd", "value": 0.0034}
 
 
-@pytest.mark.asyncio
 async def test_a_usage_block_still_wins_over_a_top_level_cost():
     """A provider reporting both means the nested one; the top level is the fallback
     for providers that have no `usage` at all."""
@@ -472,7 +441,6 @@ async def test_a_usage_block_still_wins_over_a_top_level_cost():
     assert image.cost == {"provider": "xai", "unit": "usd_ticks", "value": 1400}
 
 
-@pytest.mark.asyncio
 async def test_an_actionable_400_is_echoed_but_never_carries_a_path_or_the_key():
     """Mirrors `test_validation_error_is_sanitized_and_names_checkpoint`: the useful
     half of a provider 400 reaches the user, and nothing about the server's
@@ -499,7 +467,6 @@ async def test_an_actionable_400_is_echoed_but_never_carries_a_path_or_the_key()
     assert KEY not in message
 
 
-@pytest.mark.asyncio
 async def test_a_transport_failure_never_reveals_the_endpoint():
     def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused to https://api.example.test/v1")

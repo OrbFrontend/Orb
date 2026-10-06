@@ -1,7 +1,5 @@
 """Cover pure Dynamic Worlds projection, prompt section rendering and proposal validation."""
 
-from __future__ import annotations
-
 from backend.features.lorebook import (
     build_world_change_catalog,
     invert_operations,
@@ -67,9 +65,7 @@ async def test_proposal_stage_honours_a_world_disabled_during_the_turn(monkeypat
     state = TurnState(user_message="hello", resp_text="reply")
     turn = WorldProposalTurn(world_ids=("w1",), conversation_id="c1", user_message="hello")
 
-    events = [event async for event in world_proposal_stage(object(), state, settings={}, turn=turn)]
-
-    assert events == []
+    assert [event async for event in world_proposal_stage(object(), state, settings={}, turn=turn)] == []
     assert state.world_proposals == []
 
 
@@ -129,8 +125,7 @@ class TestEffectiveProjection:
         assert got[0]["content"] == "collapsed"
 
     def test_suppression_hides_its_target_and_injects_nothing(self):
-        rows = [_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")]
-        assert select_effective_entries(rows) == []
+        assert select_effective_entries([_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")]) == []
 
     def test_archiving_the_overlay_re_exposes_the_authored_entry(self):
         """The whole basis of Reset to Authored World: no snapshot, just archiving."""
@@ -168,8 +163,7 @@ class TestRendering:
         assert "Dynamic" not in render_lorebook_block([_authored(1, "Old", "settled")])
 
     def test_a_pure_dynamic_block_still_gets_its_heading_and_no_authored_one(self):
-        block = render_lorebook_block([_dynamic(9, "New", "add", content="fresh")])
-        assert block == "**Dynamic World State**\n\nNew: fresh"
+        assert render_lorebook_block([_dynamic(9, "New", "add", content="fresh")]) == "**Dynamic World State**\n\nNew: fresh"
 
     def test_priority_sorting_applies_within_a_section_not_across_them(self):
         """A high-priority dynamic entry still renders after every authored one."""
@@ -179,8 +173,7 @@ class TestRendering:
 
     def test_constant_block_splits_sections_at_the_prefix_register(self):
         rows = [_authored(1, "Law", "gravity", constant=True), _dynamic(9, "Now", "add", content="raining", constant=True)]
-        block = compute_constant_lorebook_block(rows)
-        assert block == "## Lorebook\n\nLaw: gravity\n\n## Dynamic World State\n\nNow: raining"
+        assert compute_constant_lorebook_block(rows) == "## Lorebook\n\nLaw: gravity\n\n## Dynamic World State\n\nNow: raining"
 
     def test_depth_block_splits_sections_too(self):
         rows = [
@@ -200,8 +193,7 @@ class TestRendering:
         rows = [_dynamic(9, "Mara", "add", content="Mara has a scar.", keywords=["Mara"])]
         messages = [{"role": "user", "content": "I ask Mara about it"}]
         assert "Mara has a scar." in compute_lorebook_injection_block(messages, rows)
-        miss = compute_lorebook_injection_block([{"role": "user", "content": "nothing relevant"}], rows)
-        assert miss == ""
+        assert compute_lorebook_injection_block([{"role": "user", "content": "nothing relevant"}], rows) == ""
 
     def test_a_replaced_entrys_keywords_no_longer_activate_it(self):
         rows = [
@@ -244,8 +236,7 @@ class TestValidateProposal:
         assert op["keywords"] == []
 
     def test_create_may_not_name_a_target(self):
-        result = validate_proposal({"operations": [_op(target_entry_id=1)]}, [_authored(1, "A")])
-        assert result.is_empty
+        assert validate_proposal({"operations": [_op(target_entry_id=1)]}, [_authored(1, "A")]).is_empty
 
     def test_the_targets_layer_decides_which_operation_a_revise_becomes(self):
         """The model names the intent; the row it points at names the operation."""
@@ -317,8 +308,7 @@ class TestValidateProposal:
         assert result.is_empty and "already exists" in result.rejected[0][1]
 
     def test_two_creates_sharing_a_name_keep_only_the_first(self):
-        result = validate_proposal({"operations": [_op(name="Mara"), _op(name="mara")]}, [])
-        assert len(result.operations) == 1
+        assert len(validate_proposal({"operations": [_op(name="Mara"), _op(name="mara")]}, []).operations) == 1
 
     def test_a_dynamic_entry_may_share_a_name_with_the_authored_one_it_replaces(self):
         entries = [_authored(1, "Bridge")]
@@ -355,8 +345,7 @@ class TestValidateProposal:
 
     def test_an_update_that_changes_nothing_is_rejected(self):
         entries = [_dynamic(9, "Mara", "add")]
-        result = validate_proposal({"operations": [{"op": "update", "target_entry_id": 9}]}, entries)
-        assert result.is_empty
+        assert validate_proposal({"operations": [{"op": "update", "target_entry_id": 9}]}, entries).is_empty
 
     def test_a_replace_inherits_its_authored_targets_activation_and_keywords(self):
         """One `revise` verb, one answer to silence, whichever layer it lands in.
@@ -430,16 +419,14 @@ class TestParseProposalCall:
 
 class TestCatalog:
     def test_ids_are_the_real_row_ids_and_sections_are_labelled(self):
-        entries = [_authored(1, "A", "alpha"), _dynamic(9, "B", "add", content="beta")]
-        catalog = build_world_change_catalog(entries)
+        catalog = build_world_change_catalog([_authored(1, "A", "alpha"), _dynamic(9, "B", "add", content="beta")])
         assert "### Authored" in catalog and "### Dynamic World State" in catalog
         assert "- [1] A" in catalog and "- [9] B" in catalog
 
     def test_dynamic_entries_always_carry_full_content(self):
         """However long: `update` rewrites content whole, so an unseen middle would be lost."""
         long_body = " ".join(f"word{i}" for i in range(400))
-        catalog = build_world_change_catalog([_dynamic(9, "B", "add", content=long_body)])
-        assert long_body in catalog
+        assert long_body in build_world_change_catalog([_dynamic(9, "B", "add", content=long_body)])
 
     def test_an_authored_entry_is_elided_until_the_exchange_makes_it_relevant(self):
         long_body = "y" * 300
@@ -449,8 +436,7 @@ class TestCatalog:
 
     def test_a_long_relevant_authored_body_keeps_its_ends_and_marks_the_gap(self):
         body = f"The bridge was built by hand. {'filler ' * 500}Its last span fell in winter."
-        entry = _authored(1, "Bridge", body, constant=True)
-        catalog = build_world_change_catalog([entry])
+        catalog = build_world_change_catalog([_authored(1, "Bridge", body, constant=True)])
         assert "The bridge was built by hand." in catalog
         assert "Its last span fell in winter." in catalog
         assert "characters omitted" in catalog
@@ -469,8 +455,7 @@ class TestCatalog:
         assert kept and all(len(w) == 8 for w in kept)
 
     def test_suppressed_lore_is_hidden_but_its_marker_remains_targetable(self):
-        entries = [_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")]
-        catalog = build_world_change_catalog(entries)
+        catalog = build_world_change_catalog([_authored(1, "Bridge"), _dynamic(9, "Bridge", "suppress", 1, content="")])
         assert "- [1]" not in catalog
         assert "- [9] Bridge" in catalog
         assert "suppresses [1]" in catalog
@@ -481,8 +466,7 @@ class TestCatalog:
         The marker is listed only so the Agent can archive one when its target becomes true again. An orphan hides nothing, and
         its line cannot even say what it suppresses, so listing it would be tokens spent on noise.
         """
-        catalog = build_world_change_catalog([_dynamic(9, "Bridge", "suppress", None, content="")])
-        assert catalog == ""
+        assert build_world_change_catalog([_dynamic(9, "Bridge", "suppress", None, content="")]) == ""
 
     def test_an_orphaned_replacement_is_still_listed_as_ordinary_lore(self):
         catalog = build_world_change_catalog([_dynamic(9, "Bridge", "replace", None, content="pilings remain")])
@@ -518,8 +502,7 @@ class TestMultiWorldCatalog:
         assert "## Guild" in catalog and "(no entries yet)" in catalog
 
     def test_naming_no_worlds_keeps_the_flat_single_world_shape(self):
-        catalog = build_world_change_catalog([_authored(1, "Bridge", world_id="w1")])
-        assert "##" not in catalog.replace("###", "")
+        assert "##" not in build_world_change_catalog([_authored(1, "Bridge", world_id="w1")]).replace("###", "")
 
 
 class TestMultiWorldValidation:
@@ -547,8 +530,7 @@ class TestMultiWorldValidation:
         catalog = build_world_change_catalog([], worlds=worlds)
         assert "## Twin [world_id: w1]" in catalog
         assert "## Twin [world_id: w2]" in catalog
-        result = validate_proposal({"operations": [_op(target_world="w2")]}, [], worlds=worlds)
-        assert result.operations[0]["world_id"] == "w2"
+        assert validate_proposal({"operations": [_op(target_world="w2")]}, [], worlds=worlds).operations[0]["world_id"] == "w2"
 
     def test_the_only_world_needs_no_naming(self):
         (op,) = validate_proposal({"operations": [_op()]}, [], worlds=[_world("w1", "Gorge")]).operations

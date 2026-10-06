@@ -1,7 +1,5 @@
 """Cache breakpoint placement and upstream affinity for chat requests."""
 
-from __future__ import annotations
-
 import copy
 
 from backend.inference.prompt_cache import affinity_headers, mark_cache_breakpoints
@@ -44,13 +42,11 @@ def test_the_next_pass_and_the_next_turn_mark_the_same_base_end():
     assert director[2] == writer[2]
 
     grown = [SYSTEM, *HISTORY, TAIL[1], {"role": "assistant", "content": "Dust swirls."}]
-    next_turn = mark_cache_breakpoints([*grown, TAIL[0]], prefix_len=len(grown))
-    assert _controls(next_turn) == [(0, LONG), (4, LONG), (5, SHORT)]
+    assert _controls(mark_cache_breakpoints([*grown, TAIL[0]], prefix_len=len(grown))) == [(0, LONG), (4, LONG), (5, SHORT)]
 
 
 def test_without_a_base_only_the_system_and_tail_are_marked():
-    marked = mark_cache_breakpoints([SYSTEM, *HISTORY, *TAIL], prefix_len=None)
-    assert _controls(marked) == [(0, LONG), (4, SHORT)]
+    assert _controls(mark_cache_breakpoints([SYSTEM, *HISTORY, *TAIL], prefix_len=None)) == [(0, LONG), (4, SHORT)]
 
 
 def test_anchors_walk_back_past_messages_without_text():
@@ -66,9 +62,7 @@ def test_anchors_walk_back_past_messages_without_text():
 
 def test_an_anchor_never_crosses_the_previous_one():
     blank = {"role": "user", "content": "   "}
-    marked = mark_cache_breakpoints([SYSTEM, HISTORY[0], blank], prefix_len=2)
-    # The tail has no text of its own, so it is left unmarked rather than stacking a second marker onto the base anchor.
-    assert _controls(marked) == [(0, LONG), (1, LONG)]
+    assert _controls(mark_cache_breakpoints([SYSTEM, HISTORY[0], blank], prefix_len=2)) == [(0, LONG), (1, LONG)]
 
 
 def test_multimodal_messages_mark_their_last_text_part():
@@ -95,8 +89,7 @@ def test_no_system_prompt_and_out_of_range_bases_degrade_cleanly():
 
 def test_affinity_is_one_id_per_lane():
     director = affinity_headers("m", [SYSTEM, *HISTORY, TAIL[1]])
-    writer = affinity_headers("m", [SYSTEM, *HISTORY, *TAIL])
-    assert director == writer
+    assert director == affinity_headers("m", [SYSTEM, *HISTORY, *TAIL])
     assert set(director) == {"x-session-id"}
     assert affinity_headers("other", [SYSTEM]) != director
     assert affinity_headers("m", [{"role": "system", "content": "Another card."}]) != director

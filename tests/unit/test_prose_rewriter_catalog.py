@@ -6,8 +6,6 @@ user data that must survive a registry bump, and the path a variant resolves to 
 rather than upstream's ``GGUF/`` nesting.
 """
 
-from __future__ import annotations
-
 import os
 
 from backend.inference.local_models import assets

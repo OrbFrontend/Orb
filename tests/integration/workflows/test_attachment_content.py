@@ -5,8 +5,6 @@ it. The listing now says only whether a workflow row's bytes are evicted, and ea
 the browser caches and revalidates.
 """
 
-from __future__ import annotations
-
 from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.workflows.attachment_cache import evict, rehydrate_attachment
 
@@ -30,8 +28,7 @@ async def _chat_with_artifact(client, data: bytes = b"RIFF-audio-bytes", mime: s
 
 
 async def _listed_attachment(client, cid: str) -> dict:
-    msgs = (await client.get(f"/api/conversations/{cid}/messages")).json()
-    return msgs[0]["workflow_attachments"][0]
+    return (await client.get_json(f"/api/conversations/{cid}/messages"))[0]["workflow_attachments"][0]
 
 
 async def test_listing_carries_metadata_and_eviction_but_no_bytes(client):
@@ -56,7 +53,7 @@ async def test_listing_carries_user_uploads_without_bytes(client):
     )
     await set_active_leaf(cid, mid)
 
-    upload = (await client.get(f"/api/conversations/{cid}/messages")).json()[0]["user_attachments"][0]
+    upload = (await client.get_json(f"/api/conversations/{cid}/messages"))[0]["user_attachments"][0]
     assert "data_b64" not in upload
     assert upload["size"] == 3
 
@@ -132,8 +129,7 @@ async def test_byte_ranges(client):
 
 async def test_ill_formed_mime_is_served_as_opaque_bytes(client):
     _, _, aid = await _chat_with_artifact(client, data=b"<script>x</script>", mime="text/html; charset=utf-8")
-    resp = await client.get(f"/api/workflow-attachments/{aid}/content")
-    assert resp.headers["content-type"] == "application/octet-stream"
+    assert (await client.get(f"/api/workflow-attachments/{aid}/content")).headers["content-type"] == "application/octet-stream"
 
 
 async def test_undecodable_upload_bytes_are_422(client, db):

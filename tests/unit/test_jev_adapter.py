@@ -1,7 +1,5 @@
 """Cover decision gateway routing, normalization, caching, and transport."""
 
-from __future__ import annotations
-
 import json
 import time
 
@@ -112,13 +110,11 @@ def test_a_valid_answer_normalizes_with_its_metadata():
     ],
 )
 def test_an_unusable_answer_is_a_failure_for_its_own_question(answer):
-    response = normalize_response(_payload(answers={"outcome": answer}), [QUESTION])
-    assert response.answers == {}
+    assert normalize_response(_payload(answers={"outcome": answer}), [QUESTION]).answers == {}
 
 
 def test_a_missing_answer_is_not_an_implicit_false():
-    response = normalize_response(_payload(answers={}), [QUESTION])
-    assert response.answers == {}
+    assert normalize_response(_payload(answers={}), [QUESTION]).answers == {}
 
 
 def test_probability_boundaries_are_accepted():
@@ -248,8 +244,7 @@ def _client(handler, **kwargs) -> DecisionClient:
 
 
 async def test_a_successful_call_returns_a_normalized_response():
-    client = _client(lambda body: _payload())
-    response = await client.decide("the scene", [QUESTION])
+    response = await _client(lambda body: _payload()).decide("the scene", [QUESTION])
     assert response.answers == {"outcome": 0.83}
     assert response.elapsed_ms >= 0
 

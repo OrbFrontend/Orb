@@ -27,7 +27,7 @@ async def library(client, db):
     await db.commit()
     cards = []
     for name, tags in [("Mara", ["Noir", "Harbour"]), ("Ivo", ["Noir"])]:
-        card = (await client.post("/api/characters", json={"name": name, "tags": tags, "description": f"{name} prose"})).json()
+        card = await client.post_json("/api/characters", json={"name": name, "tags": tags, "description": f"{name} prose"})
         cards.append(card["id"])
     await db.execute("UPDATE character_cards SET avatar_b64 = 'AVATAR', system_prompt = 'OVERRIDE' WHERE id = ?", (cards[0],))
     await db.commit()
@@ -74,15 +74,13 @@ async def test_json_each_self_joins_and_ctes(library):
         "SELECT j.value, count(*) AS n FROM characters, json_each(characters.tags) AS j GROUP BY j.value ORDER BY n DESC, j.value"
     )
     assert tags["rows"] == [["Noir", 2], ["Harbour", 1]]
-    siblings = await query("SELECT count(*) FROM messages AS a JOIN messages AS b ON b.parent_id = a.id")
-    assert siblings["rows"] == [[2]]
+    assert (await query("SELECT count(*) FROM messages AS a JOIN messages AS b ON b.parent_id = a.id"))["rows"] == [[2]]
     joined = await query(
         "SELECT c.name, count(*) FROM conversations AS v JOIN characters AS c ON c.id = v.character_card_id "
         "GROUP BY c.id ORDER BY 2 DESC"
     )
     assert joined["rows"] == [["Ivo", 2], ["Mara", 1]]
-    cte = await query("WITH r AS (SELECT name FROM characters) SELECT count(*) FROM r")
-    assert cte["rows"] == [[2]]
+    assert (await query("WITH r AS (SELECT name FROM characters) SELECT count(*) FROM r"))["rows"] == [[2]]
     recursive = await query("WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT n FROM r")
     assert recursive["rows"] == [[1], [2], [3]]
 
@@ -158,8 +156,7 @@ async def test_row_cell_and_total_caps(library):
         max_result_chars=500,
     )
     assert 1 <= len(total["rows"]) < 40 and total["more_rows"] is True
-    oversized = await query("SELECT printf('%.900c', 'z')", max_cell_chars=2000, max_result_chars=100)
-    assert len(oversized["rows"]) == 1
+    assert len((await query("SELECT printf('%.900c', 'z')", max_cell_chars=2000, max_result_chars=100))["rows"]) == 1
 
 
 async def test_sql_errors_are_returned_not_raised(library):

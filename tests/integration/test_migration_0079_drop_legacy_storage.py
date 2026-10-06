@@ -1,9 +1,8 @@
 """Migration 0079 drops the settings row's connection, model and sampler columns, also from a backup made before it."""
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -59,22 +58,16 @@ async def test_a_backup_carrying_the_columns_still_imports(client, db_path, acti
 
     before = await get_settings()
     export = {"domains": list(ALL_DOMAINS), "strip_keys": False}
-    name = (await client.post("/api/presets/export", json=export)).json()["name"]
-    backup = sqlite3.connect(str(db_path.parent / "snapshots" / name))
-    try:
+    name = (await client.post_json("/api/presets/export", json=export))["name"]
+    with closing(sqlite3.connect(str(db_path.parent / "snapshots" / name))) as backup:
         _add_legacy_columns(backup)
         backup.execute("DELETE FROM schema_migrations WHERE id = ?", (_NAME,))
         backup.commit()
-    finally:
-        backup.close()
 
     await client.post_checked(f"/api/presets/{name}/{action}", json={})
 
-    live = sqlite3.connect(str(db_path))
-    try:
+    with closing(sqlite3.connect(str(db_path))) as live:
         assert not _columns(live) & _LEGACY_NAMES
-    finally:
-        live.close()
     after = await get_settings()
     overlaid = ("endpoint_url", "api_key", "model_name", "temperature", "top_k", "max_tokens")
     assert {key: after[key] for key in overlaid} == {key: before[key] for key in overlaid}

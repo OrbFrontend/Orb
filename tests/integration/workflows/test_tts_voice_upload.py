@@ -1,7 +1,5 @@
 """Test TTS voice enrollment through the workflow upload route, and forgetting a voice."""
 
-from __future__ import annotations
-
 import io
 import wave
 
@@ -35,7 +33,7 @@ def _upload_url(card_id: str, mode: str | None = None) -> str:
 
 async def _clear(client, card_id: str):
     """Forget the voice the way the panel does: the trigger, in a chat with the character."""
-    conv = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card_id})
     return await client.post(f"/api/conversations/{conv['id']}/workflows/tts/trigger", json={"action": "clear_voice"})
 
 
@@ -74,8 +72,7 @@ async def _upload(client, card_id: str, mode: str | None = None):
 async def test_upload_stores_the_voice_and_selects_the_backend(client, enrolled):
     card_id = await _make_char(client)
 
-    response = await client.post_json(_upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")})
-    body = response
+    body = await client.post_json(_upload_url(card_id), files={"file": ("memo.wav", _wav(), "audio/wav")})
     assert body["speaker_tokens"] == VALID
     assert body["source_name"] == "memo.wav"
 
@@ -216,6 +213,5 @@ async def test_a_missing_model_is_a_503_naming_what_is_missing(client):
 async def test_a_disabled_workflow_refuses_uploads(client, enrolled):
     card_id = await _make_char(client)
     await client.post("/api/workflows/tts/enabled", json={"enabled": False})
-    response = await _upload(client, card_id)
-    assert response.status_code == 404
+    assert (await _upload(client, card_id)).status_code == 404
     assert (await _profile(client, card_id))["speaker_tokens"] == []

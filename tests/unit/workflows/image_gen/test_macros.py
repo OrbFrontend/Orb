@@ -1,7 +1,5 @@
 """Macro expansion in saved image-generation text."""
 
-from __future__ import annotations
-
 from backend.core import Macros
 from backend.workflows.image_gen import macros as macros_mod
 from backend.workflows.image_gen.subjects import Subject

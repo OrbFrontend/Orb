@@ -5,8 +5,6 @@ the prompt injects. Getting it wrong is silent -- a perfectly good picture of th
 rather than left to the end-to-end path.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.core.domain_types import CastMember, TurnCast
@@ -65,7 +63,6 @@ async def _resolve(**kwargs):
     return await subjects_mod.resolve(**{**base, **kwargs})
 
 
-@pytest.mark.asyncio
 async def test_a_solo_chat_has_exactly_one_subject(_scene):
     """The synthesized solo member carries no id, so nothing may be read off it as a
     roster position -- and the card's own name is what names the subject."""
@@ -77,7 +74,6 @@ async def test_a_solo_chat_has_exactly_one_subject(_scene):
     assert resolved[0].profile["appearance_prompt"] == "silver hair"
 
 
-@pytest.mark.asyncio
 async def test_no_primary_means_no_subjects(_scene):
     """A narrator line resolves no card, and `cast` addresses members *relative to* a
     primary -- there is no second subject of a render that has no first."""
@@ -86,7 +82,6 @@ async def test_no_primary_means_no_subjects(_scene):
     assert await _resolve(character_id=None) == ()
 
 
-@pytest.mark.asyncio
 async def test_the_tail_is_the_round_and_nothing_wider(_scene):
     """Roster order, scoped to who actually spoke in this round.
 
@@ -112,7 +107,6 @@ async def test_the_tail_is_the_round_and_nothing_wider(_scene):
     assert resolved[1].profile["appearance_prompt"] == "red coat"
 
 
-@pytest.mark.asyncio
 async def test_a_round_is_bounded_by_the_user_message_that_opened_it(_scene):
     """The user speaking closes the previous round: whoever answered *before* it is not
     in this picture, however recently they spoke."""
@@ -122,7 +116,6 @@ async def test_a_round_is_bounded_by_the_user_message_that_opened_it(_scene):
     assert [s.name for s in await _resolve(history=history, anchor_id=3)] == ["Iris"]
 
 
-@pytest.mark.asyncio
 async def test_one_reply_per_click_is_still_one_round(_scene):
     """The regression this scoping exists to fix. Under `manual` turn mode the user
     gives one member the floor per click, so every reply is its own request-scoped
@@ -138,7 +131,6 @@ async def test_one_reply_per_click_is_still_one_round(_scene):
     assert [s.name for s in await _resolve(history=history, anchor_id=2)] == ["Iris"]
 
 
-@pytest.mark.asyncio
 async def test_the_camera_does_not_change_who_is_in_the_scene(_scene):
     """First-person looks through the *user's* eyes, and the user is a persona rather than a cast member -- so nobody is behind
     the lens and everyone in the round is in front of it.
@@ -154,7 +146,6 @@ async def test_the_camera_does_not_change_who_is_in_the_scene(_scene):
     assert [s.name for s in await _resolve(history=history)] == ["Iris", "Ashley"]
 
 
-@pytest.mark.asyncio
 async def test_a_narrator_in_the_round_is_never_a_subject(_scene):
     """It speaks without being in the picture: no card, so no likeness and no sheet."""
     _scene([_member("m1", "Iris", "card-a"), _member("m2", "Narrator", card_id=None, kind="narrator")])
@@ -163,19 +154,15 @@ async def test_a_narrator_in_the_round_is_never_a_subject(_scene):
     assert [s.name for s in await _resolve(history=history)] == ["Iris"]
 
 
-@pytest.mark.asyncio
 async def test_a_removed_speaker_still_leads_under_the_card_name(_scene):
     """The anchor's speaker was tombstoned since. The route still resolved their card,
     so the render is still of them -- named by the card, which is all that is left."""
     _scene([_member("m2", "Ashley", "card-b")])
-    history = [_msg(2, speaker="m-gone")]
-
-    resolved = await _resolve(history=history)
+    resolved = await _resolve(history=[_msg(2, speaker="m-gone")])
 
     assert [(s.member_id, s.card_id, s.name) for s in resolved] == [("", "card-a", "Card Name")]
 
 
-@pytest.mark.asyncio
 async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_round(_scene):
     """Scoped to the round *so far*, because that is all the render may read.
 
@@ -194,7 +181,6 @@ async def test_the_tail_stops_at_the_anchor_not_at_the_end_of_the_round(_scene):
     assert [s.name for s in await _resolve(history=round_[:1], anchor_id=1)] == ["Iris"]
 
 
-@pytest.mark.asyncio
 async def test_two_members_with_one_name_are_told_apart(_scene):
     """`group_members.display_name` carries no uniqueness constraint -- only `speaker_key` and the active `character_card_id` do
     -- so two members really can both be "Guard".

@@ -7,8 +7,6 @@ log there contradicts ``conversation_log_writer``'s contract ("the user turn for
 versus every other fresh-turn path.
 """
 
-from __future__ import annotations
-
 import backend.database as dbmod
 from backend.pipeline import handle_turn
 

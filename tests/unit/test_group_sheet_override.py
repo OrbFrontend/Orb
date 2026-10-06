@@ -6,8 +6,6 @@ absent override -- the assertion this file exists for, because the two are one c
 every test that only ever passes ``None``.
 """
 
-from __future__ import annotations
-
 from backend.database.queries.group_members import resolve_private_sheet
 
 CARD = {"description": "A scout of the Watch.", "personality": "Terse."}

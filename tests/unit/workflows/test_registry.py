@@ -1,8 +1,6 @@
 """Unit tests for the workflow registry: registration, tool diff, name
 collisions, iteration order, and the overlay_enable_tools helper."""
 
-from __future__ import annotations
-
 from copy import deepcopy
 from types import MappingProxyType
 
@@ -49,8 +47,7 @@ def _tool_spec(name: str, *, standalone: bool = True) -> ToolSpec:
         "type": "function",
         "function": {"name": name, "description": "test", "parameters": {"type": "object", "properties": {}}},
     }
-    choice = {"type": "function", "function": {"name": name}}
-    return ToolSpec(name=name, schema=schema, choice=choice, standalone=standalone)
+    return ToolSpec(name=name, schema=schema, choice={"type": "function", "function": {"name": name}}, standalone=standalone)
 
 
 @pytest.fixture(autouse=True)
@@ -72,8 +69,7 @@ class TestFreshRegistration:
         assert [w.id for w in list_workflows()] == ["wf_a"]
 
     def test_tool_lands_in_global_registry(self):
-        spec = _tool_spec("wf_a_tool", standalone=True)
-        register_workflow(Workflow(id="wf_a", display_name="A", tools=[spec]))
+        register_workflow(Workflow(id="wf_a", display_name="A", tools=[_tool_spec("wf_a_tool", standalone=True)]))
         assert "wf_a_tool" in TOOLS
         assert "wf_a_tool" in STANDALONE_TOOLS
 
@@ -114,8 +110,7 @@ class TestReRegistration:
 
     def test_tool_diff_drop_removes_orphan(self):
         a = _tool_spec("ws_test_a")
-        b = _tool_spec("ws_test_b")
-        register_workflow(Workflow(id="ws_test", display_name="X", tools=[a, b]))
+        register_workflow(Workflow(id="ws_test", display_name="X", tools=[a, _tool_spec("ws_test_b")]))
         assert "ws_test_a" in TOOLS and "ws_test_b" in TOOLS
 
         register_workflow(Workflow(id="ws_test", display_name="X", tools=[a]))
@@ -124,12 +119,10 @@ class TestReRegistration:
         assert "ws_test_b" not in STANDALONE_TOOLS
 
     def test_tool_standalone_bit_toggles_symmetrically(self):
-        spec_on = _tool_spec("wf_a_tool", standalone=True)
-        register_workflow(Workflow(id="wf_a", display_name="A", tools=[spec_on]))
+        register_workflow(Workflow(id="wf_a", display_name="A", tools=[_tool_spec("wf_a_tool", standalone=True)]))
         assert "wf_a_tool" in STANDALONE_TOOLS
 
-        spec_off = _tool_spec("wf_a_tool", standalone=False)
-        register_workflow(Workflow(id="wf_a", display_name="A", tools=[spec_off]))
+        register_workflow(Workflow(id="wf_a", display_name="A", tools=[_tool_spec("wf_a_tool", standalone=False)]))
         assert "wf_a_tool" in TOOLS
         assert "wf_a_tool" not in STANDALONE_TOOLS
 
@@ -188,8 +181,7 @@ class TestIterationOrder:
         register_workflow(Workflow(id="c", display_name="C"))
         register_workflow(Workflow(id="b", display_name="B"))
         register_workflow(Workflow(id="a", display_name="A"))
-        ids = [w.id for w in list_workflows()]
-        assert ids == ["c", "b", "a"]
+        assert [w.id for w in list_workflows()] == ["c", "b", "a"]
 
     def test_re_registration_keeps_original_position(self):
         register_workflow(Workflow(id="z", display_name="Z"))
@@ -201,8 +193,7 @@ class TestIterationOrder:
 
     def test_list_returns_copy(self):
         register_workflow(Workflow(id="a", display_name="A"))
-        wfs = list_workflows()
-        wfs.append("not a workflow")  # type: ignore[arg-type]
+        list_workflows().append("not a workflow")  # type: ignore[arg-type]
         assert len(list_workflows()) == 1
 
 
@@ -233,8 +224,7 @@ class TestSubscriptionAPI:
         subscribe("first", HookType.POST_PIPELINE, _noop_post, priority=10)
         subscribe("second", HookType.POST_PIPELINE, _noop_post, priority=0)
         subscribe("third", HookType.POST_PIPELINE, _noop_post, priority=0)
-        ids = [s.workflow_id for s in iter_subscriptions(HookType.POST_PIPELINE)]
-        assert ids == ["second", "third", "first"]
+        assert [s.workflow_id for s in iter_subscriptions(HookType.POST_PIPELINE)] == ["second", "third", "first"]
 
     def test_iter_subscriptions_filters_by_hook_type(self):
         register_workflow(Workflow(id="multi", display_name="Multi"))
@@ -265,16 +255,14 @@ class TestOverlayEnableTools:
         assert base["x"] is True
 
     def test_set_contribution_enables_names(self):
-        out = overlay_enable_tools({"x": False}, {"x", "y"})
-        assert out == {"x": True, "y": True}
+        assert overlay_enable_tools({"x": False}, {"x", "y"}) == {"x": True, "y": True}
 
     def test_mapping_contribution_true_wins_false_ignored(self):
         out = overlay_enable_tools({"x": True, "y": False}, {"x": False, "y": True, "z": True})
         assert out == {"x": True, "y": True, "z": True}
 
     def test_accepts_mapping_proxy_base(self):
-        base = MappingProxyType({"x": True})
-        out = overlay_enable_tools(base, {"y"})
+        out = overlay_enable_tools(MappingProxyType({"x": True}), {"y"})
         assert isinstance(out, dict)
         assert out == {"x": True, "y": True}
 

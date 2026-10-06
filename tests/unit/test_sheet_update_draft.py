@@ -5,8 +5,6 @@ what its one call carries. The refusals are the interesting half -- this call pr
 handed, so "returned what it was given" and "returned an essay" are failures rather than merely poor answers.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.features.cards.sheet_update import (

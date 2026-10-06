@@ -5,8 +5,6 @@ dual-model (Invariant 5), text mode, and structured endpoints. Multimodal text m
 it is symmetric with chat mode instead. These tests pin both the frozen-base and transport halves of that decision.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.core import CastMember
@@ -91,13 +89,11 @@ def test_structured_endpoint_does_not_send_tools():
 
 
 def test_text_mode_plain_call_does_not_send_tools():
-    cfg = _resolve(LLMClient("http://localhost:5000/v1", completion_mode="text"))
-    assert not _sends(cfg)
+    assert not _sends(_resolve(LLMClient("http://localhost:5000/v1", completion_mode="text")))
 
 
 def test_text_mode_multimodal_call_sends_tools_via_chat():
-    cfg = _resolve(LLMClient("http://localhost:5000/v1", completion_mode="text"))
-    assert _sends(cfg, _IMAGE_CONTENT)
+    assert _sends(_resolve(LLMClient("http://localhost:5000/v1", completion_mode="text")), _IMAGE_CONTENT)
 
 
 def test_text_mode_image_in_history_also_selects_chat():
@@ -106,8 +102,7 @@ def test_text_mode_image_in_history_also_selects_chat():
         {"role": "user", "content": _IMAGE_CONTENT},
         {"role": "assistant", "content": "seen"},
     ]
-    cfg = _resolve(LLMClient("http://localhost:5000/v1", completion_mode="text"), prefix=prefix)
-    assert _sends(cfg)
+    assert _sends(_resolve(LLMClient("http://localhost:5000/v1", completion_mode="text"), prefix=prefix))
 
 
 def test_dual_model_does_not_send_tools():

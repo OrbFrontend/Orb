@@ -134,16 +134,15 @@ async def _persist_result(
             logger.exception("Failed to update generated-chars counter; row already committed")
         proposals = await _stage_world_proposals(res, world_source_user_msg_id, asst_id)
         return asst_id, rejected, proposals
-    else:
-        logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
-        if res.state_events:
-            logger.info("Dropping %d state change(s): turn produced no assistant message", len(res.state_events))
-        if res.world_proposals:
-            logger.info(
-                "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
-                len(res.world_proposals),
-            )
-        return None, [], []
+    logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
+    if res.state_events:
+        logger.info("Dropping %d state change(s): turn produced no assistant message", len(res.state_events))
+    if res.world_proposals:
+        logger.info(
+            "Dropping %d world change proposal(s): turn produced no assistant message to anchor them to",
+            len(res.world_proposals),
+        )
+    return None, [], []
 
 
 async def _fallback_persist(

@@ -6,8 +6,6 @@ forwarded it as the "current message" to detect_structural_repetition. The detec
 against a doubled-up blob, collapsing similarity to ~0.67 and suppressing the flag.
 """
 
-from __future__ import annotations
-
 from backend.pipeline.passes.editor.editor import _run_contextual_audit
 
 # Short synthetic messages with identical block-type sequences AND identical

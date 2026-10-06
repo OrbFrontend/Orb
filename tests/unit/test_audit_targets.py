@@ -5,8 +5,6 @@ resolution against the narration mask, region merging across detectors that segm
 never promises an id it did not emit.
 """
 
-from __future__ import annotations
-
 from backend.analysis import AuditReport, build_targets, format_numbered_report, target_ids_for
 from backend.analysis.detectors.anti_echo import EchoResult, FlaggedEcho
 from backend.analysis.detectors.opening_monotony import FlaggedOpener, MonotonyResult

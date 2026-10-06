@@ -6,8 +6,6 @@ serialize their per-character read-modify-write even though their conversation i
 ``workflow_state_lock`` keys -- differ.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from backend.database import (
@@ -65,9 +63,7 @@ async def test_two_conversations_one_character_no_lost_write(client):
         await set_workflow_character_state(ctx.character_id, wid, state)
         return {}
 
-    wf = make_workflow(wid, on_demand=hook)
-
-    with register_for_test(wf):
+    with register_for_test(make_workflow(wid, on_demand=hook)):
         n = 20
         requests = [
             client.post(f"/api/conversations/{'conv_a' if i % 2 == 0 else 'conv_b'}/workflows/{wid}/trigger", json={})

@@ -5,8 +5,6 @@ failing. A group exchange runs its Judge and Director outside ``run_pipeline``, 
 does.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -53,7 +51,7 @@ async def test_an_internal_director_failure_is_labelled_the_director_pass(client
 
     assert _error(response.text)["stage"] == "director pass"
     assert not any(call["pass"] == "writer" for call in llm_mock.captured)
-    messages = (await client.get(f"/api/conversations/{conv_id}/messages")).json()
+    messages = await client.get_json(f"/api/conversations/{conv_id}/messages")
     assert not any(message["role"] == "assistant" for message in messages)
 
 
@@ -95,7 +93,5 @@ async def test_a_half_configured_agent_lane_fails_the_turn_by_naming_the_setting
     await client.put("/api/settings", json={"agent_same_as_writer": False})
     conv_id = await _conversation(client, "solo")
 
-    response = await client.post(f"/api/conversations/{conv_id}/send", json={"content": "Hello"})
-
-    assert _error(response.text)["kind"] == "config"
+    assert _error((await client.post(f"/api/conversations/{conv_id}/send", json={"content": "Hello"})).text)["kind"] == "config"
     assert not llm_mock.captured

@@ -90,8 +90,7 @@ def test_brace_inside_string():
 
 
 def test_multiple_concatenated_calls():
-    content = OPEN + "call:a{moods:[" + Q + "x" + Q + "]}" + CLOSE + OPEN + "call:b{keywords:[]}" + CLOSE
-    calls = parse_gemma_tool_calls(content)
+    calls = parse_gemma_tool_calls(OPEN + "call:a{moods:[" + Q + "x" + Q + "]}" + CLOSE + OPEN + "call:b{keywords:[]}" + CLOSE)
     assert [c["name"] for c in calls] == ["a", "b"]
     assert calls[0]["arguments"] == {"moods": ["x"]}
     assert calls[1]["arguments"] == {"keywords": []}
@@ -112,13 +111,11 @@ def test_no_call_returns_empty():
 
 
 def test_truncated_call_dropped():
-    content = OPEN + "call:t{moods:[" + Q + "a" + Q + "]"  # no close tag
-    assert parse_gemma_tool_calls(content) == []
+    assert parse_gemma_tool_calls(OPEN + "call:t{moods:[" + Q + "a" + Q + "]") == []
 
 
 def test_unterminated_string_best_effort():
-    content = OPEN + "call:t{k:" + Q + "abc}" + CLOSE  # no closing delimiter
-    assert parse_gemma_tool_calls(content)[0]["arguments"] == {"k": "abc}"}
+    assert parse_gemma_tool_calls(OPEN + "call:t{k:" + Q + "abc}" + CLOSE)[0]["arguments"] == {"k": "abc}"}
 
 
 def test_object_array_element():

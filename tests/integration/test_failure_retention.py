@@ -5,8 +5,6 @@ the reply row and its Scene Guidance, tool calls and reasoning in the Inspector'
 ``warning``: the turn completes with the edits that finished, and the Editor's remaining sub-steps still run.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 import httpx
@@ -75,8 +73,7 @@ async def _assistant(cid: str) -> dict:
 
 
 async def _director_log(client, cid: str, message_id: int) -> dict:
-    response = await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
-    return response
+    return await client.get_json(f"/api/conversations/{cid}/messages/{message_id}/director-log")
 
 
 async def _assert_director_record_kept(client, cid: str, reply: dict) -> dict:
@@ -151,8 +148,7 @@ async def test_a_feedback_timeout_warns_and_keeps_the_reply(client, llm_mock):
     assert [warning["headline"] for warning in _warnings(events)] == ["Feedback didn't finish."]
     reply = await _assistant(cid)
     assert reply["content"] == REPLY
-    log = await _assert_director_record_kept(client, cid, reply)
-    assert log["feedback"] == {}
+    assert (await _assert_director_record_kept(client, cid, reply))["feedback"] == {}
 
 
 async def test_a_writer_dropping_mid_stream_keeps_the_director_record(client, llm_mock):
@@ -162,13 +158,10 @@ async def test_a_writer_dropping_mid_stream_keeps_the_director_record(client, ll
     llm_mock.enqueue_writer("Her voice was")
     llm_mock.fail("writer", httpx.RemoteProtocolError("peer closed connection"), mid_stream=True)
 
-    events = await _drain(handle_turn(cid, "hello"))
-
-    assert _error(events)["stage"] == "writer pass"
+    assert _error(await _drain(handle_turn(cid, "hello")))["stage"] == "writer pass"
     reply = await _assistant(cid)
     assert reply["content"] == "Her voice was"
-    log = await _assert_director_record_kept(client, cid, reply)
-    assert log["reasoning_writer"] == "Keep it short."
+    assert (await _assert_director_record_kept(client, cid, reply))["reasoning_writer"] == "Keep it short."
 
 
 async def test_stop_during_the_director_saves_no_reply_or_turn_effects(client, llm_mock):
@@ -197,9 +190,7 @@ async def test_a_failure_before_any_reply_text_saves_nothing(client, llm_mock):
     await _directed_turn_setup(client, llm_mock, cid)
     llm_mock.fail("writer", httpx.ReadTimeout("timed out"))
 
-    events = await _drain(handle_turn(cid, "hello"))
-
-    assert _error(events)["stage"] == "writer pass"
+    assert _error(await _drain(handle_turn(cid, "hello")))["stage"] == "writer pass"
     assert [message["role"] for message in await dbmod.get_messages(cid)] == ["user"]
     assert await dbmod.get_conversation_logs(cid) == []
     # No reply node to anchor them to, so the Director's moods do not commit.

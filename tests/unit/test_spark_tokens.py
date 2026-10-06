@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.inference.local_models.spark_tts import tokens
@@ -98,8 +96,7 @@ def test_the_reference_ceiling_covers_the_longest_excerpt():
     """An excerpt is at most TARGET_SECONDS plus its edges; the ceiling must hold it."""
     from backend.inference.local_models.spark_tts import reference
 
-    longest = (reference.TARGET_SECONDS + 2 * reference.EDGE_MS / 1000) * tokens.SEMANTIC_RATE
-    assert longest <= tokens.MAX_REFERENCE_TOKENS
+    assert ((reference.TARGET_SECONDS + 2 * reference.EDGE_MS / 1000) * tokens.SEMANTIC_RATE) <= tokens.MAX_REFERENCE_TOKENS
 
 
 @pytest.mark.parametrize(

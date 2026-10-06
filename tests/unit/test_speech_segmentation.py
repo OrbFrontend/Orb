@@ -68,8 +68,7 @@ def test_bare_narration_and_dialogue_have_no_reliable_boundary():
 )
 def test_unmarked_chat_with_unknown_model_conventions_is_spoken(text):
     # These labels reproduce the pinned markup model's reading of short chat.
-    style = AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.UNKNOWN)
-    assert speech_segments(text, style) == [("dialogue", text)]
+    assert speech_segments(text, AxisStyle(dialogue=Dialogue.UNKNOWN, narration=Narration.UNKNOWN)) == [("dialogue", text)]
 
 
 @pytest.mark.parametrize(

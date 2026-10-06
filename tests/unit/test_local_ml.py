@@ -6,8 +6,6 @@ it by that name, but those are second bindings: production reads ``local_models`
 leave the code under test running against the real disk.
 """
 
-from __future__ import annotations
-
 import os
 
 import pytest

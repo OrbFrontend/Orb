@@ -8,8 +8,6 @@ persona, macros, post-history instructions, constant + keyword lorebook entries)
 serialized, which is exactly the equality the server's prefix matcher sees.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -34,7 +32,6 @@ def _serialize(prefix) -> str:
     return "\n".join(json.dumps(m, separators=(",", ":"), sort_keys=True) for m in prefix)
 
 
-@pytest.mark.asyncio
 async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     conv_id = "prefix-parity"
     await create_character_card(
@@ -106,7 +103,6 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
 
 
 @pytest.mark.parametrize("context_mode", ["private", "shared", "swap"])
-@pytest.mark.asyncio
 async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
     """A group's prefix is a different document: the cast section stands in for the card, {{char}} is the scene title, {{cast}}
     is the roster, and every assistant line is attributed to the member who wrote it. An off-turn builder that rebuilt the
@@ -136,7 +132,7 @@ async def test_offturn_prefix_matches_a_group_turn_prefix(client, context_mode):
             "members": [{"character_card_id": aria.json()["id"]}, {"character_card_id": kael.json()["id"]}],
         },
     )
-    members = (await client.get(f"/api/conversations/{conv_id}/members")).json()
+    members = await client.get_json(f"/api/conversations/{conv_id}/members")
     mid, _ = await add_message(conv_id, "user", "What was that noise?", 0)
     mid, _ = await add_message(
         conv_id, "assistant", "Aria lifts the lantern.", 1, parent_id=mid, speaker_member_id=members[0]["id"]

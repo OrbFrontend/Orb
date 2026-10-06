@@ -5,8 +5,6 @@ one or more workflow attachments for rehydratability reasons. This test pins the
 field whose presence the frontend chip depends on.
 """
 
-from __future__ import annotations
-
 from collections.abc import AsyncIterator
 
 import pytest

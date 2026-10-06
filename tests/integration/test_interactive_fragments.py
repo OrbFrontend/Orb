@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 _BASE_PAYLOAD = {
@@ -16,8 +14,7 @@ _BASE_PAYLOAD = {
 
 
 async def test_list_interactive_fragments_returns_seeded_data(client, db):
-    resp = await client.get_json("/api/interactive-fragments")
-    fragments = resp
+    fragments = await client.get_json("/api/interactive-fragments")
     ids = {f["id"] for f in fragments}
     assert "keywords" in ids
     assert "next_event" in ids
@@ -26,8 +23,7 @@ async def test_list_interactive_fragments_returns_seeded_data(client, db):
 
 
 async def test_create_interactive_fragment_persists_to_db(client, db):
-    resp = await client.post_json("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    body = resp
+    body = await client.post_json("/api/interactive-fragments", json=_BASE_PAYLOAD)
     assert body["id"] == "pacing"
     assert body["label"] == "Pacing"
     assert body["injection_label"] == "Pacing"
@@ -49,8 +45,7 @@ async def test_create_duplicate_interactive_fragment_returns_400(client, db):
 
 async def test_create_interactive_fragment_with_array_type(client, db):
     payload = {**_BASE_PAYLOAD, "id": "custom-list", "field_type": "array"}
-    resp = await client.post_json("/api/interactive-fragments", json=payload)
-    assert resp["field_type"] == "array"
+    assert (await client.post_json("/api/interactive-fragments", json=payload))["field_type"] == "array"
 
 
 async def test_interactive_fragment_cooldown_is_bounded(client, db):
@@ -80,8 +75,7 @@ async def test_update_interactive_fragment_persists_to_db(client, db):
 
 async def test_update_enabled_flag(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
-    resp = await client.put_json("/api/interactive-fragments/pacing", json={"enabled": False})
-    assert resp["enabled"] in (False, 0)
+    assert (await client.put_json("/api/interactive-fragments/pacing", json={"enabled": False}))["enabled"] in (False, 0)
 
 
 async def test_update_nonexistent_interactive_fragment_returns_404(client, db):
@@ -110,8 +104,7 @@ async def test_reorder_interactive_fragments_rejects_a_missing_item_without_part
         expected_status=404,
     )
 
-    row = await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'")
-    assert row["sort_order"] == 10
+    assert (await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'"))["sort_order"] == 10
 
 
 async def test_reorder_interactive_fragments_rejects_mixed_lanes(client, db):
@@ -123,16 +116,14 @@ async def test_reorder_interactive_fragments_rejects_mixed_lanes(client, db):
         expected_status=422,
     )
 
-    row = await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'")
-    assert row["sort_order"] == 10
+    assert (await db.one("SELECT sort_order FROM interactive_fragments WHERE id = 'pacing'"))["sort_order"] == 10
 
 
 async def test_delete_interactive_fragment_removes_from_db(client, db):
     await client.post("/api/interactive-fragments", json=_BASE_PAYLOAD)
     await client.delete_checked("/api/interactive-fragments/pacing")
 
-    row = await db.one("SELECT id FROM interactive_fragments WHERE id = 'pacing'")
-    assert row is None
+    assert (await db.one("SELECT id FROM interactive_fragments WHERE id = 'pacing'")) is None
 
 
 async def test_delete_nonexistent_interactive_fragment_returns_404(client, db):
@@ -163,8 +154,7 @@ async def test_seeded_required_flags(client, db):
 
 
 async def test_list_returns_sorted_by_sort_order(client, db):
-    resp = await client.get("/api/interactive-fragments")
-    frags = resp.json()
+    frags = (await client.get("/api/interactive-fragments")).json()
     orders = [f["sort_order"] for f in frags]
     assert orders == sorted(orders)
 
@@ -269,14 +259,14 @@ async def test_card_gate_survives_export_and_import(client, db, tmp_path):
             }
         }
     }
-    card = (await client.post("/api/characters", json={"name": "Gated", "extensions": extensions})).json()
+    card = await client.post_json("/api/characters", json={"name": "Gated", "extensions": extensions})
     exported = tmp_path / "export.png"
     exported.write_bytes((await client.get(f"/api/characters/{card['id']}/export")).content)
     reimported = parsing.card_to_dict(parsing.parse(str(exported)))
     assert reimported["extensions"]["orb"]["fragments"] == extensions["orb"]["fragments"]
 
-    copy = (await client.post("/api/characters", json={**reimported, "name": "Gated copy"})).json()
-    conv = (await client.post("/api/conversations", json={"character_card_id": copy["id"]})).json()
+    copy = await client.post_json("/api/characters", json={**reimported, "name": "Gated copy"})
+    conv = await client.post_json("/api/conversations", json={"character_card_id": copy["id"]})
     ctx = await load_pipeline_context(conv["id"])
     assert ctx is not None
     fragment = next(row for row in ctx.interactive_fragments if row["id"] == "card_trim")

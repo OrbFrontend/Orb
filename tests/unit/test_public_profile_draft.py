@@ -2,8 +2,6 @@
 overlong output, protecting stored profiles from later macro mutation.
 """
 
-from __future__ import annotations
-
 import json
 
 import pytest
@@ -179,6 +177,5 @@ def test_the_scene_message_labels_its_sections_and_omits_the_empty_ones():
 def test_the_scene_message_states_how_many_names_it_left_out():
     """The prompt is bounded, and says so rather than claiming the list is the
     whole cast -- the roster itself has no size ceiling."""
-    message = build_scene_message(CARD, cast_names=["Kael"], omitted_cast=3)
-    assert "Other cast members omitted from this draft: 3" in message
+    assert "Other cast members omitted from this draft: 3" in build_scene_message(CARD, cast_names=["Kael"], omitted_cast=3)
     assert "omitted from this draft" not in build_scene_message(CARD, cast_names=["Kael"])

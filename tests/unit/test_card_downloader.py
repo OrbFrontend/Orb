@@ -1,8 +1,6 @@
 """Card sources answer what the remote site sent: a page that is not a JSON object is the site's failure (502), never Orb's
 (a bare 500), and one malformed field does not sink a whole search or import."""
 
-from __future__ import annotations
-
 from collections import OrderedDict
 
 import httpx

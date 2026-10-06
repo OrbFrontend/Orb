@@ -1,7 +1,5 @@
 """Judge gates on post-processing fragments: verdicts, fail-open reasons, budget, Stop."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 from types import SimpleNamespace

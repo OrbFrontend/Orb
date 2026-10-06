@@ -2,8 +2,6 @@
 ones intact.
 """
 
-from __future__ import annotations
-
 from backend.analysis import AUDIT_TYPES, run_audit
 
 # Banned phrase that detect_cliches will flag (matches a seeded literal group).
@@ -20,15 +18,13 @@ _ECHO_DRAFT = '"Absolutely no money?" she repeats.'
 
 
 def test_default_runs_all_scanners():
-    report = run_audit(_BANNED_TEXT, _PHRASE_BANK)
-    assert report.cliche_result.flagged_count > 0
+    assert run_audit(_BANNED_TEXT, _PHRASE_BANK).cliche_result.flagged_count > 0
 
 
 def test_banned_phrases_toggle_off_skips_scanner():
     toggles = {t: True for t in AUDIT_TYPES}
     toggles["banned_phrases"] = False
-    report = run_audit(_BANNED_TEXT, _PHRASE_BANK, audit_toggles=toggles)
-    assert report.cliche_result.flagged_count == 0
+    assert run_audit(_BANNED_TEXT, _PHRASE_BANK, audit_toggles=toggles).cliche_result.flagged_count == 0
 
 
 def test_none_toggles_is_all_on():
@@ -59,8 +55,7 @@ def test_anti_echo_runs_with_user_message():
 def test_anti_echo_toggle_off_skips_scanner():
     toggles = {t: True for t in AUDIT_TYPES}
     toggles["anti_echo"] = False
-    report = run_audit(_ECHO_DRAFT, [], user_message=_ECHO_USER, audit_toggles=toggles)
-    assert report.echo_result is None
+    assert run_audit(_ECHO_DRAFT, [], user_message=_ECHO_USER, audit_toggles=toggles).echo_result is None
 
 
 def test_anti_echo_skipped_without_user_message():

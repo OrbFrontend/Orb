@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -101,9 +99,7 @@ def test_trim_silence_edges_shapes_a_clip_shorter_than_a_second():
         [np.zeros(640, dtype=np.float32), np.full(4800, 0.2, dtype=np.float32), np.zeros(320, dtype=np.float32)]
     )
 
-    got = silence.trim_silence_edges(signal)
-
-    assert got.size == 4800 + 320  # lead-in dropped, the short tail kept
+    assert silence.trim_silence_edges(signal).size == 4800 + 320  # lead-in dropped, the short tail kept
 
 
 def test_trim_silence_keeps_its_speech_edges_for_enrollment():

@@ -515,10 +515,7 @@ async def _encode_workflow_event_stream(events: AsyncIterator[PublicEvent]) -> A
                 continue
             name = ev["event"]
             data = ev.get("data", "")
-            if isinstance(data, dict):
-                data = json.dumps(data, separators=(",", ":"))
-            else:
-                data = data.replace("\n", "\\n")
+            data = json.dumps(data, separators=(",", ":")) if isinstance(data, dict) else data.replace("\n", "\\n")
             yield f"event: {name}\ndata: {data}\n\n"
     except Exception as exc:
         yield f"event: error\ndata: {json.dumps(failure_event(exc)['data'])}\n\n"

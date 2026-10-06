@@ -33,8 +33,7 @@ async def test_delete_waits_for_media_and_closes_admission(client):
         deps.start_workflow_job(cid, render())
     assert exc.value.status_code == 409
     release.set()
-    response = await deleting
-    assert response.status_code == 200
+    assert (await deleting).status_code == 200
     assert await get_conversation(cid) is None
     with contextlib.suppress(asyncio.CancelledError):
         await job
@@ -88,10 +87,10 @@ async def test_restore_refuses_admitted_write_and_old_epoch_cannot_save(client, 
     from backend.api.routes import documents
     from backend.features.presets import ALL_DOMAINS
 
-    doc = (await client.post("/api/documents", json={})).json()
+    doc = await client.post_json("/api/documents", json={})
     path = f"/api/documents/{doc['id']}"
     epoch = (await client.get(path)).headers["X-Orb-Epoch"]
-    name = (await client.post("/api/presets/export", json={"domains": list(ALL_DOMAINS)})).json()["name"]
+    name = (await client.post_json("/api/presets/export", json={"domains": list(ALL_DOMAINS)}))["name"]
     entered, release = asyncio.Event(), asyncio.Event()
     original = documents.get_document
 
@@ -105,17 +104,15 @@ async def test_restore_refuses_admitted_write_and_old_epoch_cannot_save(client, 
         client.put(path, headers={"X-Orb-Epoch": epoch}, json={"content": "saved", "expected_revision": 0})
     )
     await entered.wait()
-    refused = await client.post_json(f"/api/presets/{name}/restore", expected_status=409)
-    assert refused["detail"]["work"]
+    assert (await client.post_json(f"/api/presets/{name}/restore", expected_status=409))["detail"]["work"]
     release.set()
     assert (await saving).status_code == 200
-    restored = await client.post_checked(f"/api/presets/{name}/restore")
-    assert restored.headers["X-Orb-Epoch"] != epoch
+    assert (await client.post_checked(f"/api/presets/{name}/restore")).headers["X-Orb-Epoch"] != epoch
     stale = await client.put_json(
         path, headers={"X-Orb-Epoch": epoch}, json={"content": "late", "expected_revision": 0}, expected_status=409
     )
     assert stale["detail"]["code"] == "refresh_required"
-    assert (await client.get(path)).json()["content"] == ""
+    assert (await client.get_json(path))["content"] == ""
 
 
 async def test_stale_stop_does_not_abort_new_reply(client):
@@ -129,8 +126,7 @@ async def test_stale_stop_does_not_abort_new_reply(client):
         assert stale.json()["active"] is False
         assert not token.is_aborted
         active.settled.set()
-        current = await client.post(f"/api/conversations/{cid}/stop?operation_id=new-run")
-        assert current.json()["active"] is True
+        assert (await client.post(f"/api/conversations/{cid}/stop?operation_id=new-run")).json()["active"] is True
         assert token.is_aborted
     finally:
         deps._active_streams.pop(cid, None)

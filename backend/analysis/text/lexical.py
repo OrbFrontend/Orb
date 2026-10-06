@@ -6,18 +6,6 @@ import re
 import unicodedata
 from collections.abc import Iterable, Iterator
 
-__all__ = [
-    "TOKEN_RE",
-    "tokenize",
-    "normalize_word",
-    "ngrams",
-    "longest_common_run",
-    "is_contiguous_subsequence",
-    "STOPWORDS",
-    "count_content_words",
-]
-
-
 TOKEN_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
@@ -64,10 +52,7 @@ def is_contiguous_subsequence(short: tuple[str, ...], long: tuple[str, ...]) -> 
     """Return whether *short* is a strict contiguous sub-run of *long*."""
     if not short or len(short) >= len(long):
         return False
-    for i in range(len(long) - len(short) + 1):
-        if long[i : i + len(short)] == short:
-            return True
-    return False
+    return any(long[i : i + len(short)] == short for i in range(len(long) - len(short) + 1))
 
 
 _STOPWORD_GROUPS = (

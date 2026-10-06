@@ -6,13 +6,9 @@ the user row as a two-branch node and ``switch-branch`` flips between the two pr
 the user side.
 """
 
-from __future__ import annotations
-
 
 async def _new_conversation(streaming_client) -> str:
-    resp = await streaming_client.post("/api/conversations", json={"title": "fork-edit"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return (await streaming_client.post_checked("/api/conversations", json={"title": "fork-edit"})).json()["id"]
 
 
 async def _drain(response) -> None:
@@ -39,9 +35,7 @@ async def _fork_edit(streaming_client, cid: str, msg_id: int, content: str) -> N
 
 
 async def _messages(streaming_client, cid: str) -> list[dict]:
-    resp = await streaming_client.get(f"/api/conversations/{cid}/messages")
-    assert resp.status_code == 200
-    return resp.json()
+    return (await streaming_client.get_checked(f"/api/conversations/{cid}/messages")).json()
 
 
 def _only_user(msgs: list[dict]) -> dict:
@@ -92,8 +86,7 @@ async def test_fork_edit_forks_user_message(streaming_client, llm_mock):
     assert branch_user["next_branch_id"] is None
 
     # The original branch survives and is reachable by switching back.
-    resp = await streaming_client.post(f"/api/conversations/{cid}/messages/{original_id}/switch-branch", json={})
-    assert resp.status_code == 200
+    resp = await streaming_client.post_checked(f"/api/conversations/{cid}/messages/{original_id}/switch-branch", json={})
     back = resp.json()
     back_user = _only_user(back)
     back_reply = _reply_to(back, back_user)
@@ -112,8 +105,7 @@ async def test_fork_edit_rejects_assistant_target(streaming_client, llm_mock):
     llm_mock.enqueue_editor(None)
     await _send(streaming_client, cid, "hello")
 
-    msgs = await _messages(streaming_client, cid)
-    assistant = next(m for m in msgs if m["role"] == "assistant")
+    assistant = next(m for m in await _messages(streaming_client, cid) if m["role"] == "assistant")
 
     saw_error = False
     pending_event = None
@@ -130,5 +122,4 @@ async def test_fork_edit_rejects_assistant_target(streaming_client, llm_mock):
     assert saw_error, "fork-edit on an assistant message should yield an in-band error event"
 
     # No new branch was created: the assistant still has exactly one sibling.
-    after = await _messages(streaming_client, cid)
-    assert len([m for m in after if m["role"] == "user"]) == 1
+    assert len([m for m in (await _messages(streaming_client, cid)) if m["role"] == "user"]) == 1

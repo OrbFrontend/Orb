@@ -3,8 +3,6 @@
 The cache must release its 385 MB graph before the model file is deleted.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.inference.local_models import onnx_runtime
@@ -46,9 +44,8 @@ def test_active_lease_refuses_release_and_keeps_cached_session():
     thread.start()
     assert entered.wait(5)
     try:
-        with pytest.raises(TimeoutError):
-            with session.exclusive_release(timeout=0):
-                pytest.fail("must not permit file deletion")
+        with pytest.raises(TimeoutError), session.exclusive_release(timeout=0):
+            pytest.fail("must not permit file deletion")
         assert session._SESSIONS["leased.onnx"] is cached
     finally:
         release.set()

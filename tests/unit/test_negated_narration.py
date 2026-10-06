@@ -5,8 +5,6 @@ own sections. Rejected split-contrast inputs come from the measured corpus revie
 valid null reaction may remain.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis.detectors.negated_narration import NegationResult, detect_negated_narration, evaluate_negated_narration
@@ -61,6 +59,16 @@ def _assert_exact(result: NegationResult) -> None:
         ("That wasn't a request.", "null_reaction"),
         ("She never looked back.", "null_reaction"),
         ("He did not answer.", "null_reaction"),
+        ("He didn't answer the question she had asked him.", "null_reaction"),  # 9 words: the null-reaction limit
+        # Split-contrast forms.
+        ("Not a request. An order.", "split_contrast"),
+        ("The door isn't locked. The door is open.", "split_contrast"),
+        ("Her voice wasn't cold. It was tired.", "split_contrast"),
+        ("She doesn't cry. She just laughs.", "split_contrast"),
+        ("He didn't argue. Instead, he smiled.", "split_contrast"),
+        # A bare pronoun start is not a split contrast.
+        ("It didn't fall. It drifted.", "null_reaction"),
+        ("I don't look at it. I look at you.", "null_reaction"),
     ],
 )
 def test_required_shape_positives(text, kind):
@@ -78,15 +86,17 @@ def test_required_shape_positives(text, kind):
         "He was unafraid and careless.",  # privatives are not negation
         "She walked without a sound.",  # `without` is out of scope
         "The arrow didn't fly toward the caster's heart—not yet.",
+        # A multi-clause negative is not a null reaction.
+        "He didn't answer because he was tired.",
+        "She didn't move, though her hands shook.",
+        "He didn't answer the question she had asked him twice.",  # 10 words
+        # A not-fragment needs a descriptive fragment.
+        "Not yet. The door opens.",
+        "Not a word. The room waits.",
     ],
 )
 def test_ordinary_negatives_privatives_and_copula_misses(text):
     assert _first_kind(text) is None
-
-
-def test_multi_clause_negative_is_not_a_null_reaction():
-    assert _first_kind("He didn't answer because he was tired.") is None
-    assert _first_kind("She didn't move, though her hands shook.") is None
 
 
 @pytest.mark.parametrize(
@@ -126,11 +136,6 @@ def test_trailing_negation_joins_a_null_reaction_past_the_gate():
     assert detect_negated_narration(text).raw_hits == 2
 
 
-def test_null_reaction_word_limits():
-    assert _first_kind("He didn't answer the question she had asked him.") == "null_reaction"  # 9 words
-    assert _first_kind("He didn't answer the question she had asked him twice.") is None  # 10 words
-
-
 @pytest.mark.parametrize(
     "text",
     [
@@ -153,14 +158,8 @@ def test_questions_imperatives_and_interjections_are_skipped(text):
     assert result.narration_sentences == 0
 
 
-def test_skipped_units_are_adjacency_barriers():
-    # The interjection is skipped, so the denials either side stay apart.
-    assert _kinds("She doesn't move. No, no, no. Doesn't breathe.") == [["null_reaction"]]
-
-
 def test_interjection_match_is_the_whole_unit():
     assert _ungated("No, not shaking—jittering.").narration_sentences == 1
-    assert _first_kind("No one moves.") == "null_reaction"
     assert _ungated("No wind.").negated_sentences == 1
     assert _ungated("No way.").negated_sentences == 1
 
@@ -195,43 +194,17 @@ def test_straight_and_curly_contractions_match_identically():
 
 def test_word_limits_count_words_not_punctuation():
     # 12 words with heavy punctuation and markers still qualifies.
-    first = "She doesn't — not *once* — look at the man, the door, or me."
-    assert _first_kind(f"{first} Just waits.") == "split_contrast"
+    assert _first_kind("She doesn't — not *once* — look at the man, the door, or me. Just waits.") == "split_contrast"
     twelve = "He doesn't look at the old man by the far door tonight."
     assert len(twelve.split()) == 12
     assert _first_kind(f"{twelve} Just waits.") == "split_contrast"
-    thirteen = "He doesn't look at the old man by the far door again tonight."
-    assert _first_kind(f"{thirteen} Just waits.") != "split_contrast"
+    assert _first_kind("He doesn't look at the old man by the far door again tonight. Just waits.") != "split_contrast"
     # The payoff limit is 10 words.
     assert _first_kind("He didn't answer. Just waits there by the door with folded hands tonight.") == "split_contrast"
     assert _first_kind("He didn't answer. Just waits there by the old door with folded hands tonight.") != "split_contrast"
 
 
 # -- 2. Split contrast: conservative forms and measured misses -----------------
-
-
-def test_split_contrast_forms():
-    assert _first_kind("Not a request. An order.") == "split_contrast"
-    assert _first_kind("The door isn't locked. The door is open.") == "split_contrast"
-    assert _first_kind("Her voice wasn't cold. It was tired.") == "split_contrast"
-    assert _first_kind("She doesn't cry. She just laughs.") == "split_contrast"
-    assert _first_kind("He didn't argue. Instead, he smiled.") == "split_contrast"
-
-
-def test_split_contrast_rejects_person_as_it_and_subject_change():
-    assert _first_kind("She isn't angry. It's grief.") != "split_contrast"
-    assert _first_kind("He doesn't move. She just watches.") != "split_contrast"
-    assert _first_kind("She doesn't cry. Instead, he laughs.") != "split_contrast"
-
-
-def test_bare_pronoun_start_is_not_a_split_contrast():
-    assert _first_kind("It didn't fall. It drifted.") == "null_reaction"
-    assert _first_kind("I don't look at it. I look at you.") == "null_reaction"
-
-
-def test_not_fragment_needs_a_descriptive_fragment():
-    assert _first_kind("Not yet. The door opens.") is None
-    assert _first_kind("Not a word. The room waits.") is None
 
 
 @pytest.mark.parametrize(
@@ -253,9 +226,39 @@ def test_measured_split_contrast_misses_are_rejected(text, remaining):
     assert (kinds[0][0] if kinds else None) == remaining
 
 
-def test_split_contrast_needs_an_affirmative_second_sentence():
-    # A negation anywhere in the second sentence disqualifies it, as a payoff too.
-    assert _kinds("She doesn't turn. She just keeps painting, and she doesn't turn around.") == [["null_reaction"]]
+@pytest.mark.parametrize(
+    "text",
+    [
+        "She isn't angry. It's grief.",  # a person cannot be "it"
+        "He doesn't move. She just watches.",  # the subject changes
+        "She doesn't cry. Instead, he laughs.",
+    ],
+)
+def test_split_contrast_rejects_person_as_it_and_subject_change(text):
+    assert _first_kind(text) != "split_contrast"
+
+
+_LONG_PIVOT = "She just waits there by the window with her hands folded and her eyes on the road."
+
+
+@pytest.mark.parametrize(
+    "text,kinds",
+    [
+        # The interjection is skipped, so the denials either side stay apart.
+        ("She doesn't move. No, no, no. Doesn't breathe.", [["null_reaction"]]),
+        # A negation anywhere in the second sentence disqualifies it, as a payoff too.
+        ("She doesn't turn. She just keeps painting, and she doesn't turn around.", [["null_reaction"]]),
+        ("He didn't answer. He just smiled.", [["split_contrast"]]),  # a short payoff after a null reaction
+        ("She doesn't move. Doesn't speak. But then the door opens.", [["cascade"]]),  # generic "but" is not absorbed
+        # A pivot rejects a subject change and long sentences.
+        ("She doesn't move. Doesn't speak. He just waits.", [["cascade"]]),
+        (f"She doesn't move. Doesn't speak. {_LONG_PIVOT}", [["cascade"]]),
+        ("She doesn't move.\n***\nDoesn't breathe.", [["null_reaction"]]),  # a divider is a barrier
+        ("She doesn't move.\nDoesn't breathe.", [["cascade"]]),  # a line break is not
+    ],
+)
+def test_finding_kinds(text, kinds):
+    assert _kinds(text) == kinds
 
 
 # -- 3. Cascades, chaining, pivots, and the gate -------------------------------
@@ -278,8 +281,7 @@ def test_lone_cascade_with_pivot_is_suppressed_by_the_gate():
 
 
 def test_separate_beat_passes_the_gate_and_emits_all_findings():
-    text = "She doesn't jump. Doesn't gasp. She just slowly straightens up.\n\nHe didn't answer."
-    result = detect_negated_narration(text)
+    result = detect_negated_narration("She doesn't jump. Doesn't gasp. She just slowly straightens up.\n\nHe didn't answer.")
     assert result.raw_hits == 2
     assert [f.kinds for f in result.findings] == [["cascade", "pivot"], ["null_reaction"]]
 
@@ -323,20 +325,6 @@ def test_mixed_chain_ending_in_a_denial_absorbs_a_pivot():
     assert result.findings[0].pivot_span == payoff
 
 
-def test_short_payoff_after_a_null_reaction_is_a_split_contrast():
-    assert _kinds("He didn't answer. He just smiled.") == [["split_contrast"]]
-
-
-def test_generic_but_is_not_absorbed():
-    assert _kinds("She doesn't move. Doesn't speak. But then the door opens.") == [["cascade"]]
-
-
-def test_pivot_rejects_subject_change_and_long_sentences():
-    assert _kinds("She doesn't move. Doesn't speak. He just waits.") == [["cascade"]]
-    long = "She just waits there by the window with her hands folded and her eyes on the road."
-    assert _kinds(f"She doesn't move. Doesn't speak. {long}") == [["cascade"]]
-
-
 def test_min_hits_validation_and_counters_below_gate():
     with pytest.raises(ValueError):
         detect_negated_narration("He didn't answer.", min_hits=-1)
@@ -358,8 +346,7 @@ def test_prose_style_excludes_standalone_thoughts_and_dialogue():
 
 
 def test_asterisk_style_uses_block_emphasis_as_narration():
-    text = "*She doesn't move. Doesn't breathe.* I don't know what you mean. *She just stares.*"
-    result = _ungated(text)
+    result = _ungated("*She doesn't move. Doesn't breathe.* I don't know what you mean. *She just stares.*")
     assert result.style == "asterisk"
     # Plain text is speech here, so the pivot block is not adjacent.
     assert [f.kinds for f in result.findings] == [["cascade"]]
@@ -386,8 +373,7 @@ def test_sentence_initial_emphasis_continues_the_sentence():
 
 
 def test_attributed_thought_is_excluded():
-    text = "She waits. *Not again,* she thinks. Nobody moves."
-    result = _ungated(text)
+    result = _ungated("She waits. *Not again,* she thinks. Nobody moves.")
     assert [f.span for f in result.findings] == ["Nobody moves."]
 
 
@@ -403,14 +389,12 @@ def test_multi_paragraph_quote_convention_is_speech():
 
 def test_malformed_quote_never_turns_speech_into_narration():
     text = 'She says, "I don\'t. I won\'t.\n\nHe didn\'t answer. "Nobody moves," she adds. "Nothing happens.'
-    result = _ungated(text)
-    for f in result.findings:
+    for f in _ungated(text).findings:
         assert "I don't" not in f.span and "Nothing happens" not in f.span and "Nobody moves" not in f.span
 
 
 def test_fenced_content_is_excluded_even_when_unclosed():
-    text = "```\nHe didn't answer. Nobody moved.\n```\nShe sat.\n\n```\nIt doesn't work. It can't."
-    assert _ungated(text).findings == []
+    assert _ungated("```\nHe didn't answer. Nobody moved.\n```\nShe sat.\n\n```\nIt doesn't work. It can't.").findings == []
 
 
 def test_html_comment_and_ooc_blocks_are_excluded():
@@ -437,12 +421,6 @@ def test_dialogue_and_paragraph_boundaries_end_runs():
     assert all(len(f.sentences) == 1 for f in _ungated(across_dialogue).findings)
     across_paragraph = "She doesn't move.\n\nDoesn't breathe."
     assert all(len(f.sentences) == 1 for f in _ungated(across_paragraph).findings)
-    across_line = "She doesn't move.\nDoesn't breathe."
-    assert _kinds(across_line) == [["cascade"]]
-
-
-def test_divider_is_a_barrier():
-    assert _kinds("She doesn't move.\n***\nDoesn't breathe.") == [["null_reaction"]]
 
 
 # -- 5. Complete sentence targets ----------------------------------------------
@@ -460,8 +438,7 @@ def test_regression_40656_sentence_is_never_cut_at_emphasis():
     text = "It didn't fall. It didn't sink. It just drifted *up*, turning lazily, catching the light."
     (finding,) = _ungated(text).findings
     assert finding.span == text
-    unmarked = "It didn't fall. It drifted *up*, turning lazily, catching the light."
-    for f in _ungated(unmarked).findings:
+    for f in _ungated("It didn't fall. It drifted *up*, turning lazily, catching the light.").findings:
         assert not f.span.endswith("It drifted")
         assert f.span == "It didn't fall."
 
@@ -474,8 +451,7 @@ def test_emphasis_never_truncates_a_long_sentence_to_fit():
 
 
 def test_double_spaces_unicode_and_outer_markers_are_preserved():
-    text = "Café lights. Zoë doesn’t  move.  Doesn’t  breathe. Ñandú just waits."
-    result = _ungated(text)
+    result = _ungated("Café lights. Zoë doesn’t  move.  Doesn’t  breathe. Ñandú just waits.")
     _assert_exact(result)
     (finding,) = result.findings
     assert finding.span == "Zoë doesn’t  move.  Doesn’t  breathe. Ñandú just waits."
@@ -497,16 +473,14 @@ def test_offsets_for_repeated_beats():
     text = f"She doesn't move. Doesn't breathe. {beat}\n\nThe fire crackles.\n\n{beat}"
     result = _ungated(text)
     _assert_exact(result)
-    starts = [f.start for f in result.findings]
-    assert starts == [0, text.rindex(beat)]
+    assert [f.start for f in result.findings] == [0, text.rindex(beat)]
 
 
 # -- 8. Draft-only input and evaluation style ----------------------------------
 
 
 def test_evaluation_reuses_an_explicit_style():
-    draft = "*She doesn't move. Doesn't breathe.* Hello there, you. *She waits.*"
-    assert detect_negated_narration(draft).style == "asterisk"
+    assert detect_negated_narration("*She doesn't move. Doesn't breathe.* Hello there, you. *She waits.*").style == "asterisk"
     shortened = "*She stays.* Hello there, you. *She waits.*"
     # A shortened draft could re-infer a different style; evaluation must not.
     assert evaluate_negated_narration(shortened, "asterisk").style == "asterisk"

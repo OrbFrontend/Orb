@@ -3,8 +3,6 @@
 The GGUF classifier is never present in CI, so classify-emotion 503s and only the
 upload/storage/serve path is exercised end to end (no model needed)."""
 
-from __future__ import annotations
-
 import io
 import zipfile
 
@@ -30,8 +28,7 @@ async def test_upload_list_get_delete_roundtrip(client):
     )
     assert up["labels"] == ["anger", "joy"]
 
-    listed = await client.get(f"/api/characters/{card_id}/expressions")
-    assert listed.json()["labels"] == ["anger", "joy"]
+    assert (await client.get(f"/api/characters/{card_id}/expressions")).json()["labels"] == ["anger", "joy"]
 
     img = await client.get_checked(f"/api/characters/{card_id}/expressions/joy")
     assert img.content == b"joybytes"
@@ -42,7 +39,7 @@ async def test_upload_list_get_delete_roundtrip(client):
     assert (await client.get(f"/api/characters/{card_id}/expressions/fear")).status_code == 404
 
     assert (await client.delete(f"/api/characters/{card_id}/expressions")).status_code == 200
-    assert (await client.get(f"/api/characters/{card_id}/expressions")).json()["labels"] == []
+    assert (await client.get_json(f"/api/characters/{card_id}/expressions"))["labels"] == []
 
 
 async def test_upload_replaces_previous_set(client):
@@ -53,7 +50,7 @@ async def test_upload_replaces_previous_set(client):
     await client.post(
         f"/api/characters/{card_id}/expressions", files={"file": ("b.zip", _zip({"anger.png": b"2"}), "application/zip")}
     )
-    assert (await client.get(f"/api/characters/{card_id}/expressions")).json()["labels"] == ["anger"]
+    assert (await client.get_json(f"/api/characters/{card_id}/expressions"))["labels"] == ["anger"]
 
 
 async def test_upload_no_matches_400(client):

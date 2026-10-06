@@ -231,8 +231,7 @@ def test_only_the_adjacent_sentence_counts():
 def test_differing_terminator_is_a_different_sentence():
     # Healing trims only an *unchanged* copy, because only an unchanged copy is guaranteed to rejoin: `howled!` beside `howled.`
     # is text the model may have meant, so healing leaves it alone and hands the whole replacement on.
-    draft = "Bad line. The wind howled."
-    healed = heal_replacement(draft, 0, len("Bad line."), "Good line. The wind howled!")
+    healed = heal_replacement("Bad line. The wind howled.", 0, len("Bad line."), "Good line. The wind howled!")
     assert healed.replace == "Good line. The wind howled!"
     assert healed.notes == ()
 
@@ -377,16 +376,12 @@ def test_heal_rejections_are_reported_in_document_order():
 
 
 def test_heal_replacement_reports_what_it_did():
-    draft = "Alpha one. Beta two. Gamma three."
-    healed = heal_replacement(draft, 11, 20, "Alpha one. Delta four. Gamma three.")
+    healed = heal_replacement("Alpha one. Beta two. Gamma three.", 11, 20, "Alpha one. Delta four. Gamma three.")
     assert healed.replace == "Delta four."
     assert healed.rejection is None
     assert len(healed.notes) == 2
 
 
 def test_heal_replacement_widens_the_span_for_a_deletion():
-    draft = "Alpha one. Beta two. Gamma three."
-    # Both separators are absorbed and one is re-emitted, so the deletion cannot
-    # leave the doubled space a bare splice at [11:20] would.
-    healed = heal_replacement(draft, 11, 20, "")
+    healed = heal_replacement("Alpha one. Beta two. Gamma three.", 11, 20, "")
     assert (healed.start, healed.end, healed.replace) == (10, 21, " ")

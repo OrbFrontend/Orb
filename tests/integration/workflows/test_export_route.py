@@ -1,8 +1,6 @@
 """The export route serves what a workflow's EXPORT hook returns, under a filename and note header safe to send, and loads the
 stored bytes only when the hook asks for them."""
 
-from __future__ import annotations
-
 from backend.database import add_message, insert_workflow_attachment_row, set_active_leaf
 from backend.workflows import ExportedFile, HookType, subscribe
 
@@ -35,8 +33,7 @@ async def test_export_serves_the_hook_file_with_safe_headers(client):
             data=b"full-png", mime="image/png", filename='../a "b".png', note="Converted from\nthe stored copy — sorry."
         )
 
-    workflow = make_workflow("exp", produces_artifacts=True, regenerate=_no_variants, reroll_gen=_no_reroll)
-    with register_for_test(workflow):
+    with register_for_test(make_workflow("exp", produces_artifacts=True, regenerate=_no_variants, reroll_gen=_no_reroll)):
         subscribe("exp", HookType.EXPORT, export)
         aid = await _artifact(client, "exp")
         resp = await client.get(f"/api/workflow-attachments/{aid}/export")
@@ -53,11 +50,9 @@ async def test_export_answers_gone_when_nothing_is_left_and_not_found_without_a_
     async def export(ctx):
         return None
 
-    workflow = make_workflow("exp", produces_artifacts=True, regenerate=_no_variants, reroll_gen=_no_reroll)
-    with register_for_test(workflow):
+    with register_for_test(make_workflow("exp", produces_artifacts=True, regenerate=_no_variants, reroll_gen=_no_reroll)):
         subscribe("exp", HookType.EXPORT, export)
         gone = await client.get(f"/api/workflow-attachments/{await _artifact(client, 'exp')}/export")
     assert gone.status_code == 410
 
-    no_hook = await client.get(f"/api/workflow-attachments/{await _artifact(client, 'tts')}/export")
-    assert no_hook.status_code == 404
+    await client.get_checked(f"/api/workflow-attachments/{await _artifact(client, 'tts')}/export", expected_status=404)

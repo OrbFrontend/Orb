@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import json
 import os
@@ -141,8 +139,7 @@ async def test_insert_workflow_attachment_row_path_shape_reads_bytes(client):
         )
     finally:
         os.unlink(path)
-    row = await must_get_workflow_attachment(att_id)
-    assert row["data_b64"] == base64.b64encode(payload).decode("ascii")
+    assert (await must_get_workflow_attachment(att_id))["data_b64"] == base64.b64encode(payload).decode("ascii")
 
 
 async def test_get_workflow_attachment_by_id_returns_none_when_absent(client):  # noqa: ARG001
@@ -203,16 +200,14 @@ async def test_legacy_attachments_field_absent(client):
     """Reading messages must not synthesize a legacy ``attachments`` field; readers must consume ``user_attachments`` and ``workflow_attachments`` separately."""
     cid, mid = await _seed_message(client)
     await insert_workflow_attachment_row(mid, {"filename": "x", "mime": "image/png", "data": b"X", "workflow_id": "wf"})
-    msgs = await get_messages(cid)
-    for m in msgs:
+    for m in await get_messages(cid):
         assert "attachments" not in m
 
 
 async def test_get_user_attachments_for_message_ignores_workflow_rows(client):
     cid, mid = await _seed_message(client)
     await insert_workflow_attachment_row(mid, {"filename": "wf.bin", "mime": "image/png", "data": b"X", "workflow_id": "wf"})
-    rows = await get_user_attachments_for_message(mid)
-    assert rows == []
+    assert (await get_user_attachments_for_message(mid)) == []
 
 
 async def test_get_workflow_attachments_for_message_returns_full_columns(client):

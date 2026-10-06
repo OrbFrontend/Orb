@@ -48,14 +48,13 @@ def model(monkeypatch):
 
 
 async def test_draft_stream_and_explicit_save(client, model):
-    response = await client.post_checked("/api/library/card-generator/run", json={"idea": "A harbour fence"})
-    events = frames(response)
+    events = frames(await client.post_checked("/api/library/card-generator/run", json={"idea": "A harbour fence"}))
     assert [event for event, _ in events] == ["start", "progress", "done"]
-    assert (await client.get("/api/characters")).json() == []
+    assert await client.get_json("/api/characters") == []
     card = events[-1][1]["card"]
     assert "id" not in card
     saved = await client.post_json("/api/characters", json=card)
-    stored = (await client.get(f"/api/characters/{saved['id']}")).json()
+    stored = await client.get_json(f"/api/characters/{saved['id']}")
     assert stored["source_format"] == "generated"
     assert stored["first_mes"] == DRAFT["first_mes"]
     assert stored["system_prompt"] == stored["post_history_instructions"] == ""
@@ -70,8 +69,7 @@ async def test_tailoring_works_with_one_forced_call_on_either_transport(client, 
         return {**await original(), "completion_mode": mode}
 
     monkeypatch.setattr(library, "get_settings", settings)
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "summary"})
-    events = frames(response)
+    events = frames(await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "summary"}))
     assert [event for event, _ in events] == ["start", "progress", "progress", "done"]
     assert [data["label"] for event, data in events if event == "progress"] == [
         "Reading your library preferences…",
@@ -95,8 +93,7 @@ async def test_a_rejected_draft_is_redrafted_within_the_same_request(client, mon
         yield {"type": "done", "message": _call("generate_character_card", replies[len(calls) - 1])}
 
     monkeypatch.setattr(LLMClient, "complete", complete)
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence"})
-    events = frames(response)
+    events = frames(await client.post("/api/library/card-generator/run", json={"idea": "A fence"}))
     assert [event for event, _ in events] == ["start", "progress", "done"]
     assert events[-1][1]["card"]["creator_notes"] == ""
     assert len(calls) == 2 and calls[1]["messages"][-1]["role"] == "tool"
@@ -117,11 +114,10 @@ async def test_deep_tailoring_researches_then_drafts_without_saving(client, llm_
     llm_mock.enqueue_workflow(_call("query_library", {"findings": "Likes noir.", "purpose": "", "sql": "", "finished": True}))
     llm_mock.enqueue_workflow(_call("generate_character_card", DRAFT))
 
-    response = await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"})
-    events = frames(response)
+    events = frames(await client.post("/api/library/card-generator/run", json={"idea": "A fence", "tailoring": "deep"}))
     assert [event for event, _ in events] == ["start", "progress", "progress", "progress", "done"]
     assert events[-1][1]["card"]["name"] == "Mara"
-    assert [(await client.get("/api/characters")).json()[0]["name"]] == ["Ivo"]
+    assert [(await client.get_json("/api/characters"))[0]["name"]] == ["Ivo"]
 
     calls = llm_mock.captured
     assert [call["tool_choice"]["function"]["name"] for call in calls] == [
@@ -140,8 +136,7 @@ async def test_deep_tailoring_researches_then_drafts_without_saving(client, llm_
 async def test_deep_tailoring_first_step_failure_is_an_sse_error(client, monkeypatch):
     async def complete(self, **kwargs):
         request = httpx.Request("POST", "https://provider.invalid")
-        response = httpx.Response(400, request=request, json={"error": {"message": "Context too long"}})
-        response.raise_for_status()
+        httpx.Response(400, request=request, json={"error": {"message": "Context too long"}}).raise_for_status()
         yield {}
 
     monkeypatch.setattr(LLMClient, "complete", complete)
@@ -200,7 +195,7 @@ async def test_digest_counts_tags_and_ranks_played_cards_without_reading_prose(c
         ids.append(await client.create("/api/characters", json={"name": name, "tags": tags, "description": "SECRET CARD BODY"}))
     await client.post("/api/conversations", json={"character_card_id": ids[1]})
     await create_user_persona({"name": "Captain", "description": "SECRET PERSONA BODY"})
-    state = (await client.get("/api/library/tags")).json()
+    state = await client.get_json("/api/library/tags")
     await client.put("/api/library/tags", json={"vocabulary": ["Noir", "Harbour"], "base_revision": state["revision"]})
     text = await build_library_digest()
     digest = json.loads(text)
@@ -221,11 +216,11 @@ async def test_digest_ranks_personas_by_the_conversations_they_speak_in(client, 
     card_id = await client.create("/api/characters", json={"name": "Lira"})
     await client.put(f"/api/characters/{card_id}", json={"persona_lock_id": ids["Card"]})
     for pin in (None, None, ids["Zed"]):
-        conversation = (await client.post("/api/conversations", json={"character_card_id": card_id})).json()
+        conversation = await client.post_json("/api/conversations", json={"character_card_id": card_id})
         if pin:
             await client.put(f"/api/conversations/{conversation['id']}", json={"persona_lock_id": pin})
     for _ in range(2):
-        conversation = (await client.post("/api/conversations", json={"title": "Pinned"})).json()
+        conversation = await client.post_json("/api/conversations", json={"title": "Pinned"})
         await client.put(f"/api/conversations/{conversation['id']}", json={"persona_lock_id": ids["Zed"]})
     await client.post("/api/conversations", json={"title": "Unpinned"})
 

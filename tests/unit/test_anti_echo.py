@@ -8,8 +8,6 @@ Organised into:
   - EDGE CASES      - boundary inputs
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.analysis.detectors.anti_echo import detect_anti_echo
@@ -120,5 +118,4 @@ class TestEdgeCases:
 
     def test_question_mark_with_trailing_marker(self):
         """ "?!" and trailing closing quotes still register as a question."""
-        result = detect_anti_echo('"Ice cream?!" he blinks.', '"I got some ice cream."')
-        assert len(result.flagged_echoes) == 1
+        assert len(detect_anti_echo('"Ice cream?!" he blinks.', '"I got some ice cream."').flagged_echoes) == 1

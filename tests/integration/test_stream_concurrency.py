@@ -2,15 +2,11 @@
 and branch-switch wait for the active turn to finish.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 
 async def _new_conversation(streaming_client) -> str:
-    resp = await streaming_client.post("/api/conversations", json={"title": "stream-conc"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+    return (await streaming_client.post_checked("/api/conversations", json={"title": "stream-conc"})).json()["id"]
 
 
 async def _send_streaming(streaming_client, cid: str, content: str = "hi"):
@@ -97,8 +93,7 @@ async def test_edit_blocks_during_stream(streaming_client, llm_mock):
         async for _ in resp.aiter_lines():
             pass
 
-    edit_resp = await edit_task
-    assert edit_resp.status_code == 200
+    assert (await edit_task).status_code == 200
 
 
 async def test_stop_releases_lock(streaming_client, llm_mock):
@@ -207,8 +202,7 @@ async def test_stop_during_the_save_waits_for_it_and_keeps_one_reply(streaming_c
 
     assert "error" not in events
     assert events[-1] == "done"
-    messages = (await streaming_client.get(f"/api/conversations/{cid}/messages")).json()
-    replies = [m for m in messages if m["role"] == "assistant"]
+    replies = [m for m in await streaming_client.get_json(f"/api/conversations/{cid}/messages") if m["role"] == "assistant"]
     assert [m["content"] for m in replies] == ["The whole reply."]
 
 
@@ -220,7 +214,7 @@ async def test_a_regeneration_stopped_before_any_prose_keeps_the_original_select
     llm_mock.enqueue_editor(None)
     async with await _send_streaming(streaming_client, cid) as resp:
         await _drain_until_error_or_done(resp)
-    before = (await streaming_client.get(f"/api/conversations/{cid}/messages")).json()
+    before = await streaming_client.get_json(f"/api/conversations/{cid}/messages")
     original = before[-1]
     assert original["content"] == "The original reply."
 
@@ -234,6 +228,6 @@ async def test_a_regeneration_stopped_before_any_prose_keeps_the_original_select
         saw_error, _ = await _drain_until_error_or_done(resp)
 
     assert not saw_error
-    after = (await streaming_client.get(f"/api/conversations/{cid}/messages")).json()
+    after = await streaming_client.get_json(f"/api/conversations/{cid}/messages")
     assert [m["id"] for m in after] == [m["id"] for m in before]
     assert after[-1]["branch_count"] == 1

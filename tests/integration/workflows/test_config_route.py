@@ -6,8 +6,6 @@ non-dict body is a 422 that leaves the slot untouched. The write is held under w
 read-modify-write that workflow code uses on the same slot.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from backend.core.locks import workflow_config_lock
@@ -18,23 +16,19 @@ async def test_put_persists_and_echoes_effective_config(client):
     register_workflow(Workflow(id="cfg_a", display_name="A", config_defaults={"style": "noir"}))
     resp = await client.put_json("/api/workflows/cfg_a/config", json={"config": {"style": "bright", "depth": 3}})
     assert resp == {"config": {"style": "bright", "depth": 3}}
-    got = await client.get_json("/api/workflows/cfg_a/config")
-    assert got == {"config": {"style": "bright", "depth": 3}}
+    assert (await client.get_json("/api/workflows/cfg_a/config")) == {"config": {"style": "bright", "depth": 3}}
 
 
 async def test_get_unset_slot_returns_defaults(client):
     register_workflow(Workflow(id="cfg_a", display_name="A", config_defaults={"style": "noir"}))
-    resp = await client.get_json("/api/workflows/cfg_a/config")
-    assert resp == {"config": {"style": "noir"}}
+    assert (await client.get_json("/api/workflows/cfg_a/config")) == {"config": {"style": "noir"}}
 
 
 async def test_empty_config_clears_slot_and_restores_defaults(client):
     register_workflow(Workflow(id="cfg_a", display_name="A", config_defaults={"style": "noir"}))
     await client.put("/api/workflows/cfg_a/config", json={"config": {"style": "bright"}})
-    resp = await client.put_json("/api/workflows/cfg_a/config", json={"config": {}})
-    assert resp == {"config": {"style": "noir"}}
-    got = await client.get("/api/workflows/cfg_a/config")
-    assert got.json() == {"config": {"style": "noir"}}
+    assert (await client.put_json("/api/workflows/cfg_a/config", json={"config": {}})) == {"config": {"style": "noir"}}
+    assert (await client.get("/api/workflows/cfg_a/config")).json() == {"config": {"style": "noir"}}
 
 
 async def test_unregistered_workflow_404(client):
@@ -47,8 +41,7 @@ async def test_bad_body_422_leaves_slot_unchanged(client):
     await client.put("/api/workflows/cfg_a/config", json={"config": {"style": "bright"}})
     await client.put_checked("/api/workflows/cfg_a/config", json={}, expected_status=422)
     await client.put_checked("/api/workflows/cfg_a/config", json={"config": [1, 2]}, expected_status=422)
-    got = await client.get("/api/workflows/cfg_a/config")
-    assert got.json() == {"config": {"style": "bright"}}
+    assert (await client.get("/api/workflows/cfg_a/config")).json() == {"config": {"style": "bright"}}
 
 
 async def test_per_slot_isolation(client):
@@ -74,8 +67,7 @@ async def test_put_write_serializes_under_config_lock(client):
         assert not task.done()
         assert (await get_workflow_config("cfg_a")) == {"start": 1}
 
-    resp = await task
-    assert resp.status_code == 200
+    assert (await task).status_code == 200
     assert (await get_workflow_config("cfg_a")) == {"start": 2}
 
 
@@ -106,7 +98,7 @@ async def test_tts_config_is_normalized_at_the_http_boundary(client):
 async def test_format_consistency_voice_toggle_round_trips(client):
     resp = await client.put_json("/api/workflows/format_consistency/config", json={"config": {"voice_consistency": True}})
     assert resp == {"config": {"voice_consistency": True}}
-    assert (await client.get("/api/workflows/format_consistency/config")).json() == {"config": {"voice_consistency": True}}
+    assert await client.get_json("/api/workflows/format_consistency/config") == {"config": {"voice_consistency": True}}
 
 
 async def test_format_consistency_config_is_normalized_at_the_http_boundary(client):

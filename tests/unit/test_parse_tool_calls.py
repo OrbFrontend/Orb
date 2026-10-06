@@ -23,8 +23,7 @@ def test_hermes_tags():
 
 
 def test_json_in_content():
-    msg = {"content": '{"name": "x", "arguments": {}}'}
-    assert parse_tool_calls(msg) == [{"name": "x", "arguments": {}}]
+    assert parse_tool_calls({"content": '{"name": "x", "arguments": {}}'}) == [{"name": "x", "arguments": {}}]
 
 
 def test_sanitize_strips_leaked_delimiter():
@@ -66,8 +65,7 @@ def test_salvage_is_string_aware_about_braces_in_prose():
     # direct_scene's fields are prose; a brace inside a string value must not
     # close the object early, and a brace inside a *quoted* one must not open it.
     args = '<memo>{"problem": "the {{char}} stalls", "next_event": "a closing brace: }"}</memo>'
-    msg = {"tool_calls": [{"function": {"name": "direct_scene", "arguments": args}}]}
-    assert parse_tool_calls(msg) == [
+    assert parse_tool_calls({"tool_calls": [{"function": {"name": "direct_scene", "arguments": args}}]}) == [
         {"name": "direct_scene", "arguments": {"problem": "the {{char}} stalls", "next_event": "a closing brace: }"}}
     ]
 

@@ -3,8 +3,6 @@
 Tests regex_extract() which extracts speakable dialogue from RP text using pure heuristics -- zero LLM calls.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -23,8 +21,7 @@ from backend.workflows.tts.engine.regex_extractor import (
 def test_backend_matches_workflow_extraction_contract():
     fixture = Path(__file__).parents[1] / "fixtures" / "tts_extraction_cases.json"
     for case in json.loads(fixture.read_text(encoding="utf-8")):
-        actual = [chunk.spoken_text for chunk in regex_extract(case["text"])]
-        assert actual == case["blocks"], case["name"]
+        assert [chunk.spoken_text for chunk in regex_extract(case["text"])] == case["blocks"], case["name"]
 
 
 class TestSpokenText:
@@ -47,14 +44,12 @@ class TestBasicDialogue:
     """Extract quoted dialogue from text."""
 
     def test_simple_double_quoted(self):
-        text = 'She looked up. "Hello there," she said.'
-        chunks = regex_extract(text)
+        chunks = regex_extract('She looked up. "Hello there," she said.')
         assert len(chunks) == 1
         assert chunks[0].text == "Hello there,"
 
     def test_multiple_quotes(self):
-        text = '"First." She paused. "Second." Then she added, "Third."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"First." She paused. "Second." Then she added, "Third."')
         assert len(chunks) == 3
         assert chunks[0].text == "First."
         assert chunks[1].text == "Second."
@@ -62,9 +57,7 @@ class TestBasicDialogue:
 
     def test_legacy_no_quotes_returns_empty(self):
         # Old attachment replay still requires explicit dialogue delimiters.
-        text = "*She walks across the room.* The wind howls outside."
-        chunks = regex_extract(text, legacy=True)
-        assert chunks == []
+        assert regex_extract("*She walks across the room.* The wind howls outside.", legacy=True) == []
 
     def test_empty_string(self):
         assert regex_extract("") == []
@@ -77,35 +70,30 @@ class TestActionBeats:
     """Asterisk action beats are handled correctly."""
 
     def test_audible_beat_creates_pause(self):
-        text = '*she laughs* "That\'s hilarious."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('*she laughs* "That\'s hilarious."')
         assert len(chunks) == 1
         # First chunk's pause is zeroed, but the tag/emotion should indicate the beat
         assert "hilarious" in chunks[0].text
 
     def test_silent_beat_creates_short_pause(self):
-        text = '*she smiles* "Come here." *she nods* "Please."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('*she smiles* "Come here." *she nods* "Please."')
         assert len(chunks) == 2
         # Second chunk should have pause from the beat before it
         assert chunks[1].pause_before_ms >= 200
 
     def test_audible_beat_with_tag(self):
-        text = '*she sighs* "Fine."'
-        chunks = regex_extract(text, supports_emotion_tags=True)
+        chunks = regex_extract('*she sighs* "Fine."', supports_emotion_tags=True)
         assert len(chunks) == 1
         assert "[sigh]" in chunks[0].text
 
     def test_audible_beat_without_tag(self):
-        text = '*she sighs* "Fine."'
-        chunks = regex_extract(text, supports_emotion_tags=False)
+        chunks = regex_extract('*she sighs* "Fine."', supports_emotion_tags=False)
         assert len(chunks) == 1
         assert "[sigh]" not in chunks[0].text
         assert chunks[0].text == "Fine."
 
     def test_multiple_beats_between_dialogue(self):
-        text = '*she gasps* "What?" *she pauses* "You can\'t be serious."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('*she gasps* "What?" *she pauses* "You can\'t be serious."')
         assert len(chunks) == 2
         assert "What?" in chunks[0].text
 
@@ -114,74 +102,52 @@ class TestParentheticalThoughts:
     """Inner monologue in parens is stripped."""
 
     def test_thought_stripped(self):
-        text = '"Hey." (Maybe I should leave.) "Are you okay?"'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"Hey." (Maybe I should leave.) "Are you okay?"')
         assert len(chunks) == 2
         assert chunks[0].text == "Hey."
         assert chunks[1].text == "Are you okay?"
 
     def test_only_thoughts_no_dialogue(self):
-        text = "(This is interesting.) *She thinks.* (Maybe later.)"
-        chunks = regex_extract(text)
-        assert chunks == []
+        assert regex_extract("(This is interesting.) *She thinks.* (Maybe later.)") == []
 
 
 class TestEmotionHeuristics:
     """Emotion is inferred from punctuation."""
 
     def test_exclamation_warm(self):
-        text = '"Hey!"'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "warm"
+        assert regex_extract('"Hey!"')[0].emotion == "warm"
 
     def test_double_exclamation_angry(self):
-        text = '"STOP!!"'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "angry"
+        assert regex_extract('"STOP!!"')[0].emotion == "angry"
 
     def test_ellipsis_soft(self):
-        text = '"I don\'t know..."'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "soft"
+        assert regex_extract('"I don\'t know..."')[0].emotion == "soft"
 
     def test_unicode_punctuation(self):
         assert regex_extract("「止まれ！」")[0].emotion == "warm"
         assert regex_extract("«Attends…»")[0].emotion == "soft"
 
     def test_surprise_mark(self):
-        text = '"What?!"'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "surprised"
+        assert regex_extract('"What?!"')[0].emotion == "surprised"
 
     def test_neutral_default(self):
-        text = '"Okay."'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "neutral"
+        assert regex_extract('"Okay."')[0].emotion == "neutral"
 
     def test_all_caps_angry(self):
-        text = '"NOPE"'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "angry"
+        assert regex_extract('"NOPE"')[0].emotion == "angry"
 
     def test_emotion_from_beat(self):
-        text = '*she whispers* "Come closer."'
-        chunks = regex_extract(text)
-        # Whisper beat should set emotion to whispered
-        assert chunks[0].emotion in ("whispered", "neutral")
+        assert regex_extract('*she whispers* "Come closer."')[0].emotion in ("whispered", "neutral")
 
 
 class TestBackendAwareness:
     """Backend type affects tag output."""
 
     def test_edge_no_tags(self):
-        text = '*she laughs* "Funny."'
-        chunks = regex_extract(text, supports_emotion_tags=False)
-        assert "[laugh]" not in chunks[0].text
+        assert "[laugh]" not in regex_extract('*she laughs* "Funny."', supports_emotion_tags=False)[0].text
 
     def test_elevenlabs_with_tags(self):
-        text = '*she laughs* "Funny."'
-        chunks = regex_extract(text, supports_emotion_tags=True)
-        assert "[laugh]" in chunks[0].text
+        assert "[laugh]" in regex_extract('*she laughs* "Funny."', supports_emotion_tags=True)[0].text
 
 
 class TestEdgeCases:
@@ -189,14 +155,12 @@ class TestEdgeCases:
 
     def test_dialogue_with_inner_quotes(self):
         # Single quotes inside double quotes should be preserved
-        text = "\"She said 'hello' to me.\""
-        chunks = regex_extract(text)
+        chunks = regex_extract("\"She said 'hello' to me.\"")
         assert len(chunks) == 1
         assert "hello" in chunks[0].text
 
     def test_very_long_text(self):
-        dialogue = '"' + "A" * 5000 + '"'
-        chunks = regex_extract(dialogue)
+        chunks = regex_extract('"' + "A" * 5000 + '"')
         assert len(chunks) == 1
         assert len(chunks[0].text) == 5000
 
@@ -212,8 +176,7 @@ class TestEdgeCases:
         assert chunks[2].text == "You okay?"
 
     def test_pause_between_consecutive_lines(self):
-        text = '"First." "Second." "Third."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"First." "Second." "Third."')
         assert len(chunks) == 3
         # First chunk should have no pause_before
         assert chunks[0].pause_before_ms == 0
@@ -252,8 +215,7 @@ class TestParentheticalRemoval:
 
     def test_parenthetical_inside_beat_asterisks_preserved(self):
         # Parentheses inside asterisks are beat text, not thoughts
-        text = '*she (quietly) sighs* "Hey."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('*she (quietly) sighs* "Hey."')
         assert len(chunks) == 1
         assert chunks[0].text == "Hey."
 
@@ -264,30 +226,24 @@ class TestBeatEmotionAndTagPropagation:
     def test_strong_text_emotion_beats_beat_emotion(self):
         # Text has !! (angry), beat is sighs (soft). Text emotion wins
         # because beat_emotion only applies when emotion == "neutral".
-        text = '*she sighs* "STOP!!"'
-        chunks = regex_extract(text)
-        assert chunks[0].emotion == "angry"
+        assert regex_extract('*she sighs* "STOP!!"')[0].emotion == "angry"
 
     def test_silent_beat_no_tag_ever(self):
-        text = '*she smiles* "Hey."'
-        chunks = regex_extract(text, supports_emotion_tags=True)
-        assert "[" not in chunks[0].text
+        assert "[" not in regex_extract('*she smiles* "Hey."', supports_emotion_tags=True)[0].text
 
 
 class TestEmDashDialogue:
     """Em-dash dialogue (--text--) used as fallback when no double quotes."""
 
     def test_emdash_dialogue_extracted(self):
-        text = "—Hello there.—"
-        chunks = regex_extract(text)
+        chunks = regex_extract("—Hello there.—")
         assert len(chunks) == 1
         assert chunks[0].text == "Hello there."
 
     def test_emdash_fallback_only_when_no_quotes(self):
         # Double quotes take priority -- em-dashes inside quotes are preserved
         # as part of the dialogue text (they're just punctuation)
-        text = '"She said — yes — to me."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"She said — yes — to me."')
         assert len(chunks) == 1
         assert "She said" in chunks[0].text and "to me." in chunks[0].text
 
@@ -296,8 +252,7 @@ class TestEmphasisAsterisksPreserved:
     """Asterisks inside quoted dialogue are emphasis, not beats."""
 
     def test_asterisk_inside_quotes_not_beat(self):
-        text = '"I *really* mean it."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"I *really* mean it."')
         assert len(chunks) == 1
         assert chunks[0].text == "I *really* mean it."
 
@@ -308,8 +263,7 @@ class TestEmptyDialogueSkipped:
     def test_whitespace_only_quote_skipped_not_break(self):
         # A quoted string that's only whitespace after strip() -> skipped. The next real line must still appear. Using text that
         # doesn't trigger the "" adjacent-match issue:
-        text = 'Some text. "   " and then "Real dialogue here."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('Some text. "   " and then "Real dialogue here."')
         # The whitespace-only quote is skipped, real dialogue survives
         assert any("Real dialogue" in c.text for c in chunks)
 
@@ -319,8 +273,7 @@ class TestBeatConsumed:
     It should NOT bleed into subsequent dialogue lines."""
 
     def test_beat_consumed_after_first_dialogue(self):
-        text = '*she gasps* "First." "Second."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('*she gasps* "First." "Second."')
         assert len(chunks) == 2
         # First chunk gets the gasp beat emotion (surprised)
         assert chunks[0].emotion == "surprised"
@@ -357,8 +310,7 @@ class TestInternalDictKeysUsed:
 
     def test_action_key_affects_is_audible(self):
         # Equal-length beats, so only is_audible separates their gaps.
-        text = '"One." *she laughs* "Two." *she smiles* "Three."'
-        chunks = regex_extract(text)
+        chunks = regex_extract('"One." *she laughs* "Two." *she smiles* "Three."')
         assert len(chunks) == 3
         assert chunks[1].pause_before_ms == chunks[2].pause_before_ms + UNVOICED_BEAT_MS  # audible
         assert chunks[2].pause_before_ms == narration_pause_ms(2)  # silent
@@ -384,13 +336,11 @@ class TestNarrationPacing:
         assert GAP_MIN_MS < short < medium < long
 
     def test_nothing_between_two_lines_is_a_breath(self):
-        chunks = regex_extract('"One." "Two."', style=self.STYLE)
-        assert chunks[1].pause_before_ms == GAP_MIN_MS
+        assert regex_extract('"One." "Two."', style=self.STYLE)[1].pause_before_ms == GAP_MIN_MS
 
     def test_no_narration_outruns_the_ceiling(self):
         # The unvoiced-beat allowance stacks onto an already saturated gap.
-        chunks = regex_extract('"One." *she laughs* ' + "and paced the floor " * 200 + '"Two."')
-        assert chunks[1].pause_before_ms == GAP_MAX_MS
+        assert regex_extract('"One." *she laughs* ' + "and paced the floor " * 200 + '"Two."')[1].pause_before_ms == GAP_MAX_MS
 
     def test_unspaced_script_narration_is_not_read_as_one_word(self):
         # Counting tokens alone would leave a breath where an action happened.

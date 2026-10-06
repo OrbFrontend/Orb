@@ -371,7 +371,7 @@ def card_to_dict(card: TavernCard) -> dict:
             "tags": d.tags or [],
             "creator": d.creator or "",
             "character_version": d.character_version or "",
-            "extensions": d.extensions if d.extensions else {},
+            "extensions": d.extensions or {},
             "source_format": "tavern_v3" if isinstance(card, TavernCardV3) else "tavern_v2",
         }
         if d.character_book is not None:
@@ -387,21 +387,20 @@ def card_to_dict(card: TavernCard) -> dict:
                 ext["orb"] = {**(ext.get("orb") or {}), "v3": parked}
                 result["extensions"] = ext
         return result
-    else:
-        logger.info(f"Converting V1 card to dict: name={card.name}, no alternate greetings")
-        return {
-            "name": card.name,
-            "description": card.description,
-            "personality": card.personality,
-            "scenario": card.scenario,
-            "first_mes": card.first_mes,
-            "mes_example": card.mes_example,
-            "creator_notes": card.creatorcomment or "",
-            "system_prompt": "",
-            "post_history_instructions": "",
-            "alternate_greetings": [],
-            "tags": [],
-            "creator": "",
-            "character_version": "",
-            "source_format": "tavern_v1",
-        }
+    logger.info(f"Converting V1 card to dict: name={card.name}, no alternate greetings")
+    return {
+        "name": card.name,
+        "description": card.description,
+        "personality": card.personality,
+        "scenario": card.scenario,
+        "first_mes": card.first_mes,
+        "mes_example": card.mes_example,
+        "creator_notes": card.creatorcomment or "",
+        "system_prompt": "",
+        "post_history_instructions": "",
+        "alternate_greetings": [],
+        "tags": [],
+        "creator": "",
+        "character_version": "",
+        "source_format": "tavern_v1",
+    }

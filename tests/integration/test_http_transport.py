@@ -4,8 +4,6 @@ The page loads ~90 ES modules and ~25 stylesheets unbundled, so whether each
 one re-downloads, revalidates, or compresses decides most of a load's bytes.
 """
 
-from __future__ import annotations
-
 import uuid
 
 from starlette.datastructures import Headers
@@ -18,13 +16,11 @@ async def test_static_files_revalidate_instead_of_redownloading(client):
     assert resp.headers["cache-control"] == "no-cache"
     etag = resp.headers["etag"]
 
-    again = await client.get_checked("/static/app.js", headers={"If-None-Match": etag}, expected_status=304)
-    assert again.content == b""
+    assert (await client.get_checked("/static/app.js", headers={"If-None-Match": etag}, expected_status=304)).content == b""
 
 
 async def test_api_responses_stay_uncached(client):
-    resp = await client.get("/api/settings")
-    assert resp.headers["cache-control"] == "no-store"
+    assert (await client.get("/api/settings")).headers["cache-control"] == "no-store"
 
 
 async def test_text_responses_are_gzipped(client):
@@ -41,8 +37,7 @@ async def test_text_responses_are_gzipped(client):
 
 
 async def test_small_responses_skip_compression(client):
-    resp = await client.get_checked("/api/themes", headers={"Accept-Encoding": "gzip"})
-    assert "content-encoding" not in resp.headers
+    assert "content-encoding" not in (await client.get_checked("/api/themes", headers={"Accept-Encoding": "gzip"})).headers
 
 
 async def test_media_is_not_recompressed(client):

@@ -4,8 +4,6 @@ The real-weights smoke test lived here too, but it loaded the GGUF for ~10s to
 assert the output was a non-empty string; the trimmer is what Orb actually owns.
 """
 
-from __future__ import annotations
-
 import asyncio
 
 from backend.features import autocomplete as lc
@@ -33,8 +31,7 @@ def test_build_prompt_truncates_long_message():
 
 
 def test_build_prompt_skips_empty_summary_and_messages():
-    p = lc.build_prompt("A", "U", "  ", [{"role": "user", "content": "  "}], "go")
-    assert p == "U: go"
+    assert lc.build_prompt("A", "U", "  ", [{"role": "user", "content": "  "}], "go") == "U: go"
 
 
 def test_complete_reconciles_trailing_space(monkeypatch):

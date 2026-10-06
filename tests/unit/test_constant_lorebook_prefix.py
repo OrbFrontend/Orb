@@ -8,8 +8,6 @@ Plus the ``at_depth`` (``@ Depth``) opt-out: such an entry leaves the prefix for
 macros re-roll every turn.
 """
 
-from __future__ import annotations
-
 from backend.core import Macros
 from backend.features.lorebook import compute_depth_lorebook_block, compute_lorebook_injection_block
 from backend.pipeline.context import PipelineContext, build_prefixes
@@ -107,8 +105,7 @@ def test_writer_and_agent_prefixes_carry_identical_section():
 
 
 def test_trailing_block_excludes_constant():
-    msgs = [{"role": "user", "content": "I draw my sword"}]
-    block = compute_lorebook_injection_block(msgs, [_CONSTANT, _KEYWORD])
+    block = compute_lorebook_injection_block([{"role": "user", "content": "I draw my sword"}], [_CONSTANT, _KEYWORD])
     assert "Sword: A legendary blade." in block
     assert "Canon" not in block
 
@@ -135,8 +132,7 @@ def test_depth_block_holds_only_at_depth_constants():
 def test_at_depth_entry_never_reaches_the_keyword_block():
     # It is `constant`, so the trailing keyword/director block must skip it even
     # when a message happens to mention it -- no double injection.
-    msgs = [{"role": "user", "content": "roll the Dice"}]
-    assert "Dice" not in compute_lorebook_injection_block(msgs, [_AT_DEPTH])
+    assert "Dice" not in compute_lorebook_injection_block([{"role": "user", "content": "roll the Dice"}], [_AT_DEPTH])
 
 
 def test_depth_block_sits_after_the_user_message_in_the_writer_tail():

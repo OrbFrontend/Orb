@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.image_gen.engine import health

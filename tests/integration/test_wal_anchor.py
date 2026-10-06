@@ -3,10 +3,9 @@
 The anchor must remain idle for VACUUM and online backup. OS write-byte benchmarks are not portable CI assertions.
 """
 
-from __future__ import annotations
-
 import asyncio
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -186,9 +185,8 @@ async def test_anchor_keeps_the_wal_alive_across_transient_connections(db_path, 
     assert not wal.exists() and not shm.exists()  # ... and torn down on close
 
     await db_connection.open_wal_anchor()
-    async with db_connection.get_db() as db:
-        async with db.execute("SELECT 1") as cur:
-            await cur.fetchall()
+    async with db_connection.get_db() as db, db.execute("SELECT 1") as cur:
+        await cur.fetchall()
     assert wal.exists() and shm.exists()  # the teardown that no longer happens
 
     await db_connection.close_wal_anchor()
@@ -206,9 +204,8 @@ async def test_transient_reads_and_writes_work_with_the_anchor_open(db_path, mon
         await db.execute("INSERT INTO conversations (id, title, created_at) VALUES ('anchored', 'Anchored', ?)", (_TS,))
         await db.commit()
 
-    async with db_connection.get_db() as db:
-        async with db.execute("SELECT title FROM conversations WHERE id = 'anchored'") as cur:
-            row = await cur.fetchone()
+    async with db_connection.get_db() as db, db.execute("SELECT title FROM conversations WHERE id = 'anchored'") as cur:
+        row = await cur.fetchone()
     assert row is not None and row["title"] == "Anchored"
 
 
@@ -220,9 +217,8 @@ async def test_concurrent_readers_and_a_serialized_writer(db_path, monkeypatch):
     await db_connection.open_wal_anchor()
 
     async def read() -> int:
-        async with db_connection.get_db() as db:
-            async with db.execute("SELECT COUNT(*) AS n FROM settings") as cur:
-                row = await cur.fetchone()
+        async with db_connection.get_db() as db, db.execute("SELECT COUNT(*) AS n FROM settings") as cur:
+            row = await cur.fetchone()
         assert row is not None
         return int(row["n"])
 
@@ -274,11 +270,8 @@ async def test_lifespan_opens_the_anchor_after_database_initialization(tmp_path,
     real_open = db_connection.open_wal_anchor
 
     async def _spy() -> None:
-        conn = sqlite3.connect(str(path))
-        try:
+        with closing(sqlite3.connect(str(path))) as conn:
             seen["tables"] = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        finally:
-            conn.close()
         await real_open()
 
     monkeypatch.setattr(api_module, "open_wal_anchor", _spy)
@@ -401,7 +394,7 @@ async def test_full_restore_succeeds_with_the_idle_anchor(client, db_path):
         row = await cur.fetchone()
     assert row is not None and row[0] == "wal"
 
-    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    names = {c["name"] for c in await client.get_json("/api/characters")}
     assert names == {"Before"}
 
 

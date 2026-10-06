@@ -1,7 +1,5 @@
 """Whisper's log-mel front end, pinned to transformers' WhisperFeatureExtractor."""
 
-from __future__ import annotations
-
 import pytest
 
 np = pytest.importorskip("numpy")

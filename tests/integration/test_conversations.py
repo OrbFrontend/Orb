@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import backend.database as dbmod
 
 
@@ -23,8 +21,7 @@ async def test_create_conversation_also_seeds_director_state(client, db):
 async def test_list_conversations_includes_created(client, db):
     await client.post("/api/conversations", json={"title": "Listed"})
     resp = await client.get_json("/api/conversations")
-    titles = [c["title"] for c in resp]
-    assert "Listed" in titles
+    assert "Listed" in [c["title"] for c in resp]
 
 
 async def test_list_conversations_message_count_excludes_swiped_branches(client, db):
@@ -37,9 +34,7 @@ async def test_list_conversations_message_count_excludes_swiped_branches(client,
     await dbmod.add_message(cid, "assistant", "swipe", 1, parent_id=u1)  # off-path sibling
     await dbmod.set_active_leaf(cid, a_active)
 
-    resp = await client.get("/api/conversations")
-    row = next(c for c in resp.json() if c["id"] == cid)
-    assert row["message_count"] == 2
+    assert next(c for c in (await client.get("/api/conversations")).json() if c["id"] == cid)["message_count"] == 2
 
 
 async def test_list_conversations_previews_the_latest_message(client, db):
@@ -50,8 +45,7 @@ async def test_list_conversations_previews_the_latest_message(client, db):
     await dbmod.add_message(cid, "assistant", "é" + "x" * 999, 1, parent_id=u1)
 
     resp = await client.get("/api/conversations")
-    row = next(c for c in resp.json() if c["id"] == cid)
-    assert row["last_message_preview"] == "é" + "x" * 199
+    assert next(c for c in resp.json() if c["id"] == cid)["last_message_preview"] == "é" + "x" * 199
 
 
 async def test_delete_conversation_removes_from_db(client, db):
@@ -59,8 +53,7 @@ async def test_delete_conversation_removes_from_db(client, db):
 
     await client.delete_checked(f"/api/conversations/{cid}")
 
-    row = await db.one("SELECT id FROM conversations WHERE id = ?", (cid,))
-    assert row is None
+    assert (await db.one("SELECT id FROM conversations WHERE id = ?", (cid,))) is None
 
 
 async def test_delete_nonexistent_conversation_returns_404(client, db):
@@ -70,15 +63,13 @@ async def test_delete_nonexistent_conversation_returns_404(client, db):
 async def test_get_messages_on_new_conversation_returns_empty(client, db):
     cid = await client.create("/api/conversations", json={})
 
-    msgs = await client.get_json(f"/api/conversations/{cid}/messages")
-    assert msgs == []
+    assert (await client.get_json(f"/api/conversations/{cid}/messages")) == []
 
 
 async def test_conversation_with_first_mes_creates_assistant_message(client, db):
     cid = await client.create("/api/conversations", json={"title": "Greeted", "first_mes": "Hello, traveller."})
 
-    msgs = await client.get_json(f"/api/conversations/{cid}/messages")
-    messages = msgs
+    messages = await client.get_json(f"/api/conversations/{cid}/messages")
     assert len(messages) == 1
     assert messages[0]["role"] == "assistant"
     assert messages[0]["content"] == "Hello, traveller."
@@ -123,19 +114,16 @@ async def test_conversation_with_character_card(client, db):
         },
     )
 
-    conv_resp = await client.post_json("/api/conversations", json={"character_card_id": card_id})
-    conv = conv_resp
+    conv = await client.post_json("/api/conversations", json={"character_card_id": card_id})
     cid = conv["id"]
     assert conv["title"] == "Aria"
     assert conv["character_name"] == "Aria"
 
     # first_mes should be auto-added as the first assistant message
-    msgs = await client.get(f"/api/conversations/{cid}/messages")
-    assert msgs.json()[0]["content"] == "Greetings from the forest."
+    assert (await client.get(f"/api/conversations/{cid}/messages")).json()[0]["content"] == "Greetings from the forest."
 
     # Verify link in DB
-    row = await db.one("SELECT character_card_id FROM conversations WHERE id = ?", (cid,))
-    assert row["character_card_id"] == card_id
+    assert (await db.one("SELECT character_card_id FROM conversations WHERE id = ?", (cid,)))["character_card_id"] == card_id
 
 
 async def test_checkpoint_duplicates_active_path(client, db):
@@ -165,13 +153,12 @@ async def test_checkpoint_duplicates_active_path(client, db):
         [{"fragment_id": "hp", "entry_id": "e-hp", "op": "revise", "text": "6", "fragment_label": "HP", "source": "user"}],
     )
 
-    resp = await client.post_json(f"/api/conversations/{cid}/checkpoint", json={})
-    new = resp
+    new = await client.post_json(f"/api/conversations/{cid}/checkpoint", json={})
     new_cid = new["id"]
     assert new_cid != cid
     assert new["title"] == "My Story (checkpoint)"
 
-    msgs = (await client.get(f"/api/conversations/{new_cid}/messages")).json()
+    msgs = await client.get_json(f"/api/conversations/{new_cid}/messages")
     assert [(m["role"], m["content"], m["turn_index"]) for m in msgs] == [("user", "hello", 0), ("assistant", "hi there", 1)]
     # Fresh row ids -- the copy is a distinct message tree, not a shared reference.
     assert msgs[1]["id"] != a1
@@ -180,8 +167,7 @@ async def test_checkpoint_duplicates_active_path(client, db):
     assert (await client.get(f"/api/user-attachments/{upload['id']}/content")).content == b"ABC"
 
     # Director state carried verbatim so continuation behaves identically.
-    ds = await dbmod.get_director_state(new_cid)
-    assert ds["active_moods"] == ["tense"]
+    assert (await dbmod.get_director_state(new_cid))["active_moods"] == ["tense"]
 
     # The path's state history is copied and re-anchored, keeping entry ids and
     # sources, so the checkpoint starts from the source's state and history.
@@ -199,8 +185,7 @@ async def test_checkpoint_duplicates_active_path(client, db):
     assert log["injection_block"] == "inj block"
 
     # Source conversation is untouched.
-    src = (await client.get(f"/api/conversations/{cid}/messages")).json()
-    assert len(src) == 2
+    assert len(await client.get_json(f"/api/conversations/{cid}/messages")) == 2
 
 
 async def test_checkpoint_copies_only_active_branch(client, db):
@@ -213,7 +198,7 @@ async def test_checkpoint_copies_only_active_branch(client, db):
 
     new_cid = await client.create(f"/api/conversations/{cid}/checkpoint", json={})
 
-    msgs = (await client.get(f"/api/conversations/{new_cid}/messages")).json()
+    msgs = await client.get_json(f"/api/conversations/{new_cid}/messages")
     assert [m["content"] for m in msgs] == ["prompt", "active reply"]
     # Only the active path is copied -- the alternate swipe is not carried.
     async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?", (new_cid,)) as cur:

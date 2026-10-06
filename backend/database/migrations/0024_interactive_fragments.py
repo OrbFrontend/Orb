@@ -37,11 +37,10 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.commit()
             print("[migrations] 0024: dropped orphaned director_fragments table")
 
-    if _table_exists(conn, "interactive_fragments"):
-        if "target" in _columns(conn, "interactive_fragments"):
-            conn.execute("ALTER TABLE interactive_fragments DROP COLUMN target")
-            conn.commit()
-            print("[migrations] 0024: dropped target column from interactive_fragments")
+    if _table_exists(conn, "interactive_fragments") and "target" in _columns(conn, "interactive_fragments"):
+        conn.execute("ALTER TABLE interactive_fragments DROP COLUMN target")
+        conn.commit()
+        print("[migrations] 0024: dropped target column from interactive_fragments")
 
     log_cols = _columns(conn, "conversation_logs")
     if "feedback" not in log_cols:

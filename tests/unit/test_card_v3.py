@@ -5,8 +5,6 @@ Before this, a card declaring ``spec: "chara_card_v3"`` fell through to the V1 p
 tags, alternate_greetings and extensions.
 """
 
-from __future__ import annotations
-
 import base64
 import json
 
@@ -77,8 +75,7 @@ def test_chara_only_card_still_parses(tmp_path):
 
 def test_malformed_ccv3_falls_back_to_chara(tmp_path):
     v2 = {"spec": "chara_card_v2", "spec_version": "2.0", "data": {"name": "Amy", "tags": ["kept"]}}
-    d = card_to_dict(parse(_png(tmp_path, ccv3="not base64 json!!", chara=_b64(v2))))
-    assert d["tags"] == ["kept"]
+    assert card_to_dict(parse(_png(tmp_path, ccv3="not base64 json!!", chara=_b64(v2))))["tags"] == ["kept"]
 
 
 def test_missing_both_chunks_raises(tmp_path):

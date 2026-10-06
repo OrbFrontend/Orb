@@ -3,8 +3,6 @@
 Fixtures here are available to all test modules automatically. Module-specific fixtures should live in the test file itself.
 """
 
-from __future__ import annotations
-
 import pytest
 
 import backend.database.connection as db_connection
@@ -35,41 +33,3 @@ def _no_downloaded_models(request, monkeypatch, _empty_models_dir):
     monkeypatch.setattr(assets, "model_dir", lambda: _empty_models_dir)
     # The autocomplete GGUF has an env override that bypasses model_dir entirely.
     monkeypatch.delenv("ORB_AUTOCOMPLETE_MODEL", raising=False)
-
-
-@pytest.fixture
-def base_settings() -> dict:
-    """Minimal settings dict that satisfies the orchestrator pipeline."""
-    return {
-        "model_name": "test-model",
-        "system_prompt": "You are a helpful assistant.",
-        "endpoint_url": "http://localhost:8080",
-        "api_key": "",
-        "enable_agent": 1,
-        "enabled_tools": {"direct_scene": True, "editor_apply_patch": False},
-        "user_name": "Tester",
-        "user_description": "",
-    }
-
-
-@pytest.fixture
-def base_director() -> dict:
-    return {"active_moods": []}
-
-
-@pytest.fixture
-def base_fragments() -> list[dict]:
-    return [
-        {
-            "id": "tense",
-            "description": "Tense, urgent prose",
-            "prompt_text": "Write with short, punchy sentences.",
-            "negative_prompt": "Avoid flowing, relaxed sentences.",
-        },
-        {
-            "id": "lyrical",
-            "description": "Lyrical, flowing prose",
-            "prompt_text": "Write in long, melodic sentences.",
-            "negative_prompt": "",
-        },
-    ]

@@ -8,8 +8,6 @@ Covers:
     tool_choice was sent.
 """
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 import httpx

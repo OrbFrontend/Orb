@@ -7,8 +7,6 @@ The REPAIRS are pinned against the corpus defect each one exists for and -- as i
 NOT fire on: an abbreviation is not a sentence boundary and an emoticon is not punctuation spacing.
 """
 
-from __future__ import annotations
-
 from backend.inference.local_models.prose_rewriter import text as T
 
 # -- the prompt ---------------------------------------------------------------

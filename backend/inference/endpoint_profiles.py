@@ -195,10 +195,7 @@ def _resource_route(protocol: Protocol, url: str, *, authoritative: bool) -> End
     clean = _clean_url(url)
     path = parsed.path.rstrip("/") if parsed is not None else clean
     resource = "/messages" if protocol == "anthropic" else "/chat/completions"
-    if path.endswith(resource):
-        models_path = f"{path[: -len(resource)]}/models"
-    else:
-        models_path = f"{path}/models"
+    models_path = f"{path[: -len(resource)]}/models" if path.endswith(resource) else f"{path}/models"
     models_url = _replace_path(parsed, models_path) if parsed is not None else f"{clean}/models"
     return EndpointRoute(
         protocol=protocol,
@@ -213,10 +210,7 @@ def _base_route(protocol: Protocol, base_url: str, *, authoritative: bool = Fals
     clean = _clean_url(base_url)
     suffix = "/messages" if protocol == "anthropic" else "/chat/completions"
     parsed = _parsed_http_url(clean)
-    if parsed is None:
-        url = f"{clean}{suffix}"
-    else:
-        url = _replace_path(parsed, f"{parsed.path.rstrip('/')}{suffix}")
+    url = f"{clean}{suffix}" if parsed is None else _replace_path(parsed, f"{parsed.path.rstrip('/')}{suffix}")
     return _resource_route(protocol, url, authoritative=authoritative)
 
 

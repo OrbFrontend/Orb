@@ -38,8 +38,7 @@ async def test_context_size_returns_breakdown(client):
     cid = await client.create("/api/conversations", json={"character_card_id": card_id})
 
     # Get context size
-    resp = await client.get_json(f"/api/conversations/{cid}/context-size")
-    data = resp
+    data = await client.get_json(f"/api/conversations/{cid}/context-size")
 
     # Verify structure
     assert "total_tokens_est" in data
@@ -91,20 +90,18 @@ async def test_context_size_404_for_missing(client):
 
 async def test_context_size_counts_prompt_rendered_message(client):
     replacement = "An expanded greeting the model actually receives."
-    card = (
-        await client.post(
-            "/api/characters",
-            json={
-                "name": "Scripted",
-                "first_mes": "secret",
-                "extensions": {
-                    "regex_scripts": [
-                        {"findRegex": "/secret/g", "replaceString": replacement, "placement": [2], "promptOnly": True}
-                    ]
-                },
+    card = await client.post_json(
+        "/api/characters",
+        json={
+            "name": "Scripted",
+            "first_mes": "secret",
+            "extensions": {
+                "regex_scripts": [
+                    {"findRegex": "/secret/g", "replaceString": replacement, "placement": [2], "promptOnly": True}
+                ]
             },
-        )
-    ).json()
+        },
+    )
     cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
 
     response = await client.get_json(f"/api/conversations/{cid}/context-size")

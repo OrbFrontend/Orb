@@ -14,8 +14,6 @@ from backend.inference.local_models.llama_server import manager
 from backend.inference.local_models.llama_server.client import LaunchProfile
 from backend.inference.local_models.llama_server.host import ManagedLlamaServerHost
 
-pytestmark = pytest.mark.asyncio
-
 
 def _profile(**overrides) -> LaunchProfile:
     fields = {

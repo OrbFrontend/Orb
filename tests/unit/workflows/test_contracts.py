@@ -1,8 +1,6 @@
 """Unit tests for the boundary-contract layer: readonly_view wrapping and
 frozen-dataclass behavior across the four Ctx classes."""
 
-from __future__ import annotations
-
 import dataclasses
 from types import MappingProxyType
 
@@ -25,10 +23,7 @@ class TestReadonlyDict:
 
     def test_mapping_proxy_passes_through(self):
         original = MappingProxyType({"a": 1})
-        wrapped = readonly_view(original)
-        # Idempotent: re-wrapping a MappingProxyType returns it unchanged
-        # (the dict branch doesn't match -- MappingProxyType is not a dict).
-        assert wrapped is original
+        assert readonly_view(original) is original
 
 
 class TestReadonlyListAndTuple:
@@ -167,8 +162,7 @@ class TestRerollGenCtxFields:
     """Pin RerollGenCtx field set: no history, no turn_scratch, no kv_tracker."""
 
     def test_expected_field_set(self):
-        fields = {f.name for f in dataclasses.fields(RerollGenCtx)}
-        assert fields == {
+        assert {f.name for f in dataclasses.fields(RerollGenCtx)} == {
             "conversation_id",
             "message_id",
             "attachment_id",
@@ -207,5 +201,4 @@ class TestRerollGenCtxFields:
 
 class TestToolSpec:
     def test_defaults(self):
-        spec = ToolSpec(name="x", schema={}, choice={})
-        assert spec.standalone is True
+        assert ToolSpec(name="x", schema={}, choice={}).standalone is True

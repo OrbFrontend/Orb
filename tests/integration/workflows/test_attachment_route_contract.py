@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from ._fixtures import new_conversation

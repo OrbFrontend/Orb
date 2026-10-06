@@ -5,8 +5,6 @@ function and field that carries settings on the type, so the checker sees each r
 not declare, which is what a misspelled ``.get("...")`` would otherwise do silently.
 """
 
-from __future__ import annotations
-
 import ast
 import re
 from collections.abc import Iterator

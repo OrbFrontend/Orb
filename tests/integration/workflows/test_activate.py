@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 
 from backend.api.deps import _workflow_root_lock
@@ -49,8 +47,7 @@ async def test_sibling_id_none_clears_active(client):
         f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate", json={"sibling_id": None}
     )
     assert resp == {"active_sibling_id": None}
-    row = await must_get_workflow_attachment(root_id)
-    assert row["active_sibling_id"] is None
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] is None
 
 
 async def test_sibling_id_int_sets_active(client):
@@ -59,8 +56,7 @@ async def test_sibling_id_int_sets_active(client):
         f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate", json={"sibling_id": sib_id}
     )
     assert resp == {"active_sibling_id": sib_id}
-    row = await must_get_workflow_attachment(root_id)
-    assert row["active_sibling_id"] == sib_id
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] == sib_id
 
 
 async def test_sibling_id_non_int_non_null_returns_400(client):
@@ -118,8 +114,7 @@ async def test_activate_not_blocked_by_held_root_lock(client):
             timeout=5,
         )
     assert resp.status_code == 200
-    row = await must_get_workflow_attachment(root_id)
-    assert row["active_sibling_id"] == sib_id
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] == sib_id
 
 
 async def test_sibling_id_equal_to_root_accepted(client):
@@ -127,5 +122,4 @@ async def test_sibling_id_equal_to_root_accepted(client):
     await client.post_checked(
         f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate", json={"sibling_id": root_id}
     )
-    row = await must_get_workflow_attachment(root_id)
-    assert row["active_sibling_id"] == root_id
+    assert (await must_get_workflow_attachment(root_id))["active_sibling_id"] == root_id

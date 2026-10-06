@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import hashlib
 import io
@@ -21,7 +19,6 @@ def _no_poll_sleep(monkeypatch):
     monkeypatch.setattr(comfy_client, "_POLL_INTERVAL", 0.0)
 
 
-@pytest.mark.asyncio
 async def test_queue_history_view_contract_returns_valid_image():
     png = b"\x89PNG\r\n\x1a\n" + b"payload"
 
@@ -49,7 +46,6 @@ async def test_queue_history_view_contract_returns_valid_image():
     assert result.backend_info["prompt_id"] == "p1"
 
 
-@pytest.mark.asyncio
 async def test_the_saved_original_is_recorded_by_the_digest_of_what_comfy_wrote():
     """Orb stores a WebP re-encode, so the record must describe the PNG the server
     kept -- a digest of the stored copy would never match it on export."""
@@ -75,7 +71,6 @@ async def test_the_saved_original_is_recorded_by_the_digest_of_what_comfy_wrote(
     assert await client.view(saved) == png
 
 
-@pytest.mark.asyncio
 async def test_validation_error_is_sanitized_and_names_checkpoint():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -145,18 +140,14 @@ def _recorder():
     return seen, progress
 
 
-@pytest.mark.asyncio
 async def test_queue_position_counts_only_entries_ahead():
     queue = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"], [5, "p1"], [9, "later"]]}
-    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([queue])))
-    # 2 and 3 are ahead; this job's own entry and the one behind it are not.
-    assert await client.queue_ahead(5) == 2
+    assert await ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([queue]))).queue_ahead(5) == 2
 
 
 _BUSY = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("queue_bodies", "expected"),
     [
@@ -171,12 +162,10 @@ _BUSY = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
 async def test_progress_reports_the_position_it_can_actually_see(queue_bodies, expected):
     seen, progress = _recorder()
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server(queue_bodies)))
-    result = await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
-    assert result.mime == "image/png"
+    assert (await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)).mime == "image/png"
     assert seen == expected
 
 
-@pytest.mark.asyncio
 async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
     seen: dict[str, str] = {}
 
@@ -202,14 +191,12 @@ async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
     assert 'name="overwrite"' in body and "true" in body
 
 
-@pytest.mark.asyncio
 async def test_a_refused_reference_upload_funnels_through_the_one_error_type():
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(lambda _: httpx.Response(413)))
     with pytest.raises(ImageGenerationError, match="reference image"):
         await client.upload_image(b"x", "image/png", digest="a" * 64)
 
 
-@pytest.mark.asyncio
 async def test_malformed_queue_entries_are_ignored():
     client = ComfyClient(
         "http://comfy.test",
@@ -219,7 +206,6 @@ async def test_malformed_queue_entries_are_ignored():
     assert await client.queue_ahead("5") is None
 
 
-@pytest.mark.asyncio
 async def test_one_node_class_is_read_without_pulling_the_whole_catalogue():
     """`/object_info` is tens of megabytes and cached for a minute; a render that
     needs one widget's declared bounds must not pay for it on every miss."""
@@ -272,7 +258,6 @@ def _serving(history: dict):
     return handler
 
 
-@pytest.mark.asyncio
 async def test_an_execution_failure_names_the_node_that_raised_it():
     history = _error_history(
         node_id="4",
@@ -293,7 +278,6 @@ async def test_an_execution_failure_names_the_node_that_raised_it():
     assert "/home/z" not in message
 
 
-@pytest.mark.asyncio
 async def test_a_custom_nodes_qualified_exception_type_is_reported_by_name():
     history = _error_history(node_id="7", node_type="GGUFLoader", exception_type="safetensors_rust.SafetensorError")
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_serving(history)))
@@ -302,7 +286,6 @@ async def test_a_custom_nodes_qualified_exception_type_is_reported_by_name():
         await client.generate({}, "9", timeout_seconds=2)
 
 
-@pytest.mark.asyncio
 async def test_an_execution_failure_with_nothing_to_say_still_reports_cleanly():
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_serving(_error_history())))
 
@@ -310,7 +293,6 @@ async def test_an_execution_failure_with_nothing_to_say_still_reports_cleanly():
         await client.generate({}, "9", timeout_seconds=2)
 
 
-@pytest.mark.asyncio
 async def test_a_rejected_checkpoint_is_quoted_by_name():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -335,7 +317,6 @@ async def test_a_rejected_checkpoint_is_quoted_by_name():
         await client.generate({}, "9", timeout_seconds=2)
 
 
-@pytest.mark.asyncio
 async def test_a_loader_that_is_not_a_checkpoint_is_named_rather_than_generalised():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -376,7 +357,6 @@ async def _stop_mid_render(handler) -> None:
         await render
 
 
-@pytest.mark.asyncio
 async def test_a_stopped_render_cancels_its_own_job_by_id():
     calls: list[tuple[str, str]] = []
 
@@ -395,7 +375,6 @@ async def test_a_stopped_render_cancels_its_own_job_by_id():
     assert ("POST", "/interrupt") not in calls
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(("running", "interrupted"), [("p1", True), ("someone-else", False)])
 async def test_an_older_server_is_interrupted_only_while_it_runs_this_job(running, interrupted):
     """Before the jobs endpoint, `/interrupt` stops whatever is running, so on a

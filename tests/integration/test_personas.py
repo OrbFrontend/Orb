@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 
 PNG_BYTES = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
@@ -20,8 +18,7 @@ async def test_create_persona_persists_to_db(client, db):
 async def test_list_personas_includes_created(client, db):
     await client.post("/api/user-personas", json={"name": "Bob"})
     resp = await client.get_json("/api/user-personas")
-    names = [p["name"] for p in resp]
-    assert "Bob" in names
+    assert "Bob" in [p["name"] for p in resp]
 
 
 async def test_update_persona_persists_to_db(client, db):
@@ -40,8 +37,7 @@ async def test_delete_persona_removes_from_db(client, db):
 
     await client.delete_checked(f"/api/user-personas/{persona_id}")
 
-    row = await db.one("SELECT id FROM user_personas WHERE id = ?", (persona_id,))
-    assert row is None
+    assert (await db.one("SELECT id FROM user_personas WHERE id = ?", (persona_id,))) is None
 
 
 async def test_delete_nonexistent_persona_returns_404(client, db):
@@ -109,8 +105,7 @@ async def test_update_without_avatar_keys_leaves_the_image_alone(client, db):
         "/api/user-personas", json={"name": "Pictured", "avatar_b64": PNG_B64, "avatar_mime": "image/png"}
     )
 
-    resp = await client.put_json(f"/api/user-personas/{persona_id}", json={"name": "Renamed"})
-    assert resp["has_avatar"] is True
+    assert (await client.put_json(f"/api/user-personas/{persona_id}", json={"name": "Renamed"}))["has_avatar"] is True
     assert (await client.get(f"/api/user-personas/{persona_id}/avatar")).status_code == 200
 
 

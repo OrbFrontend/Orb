@@ -4,8 +4,6 @@ The async/DB-backed entry points (record_access, evict, insert_workflow_attachme
 are covered in the integration suite; only the synchronous helpers appear here.
 """
 
-from __future__ import annotations
-
 import os
 import tempfile
 
@@ -54,8 +52,7 @@ def test_lru3_protects_empty_recent_accesses():
 
 
 def test_lru3_protects_empty_list_same_as_none():
-    candidates = [{"id": 1, "size": 100, "recent_accesses": [5]}, {"id": 2, "size": 100, "recent_accesses": []}]
-    assert _first_victim(candidates) == 1
+    assert _first_victim([{"id": 1, "size": 100, "recent_accesses": [5]}, {"id": 2, "size": 100, "recent_accesses": []}]) == 1
 
 
 def test_lru3_size_is_ignored_in_ordering():
@@ -66,8 +63,7 @@ def test_lru3_size_is_ignored_in_ordering():
 def test_lru3_ties_break_deterministically():
     candidates = [{"id": 1, "size": 100, "recent_accesses": [5]}, {"id": 2, "size": 100, "recent_accesses": [5]}]
     # Tie behavior is implementation-defined; assert only that some valid candidate is returned.
-    chosen = _first_victim(candidates)
-    assert chosen in (1, 2)
+    assert _first_victim(candidates) in (1, 2)
 
 
 def test_lru3_one_candidate_returns_it():

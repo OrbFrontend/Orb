@@ -178,69 +178,50 @@ async def get_workflow_config(workflow_id: str) -> dict:
     return json.loads(slot)
 
 
+_JSON_MAP_COLUMNS = frozenset(
+    {"workflow_config", "workflow_enabled", "local_ml_enabled", "local_ml_config", "card_source_auth"}
+)
+
+
+async def _write_json_key(column: str, key: str, value: Any = None, *, remove: bool = False) -> None:
+    """Set (or remove) one key of a JSON-map settings column in one atomic JSON1 statement.
+
+    Per-key writes let concurrent tabs change different keys without clobbering each other or needing an application lock.
+    """
+    if column not in _JSON_MAP_COLUMNS:
+        raise ValueError(f"not a JSON-map settings column: {column!r}")
+    if remove:
+        sql, params = f"UPDATE settings SET {column} = json_remove(COALESCE({column}, '{{}}'), '$.' || ?) WHERE id = 1", (key,)
+    else:
+        sql = f"UPDATE settings SET {column} = json_set(COALESCE({column}, '{{}}'), '$.' || ?, json(?)) WHERE id = 1"
+        params = (key, json.dumps(value))
+    async with get_db() as db:
+        await db.execute(sql, params)  # nosec B608 -- column from a hardcoded allowlist, values parameterised
+        await db.commit()
+
+
 async def set_workflow_config(workflow_id: str, payload: dict) -> None:
     """Atomically replace one config slot; an empty dict removes it.
 
     Hold workflow_config_lock across read-modify-write sequences. Blind replaces
     need no lock, but a prior read outside the lock can lose concurrent updates.
     """
-    async with get_db() as db:
-        if not payload:
-            await db.execute(
-                "UPDATE settings SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) WHERE id = 1",
-                (workflow_id,),
-            )
-        else:
-            await db.execute(
-                "UPDATE settings "
-                "SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) "
-                "WHERE id = 1",
-                (workflow_id, json.dumps(payload)),
-            )
-        await db.commit()
+    await _write_json_key("workflow_config", workflow_id, payload, remove=not payload)
 
 
 async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
-    """Atomically set one workflow flag without replacing other map entries.
-
-    No read-modify-write lock is needed; absent flags read as enabled.
-    """
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE settings "
-            "SET workflow_enabled = json_set(COALESCE(workflow_enabled, '{}'), '$.' || ?, json(?)) "
-            "WHERE id = 1",
-            (workflow_id, json.dumps(bool(enabled))),
-        )
-        await db.commit()
+    """Atomically set one workflow flag; absent flags read as enabled."""
+    await _write_json_key("workflow_enabled", workflow_id, bool(enabled))
 
 
 async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
-    """Set one local-ML feature's on/off flag via a per-key JSON1 write.
-
-    Near-identical to ``set_workflow_enabled``: a single atomic ``json_set`` on the named key only, so concurrent tabs flipping
-    different features can't clobber each other and no application lock is needed. Missing key => enabled.
-    """
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE settings "
-            "SET local_ml_enabled = json_set(COALESCE(local_ml_enabled, '{}'), '$.' || ?, json(?)) "
-            "WHERE id = 1",
-            (feature, json.dumps(bool(enabled))),
-        )
-        await db.commit()
+    """Set one local-ML feature's on/off flag. Missing key => enabled."""
+    await _write_json_key("local_ml_enabled", feature, bool(enabled))
 
 
 async def set_local_ml_config(feature: str, config: Mapping[str, Any]) -> None:
-    """Atomically replace one feature's complete Local ML config without touching
-    other features. The dedicated route is its only writer.
-    """
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE settings SET local_ml_config = json_set(COALESCE(local_ml_config, '{}'), '$.' || ?, json(?)) WHERE id = 1",
-            (feature, json.dumps(dict(config))),
-        )
-        await db.commit()
+    """Atomically replace one feature's complete Local ML config. The dedicated route is its only writer."""
+    await _write_json_key("local_ml_config", feature, dict(config))
 
 
 async def update_settings(data: dict) -> Settings:
@@ -322,19 +303,7 @@ async def get_card_source_auth(source: str) -> CardSourceAuth | None:
 
 async def set_card_source_auth(source: str, auth: CardSourceAuth | None) -> None:
     """Replace one card source's saved login without touching the others; None logs it out."""
-    async with get_db() as db:
-        if auth is None:
-            await db.execute(
-                "UPDATE settings SET card_source_auth = json_remove(COALESCE(card_source_auth, '{}'), '$.' || ?) WHERE id = 1",
-                (source,),
-            )
-        else:
-            await db.execute(
-                "UPDATE settings SET card_source_auth = json_set(COALESCE(card_source_auth, '{}'), '$.' || ?, json(?)) "
-                "WHERE id = 1",
-                (source, json.dumps(dict(auth))),
-            )
-        await db.commit()
+    await _write_json_key("card_source_auth", source, None if auth is None else dict(auth), remove=auth is None)
 
 
 # -- Decision classifier configuration --

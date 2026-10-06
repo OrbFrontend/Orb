@@ -5,8 +5,6 @@ server sort it out is the difference between a working negative prompt and one t
 allowlist, and hence most of the assertions below being about what is absent.
 """
 
-from __future__ import annotations
-
 from urllib.parse import urlsplit
 
 import pytest

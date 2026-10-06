@@ -1,7 +1,5 @@
 """Cover decision snapshots, macro validation, and rendering."""
 
-from __future__ import annotations
-
 from dataclasses import replace
 
 import pytest
@@ -95,8 +93,7 @@ def test_inline_macros_inside_inserted_values_never_fire():
 
 
 def test_names_resolve_inside_a_random_as_they_do_in_the_main_prompt():
-    rendered = render("{{random::{{char}}::{{char}}}}", _snapshot(), allowed=TEXT_MACROS, seed="s")
-    assert rendered == "Maren"
+    assert render("{{random::{{char}}::{{char}}}}", _snapshot(), allowed=TEXT_MACROS, seed="s") == "Maren"
     assert macro_errors("{{pick::{{char}}::{{user}}}}", allowed=TEXT_MACROS) == []
 
 

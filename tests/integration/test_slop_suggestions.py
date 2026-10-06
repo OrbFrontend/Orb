@@ -1,9 +1,8 @@
 """Phrase Bank suggestions end to end: mining a fixture library, then accept and dismiss."""
 
-from __future__ import annotations
-
 import json
 import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -29,15 +28,13 @@ def _small_library(monkeypatch):
 def _seed(path: str, *, tic_in_replies: int, tic_elsewhere: int, plain: int = 3) -> None:
     """Characters whose model replies use the tic, whose user messages and turn-0
     greetings use it instead, and who never use it. Cards hold only the filler."""
-    conn = sqlite3.connect(path)
-    try:
+    with closing(sqlite3.connect(path)) as conn:
         for index in range(10):
             conn.execute(
                 "INSERT INTO character_cards (id, name, first_mes, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                 (f"card-{index}", f"Author{index}", f"{FILLER}\n\n{FILLER}", STAMP, STAMP),
             )
-        kinds = ["reply"] * tic_in_replies + ["elsewhere"] * tic_elsewhere + ["plain"] * plain
-        for index, kind in enumerate(kinds):
+        for index, kind in enumerate(["reply"] * tic_in_replies + ["elsewhere"] * tic_elsewhere + ["plain"] * plain):
             conv = f"conv-{index}"
             conn.execute(
                 "INSERT INTO conversations (id, character_card_id, character_name, created_at) VALUES (?, ?, ?, ?)",
@@ -53,8 +50,6 @@ def _seed(path: str, *, tic_in_replies: int, tic_elsewhere: int, plain: int = 3)
                 [(conv, role, content, turn, STAMP) for role, content, turn in rows],
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def _keys(result: miner.MineResult) -> dict[str, dict]:
@@ -111,7 +106,7 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
         return (await (await db.execute("SELECT COUNT(*) FROM phrase_bank")).fetchone())[0]
 
     before = await bank_size()
-    listed = (await client.get("/api/phrase-bank/suggestions")).json()
+    listed = await client.get_json("/api/phrase-bank/suggestions")
     assert listed["refreshing"] is False
     assert [s["label"] for s in listed["suggestions"]] == ["A beat.", "A pause."]
     beat, pause = listed["suggestions"]
@@ -138,7 +133,7 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
         mined_at=STAMP,
         keys_at_start=[d["key"] for d in drafts],
     )
-    assert (await client.get("/api/phrase-bank/suggestions")).json()["suggestions"] == []
+    assert (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"] == []
     # A later run still never offers the dismissed key.
     await replace_slop_suggestions(drafts, replies_at_run=await count_model_replies(), status="ok", mined_at=STAMP)
-    assert [s["label"] for s in (await client.get("/api/phrase-bank/suggestions")).json()["suggestions"]] == ["A beat."]
+    assert [s["label"] for s in (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"]] == ["A beat."]

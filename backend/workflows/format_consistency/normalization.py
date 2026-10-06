@@ -27,17 +27,6 @@ from ..toolkit import (
     strip_quotes,
 )
 
-__all__ = [
-    "FormatDriftReport",
-    "baseline_axes",
-    "normalize_format",
-    "normalize_to_baseline",
-    "skip_reasons",
-    "stable_label",
-    "vote_axes",
-]
-
-
 _StyleT = TypeVar("_StyleT", bound=str)
 
 
@@ -152,9 +141,7 @@ def _group_run(
     while j + 1 < len(spans):
         typ2 = spans[j + 1][0]
         r2 = span_role(spans, j + 1, src.dialogue, para)
-        if r2 == "EMPHASIS_INLINE":
-            j += 1
-        elif r2 == role and (only_type is None or typ2 == only_type):
+        if r2 == "EMPHASIS_INLINE" or r2 == role and (only_type is None or typ2 == only_type):
             j += 1
         else:
             break

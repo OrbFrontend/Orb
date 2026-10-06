@@ -4,8 +4,6 @@ One of these guards against spending the user's money by accident (Test connecti
 substitution (a replay must pin its own resolution and model). `n` stays 1 in `test_providers`, per preset.
 """
 
-from __future__ import annotations
-
 import base64
 import io
 import json
@@ -130,7 +128,6 @@ def _generation_handler(record: dict, *, image: bytes | None = None):
 # -- the money guards ---------------------------------------------------------
 
 
-@pytest.mark.asyncio
 async def test_validate_connection_never_posts_to_the_generations_path():
     """A Test-connection button that bills the user is unacceptable. The handler
     fails the test rather than the assertion doing it afterwards, so a POST cannot
@@ -141,8 +138,7 @@ async def test_validate_connection_never_posts_to_the_generations_path():
         assert "generations" not in request.url.path
         return httpx.Response(200, json={"models": [{"id": "grok-imagine-image"}]})
 
-    config = _config()
-    result = await _adapter(config, handler).validate_connection()
+    result = await _adapter(_config(), handler).validate_connection()
 
     assert result["ok"] is True
     assert result["models"] == ["grok-imagine-image"]
@@ -153,7 +149,6 @@ async def test_validate_connection_never_posts_to_the_generations_path():
     assert "devices" not in result["system"]
 
 
-@pytest.mark.asyncio
 async def test_a_declared_auth_probe_runs_first_and_still_never_renders():
     """NanoGPT answers its model list to a bogus key and to no key at all, so a Test
     connection resting on it reports "Connected" for a key that 401s on the first
@@ -174,7 +169,6 @@ async def test_a_declared_auth_probe_runs_first_and_still_never_renders():
     assert result["models"] == ["cyberrealistic-xl", "flux-schnell"]
 
 
-@pytest.mark.asyncio
 async def test_a_rejected_key_fails_test_connection_even_though_the_list_would_pass():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/usage"):
@@ -221,7 +215,6 @@ def test_a_replay_keeps_the_optional_fields_recorded_by_the_original_render():
     assert target.seed_max is None
 
 
-@pytest.mark.asyncio
 async def test_manual_optional_field_settings_control_the_request_body():
     record: dict = {}
     config = _config("togetherai", send_seed=False, send_negative_prompt=False)
@@ -233,7 +226,6 @@ async def test_manual_optional_field_settings_control_the_request_body():
     assert "negative_prompt" not in record["body"]
 
 
-@pytest.mark.asyncio
 async def test_manual_seed_ceiling_controls_the_seed_that_is_sent_and_recorded():
     record: dict = {}
     maximum = 2**31 - 1
@@ -274,7 +266,6 @@ def test_a_replay_pins_the_quality_and_reference_slot_it_was_made_with():
     assert len(_planned(unrecorded)) == 1
 
 
-@pytest.mark.asyncio
 async def test_the_attachment_records_the_quality_and_reference_slot_it_used():
     """Nothing can be replayed that was never written down."""
     record: dict = {}
@@ -288,7 +279,6 @@ async def test_the_attachment_records_the_quality_and_reference_slot_it_used():
     assert result.backend_info["reference_source"] == "character"
 
 
-@pytest.mark.asyncio
 async def test_the_request_is_built_with_the_targets_quality_not_todays():
     """The last hop: `resolve_target` can pin all it likes if the body is assembled off `self.style` anyway."""
     record: dict = {}
@@ -300,7 +290,6 @@ async def test_the_request_is_built_with_the_targets_quality_not_todays():
     assert record["body"]["quality"] == "low"
 
 
-@pytest.mark.asyncio
 async def test_a_recorded_model_that_is_gone_degrades_with_disclosure():
     """The cloud analogue of ComfyUI's `unknown_workflow` degradation. A 404 costs
     nothing, and refusing surfaces only as a generic 500."""
@@ -328,7 +317,6 @@ async def test_a_recorded_model_that_is_gone_degrades_with_disclosure():
     assert sum("truncated" in note for note in notes) == 1
 
 
-@pytest.mark.asyncio
 async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     record: dict = {}
     config = _config()
@@ -344,7 +332,6 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     assert result.backend_info["seed"] is None
 
 
-@pytest.mark.asyncio
 async def test_a_seed_provider_records_the_seed_the_request_actually_sent():
     """The number shown next to the image must be the one that reproduces it."""
     record: dict = {}
@@ -375,8 +362,7 @@ def test_readiness_names_the_gap(cloud, reason):
     `cloud.provider`. That path is live on every install that predates connection linking, and this is its coverage: the
     model hoists off the entry, and readiness answers about it.
     """
-    config = normalize_config({"source": "cloud", "cloud": cloud})
-    answer = OpenAICompatibleImageAdapter(config).readiness()
+    answer = OpenAICompatibleImageAdapter(normalize_config({"source": "cloud", "cloud": cloud})).readiness()
     assert answer["reason"] == reason
     assert answer["ready"] is False
     assert answer["detail"]
@@ -447,7 +433,6 @@ def test_two_styles_on_one_connection_render_differently():
     assert targets["draft"].notes == ()
 
 
-@pytest.mark.asyncio
 async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
     """AI/ML API and `custom` both ship no `default_model`, so without this gate the
     render posts `model: ""` and the user reads whatever that provider makes of an
@@ -466,7 +451,6 @@ async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
     assert "Choose a model for AI/ML API" in str(excinfo.value)
 
 
-@pytest.mark.asyncio
 async def test_test_connection_still_works_before_a_model_is_chosen():
     """The discovery gate is deliberately weaker than the render gate: listing the
     models is what fills the picker, so requiring one first makes it unreachable."""
@@ -485,8 +469,7 @@ def _reference(data: bytes, mime: str) -> ResolvedReference:
 
 def test_reference_slots_appear_only_when_the_source_is_turned_on():
     """Sending conversation images to a third party is opt-in, so "" is off."""
-    off = _planned(_target(_bound(_config()), _config()))
-    assert off == ()
+    assert _planned(_target(_bound(_config()), _config())) == ()
 
     config = _config(reference_source="previous_or_character")
     on = _planned(_target(_bound(config), config))
@@ -568,7 +551,6 @@ def test_a_replay_carrying_no_recorded_source_falls_back_to_the_style():
     assert [slot["source"] for slot in _planned(target)] == ["character"]
 
 
-@pytest.mark.asyncio
 async def test_references_route_to_the_edits_path_as_data_uris():
     record: dict = {}
     config = _config(reference_source="character")
@@ -581,7 +563,6 @@ async def test_references_route_to_the_edits_path_as_data_uris():
     assert record["body"]["images"][0]["url"].startswith("data:image/png;base64,")
 
 
-@pytest.mark.asyncio
 async def test_no_references_means_the_generations_path():
     record: dict = {}
     config = _config(reference_source="character")
@@ -590,7 +571,6 @@ async def test_no_references_means_the_generations_path():
     assert record["path"].endswith("/images/generations")
 
 
-@pytest.mark.asyncio
 async def test_references_ride_the_generations_body_when_there_is_no_edits_endpoint():
     """Gating on `edits_path` made Together's edit models unreachable: it has no
     `/images/edits` at all, yet FLUX.1-kontext takes an `image_url` on the ordinary
@@ -629,7 +609,6 @@ def test_a_reference_capable_model_is_not_nagged_about_it():
     assert target.notes == ()
 
 
-@pytest.mark.asyncio
 async def test_a_gone_model_falls_back_and_still_carries_its_reference():
     """The substitute still gets the reference, and the substitution is disclosed.
 

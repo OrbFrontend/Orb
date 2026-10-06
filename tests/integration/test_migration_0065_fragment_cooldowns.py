@@ -1,7 +1,5 @@
 """Upgrade coverage for fragment cooldown columns."""
 
-from __future__ import annotations
-
 import importlib
 import sqlite3
 

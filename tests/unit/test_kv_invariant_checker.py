@@ -4,8 +4,6 @@ Synthetic ``captured`` entries in the FakeLLMClient shape; no app stack. If the 
 integration suite quietly loses its default-on KV-cache guarantee.
 """
 
-from __future__ import annotations
-
 from tests.integration._llm_mock import verify_kv_prefix_invariants
 
 _SYS = {"role": "system", "content": "You are Iris."}
@@ -90,8 +88,7 @@ def _batch_call(system=_SYS, tools=_TOOLS_SINGLE, user="card A"):
 
 
 def test_batch_lane_with_one_prefix_passes():
-    calls = [_batch_call(user=f"card {i}") for i in range(4)]
-    assert verify_kv_prefix_invariants(calls) == []
+    assert verify_kv_prefix_invariants([_batch_call(user=f"card {i}") for i in range(4)]) == []
 
 
 def test_batch_lane_system_drift_is_flagged():

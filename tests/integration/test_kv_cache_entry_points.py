@@ -5,8 +5,6 @@ Capture at FakeLLMClient through the real HTTP/handler/prefix stack. Provider
 chat-template rendering and cache usage remain outside this offline test.
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 
@@ -86,8 +84,7 @@ async def _baseline_turn(client, llm_mock) -> _Baseline:
     _enqueue_turn(llm_mock)
     await _send(client, cid, "I draw my sword.")
 
-    turn = llm_mock.captured[start:]
-    writer = next(c for c in turn if c["pass"] == "writer")
+    writer = next(c for c in llm_mock.captured[start:] if c["pass"] == "writer")
     blob = _wire_tools(writer["tools"])
     assert blob, "baseline turn writer shipped an empty tools blob — fixture is wrong"
 
@@ -109,14 +106,12 @@ async def _baseline_turn(client, llm_mock) -> _Baseline:
 
 async def _drive_regenerate(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/regenerate", json={})
-    _ = resp.text
+    _ = (await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/regenerate", json={})).text
 
 
 async def _drive_super_regenerate(client, llm_mock, b: _Baseline) -> None:
     _enqueue_turn(llm_mock)
-    resp = await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/super_regenerate", json={})
-    _ = resp.text
+    _ = (await client.post_checked(f"/api/conversations/{b.cid}/messages/{b.asst_id}/super_regenerate", json={})).text
 
 
 async def _drive_fork_edit(client, llm_mock, b: _Baseline) -> None:
@@ -204,9 +199,7 @@ async def test_magic_rewrite_writer_call_ships_a_stable_blob(client, llm_mock):
 
     start = len(llm_mock.captured)
     await _drive_magic_rewrite(client, llm_mock, b)
-    calls = llm_mock.captured[start:]
-
-    writer = next(c for c in calls if c["pass"] == "writer")
+    writer = next(c for c in llm_mock.captured[start:] if c["pass"] == "writer")
     assert _wire_tools(writer["tools"]), "magic_rewrite's writer call shipped an empty tools blob (the tools=None bust)"
     assert writer["tool_choice"] == "none", "magic_rewrite's writer call must send tool_choice='none'"
     assert writer["model"] == b.writer_model, "magic_rewrite must run on the writer model"
@@ -246,9 +239,7 @@ async def test_magic_rewrite_drops_tools_in_dual_model(client, llm_mock):
         f"/api/conversations/{cid}/messages/{asst_id}/magic_rewrite", json={"direction": "make it darker"}
     )
     _ = resp.text
-    calls = llm_mock.captured[start:]
-
-    writer = next(c for c in calls if c["pass"] == "writer")
+    writer = next(c for c in llm_mock.captured[start:] if c["pass"] == "writer")
     assert _wire_tools(writer["tools"]) == "", (
         "CACHE BUST: in dual-model magic_rewrite shipped tools to the writer server, whose "
         "cache is tool-less -- it must drop tools to match the writer lane (Invariant 5)."

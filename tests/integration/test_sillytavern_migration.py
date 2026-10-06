@@ -5,8 +5,6 @@ the HTTP API** rather than off the tables. The script writes raw SQL, so proving
 app can render them is the actual contract.
 """
 
-from __future__ import annotations
-
 import base64
 import json
 import sqlite3
@@ -251,12 +249,11 @@ async def test_migrates_every_dataset(st_install: Path, db_path: Path):
 async def test_conversation_reads_back_through_the_api(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    conversations = (await client.get("/api/conversations")).json()
-    solo = [c for c in conversations if c["kind"] == "solo"]
+    solo = [c for c in await client.get_json("/api/conversations") if c["kind"] == "solo"]
     assert len(solo) == 1
     assert solo[0]["title"] == "Testy - 2025-03-15@14h25m00s"
 
-    messages = (await client.get(f"/api/conversations/{solo[0]['id']}/messages")).json()
+    messages = await client.get_json(f"/api/conversations/{solo[0]['id']}/messages")
     assert [m["role"] for m in messages] == ["assistant", "user", "assistant", "user", "assistant"]
     assert messages[0]["content"] == "The lamp needs winding."
     # Backdated from send_date, not stamped with today.
@@ -266,8 +263,8 @@ async def test_conversation_reads_back_through_the_api(st_install: Path, db_path
 async def test_swipes_become_branches_with_the_selected_one_live(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    cid = [c for c in (await client.get("/api/conversations")).json() if c["kind"] == "solo"][0]["id"]
-    messages = (await client.get(f"/api/conversations/{cid}/messages")).json()
+    cid = [c for c in await client.get_json("/api/conversations") if c["kind"] == "solo"][0]["id"]
+    messages = await client.get_json(f"/api/conversations/{cid}/messages")
 
     swiped = messages[2]
     assert swiped["branch_count"] == 3
@@ -285,30 +282,30 @@ async def test_swipes_become_branches_with_the_selected_one_live(st_install: Pat
 async def test_character_card_and_expressions_survive(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    cards = {c["name"]: c for c in (await client.get("/api/characters")).json()}
+    cards = {c["name"]: c for c in await client.get_json("/api/characters")}
     assert set(cards) == {"Testy", "Booked"}
 
-    testy = (await client.get(f"/api/characters/{cards['Testy']['id']}")).json()
+    testy = await client.get_json(f"/api/characters/{cards['Testy']['id']}")
     assert testy["description"] == "Keeper of the light."
     assert testy["character_version"] == "1.4.2"  # dropped by the HTTP create path, kept here
     assert testy["alternate_greetings"] == ["Fog tonight."]
     assert cards["Testy"]["has_avatar"] is True
 
     # Sprites live under the card's name, while its chats live under the file stem -- and only real go-emotions labels are kept.
-    labels = set((await client.get(f"/api/characters/{cards['Testy']['id']}/expressions")).json()["labels"])
+    labels = set((await client.get_json(f"/api/characters/{cards['Testy']['id']}/expressions"))["labels"])
     assert labels == {"joy", "anger", "neutral"}
 
 
 async def test_lorebooks_land_with_orb_field_semantics(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    worlds = {w["name"]: w for w in (await client.get("/api/worlds")).json()}
+    worlds = {w["name"]: w for w in await client.get_json("/api/worlds")}
     assert set(worlds) == {"Testworld", "Harbour Lore"}
     # Only what ST had globally selected arrives enabled.
     assert worlds["Testworld"]["is_global"] == 1
     assert worlds["Harbour Lore"]["is_global"] == 0
 
-    entries = {e["name"]: e for e in (await client.get(f"/api/worlds/{worlds['Testworld']['id']}/entries")).json()}
+    entries = {e["name"]: e for e in await client.get_json(f"/api/worlds/{worlds['Testworld']['id']}/entries")}
     lighthouse = entries["The Lighthouse"]
     assert lighthouse["keywords"] == ["lighthouse", "beacon"]
     assert lighthouse["enabled"] == 1
@@ -322,7 +319,7 @@ async def test_lorebooks_land_with_orb_field_semantics(st_install: Path, db_path
     assert storms["selective"] == 1
 
     # extensions.world names Testworld, so the card links to it.
-    cards = {c["name"]: c for c in (await client.get("/api/characters")).json()}
+    cards = {c["name"]: c for c in await client.get_json("/api/characters")}
     assert cards["Testy"]["world_id"] == worlds["Testworld"]["id"]
     assert cards["Booked"]["world_id"] == worlds["Harbour Lore"]["id"]
 
@@ -330,15 +327,15 @@ async def test_lorebooks_land_with_orb_field_semantics(st_install: Path, db_path
 async def test_group_roster_and_speaker_attribution(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    group = [c for c in (await client.get("/api/conversations")).json() if c["kind"] == "group"][0]
-    members = (await client.get(f"/api/conversations/{group['id']}/members")).json()
+    group = [c for c in await client.get_json("/api/conversations") if c["kind"] == "group"][0]
+    members = await client.get_json(f"/api/conversations/{group['id']}/members")
     assert [(m["display_name"], m["speaker_key"], m["muted"]) for m in members] == [
         ("Testy", "testy", 0),
         ("Booked", "booked", 1),  # ST had it in disabled_members
     ]
 
     by_id = {m["id"]: m["display_name"] for m in members}
-    messages = (await client.get(f"/api/conversations/{group['id']}/messages")).json()
+    messages = await client.get_json(f"/api/conversations/{group['id']}/messages")
     spoken = [(m["role"], by_id.get(m["speaker_member_id"])) for m in messages]
     assert spoken == [("assistant", "Testy"), ("user", None), ("assistant", "Booked")]
 
@@ -351,22 +348,21 @@ async def test_group_roster_and_speaker_attribution(st_install: Path, db_path: P
 async def test_personas_are_created_and_pinned_to_their_chat(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
 
-    personas = {p["name"]: p for p in (await client.get("/api/user-personas")).json()}
+    personas = {p["name"]: p for p in await client.get_json("/api/user-personas")}
     assert {"Mariner", "Quiet One"} <= set(personas)
     assert personas["Mariner"]["description"] == "Sails the coast."
     assert personas["Mariner"]["has_avatar"] is True
     assert personas["Quiet One"]["has_avatar"] is False
     assert personas["Huge"]["has_avatar"] is False
-    avatar = await client.get_checked(f"/api/user-personas/{personas['Mariner']['id']}/avatar")
-    assert avatar.content == PERSONA_AVATAR_BYTES
+    assert (await client.get_checked(f"/api/user-personas/{personas['Mariner']['id']}/avatar")).content == PERSONA_AVATAR_BYTES
 
-    solo = [c for c in (await client.get("/api/conversations")).json() if c["kind"] == "solo"][0]
+    solo = [c for c in await client.get_json("/api/conversations") if c["kind"] == "solo"][0]
     assert solo["persona_lock_id"] == personas["Mariner"]["id"]
 
 
 async def test_second_run_changes_nothing(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path)
-    before = (await client.get("/api/conversations")).json()
+    before = await client.get_json("/api/conversations")
 
     again = migrate(st_install, db_path)
     assert again.tally("characters", "created") == 0
@@ -376,33 +372,31 @@ async def test_second_run_changes_nothing(st_install: Path, db_path: Path, clien
     assert again.tally("personas", "created") == 0
     assert again.tally("characters", "reused") == 2
 
-    assert (await client.get("/api/conversations")).json() == before
+    assert await client.get_json("/api/conversations") == before
 
 
 async def test_dry_run_writes_nothing(st_install: Path, db_path: Path, client):
-    report = migrate(st_install, db_path, dry_run=True)
-    assert report.tally("characters", "created") == 2
+    assert migrate(st_install, db_path, dry_run=True).tally("characters", "created") == 2
 
-    assert (await client.get("/api/conversations")).json() == []
-    assert (await client.get("/api/characters")).json() == []
-    assert (await client.get("/api/worlds")).json() == []
+    assert await client.get_json("/api/conversations") == []
+    assert await client.get_json("/api/characters") == []
+    assert await client.get_json("/api/worlds") == []
 
 
 async def test_orphan_chats_are_importable_on_request(st_install: Path, db_path: Path, client):
     migrate(st_install, db_path, include_orphans=True)
 
-    titles = {c["title"] for c in (await client.get("/api/conversations")).json()}
-    assert "DeletedFriend - gone" in titles
+    assert "DeletedFriend - gone" in {c["title"] for c in await client.get_json("/api/conversations")}
 
 
 async def test_only_chats_does_not_drag_the_library_in(st_install: Path, db_path: Path, client):
     """--only chats must read the card map, never create it."""
     migrate(st_install, db_path, only="chats")
 
-    assert (await client.get("/api/characters")).json() == []
-    assert (await client.get("/api/worlds")).json() == []
+    assert await client.get_json("/api/characters") == []
+    assert await client.get_json("/api/worlds") == []
     # Without cards in the library there is nothing for a chat to attach to.
-    assert (await client.get("/api/conversations")).json() == []
+    assert await client.get_json("/api/conversations") == []
 
 
 async def test_only_chats_attaches_to_cards_already_in_the_library(st_install: Path, db_path: Path, client):
@@ -410,9 +404,9 @@ async def test_only_chats_attaches_to_cards_already_in_the_library(st_install: P
     migrate(st_install, db_path, only="characters")
     migrate(st_install, db_path, only="chats")
 
-    conversations = (await client.get("/api/conversations")).json()
+    conversations = await client.get_json("/api/conversations")
     assert len(conversations) == 1
-    cards = {c["name"]: c["id"] for c in (await client.get("/api/characters")).json()}
+    cards = {c["name"]: c["id"] for c in await client.get_json("/api/characters")}
     assert conversations[0]["character_card_id"] == cards["Testy"]
 
 

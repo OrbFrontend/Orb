@@ -5,8 +5,6 @@ the group cast projection delegates to it. These pins exist because the two halv
 field would be stored and never rendered, or rendered from a key nothing writes.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from backend.database.queries.character_cards import render_public_profile

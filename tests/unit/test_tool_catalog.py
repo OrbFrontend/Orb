@@ -1,7 +1,5 @@
 """Ordered tool catalog contracts."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 from collections.abc import AsyncIterator
@@ -70,8 +68,7 @@ def test_default_enabled_tools_subset_of_catalog():
 
 
 def test_enabled_schemas_preserves_builtin_order():
-    names = [schema["function"]["name"] for schema in enabled_schemas(None)]
-    assert names == list(BUILTIN_TOOL_ORDER)
+    assert [schema["function"]["name"] for schema in enabled_schemas(None)] == list(BUILTIN_TOOL_ORDER)
 
 
 def test_complete_builtin_blob_is_byte_stable():
@@ -98,8 +95,7 @@ async def test_complete_builtin_blob_survives_cached_base_boundary():
 
 def test_enabled_schemas_filters_without_caller_order():
     gated = {"editor_rewrite": True, "editor_apply_patch": True, "direct_scene": False}
-    names = [schema["function"]["name"] for schema in enabled_schemas(gated)]
-    assert names == ["editor_apply_patch", "editor_rewrite"]
+    assert [schema["function"]["name"] for schema in enabled_schemas(gated)] == ["editor_apply_patch", "editor_rewrite"]
     assert enabled_schemas({}) == []
 
 

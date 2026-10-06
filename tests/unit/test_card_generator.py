@@ -74,8 +74,7 @@ def test_braces_past_the_clamp_still_fail():
 def test_clamping_falls_back_to_words_then_hard_cut_without_splitting_macros():
     assert clean_card({**DRAFT, "scenario": "word " * 400})["scenario"] == ("word " * 320).rstrip()
     assert clean_card({**DRAFT, "scenario": "x" * 1700})["scenario"] == "x" * 1600
-    text = "x" * 1597 + "{{char}}" + "x" * 100
-    assert clean_card({**DRAFT, "scenario": text})["scenario"] == "x" * 1597
+    assert clean_card({**DRAFT, "scenario": ("x" * 1597 + "{{char}}" + "x" * 100)})["scenario"] == "x" * 1597
 
 
 def test_all_seven_fields_remain_required_nonnullable_in_strict_schema():
@@ -285,8 +284,7 @@ async def test_reasoning_is_replayed_under_the_field_names_the_provider_streamed
 @pytest.mark.parametrize("reply", [_step(""), _step("   ")])
 async def test_a_step_without_sql_ends_research(queries, reply):
     client = ScriptedClient(_step(), reply, _card())
-    events = await _events(client)
-    assert events[-1]["type"] == "done" and len(queries) == 1
+    assert (await _events(client))[-1]["type"] == "done" and len(queries) == 1
     assert [_forced(call) for call in client.calls] == ["query_library"] * 2 + ["generate_character_card"]
     last = client.calls[-1]["messages"][-1]
     assert (last["role"], last["content"]) == ("tool", deep.DRAFT_NOTE)
@@ -295,8 +293,7 @@ async def test_a_step_without_sql_ends_research(queries, reply):
 @pytest.mark.parametrize("reply", [_card(), {"content": "I would rather just write the card."}, {}])
 async def test_a_reply_without_a_query_ends_research_on_the_last_result(queries, reply):
     client = ScriptedClient(_step(), reply, _card())
-    events = await _events(client)
-    assert events[-1]["type"] == "done" and len(queries) == 1
+    assert (await _events(client))[-1]["type"] == "done" and len(queries) == 1
     assert [_forced(call) for call in client.calls] == ["query_library"] * 2 + ["generate_character_card"]
     # The note joins the last result instead of opening a user turn, which would
     # make Qwen3-style templates drop every earlier step's reasoning.

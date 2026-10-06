@@ -9,8 +9,6 @@ These drive the context manager directly with a scripted ``get_workflow_attachme
 sleeps, no real concurrency.
 """
 
-from __future__ import annotations
-
 import pytest
 from fastapi import HTTPException
 
@@ -32,7 +30,6 @@ def _scripted(monkeypatch, snapshots: list) -> list[int]:
     return reads
 
 
-@pytest.mark.asyncio
 async def test_retries_onto_the_promoted_root(monkeypatch):
     # aid=2 is a sibling of root 1. Between the pre-lock snapshot (still under root
     # 1) and the in-lock re-read, a concurrent delete promotes 2 to root (parent ->
@@ -52,7 +49,6 @@ async def test_retries_onto_the_promoted_root(monkeypatch):
     assert snapshots == [], "two attempts consumed all four scripted reads"
 
 
-@pytest.mark.asyncio
 async def test_stable_group_yields_on_first_attempt(monkeypatch):
     snapshots = [_row(2, parent=1), _row(2, parent=1)]
     _scripted(monkeypatch, snapshots)
@@ -63,16 +59,13 @@ async def test_stable_group_yields_on_first_attempt(monkeypatch):
     assert snapshots == [], "exactly two reads (snapshot + in-lock recheck)"
 
 
-@pytest.mark.asyncio
 async def test_target_that_is_its_own_root(monkeypatch):
-    snapshots = [_row(5, parent=None), _row(5, parent=None)]
-    _scripted(monkeypatch, snapshots)
+    _scripted(monkeypatch, [_row(5, parent=None), _row(5, parent=None)])
 
     async with deps.locked_attachment_group(5, 9) as (_att, root_id):
         assert root_id == 5
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "row", [None, {"id": 2, "message_id": 999, "parent_attachment_id": None}], ids=["missing", "off-message"]
 )
@@ -88,11 +81,9 @@ async def test_404_when_target_missing_or_off_message(monkeypatch, row):
     assert exc.value.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test_404_when_target_vanishes_under_the_lock(monkeypatch):
     # Exists at snapshot, gone by the in-lock re-read (deleted while acquiring).
-    snapshots = [_row(2, parent=1), None]
-    _scripted(monkeypatch, snapshots)
+    _scripted(monkeypatch, [_row(2, parent=1), None])
 
     with pytest.raises(HTTPException) as exc:
         async with deps.locked_attachment_group(2, 9):

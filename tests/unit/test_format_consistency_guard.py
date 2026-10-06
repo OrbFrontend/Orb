@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from backend.workflows.format_consistency.guard import rejection, unwrap
@@ -70,8 +68,7 @@ def test_dropped_dialogue_is_rejected():
 
 
 def test_requoting_dialogue_is_not_a_content_change():
-    bare = "*I crossed the room slowly.* He waits by the door. Good night, I said."
-    assert rejection(DRAFT, bare) == ""
+    assert rejection(DRAFT, "*I crossed the room slowly.* He waits by the door. Good night, I said.") == ""
 
 
 @pytest.mark.parametrize(
@@ -83,13 +80,11 @@ def test_requoting_dialogue_is_not_a_content_change():
     ],
 )
 def test_mangling_a_protected_run_is_rejected(protected, mangled):
-    draft = f"{DRAFT}\n\n{protected}"
-    assert rejection(draft, f"{FAITHFUL}\n\n{mangled}") == "protected markup changed"
+    assert rejection(f"{DRAFT}\n\n{protected}", f"{FAITHFUL}\n\n{mangled}") == "protected markup changed"
 
 
 def test_a_protected_run_carried_through_is_accepted():
-    draft = f"{DRAFT}\n\n```python\nx = 1\n```"
-    assert rejection(draft, f"{FAITHFUL}\n\n```python\nx = 1\n```") == ""
+    assert rejection(f"{DRAFT}\n\n```python\nx = 1\n```", f"{FAITHFUL}\n\n```python\nx = 1\n```") == ""
 
 
 # ---------- a tool call echoed into the argument ----------
