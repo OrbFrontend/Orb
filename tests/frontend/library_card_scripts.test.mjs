@@ -1,8 +1,12 @@
+import { projectCardScripts } from "../../frontend/card_script_worker.js";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import { JSDOM } from "jsdom";
 import { mountCardScriptsEditor } from "../../frontend/library_card_scripts.js";
-import { applyCardScripts } from "../../frontend/card_scripts.js";
+import { applyCardScripts, configureCardScriptGuard } from "../../frontend/card_scripts.js";
+
+// Use the worker's pure projector for these synchronous editor tests.
+configureCardScriptGuard({ project: projectCardScripts, storage: null, announce: () => {} });
 
 let root;
 let window;

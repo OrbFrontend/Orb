@@ -1,3 +1,4 @@
+import { projectCardScripts } from "../../frontend/card_script_worker.js";
 import { loadDom, MESSAGE_GLOBALS } from "./dom_fixture.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -18,6 +19,8 @@ let utils = null;
 if (dom) {
   mod = await import("../../frontend/message_html.js");
   utils = await import("../../frontend/utils.js");
+  // Use the worker's pure projector for these synchronous editor tests.
+  (await import("../../frontend/card_scripts.js")).configureCardScriptGuard({ project: projectCardScripts, storage: null, announce: () => {} });
 } else {
   console.error(`SKIPPED tests/frontend/message_html_render.test.mjs — jsdom is unavailable (${failure}).`);
   console.error("Run `npm install` to exercise the sanitiser, the chrome rebuild and the serialise/re-parse round trip.");

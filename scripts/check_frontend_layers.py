@@ -50,6 +50,9 @@ LAYERS = {
     # The avatar crop box as pure geometry (hit test, move, aspect-locked
     # resize), split from modal.js so it can be tested without a canvas.
     "crop_geometry.js": 0,
+    "identity_macros.js": 0,
+    # Projects untrusted card display scripts off the page's thread; also owns the pure pattern/replacement rules.
+    "card_script_worker.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,

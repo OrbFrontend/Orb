@@ -23,6 +23,7 @@ from .cache_control import CacheControlMiddleware
 from .compression import TextGZipMiddleware
 from .deps import FRONTEND_DIR
 from .errors import register_error_handlers
+from .request_guard import RequestGuardMiddleware
 from .routes import ROUTERS
 from .routes.storage import VACUUM_FREE_BYTES, free_bytes
 
@@ -91,6 +92,8 @@ def build_app() -> FastAPI:
     app.add_middleware(TextGZipMiddleware, minimum_size=1024, compresslevel=6)
     app.add_middleware(CacheControlMiddleware)
     app.add_middleware(DatasetAdmissionMiddleware)
+    # Inside the gate: strangers to a locked server still get only its anonymous page.
+    app.add_middleware(RequestGuardMiddleware)
     app.add_middleware(AccessGateMiddleware)
 
     for router in ROUTERS:

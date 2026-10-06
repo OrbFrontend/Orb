@@ -533,3 +533,32 @@ it("two conversations keep independent buffers, reasoning, drafts, and targeted 
   assert.equal(S.operations.has(opA.record.id), false);
   assert.equal(S.operations.has(opB.record.id), false);
 });
+
+it("a completed card projection repaints the live reply without another token", async (t) => {
+  const { configureCardScriptGuard } = await import("../../frontend/card_scripts.js");
+  const { projectCardScripts } = await import("../../frontend/card_script_worker.js");
+  const pending = [];
+  configureCardScriptGuard({
+    project: (job) => new Promise((resolve) => pending.push(() => resolve(projectCardScripts(job)))),
+    storage: null, announce: () => {},
+  });
+  t.after(() => {
+    stream.cancelStreamingPaint();
+    stream.setStreaming(false);
+    S.streamingBodyEl?.closest(".message")?.remove();
+    S.streamingBodyEl = null;
+    S.pendingRefineDiff = null;
+    configureCardScriptGuard();
+  });
+  S.conversations = [{ id: "c1", character_card_id: "render-card" }];
+  S.allCharacters = [{ id: "render-card", display_scripts: [{ findRegex: "/secret/g", replaceString: "visible", placement: [2] }] }];
+  S.groupCast = null;
+  S.expressionBuffering = false;
+  stoppedRegeneration({ streamed: "secret" });
+  stream.restoreStreamingView();
+  assert.equal(S.streamingBodyEl.textContent, "secret");
+  assert.equal(pending.length, 1);
+  pending[0]();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(S.streamingBodyEl.textContent, "visible");
+});

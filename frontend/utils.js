@@ -1,4 +1,5 @@
 import { CHEVRON_RIGHT_ICON } from "./icons.js";
+import { replacePlaceholders } from "./identity_macros.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
@@ -453,29 +454,9 @@ export function formatProse(text) {
     .join("");
 }
 
-/** Replace *pattern* with *value* outside single-backtick spans, as backend/core/macros.py does. */
-function _substituteName(text, pattern, value) {
-  // Split on the backend's literal spans; the odd pieces are the spans themselves.
-  // A function replacement keeps `$&` or `$$` in a name literal.
-  return text
-    .split(/(`[^`\n]*`)/)
-    .map((piece, index) => (index % 2 ? piece : piece.replace(pattern, () => value)))
-    .join("");
-}
+export { replacePlaceholders } from "./identity_macros.js";
 
-export function replacePlaceholders(text, userName, charName) {
-  if (!text || typeof text !== "string") return text || "";
-  let result = text;
-  if (userName) {
-    result = _substituteName(result, /\{\{user\}\}/gi, userName);
-  }
-  if (charName) {
-    result = _substituteName(result, /\{\{char\}\}/gi, charName);
-  }
-  return result;
-}
-
-export function resolvePlaceholders(text) {
+export function placeholderNames() {
   let userName = S.settings?.user_name || "User";
   const personaId = effectivePersonaId();
   if (personaId) {
@@ -486,9 +467,12 @@ export function resolvePlaceholders(text) {
   }
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
   const charName = conv?.kind === "group" ? conv.title || "" : conv?.character_name || "";
-  const resolved = replacePlaceholders(text, userName, charName);
   const cast = S.groupCast?.members?.map((member) => member.display_name).join(", ") || "";
-  return cast ? _substituteName(resolved, /\{\{cast\}\}/gi, cast) : resolved;
+  return [userName, charName, cast];
+}
+
+export function resolvePlaceholders(text) {
+  return replacePlaceholders(text, ...placeholderNames());
 }
 
 export function effectivePersonaId() {

@@ -87,3 +87,9 @@ Orb evaluates at most the first 50 script declarations. A search pattern may
 be at most 4,096 characters, and a message projection is limited to 100,000
 characters. If prompt execution times out or a projection exceeds the output
 limit, Orb keeps the original message text for that projection.
+
+Display scripts run in a worker. Chat shows the original text while its
+projection is pending, then repaints the result. Each changed message, script,
+or identity context gets a fresh projection. A slow or stalled display pattern
+is turned off on this device, including after a reload; the card editor names
+that pattern so it can be edited and tried again.

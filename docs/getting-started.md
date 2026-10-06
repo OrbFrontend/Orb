@@ -66,6 +66,40 @@ When `ORB_HOST` is a specific address, the launcher opens that address instead
 of `localhost`. Orb listens on one address at a time; to allow some networks and
 block others, keep the default and use a firewall rule.
 
+### Addresses and names
+
+Without a password, Orb answers only to names that a website cannot borrow.
+Otherwise a web page could point its own domain at your computer and read Orb
+through your browser. These work out of the box:
+
+- An IP address, such as `http://192.168.1.20:8899` or a Tailscale address like
+  `http://100.101.102.103:8899`
+- `localhost`, or a machine name without dots, such as `http://mybox:8899`
+- A name ending in `.ts.net` (Tailscale MagicDNS, including `tailscale serve`),
+  `.local`, `.lan`, `.internal` or `.home.arpa`
+
+To open Orb under any other name, such as a domain behind a reverse proxy,
+either set a [password](#password), or list the name in `ORB_ALLOWED_HOSTS`.
+Separate names with commas. `.example.com` covers the domain and its
+subdomains, and `*` allows any name.
+
+=== "Linux/macOS"
+
+    ```bash
+    ORB_ALLOWED_HOSTS=orb.example.com ./run_unix.sh
+    ```
+
+=== "Windows"
+
+    ```bat
+    set ORB_ALLOWED_HOSTS=orb.example.com
+    run_windows.bat
+    ```
+
+Orb also refuses changes requested by a page from another site. A reverse proxy
+must pass on the name the browser asked for, in the `Host` or
+`X-Forwarded-Host` header. If it cannot, list the name in `ORB_ALLOWED_HOSTS`.
+
 ### Password
 
 Set a password in **Settings → Password**. Every page, file, and API request
