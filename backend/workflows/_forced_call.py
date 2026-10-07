@@ -15,10 +15,12 @@ from ..inference import (
     KVCacheTracker,
     LLMClient,
     honors_forced_tool_choice,
+    lane_template_thinking,
     note_forced_tool_choice_ignored,
     parse_tool_calls,
     reasoning_cfg,
     replay_reasoning,
+    separate_agent_lane_configured,
 )
 from ..prompting.tool_catalog import enabled_schemas, is_standalone_tool, require_tool
 
@@ -95,6 +97,12 @@ async def forced_tool_call(
     schema = tool["schema"]
     resolved_model = model_name or settings["model_name"]
     reasoning_params = reasoning_cfg(reasoning_on)
+    # Agent-lane calls render text-mode prompts the way the turn's passes on that lane do.
+    template_thinking = lane_template_thinking(
+        settings.get("reasoning_enabled_passes") or {},
+        lane="agent",
+        separate_agent_lane=separate_agent_lane_configured(settings),
+    )
     base_url = getattr(client, "base_url", "")
     # Only an offer_tools array may be collapsed to the forced tool: it exists for cache reuse, not for the model to choose
     # from. The enabled_tools array is the pipeline's byte-identical blob -- shrinking that would break the cross-pass KV
@@ -146,6 +154,7 @@ async def forced_tool_call(
                 temperature=temperature,
                 max_tokens=agent_lane_max_tokens(settings),
                 tools_in_prompt=tools_in_prompt,
+                template_thinking=template_thinking,
                 **reasoning_params,
             )
         ):

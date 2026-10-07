@@ -51,7 +51,9 @@ class PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for ``run_pipeline``."""
 
     agent_on: bool
+    # The tools the shared blob offers, which workflow calls rebuild it from; ``active_tools`` is the toggles the passes obey.
     enabled_tools: Mapping[str, bool]
+    active_tools: Mapping[str, bool]
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
@@ -242,8 +244,6 @@ class LorebookTurn:
     agentic: bool
     block: str = ""  # Director-facing lore context in substring mode.
     catalog: str = ""  # Director-facing pick catalog in agentic mode.
-    # Lorebook selection alone omits constants; other passes keep their shared prefix.
-    selection_prefix: tuple[ChatMessage, ...] | None = None
     # Frozen so replayed prompts see the same macro values.
     depth_block: str = ""
 

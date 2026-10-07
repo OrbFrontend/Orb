@@ -79,6 +79,8 @@ class CachedBase:
     tools: tuple[dict, ...]
     model: str
     resolve: Callable[[Sequence[Mapping[str, Any]]], list[dict]] | None = None
+    # The lane renders text-mode prompts with thinking on (see ``lane_template_thinking``).
+    template_thinking: bool = False
 
     def complete(
         self,
@@ -111,6 +113,7 @@ class CachedBase:
             kv_tracker=kv_tracker,
             record=record,
             cache_prefix_len=len(self.prefix),
+            **({"template_thinking": True} if self.template_thinking else {}),
             **params,
         )
 

@@ -91,7 +91,8 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     writer_call = next(call for call in llm_mock.captured if call["pass"] == "writer")
     tool_names = [tool["function"]["name"] for tool in writer_call["tools"]]
     assert "editor_search_replace" in tool_names
-    assert "editor_apply_patch" not in tool_names
+    # The blob offers the auditor's tool, but its toggle is off, so no audit call runs.
+    assert "editor" not in [name for name, _ in llm_mock.calls]
     assert all(call["tools"] == writer_call["tools"] for call in post_calls)
     assert post_calls[0]["messages"][-2]["content"] == "Hello there."
     assert post_calls[1]["messages"][-2]["content"] == "Hey there."

@@ -410,8 +410,9 @@ async def _run_edit_loop(
     # and writer). The editor never rebuilds or narrows it: the schemas sit inside the cached prefix, so changing the list
     # mid-loop would bust the KV cache every iteration. Which single tool the model must call is steered entirely by tool_choice
     # (see _pick_tool_choice, recomputed each iteration) while base.tools stays byte-identical throughout. A forced call can
-    # only name a tool that blob already carries, so a rewrite is possible only when it holds ``editor_rewrite``.
-    can_rewrite = any(schema["function"]["name"] == "editor_rewrite" for schema in base.tools)
+    # only name a tool that blob already carries, so a rewrite needs ``editor_rewrite`` there. The blob offers it whenever the
+    # Agent is on; the length guard is what opts a turn into whole-draft rewrites.
+    can_rewrite = length_guard is not None and any(schema["function"]["name"] == "editor_rewrite" for schema in base.tools)
     lg_triggered, lg_instruction, lg_word_count = evaluate_length_guard(draft, length_guard)
     if lg_triggered and not can_rewrite:
         logger.warning("Editor: length guard triggered, but the tools blob has no editor_rewrite to force; skipping it")

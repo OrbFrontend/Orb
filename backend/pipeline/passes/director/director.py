@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Collection, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ....core import (
@@ -495,7 +495,7 @@ async def director_stage(
     )
     director_block = macros.resolve_message(director_block) if director_block else ""
 
-    has_director_loop_tools = any(cfg.enabled_tools.get(n, False) for n in DIRECTOR_LOOP_TOOL_NAMES)
+    has_director_loop_tools = any(cfg.active_tools.get(n, False) for n in DIRECTOR_LOOP_TOOL_NAMES)
     if cfg.agent_on and has_director_loop_tools:
         yield {"event": "director_start"}
         async for event in director_pass(
@@ -506,7 +506,7 @@ async def director_stage(
             director,
             mood_fragments,
             direct_scene_fragments,
-            cfg.enabled_tools,
+            cfg.active_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
@@ -551,14 +551,9 @@ async def director_stage(
     # scene-direction tool is enabled. Runs before director_done so its picks ride state.calls into the inspector/log.
     if lorebook.agentic:
         yield {"event": "step_start", "data": {"step": "lorebook"}}
-        selection_base = (
-            replace(cfg.agent_lane.base, prefix=lorebook.selection_prefix)
-            if lorebook.selection_prefix is not None
-            else cfg.agent_lane.base
-        )
         async for event in lorebook_select_step(
             cfg.agent_lane.client,
-            selection_base,
+            cfg.agent_lane.base,
             settings=settings,
             catalog=lorebook.catalog,
             user_message=state.user_message,
@@ -578,7 +573,7 @@ async def director_stage(
                 state.calls = [*state.calls, *sel.calls]
 
     # Style injection
-    direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
+    direct_scene_enabled = cfg.agent_on and bool(cfg.active_tools.get("direct_scene", False))
 
     # {{random}} in fragment text resolves against the per-conversation choice map (state.macro_choices, persisted with director
     # state): the first turn rolls and records, later turns reuse the stored pick, so a fragment stays fixed for the

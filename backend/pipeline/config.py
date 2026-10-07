@@ -8,17 +8,18 @@ from typing import Any
 from ..core import STATE_FIELD_TYPE, ChatMessage, Macros
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
-from ..inference import CachedBase, LLMClient
+from ..inference import CachedBase, LLMClient, lane_template_thinking
 from ..prompting.tool_catalog import enabled_schemas
 from ..prompting.tool_schemas import build_state_tool
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
 from .passes.editor import build_feedback_override, feedback_active, post_processing_active
-from .passes.editor.length_guard import LengthGuard, apply_length_guard_tools, resolve_length_guard
+from .passes.editor.length_guard import LengthGuard, resolve_length_guard
 from .passes.state import StateContract
 from .passes.state.contract import NON_SCENE_FIELD_TYPES
 from .predicates import agent_enabled, is_dual_model
 from .state import ModelLane, PipelineConfig
+from .tools import AGENT_PASS_TOOLS
 
 
 def resolve_pipeline_config(
@@ -53,10 +54,13 @@ def resolve_pipeline_config(
         return macros.resolve_message(raw) if raw else ""
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
-
-    # editor_rewrite is mirrored into the schema blob when the length guard is on.
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
-    enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
+
+    # The toggles gate the passes; the blob offers the Agent's own tools whenever the Agent is on, so switching the Director,
+    # the auditor or the length guard never rewrites the cached tools region.
+    active_tools = enabled_tools
+    if agent_on:
+        enabled_tools = {**enabled_tools, **dict.fromkeys(AGENT_PASS_TOOLS, True)}
 
     # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)
@@ -69,6 +73,7 @@ def resolve_pipeline_config(
             tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
             model=settings["model_name"],
             resolve=macros.resolve_prompt_messages,
+            template_thinking=lane_template_thinking(reasoning_passes, lane="writer", separate_agent_lane=dual_model),
         ),
     )
     if dual_model:
@@ -80,6 +85,7 @@ def resolve_pipeline_config(
                 tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
                 model=settings.get("agent_model_name", settings["model_name"]),
                 resolve=macros.resolve_prompt_messages,
+                template_thinking=lane_template_thinking(reasoning_passes, lane="agent", separate_agent_lane=True),
             ),
         )
     else:
@@ -89,6 +95,7 @@ def resolve_pipeline_config(
     return PipelineConfig(
         agent_on=agent_on,
         enabled_tools=enabled_tools,
+        active_tools=active_tools,
         director_reasoning_on=bool(reasoning_passes.get("director", False)),
         writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),

@@ -10,6 +10,7 @@ from typing import Any, TypeVar, cast
 
 import httpx
 
+from ..core.domain_types import AgentLane
 from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
 from ..core.settings import Settings
 from . import anthropic, endpoint_profiles, prompt_cache, text_completion
@@ -98,6 +99,19 @@ def reasoning_cfg(on: bool, prefill: str = "") -> dict:
             "thinking": {"type": "disabled"},
         }
     )
+
+
+def lane_template_thinking(reasoning_passes: Mapping[str, Any], *, lane: AgentLane, separate_agent_lane: bool) -> bool:
+    """Whether every text-mode call on *lane* renders the chat template with thinking on.
+
+    Common templates rewrite their first bytes on the thinking flag, so passes sharing a server must render it alike: on when
+    any pass on the lane reasons. A call with reasoning off then closes the thought at the tail instead of re-rendering.
+    """
+    if not separate_agent_lane:
+        passes: tuple[str, ...] = ("director", "writer", "editor")
+    else:
+        passes = ("writer",) if lane == "writer" else ("director", "editor")
+    return any(bool(reasoning_passes.get(name)) for name in passes)
 
 
 def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
@@ -414,6 +428,8 @@ class LLMClient:
             # Reasoning prefill needs byte control of the prompt; chat mode has no
             # such seam (the provider owns the reasoning channel).
             params.pop("reasoning_prefill", None)
+            # The server renders the chat template, so the lane's thinking render is text mode's alone.
+            params.pop("template_thinking", None)
             # n_probs is a llama.cpp /completion field; a text->chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
@@ -869,12 +885,17 @@ class LLMClient:
         prefill: str | None = None,
         reasoning: bool = False,
         fmt: rf.ReasoningFormat | None = None,
+        template_thinking: bool = False,
     ) -> str:
         """Reproduce the unconstrained text transport prompt byte-for-byte.
 
         Match prefill, thinking kwargs and routed-channel headers so audit callers
         can extend it via complete_raw. Grammar-forced tails are not reproduced.
+        *template_thinking* renders a reasoning-off call with thinking on and closes the thought at the tail, keeping the
+        lane's prefix (see :func:`lane_template_thinking`).
         """
+        close_thought = template_thinking and not reasoning and not prefill
+        reasoning = reasoning or close_thought
         server_root = self._server_root()
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
@@ -890,6 +911,8 @@ class LLMClient:
             if effort:
                 ctk["reasoning_effort"] = effort
         prompt = await self._render_with_effort_fallback(server_root, render_msgs, ctk)
+        if close_thought:
+            return rf.select_reply(prompt, fmt or await self._reasoning_format(server_root))
         if not reasoning and not prefill:
             fmt = fmt or await self._reasoning_format(server_root)
             fmt.require_supported()
@@ -922,12 +945,15 @@ class LLMClient:
         # Chat-only, and not worth forwarding: the chat fallback below reaches the
         # same llama.cpp server, which reuses its slot prefix without markers.
         params.pop("cache_prefix_len", None)
+        template_thinking = bool(params.pop("template_thinking", False))
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         fmt = await self._reasoning_format(server_root)
         # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
-            prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt)
+            prompt = await self.render_prompt(
+                messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
+            )
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
             async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):

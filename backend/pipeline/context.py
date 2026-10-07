@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -250,7 +250,6 @@ def _build_prefix_from_ctx(
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
     speaker: CastMember | None = None,
-    include_constant_lore: bool = True,
 ) -> list[ChatMessage]:
     """Build the LLM prefix from ctx."""
     conv = ctx.conv
@@ -269,7 +268,7 @@ def _build_prefix_from_ctx(
         history,
         macros,
         user_description,
-        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros) if include_constant_lore else "",
+        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
         cast=cast,
         speaker_names=ctx.speaker_names,
@@ -372,7 +371,6 @@ async def prepare_turn(
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
 
     lorebook = build_lorebook_turn(settings, ctx.lorebook_entries, lorebook_messages, macros)
-    agentic_active = lorebook.agentic
 
     # Resolved before the tools blob is built: enabling propose_world_changes is what emits its schema into the shared per-turn
     # blob, so the decision has to be made once, up front, and hold for every cached call in the turn.
@@ -395,7 +393,8 @@ async def prepare_turn(
         settings,
         ctx.defined_fragments if ctx.defined_fragments is not None else ctx.interactive_fragments,
         enabled_tools_pre_merge,
-        agentic_lorebook=agentic_active,
+        # Offered on the setting, not on this turn's entries, so adding the first pickable entry leaves the blob alone.
+        agentic_lorebook=agent_enabled(settings) and bool(settings.get("agentic_lorebook_enabled", 0)),
         dynamic_world=world_proposal is not None,
         grouped=ctx.cast.grouped,
     )
@@ -425,22 +424,6 @@ async def prepare_turn(
         prefix, agent_prefix = build_prefixes(ctx, history, extra_system_blocks=extras)
     else:
         prefix, agent_prefix = prefix_base, agent_prefix_base
-
-    if lorebook.agentic:
-        # Selection has its own stable prefix without constant lore. Ordinary Director, Writer and Editor calls retain their
-        # shared prefix, including constants, so the Editor can still reuse the Writer's request and draft.
-        lorebook = replace(
-            lorebook,
-            selection_prefix=tuple(
-                _build_prefix_from_ctx(
-                    ctx,
-                    history,
-                    system_prompt=ctx.agent_system_prompt,
-                    extra_system_blocks=extras,
-                    include_constant_lore=False,
-                )
-            ),
-        )
 
     yield TurnSetup(
         prefix=prefix,

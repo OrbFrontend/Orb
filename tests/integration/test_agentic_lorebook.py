@@ -55,10 +55,11 @@ async def test_agent_picks_replace_keyword_activation(client, llm_mock, kind, se
         if isinstance(call["tool_choice"], dict) and call["tool_choice"].get("function", {}).get("name") == "select_lorebook"
     ]
     assert len(selectors) == 1
-    for message in selectors[0]["messages"]:
-        assert "Canon" not in message["content"]
-        assert "The moon is shattered." not in message["content"]
-        assert "Append a health bar." not in message["content"]
+    selector = selectors[0]["messages"]
+    # Constants stay out of the pick catalog, but the call shares the conversation prefix that carries them.
+    assert "Canon" not in selector[-1]["content"]
+    assert "The moon is shattered." in selector[0]["content"]
+    assert "Append a health bar." not in selector[-1]["content"]
     writers = [call for call in llm_mock.captured if call["pass"] == "writer"]
     assert len(writers) == 1
     writer = writers[0]
@@ -86,7 +87,7 @@ async def test_disabling_agentic_mode_restores_keyword_activation(client, llm_mo
 
 
 @pytest.mark.parametrize("separate_agent", [False, True])
-async def test_selection_omits_constants_and_preserves_other_pass_prefixes_across_turns(client, llm_mock, separate_agent):
+async def test_selection_extends_the_director_prefix_and_omits_constants_from_its_catalog(client, llm_mock, separate_agent):
     await update_settings(
         {"agentic_lorebook_enabled": 1, "enable_agent": 1, "enabled_tools": {"direct_scene": True, "editor_apply_patch": True}}
     )
@@ -122,9 +123,8 @@ async def test_selection_omits_constants_and_preserves_other_pass_prefixes_acros
     assert selectors[0]["messages"][0] == selectors[1]["messages"][0]
     assert selectors[0]["tools"] == selectors[1]["tools"]
     for selector in selectors:
-        text = "\n".join(message["content"] for message in selector["messages"])
-        assert "The moon is shattered." not in text
-        assert "Append a health bar." not in text
+        assert "The moon is shattered." not in selector["messages"][-1]["content"]
+        assert "Append a health bar." not in selector["messages"][-1]["content"]
 
     directors = [call for call in llm_mock.captured if call["pass"] == "director"]
     editors = [call for call in llm_mock.captured if call["pass"] == "editor"]
@@ -134,6 +134,7 @@ async def test_selection_omits_constants_and_preserves_other_pass_prefixes_acros
         assert selector["endpoint"] == director["endpoint"]
         assert selector["model"] == director["model"]
         assert selector["tools"] == director["tools"]
+        assert selector["messages"][:-1] == director["messages"][:-1]
         assert director["messages"][0] == editor["messages"][0]
         if separate_agent:
             assert "Coordinate the scene." in selector["messages"][0]["content"]

@@ -174,7 +174,7 @@ async def run_pipeline(
 
     user_message = _resolve_user_message(user_message, macros, card=card, speaker=speaker)
 
-    # Resolved once; cfg.enabled_tools is the length-guard-folded map.
+    # Resolved once; cfg.enabled_tools is the offered blob map, cfg.active_tools the toggles.
     cfg = resolve_pipeline_config(
         settings,
         enabled_tools,

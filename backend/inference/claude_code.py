@@ -219,7 +219,13 @@ class ClaudeCodeClient(LLMClient):
         raise ClaudeCodeError("Claude Code model aliases are entered manually; there is no model catalogue for this transport.")
 
     async def render_prompt(
-        self, messages: Sequence[Mapping[str, Any]], *, prefill: str | None = None, reasoning: bool = False, fmt: Any = None
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        prefill: str | None = None,
+        reasoning: bool = False,
+        fmt: Any = None,
+        template_thinking: bool = False,
     ) -> str:
         raise ClaudeCodeError("Claude Code local transport does not support raw Document prompt rendering.")
 

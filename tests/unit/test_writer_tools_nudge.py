@@ -42,9 +42,10 @@ def _resolve(
     *,
     enabled_tools: dict[str, bool] | None = None,
     prefix: list[dict] | None = None,
+    settings: dict | None = None,
 ):
     return resolve_pipeline_config(
-        _SETTINGS,
+        settings or _SETTINGS,
         dict(_ENABLED_TOOLS if enabled_tools is None else enabled_tools),
         macros=_StubMacros(),
         client=client,
@@ -113,9 +114,28 @@ def test_dual_model_does_not_send_tools():
 
 
 def test_false_only_enablement_map_does_not_masquerade_as_schemas():
-    cfg = _resolve(LLMClient("http://localhost:5000/v1"), enabled_tools={"direct_scene": False, "editor_apply_patch": False})
+    cfg = _resolve(
+        LLMClient("http://localhost:5000/v1"),
+        enabled_tools={"direct_scene": False, "editor_apply_patch": False},
+        settings={**_SETTINGS, "enable_agent": 0},
+    )
     assert cfg.writer_lane.base.tools == ()
     assert not _sends(cfg)
+
+
+def test_agent_pass_toggles_gate_the_passes_without_rewriting_the_blob():
+    client = LLMClient("http://localhost:5000/v1")
+    off = _resolve(client, enabled_tools={})
+    on = _resolve(client, settings={**_SETTINGS, "length_guard_enabled": 1})
+    assert off.writer_lane.base.tools == on.writer_lane.base.tools
+    assert [tool["function"]["name"] for tool in off.writer_lane.base.tools] == [
+        "direct_scene",
+        "editor_apply_patch",
+        "editor_rewrite",
+    ]
+    assert not off.active_tools.get("direct_scene") and not off.active_tools.get("editor_apply_patch")
+    assert on.active_tools["direct_scene"] and on.active_tools["editor_apply_patch"]
+    assert off.length_guard is None and on.length_guard is not None
 
 
 @pytest.mark.parametrize("grouped", [False, True])

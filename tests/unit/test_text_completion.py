@@ -441,6 +441,23 @@ async def test_complete_text_primes_splitter_when_prompt_pre_opens_think(templat
     assert _joined(events, "content") == "Sarah smiled."  # padding trimmed, no leaked special token
 
 
+async def test_lane_thinking_keeps_the_thinking_on_prefix_and_closes_the_thought_at_the_tail():
+    # Qwen3.8 and Gemma 4 rewrite the top of the system turn on enable_thinking; a reasoning-off call on a lane where another
+    # pass reasons keeps the thinking-on bytes and closes the span at the tail, so both share one prefix.
+    def template(_msgs, ctk):
+        return ("EFFORT\nSYS" if (ctk or {}).get("enable_thinking") else "SYS") + "<|im_start|>assistant\n<think>\n"
+
+    client, captured = _wired(template, "<think>...</think>", ["Sarah smiled."])
+    await _complete(client, **reasoning_cfg(True))
+    reasoning_prompt = captured["prompt"]
+    events = await _complete(client, template_thinking=True, **reasoning_cfg(False))
+    assert captured["ctk"]["enable_thinking"] is True
+    assert captured["prompt"] == "EFFORT\nSYS<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    assert captured["prompt"].startswith(reasoning_prompt.removesuffix("<think>\n"))
+    assert _joined(events, "content") == "Sarah smiled."
+    assert _joined(events, "reasoning") == ""
+
+
 async def test_complete_text_prefill_appends_assistant_message():
     client, captured = _wired()
     await _complete(client, prefill="Once upon")

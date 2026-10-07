@@ -9,6 +9,7 @@ from .client import (
     agent_client_from_settings,
     agent_lane_from_settings,
     client_from_settings,
+    lane_template_thinking,
     parse_tool_calls,
     reasoning_cfg,
     replay_reasoning,

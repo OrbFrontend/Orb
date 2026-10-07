@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TypedDict
 
 from ....core.settings import Settings
@@ -43,17 +42,6 @@ def resolve_length_guard(settings: Settings, agent_on: bool) -> LengthGuard | No
         "max_words": int(settings.get("length_guard_max_words", 240)),
         "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
     }
-
-
-def apply_length_guard_tools(enabled_tools: Mapping[str, bool], length_guard: LengthGuard | None) -> Mapping[str, bool]:
-    """Add ``editor_rewrite`` to *enabled_tools* when the length guard is on.
-
-    This is the only path that enables ``editor_rewrite`` (it is internal, not
-    user-toggleable). Returns *enabled_tools* unchanged when the guard is off.
-    """
-    if length_guard is None:
-        return enabled_tools
-    return {**enabled_tools, "editor_rewrite": True}
 
 
 def writer_nudge(length_guard: LengthGuard | None) -> str:

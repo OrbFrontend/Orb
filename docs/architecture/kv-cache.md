@@ -59,6 +59,24 @@ scene instructions. History is shared byte-for-byte, including attachment
 encoding. A macro that changes those bytes, such as an unseeded `{{roll}}`,
 breaks reuse; persisted message text is used for later turns.
 
+### Open each request with one message
+
+Every pass starts its trailing request with a single user message directly after
+the base. On models whose cache cannot be rewound to any position, such as
+sliding-window Gemma 4 and hybrid-attention Qwen3.8, llama.cpp keeps restore
+points at the start of each request's last user message. A one-message request
+therefore leaves a restore point at the end of the history, and the next turn's
+Director resumes there. Text shared inside a request, such as the lore block the
+solo Director and Writer both open with, is not reused: a request resumes at the
+message start, unless the previous call ended within a few hundred tokens of the
+divergence.
+
+Measured on Qwen3.8 27B: moving the lore into a user message of its own let the
+Writer reuse it (about 1,250 tokens), but left no restore point at the end of the
+history. The next Director then re-read about 6,000 tokens. Text mode has no
+message boundaries to place restore points at, so on these models it re-reads
+400 to 1,200 more tokens per call than chat mode.
+
 ### Keep group context consistent
 
 In a group, history labels each assistant message with its member. The selected
@@ -95,8 +113,8 @@ ahead of history, so it evicts the whole conversation from the server's prefix
 cache rather than costing only its own bytes. A call that forces a tool therefore
 has to pick a side. Either it rides the turn's lane, and the tool must be in the
 map **before** `resolve_pipeline_config` freezes it into a `CachedBase` — what
-`apply_length_guard_tools` does for `editor_rewrite`, what defined
-post-processing fragments do for `editor_search_replace`, and what a workflow would do
+the Agent's own tools do, what defined post-processing fragments do for
+`editor_search_replace`, and what a workflow would do
 by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
 shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
 `forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
@@ -116,6 +134,14 @@ warms and reuses its own lane across turns.
 
 The exact cache hit is provider-specific. Provider `usage` is the source of
 truth; Orb's local tracker is only a diagnostic signal.
+
+The Agent's own tools follow the same rule. Whenever the Agent is on, the blob
+offers `direct_scene`, `editor_apply_patch`, and `editor_rewrite`, and
+`select_lorebook` whenever Agentic Lorebook is enabled. The Director toggle,
+the output auditor toggle, the length guard, and whether any entry is pickable
+gate the passes through `PipelineConfig.active_tools` and the lorebook turn;
+they never change the schemas. `PipelineConfig.enabled_tools` is the offered
+map that workflow calls rebuild the blob from.
 
 Fragment cooldowns follow the same rule as the speaking-plan roster and
 per-fragment required fields: their volatile availability is stated in the
@@ -161,12 +187,12 @@ model's base instead.
 
 ### Keep optional work on the same path
 
-Agentic Lorebook selection uses the same model and tool blob as the Agent lane,
-with a dedicated prefix that omits constant lore. Its catalog also omits constants.
-That prefix stays stable across turns and includes the same history and workflow
-system blocks. Ordinary Director, Writer, and Editor calls retain their existing
-prefixes, so the Editor still extends the Writer's request and draft. This gives
-selection its own cache lane without changing the other passes' prompt bytes.
+Agentic Lorebook selection is one more trailing request on the Agent lane's
+base, between the Director and the Writer. Its catalog omits constant entries;
+the constants stay in the shared system prompt. A selection prefix of its own
+would diverge inside the system prompt, ahead of the whole history: on a
+single-slot llama.cpp server with Gemma 4, that re-prefilled the conversation
+twice per turn, once for selection and once for the Writer after it.
 
 Feedback, state updates, and document auditing extend the relevant prompt in
 the same way as the Editor. Image prompting rebuilds the neutral scene prefix
@@ -219,13 +245,23 @@ one and be skipped. See ``_BATCH_PASSES`` in ``tests/integration/_llm_mock.py``.
 
 ## Reasoning can create another lane
 
-The default `reasoning_enabled_passes` setting keeps Director, Writer, and
-Editor in the same reasoning mode. Some providers use separate KV caches for
-thinking-on and thinking-off. If the modes differ, the passes still have equal
-prompt bytes but cannot reuse one another's provider lane within the turn.
+Common chat templates rewrite the top of the system turn on the thinking flag:
+Gemma 4 inserts `<|think|>`, and Qwen3.8 inserts a reasoning-effort preamble. A
+pass that reasons and a pass that does not therefore render different prefixes
+from the first bytes.
 
-This is a deliberate trade-off when enabled. Keep the setting uniform when
-cross-pass reuse matters; each mode will still reuse its own lane across turns.
+In text mode Orb renders the prompt itself, so it keeps one render per lane.
+`lane_template_thinking` turns the lane's thinking on when any pass sharing that
+server reasons, and `CachedBase.template_thinking` carries it to every call on
+the lane. A call with reasoning off keeps the thinking-on bytes and closes the
+thought at the tail with the template's own empty span. `forced_tool_call` uses
+the Agent lane's value.
+
+In chat mode the server renders the template, so differing
+`reasoning_enabled_passes` values still split the lane. llama.cpp's host-memory
+prompt cache restores each side on hybrid-attention models such as Qwen3.8, but
+not on sliding-window models such as Gemma 4. Keep the setting uniform when
+cross-pass reuse matters on chat endpoints.
 
 ## Providers that cache only where asked
 

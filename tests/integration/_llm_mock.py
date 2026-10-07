@@ -366,11 +366,6 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
         # group's identity within that lane: a conversation for a chat pass, the pass itself for a batch lane.
         pass_name = call.get("pass", "")
         identity = f"batch:{pass_name}" if pass_name in _BATCH_PASSES else _wire(msgs[1])
-        choice = call.get("tool_choice")
-        if isinstance(choice, dict) and choice.get("function", {}).get("name") == "select_lorebook":
-            # Selection deliberately omits constant lore from its prefix. Check its own stable lane rather than comparing it
-            # to the ordinary Director/Writer/Editor prefix, which still carries constants.
-            identity = f"lorebook:{identity}"
         key = (call.get("endpoint", ""), call.get("model", ""), identity)
         groups.setdefault(key, []).append(call)
 

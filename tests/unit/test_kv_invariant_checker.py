@@ -60,14 +60,11 @@ def test_servers_are_separate_cache_lanes():
     assert verify_kv_prefix_invariants([_call(), _call(endpoint="http://agent.local", tools=None, system=_SYS_DRIFTED)]) == []
 
 
-def test_lorebook_selection_has_its_own_stable_prefix_lane():
+def test_lorebook_selection_rides_the_conversation_lane():
     selection = {**_call(), "tool_choice": {"type": "function", "function": {"name": "select_lorebook"}}}
-    assert verify_kv_prefix_invariants([_call(system=_SYS_DRIFTED), selection, selection]) == []
-    drifted = {**selection, "messages": [_SYS_DRIFTED, _GREET]}
-    violations = verify_kv_prefix_invariants([selection, drifted])
+    assert verify_kv_prefix_invariants([_call(), selection]) == []
+    violations = verify_kv_prefix_invariants([_call(), {**selection, "messages": [_SYS_DRIFTED, _GREET]}])
     assert len(violations) == 1 and "system" in violations[0]
-    violations = verify_kv_prefix_invariants([selection, {**selection, "tools": _TOOLS_SINGLE}])
-    assert len(violations) == 1 and "tools" in violations[0]
 
 
 def test_different_conversations_and_singletons_are_skipped():

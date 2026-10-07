@@ -25,8 +25,8 @@ How does the agent decide which entries are relevant? These info will be sent to
 - The entries' names
 - Each entry's keywords as relevance hints (up to three, excluding the entry name)
 
-Constant entries are excluded from both the catalog and the selection call's
-system prompt. They remain in the ordinary Director, Writer, and Editor context.
+Constant entries are excluded from the catalog. They stay in the system prompt
+that every Agent call shares, selection included.
 
 ## Enable it
 

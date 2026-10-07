@@ -21,6 +21,7 @@ from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.analysis.patching import apply_id_patches
 from backend.inference import CachedBase, LLMClient
 from backend.pipeline.passes.editor.editor import editor_pass
+from backend.pipeline.passes.editor.length_guard import LengthGuard
 from backend.pipeline.passes.editor.prompts import EDITOR_RENUMBER_NOTICE, PATCH_CATEGORY_RULES, patch_instructions
 from backend.prompting.tool_catalog import enabled_schemas
 
@@ -59,7 +60,13 @@ def _make_base(tools: Sequence[str] = ("editor_apply_patch",)) -> CachedBase:
 
 
 async def _run(
-    client: LLMClient, audits: list[AuditReport], draft: str, *, tools: Sequence[str] = ("editor_apply_patch",), **kwargs
+    client: LLMClient,
+    audits: list[AuditReport],
+    draft: str,
+    *,
+    tools: Sequence[str] = ("editor_apply_patch",),
+    length_guard: LengthGuard | None = None,
+    **kwargs,
 ) -> list[dict]:
     """Run editor_pass with a scripted audit sequence and strip its step marker."""
     audit_iter = iter(audits)
@@ -82,7 +89,7 @@ async def _run(
             settings=SETTINGS,
             phrase_bank=[[]],
             audit_enabled=True,
-            length_guard=None,
+            length_guard=length_guard,
             **kwargs,
         ):
             events.append(event)
@@ -156,13 +163,20 @@ async def test_findings_with_no_target_end_the_pass_without_a_call():
     assert [(e["type"], e["draft"]) for e in events] == [("done", None)]
 
 
+_IDLE_GUARD: LengthGuard = {"enforce": False, "max_words": 10_000, "max_paragraphs": 100}
+
+
 @pytest.mark.parametrize(
-    ("tools", "forced"),
-    [(("editor_apply_patch",), "editor_apply_patch"), (("editor_apply_patch", "editor_rewrite"), "editor_rewrite")],
+    ("tools", "length_guard", "forced"),
+    [
+        (("editor_apply_patch",), _IDLE_GUARD, "editor_apply_patch"),
+        (("editor_apply_patch", "editor_rewrite"), None, "editor_apply_patch"),
+        (("editor_apply_patch", "editor_rewrite"), _IDLE_GUARD, "editor_rewrite"),
+    ],
 )
-async def test_structural_repetition_forces_a_rewrite_only_when_the_blob_carries_it(tools, forced):
-    # Forcing a tool the request does not carry gets prose back, never a call, so without editor_rewrite the patchable findings
-    # get patched.
+async def test_structural_repetition_rewrites_only_with_the_length_guard_on_and_the_tool_offered(tools, length_guard, forced):
+    # The blob offers editor_rewrite whenever the Agent is on; the length guard opts a turn into whole-draft rewrites. Forcing a
+    # tool the request does not carry gets prose back, never a call, so without it the patchable findings get patched.
     seen: list = []
     report = _make_report(["Sentence 0.", "Sentence 1."])
     report.structural_repetition_result = StructuralResult(
@@ -173,6 +187,7 @@ async def test_structural_repetition_forces_a_rewrite_only_when_the_blob_carries
         [report],
         "Sentence 0. Sentence 1.",
         tools=tools,
+        length_guard=length_guard,
     )
     assert [call["tool_choice"]["function"]["name"] for call in seen] == [forced]
 
