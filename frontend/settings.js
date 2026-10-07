@@ -392,8 +392,7 @@ export const AUDIT_TYPE_DEFS = [
   {
     key: "subject_fixation",
     label: "Subject fixation",
-    title:
-      "Cut a subject the writer re-describes reply after reply (e.g. her violet eyes). Needs the Subject Tagger model.",
+    title: "Cut descriptions of a subject most recent replies already described (e.g. Eyes). Needs the Subject Tagger.",
   },
 ];
 

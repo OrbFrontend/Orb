@@ -483,9 +483,9 @@ async def aclassify_markup(text: str) -> tuple[str, str]:
         return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)
 
 
-# The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in
-# ../ettin-subjects/src/categories.py order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py
-# pins the layout. The caller shapes the narration (dialogue stripped), as training did; llama.cpp keeps its first 1024 ids.
+# The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in the trained head's
+# order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py pins the layout. The caller shapes
+# the narration (dialogue stripped), as training did; llama.cpp keeps its first 1024 ids.
 SUBJECT_CATEGORIES: tuple[str, ...] = (
     "eyes",
     "hair",

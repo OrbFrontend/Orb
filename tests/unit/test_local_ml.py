@@ -219,7 +219,7 @@ async def test_aclassify_markup_never_loads_the_model_for_nothing_to_read(monkey
 
 
 # --- the subjects head ----------------------------------------------------------
-# 20 categories x 3 levels, row-major (../ettin-subjects/src/categories.py). A transposed or shifted read still returns plausible
+# 20 categories x 3 levels, row-major, in the trained head's order. A transposed or shifted read still returns plausible
 # labels, so the layout and the category order are pinned.
 
 
@@ -248,13 +248,13 @@ async def test_aclassify_subjects_reads_sixty_cells_off_the_narration(monkeypatc
     def fake(feature: str, text: str, n: int) -> list[float]:
         calls.append((feature, text, n))
         grid = [0.0] * n
-        grid[0 * 3 + 2] = 9.0  # eyes: description
+        grid[1 * 3 + 2] = 9.0  # hair: description
         return grid
 
     monkeypatch.setattr(local_ml, "_head_logits", fake)
-    tags = await local_ml.aclassify_subjects("Her violet eyes glint.")
-    assert max(range(3), key=tags["eyes"].__getitem__) == 2
-    assert calls == [("subjects_classifier", "Her violet eyes glint.", 60)]
+    tags = await local_ml.aclassify_subjects("Her copper braid gleams.")
+    assert max(range(3), key=tags["hair"].__getitem__) == 2
+    assert calls == [("subjects_classifier", "Her copper braid gleams.", 60)]
 
 
 async def test_aclassify_subjects_never_loads_the_model_for_empty_narration(monkeypatch):

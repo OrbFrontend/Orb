@@ -18,7 +18,6 @@ class StreakRule:
     min_prob: float  # P(description) at which one reply counts as describing it
 
 
-# Measured with Orb's GGUF tagger on app.db's solo active branches (6,999 drafts): fires on 20% of drafts, in 271 of 482 chats.
 # face and voice are present in most replies, so they need every reply in the window; skin and voice are the noisiest heads,
 # so a reply counts only at high confidence.
 DEFAULT_RULE = StreakRule(window=4, min_count=3, min_prob=0.6)

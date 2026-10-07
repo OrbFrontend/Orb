@@ -11,7 +11,7 @@ SUBJECTS_INPUT_VERSION = "subjects-input-v1"
 
 
 def subjects_input(text: str) -> str:
-    """The narration the tagger reads, built exactly as ../ettin-subjects/src/orb.py built its training input."""
+    """The narration the tagger reads, shaped as its training input was."""
     return narration_only(text, classify_axes(text).dialogue).strip()
 
 

@@ -210,8 +210,8 @@ For a user message such as `I draw my sword`:
 2. Ask the Director for scene direction.
 3. Ask the Writer for prose, adding direction and selected lore to the tail.
 4. If needed, extend that request with the draft and let the Editor apply audit
-   fixes, then cut a subject the draft keeps re-describing (subject fixation),
-   then each post-processing fragment in order.
+   fixes, then the subject fixation edit, then each post-processing fragment
+   in order.
 5. Run Feedback and secondary workflows against the resulting draft.
 
 The first three calls may have different tool-rendered lanes, but each call

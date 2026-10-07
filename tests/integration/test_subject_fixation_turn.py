@@ -11,7 +11,7 @@ from backend.pipeline import handle_turn, subject_tags
 
 
 async def _fake_tagger(narration: str):
-    return {"eyes": [0.0, 0.0, 1.0] if "violet" in narration else [1.0, 0.0, 0.0]}
+    return {"hair": [0.0, 0.0, 1.0] if "copper" in narration else [1.0, 0.0, 0.0]}
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ def _enqueue_fix(llm_mock) -> None:
                 "type": "function",
                 "function": {
                     "name": "editor_search_replace",
-                    "arguments": {"patches": [{"search": "Her violet eyes glint in the dark.", "replace": "She looks up."}]},
+                    "arguments": {"patches": [{"search": "Her copper braid gleams in the dark.", "replace": "She looks up."}]},
                 },
             }
         ]
@@ -47,7 +47,7 @@ async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock):
     for turn in range(6):
         parent, _ = await dbmod.add_message(cid, "user", f"line {turn}", 2 * turn, parent_id=parent)
         parent, _ = await dbmod.add_message(
-            cid, "assistant", f"*Her violet eyes glint, {turn}.*", 2 * turn + 1, parent_id=parent
+            cid, "assistant", f"*Her copper braid gleams, {turn}.*", 2 * turn + 1, parent_id=parent
         )
     await dbmod.set_active_leaf(cid, parent)
     await client.put(
@@ -59,7 +59,7 @@ async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock):
         },
     )
 
-    llm_mock.enqueue_writer('*Her violet eyes glint in the dark.* "You came back."')
+    llm_mock.enqueue_writer('*Her copper braid gleams in the dark.* "You came back."')
     _enqueue_fix(llm_mock)
 
     await _drain(handle_turn(cid, "hello"))
@@ -68,7 +68,7 @@ async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock):
     saved = (await dbmod.get_active_path(cid))[-1]
     assert saved["content"] == '*She looks up.* "You came back."'
     [row] = (await dbmod.get_message_subjects([saved["id"]])).values()
-    assert row["probs"]["eyes"][2] == 0.0
+    assert row["probs"]["hair"][2] == 0.0
 
 
 async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(client, llm_mock):
@@ -88,7 +88,7 @@ async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(cl
     aria, kael = (m["id"] for m in await client.get_json(f"/api/conversations/{conv['id']}/members"))
     rows: list[tuple[Literal["user", "assistant"], str, str | None, str]] = [("user", "Begin.", None, "e0")]
     for k in range(4):
-        rows.append(("assistant", f"*Her violet eyes glint, {k}.*", aria, f"e{k}"))
+        rows.append(("assistant", f"*Her copper braid gleams, {k}.*", aria, f"e{k}"))
         rows.extend(("assistant", f"*Kael shrugs, {k}.{j}.*", kael, f"e{k}") for j in range(6))
     rows += [("user", "And then?", None, "t"), ("assistant", "*Aria waits.*", aria, "t")]
     parent = None
@@ -101,7 +101,7 @@ async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(cl
     llm_mock.enqueue_director(
         [{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": [], "speaking_plan": ["aria — Go"]}}}]
     )
-    llm_mock.enqueue_writer("*Her violet eyes glint in the dark.*")
+    llm_mock.enqueue_writer("*Her copper braid gleams in the dark.*")
     _enqueue_fix(llm_mock)
     await client.post_checked(f"/api/conversations/{conv['id']}/messages/{parent}/super_regenerate", json={})
 
