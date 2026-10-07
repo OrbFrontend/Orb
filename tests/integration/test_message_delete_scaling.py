@@ -31,6 +31,10 @@ def _indexed_leading_columns(conn: sqlite3.Connection, table: str) -> set[str]:
         columns = [c[2] for c in conn.execute(f"PRAGMA index_info({index[1]})")]
         if columns and columns[0] is not None:
             leading.add(columns[0])
+    # A lone INTEGER PRIMARY KEY is the rowid itself: seekable, and never listed as an index.
+    pk = [(row[1], row[2]) for row in conn.execute(f"PRAGMA table_info({table})") if row[5]]  # nosec B608 -- from sqlite_master
+    if len(pk) == 1 and pk[0][1].upper() == "INTEGER":
+        leading.add(pk[0][0])
     return leading
 
 

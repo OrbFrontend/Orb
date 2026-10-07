@@ -20,7 +20,6 @@ from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
 from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
-from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
     JudgeResult,
     JudgeTurn,
@@ -1061,10 +1060,9 @@ async def _regenerate_with_steering(
         extended_history.append(target)
 
         # From history, not extended_history: the reply being replaced is excluded
-        # from the audit so the new draft isn't penalised for resembling it.
-        editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][
-            :AUDIT_BASELINE_WINDOW
-        ]
+        # from the audit so the new draft isn't penalised for resembling it. Uncapped: the audit keeps its own window, and the
+        # subject tags read a group speaker's replies from further back.
+        editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"]
 
         if ctx.cast.grouped:
             speaker_id = target.get("speaker_member_id")

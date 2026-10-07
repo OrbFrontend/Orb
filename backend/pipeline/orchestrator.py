@@ -257,6 +257,8 @@ async def run_pipeline(
             editor_audit_msgs=editor_audit_msgs,
             kv_tracker=kv_tracker,
             judge_config=judge_config,
+            history=history,
+            speaker_member_id=speaker.member_id if speaker is not None else None,
         ),
     ):
         yield ev

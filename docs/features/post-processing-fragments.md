@@ -16,7 +16,8 @@ Card-embedded fragments use the same fields and behavior.
 
 For each conversation reply, Orb runs post-processing:
 
-1. after the Writer and any Output Auditor or Length Guard edits;
+1. after the Writer, any Output Auditor or Length Guard edits, and the subject
+   fixation edit;
 2. once per enabled fragment, in `sort_order`;
 3. before Feedback and all secondary workflows.
 
@@ -47,9 +48,10 @@ delete the uniquely matched span. Malformed, missing, ambiguous, empty, and
 no-op patches are skipped while other valid patches still apply. Orb does not
 retry a fragment.
 
-The tool schema is frozen into the per-turn tool list whenever post-processing
-is active. In the built-in order it follows `editor_rewrite` and precedes
-`give_feedback`, preserving the Writer/Agent cache lanes.
+The tool schema is frozen into the per-turn tool list whenever the Agent is on,
+so defining or toggling a fragment never rewrites it. In the built-in order it
+follows `editor_rewrite` and precedes `give_feedback`, preserving the
+Writer/Agent cache lanes.
 
 ## Gating
 
@@ -82,9 +84,10 @@ depends on what came before, such as whether a character could know something.
 Start at 1 and go higher if the gate misses things that happened further back.
 Earlier user messages are not included.
 
-The draft is the evolving one: after Output Auditor and Length Guard edits and
-after every earlier post-processing fragment. Each gate is judged on its own
-draft, one at a time. In a group chat, every generated reply has its own gates.
+The draft is the evolving one: after Output Auditor, Length Guard, and subject
+fixation edits and after every earlier post-processing fragment. Each gate is
+judged on its own draft, one at a time. In a group chat, every generated reply
+has its own gates.
 
 The question is sent as a yes/no (`noul`) question with fixed criteria: *"The
 answer to the question is yes based on the reply."* and its no counterpart. The

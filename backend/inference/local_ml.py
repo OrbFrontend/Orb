@@ -44,6 +44,8 @@ __all__ = [
     "MODELS",
     "NARRATION_ROWS",
     "POV_ROWS",
+    "SUBJECT_CATEGORIES",
+    "SUBJECT_LEVELS",
     "TENSE_COLS",
     "ModelSpec",
     "ModelVariantSpec",
@@ -52,6 +54,7 @@ __all__ = [
     "aclassify_markup",
     "aclassify_pov",
     "aclassify_pov_tense_chunks",
+    "aclassify_subjects",
     "ascore",
     "available",
     "delete_model",
@@ -66,6 +69,7 @@ __all__ = [
     "present",
     "prune_stale",
     "resolve_path",
+    "subjects_from_logits",
     "tense_from_logits",
     "variant_path",
     "variant_present",
@@ -224,17 +228,26 @@ def _rank_logits(llama: Any, text: str) -> list[float]:
     return logits
 
 
+# A head reads the first n_ctx ids. n_batch and n_ubatch match it, because _rank_logits cuts at n_batch and a non-causal encoder
+# needs the whole sequence in one ubatch.
+_SCORER_CTX = 512
+_SCORER_CTX_BY_FEATURE: dict[str, int] = {"subjects_classifier": 1024}
+
+
 def _load_scorer_blocking(feature: str) -> None:
     if feature in _llamas or feature in _load_errors:
         return
     try:
         import llama_cpp  # noqa: PLC0415 -- deferred; need the pooling-type constant
 
+        n_ctx = _SCORER_CTX_BY_FEATURE.get(feature, _SCORER_CTX)
         _llamas[feature] = llama_cpp.Llama(
             model_path=resolve_path(feature),
             embedding=True,
             pooling_type=llama_cpp.LLAMA_POOLING_TYPE_RANK,
-            n_ctx=512,
+            n_ctx=n_ctx,
+            n_batch=n_ctx,
+            n_ubatch=n_ctx,
             n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
             verbose=False,
         )
@@ -468,3 +481,57 @@ async def aclassify_markup(text: str) -> tuple[str, str]:
     """
     async with _lock("markup_classifier"):
         return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)
+
+
+# The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in
+# ../ettin-subjects/src/categories.py order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py
+# pins the layout. The caller shapes the narration (dialogue stripped), as training did; llama.cpp keeps its first 1024 ids.
+SUBJECT_CATEGORIES: tuple[str, ...] = (
+    "eyes",
+    "hair",
+    "face",
+    "mouth",
+    "voice",
+    "breath",
+    "scent",
+    "hands",
+    "skin",
+    "chest",
+    "lower_body",
+    "neck",
+    "build",
+    "clothing",
+    "accessory",
+    "object",
+    "nonhuman",
+    "light",
+    "sound",
+    "weather",
+)
+SUBJECT_LEVELS: tuple[str, ...] = ("absent", "action", "description")
+
+
+def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
+    """Read the 60-logit head as ``{category: probs}``, *probs* a softmax in SUBJECT_LEVELS order."""
+    width = len(SUBJECT_LEVELS)
+    out: dict[str, list[float]] = {}
+    for i, category in enumerate(SUBJECT_CATEGORIES):
+        row = logits[i * width : (i + 1) * width]
+        exp = [math.exp(x - max(row)) for x in row]
+        out[category] = [x / sum(exp) for x in exp]
+    return out
+
+
+def _classify_subjects_blocking(feature: str, narration: str) -> dict[str, list[float]]:
+    if not narration.strip():
+        return {category: [1.0, 0.0, 0.0] for category in SUBJECT_CATEGORIES}  # nothing to read: never load the model for it
+    return subjects_from_logits(_head_logits(feature, narration, len(SUBJECT_CATEGORIES) * len(SUBJECT_LEVELS)))
+
+
+async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
+    """One reply's narration -> ``{category: probs}`` for every SUBJECT_CATEGORIES entry. One model call.
+
+    Lazy-loads; serialized by the feature's lock; off the loop.
+    """
+    async with _lock("subjects_classifier"):
+        return await asyncio.to_thread(_classify_subjects_blocking, "subjects_classifier", narration)

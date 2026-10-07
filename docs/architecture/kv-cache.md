@@ -31,7 +31,7 @@ messages.
 |---|---|---|
 | Director | OOC instruction and the current user message | A forced `direct_scene` tool call |
 | Writer | Selected lore, scene direction, and the user message | Streaming prose |
-| Editor | The Writer request, the evolving draft, and an edit instruction | Audit fixes, post-processing patches, or feedback |
+| Editor | The Writer request, the evolving draft, and an edit instruction | Audit fixes, the subject fixation edit, post-processing patches, or feedback |
 
 The Editor extends the Writer request instead of rebuilding a new conversation.
 Its first call can therefore reuse the Writer's history and draft; later ReAct
@@ -113,8 +113,7 @@ ahead of history, so it evicts the whole conversation from the server's prefix
 cache rather than costing only its own bytes. A call that forces a tool therefore
 has to pick a side. Either it rides the turn's lane, and the tool must be in the
 map **before** `resolve_pipeline_config` freezes it into a `CachedBase` — what
-the Agent's own tools do, what defined post-processing fragments do for
-`editor_search_replace`, and what a workflow would do
+the Agent's own tools do, and what a workflow would do
 by yielding `enable_tools` from a pre-pipeline hook. Or it rides its own lane, and
 shares nothing with the turn: its own short prefix, and `enabled_tools=None` so
 `forced_tool_call` ships the forced tool alone. What it cannot do is force a tool
@@ -136,7 +135,8 @@ The exact cache hit is provider-specific. Provider `usage` is the source of
 truth; Orb's local tracker is only a diagnostic signal.
 
 The Agent's own tools follow the same rule. Whenever the Agent is on, the blob
-offers `direct_scene`, `editor_apply_patch`, and `editor_rewrite`, and
+offers `direct_scene`, `editor_apply_patch`, `editor_rewrite`, and
+`editor_search_replace`, and
 `select_lorebook` whenever Agentic Lorebook is enabled. The Director toggle,
 the output auditor toggle, the length guard, and whether any entry is pickable
 gate the passes through `PipelineConfig.active_tools` and the lorebook turn;
@@ -151,8 +151,8 @@ schema.
 Enabling or disabling a fragment follows it too. `direct_scene`,
 `give_feedback`, and `update_state` are built from every fragment the user and
 the cast's cards define, enabled or not, in an order no toggle moves, with no
-top-level `required`; `editor_search_replace` and `give_feedback` join the list
-once any fragment of their kind is defined. A fragment-built property carries its
+top-level `required`; `give_feedback` joins the list once any feedback fragment
+is defined. A fragment-built property carries its
 name and type only. The blob reaches every call on the lane, the Writer's
 included in single-model mode, so a description there would put a disabled
 fragment's instructions in front of the reply. Code-authored properties
@@ -210,7 +210,8 @@ For a user message such as `I draw my sword`:
 2. Ask the Director for scene direction.
 3. Ask the Writer for prose, adding direction and selected lore to the tail.
 4. If needed, extend that request with the draft and let the Editor apply audit
-   fixes, then each post-processing fragment in order.
+   fixes, then cut a subject the draft keeps re-describing (subject fixation),
+   then each post-processing fragment in order.
 5. Run Feedback and secondary workflows against the resulting draft.
 
 The first three calls may have different tool-rendered lanes, but each call

@@ -9,6 +9,8 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from ....analysis.detectors.subject_fixation import SubjectStreak
+from ....analysis.targets import narration_mask
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
@@ -16,7 +18,7 @@ from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_c
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
-from .prompts import build_post_processing_prompt
+from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +28,13 @@ def post_processing_active(post_processing_fragments: Sequence[Mapping[str, Any]
     return agent_on and bool(post_processing_fragments)
 
 
-def apply_search_replace_patches(draft: str, patches: object, *, label: str = "") -> str:
+def apply_search_replace_patches(draft: str, patches: object, *, label: str = "", narration_only: bool = False) -> str:
     """Apply valid exact patches sequentially, skipping every unsafe entry.
 
     A patch is safe only when it has string ``search`` and ``replace`` values, the search is non-empty and differs from the
-    replacement, and the evolving draft contains exactly one case-sensitive match. Invalid entries do not prevent later valid
-    patches from being considered; each one skipped is logged with its reason, under the fragment *label*.
+    replacement, and the evolving draft contains exactly one case-sensitive match; with *narration_only*, that match must also
+    lie outside quoted speech. Invalid entries do not prevent later valid patches from being considered; each one skipped is
+    logged with its reason, under the fragment *label*.
     """
     if not isinstance(patches, list):
         if patches is not None:
@@ -58,11 +61,57 @@ def apply_search_replace_patches(draft: str, patches: object, *, label: str = ""
                     reason = "search not found in the draft"
                 elif current.find(search, first + 1) >= 0:
                     reason = "search matches more than one place"
+                elif narration_only and not all(narration_mask(current)[first : first + len(search)]):
+                    reason = "search reaches into dialogue"
                 else:
                     current = current[:first] + replace + current[first + len(search) :]
         if reason:
             logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
+
+
+def _apply_search_replace_calls(
+    draft: str, calls: Sequence[ParsedToolCall], *, label: str = "", narration_only: bool = False
+) -> str:
+    """Apply every ``editor_search_replace`` call's patches to *draft* in order."""
+    for call in calls:
+        if call.get("name") == "editor_search_replace":
+            draft = apply_search_replace_patches(
+                draft, call.get("arguments", {}).get("patches"), label=label, narration_only=narration_only
+            )
+    return draft
+
+
+async def _search_replace_call(
+    client: LLMClient,
+    base: CachedBase,
+    resp: CompletionMessage,
+    draft: str,
+    prompt: str,
+    settings: Settings,
+    *,
+    writer_user_msg: str | list[ContentPart],
+    kv_tracker=None,
+    reasoning_on: bool = False,
+    reasoning_prefill: str = "",
+) -> AsyncIterator[Mapping[str, Any]]:
+    """One forced ``editor_search_replace`` call over *draft* that extends the Writer's prefix; the reply lands in *resp*."""
+    trailing: list[ChatMessage] = [
+        {"role": "user", "content": writer_user_msg},
+        {"role": "assistant", "content": draft},
+        {"role": "user", "content": prompt},
+    ]
+    async for event in base.complete_into(
+        client,
+        resp,
+        label="editor",
+        trailing=trailing,
+        tool_choice=EDITOR_SEARCH_REPLACE_CHOICE,
+        kv_tracker=kv_tracker,
+        **extract_hyperparams(settings, lane="agent"),
+        **reasoning_cfg(reasoning_on, reasoning_prefill),
+    ):
+        yield event
 
 
 @dataclass(slots=True)
@@ -129,24 +178,19 @@ async def post_processing_step(
                 logger.info("Post-processing fragment %r skipped by its gate", fragment.get("id", ""))
                 continue
 
-        edit_prompt = build_post_processing_prompt(fragment, reasoning_on=reasoning_on)
-        trailing: list[ChatMessage] = [
-            {"role": "user", "content": writer_user_msg},
-            {"role": "assistant", "content": current},
-            {"role": "user", "content": edit_prompt},
-        ]
-        hyperparams = extract_hyperparams(settings, lane="agent")
         resp: CompletionMessage = {}
         try:
-            async for event in base.complete_into(
+            async for event in _search_replace_call(
                 client,
+                base,
                 resp,
-                label="editor",
-                trailing=trailing,
-                tool_choice=EDITOR_SEARCH_REPLACE_CHOICE,
+                current,
+                build_post_processing_prompt(fragment, reasoning_on=reasoning_on),
+                settings,
+                writer_user_msg=writer_user_msg,
                 kv_tracker=kv_tracker,
-                **hyperparams,
-                **reasoning_cfg(reasoning_on, reasoning_prefill),
+                reasoning_on=reasoning_on,
+                reasoning_prefill=reasoning_prefill,
             ):
                 yield event
         except Exception as exc:
@@ -162,11 +206,7 @@ async def post_processing_step(
         parsed = parse_tool_calls(resp)
         all_calls.extend(parsed)
         before = current
-        for call in parsed:
-            if call.get("name") == "editor_search_replace":
-                current = apply_search_replace_patches(
-                    current, call.get("arguments", {}).get("patches"), label=fragment.get("label") or fragment.get("id", "")
-                )
+        current = _apply_search_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
         if current != before:
             yield {"type": "draft_update", "draft": current}
 
@@ -178,3 +218,38 @@ async def post_processing_step(
         )
 
     yield {"type": "done", "result": PostProcessingResult(draft=current, tool_calls=all_calls)}
+
+
+async def subject_fixation_step(
+    client: LLMClient,
+    base: CachedBase,
+    draft: str,
+    settings: Settings,
+    streaks: Sequence[SubjectStreak],
+    *,
+    writer_user_msg: str | list[ContentPart],
+    kv_tracker=None,
+    reasoning_on: bool = False,
+    reasoning_prefill: str = "",
+) -> AsyncIterator[Mapping[str, Any]]:
+    """Cut the subjects *streaks* name: one forced exact-edit call over the narration. A stop mid-call keeps the draft."""
+    resp: CompletionMessage = {}
+    async for event in _search_replace_call(
+        client,
+        base,
+        resp,
+        draft,
+        build_subject_fixation_prompt([streak.reason for streak in streaks], reasoning_on=reasoning_on),
+        settings,
+        writer_user_msg=writer_user_msg,
+        kv_tracker=kv_tracker,
+        reasoning_on=reasoning_on,
+        reasoning_prefill=reasoning_prefill,
+    ):
+        yield event
+    calls = [] if client.is_aborted else parse_tool_calls(resp)
+    edited = _apply_search_replace_calls(draft, calls, label="subject_fixation", narration_only=True)
+    logger.info("Subject fixation on %s: changed=%s", [s.category for s in streaks], edited != draft)
+    if edited != draft:
+        yield {"type": "draft_update", "draft": edited}
+    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}

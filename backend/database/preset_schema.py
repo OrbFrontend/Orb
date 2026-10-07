@@ -27,9 +27,9 @@ DOMAIN_ROOTS: dict[str, str] = {
 }
 
 # Excluded tables whose rows an install derives from its own data and rebuilds on its own: the suggestion miner's output and
-# bookkeeping. An export clears them, because the suggestions quote chat sentences, which must not ride along in a preset that
-# leaves the chats out.
-DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state"})
+# bookkeeping, and the subject tagger's per-reply cache. An export clears them: the suggestions quote chat sentences and the tags
+# describe chat replies, neither of which may ride along in a preset that leaves the chats out.
+DERIVED_TABLES: frozenset[str] = frozenset({"slop_suggestions", "slop_mining_state", "message_subjects"})
 
 # Machine-local tables: never exported, and a full restore keeps the live rows.
 LOCAL_TABLES: frozenset[str] = frozenset({"access_password"})

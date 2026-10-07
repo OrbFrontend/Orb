@@ -212,6 +212,7 @@ _STEP_HEADLINES = {
     "state": "The state update didn't finish.",
     "output_auditor": "The draft audit didn't finish.",
     "length_guard": "The length check didn't finish.",
+    "subject_fixation": "The subject fixation edit didn't finish.",
     "post_processing": "Post-processing “{label}” didn't finish.",
     "feedback": "Feedback didn't finish.",
     "editor": "The Editor didn't finish.",

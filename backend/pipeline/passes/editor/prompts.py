@@ -30,7 +30,13 @@ POST_PROCESSING_RULES = (
     "- Keep each search as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
     "- Change only what the task asks for and preserve everything else.\n"
-    "- Use an empty `replace` only when the matched text should be deleted."
+    "- Use an empty `replace` only when the matched text should be deleted.\n"
+    "- Copy every `search` from the draft above, the last assistant message. Earlier replies cannot be edited."
+)
+
+SUBJECT_FIXATION_INSTRUCTION = (
+    "Find every clause in the draft that describes how these subjects look, sound or feel (color, shine, shape, texture) "
+    "and cut that detail or turn it into an action. Do not swap in a synonym: the subjects must not be described at all."
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (
@@ -104,6 +110,13 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     heading = str(fragment.get("injection_label") or "").strip()
     instruction = str(fragment.get("description") or "").strip()
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
+
+
+def build_subject_fixation_prompt(reasons: Sequence[str], *, reasoning_on: bool = False) -> str:
+    """Build the exact-edit request that cuts the subjects the draft keeps re-describing, one reason line per streak."""
+    streaks = "\n".join(f"- {reason}" for reason in reasons)
+    task = {"injection_label": "Subject fixation", "description": f"{streaks}\n\n{SUBJECT_FIXATION_INSTRUCTION}"}
+    return build_post_processing_prompt(task, reasoning_on=reasoning_on)
 
 
 def _category_rules(categories: Collection[str]) -> str:
