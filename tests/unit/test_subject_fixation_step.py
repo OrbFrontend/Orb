@@ -97,3 +97,28 @@ async def test_without_history_tags_the_draft_is_never_tagged(tagger):
     editor = Editor([])
     await _run(editor, history=None)
     assert tagger == [] and editor.calls == []
+
+
+async def test_in_bare_dialogue_only_the_asterisk_narration_may_change():
+    draft = "\n\n".join(
+        [
+            "*Her violet eyes glint as she leans across the counter, fingers drumming on the wood.*",
+            "Well, look who finally came crawling back. I was starting to think you'd forgotten me.",
+            "*She tilts her head, a smile tugging at her lips.*",
+            "Your eyes always gave you away, you know. Even now.",
+        ]
+    )
+    editor = Editor([("Your eyes always gave you away", "You always gave yourself away"), ("violet eyes glint", "gaze drifts")])
+    _, done = await _run(editor, draft=draft)
+    assert done["draft"] == draft.replace("violet eyes glint", "gaze drifts")
+
+
+async def test_a_tagger_failure_is_reported_and_keeps_the_draft(monkeypatch):
+    async def broken(narration: str):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(local_ml, "aclassify_subjects", broken)
+    editor = Editor([])
+    events, done = await _run(editor)
+    assert [ev["during"] for ev in events if ev["type"] == "failure"] == ["subject_fixation"]
+    assert editor.calls == [] and done["draft"] is None

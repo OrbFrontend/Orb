@@ -517,8 +517,10 @@ def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
     out: dict[str, list[float]] = {}
     for i, category in enumerate(SUBJECT_CATEGORIES):
         row = logits[i * width : (i + 1) * width]
-        exp = [math.exp(x - max(row)) for x in row]
-        out[category] = [x / sum(exp) for x in exp]
+        top = max(row)
+        exp = [math.exp(x - top) for x in row]
+        total = sum(exp)
+        out[category] = [x / total for x in exp]
     return out
 
 

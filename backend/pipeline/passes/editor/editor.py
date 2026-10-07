@@ -12,11 +12,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
-from ....analysis.detectors.subject_fixation import HISTORY_WINDOW, SubjectProbs, detect_subject_fixation
+from ....analysis.detectors.subject_fixation import HISTORY_WINDOW, SubjectProbs
 from ....core.settings import Settings
 from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
-from ...subject_tags import branch_tags, subjects_enabled, tag_text
+from ...subject_tags import branch_tags, subjects_enabled
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import PostProcessingResult, post_processing_active, post_processing_step, subject_fixation_step
@@ -200,37 +200,30 @@ async def editor_pass(
     final_text = draft if done["draft"] is None else done["draft"]
 
     if subject_history_tags is not None and final_text and not client.is_aborted:
-        try:
-            streaks = detect_subject_fixation(await tag_text(final_text), subject_history_tags)
-        except Exception:
-            logger.exception("Subject tagging failed; skipping the subject fixation edit")
-            streaks = []
-        if streaks:
-            yield {"type": "step", "step": "subject_fixation"}
-            async for ev in _editor_events(
-                _reporting_failures(
-                    subject_fixation_step(
-                        client,
-                        base,
-                        final_text,
-                        settings,
-                        streaks,
-                        writer_user_msg=writer_msg,
-                        kv_tracker=kv_tracker,
-                        reasoning_on=reasoning_on,
-                        reasoning_prefill=reasoning_prefill,
-                    ),
-                    during="subject_fixation",
-                    note="Subject fixation edit failed; keeping the draft",
-                )
-            ):
-                if ev["type"] == "done":
-                    fixed: PostProcessingResult = ev["result"]
-                    final_text = fixed.draft
-                    if fixed.tool_calls:
-                        done["tool_calls"] = [*(done.get("tool_calls") or []), *fixed.tool_calls]
-                else:
-                    yield ev
+        async for ev in _editor_events(
+            _reporting_failures(
+                subject_fixation_step(
+                    client,
+                    base,
+                    final_text,
+                    settings,
+                    subject_history_tags,
+                    writer_user_msg=writer_msg,
+                    kv_tracker=kv_tracker,
+                    reasoning_on=reasoning_on,
+                    reasoning_prefill=reasoning_prefill,
+                ),
+                during="subject_fixation",
+                note="Subject fixation edit failed; keeping the draft",
+            )
+        ):
+            if ev["type"] == "done":
+                fixed: PostProcessingResult = ev["result"]
+                final_text = fixed.draft
+                if fixed.tool_calls:
+                    done["tool_calls"] = [*(done.get("tool_calls") or []), *fixed.tool_calls]
+            else:
+                yield ev
 
     if post_processing_fragments and not client.is_aborted:
         yield {"type": "step", "step": "post_processing"}
@@ -295,7 +288,7 @@ async def _editor_events(events: AsyncIterator[Mapping[str, Any]]) -> AsyncItera
     async for ev in events:
         if ev["type"] == "reasoning":
             yield {**reasoning_delta_event(ev), "pass": "editor"}
-        elif ev["type"] in ("draft_update", "failure", "done"):
+        elif ev["type"] in ("step", "draft_update", "failure", "done"):
             yield ev
 
 
@@ -362,8 +355,9 @@ async def editor_stage(
                 history = [m for m in history if m.get("role") != "assistant" or m.get("content") in baseline]
             try:
                 subject_history_tags = await branch_tags(history, HISTORY_WINDOW, speaker_member_id)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Subject tagging of the history failed; skipping the subject fixation edit")
+                yield step_failure_warning(exc, "subject_fixation", stage=STAGE_EDITOR)
         # A failed Editor call does not abort the turn: editor_pass keeps the best draft reached and reports the failure as a
         # non-terminal ``warning``. A failure outside the sub-steps' own reporting, such as the initial audit, lands here.
         async for event in _reporting_failures(

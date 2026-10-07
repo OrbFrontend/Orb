@@ -31,7 +31,7 @@ class Target:
         return self.n_occurrences > 1
 
 
-def narration_mask(draft: str) -> list[bool]:
+def _narration_mask(draft: str) -> list[bool]:
     """True at offsets that are narration (outside quoted speech)."""
     mask = [True] * len(draft)
     cursor = 0
@@ -169,7 +169,7 @@ def _merge_overlapping(targets: list[Target], draft: str) -> list[Target]:
 
 def build_targets(report: AuditReport, draft: str) -> list[Target]:
     """Resolve an audit report into ordered, id-addressable targets."""
-    mask = narration_mask(draft)
+    mask = _narration_mask(draft)
 
     # Group findings by marker-stripped span text, preserving discovery order.
     by_span: dict[str, list[tuple[str, str]]] = {}

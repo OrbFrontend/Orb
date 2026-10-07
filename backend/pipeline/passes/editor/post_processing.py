@@ -9,13 +9,14 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ....analysis.detectors.subject_fixation import SubjectStreak
-from ....analysis.targets import narration_mask
+from ....analysis.detectors.subject_fixation import SubjectProbs, detect_subject_fixation
+from ....analysis.text.markup import narration_mask
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
+from ...subject_tags import tag_text
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
 from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
@@ -225,14 +226,19 @@ async def subject_fixation_step(
     base: CachedBase,
     draft: str,
     settings: Settings,
-    streaks: Sequence[SubjectStreak],
+    history_tags: Sequence[SubjectProbs],
     *,
     writer_user_msg: str | list[ContentPart],
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Cut the subjects *streaks* name: one forced exact-edit call over the narration. A stop mid-call keeps the draft."""
+    """Tag *draft* and, when it extends a streak in *history_tags* (newest first), cut those subjects with one forced exact-edit
+    call over the narration. No streak yields nothing. A stop mid-call keeps the draft."""
+    streaks = detect_subject_fixation(await tag_text(draft), history_tags)
+    if not streaks:
+        return
+    yield {"type": "step", "step": "subject_fixation"}
     resp: CompletionMessage = {}
     async for event in _search_replace_call(
         client,
@@ -249,7 +255,18 @@ async def subject_fixation_step(
         yield event
     calls = [] if client.is_aborted else parse_tool_calls(resp)
     edited = _apply_search_replace_calls(draft, calls, label="subject_fixation", narration_only=True)
-    logger.info("Subject fixation on %s: changed=%s", [s.category for s in streaks], edited != draft)
     if edited != draft:
         yield {"type": "draft_update", "draft": edited}
+    remaining = None
+    try:
+        # The save stores this reading, so the saved reply is not tagged again.
+        remaining = [streak.category for streak in detect_subject_fixation(await tag_text(edited), history_tags)]
+    except Exception:
+        logger.exception("Subject tagging of the edited draft failed")
+    logger.info(
+        "Subject fixation on %s: changed=%s, still streaking=%s",
+        [streak.category for streak in streaks],
+        edited != draft,
+        remaining,
+    )
     yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}
