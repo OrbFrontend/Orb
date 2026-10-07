@@ -35,8 +35,9 @@ POST_PROCESSING_RULES = (
 )
 
 SUBJECT_FIXATION_INSTRUCTION = (
-    "Find every clause in the draft that describes how these subjects look, sound or feel (color, shine, shape, texture) "
-    "and cut that detail or turn it into an action. Do not swap in a synonym: the subjects must not be described at all."
+    "For a subject described again, find every clause in the draft that describes how it looks, sounds or feels (color, "
+    "shine, shape, texture) and cut that detail or turn it into an action. Do not swap in a synonym: it must not be described "
+    "at all.\nFor a subject that acts again, cut its gesture rather than swap in another one: it must not act at all."
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (

@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from backend.analysis.detectors.subject_fixation import DEFAULT_RULE, RULES, detect_subject_fixation
+from backend.analysis.detectors.subject_fixation import ACTION, DEFAULT_RULE, RULES, detect_subject_fixation
 from backend.core.settings import Settings
 from backend.inference import local_ml
 from backend.pipeline import subject_tags
@@ -37,9 +37,10 @@ def test_a_draft_that_does_not_describe_the_subject_never_fires():
     assert not detect_subject_fixation({"eyes": ACTED}, _replies("eyes", "dddd"))
 
 
-def test_face_needs_every_reply_in_the_window():
-    assert not detect_subject_fixation({"face": DESCRIBED}, _replies("face", "ddd."))
-    assert detect_subject_fixation({"face": DESCRIBED}, _replies("face", "dddd"))
+@pytest.mark.parametrize("category", ["face", "voice"])
+def test_face_and_voice_fire_at_three_of_four(category):
+    assert detect_subject_fixation({category: DESCRIBED}, _replies(category, "ddd."))
+    assert not detect_subject_fixation({category: DESCRIBED}, _replies(category, "dd.."))
 
 
 @pytest.mark.parametrize("category", ["skin", "voice"])
@@ -49,6 +50,12 @@ def test_low_confidence_heads_count_only_confident_descriptions(category):
     assert not detect_subject_fixation({category: unsure}, history)
     assert detect_subject_fixation({"eyes": unsure}, [{"eyes": unsure}] * 4)
     assert RULES[category].min_prob > DEFAULT_RULE.min_prob
+
+
+def test_mouth_acting_in_every_reply_fires_as_an_action_streak():
+    assert not detect_subject_fixation({"mouth": ACTED}, _replies("mouth", "aaa."))
+    [streak] = detect_subject_fixation({"mouth": ACTED}, _replies("mouth", "aaaa"))
+    assert (streak.category, streak.count, streak.level) == ("mouth", 4, ACTION)
 
 
 def test_the_reason_names_the_count():
