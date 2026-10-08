@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ..subjects import SUBJECT_DESCRIPTIONS
-
 ABSENT, DESCRIPTION = 0, 2  # indices in each category's (absent, action, description) probabilities
 PRESENT = -1  # a level read as 1 - absent: acted or described
 
@@ -37,13 +35,6 @@ class SubjectStreak:
     count: int  # previous replies the draft repeats, or that had the subject at all
     window: int  # previous replies read
     level: int = DESCRIPTION
-
-    @property
-    def reason(self) -> str:
-        label = SUBJECT_DESCRIPTIONS.get(self.category, self.category)
-        if self.level == PRESENT:
-            return f"{label}: mentioned in the draft and all {self.window} recent replies."
-        return f"{label}: the draft repeats a descriptive detail from {self.count} of the last {self.window} replies."
 
 
 def _reaches(probs: Sequence[float] | None, rule: StreakRule) -> bool:

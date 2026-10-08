@@ -43,6 +43,3 @@ The Editor uses the same subject definitions for both cases. It changes only
 narration, leaves dialogue unchanged and uses small find-and-replace edits.
 It may return no edits when removing a mention would lose important meaning.
 In group chats, the history comes from the current speaker's own replies.
-When the pair comparer reads a draft, a `subject_fixation_repeats` entry
-under **Tool Calls** lists its score for each nominated subject against each
-recent reply, newest first.

@@ -47,9 +47,12 @@ parameters alphabetically still shows `find` before `replace`.
 Patches are applied sequentially to the evolving draft. A patch runs only when
 `find` is a non-empty string with exactly one case-sensitive match in the
 current draft and `replace` is a string different from it. Empty replacements
-delete the uniquely matched span. Malformed, missing, ambiguous, empty, and
-no-op patches are skipped while other valid patches still apply. Orb does not
-retry a fragment.
+delete the uniquely matched span and repair the seam it leaves: stranded
+whitespace, emptied `**` or `""` pairs, a marker taken from a pair that keeps
+other text, orphaned punctuation, a sentence end cut with its last clause, and
+the capital of a word that now opens the sentence. Malformed, missing,
+ambiguous, empty, and no-op patches are skipped while other valid patches still
+apply. Orb does not retry a fragment.
 
 The tool schema is frozen into the per-turn tool list whenever the Agent is on,
 so defining or toggling a fragment never rewrites it. In the built-in order it

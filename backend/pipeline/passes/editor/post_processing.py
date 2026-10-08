@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....analysis.detectors.subject_fixation import confirm, nominate, presence_streaks
+from ....analysis.healing import heal_deletion
 from ....analysis.text.markup import narration_mask
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
@@ -35,8 +36,8 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
 
     A patch is safe only when it has string ``find`` and ``replace`` values, the find is non-empty and differs from the
     replacement, and the evolving draft contains exactly one case-sensitive match; with *narration_only*, that match must also
-    lie outside quoted speech. Invalid entries do not prevent later valid patches from being considered; each one skipped is
-    logged with its reason, under the fragment *label*.
+    lie outside quoted speech. A deletion heals the seam it leaves. Invalid entries do not prevent later valid patches from being
+    considered; each one skipped is logged with its reason, under the fragment *label*.
     """
     if not isinstance(patches, list):
         if patches is not None:
@@ -66,7 +67,10 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
                 elif narration_only and not all(narration_mask(current)[first : first + len(find)]):
                     reason = "find reaches into dialogue"
                 else:
-                    current = current[:first] + replace + current[first + len(find) :]
+                    start, end = first, first + len(find)
+                    if not replace.strip():
+                        start, end, replace = heal_deletion(current, start, end)
+                    current = current[:start] + replace + current[end:]
         if reason:
             logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
@@ -242,18 +246,14 @@ async def subject_fixation_step(
     tags = await tag_text(draft)
     history_tags = [reply.probs for reply in history]
     streaks = presence_streaks(tags, history_tags)
-    records: list[ParsedToolCall] = []
     present = {streak.category for streak in streaks}
     nominees = [category for category in nominate(tags, history_tags) if category not in present]
     if nominees:
-        scores, record = await repeat_scores(draft, [reply.text for reply in history], nominees)
+        scores = await repeat_scores(draft, [reply.text for reply in history], nominees)
         if client.is_aborted:
             return
-        records.append(record)
         streaks += [streak for category in nominees if (streak := confirm(category, scores[category]))]
     if not streaks:
-        if records:
-            yield {"type": "done", "result": PostProcessingResult(draft=draft, tool_calls=records)}
         return
     yield {"type": "step", "step": "subject_fixation"}
     resp: CompletionMessage = {}
@@ -280,4 +280,4 @@ async def subject_fixation_step(
         except Exception:
             logger.exception("Subject tagging of the edited draft failed")
     logger.info("Subject fixation on %s: changed=%s", [streak.category for streak in streaks], edited != draft)
-    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=[*records, *calls])}
+    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}

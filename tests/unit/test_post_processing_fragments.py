@@ -104,6 +104,11 @@ def test_empty_replacement_deletes_unique_span():
     assert apply_find_replace_patches("Keep [aside] this.", [{"find": "[aside] ", "replace": ""}]) == "Keep this."
 
 
+def test_deleting_a_whole_emphasis_beat_heals_the_seam():
+    draft = "Mara waved. *The lamp flickered.* Tobin left."
+    assert apply_find_replace_patches(draft, [{"find": "The lamp flickered.", "replace": ""}]) == "Mara waved. Tobin left."
+
+
 def test_mixed_invalid_and_valid_patches_preserve_valid_edits():
     patches = [
         None,

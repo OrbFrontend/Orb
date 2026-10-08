@@ -114,14 +114,10 @@ async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats)
     # The Writer's exact request and the draft are replayed, so the call extends the Writer's cached prefix.
     assert [m["content"] for m in call["messages"][1:3]] == [REQUEST, DRAFT]
     prompt = call["messages"][-1]["content"]
-    assert "### Repeated descriptions" in prompt and "### Recurring subjects" not in prompt
-    assert "from 8 of the last 8 replies" in prompt
-    assert "keep all dialogue unchanged" in prompt and "keeping useful actions and new details" in prompt
+    assert prompt.splitlines()[-1] == f"- Descriptions of {SUBJECT_DESCRIPTIONS['hair']}]"
     # The comparer read the narration of each earlier reply against the draft's, one pair per reply, newest first.
     assert repeats.pairs == [subject_pair_parts(subjects_input(r.text), subjects_input(DRAFT)) for r in HISTORY]
-    assert SUBJECT_DESCRIPTIONS["hair"] in prompt
-    [record] = [call for call in done["tool_calls"] if call["name"] == subject_repeats.RECORD_NAME]
-    assert record["arguments"] == {"hair": [0.9] * 8}
+    assert [c["name"] for c in done["tool_calls"]] == ["editor_find_replace"]
 
 
 async def test_no_cut_when_the_comparer_finds_no_repeat(comparer):
@@ -155,8 +151,8 @@ async def test_a_stop_during_the_comparer_read_keeps_the_draft(monkeypatch):
 
 async def test_a_reply_without_narration_is_never_read_and_never_counts(repeats):
     spoken = '"Again? Fine."'
-    scores, record = await subject_repeats.repeat_scores(DRAFT, [EARLIER, spoken, EARLIER], ["hair"])
-    assert scores == {"hair": [0.9, None, 0.9]} and record["arguments"] == scores
+    scores = await subject_repeats.repeat_scores(DRAFT, [EARLIER, spoken, EARLIER], ["hair"])
+    assert scores == {"hair": [0.9, None, 0.9]}
     assert repeats.pairs == [subject_pair_parts(subjects_input(EARLIER), subjects_input(DRAFT))] * 2
 
 
@@ -167,9 +163,7 @@ async def test_a_subject_in_every_recent_reply_is_cut_without_the_comparer(repea
     assert {"type": "step", "step": "subject_fixation"} in events and len(editor.calls) == 1
     assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*' and repeats.pairs == []
     prompt = editor.calls[0]["messages"][-1]["content"]
-    assert "### Recurring subjects" in prompt and "### Repeated descriptions" not in prompt
-    assert "all 4 recent replies" in prompt
-    assert "needed to understand an important action or new event" in prompt
+    assert prompt.splitlines()[-1] == f"- Any mention of {SUBJECT_DESCRIPTIONS['hair']}]"
 
 
 async def test_mixed_flags_get_their_own_editing_rules_in_one_call(monkeypatch, repeats):
@@ -191,11 +185,8 @@ async def test_mixed_flags_get_their_own_editing_rules_in_one_call(monkeypatch, 
     assert done["draft"] == '*She opens the door.* "Hello."'
     [call] = editor.calls
     prompt = call["messages"][-1]["content"]
-    descriptions, mentions = prompt.split("### Repeated descriptions\n\n")[1].split("### Recurring subjects\n\n")
-    assert "- eyes or gaze:" in descriptions and "- hair on the head" not in descriptions
-    assert "- hair on the head" in mentions and "- eyes or gaze:" not in mentions
-    [record] = [call for call in done["tool_calls"] if call["name"] == subject_repeats.RECORD_NAME]
-    assert list(record["arguments"]) == ["eyes"]
+    targets = {line.rstrip("]") for line in prompt.splitlines() if line.startswith("- ")}
+    assert {f"- Descriptions of {SUBJECT_DESCRIPTIONS['eyes']}", f"- Any mention of {SUBJECT_DESCRIPTIONS['hair']}"} <= targets
 
 
 async def test_editor_can_leave_an_essential_recurring_action_unchanged(monkeypatch, repeats):
@@ -210,7 +201,6 @@ async def test_editor_can_leave_an_essential_recurring_action_unchanged(monkeypa
 
     assert done["draft"] is None and repeats.pairs == []
     [call] = editor.calls
-    assert "return an empty `patches` array" in call["messages"][-1]["content"]
     assert not any(ev["type"] == "draft_update" for ev in events)
 
 
