@@ -35,7 +35,7 @@ POST_PROCESSING_RULES = (
 )
 
 SUBJECT_FIXATION_INSTRUCTION = (
-    "Cut the harmful subjects below from your single most recent reply's narration with small edits; "
+    "Cut or supplant the harmful subjects below from your single most recent reply's narration with small edits; "
     "keep dialogue, key actions and new information. If nothing can go, return an empty `patches` array."
 )
 
