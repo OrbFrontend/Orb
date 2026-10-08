@@ -43,3 +43,7 @@ The Editor uses the same subject definitions for both cases. It changes only
 narration, leaves dialogue unchanged and uses small find-and-replace edits.
 It may return no edits when removing a mention would lose important meaning.
 In group chats, the history comes from the current speaker's own replies.
+Steered regenerations exclude the reply being replaced, even when it duplicates
+an older reply. Dialogue stays protected throughout the edits; an edit is skipped
+if healing its deletion would change dialogue. The final saved reply is tagged
+after all editing and secondary workflows finish.

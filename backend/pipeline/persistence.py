@@ -128,7 +128,7 @@ async def _persist_result(
                     wid,
                     asst_id,
                 )
-        # A memo hit, so only a row write, unless something changed the text after the Editor tagged it.
+        # Tag the final saved text after all editing and secondary workflows have finished.
         await tag_saved_reply(asst_id, resp_text, settings)
         # Counter seed scans existing rows, so this must run after add_message.
         try:

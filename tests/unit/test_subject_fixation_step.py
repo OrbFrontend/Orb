@@ -54,19 +54,28 @@ def comparer(monkeypatch):
 
 
 class Editor:
-    def __init__(self, patches: list[tuple[str, str]]):
+    def __init__(self, patches: list[tuple[str, str]], *, separate_calls: bool = False):
         self.client = LLMClient("http://localhost:9999")
         self.calls: list[dict] = []
         editor = self
 
         async def complete(*, messages, **kwargs):
             editor.calls.append({"messages": list(messages), **kwargs})
-            arguments = json.dumps({"patches": [{"find": s, "replace": r} for s, r in patches]})
+            groups = [[patch] for patch in patches] if separate_calls else [patches]
             yield {
                 "type": "done",
                 "message": {
                     "content": "",
-                    "tool_calls": [{"id": "c", "function": {"name": "editor_find_replace", "arguments": arguments}}],
+                    "tool_calls": [
+                        {
+                            "id": f"c{i}",
+                            "function": {
+                                "name": "editor_find_replace",
+                                "arguments": json.dumps({"patches": [{"find": s, "replace": r} for s, r in group]}),
+                            },
+                        }
+                        for i, group in enumerate(groups)
+                    ],
                 },
             }
 
@@ -103,7 +112,7 @@ def repeats(comparer):
     return comparer(0.9)
 
 
-async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats):
+async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats, tagger):
     editor = Editor([("Her copper braid gleams in the lamplight.", "She looks up from the lamplight.")])
     events, done = await _run(editor)
 
@@ -118,6 +127,8 @@ async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats)
     # The comparer read the narration of each earlier reply against the draft's, one pair per reply, newest first.
     assert repeats.pairs == [subject_pair_parts(subjects_input(r.text), subjects_input(DRAFT)) for r in HISTORY]
     assert [c["name"] for c in done["tool_calls"]] == ["editor_find_replace"]
+    # Persistence tags the final reply, after any later post-processing or secondary workflows.
+    assert tagger == [subjects_input(DRAFT)]
 
 
 async def test_no_cut_when_the_comparer_finds_no_repeat(comparer):
@@ -238,6 +249,24 @@ async def test_in_bare_dialogue_only_the_asterisk_narration_may_change():
     )
     _, done = await _run(editor, draft=draft)
     assert done["draft"] == draft.replace("copper braid gleams", "braid sways")
+
+
+@pytest.mark.parametrize("find", ["Her copper braid gleams.", "*Her copper braid gleams.*"])
+@pytest.mark.parametrize("separate_calls", [False, True])
+async def test_deleting_the_only_narration_beat_keeps_bare_dialogue_protected(find, separate_calls):
+    dialogue = "Your hair always gave you away."
+    draft = f"*Her copper braid gleams.*\n\n{dialogue}"
+    editor = Editor([(find, ""), (dialogue, "You gave yourself away.")], separate_calls=separate_calls)
+    _, done = await _run(editor, draft=draft)
+    assert done["draft"] == dialogue
+
+
+@pytest.mark.parametrize("dialogue", ["hello there.", '"hello there."'])
+async def test_deletion_healing_cannot_change_dialogue_and_later_safe_patches_still_apply(dialogue):
+    draft = f"*Her copper braid gleams.*\n\n{dialogue}\n\n*She waits.*"
+    editor = Editor([("*Her copper braid gleams.*", ""), ("She waits.", "She leaves.")])
+    _, done = await _run(editor, draft=draft)
+    assert done["draft"] == draft.replace("She waits.", "She leaves.")
 
 
 async def test_a_tagger_failure_is_reported_and_keeps_the_draft(monkeypatch):

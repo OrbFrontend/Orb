@@ -35,9 +35,9 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
     """Apply valid exact patches sequentially, skipping every unsafe entry.
 
     A patch is safe only when it has string ``find`` and ``replace`` values, the find is non-empty and differs from the
-    replacement, and the evolving draft contains exactly one case-sensitive match; with *narration_only*, that match must also
-    lie outside quoted speech. A deletion heals the seam it leaves. Invalid entries do not prevent later valid patches from being
-    considered; each one skipped is logged with its reason, under the fragment *label*.
+    replacement, and the evolving draft contains exactly one case-sensitive match; with *narration_only*, edits must preserve
+    the original draft's dialogue, including when a deletion heals its seam. Invalid entries do not prevent later valid patches
+    from being considered; each one skipped is logged with its reason, under the fragment *label*.
     """
     if not isinstance(patches, list):
         if patches is not None:
@@ -45,6 +45,8 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
         return draft
 
     current = draft
+    # Keep the original speech protected even if edits remove the markup that identified bare dialogue.
+    mask = narration_mask(draft) if narration_only else None
     for index, patch in enumerate(patches):
         reason = ""
         if not isinstance(patch, Mapping):
@@ -64,13 +66,19 @@ def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", 
                     reason = "find not found in the draft"
                 elif current.find(find, first + 1) >= 0:
                     reason = "find matches more than one place"
-                elif narration_only and not all(narration_mask(current)[first : first + len(find)]):
+                elif mask is not None and not all(mask[first : first + len(find)]):
                     reason = "find reaches into dialogue"
                 else:
                     start, end = first, first + len(find)
                     if not replace.strip():
                         start, end, replace = heal_deletion(current, start, end)
-                    current = current[:start] + replace + current[end:]
+                    # Healing may trim boundary whitespace, but cannot change protected speech.
+                    if mask is not None and any(not mask[i] and not current[i].isspace() for i in range(start, end)):
+                        reason = "healed deletion reaches into dialogue"
+                    else:
+                        current = current[:start] + replace + current[end:]
+                        if mask is not None:
+                            mask[start:end] = [True] * len(replace)
         if reason:
             logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
@@ -80,12 +88,15 @@ def _apply_find_replace_calls(
     draft: str, calls: Sequence[ParsedToolCall], *, label: str = "", narration_only: bool = False
 ) -> str:
     """Apply every ``editor_find_replace`` call's patches to *draft* in order."""
+    patches = []
     for call in calls:
         if call.get("name") == "editor_find_replace":
-            draft = apply_find_replace_patches(
-                draft, call.get("arguments", {}).get("patches"), label=label, narration_only=narration_only
-            )
-    return draft
+            entries = call.get("arguments", {}).get("patches")
+            if isinstance(entries, list):
+                patches.extend(entries)
+            elif entries is not None:
+                logger.warning("Post-processing %r: patches is not a list, nothing applied: %r", label, entries)
+    return apply_find_replace_patches(draft, patches, label=label, narration_only=narration_only)
 
 
 async def _find_replace_call(
@@ -274,10 +285,5 @@ async def subject_fixation_step(
     edited = _apply_find_replace_calls(draft, calls, label="subject_fixation", narration_only=True)
     if edited != draft:
         yield {"type": "draft_update", "draft": edited}
-        try:
-            # The save stores this reading, so the saved reply is not tagged again.
-            await tag_text(edited)
-        except Exception:
-            logger.exception("Subject tagging of the edited draft failed")
     logger.info("Subject fixation on %s: changed=%s", [streak.category for streak in streaks], edited != draft)
     yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}

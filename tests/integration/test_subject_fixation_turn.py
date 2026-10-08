@@ -123,3 +123,56 @@ async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(cl
     await client.post_checked(f"/api/conversations/{conv['id']}/messages/{parent}/super_regenerate", json={})
 
     assert [name for name, _ in llm_mock.calls if name == "post_processing"] == ["post_processing"]
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["solo", "group"])
+async def test_steering_excludes_a_replaced_reply_that_duplicates_older_text(client, llm_mock, monkeypatch, grouped):
+    async def actions_only(narration: str):
+        return {"hair": [0.0, 1.0, 0.0] if "braid" in narration else [1.0, 0.0, 0.0]}
+
+    monkeypatch.setattr(local_ml, "aclassify_subjects", actions_only)
+    await client.put(
+        "/api/settings",
+        json={
+            "enable_agent": True,
+            "enabled_tools": {"direct_scene": grouped, "editor_apply_patch": True},
+            "editor_audit_toggles": {**dict.fromkeys(AUDIT_TYPES, False), "subject_fixation": True},
+        },
+    )
+    speaker = None
+    if grouped:
+        cards = [await client.create("/api/characters", json={"name": name}) for name in ("Aria", "Kael")]
+        conv = await client.post_json(
+            "/api/conversations", json={"kind": "group", "members": [{"character_card_id": card} for card in cards]}
+        )
+        cid = conv["id"]
+        speaker = (await client.get_json(f"/api/conversations/{cid}/members"))[0]["id"]
+        llm_mock.enqueue_director(
+            [
+                {
+                    "type": "function",
+                    "function": {"name": "direct_scene", "arguments": {"moods": [], "speaking_plan": ["aria — Go"]}},
+                }
+            ]
+        )
+    else:
+        cid = "conv-duplicate-steer"
+        await dbmod.create_conversation(cid, "fixation", "Lyra", "a scenario")
+
+    older = ["*She tugs her braid.*", "*She fixes her braid.*", "*She holds her braid.*"]
+    parent = None
+    for turn, text in enumerate([*older, older[0]]):
+        parent, _ = await dbmod.add_message(cid, "user", f"line {turn}", 2 * turn, parent_id=parent)
+        parent, _ = await dbmod.add_message(
+            cid, "assistant", text, 2 * turn + 1, parent_id=parent, speaker_member_id=speaker, exchange_id=f"e{turn}"
+        )
+    await dbmod.set_active_leaf(cid, parent)
+
+    draft = "*She loosens her braid.*"
+    llm_mock.enqueue_writer(draft)
+    await client.post_checked(f"/api/conversations/{cid}/messages/{parent}/super_regenerate", json={})
+
+    # Three earlier replies cannot meet the four-reply presence rule. The identical target is a sibling, not evidence.
+    assert not any(name == "post_processing" for name, _ in llm_mock.calls)
+    saved = (await dbmod.get_active_path(cid))[-1]
+    assert saved["content"] == draft and saved["id"] != parent

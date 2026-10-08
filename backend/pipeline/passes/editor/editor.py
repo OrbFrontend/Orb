@@ -313,7 +313,7 @@ async def editor_stage(
     phrase_bank: list[PhraseGroup] | None,
     feedback_fragments: Sequence[Mapping[str, Any]],
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
-    editor_audit_msgs: list[str] | None,
+    editor_audit_history: Sequence[Mapping[str, Any]] | None,
     kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
     history: Sequence[Mapping[str, Any]] | None = None,
@@ -347,12 +347,14 @@ async def editor_stage(
         )
         # The draft the browser was last told is authoritative.
         announced = state.resp_text
+        # A steered regenerate audits the original branch, without the reply it replaces. Keep the rows so duplicate text
+        # cannot admit that reply; each scanner applies its own window, and subject tagging filters by group speaker first.
+        editor_audit_msgs = None
+        if editor_audit_history is not None:
+            history = editor_audit_history
+            editor_audit_msgs = [m["content"] for m in reversed(history) if m.get("role") == "assistant"]
         subject_history = None
         if cfg.audit_enabled and history is not None and subjects_enabled(settings):
-            if editor_audit_msgs is not None:
-                # The same replies the audit baseline reads: a steered regenerate leaves out the reply it replaces.
-                baseline = set(editor_audit_msgs)
-                history = [m for m in history if m.get("role") != "assistant" or m.get("content") in baseline]
             try:
                 subject_history = await branch_tags(history, HISTORY_WINDOW, speaker_member_id)
             except Exception as exc:
