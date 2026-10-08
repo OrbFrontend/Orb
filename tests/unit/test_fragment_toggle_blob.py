@@ -101,7 +101,7 @@ class TestBlobSurvivesToggles:
 
     def test_no_defined_fragment_of_a_kind_means_no_tool(self):
         _, enabled = _blob([row for row in _GLOBALS if row["field_type"] not in ("feedback", "post_processing")])
-        assert "give_feedback" not in enabled and "editor_search_replace" not in enabled
+        assert "give_feedback" not in enabled and "editor_find_replace" not in enabled
 
 
 class TestDefinedFragments:

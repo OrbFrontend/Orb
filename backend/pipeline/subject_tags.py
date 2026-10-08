@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from .. import database as db
 from ..analysis.audit import audit_on
@@ -20,14 +20,22 @@ FEATURE = "subjects_classifier"
 
 Probs = dict[str, list[float]]
 
+
+class TaggedReply(NamedTuple):
+    text: str
+    probs: Probs
+
+
 _MEMO_SIZE = 64
 _memo: dict[str, Probs] = {}
 
 
 def subjects_enabled(settings: Settings) -> bool:
-    """The Output Auditor runs with this toggle on, and the tagger is installed, downloaded, and enabled in Local ML."""
+    """The Output Auditor runs with this toggle on, a Judge model is set, and the tagger is installed, downloaded, and enabled
+    in Local ML."""
     return (
         agent_enabled(settings)
+        and bool(settings.get("decision_endpoint_id") and settings.get("decision_model"))
         and bool((settings.get("enabled_tools") or {}).get("editor_apply_patch"))
         and audit_on(settings.get("editor_audit_toggles"), "subject_fixation")
         and settings.get("local_ml_enabled", {}).get(FEATURE, True) is not False
@@ -67,8 +75,10 @@ async def tag_saved_reply(message_id: int, text: str, settings: Settings) -> Non
         logger.exception("Subject tagging failed for message %s; it will be tagged on demand", message_id)
 
 
-async def branch_tags(history: Sequence[Mapping[str, Any]], window: int, speaker_member_id: str | None = None) -> list[Probs]:
-    """Tags of the last *window* assistant replies in *history*, newest first; in a group, only *speaker_member_id*'s.
+async def branch_tags(
+    history: Sequence[Mapping[str, Any]], window: int, speaker_member_id: str | None = None
+) -> list[TaggedReply]:
+    """The last *window* assistant replies in *history* with their tags, newest first; in a group, only *speaker_member_id*'s.
 
     A reply with no stored tag, or one stored for other text or another model/input version, is tagged now and stored.
     The caller checks ``subjects_enabled`` first.
@@ -82,14 +92,14 @@ async def branch_tags(history: Sequence[Mapping[str, Any]], window: int, speaker
     ][:window]
     stored = await db.get_message_subjects([m["id"] for m in replies])
     version = tag_version()
-    out: list[Probs] = []
+    out: list[TaggedReply] = []
     for msg in replies:
         text = str(msg.get("content") or "")
         row = stored.get(msg["id"])
         if row is not None and row["version"] == version and row["content_hash"] == content_hash(text):
-            out.append(row["probs"])
+            out.append(TaggedReply(text, row["probs"]))
             continue
         probs = await tag_text(text)
         await _store(msg["id"], text, probs)
-        out.append(probs)
+        out.append(TaggedReply(text, probs))
     return out

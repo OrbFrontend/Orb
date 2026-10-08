@@ -54,7 +54,7 @@ Built-in tools use this order:
     "direct_scene",
     "editor_apply_patch",
     "editor_rewrite",
-    "editor_search_replace",
+    "editor_find_replace",
     "give_feedback",
     "update_state",
     "select_lorebook",

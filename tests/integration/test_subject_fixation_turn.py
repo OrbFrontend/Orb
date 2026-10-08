@@ -6,7 +6,7 @@ import pytest
 
 import backend.database as dbmod
 from backend.analysis.audit import AUDIT_TYPES
-from backend.inference import local_ml
+from backend.inference import DecisionClient, local_ml
 from backend.pipeline import handle_turn, subject_tags
 
 
@@ -21,6 +21,23 @@ def _tagger(monkeypatch):
     monkeypatch.setattr(subject_tags, "_memo", {})
 
 
+@pytest.fixture(autouse=True)
+async def judge_reads(client, monkeypatch) -> list[str]:
+    """A configured Judge; hair in every recent reply is a presence streak, so it is never asked."""
+    reads: list[str] = []
+
+    async def decide(self, state, questions, *, timeout=None, abort=None):  # noqa: ANN001
+        reads.append(state)
+        raise AssertionError("a presence streak needs no Judge")
+
+    monkeypatch.setattr(DecisionClient, "decide", decide)
+    endpoint = await client.post_json("/api/endpoints", json={"url": "https://judge.test/api/v1", "kind": "judge"})
+    await client.put_json(
+        "/api/decisions/config", json={"decision_endpoint_id": endpoint["id"], "decision_model": "typesafe/jev-1.13"}
+    )
+    return reads
+
+
 def _enqueue_fix(llm_mock) -> None:
     llm_mock.enqueue_post_processing(
         [
@@ -28,8 +45,8 @@ def _enqueue_fix(llm_mock) -> None:
                 "id": "f1",
                 "type": "function",
                 "function": {
-                    "name": "editor_search_replace",
-                    "arguments": {"patches": [{"search": "Her copper braid gleams in the dark.", "replace": "She looks up."}]},
+                    "name": "editor_find_replace",
+                    "arguments": {"patches": [{"find": "Her copper braid gleams in the dark.", "replace": "She looks up."}]},
                 },
             }
         ]
@@ -40,7 +57,7 @@ async def _drain(agen) -> list[dict]:
     return [event async for event in agen]
 
 
-async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock):
+async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock, judge_reads):
     cid = "conv-fixation"
     await dbmod.create_conversation(cid, "fixation", "Lyra", "a scenario")
     parent = None
@@ -68,7 +85,7 @@ async def test_a_streaking_reply_is_edited_saved_and_tagged(client, llm_mock):
     saved = (await dbmod.get_active_path(cid))[-1]
     assert saved["content"] == '*She looks up.* "You came back."'
     [row] = (await dbmod.get_message_subjects([saved["id"]])).values()
-    assert row["probs"]["hair"][2] == 0.0
+    assert row["probs"]["hair"][2] == 0.0 and judge_reads == []
 
 
 async def test_a_group_steer_reads_the_speakers_replies_past_the_audit_window(client, llm_mock):

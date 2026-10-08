@@ -9,17 +9,18 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ....analysis.detectors.subject_fixation import SubjectProbs, detect_subject_fixation
+from ....analysis.detectors.subject_fixation import confirm, nominate, presence_streaks
 from ....analysis.text.markup import narration_mask
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
-from ....prompting.tool_schemas import EDITOR_SEARCH_REPLACE_CHOICE
-from ...subject_tags import tag_text
+from ....prompting.tool_schemas import EDITOR_FIND_REPLACE_CHOICE
+from ...subject_tags import TaggedReply, tag_text
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
 from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
+from .subject_judge import repeat_scores
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,10 @@ def post_processing_active(post_processing_fragments: Sequence[Mapping[str, Any]
     return agent_on and bool(post_processing_fragments)
 
 
-def apply_search_replace_patches(draft: str, patches: object, *, label: str = "", narration_only: bool = False) -> str:
+def apply_find_replace_patches(draft: str, patches: object, *, label: str = "", narration_only: bool = False) -> str:
     """Apply valid exact patches sequentially, skipping every unsafe entry.
 
-    A patch is safe only when it has string ``search`` and ``replace`` values, the search is non-empty and differs from the
+    A patch is safe only when it has string ``find`` and ``replace`` values, the find is non-empty and differs from the
     replacement, and the evolving draft contains exactly one case-sensitive match; with *narration_only*, that match must also
     lie outside quoted speech. Invalid entries do not prevent later valid patches from being considered; each one skipped is
     logged with its reason, under the fragment *label*.
@@ -46,44 +47,44 @@ def apply_search_replace_patches(draft: str, patches: object, *, label: str = ""
     for index, patch in enumerate(patches):
         reason = ""
         if not isinstance(patch, Mapping):
-            reason = "not a search/replace object"
+            reason = "not a find/replace object"
         else:
-            search = patch.get("search")
+            find = patch.get("find")
             replace = patch.get("replace")
-            if not isinstance(search, str) or not isinstance(replace, str):
-                reason = "search and replace must both be strings"
-            elif not search:
-                reason = "empty search"
-            elif search == replace:
-                reason = "replace repeats the search"
+            if not isinstance(find, str) or not isinstance(replace, str):
+                reason = "find and replace must both be strings"
+            elif not find:
+                reason = "empty find"
+            elif find == replace:
+                reason = "replace repeats the find"
             else:
-                first = current.find(search)
+                first = current.find(find)
                 if first < 0:
-                    reason = "search not found in the draft"
-                elif current.find(search, first + 1) >= 0:
-                    reason = "search matches more than one place"
-                elif narration_only and not all(narration_mask(current)[first : first + len(search)]):
-                    reason = "search reaches into dialogue"
+                    reason = "find not found in the draft"
+                elif current.find(find, first + 1) >= 0:
+                    reason = "find matches more than one place"
+                elif narration_only and not all(narration_mask(current)[first : first + len(find)]):
+                    reason = "find reaches into dialogue"
                 else:
-                    current = current[:first] + replace + current[first + len(search) :]
+                    current = current[:first] + replace + current[first + len(find) :]
         if reason:
             logger.warning("Post-processing %r: patch %d skipped (%s): %r", label, index, reason, patch)
     return current
 
 
-def _apply_search_replace_calls(
+def _apply_find_replace_calls(
     draft: str, calls: Sequence[ParsedToolCall], *, label: str = "", narration_only: bool = False
 ) -> str:
-    """Apply every ``editor_search_replace`` call's patches to *draft* in order."""
+    """Apply every ``editor_find_replace`` call's patches to *draft* in order."""
     for call in calls:
-        if call.get("name") == "editor_search_replace":
-            draft = apply_search_replace_patches(
+        if call.get("name") == "editor_find_replace":
+            draft = apply_find_replace_patches(
                 draft, call.get("arguments", {}).get("patches"), label=label, narration_only=narration_only
             )
     return draft
 
 
-async def _search_replace_call(
+async def _find_replace_call(
     client: LLMClient,
     base: CachedBase,
     resp: CompletionMessage,
@@ -96,7 +97,7 @@ async def _search_replace_call(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """One forced ``editor_search_replace`` call over *draft* that extends the Writer's prefix; the reply lands in *resp*."""
+    """One forced ``editor_find_replace`` call over *draft* that extends the Writer's prefix; the reply lands in *resp*."""
     trailing: list[ChatMessage] = [
         {"role": "user", "content": writer_user_msg},
         {"role": "assistant", "content": draft},
@@ -107,7 +108,7 @@ async def _search_replace_call(
         resp,
         label="editor",
         trailing=trailing,
-        tool_choice=EDITOR_SEARCH_REPLACE_CHOICE,
+        tool_choice=EDITOR_FIND_REPLACE_CHOICE,
         kv_tracker=kv_tracker,
         **extract_hyperparams(settings, lane="agent"),
         **reasoning_cfg(reasoning_on, reasoning_prefill),
@@ -181,7 +182,7 @@ async def post_processing_step(
 
         resp: CompletionMessage = {}
         try:
-            async for event in _search_replace_call(
+            async for event in _find_replace_call(
                 client,
                 base,
                 resp,
@@ -207,7 +208,7 @@ async def post_processing_step(
         parsed = parse_tool_calls(resp)
         all_calls.extend(parsed)
         before = current
-        current = _apply_search_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
+        current = _apply_find_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
         if current != before:
             yield {"type": "draft_update", "draft": current}
 
@@ -226,21 +227,41 @@ async def subject_fixation_step(
     base: CachedBase,
     draft: str,
     settings: Settings,
-    history_tags: Sequence[SubjectProbs],
+    history: Sequence[TaggedReply],
+    judge_config: JudgeConfig | None,
     *,
     writer_user_msg: str | list[ContentPart],
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Tag *draft* and, when it extends a streak in *history_tags* (newest first), cut those subjects with one forced exact-edit
-    call over the narration. No streak yields nothing. A stop mid-call keeps the draft."""
-    streaks = detect_subject_fixation(await tag_text(draft), history_tags)
+    """Tag *draft*; a subject every recent reply in *history* (newest first) also had is cut, and the Judge reads each other
+    subject it describes alongside them against each of those replies. One forced exact-edit call over the narration cuts
+    them all.
+
+    Without a configured Judge only presence streaks count. Nothing to cut changes nothing. A stop keeps the draft."""
+    tags = await tag_text(draft)
+    history_tags = [reply.probs for reply in history]
+    streaks = presence_streaks(tags, history_tags)
+    records: list[ParsedToolCall] = []
+    present = {streak.category for streak in streaks}
+    nominees = [category for category in nominate(tags, history_tags) if category not in present]
+    if nominees and judge_config is not None and judge_config.configured:
+        try:
+            scores, record = await repeat_scores(
+                judge_config, draft, [reply.text for reply in history], nominees, abort=client.abort_token
+            )
+        except DecisionCancelled:
+            return
+        records.append(record)
+        streaks += [streak for category in nominees if (streak := confirm(category, scores[category]))]
     if not streaks:
+        if records:
+            yield {"type": "done", "result": PostProcessingResult(draft=draft, tool_calls=records)}
         return
     yield {"type": "step", "step": "subject_fixation"}
     resp: CompletionMessage = {}
-    async for event in _search_replace_call(
+    async for event in _find_replace_call(
         client,
         base,
         resp,
@@ -254,19 +275,13 @@ async def subject_fixation_step(
     ):
         yield event
     calls = [] if client.is_aborted else parse_tool_calls(resp)
-    edited = _apply_search_replace_calls(draft, calls, label="subject_fixation", narration_only=True)
+    edited = _apply_find_replace_calls(draft, calls, label="subject_fixation", narration_only=True)
     if edited != draft:
         yield {"type": "draft_update", "draft": edited}
-    remaining = None
-    try:
-        # The save stores this reading, so the saved reply is not tagged again.
-        remaining = [streak.category for streak in detect_subject_fixation(await tag_text(edited), history_tags)]
-    except Exception:
-        logger.exception("Subject tagging of the edited draft failed")
-    logger.info(
-        "Subject fixation on %s: changed=%s, still streaking=%s",
-        [streak.category for streak in streaks],
-        edited != draft,
-        remaining,
-    )
-    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=calls)}
+        try:
+            # The save stores this reading, so the saved reply is not tagged again.
+            await tag_text(edited)
+        except Exception:
+            logger.exception("Subject tagging of the edited draft failed")
+    logger.info("Subject fixation on %s: changed=%s", [streak.category for streak in streaks], edited != draft)
+    yield {"type": "done", "result": PostProcessingResult(draft=edited, tool_calls=[*records, *calls])}

@@ -2,18 +2,25 @@
 
 import json
 
+import httpx
 import pytest
 
-from backend.inference import CachedBase, LLMClient, local_ml
+from backend.inference import CachedBase, DecisionResponse, LLMClient, local_ml
 from backend.pipeline import subject_tags
-from backend.pipeline.passes.editor import editor_pass
+from backend.pipeline.passes.editor import editor_pass, subject_judge
+from backend.pipeline.passes.judge import JudgeConfig
+from backend.pipeline.subject_tags import TaggedReply
 from backend.prompting.tool_catalog import enabled_schemas
 
 SETTINGS = {"model_name": "test-model", "enable_agent": 1, "reasoning_enabled_passes": {}}
 REQUEST = "Mara waits at the tavern."
 DRAFT = '*Her copper braid gleams in the lamplight.* "Hello." *She waits.*'
 HAIR = {"hair": [0.0, 0.0, 1.0]}
-HISTORY = [HAIR] * 6  # hair described in every one of the last six replies
+EARLIER = '*Her copper braid catches the light.* "Again?"'
+OTHER = '*She shrugs.* "Fine."'
+# Hair described in every other reply: a nominee for the Judge, short of a presence streak.
+HISTORY = [TaggedReply(EARLIER, HAIR), TaggedReply(OTHER, {"hair": [1.0, 0.0, 0.0]})] * 4
+JUDGE = JudgeConfig(url="http://judge/alpha/decisions", model="jev")
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +36,25 @@ def tagger(monkeypatch):
     return seen
 
 
+class Judge:
+    def __init__(self, monkeypatch, repeat: float | Exception):
+        self.states: list[str] = []
+        judge = self
+
+        async def decide(client, state, questions, **kwargs):
+            judge.states.append(state)
+            if isinstance(repeat, Exception):
+                raise repeat
+            return DecisionResponse(answers={q.key: repeat for q in questions})
+
+        monkeypatch.setattr(subject_judge.DecisionClient, "decide", decide)
+
+
+@pytest.fixture
+def judge(monkeypatch):
+    return lambda repeat: Judge(monkeypatch, repeat)
+
+
 class Editor:
     def __init__(self, patches: list[tuple[str, str]]):
         self.client = LLMClient("http://localhost:9999")
@@ -37,12 +63,12 @@ class Editor:
 
         async def complete(*, messages, **kwargs):
             editor.calls.append({"messages": list(messages), **kwargs})
-            arguments = json.dumps({"patches": [{"search": s, "replace": r} for s, r in patches]})
+            arguments = json.dumps({"patches": [{"find": s, "replace": r} for s, r in patches]})
             yield {
                 "type": "done",
                 "message": {
                     "content": "",
-                    "tool_calls": [{"id": "c", "function": {"name": "editor_search_replace", "arguments": arguments}}],
+                    "tool_calls": [{"id": "c", "function": {"name": "editor_find_replace", "arguments": arguments}}],
                 },
             }
 
@@ -52,31 +78,69 @@ class Editor:
 def _base() -> CachedBase:
     return CachedBase(
         prefix=({"role": "system", "content": "sys"},),
-        tools=tuple(enabled_schemas({"editor_search_replace": True}, {})),
+        tools=tuple(enabled_schemas({"editor_find_replace": True}, {})),
         model="test-model",
     )
 
 
-async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY) -> tuple[list[dict], dict]:
+async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY, judge_config=JUDGE) -> tuple[list[dict], dict]:
     events = [
         ev
         async for ev in editor_pass(
-            editor.client, _base(), REQUEST, draft, SETTINGS, [], audit_enabled=False, subject_history_tags=history
+            editor.client,
+            _base(),
+            REQUEST,
+            draft,
+            SETTINGS,
+            [],
+            audit_enabled=False,
+            judge_config=judge_config,
+            subject_history=history,
         )
     ]
     return events, next(ev for ev in events if ev["type"] == "done")
 
 
-async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix():
+@pytest.fixture(autouse=True)
+def repeats(judge):
+    return judge(0.9)
+
+
+async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats):
     editor = Editor([("Her copper braid gleams in the lamplight.", "She looks up from the lamplight.")])
     events, done = await _run(editor)
 
     assert {"type": "step", "step": "subject_fixation"} in events
     assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*'
     [call] = editor.calls
-    assert call["tool_choice"] == {"type": "function", "function": {"name": "editor_search_replace"}}
+    assert call["tool_choice"] == {"type": "function", "function": {"name": "editor_find_replace"}}
     # The Writer's exact request and the draft are replayed, so the call extends the Writer's cached prefix.
     assert [m["content"] for m in call["messages"][1:3]] == [REQUEST, DRAFT]
+    # The Judge read the narration of each earlier reply against the draft's, one request per reply.
+    assert len(repeats.states) == 8 and all('"' not in state for state in repeats.states)
+
+
+@pytest.mark.parametrize("answer", [0.2, httpx.ConnectError("down")])
+async def test_no_cut_when_the_judge_finds_no_repeat_or_cannot_answer(judge, answer):
+    judge(answer)
+    editor = Editor([("copper braid gleams", "braid sways")])
+    events, done = await _run(editor)
+    assert editor.calls == [] and done["draft"] is None
+    assert not any(ev.get("step") == "subject_fixation" for ev in events)
+
+
+async def test_without_a_judge_a_described_subject_is_never_cut(repeats):
+    editor = Editor([("copper braid gleams", "braid sways")])
+    _, done = await _run(editor, judge_config=JudgeConfig())
+    assert editor.calls == [] and repeats.states == [] and done["draft"] is None
+
+
+async def test_a_subject_in_every_recent_reply_is_cut_without_the_judge(repeats):
+    editor = Editor([("Her copper braid gleams in the lamplight.", "She looks up from the lamplight.")])
+    history = [TaggedReply('*She tugs her braid.* "Again?"', {"hair": [0.0, 1.0, 0.0]})] * 4
+    events, done = await _run(editor, history=history, judge_config=JudgeConfig())
+    assert {"type": "step", "step": "subject_fixation"} in events and len(editor.calls) == 1
+    assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*' and repeats.states == []
 
 
 async def test_a_patch_that_reaches_into_dialogue_is_skipped():
@@ -85,10 +149,10 @@ async def test_a_patch_that_reaches_into_dialogue_is_skipped():
     assert done["draft"] == '*Her braid sways in the lamplight.* "Hello." *She waits.*'
 
 
-async def test_no_streak_means_no_call():
+async def test_no_streak_means_no_call(repeats):
     editor = Editor([])
     events, done = await _run(editor, draft="*She waits by the fire.*")
-    assert editor.calls == []
+    assert editor.calls == [] and repeats.states == []
     assert not any(ev.get("step") == "subject_fixation" for ev in events)
     assert done["draft"] is None
 

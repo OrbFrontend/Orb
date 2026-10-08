@@ -190,7 +190,7 @@ def test_a_fresh_target_reads_the_configured_model_and_resolution():
     target = _target(_bound(config), config)
     assert (target.source, target.target_id, target.model) == ("cloud", "", "grok-imagine-image")
     assert (target.width, target.height) == (1536, 1024)
-    # xAI honours neither, so the composer is told not to write an `avoid` and the attachment will say the seed was unused.
+    # xAI honours neither, so the composer is told not to write an `unwanted` and the attachment will say the seed was unused.
     assert target.supports_negative_prompt is False
     assert target.supports_seed is False
 

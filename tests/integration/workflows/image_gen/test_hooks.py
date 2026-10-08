@@ -355,7 +355,7 @@ async def test_rehydrate_replays_the_stored_model_not_todays_style(client, monke
 
 async def test_a_style_override_renders_on_the_new_style_and_discloses_the_wording(client, monkeypatch):
     """Swapping style retargets the render entirely. The prompt text cannot follow --
-    only the assembled string is stored, never the scene/avoid halves -- so say so."""
+    only the assembled string is stored, never the scene/unwanted halves -- so say so."""
     mid = await _seed("ig-swap", config=PINNED_CONFIG)
     aid = await _attach(
         mid,
@@ -588,7 +588,7 @@ def _png_image() -> ImageResult:
 
 
 def _compose_call(scene: str = "1girl, standing") -> dict:
-    args = json.dumps({"scene": scene, "avoid": ""})
+    args = json.dumps({"scene": scene, "unwanted": ""})
     return {"tool_calls": [{"id": "t1", "type": "function", "function": {"name": "compose_image_prompt", "arguments": args}}]}
 
 

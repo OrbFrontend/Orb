@@ -132,7 +132,7 @@ def test_agent_pass_toggles_gate_the_passes_without_rewriting_the_blob():
         "direct_scene",
         "editor_apply_patch",
         "editor_rewrite",
-        "editor_search_replace",
+        "editor_find_replace",
     ]
     assert not off.active_tools.get("direct_scene") and not off.active_tools.get("editor_apply_patch")
     assert on.active_tools["direct_scene"] and on.active_tools["editor_apply_patch"]

@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from backend.analysis.detectors.subject_fixation import ACTION, DEFAULT_RULE, RULES, detect_subject_fixation
+from backend.analysis.detectors.subject_fixation import PRESENT, confirm, nominate, presence_streaks
 from backend.core.settings import Settings
 from backend.inference import local_ml
 from backend.pipeline import subject_tags
@@ -19,55 +19,56 @@ def _replies(category: str, pattern: str) -> list[dict]:
 
 
 @pytest.mark.parametrize(
-    "history,fires",
+    "history,nominated",
     [
-        ("ddd.", True),  # 3 of the last 4
-        ("dd..", False),  # 2 of 4
-        ("ddda", True),
-        ("aaaa", False),  # "her eyes roll back" every reply is action, not a streak
-        ("ddd", False),  # a short chat has no whole window
-        ("....dddd", False),  # only the last 4 replies count
+        ("d......d", True),  # 2 of the last 8
+        ("d.......", False),
+        ("aaaaaaaa", False),  # "her eyes roll back" every reply is action, not description
+        ("dd", True),  # a chat repeats from its first replies, so two are enough
+        ("........dddd", False),  # only the last 8 replies count
     ],
 )
-def test_eyes_streak_counts_description_only(history, fires):
-    assert bool(detect_subject_fixation({"eyes": DESCRIBED}, _replies("eyes", history))) is fires
+def test_the_tagger_nominates_a_subject_described_in_recent_replies(history, nominated):
+    assert (nominate({"eyes": DESCRIBED}, _replies("eyes", history)) == ["eyes"]) is nominated
 
 
-def test_a_draft_that_does_not_describe_the_subject_never_fires():
-    assert not detect_subject_fixation({"eyes": ACTED}, _replies("eyes", "dddd"))
+def test_a_draft_that_does_not_describe_the_subject_is_never_nominated():
+    assert nominate({"eyes": ACTED}, _replies("eyes", "dddddddd")) == []
 
 
-@pytest.mark.parametrize("category", ["face", "voice"])
-def test_face_and_voice_fire_at_three_of_four(category):
-    assert detect_subject_fixation({category: DESCRIBED}, _replies(category, "ddd."))
-    assert not detect_subject_fixation({category: DESCRIBED}, _replies(category, "dd.."))
+def test_the_judge_confirms_a_repeat_from_two_of_the_last_eight_replies():
+    streak = confirm("eyes", [0.9, None, 0.2, 0.1, 0.1, 0.1, 0.1, 0.65])
+    assert streak is not None and (streak.count, streak.window) == (2, 8)
+    assert confirm("eyes", [0.9, 0.55, None, None, None, None, None, None]) is None  # an unread reply never counts
+    assert confirm("eyes", [0.9] + [0.1] * 7 + [0.9]) is None  # only the last 8 count
+    short = confirm("eyes", [0.9, 0.7])  # the third reply of a chat
+    assert short is not None and (short.count, short.window) == (2, 2)
 
 
-@pytest.mark.parametrize("category", ["skin", "voice"])
-def test_low_confidence_heads_count_only_confident_descriptions(category):
-    unsure = (0.15, 0.15, 0.7)  # a description at 0.7 counts for eyes, not here
-    history = [{category: unsure}] * 4
-    assert not detect_subject_fixation({category: unsure}, history)
-    assert detect_subject_fixation({"eyes": unsure}, [{"eyes": unsure}] * 4)
-    assert RULES[category].min_prob > DEFAULT_RULE.min_prob
+@pytest.mark.parametrize(
+    "history,fires",
+    [
+        ("adad", True),  # the eyes in every reply, worded anew each time
+        ("ada.", False),
+        ("aaa", False),  # a chat needs four earlier replies
+        ("dddd....", True),  # only the last four count
+    ],
+)
+def test_any_subject_in_every_recent_reply_fires_as_a_presence_streak(history, fires):
+    history_tags = [{**reply, "voice": DESCRIBED} for reply in _replies("eyes", history)]
+    streaks = presence_streaks({"eyes": ACTED, "voice": ABSENT}, history_tags)  # a subject the draft leaves out never fires
+    assert [(s.category, s.count, s.level) for s in streaks] == ([("eyes", 4, PRESENT)] if fires else [])
 
 
-def test_mouth_acting_in_every_reply_fires_as_an_action_streak():
-    assert not detect_subject_fixation({"mouth": ACTED}, _replies("mouth", "aaa."))
-    [streak] = detect_subject_fixation({"mouth": ACTED}, _replies("mouth", "aaaa"))
-    assert (streak.category, streak.count, streak.level) == ("mouth", 4, ACTION)
-
-
-def test_the_reason_names_the_count():
-    [streak] = detect_subject_fixation({"lower_body": DESCRIBED}, _replies("lower_body", "d.dd"))
-    assert (streak.category, streak.count, streak.window) == ("lower_body", 3, 4)
-
-
-def _settings(toggle: bool | None, local: dict | None = None, *, agent: bool = True, auditor: bool = True) -> Settings:
+def _settings(
+    toggle: bool | None, local: dict | None = None, *, agent: bool = True, auditor: bool = True, judge: bool = True
+) -> Settings:
     toggles = {} if toggle is None else {"subject_fixation": toggle}
     return cast(
         Settings,
         {
+            "decision_endpoint_id": 1 if judge else None,
+            "decision_model": "typesafe/jev-1.13",
             "enable_agent": int(agent),
             "enabled_tools": {"editor_apply_patch": auditor},
             "editor_audit_toggles": toggles,
@@ -77,19 +78,20 @@ def _settings(toggle: bool | None, local: dict | None = None, *, agent: bool = T
 
 
 @pytest.mark.parametrize(
-    "toggle,local,model,agent,auditor,enabled",
+    "toggle,local,model,agent,auditor,judge,enabled",
     [
-        (True, {}, True, True, True, True),
-        (None, {}, True, True, True, False),  # off by default
-        (False, {}, True, True, True, False),
-        (True, {"subjects_classifier": False}, True, True, True, False),  # disabled in Local ML
-        (True, {}, False, True, True, False),  # model absent
-        (True, {}, True, False, True, False),  # the Output Auditor needs the Agent
-        (True, {}, True, True, False, False),  # and its own toggle
+        (True, {}, True, True, True, True, True),
+        (None, {}, True, True, True, True, False),  # off by default
+        (False, {}, True, True, True, True, False),
+        (True, {"subjects_classifier": False}, True, True, True, True, False),  # disabled in Local ML
+        (True, {}, False, True, True, True, False),  # model absent
+        (True, {}, True, False, True, True, False),  # the Output Auditor needs the Agent
+        (True, {}, True, True, False, True, False),  # and its own toggle
+        (True, {}, True, True, True, False, False),  # the Judge confirms every cut
     ],
 )
-def test_subjects_enabled_needs_the_auditor_the_toggle_and_a_ready_model(
-    monkeypatch, toggle, local, model, agent, auditor, enabled
+def test_subjects_enabled_needs_the_auditor_the_toggle_a_judge_and_a_ready_model(
+    monkeypatch, toggle, local, model, agent, auditor, judge, enabled
 ):
     monkeypatch.setattr(local_ml, "available", lambda feature: (model, ""))
-    assert subject_tags.subjects_enabled(_settings(toggle, local, agent=agent, auditor=auditor)) is enabled
+    assert subject_tags.subjects_enabled(_settings(toggle, local, agent=agent, auditor=auditor, judge=judge)) is enabled

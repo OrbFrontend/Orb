@@ -12,11 +12,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
-from ....analysis.detectors.subject_fixation import HISTORY_WINDOW, SubjectProbs
+from ....analysis.detectors.subject_fixation import HISTORY_WINDOW
 from ....core.settings import Settings
 from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
-from ...subject_tags import branch_tags, subjects_enabled
+from ...subject_tags import TaggedReply, branch_tags, subjects_enabled
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import PostProcessingResult, post_processing_active, post_processing_step, subject_fixation_step
@@ -155,11 +155,11 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
-    subject_history_tags: Sequence[SubjectProbs] | None = None,
+    subject_history: Sequence[TaggedReply] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
     """Run the audit/edit loop, the subject fixation edit, post-processing fragments, and feedback.
 
-    *subject_history_tags* (newest first) turns the subject fixation edit on; None leaves it off.
+    *subject_history* (newest first) turns the subject fixation edit on; None leaves it off.
 
     A failing call does not end the pass. Its sub-step reports it as a ``failure`` event and keeps what its finished calls
     produced; the later sub-steps still run on the best draft reached.
@@ -199,7 +199,7 @@ async def editor_pass(
     # A None draft means "unchanged"; an empty string remains a meaningful post-processing result.
     final_text = draft if done["draft"] is None else done["draft"]
 
-    if subject_history_tags is not None and final_text and not client.is_aborted:
+    if subject_history is not None and final_text and not client.is_aborted:
         async for ev in _editor_events(
             _reporting_failures(
                 subject_fixation_step(
@@ -207,7 +207,8 @@ async def editor_pass(
                     base,
                     final_text,
                     settings,
-                    subject_history_tags,
+                    subject_history,
+                    judge_config,
                     writer_user_msg=writer_msg,
                     kv_tracker=kv_tracker,
                     reasoning_on=reasoning_on,
@@ -347,14 +348,14 @@ async def editor_stage(
         )
         # The draft the browser was last told is authoritative.
         announced = state.resp_text
-        subject_history_tags = None
+        subject_history = None
         if cfg.audit_enabled and history is not None and subjects_enabled(settings):
             if editor_audit_msgs is not None:
                 # The same replies the audit baseline reads: a steered regenerate leaves out the reply it replaces.
                 baseline = set(editor_audit_msgs)
                 history = [m for m in history if m.get("role") != "assistant" or m.get("content") in baseline]
             try:
-                subject_history_tags = await branch_tags(history, HISTORY_WINDOW, speaker_member_id)
+                subject_history = await branch_tags(history, HISTORY_WINDOW, speaker_member_id)
             except Exception as exc:
                 logger.exception("Subject tagging of the history failed; skipping the subject fixation edit")
                 yield step_failure_warning(exc, "subject_fixation", stage=STAGE_EDITOR)
@@ -380,7 +381,7 @@ async def editor_stage(
                 post_processing_fragments=post_processing_fragments if post_processing_needed else None,
                 feedback_fragments=feedback_fragments if feedback_needed else None,
                 judge_config=judge_config,
-                subject_history_tags=subject_history_tags,
+                subject_history=subject_history,
             ),
             during="editor",
             note="Editor pass failed; keeping the draft it had reached",

@@ -16,7 +16,7 @@ from backend.inference import AbortToken, LLMClient
 _PASS_BY_FUNCTION = {
     "editor_apply_patch": "editor",
     "editor_rewrite": "editor",
-    "editor_search_replace": "post_processing",
+    "editor_find_replace": "post_processing",
     "direct_scene": "director",
     "give_feedback": "feedback",
     "update_state": "state",
@@ -152,7 +152,7 @@ class FakeLLMClient:
         self._queues["feedback"].append({"tool_calls": tool_calls})
 
     def enqueue_post_processing(self, tool_calls: list[dict]) -> None:
-        """Queue one fragment's forced ``editor_search_replace`` response."""
+        """Queue one fragment's forced ``editor_find_replace`` response."""
         _validate_tool_calls(tool_calls)
         self._queues["post_processing"].append({"tool_calls": tool_calls})
 

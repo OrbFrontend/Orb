@@ -35,14 +35,17 @@ Document Mode is unchanged.
 
 ## Exact-match safety
 
-The Editor returns the built-in `editor_search_replace` tool:
+The Editor returns the built-in `editor_find_replace` tool:
 
 ```json
-{"patches":[{"search":"exact current text","replace":"replacement text"}]}
+{"patches":[{"find":"exact current text","replace":"replacement text"}]}
 ```
 
+The keys sort in the order they are written, so a chat template that renders tool
+parameters alphabetically still shows `find` before `replace`.
+
 Patches are applied sequentially to the evolving draft. A patch runs only when
-`search` is a non-empty string with exactly one case-sensitive match in the
+`find` is a non-empty string with exactly one case-sensitive match in the
 current draft and `replace` is a string different from it. Empty replacements
 delete the uniquely matched span. Malformed, missing, ambiguous, empty, and
 no-op patches are skipped while other valid patches still apply. Orb does not
@@ -122,7 +125,7 @@ the Stop are kept, and no later fragment, Feedback, or workflow starts.
 ### In the Inspector
 
 Each gate adds a `post_processing_gate` entry under **Tool Calls**, before its
-fragment's `editor_search_replace` call when that runs:
+fragment's `editor_find_replace` call when that runs:
 
 ```json
 {"fragment_id":"trim","label":"Trim","question":"Do more than two distinct actions happen in the reply?",

@@ -136,7 +136,7 @@ truth; Orb's local tracker is only a diagnostic signal.
 
 The Agent's own tools follow the same rule. Whenever the Agent is on, the blob
 offers `direct_scene`, `editor_apply_patch`, `editor_rewrite`, and
-`editor_search_replace`, and
+`editor_find_replace`, and
 `select_lorebook` whenever Agentic Lorebook is enabled. The Director toggle,
 the output auditor toggle, the length guard, and whether any entry is pickable
 gate the passes through `PipelineConfig.active_tools` and the lorebook turn;

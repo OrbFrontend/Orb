@@ -62,6 +62,13 @@ def test_tool_contract_and_offered_order_are_stable():
     assert params["required"] == ["skill_ids", "visible_subjects"]
     assert params["properties"]["skill_ids"]["maxItems"] == 4
     assert prompts.OFFER_TOOLS == ("read_image_skills", "compose_image_prompt", "refine_image_prompt")
+    # Gemma's template renders properties sorted, so the order the model writes them in must survive sorting.
+    for schema, order in (
+        (prompts.COMPOSE_TOOL_SCHEMA, ["scene", "unwanted", "visible_subjects"]),
+        (prompts.REFINE_TOOL_SCHEMA, ["critique", "done", "reseed", "scene", "unwanted"]),
+    ):
+        properties = schema["function"]["parameters"]["properties"]
+        assert list(properties) == sorted(properties) == order
 
 
 async def test_review_reason_is_not_logged(monkeypatch, caplog):
@@ -147,9 +154,9 @@ async def test_selector_exception_and_empty_usable_library_skip_safely(monkeypat
 async def test_composer_receives_only_selected_bodies_in_library_order(monkeypatch):
     calls: list[dict] = []
     selected = [_skill("first", instructions="FIRST INSTRUCTION"), _skill("second", instructions="SECOND INSTRUCTION")]
-    scene, avoid, mode = await _compose(
+    scene, unwanted, mode = await _compose(
         monkeypatch,
-        {"scene": "1girl, solo, hugging", "avoid": "frontal view", "visible_subjects": []},
+        {"scene": "1girl, solo, hugging", "unwanted": "frontal view", "visible_subjects": []},
         selected_skills=selected,
         visible_subjects=["Iris"],
         subjects=[_subject("Iris", "silver hair")],
@@ -158,7 +165,7 @@ async def test_composer_receives_only_selected_bodies_in_library_order(monkeypat
     )
 
     assert "silver hair" in scene
-    assert avoid == "frontal view"
+    assert unwanted == "frontal view"
     assert mode == "scene_skills"
     tail = calls[0]["tail_messages"][0]["content"]
     assert tail.index("FIRST INSTRUCTION") < tail.index("SECOND INSTRUCTION")
@@ -171,7 +178,7 @@ async def test_prompter_reference_requests_the_current_story_instead_of_a_captio
     calls: list[dict] = []
     await _compose(
         monkeypatch,
-        {"scene": "1girl, solo, standing", "avoid": None, "visible_subjects": []},
+        {"scene": "1girl, solo, standing", "unwanted": None, "visible_subjects": []},
         prompter_reference_url="data:image/png;base64,earlier-picture",
         prompter_reference_sent=also_sent,
         calls=calls,
@@ -191,7 +198,7 @@ async def test_prompter_reference_requests_the_current_story_instead_of_a_captio
 async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeypatch):
     scene, _, mode = await _compose(
         monkeypatch,
-        {"scene": "1girl, solo, window", "avoid": None, "visible_subjects": ["Ashley"]},
+        {"scene": "1girl, solo, window", "unwanted": None, "visible_subjects": ["Ashley"]},
         subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red hair")],
     )
     assert "red hair" in scene and "silver hair" not in scene
@@ -201,7 +208,7 @@ async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeyp
 async def test_valid_selector_visibility_overrides_composer_visibility(monkeypatch):
     scene, _, _ = await _compose(
         monkeypatch,
-        {"scene": "1girl, solo, window", "avoid": None, "visible_subjects": ["Ashley"]},
+        {"scene": "1girl, solo, window", "unwanted": None, "visible_subjects": ["Ashley"]},
         subjects=[_subject("Iris", "silver hair"), _subject("Ashley", "red hair")],
         visible_subjects=["Iris"],
     )
@@ -223,7 +230,7 @@ async def test_reasoning_and_offer_order_reach_both_calls_without_a_budget_overr
         _fake_forced(
             {
                 "read_image_skills": {"skill_ids": ["hug"], "visible_subjects": ["Iris"]},
-                "compose_image_prompt": {"scene": "1girl, solo", "avoid": None, "visible_subjects": []},
+                "compose_image_prompt": {"scene": "1girl, solo", "unwanted": None, "visible_subjects": []},
             },
             calls,
         ),
@@ -258,7 +265,7 @@ async def test_reasoning_and_offer_order_reach_both_calls_without_a_budget_overr
 async def test_background_draws_a_place_card_as_the_setting_with_zero_count_first(monkeypatch):
     scene, _, _ = await _compose(
         monkeypatch,
-        {"scene": "no humans, scenery, empty hallway, buzzing lights", "avoid": None, "visible_subjects": ["Backrooms"]},
+        {"scene": "no humans, scenery, empty hallway, buzzing lights", "unwanted": None, "visible_subjects": ["Backrooms"]},
         prompt_format="tags",
         pov=BACKGROUND,
         subjects=[_subject("Backrooms", "yellow wallpaper, damp carpet")],
@@ -270,4 +277,4 @@ async def test_background_draws_a_place_card_as_the_setting_with_zero_count_firs
 
 async def test_empty_composition_remains_failure_critical(monkeypatch):
     with pytest.raises(ValueError, match="couldn't compose"):
-        await _compose(monkeypatch, {"scene": "", "avoid": None, "visible_subjects": []}, pov=THIRD)
+        await _compose(monkeypatch, {"scene": "", "unwanted": None, "visible_subjects": []}, pov=THIRD)

@@ -44,7 +44,7 @@ def _fragment(fid: str, gate: str = "", sort_order: int = 0, replies: int = 0) -
 def _base() -> CachedBase:
     return CachedBase(
         prefix=({"role": "system", "content": "sys"},),
-        tools=tuple(enabled_schemas({"editor_search_replace": True}, {})),
+        tools=tuple(enabled_schemas({"editor_find_replace": True}, {})),
         model="test-model",
     )
 
@@ -64,12 +64,12 @@ class Editor:
             if editor.on_call is not None:
                 editor.on_call()
             search, replace = editor.patches.pop(0) if editor.patches else ("", "")
-            arguments = json.dumps({"patches": [{"search": search, "replace": replace}]})
+            arguments = json.dumps({"patches": [{"find": search, "replace": replace}]})
             yield {
                 "type": "done",
                 "message": {
                     "content": "",
-                    "tool_calls": [{"id": "c", "function": {"name": "editor_search_replace", "arguments": arguments}}],
+                    "tool_calls": [{"id": "c", "function": {"name": "editor_find_replace", "arguments": arguments}}],
                 },
             }
 
@@ -382,11 +382,11 @@ async def test_each_gate_sees_the_request_and_the_evolving_draft(monkeypatch):
     assert editor.drafts == ["Hello there.", "Hey there.", "Hey, friend."]
     assert result.draft == "Hey, pal."
     assert [call["name"] for call in result.tool_calls] == [
-        "editor_search_replace",
+        "editor_find_replace",
         "post_processing_gate",
-        "editor_search_replace",
+        "editor_find_replace",
         "post_processing_gate",
-        "editor_search_replace",
+        "editor_find_replace",
     ]
 
 
@@ -400,7 +400,7 @@ async def test_a_skipped_fragment_leaves_the_draft_for_the_next_one(monkeypatch)
     assert [call["name"] for call in result.tool_calls] == [
         "post_processing_gate",
         "post_processing_gate",
-        "editor_search_replace",
+        "editor_find_replace",
     ]
     assert [event["draft"] for event in events if event["type"] == "draft_update"] == ["Hey there."]
 
@@ -539,7 +539,7 @@ async def test_stop_during_a_pending_gate_keeps_earlier_work_and_starts_nothing(
     assert feedback_calls == []
     done = events[-1]
     assert done["draft"] == "Hey there."
-    assert [call["name"] for call in done["tool_calls"]] == ["editor_search_replace"]
+    assert [call["name"] for call in done["tool_calls"]] == ["editor_find_replace"]
 
 
 async def test_stop_racing_a_completed_answer_skips_the_fragment(monkeypatch):

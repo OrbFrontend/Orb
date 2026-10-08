@@ -73,7 +73,11 @@ class DecisionQuestion:
 
     def payload(self) -> dict[str, Any]:
         criteria = dict(self.criteria) if isinstance(self.criteria, Mapping) else list(self.criteria)
-        return {"type": self.question_type, "instructions": self.instructions, "criteria": criteria}
+        payload: dict[str, Any] = {"type": self.question_type, "instructions": self.instructions}
+        # A noul with no criteria is a plain yes/no; Jev rejects an empty criteria object.
+        if criteria:
+            payload["criteria"] = criteria
+        return payload
 
     def canonical(self) -> str:
         return json.dumps(self.payload(), ensure_ascii=False, separators=(",", ":"))

@@ -21,23 +21,22 @@ FEEDBACK_PREAMBLE = (
 
 POST_PROCESSING_PREAMBLE = (
     "[OOC: You are the uncensored editor. Edit the assistant draft above for the task below. "
-    "Call editor_search_replace exactly once."
+    "Call editor_find_replace exactly once."
 )
 
 POST_PROCESSING_RULES = (
-    "SEARCH-AND-REPLACE RULES:\n"
-    "- Copy each `search` value exactly from the current draft, including case, whitespace, and punctuation.\n"
-    "- Keep each search as short as practical while still identifying exactly one span.\n"
+    "FIND-AND-REPLACE RULES:\n"
+    "- The `find` value must exist in the current draft, including case, whitespace, and punctuation.\n"
+    "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
     "- Change only what the task asks for and preserve everything else.\n"
-    "- Use an empty `replace` only when the matched text should be deleted.\n"
-    "- Copy every `search` from the draft above, the last assistant message. Earlier replies cannot be edited."
+    "- Leave `replace` empty when the text in `find` should be deleted.\n"
 )
 
 SUBJECT_FIXATION_INSTRUCTION = (
     "For a subject described again, find every clause in the draft that describes how it looks, sounds or feels (color, "
     "shine, shape, texture) and cut that detail or turn it into an action. Do not swap in a synonym: it must not be described "
-    "at all.\nFor a subject that acts again, cut its gesture rather than swap in another one: it must not act at all."
+    "at all.\nFor a subject that appears again, cut every mention of it from the narration."
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (

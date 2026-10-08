@@ -427,7 +427,7 @@ async def _generate_fresh(
     refine_turns = int(config.get("refine_turns") or 0)
     thread = RefineThread() if refine_turns > 0 else None
     try:
-        scene, avoid, composer_mode = await compose_scene(
+        scene, unwanted, composer_mode = await compose_scene(
             client=ctx.agent_client,
             model_name=ctx.agent_model_name,
             prefix=prefix,
@@ -456,7 +456,7 @@ async def _generate_fresh(
             f"The prompter call with the earlier chat image failed: {exc}. "
             "Prompter reference needs a prompter model that accepts images."
         ) from exc
-    prompt, negative = assemble_prompts(selected_style, profile, scene, avoid)
+    prompt, negative = assemble_prompts(selected_style, profile, scene, unwanted)
     if not prompt.strip():
         raise ImageGenerationError("the composed image prompt came out empty; try generating again")
     seed = _fresh_seed()
@@ -540,7 +540,7 @@ async def _generate_fresh(
             logger.warning("[image_gen] review of render %d failed; keeping it", current, exc_info=True)
             revision = None
         revised_prompt, revised_negative = (
-            assemble_prompts(selected_style, profile, revision.scene, revision.avoid) if revision else ("", "")
+            assemble_prompts(selected_style, profile, revision.scene, revision.unwanted) if revision else ("", "")
         )
         if revision is None:
             phase("No usable review; keeping the current render.")

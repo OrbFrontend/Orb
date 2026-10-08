@@ -14,6 +14,8 @@ ON = cast(
     Settings,
     {
         "enable_agent": 1,
+        "decision_endpoint_id": 1,
+        "decision_model": "typesafe/jev-1.13",
         "enabled_tools": {"editor_apply_patch": True},
         "editor_audit_toggles": {"subject_fixation": True},
         "local_ml_enabled": {},
@@ -57,7 +59,7 @@ async def test_tags_are_stored_at_save_and_reused(tagger):
     subject_tags._memo.clear()
     tags = await subject_tags.branch_tags(rows, window=6)
     assert tagger == []  # read back, not recomputed
-    assert [t["hair"][2] for t in tags] == [0.0, 1.0]  # newest first
+    assert [t.probs["hair"][2] for t in tags] == [0.0, 1.0]  # newest first
 
 
 async def test_an_edited_or_untagged_reply_is_tagged_on_read(tagger):
@@ -69,7 +71,7 @@ async def test_an_edited_or_untagged_reply_is_tagged_on_read(tagger):
 
     tags = await subject_tags.branch_tags(rows, window=6)
     assert sorted(tagger) == ["*She turns away.*", "*She waits.*"]
-    assert [t["hair"][2] for t in tags] == [0.0, 0.0]
+    assert [t.probs["hair"][2] for t in tags] == [0.0, 0.0]
     stored = await dbmod.get_message_subjects([rows[1]["id"], rows[3]["id"]])
     assert {r["content_hash"] for r in stored.values()} == {
         subject_tags.content_hash("*She turns away.*"),
@@ -104,5 +106,5 @@ async def test_a_group_member_is_counted_on_their_own_replies(tagger):
         rows.append({"id": mid, "role": "assistant", "content": text, "speaker_member_id": speaker})
         parent = mid
     ana = await subject_tags.branch_tags(rows, window=6, speaker_member_id="ana")
-    assert [t["hair"][2] for t in ana] == [1.0, 1.0]
+    assert [t.probs["hair"][2] for t in ana] == [1.0, 1.0]
     assert len(await subject_tags.branch_tags(rows, window=6)) == 3  # solo chats pass no speaker: every reply counts

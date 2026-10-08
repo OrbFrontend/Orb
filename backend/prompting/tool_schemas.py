@@ -287,12 +287,12 @@ EDITOR_REWRITE_TOOL = {
     },
 }
 
-EDITOR_SEARCH_REPLACE_TOOL = {
+EDITOR_FIND_REPLACE_TOOL = {
     "type": "function",
     "function": {
-        "name": "editor_search_replace",
+        "name": "editor_find_replace",
         "description": (
-            "Edit the current draft with exact search-and-replace patches. Each search string must identify "
+            "Edit the current draft with exact find-and-replace patches. Each find string must identify "
             "exactly one span in the current draft."
         ),
         "parameters": {
@@ -303,7 +303,7 @@ EDITOR_SEARCH_REPLACE_TOOL = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "search": {
+                            "find": {
                                 "type": "string",
                                 "description": "Exact, case-sensitive text copied from the current draft.",
                             },
@@ -312,7 +312,7 @@ EDITOR_SEARCH_REPLACE_TOOL = {
                                 "description": "Replacement text. Use an empty string to delete the matched span.",
                             },
                         },
-                        "required": ["search", "replace"],
+                        "required": ["find", "replace"],
                     },
                     "description": "Exact replacements to apply sequentially to the current draft.",
                 }
@@ -322,7 +322,7 @@ EDITOR_SEARCH_REPLACE_TOOL = {
     },
 }
 
-EDITOR_SEARCH_REPLACE_CHOICE = {"type": "function", "function": {"name": "editor_search_replace"}}
+EDITOR_FIND_REPLACE_CHOICE = {"type": "function", "function": {"name": "editor_find_replace"}}
 
 EDITOR_APPLY_PATCH_TOOL = {
     "type": "function",

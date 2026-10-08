@@ -1,11 +1,12 @@
-"""Subject fixation: the draft describes a subject that most recent replies already described."""
+"""Subject fixation: the draft re-describes a subject recent replies described, or brings in one every recent reply had."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-ACTION, DESCRIPTION = 1, 2  # indices in each category's (absent, action, description) probabilities
+ABSENT, DESCRIPTION = 0, 2  # indices in each category's (absent, action, description) probabilities
+PRESENT = -1  # a level read as 1 - absent: acted or described
 
 #: ``{category: [absent, action, description]}``.
 SubjectProbs = Mapping[str, Sequence[float]]
@@ -14,23 +15,18 @@ SubjectProbs = Mapping[str, Sequence[float]]
 @dataclass(frozen=True)
 class StreakRule:
     window: int  # how many previous replies are read
-    min_count: int  # how many of them must reach min_prob at level
-    min_prob: float  # P(level) at which one reply counts
+    min_count: int  # how many of them must reach min_prob
+    min_prob: float  # the probability at which one reply counts
     level: int = DESCRIPTION
 
 
-# face, skin and voice are the noisiest heads, so a reply counts only at high confidence.
-DEFAULT_RULE = StreakRule(window=4, min_count=3, min_prob=0.6)
-RULES: dict[str, StreakRule] = {
-    "face": StreakRule(window=4, min_count=3, min_prob=0.7),
-    "skin": StreakRule(window=4, min_count=3, min_prob=0.8),
-    "voice": StreakRule(window=4, min_count=3, min_prob=0.8),
-}
-# Actions streak too, but most heads act in most replies; the mouth's repeated gesture (agape, smirk) is the one worth a cut.
-ACTION_RULES: dict[str, StreakRule] = {
-    "mouth": StreakRule(window=4, min_count=4, min_prob=0.7, level=ACTION),
-}
-HISTORY_WINDOW = max(rule.window for rule in (DEFAULT_RULE, *RULES.values(), *ACTION_RULES.values()))
+# The tagger nominates subjects the draft and recent replies describe; it cannot tell a repeated description from a new one.
+NOMINATE_RULE = StreakRule(window=8, min_count=2, min_prob=0.5)
+# The Judge confirms a nominee: its repeat probability against each earlier reply, read pairwise.
+REPEAT_RULE = StreakRule(window=8, min_count=2, min_prob=0.6)
+# A subject in every recent reply is a tic however it is worded (a new look for the eyes each turn); cut on presence alone.
+PRESENCE_RULE = StreakRule(window=4, min_count=4, min_prob=0.7, level=PRESENT)
+HISTORY_WINDOW = max(rule.window for rule in (NOMINATE_RULE, REPEAT_RULE, PRESENCE_RULE))
 
 LABELS: dict[str, str] = {
     "breath": "breathing or heartbeat",
@@ -49,27 +45,52 @@ LABELS: dict[str, str] = {
 @dataclass(frozen=True)
 class SubjectStreak:
     category: str
-    count: int  # previous replies that described it, or gave it an action
+    count: int  # previous replies the draft repeats, or that had the subject at all
     window: int  # previous replies read
     level: int = DESCRIPTION
 
     @property
     def reason(self) -> str:
         label = LABELS.get(self.category, self.category)
-        if self.level == ACTION:
-            return f"The draft has the {label} act again (it already acted in {self.count} of the last {self.window} replies)."
-        return f"The draft describes {label} again (already described in {self.count} of the last {self.window} replies)."
+        if self.level == PRESENT:
+            return f"The draft mentions {label} again - this is repetitive."
+        return f"The draft describes {label} again - this is repetitive."
 
 
-def detect_subject_fixation(draft: SubjectProbs, history: Sequence[SubjectProbs]) -> list[SubjectStreak]:
-    """Streaks the draft extends. *history* is newest first; a rule needs its whole window, so short chats never fire."""
-    streaks: list[SubjectStreak] = []
-    for category, probs in draft.items():
-        for rule in (RULES.get(category, DEFAULT_RULE), ACTION_RULES.get(category)):
-            if rule is None or probs[rule.level] < rule.min_prob or len(history) < rule.window:
-                continue
-            window = history[: rule.window]
-            count = sum(1 for reply in window if reply.get(category, (1.0, 0.0, 0.0))[rule.level] >= rule.min_prob)
-            if count >= rule.min_count:
-                streaks.append(SubjectStreak(category, count, rule.window, rule.level))
-    return streaks
+def _reaches(probs: Sequence[float] | None, rule: StreakRule) -> bool:
+    if probs is None:
+        return False
+    return (1.0 - probs[ABSENT] if rule.level == PRESENT else probs[rule.level]) >= rule.min_prob
+
+
+def _count(history: Sequence[SubjectProbs], category: str, rule: StreakRule) -> int:
+    """Replies in *rule*'s window that reach it; a chat shorter than the window counts what it has."""
+    return sum(1 for reply in history[: rule.window] if _reaches(reply.get(category), rule))
+
+
+def nominate(draft: SubjectProbs, history: Sequence[SubjectProbs]) -> list[str]:
+    """Categories the draft describes and recent replies (newest first) described, for the Judge to read."""
+    rule = NOMINATE_RULE
+    return [
+        category
+        for category, probs in draft.items()
+        if _reaches(probs, rule) and _count(history, category, rule) >= rule.min_count
+    ]
+
+
+def confirm(category: str, repeat_probs: Sequence[float | None]) -> SubjectStreak | None:
+    """The streak when the draft repeats *category*'s description from enough earlier replies (newest first; None = unread)."""
+    rule = REPEAT_RULE
+    read = repeat_probs[: rule.window]
+    count = sum(1 for p in read if p is not None and p >= rule.min_prob)
+    return SubjectStreak(category, count, len(read)) if count >= rule.min_count else None
+
+
+def presence_streaks(draft: SubjectProbs, history: Sequence[SubjectProbs]) -> list[SubjectStreak]:
+    """Subjects the draft has that every recent reply (newest first) also had, read from tags alone."""
+    rule = PRESENCE_RULE
+    return [
+        SubjectStreak(category, count, rule.window, rule.level)
+        for category, probs in draft.items()
+        if _reaches(probs, rule) and (count := _count(history, category, rule)) >= rule.min_count
+    ]

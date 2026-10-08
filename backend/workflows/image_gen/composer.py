@@ -67,7 +67,7 @@ class Revision:
     critique: str
     done: bool
     scene: str = ""
-    avoid: str = ""
+    unwanted: str = ""
     reseed: bool = False
 
 
@@ -237,7 +237,7 @@ async def compose_scene(
     prompter_reference_url: str = "",
     prompter_reference_sent: bool = False,
 ) -> tuple[str, str, str]:
-    """Compose scene text as ``(scene, avoid, mode)``.
+    """Compose scene text as ``(scene, unwanted, mode)``.
 
     A `thread` is filled with the call as the model made it, so a review can follow. `prompter_reference_url` is the chat's
     earlier picture, sent ahead of the request in the same shape a review sends its render; `prompter_reference_sent` says the
@@ -289,7 +289,7 @@ async def compose_scene(
         thread.call_id = _call_id(0)
         thread.prompter_reference = bool(prompter_reference_url)
     scene = inject_profile_appearance(scene, visible, prompt_format)
-    return scene, bounded(args.get("avoid")), "scene_skills" if visible_subjects is not None else "single_call"
+    return scene, bounded(args.get("unwanted")), "scene_skills" if visible_subjects is not None else "single_call"
 
 
 async def refine_scene(
@@ -362,12 +362,12 @@ async def refine_scene(
         critique,
         False,
         inject_profile_appearance(scene, thread.visible, prompt_format),
-        bounded(args.get("avoid")),
+        bounded(args.get("unwanted")),
         reseed=supports_seed and args.get("reseed") is True,
     )
 
 
-def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene: str, avoid: str) -> tuple[str, str]:
+def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene: str, unwanted: str) -> tuple[str, str]:
     """Join resolved style, character, and scene text into a prompt pair."""
     prompt_format = normalize_prompt_format(str(style.get("prompt_format") or ""))
     if prompt_format == "prose":
@@ -377,5 +377,5 @@ def assemble_prompts(style: Mapping[str, Any], profile: Mapping[str, Any], scene
     else:
         count_lead, scene_body = split_lead_count(scene)
         positive = join((count_lead, style.get("prompt"), scene_body))
-    negative = join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))
+    negative = join((profile.get("negative_prompt"), unwanted, style.get("negative_prompt")))
     return positive, negative
