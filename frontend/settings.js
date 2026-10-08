@@ -387,7 +387,7 @@ export const AUDIT_TYPE_DEFS = [
   {
     key: "negated_narration",
     label: "Negated narration",
-    title: "Flag narration that repeatedly describes what does not happen (e.g. \"She doesn't jump. Doesn't gasp.\").",
+    title: "Flag narration that repeatedly describes what does not happen (e.g. She doesn't answer.).",
   },
   {
     key: "subject_fixation",
