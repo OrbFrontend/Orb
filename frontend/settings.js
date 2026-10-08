@@ -393,7 +393,7 @@ export const AUDIT_TYPE_DEFS = [
     key: "subject_fixation",
     label: "Subject fixation",
     title:
-      "Cut a description recent replies already gave the same subject (e.g. violet eyes). Needs the Subject Tagger and a Judge.",
+      "Reduce repeated descriptions (e.g. violet eyes) and recurring incidental mentions in narration. Preserve important actions and dialogue. Needs the Subject Tagger and a Judge.",
   },
 ];
 

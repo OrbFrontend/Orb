@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 
 import httpx
 
-from ....analysis.subjects import subjects_input
+from ....analysis.subjects import SUBJECT_DESCRIPTIONS, subjects_input
 from ....core.llm_types import ParsedToolCall
 from ....inference import (
     MAX_QUESTIONS_PER_REQUEST,
@@ -26,52 +26,31 @@ logger = logging.getLogger(__name__)
 
 RECORD_NAME = "subject_fixation_judge"
 
-SUBJECTS: Mapping[str, str] = {
-    "eyes": "eyes or gaze (color, shape, look of the eyes)",
-    "hair": "hair on the head (not body or pubic hair)",
-    "face": "face, expression, cheeks, blush, brows or jaw (not eyes or lips)",
-    "mouth": "lips, mouth, smile, smirk, teeth or tongue of the face (not genital lips)",
-    "voice": "a character's speaking voice: how it sounds (not the words said)",
-    "breath": "breathing, heartbeat or pulse",
-    "scent": "a scent or smell",
-    "hands": "hands, fingers or nails",
-    "skin": "skin itself: complexion, tone, texture, freckles, scars, flush across the skin",
-    "chest": "chest or breasts",
-    "lower_body": "hips, thighs, legs or backside",
-    "neck": "neck, throat or shoulders",
-    "build": "the whole body's size, height, physique or figure (not one part: breasts are chest, hips and backside are lower_body)",
-    "clothing": "clothes a character wears",
-    "accessory": "jewelry or accessories a character wears",
-    "object": "a weapon or item a character holds or carries (not clothes, jewelry, furniture or the room)",
-    "nonhuman": "non-human features: a halo, horns, wings, a tail, animal ears, scales",
-    "light": "the light, glow or shadows of the scene",
-    "sound": "the sounds of the scene: echoes, noises, background (not what is said)",
-    "weather": "weather, air or temperature of the scene",
-}
-
 # Two readings of one pair, averaged.
 _READINGS = (
     (
         "same",
-        "The NEW REPLY describes {subject} with the same detail the EARLIER REPLY gave it: the same color, size, shape, "
-        "texture, quality or image, even in other words.",
+        "The NEW REPLY describes {subject} using a detail already given in the EARLIER REPLY, such as the same color, "
+        "shape, texture, sound or other sensory quality. The detail describes the same character, object or scene feature "
+        "in both replies, even if worded differently. A mere mention or an action without descriptive detail does not count.",
     ),
     (
         "repeat",
-        "The NEW REPLY repeats a description of {subject} from the EARLIER REPLY: a reader would notice the same look, sound "
-        "or image of it being described again. Only naming it, or having it act or move, is not a description.",
+        "The NEW REPLY repeats a descriptive detail about {subject} from the EARLIER REPLY. Both replies describe the same "
+        "character, object or scene feature with the same physical or sensory quality, including paraphrases. A new detail, "
+        "a mere mention or an action without descriptive detail does not count.",
     ),
 )
 MAX_SUBJECTS = MAX_QUESTIONS_PER_REQUEST // len(_READINGS)
 
 
 def pair_state(earlier: str, draft: str) -> str:
-    return f"EARLIER REPLY:\n{earlier}\n\nNEW REPLY:\n{draft}"
+    return f"EARLIER REPLY (narration only):\n{earlier}\n\nNEW REPLY (narration only):\n{draft}"
 
 
 def pair_questions(categories: Sequence[str]) -> list[DecisionQuestion]:
     return [
-        DecisionQuestion(f"{category}.{key}", text.format(subject=SUBJECTS[category]), {})
+        DecisionQuestion(f"{category}.{key}", text.format(subject=SUBJECT_DESCRIPTIONS[category]), {})
         for category in categories
         for key, text in _READINGS
     ]

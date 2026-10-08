@@ -235,9 +235,9 @@ async def subject_fixation_step(
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Tag *draft*; a subject every recent reply in *history* (newest first) also had is cut, and the Judge reads each other
-    subject it describes alongside them against each of those replies. One forced exact-edit call over the narration cuts
-    them all.
+    """Tag *draft*; flag subjects every recent reply in *history* (newest first) also had, and ask the Judge whether other
+    descriptions repeat a detail from those replies. One forced exact-edit call reduces the flagged focus in narration
+    while preserving important actions and new information.
 
     Without a configured Judge only presence streaks count. Nothing to cut changes nothing. A stop keeps the draft."""
     tags = await tag_text(draft)
@@ -266,7 +266,7 @@ async def subject_fixation_step(
         base,
         resp,
         draft,
-        build_subject_fixation_prompt([streak.reason for streak in streaks], reasoning_on=reasoning_on),
+        build_subject_fixation_prompt(streaks, reasoning_on=reasoning_on),
         settings,
         writer_user_msg=writer_user_msg,
         kv_tracker=kv_tracker,

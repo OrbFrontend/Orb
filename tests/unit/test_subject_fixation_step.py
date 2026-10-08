@@ -5,7 +5,8 @@ import json
 import httpx
 import pytest
 
-from backend.inference import CachedBase, DecisionResponse, LLMClient, local_ml
+from backend.analysis.subjects import SUBJECT_DESCRIPTIONS
+from backend.inference import CachedBase, DecisionQuestion, DecisionResponse, LLMClient, local_ml
 from backend.pipeline import subject_tags
 from backend.pipeline.passes.editor import editor_pass, subject_judge
 from backend.pipeline.passes.judge import JudgeConfig
@@ -39,10 +40,12 @@ def tagger(monkeypatch):
 class Judge:
     def __init__(self, monkeypatch, repeat: float | Exception):
         self.states: list[str] = []
+        self.questions: list[list[DecisionQuestion]] = []
         judge = self
 
         async def decide(client, state, questions, **kwargs):
             judge.states.append(state)
+            judge.questions.append(list(questions))
             if isinstance(repeat, Exception):
                 raise repeat
             return DecisionResponse(answers={q.key: repeat for q in questions})
@@ -116,8 +119,18 @@ async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats)
     assert call["tool_choice"] == {"type": "function", "function": {"name": "editor_find_replace"}}
     # The Writer's exact request and the draft are replayed, so the call extends the Writer's cached prefix.
     assert [m["content"] for m in call["messages"][1:3]] == [REQUEST, DRAFT]
+    prompt = call["messages"][-1]["content"]
+    assert "### Repeated descriptions" in prompt and "### Recurring subjects" not in prompt
+    assert "from 8 of the last 8 replies" in prompt
+    assert "keep all dialogue unchanged" in prompt and "keeping useful actions and new details" in prompt
     # The Judge read the narration of each earlier reply against the draft's, one request per reply.
     assert len(repeats.states) == 8 and all('"' not in state for state in repeats.states)
+    assert {q.key for q in repeats.questions[0]} == {"hair.same", "hair.repeat"}
+    assert all(
+        SUBJECT_DESCRIPTIONS["hair"] in q.instructions and "same character, object or scene feature" in q.instructions
+        for q in repeats.questions[0]
+    )
+    assert SUBJECT_DESCRIPTIONS["hair"] in prompt
 
 
 @pytest.mark.parametrize("answer", [0.2, httpx.ConnectError("down")])
@@ -141,6 +154,51 @@ async def test_a_subject_in_every_recent_reply_is_cut_without_the_judge(repeats)
     events, done = await _run(editor, history=history, judge_config=JudgeConfig())
     assert {"type": "step", "step": "subject_fixation"} in events and len(editor.calls) == 1
     assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*' and repeats.states == []
+    prompt = editor.calls[0]["messages"][-1]["content"]
+    assert "### Recurring subjects" in prompt and "### Repeated descriptions" not in prompt
+    assert "all 4 recent replies" in prompt
+    assert "needed to understand an important action or new event" in prompt
+
+
+async def test_mixed_flags_get_their_own_editing_rules_in_one_call(monkeypatch, repeats):
+    async def classify(narration: str):
+        return {
+            "hair": [0.0, 1.0, 0.0] if "braid" in narration else [1.0, 0.0, 0.0],
+            "eyes": [0.0, 0.0, 1.0] if "eyes" in narration else [1.0, 0.0, 0.0],
+        }
+
+    monkeypatch.setattr(local_ml, "aclassify_subjects", classify)
+    history = [
+        TaggedReply("*She tugs her braid. Her violet eyes shine.*", {"hair": [0.0, 1.0, 0.0], "eyes": [0.0, 0.0, 1.0]}),
+        TaggedReply("*She tugs her braid.*", {"hair": [0.0, 1.0, 0.0], "eyes": [1.0, 0.0, 0.0]}),
+    ] * 2
+    draft = '*She tugs her braid. Her violet eyes gleam as she opens the door.* "Hello."'
+    editor = Editor([("She tugs her braid. ", ""), ("Her violet eyes gleam as she opens the door.", "She opens the door.")])
+    _, done = await _run(editor, draft=draft, history=history)
+
+    assert done["draft"] == '*She opens the door.* "Hello."'
+    [call] = editor.calls
+    prompt = call["messages"][-1]["content"]
+    descriptions, mentions = prompt.split("### Repeated descriptions\n\n")[1].split("### Recurring subjects\n\n")
+    assert "- eyes or gaze:" in descriptions and "- hair on the head" not in descriptions
+    assert "- hair on the head" in mentions and "- eyes or gaze:" not in mentions
+    assert all({q.key for q in questions} == {"eyes.same", "eyes.repeat"} for questions in repeats.questions)
+
+
+async def test_editor_can_leave_an_essential_recurring_action_unchanged(monkeypatch, repeats):
+    async def classify(narration: str):
+        return {"hands": [0.0, 1.0, 0.0]}
+
+    monkeypatch.setattr(local_ml, "aclassify_subjects", classify)
+    history = [TaggedReply("*She holds his hand.*", {"hands": [0.0, 1.0, 0.0]})] * 4
+    draft = '*She catches his hand before he can strike.* "Stop."'
+    editor = Editor([])
+    events, done = await _run(editor, draft=draft, history=history)
+
+    assert done["draft"] is None and repeats.states == []
+    [call] = editor.calls
+    assert "return an empty `patches` array" in call["messages"][-1]["content"]
+    assert not any(ev["type"] == "draft_update" for ev in events)
 
 
 async def test_a_patch_that_reaches_into_dialogue_is_skipped():

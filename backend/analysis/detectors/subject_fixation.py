@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from ..subjects import SUBJECT_DESCRIPTIONS
+
 ABSENT, DESCRIPTION = 0, 2  # indices in each category's (absent, action, description) probabilities
 PRESENT = -1  # a level read as 1 - absent: acted or described
 
@@ -24,22 +26,9 @@ class StreakRule:
 NOMINATE_RULE = StreakRule(window=8, min_count=2, min_prob=0.5)
 # The Judge confirms a nominee: its repeat probability against each earlier reply, read pairwise.
 REPEAT_RULE = StreakRule(window=8, min_count=2, min_prob=0.6)
-# A subject in every recent reply is a tic however it is worded (a new look for the eyes each turn); cut on presence alone.
+# A subject in every recent reply is recurring focus however it is worded; flag it on presence alone.
 PRESENCE_RULE = StreakRule(window=4, min_count=4, min_prob=0.7, level=PRESENT)
 HISTORY_WINDOW = max(rule.window for rule in (NOMINATE_RULE, REPEAT_RULE, PRESENCE_RULE))
-
-LABELS: dict[str, str] = {
-    "breath": "breathing or heartbeat",
-    "build": "build or figure",
-    "lower_body": "hips and legs",
-    "neck": "neck and shoulders",
-    "accessory": "jewelry and accessories",
-    "object": "held items",
-    "nonhuman": "non-human features (halo, horns, wings, tail)",
-    "light": "the scene's light and shadow",
-    "sound": "background sounds",
-    "weather": "weather and air",
-}
 
 
 @dataclass(frozen=True)
@@ -51,10 +40,10 @@ class SubjectStreak:
 
     @property
     def reason(self) -> str:
-        label = LABELS.get(self.category, self.category)
+        label = SUBJECT_DESCRIPTIONS.get(self.category, self.category)
         if self.level == PRESENT:
-            return f"The draft repetitively mentions {label} again."
-        return f"The draft repetitively describes {label} again."
+            return f"{label}: mentioned in the draft and all {self.window} recent replies."
+        return f"{label}: the draft repeats a descriptive detail from {self.count} of the last {self.window} replies."
 
 
 def _reaches(probs: Sequence[float] | None, rule: StreakRule) -> bool:

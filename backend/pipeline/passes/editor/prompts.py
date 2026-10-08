@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
+from ....analysis.detectors.subject_fixation import PRESENT, SubjectStreak
 from .._prompting import REASONING_GUIDANCE, tool_call_instruction
 
 EDITOR_PREAMBLE = (
@@ -26,17 +27,30 @@ POST_PROCESSING_PREAMBLE = (
 
 POST_PROCESSING_RULES = (
     "FIND-AND-REPLACE RULES:\n"
-    "- The `find` value must exist in your latest message, including case, whitespace, and punctuation.\n"
+    "- Copy each `find` value exactly from your previous reply, including case, whitespace, and punctuation.\n"
     "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
-    "- Change only what the task asks for and preserve everything else.\n"
     "- Leave `replace` empty when the text in `find` should be deleted.\n"
 )
 
 SUBJECT_FIXATION_INSTRUCTION = (
-    "For a subject described again, find every clause in the draft that describes how it looks, sounds or feels (color, "
-    "shine, shape, texture) and cut that detail or turn it into an action. Do not swap in a synonym: it must not be described "
-    "at all.\nFor a subject that appears again, cut every mention of it from the narration."
+    "Reduce repeated focus on the subjects listed below. Edit narration only; keep all dialogue unchanged. "
+    "Preserve important actions, new information and scene continuity. Make small edits that read naturally."
+    "If no useful edit is possible within these limits, return an empty `patches` array."
+)
+
+_REPEATED_DESCRIPTION_INSTRUCTION = (
+    "Remove the repeated descriptive detail, while keeping useful actions and new details. "
+    "Rephrasing the same detail with synonyms still repeats it.\n"
+    'Example: "Her copper braid gleams as she opens the door." becomes "She opens the door."'
+)
+
+_RECURRING_SUBJECT_INSTRUCTION = (
+    "Reduce incidental mentions of these subjects, even when the wording or description is new. "
+    "Remove the habitual gesture or decorative detail, or focus the sentence on the action it supports. "
+    "Keep a mention when it is needed to understand an important action or new event.\n"
+    'Example: "She drums her fingers while waiting." becomes "She waits." '
+    'Keep "She catches his hand before he can strike." because the contact matters to the action.'
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (
@@ -112,10 +126,18 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
 
 
-def build_subject_fixation_prompt(reasons: Sequence[str], *, reasoning_on: bool = False) -> str:
-    """Build the exact-edit request that cuts the subjects the draft keeps re-describing, one reason line per streak."""
-    streaks = "\n".join(f"- {reason}" for reason in reasons)
-    task = {"injection_label": "Subject fixation", "description": f"{streaks}\n\n{SUBJECT_FIXATION_INSTRUCTION}"}
+def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, reasoning_on: bool = False) -> str:
+    """Build an exact-edit request with a separate instruction for each kind of repeated focus."""
+    descriptions = [streak for streak in streaks if streak.level != PRESENT]
+    mentions = [streak for streak in streaks if streak.level == PRESENT]
+    parts = [SUBJECT_FIXATION_INSTRUCTION]
+    for heading, instruction, targets in (
+        ("Repeated descriptions", _REPEATED_DESCRIPTION_INSTRUCTION, descriptions),
+        ("Recurring subjects", _RECURRING_SUBJECT_INSTRUCTION, mentions),
+    ):
+        if targets:
+            parts.extend([f"### {heading}", instruction, "\n".join(f"- {streak.reason}" for streak in targets)])
+    task = {"injection_label": "Subject fixation", "description": "\n\n".join(parts)}
     return build_post_processing_prompt(task, reasoning_on=reasoning_on)
 
 
