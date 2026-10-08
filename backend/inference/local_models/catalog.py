@@ -152,7 +152,7 @@ MODELS: dict[str, ModelSpec] = {
             ModelFileSpec(
                 repo_id="chartreuse-verte/ettin-subject-pairs-68m",
                 path="gguf/subject-pairs-68m-q8_0.gguf",
-                revision="PLACEHOLDER-pin-the-published-commit-sha",
+                revision="8aa1acab0c957d3405f0cff1e159220447ff03c5",
                 size_mb=72,
                 sha256="c51aedb3c79865c8db76e30b135fdd497e4159cd45b8e7bfccbcb4babdc0ac42",
                 local_filename="subject-pairs-68m-v1-q8_0.gguf",
