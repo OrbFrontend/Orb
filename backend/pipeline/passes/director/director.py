@@ -537,6 +537,11 @@ async def director_stage(
     if cfg.agent_lane.client.is_aborted:
         return
 
+    # Disabled Direction has no turn moods to report or fire cooldowns for.
+    direct_scene_enabled = cfg.agent_on and bool(cfg.active_tools.get("direct_scene", False))
+    if not direct_scene_enabled:
+        state.active_moods = []
+
     # Cooldowns are a volatile per-turn constraint: the schema remains stable, and anything the model returned for a resting
     # fragment is rejected here. A resting state fragment keeps -- and still injects -- its saved value.
     state.active_moods = [fragment_id for fragment_id in state.active_moods if fragment_id not in resting]
@@ -573,8 +578,6 @@ async def director_stage(
                 state.calls = [*state.calls, *sel.calls]
 
     # Style injection
-    direct_scene_enabled = cfg.agent_on and bool(cfg.active_tools.get("direct_scene", False))
-
     # {{random}} in fragment text resolves against the per-conversation choice map (state.macro_choices, persisted with director
     # state): the first turn rolls and records, later turns reuse the stored pick, so a fragment stays fixed for the
     # conversation even though its source row is global.

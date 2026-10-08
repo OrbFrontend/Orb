@@ -26,6 +26,9 @@ When a cooldown makes a mood unavailable, Orb pauses it without sending its
 negative prompt. Negative prompts are reserved for ordinary Director-driven
 deactivation.
 
+When Direction or the Agent is off, new replies have no active moods. Existing
+cooldowns still age, and saved state fragments still inject as configured.
+
 ## Interactive fragments
 
 An interactive fragment is a value the Director fills in for the current turn.
