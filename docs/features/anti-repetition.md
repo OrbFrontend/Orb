@@ -16,34 +16,35 @@ For unwanted words, contrastive negation, and dialogue echoed from the user, see
 
 ## Subject fixation
 
-Enable **Subject fixation** under the Output Auditor to reduce repeated focus
-in narration. It needs the Agent, Output Auditor, and the Subject Analyzer
-under Local ML. Its download holds two models, the subject tagger and the pair
-comparer, and the check needs both.
+**Subject fixation** cuts repeated descriptions and incidental mentions from
+narration across **20 subject categories**, such as eyes, hair, hands, and scenery.
 
-The check distinguishes two cases:
+It is **off by default**. Enable **Agent**, **Output Auditor**, and its **Subject
+fixation** option. Under **Local ML**, download and enable **Subject Analyzer**;
+the download includes **2 required models**.
 
-- **Repeated descriptions:** the subject tagger nominates a subject the draft
-  and recent replies describe, and the pair comparer reads the draft against
-  each of the last eight assistant replies to confirm that it repeats a
-  descriptive detail from at least two of them. Both passages must describe the
-  same character, object or scene feature; paraphrases count, while a new
-  detail or an action alone does not. The Editor removes the repeated detail
-  and keeps useful actions and new information. For example, `Her copper braid
-  gleams as she opens the door` can become `She opens the door`.
-- **Recurring subjects:** the subject tagger finds a subject in the draft and
-  all four previous assistant replies, whether described or used in an action.
-  This case does not need a pairwise confirmation. The Editor reduces
-  incidental mentions and habitual gestures, while keeping mentions needed to
-  understand important actions or new events. For example, `She drums her
-  fingers while waiting` can become `She waits`; catching someone's hand to
-  stop an attack still matters to the scene.
+### Detection rules
 
-The Editor uses the same subject definitions for both cases. It changes only
-narration, leaves dialogue unchanged and uses small find-and-replace edits.
-It may return no edits when removing a mention would lose important meaning.
-In group chats, the history comes from the current speaker's own replies.
-Steered regenerations exclude the reply being replaced, even when it duplicates
-an older reply. Dialogue stays protected throughout the edits; an edit is skipped
-if healing its deletion would change dialogue. The final saved reply is tagged
-after all editing and secondary workflows finish.
+The history windows and probability thresholds are fixed:
+
+| Check | History | Minimum model scores |
+| --- | --- | --- |
+| **Repeated descriptions** | At least **2 of the last 8 replies**. | Description probability **≥ 50%** in the draft and 2+ previous replies; repeated-detail probability **≥ 60%** against 2+ previous replies. |
+| **Recurring subjects** | **All 4 previous replies**. | Presence probability **≥ 70%** in the draft and each of those 4 replies. Actions and descriptions both count. |
+
+Description repeats must concern the same character, object, or scene feature;
+paraphrases count. Recurring subjects can trigger despite new wording or details.
+
+History uses assistant replies only, limited to the current speaker in group
+chats. Regeneration excludes the reply being replaced.
+
+### What changes
+
+The Editor makes small narration edits, preserving dialogue, key actions, and new
+information:
+
+- Repeated description: `Her copper braid gleams as she opens the door` →
+  `She opens the door`.
+- Recurring gesture: `She drums her fingers while waiting` → `She waits`.
+
+The reply stays unchanged if no useful cut is possible.
