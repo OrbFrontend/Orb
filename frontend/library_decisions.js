@@ -152,14 +152,34 @@ const _dragSections = new WeakSet();
 export function repaintDecisionSection() {
   const root = document.getElementById("decision-section");
   if (!root) return;
-  root.innerHTML = _innerHtml();
-  fitDecisionTextareas(root);
+  _swap(root, () => {
+    root.innerHTML = _innerHtml();
+    return root;
+  });
   if (_dragSections.has(root)) return;
   _dragSections.add(root);
   initDragReorder(root, {
     itemSelector: ".decision-option-row",
     handleSelector: "[data-dec-drag]",
     onReorder: _reorderOptions,
+  });
+}
+
+// Fresh textareas measure short until fitted; holding the section's height stops the scroller clamping upward meanwhile.
+function _swap(root, paint) {
+  root.style.minHeight = `${root.offsetHeight}px`;
+  fitDecisionTextareas(paint());
+  root.style.minHeight = "";
+}
+
+/** Repaint only the outcome table, leaving the rest of the section's DOM in place. */
+function _repaintOptions() {
+  const root = document.getElementById("decision-section");
+  const table = root?.querySelector(".decision-options");
+  if (!table) return repaintDecisionSection();
+  _swap(root, () => {
+    table.outerHTML = _optionsHtml(decisionConfig(), _draft.type, COPY[_draft.type] || COPY.noul);
+    return root.querySelector(".decision-options");
   });
 }
 
@@ -347,10 +367,10 @@ function _fit(el) {
 // -- Structural edits ---------------------------------------------------------
 
 /** Re-read the form, apply *change* to the draft, then repaint. */
-function _mutate(change) {
+function _mutate(change, repaint = repaintDecisionSection) {
   _syncFromDom();
   change();
-  repaintDecisionSection();
+  repaint();
 }
 
 function _retype(type) {
@@ -373,7 +393,7 @@ function _reorderOptions(root) {
     const options = rows.map((row) => _draft.options[Number(row.querySelector("[data-opt]").dataset.opt)]);
     _draft.options =
       _draft.type === "score" ? options.map((option, index) => ({ ...option, key: String(index) })) : options;
-  });
+  }, _repaintOptions);
   if (focused >= 0) root.querySelectorAll("[data-dec-drag]")[focused]?.focus();
 }
 
@@ -384,15 +404,20 @@ function _inSection(el) {
 document.addEventListener("click", (event) => {
   const button = _inSection(event.target.closest("button[data-dec-act]"));
   if (!button) return;
+  const adding = button.dataset.decAct === "add-option";
   _mutate(() => {
     const { options, type } = _draft;
-    if (button.dataset.decAct === "add-option") {
+    if (adding) {
       options.push(_option(_fixedKey(type, options.length)));
     } else if (options.length > 2) {
       options.splice(Number(button.dataset.index), 1);
       if (type === "score") _draft.options = options.map((option, index) => ({ ...option, key: String(index) }));
     }
-  });
+  }, _repaintOptions);
+  if (adding)
+    document
+      .querySelector("#decision-section .decision-options")
+      ?.lastElementChild?.scrollIntoView({ block: "nearest" });
 });
 
 // Type changes rebuild the table; resolution changes swap the numeric control.
