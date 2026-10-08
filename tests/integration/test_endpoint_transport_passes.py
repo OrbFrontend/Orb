@@ -203,7 +203,7 @@ async def test_builtin_tool_order_reaches_raw_http_transport_byte_exact(provider
     expected = anthropic.build_request_body(openai_body, endpoint, model) if provider == "anthropic" else openai_body
     assert captured == [json.dumps(expected, separators=(",", ":"), ensure_ascii=False)]
     expected_bytes = {
-        "openai": (5988, "570f53ca6503d11e58250c30b2fb548e8b740b190abbd4ad334e4d590984a654"),
-        "anthropic": (6352, "698814dc8218e423eb0f28e57331cb54619122c0d44461bfb499f10334730ce9"),
+        "openai": (5978, "741a09540ce2213ca46ebeb50415e63ffcfff76d405333bfd427b3943095e546"),
+        "anthropic": (6342, "18123577c3adcd25c7a9c0d7628bd6aa4870d5e4b7ae5c484f45d3c2d7082372"),
     }
     assert (len(captured[0]), hashlib.sha256(captured[0].encode()).hexdigest()) == expected_bytes[provider]

@@ -13,7 +13,7 @@ from ..prompting.tool_catalog import enabled_schemas
 from ..prompting.tool_schemas import build_state_tool
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
-from .passes.editor import build_feedback_override, feedback_active, post_processing_active
+from .passes.editor import build_feedback_override, feedback_active
 from .passes.editor.length_guard import LengthGuard, resolve_length_guard
 from .passes.state import StateContract
 from .passes.state.contract import NON_SCENE_FIELD_TYPES
@@ -164,7 +164,7 @@ def build_writer_tools_blob(
     """
     enabled_tools = dict(enabled_tools)
     agent_on = agent_enabled(settings)
-    _, feedback_fragments, state_fragments, post_processing_fragments = split_interactive_fragments(defined_fragments)
+    _, feedback_fragments, state_fragments, _ = split_interactive_fragments(defined_fragments)
     contract = StateContract.defined(settings, state_fragments)
     scene_rows = contract.direct_scene_rows(defined_fragments)
     direct_scene = build_direct_scene_override(scene_rows, grouped=grouped)
@@ -178,8 +178,6 @@ def build_writer_tools_blob(
             _without_required(build_feedback_override(feedback_fragments)), {row["id"] for row in feedback_fragments}
         )
         enabled_tools["give_feedback"] = True
-    if post_processing_active(post_processing_fragments, agent_on=agent_on):
-        enabled_tools["editor_search_replace"] = True
     # The union of every fragment the state tool may carry, before or after the Writer, so both steps share one byte-stable
     # blob. The schema depends only on configuration; state writes never rebuild it.
     if tool_fragments := contract.tool_fragments():

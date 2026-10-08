@@ -438,6 +438,15 @@ CREATE TABLE IF NOT EXISTS fragment_state_events (
 CREATE INDEX IF NOT EXISTS idx_state_event_message ON fragment_state_events(message_id);
 CREATE INDEX IF NOT EXISTS idx_state_event_conversation ON fragment_state_events(conversation_id, fragment_id);
 
+-- The subject tagger's reading of an assistant reply: per-category (absent, action, description) probabilities as JSON. A cache:
+-- content_hash and version say which text and which model/input it read, so an edited reply or a new model re-tags.
+CREATE TABLE IF NOT EXISTS message_subjects (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    content_hash TEXT NOT NULL,
+    version TEXT NOT NULL,
+    probs TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS dataset_meta (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     epoch TEXT NOT NULL

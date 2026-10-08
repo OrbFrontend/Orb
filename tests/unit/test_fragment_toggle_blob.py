@@ -69,7 +69,7 @@ class TestBlobSurvivesToggles:
         reference, _ = _blob(_toggled(set()))
         blob, enabled = _blob(_toggled({"suggestions", "humanize", "facts"}))
         assert blob == reference
-        assert enabled["give_feedback"] and enabled["editor_search_replace"] and enabled["update_state"]
+        assert enabled["give_feedback"] and enabled["update_state"]
 
     def test_disabled_fragments_are_offered_with_nothing_required(self):
         schemas = {s["function"]["name"]: s for s in json.loads(_blob(_toggled({"intent", "suggestions"}))[0])}
@@ -101,7 +101,7 @@ class TestBlobSurvivesToggles:
 
     def test_no_defined_fragment_of_a_kind_means_no_tool(self):
         _, enabled = _blob([row for row in _GLOBALS if row["field_type"] not in ("feedback", "post_processing")])
-        assert "give_feedback" not in enabled and "editor_search_replace" not in enabled
+        assert "give_feedback" not in enabled and "editor_find_replace" not in enabled
 
 
 class TestDefinedFragments:

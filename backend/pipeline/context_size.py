@@ -92,8 +92,9 @@ async def estimate_context_size(conv: ConversationRow) -> dict[str, Any]:
     # matches the prompt bytes a real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", [])
     est_mood_frags = resolve_mood_fragment_randoms(mood_frags, active_moods, dict(director.get("macro_choices", {})))
+    direct_scene_enabled = agent_enabled(settings) and bool((settings.get("enabled_tools") or {}).get("direct_scene", False))
     inj_block = compute_style_injection_block(
-        active_moods, active_moods, est_mood_frags, director_frags, agent_enabled(settings), {}
+        active_moods, active_moods, est_mood_frags, director_frags, direct_scene_enabled, {}
     )
     # The Writer's current-state block rides the same injection on every turn.
     writer_state = [fragment for fragment in state_fragments_of(director_frags) if fragment.injects_writer]

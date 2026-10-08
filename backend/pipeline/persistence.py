@@ -15,8 +15,8 @@ from ..features import lorebook
 from ..workflows.attachment_cache import project_rejected_attachment
 from .events import HookEvent, PipelineEvent, PublicTurnEvent, WorldChangeData
 from .failures import STAGE_SAVE, mark_stage
-from .predicates import agent_enabled
 from .state import TurnState
+from .subject_tags import tag_saved_reply
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ async def _persist_result(
             # rewrite starts from the same edited source as the in-turn pass.
             writer_draft=res.writer_draft or resp_text,
             advance_leaf=True,
-            active_moods=res.active_moods if agent_enabled(settings) else None,
+            active_moods=res.active_moods,
             macro_choices=res.macro_choices,
         )
         # Row id only known here; no other caller can name it yet, so no lock needed.
@@ -127,6 +127,8 @@ async def _persist_result(
                     wid,
                     asst_id,
                 )
+        # Tag the final saved text after all editing and secondary workflows have finished.
+        await tag_saved_reply(asst_id, resp_text, settings)
         # Counter seed scans existing rows, so this must run after add_message.
         try:
             await db.add_generated_chars(len(resp_text))

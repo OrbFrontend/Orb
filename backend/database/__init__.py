@@ -129,6 +129,7 @@ from .queries.member_sheets import (
     get_sheet_proposals,
     reject_sheet_proposal,
 )
+from .queries.message_subjects import get_message_subjects, set_message_subjects
 from .queries.messages import (
     add_message,
     clear_writer_draft,

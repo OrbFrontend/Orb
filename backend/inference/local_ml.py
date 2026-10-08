@@ -19,6 +19,7 @@ from .local_models import (
     delete_model,
     deps_ok,
     download,
+    file_path,
     import_llama,
     install_cmd,
     model_dir,
@@ -44,6 +45,9 @@ __all__ = [
     "MODELS",
     "NARRATION_ROWS",
     "POV_ROWS",
+    "SUBJECT_CATEGORIES",
+    "SUBJECT_LEVELS",
+    "SUBJECT_PAIR_SIDE_IDS",
     "TENSE_COLS",
     "ModelSpec",
     "ModelVariantSpec",
@@ -52,6 +56,8 @@ __all__ = [
     "aclassify_markup",
     "aclassify_pov",
     "aclassify_pov_tense_chunks",
+    "aclassify_subjects",
+    "acompare_subjects",
     "ascore",
     "available",
     "delete_model",
@@ -66,6 +72,9 @@ __all__ = [
     "present",
     "prune_stale",
     "resolve_path",
+    "subject_pair_ids",
+    "subject_repeats_from_logits",
+    "subjects_from_logits",
     "tense_from_logits",
     "variant_path",
     "variant_present",
@@ -206,9 +215,14 @@ def _rank_logits(llama: Any, text: str) -> list[float]:
     copies n_embd floats out of that n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped page, and
     then it segfaults the whole process.
     """
+    return _rank_logits_ids(llama, llama.tokenize(text.encode("utf-8")))
+
+
+def _rank_logits_ids(llama: Any, tokens: Sequence[int]) -> list[float]:
+    """`_rank_logits` for ids the caller built, cut at n_batch the same way."""
     import llama_cpp  # noqa: PLC0415 -- deferred like the loaders; ML extras are optional
 
-    tokens = llama.tokenize(text.encode("utf-8"))[: llama.n_batch]
+    tokens = list(tokens)[: llama.n_batch]
     batch = llama._batch
     batch.reset()
     batch.add_sequence(tokens, 0, True)
@@ -224,22 +238,42 @@ def _rank_logits(llama: Any, text: str) -> list[float]:
     return logits
 
 
+# A head reads the first n_ctx ids. n_batch and n_ubatch match it, because _rank_logits cuts at n_batch and a non-causal encoder
+# needs the whole sequence in one ubatch.
+_SCORER_CTX = 512
+# The pair comparer is the subject analyzer's companion file, not a feature of its own; this key names its handle and lock.
+SUBJECT_COMPARER = "subjects_comparer"
+_SCORER_CTX_BY_FEATURE: dict[str, int] = {"subjects_classifier": 1024, SUBJECT_COMPARER: 2048}
+# Flash attention where it was parity-checked against the HF model: 8 comparer pairs take ~40% less CPU time with it.
+_SCORER_FLASH_ATTN: frozenset[str] = frozenset({SUBJECT_COMPARER})
+
+
+def _scorer_path(feature: str) -> str:
+    if feature == SUBJECT_COMPARER:
+        return file_path(next(iter(MODELS["subjects_classifier"].extra_files)))
+    return resolve_path(feature)
+
+
 def _load_scorer_blocking(feature: str) -> None:
     if feature in _llamas or feature in _load_errors:
         return
     try:
         import llama_cpp  # noqa: PLC0415 -- deferred; need the pooling-type constant
 
+        n_ctx = _SCORER_CTX_BY_FEATURE.get(feature, _SCORER_CTX)
         _llamas[feature] = llama_cpp.Llama(
-            model_path=resolve_path(feature),
+            model_path=_scorer_path(feature),
             embedding=True,
             pooling_type=llama_cpp.LLAMA_POOLING_TYPE_RANK,
-            n_ctx=512,
+            n_ctx=n_ctx,
+            n_batch=n_ctx,
+            n_ubatch=n_ctx,
             n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
+            flash_attn=feature in _SCORER_FLASH_ATTN,
             verbose=False,
         )
     except Exception as e:  # bad wheel, unknown arch, OOM
-        _load_errors[feature] = f"failed to load {resolve_path(feature)}: {e}"
+        _load_errors[feature] = f"failed to load {_scorer_path(feature)}: {e}"
 
 
 def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
@@ -277,16 +311,23 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
 _CLASSIFY_MAX_CHARS = 1500
 
 
+def _scorer(feature: str) -> Any:
+    _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
+    llama = _llamas.get(feature)
+    if llama is None:
+        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
+    return llama
+
+
 def _head_logits(feature: str, text: str, n: int) -> list[float]:
     """The first *n* class logits off feature's RANK-pooled classification head.
 
     A head with fewer than *n* outputs means the GGUF carries a different head than the caller expects.
     """
-    _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
-    llama = _llamas.get(feature)
-    if llama is None:
-        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
-    v = _rank_logits(llama, text)
+    return _first_logits(_rank_logits(_scorer(feature), text), n)
+
+
+def _first_logits(v: Sequence[float], n: int) -> list[float]:
     if len(v) < n:
         raise RuntimeError(f"classifier returned {len(v)} logits, expected >={n} (wrong head?)")
     return [float(v[i]) for i in range(n)]
@@ -468,3 +509,95 @@ async def aclassify_markup(text: str) -> tuple[str, str]:
     """
     async with _lock("markup_classifier"):
         return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)
+
+
+# The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in the trained head's
+# order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py pins the layout. The caller shapes
+# the narration (dialogue stripped), as training did; llama.cpp keeps its first 1024 ids.
+SUBJECT_CATEGORIES: tuple[str, ...] = (
+    "eyes",
+    "hair",
+    "face",
+    "mouth",
+    "voice",
+    "breath",
+    "scent",
+    "hands",
+    "skin",
+    "chest",
+    "lower_body",
+    "neck",
+    "build",
+    "clothing",
+    "accessory",
+    "object",
+    "nonhuman",
+    "light",
+    "sound",
+    "weather",
+)
+SUBJECT_LEVELS: tuple[str, ...] = ("absent", "action", "description")
+
+
+def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
+    """Read the 60-logit head as ``{category: probs}``, *probs* a softmax in SUBJECT_LEVELS order."""
+    width = len(SUBJECT_LEVELS)
+    out: dict[str, list[float]] = {}
+    for i, category in enumerate(SUBJECT_CATEGORIES):
+        row = logits[i * width : (i + 1) * width]
+        top = max(row)
+        exp = [math.exp(x - top) for x in row]
+        total = sum(exp)
+        out[category] = [x / total for x in exp]
+    return out
+
+
+def _classify_subjects_blocking(feature: str, narration: str) -> dict[str, list[float]]:
+    if not narration.strip():
+        return {category: [1.0, 0.0, 0.0] for category in SUBJECT_CATEGORIES}  # nothing to read: never load the model for it
+    return subjects_from_logits(_head_logits(feature, narration, len(SUBJECT_CATEGORIES) * len(SUBJECT_LEVELS)))
+
+
+async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
+    """One reply's narration -> ``{category: probs}`` for every SUBJECT_CATEGORIES entry. One model call.
+
+    Lazy-loads; serialized by the feature's lock; off the loop.
+    """
+    async with _lock("subjects_classifier"):
+        return await asyncio.to_thread(_classify_subjects_blocking, "subjects_classifier", narration)
+
+
+# The subject pair comparer reads one (earlier reply, draft) pair as [CLS] + earlier part + draft part + [SEP], each part
+# tokenized on its own and cut to SUBJECT_PAIR_SIDE_IDS, exactly as training built it; n_ctx 2048 holds both sides. Its head is
+# 20 logits in SUBJECT_CATEGORIES order, one sigmoid each: the probability that the draft repeats that subject's description
+# from the earlier reply.
+SUBJECT_PAIR_SIDE_IDS = 1000
+
+
+def subject_pair_ids(llama: Any, earlier_part: str, draft_part: str) -> list[int]:
+    """The comparer's input ids for two shaped parts (`subjects.subject_pair_parts`)."""
+    side = [llama.tokenize(part.encode("utf-8"), add_bos=False)[:SUBJECT_PAIR_SIDE_IDS] for part in (earlier_part, draft_part)]
+    return [llama.token_bos(), *side[0], *side[1], llama._model.token_sep()]
+
+
+def subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
+    """Read the 20-logit pair head as ``{category: repeat probability}``."""
+    return {category: 1.0 / (1.0 + math.exp(-x)) for category, x in zip(SUBJECT_CATEGORIES, logits, strict=True)}
+
+
+def _compare_subjects_blocking(feature: str, pairs: Sequence[tuple[str, str]]) -> list[dict[str, float]]:
+    if not pairs:
+        return []  # nothing to read: never load the model for it
+    llama = _scorer(feature)
+    n = len(SUBJECT_CATEGORIES)
+    return [subject_repeats_from_logits(_first_logits(_rank_logits_ids(llama, subject_pair_ids(llama, *p)), n)) for p in pairs]
+
+
+async def acompare_subjects(pairs: Sequence[tuple[str, str]]) -> list[dict[str, float]]:
+    """Per (earlier part, draft part), ``{category: repeat probability}`` for every SUBJECT_CATEGORIES entry. One model call
+    per pair, all under one lock acquisition.
+
+    Lazy-loads; serialized by the feature's lock; off the loop.
+    """
+    async with _lock(SUBJECT_COMPARER):
+        return await asyncio.to_thread(_compare_subjects_blocking, SUBJECT_COMPARER, list(pairs))

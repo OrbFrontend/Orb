@@ -181,6 +181,7 @@ const settingViews = {
       structural_repetition: true,
       anti_echo: true,
       negated_narration: false,
+      subject_fixation: false,
       ...record(s.editor_audit_toggles),
     }),
 };

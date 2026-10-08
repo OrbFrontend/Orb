@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from backend.analysis import Target, apply_id_patches
-from backend.analysis.healing import heal_replacement
+from backend.analysis.healing import heal_deletion, heal_replacement
 from backend.analysis.patching import PatchErrorKind
 
 
@@ -286,6 +286,7 @@ def test_a_clean_replacement_is_untouched():
         ("A.\n\nB.\n\nC.", "B.", "A.\n\nC."),
         ("A. B.\n\nC.", "B.", "A.\n\nC."),
         ("A.\n\nB. C.", "B.", "A.\n\nC."),
+        ("A. *B.* C.", "B.", "A. C."),
     ],
 )
 def test_empty_replace_deletes_the_span_without_stranding_whitespace(draft, span, expected):
@@ -301,6 +302,61 @@ def test_deleting_a_line_does_not_promote_the_seam_to_a_paragraph_break(draft, e
     out, errors = _patch(draft, "B.", "")
     assert out == expected
     assert errors == []
+
+
+def _delete(draft: str, find: str) -> str:
+    """Delete *find*'s first occurrence through the seam healer."""
+    start = draft.index(find)
+    seam_start, seam_end, seam = heal_deletion(draft, start, start + len(find))
+    return draft[:seam_start] + seam + draft[seam_end:]
+
+
+@pytest.mark.parametrize(
+    ("draft", "find", "expected"),
+    [
+        # An emptied pair goes with its content, wherever the find drew its edge.
+        ("Mara waved. *The lamp flickered.* Tobin left.", "The lamp flickered.", "Mara waved. Tobin left."),
+        ("Mara waved. *The lamp flickered.* Tobin left.", "The lamp flickered.*", "Mara waved. Tobin left."),
+        ('Mara waved. "Go." Tobin left.', "Go.", "Mara waved. Tobin left."),
+        # A marker taken from a pair that keeps other text goes back to it.
+        ("Rain fell. *The lamp flickered. Tobin sighed.*", "*The lamp flickered.", "Rain fell. *Tobin sighed.*"),
+        ("*Tobin sighed. The lamp flickered.* Rain fell.", "The lamp flickered.", "*Tobin sighed.* Rain fell."),
+        ("*Tobin sighed. The lamp flickered.* Rain fell.", "The lamp flickered.* ", "*Tobin sighed.* Rain fell."),
+        # Punctuation left with nothing to end merges into the mark before it.
+        ("Mara waved. The lamp flickered. Rain fell.", "The lamp flickered", "Mara waved. Rain fell."),
+        ('"Stay," Mara said. "Please."', " Mara said", '"Stay." "Please."'),
+        ("Tobin paused... and the lamp flickered. Rain fell.", " and the lamp flickered", "Tobin paused... Rain fell."),
+        # A cut last clause hands its sentence end back; a cut tag question leaves a statement.
+        ("Tobin ran home, quick as rain. Mara waited.", ", quick as rain.", "Tobin ran home. Mara waited."),
+        ("Mara is late again, isn't she? Tobin shrugged.", ", isn't she?", "Mara is late again. Tobin shrugged."),
+        ("Is Mara late, or not? Tobin shrugged.", ", or not?", "Is Mara late? Tobin shrugged."),
+        # The strongest break the deletion swallowed survives it.
+        ("Tobin waited. The lamp flickered.\n\nRain fell.", " The lamp flickered.\n\n", "Tobin waited.\n\nRain fell."),
+        ("Tobin waited.\r\nThe lamp flickered.\r\nRain fell.", "The lamp flickered.", "Tobin waited.\nRain fell."),
+        # A word that now opens the sentence takes the capital the cut opening had.
+        ("Mara laughed, and the lamp flickered.", "Mara laughed, and ", "The lamp flickered."),
+        ("Rain fell.\n\n*Why now?* she wondered.", "*Why now?* ", "Rain fell.\n\nShe wondered."),
+    ],
+)
+def test_deletion_heals_the_seam_it_leaves(draft, find, expected):
+    assert _delete(draft, find) == expected
+
+
+@pytest.mark.parametrize(
+    ("draft", "find", "expected"),
+    [
+        ("mara laughed, and the lamp flickered.", "mara laughed, and ", "the lamp flickered."),
+        ("Mara waved. tobin left.", "Mara waved. ", "tobin left."),
+        ("Rain fell. **Run.** Tobin ran.", "Rain fell. ", "**Run.** Tobin ran."),
+        ("Tobin grinned :) and left.", " :)", "Tobin grinned and left."),
+        ("Nice! Tobin grinned ;) Rain fell.", " Tobin grinned", "Nice! ;) Rain fell."),
+        ('"Wait, I—" Tobin began. "—never mind."', " Tobin began.", '"Wait, I—" "—never mind."'),
+        ('Tobin nodded. "...Fine," Mara said.', "Tobin nodded. ", '"...Fine," Mara said.'),
+        ("Rain fell. *{{char}} waved. Tobin left.*", "*{{char}} waved.", "Rain fell. *Tobin left.*"),
+    ],
+)
+def test_deletion_healing_leaves_the_draft_own_markup_and_style(draft, find, expected):
+    assert _delete(draft, find) == expected
 
 
 @pytest.mark.parametrize("replace", ["She let go.", "Kai cleared the zone."])

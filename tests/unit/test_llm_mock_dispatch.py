@@ -23,8 +23,8 @@ def test_editor_rewrite_routes_to_editor():
     assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_rewrite"}}) == "editor"
 
 
-def test_editor_search_replace_routes_to_post_processing():
-    assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_search_replace"}}) == "post_processing"
+def test_editor_find_replace_routes_to_post_processing():
+    assert _pass_from_tool_choice({"type": "function", "function": {"name": "editor_find_replace"}}) == "post_processing"
 
 
 def test_direct_scene_routes_to_director():

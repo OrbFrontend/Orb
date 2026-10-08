@@ -59,6 +59,15 @@ class SlopSuggestionRow(SlopSuggestionDraft):
     mined_at: str
 
 
+class MessageSubjectsRow(TypedDict):
+    """A ``message_subjects`` row with ``probs`` decoded: ``{category: [absent, action, description]}``."""
+
+    message_id: int
+    content_hash: str
+    version: str
+    probs: dict[str, list[float]]
+
+
 class SlopReplyRow(TypedDict):
     """A model reply as the suggestion miner reads it. ``character_key`` is the
     speaking group member's card or name, else the conversation's card, name, or

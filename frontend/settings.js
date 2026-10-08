@@ -176,6 +176,7 @@ const LOCAL_ML_LABELS = {
   emotion_classifier: "Character Expressions",
   pov_classifier: "Auto-POV",
   markup_classifier: "Markup Classifier",
+  subjects_classifier: "Subject Analyzer",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
@@ -183,6 +184,7 @@ const LOCAL_ML_DESCS = {
   emotion_classifier: "Track a character's mood with expression images.",
   pov_classifier: "For image-gen and format consistency.",
   markup_classifier: "For more accurate format consistency.",
+  subjects_classifier: "For the subject fixation audit.",
 };
 
 // Models with a single consumer are managed by it: Spark-TTS and the speech recognizer in the TTS cloned-voice control,
@@ -386,6 +388,12 @@ export const AUDIT_TYPE_DEFS = [
     key: "negated_narration",
     label: "Negated narration",
     title: "Flag narration that repeatedly describes what does not happen (e.g. \"She doesn't jump. Doesn't gasp.\").",
+  },
+  {
+    key: "subject_fixation",
+    label: "Subject fixation",
+    title:
+      "Reduce repeated descriptions (e.g. violet eyes) and recurring incidental mentions in narration. Preserve important actions and dialogue. Needs the Subject Analyzer.",
   },
 ];
 

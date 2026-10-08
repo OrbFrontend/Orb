@@ -16,7 +16,8 @@ Card-embedded fragments use the same fields and behavior.
 
 For each conversation reply, Orb runs post-processing:
 
-1. after the Writer and any Output Auditor or Length Guard edits;
+1. after the Writer, any Output Auditor or Length Guard edits, and the subject
+   fixation edit;
 2. once per enabled fragment, in `sort_order`;
 3. before Feedback and all secondary workflows.
 
@@ -34,22 +35,29 @@ Document Mode is unchanged.
 
 ## Exact-match safety
 
-The Editor returns the built-in `editor_search_replace` tool:
+The Editor returns the built-in `editor_find_replace` tool:
 
 ```json
-{"patches":[{"search":"exact current text","replace":"replacement text"}]}
+{"patches":[{"find":"exact current text","replace":"replacement text"}]}
 ```
 
-Patches are applied sequentially to the evolving draft. A patch runs only when
-`search` is a non-empty string with exactly one case-sensitive match in the
-current draft and `replace` is a string different from it. Empty replacements
-delete the uniquely matched span. Malformed, missing, ambiguous, empty, and
-no-op patches are skipped while other valid patches still apply. Orb does not
-retry a fragment.
+The keys sort in the order they are written, so a chat template that renders tool
+parameters alphabetically still shows `find` before `replace`.
 
-The tool schema is frozen into the per-turn tool list whenever post-processing
-is active. In the built-in order it follows `editor_rewrite` and precedes
-`give_feedback`, preserving the Writer/Agent cache lanes.
+Patches are applied sequentially to the evolving draft. A patch runs only when
+`find` is a non-empty string with exactly one case-sensitive match in the
+current draft and `replace` is a string different from it. Empty replacements
+delete the uniquely matched span and repair the seam it leaves: stranded
+whitespace, emptied `**` or `""` pairs, a marker taken from a pair that keeps
+other text, orphaned punctuation, a sentence end cut with its last clause, and
+the capital of a word that now opens the sentence. Malformed, missing,
+ambiguous, empty, and no-op patches are skipped while other valid patches still
+apply. Orb does not retry a fragment.
+
+The tool schema is frozen into the per-turn tool list whenever the Agent is on,
+so defining or toggling a fragment never rewrites it. In the built-in order it
+follows `editor_rewrite` and precedes `give_feedback`, preserving the
+Writer/Agent cache lanes.
 
 ## Gating
 
@@ -82,9 +90,10 @@ depends on what came before, such as whether a character could know something.
 Start at 1 and go higher if the gate misses things that happened further back.
 Earlier user messages are not included.
 
-The draft is the evolving one: after Output Auditor and Length Guard edits and
-after every earlier post-processing fragment. Each gate is judged on its own
-draft, one at a time. In a group chat, every generated reply has its own gates.
+The draft is the evolving one: after Output Auditor, Length Guard, and subject
+fixation edits and after every earlier post-processing fragment. Each gate is
+judged on its own draft, one at a time. In a group chat, every generated reply
+has its own gates.
 
 The question is sent as a yes/no (`noul`) question with fixed criteria: *"The
 answer to the question is yes based on the reply."* and its no counterpart. The
@@ -119,7 +128,7 @@ the Stop are kept, and no later fragment, Feedback, or workflow starts.
 ### In the Inspector
 
 Each gate adds a `post_processing_gate` entry under **Tool Calls**, before its
-fragment's `editor_search_replace` call when that runs:
+fragment's `editor_find_replace` call when that runs:
 
 ```json
 {"fragment_id":"trim","label":"Trim","question":"Do more than two distinct actions happen in the reply?",

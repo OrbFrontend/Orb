@@ -1,5 +1,7 @@
 """Turn-level coverage for branch-aware Director fragment cooldowns."""
 
+import pytest
+
 import backend.database as dbmod
 from backend.pipeline import handle_regenerate, handle_turn
 
@@ -67,6 +69,73 @@ async def test_mood_is_blocked_for_exact_cooldown_without_negative_prompt(client
     available = _director_data(await _turn(llm_mock, cid, "five", {"moods": ["stormy"]}))
     assert available["active_moods"] == ["stormy"]
     assert available["fragment_cooldowns"] == {"stormy": 3}
+
+
+@pytest.mark.parametrize(
+    "disabled",
+    [
+        pytest.param({"enabled_tools": {"direct_scene": False}}, id="direction"),
+        pytest.param({"enable_agent": False}, id="agent", marks=pytest.mark.kv_divergence_expected),
+    ],
+)
+async def test_disabled_direction_clears_turn_moods_and_keeps_saved_state(client, db, llm_mock, disabled):
+    cid = "conv-disabled-direction-moods"
+    await _setup(client, cid)
+    await client.post_checked("/api/fragments", json={**_STORMY, "prompt_text": "Stormy prose."})
+    await client.post_checked(
+        "/api/fragments",
+        json={
+            "id": "steady",
+            "label": "Steady",
+            "description": "Use for a calm scene.",
+            "prompt_text": "Steady prose.",
+            "negative_prompt": "Drop the steady mood.",
+        },
+    )
+    await client.post_checked("/api/interactive-fragments", json=_TRUST)
+    first = _director_data(await _turn(llm_mock, cid, "one", {"moods": ["steady", "stormy"], "trust": "guarded"}))
+    assert first["active_moods"] == ["steady", "stormy"]
+    original = await _last_assistant(cid)
+
+    await client.put_checked("/api/settings", json=disabled)
+    # A carried mood must not fire a newly configured cooldown while Direction is off.
+    await client.put_checked("/api/fragments/steady", json={"cooldown_turns": 2})
+    estimate = await client.get_json(f"/api/conversations/{cid}/context-size")
+    capture_start = len(llm_mock.captured)
+    llm_mock.enqueue_writer("No direction this turn.")
+    events = await _drain(handle_turn(cid, "two"))
+    assert not any(event["event"] in ("director_start", "error") for event in events)
+    data = _director_data(events)
+    assert data["active_moods"] == []
+    assert data["fragment_cooldowns"] == {"stormy": 2, "trust": 1}
+    assert data["tool_calls"] == []
+    assert "Trust: guarded" in data["injection_block"]
+    assert estimate["breakdown"]["director_injection"]["chars"] == len(data["injection_block"])
+    writer = next(call for call in llm_mock.captured[capture_start:] if call["pass"] == "writer")
+    prompt = "\n".join(str(message["content"]) for message in writer["messages"])
+    assert "Trust: guarded" in prompt
+    assert all(text not in prompt for text in ("Steady prose.", "Stormy prose.", "Drop the steady mood."))
+
+    reply = await _last_assistant(cid)
+    saved = await client.get_json(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")
+    assert saved["mood_data_available"] is True
+    assert saved["active_moods"] == []
+    assert saved["injection_block"] == data["injection_block"]
+    assert (await dbmod.get_director_state(cid))["active_moods"] == []
+    previous = await client.get_json(f"/api/conversations/{cid}/messages/{original['id']}/director-log")
+    assert previous["active_moods"] == first["active_moods"]
+
+    llm_mock.enqueue_writer("Regenerated without direction.")
+    regenerated = _director_data(await _drain(handle_regenerate(cid, reply["id"])))
+    assert regenerated["active_moods"] == []
+    assert regenerated["fragment_cooldowns"] == data["fragment_cooldowns"]
+
+    await client.put_checked("/api/settings", json={"enable_agent": True, "enabled_tools": {"direct_scene": True}})
+    resumed = _director_data(await _turn(llm_mock, cid, "three", {"moods": []}))
+    assert resumed["active_moods"] == []
+    assert "Drop the steady mood." not in resumed["injection_block"]
+    assert "Trust: guarded" in resumed["injection_block"]
+    assert resumed["fragment_cooldowns"] == {"stormy": 1}
 
 
 async def test_resting_state_value_is_kept_and_injected_without_restarting_cooldown(client, db, llm_mock):

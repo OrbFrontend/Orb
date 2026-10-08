@@ -12,12 +12,14 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
+from ....analysis.detectors.subject_fixation import HISTORY_WINDOW
 from ....core.settings import Settings
 from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
+from ...subject_tags import TaggedReply, branch_tags, subjects_enabled
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
-from .post_processing import PostProcessingResult, post_processing_active, post_processing_step
+from .post_processing import PostProcessingResult, post_processing_active, post_processing_step, subject_fixation_step
 
 if TYPE_CHECKING:
     from ....database.models import PhraseGroup
@@ -153,8 +155,11 @@ async def editor_pass(
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
+    subject_history: Sequence[TaggedReply] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Run the audit/edit loop, post-processing fragments, and feedback.
+    """Run the audit/edit loop, the subject fixation edit, post-processing fragments, and feedback.
+
+    *subject_history* (newest first) turns the subject fixation edit on; None leaves it off.
 
     A failing call does not end the pass. Its sub-step reports it as a ``failure`` event and keeps what its finished calls
     produced; the later sub-steps still run on the best draft reached.
@@ -193,6 +198,32 @@ async def editor_pass(
 
     # A None draft means "unchanged"; an empty string remains a meaningful post-processing result.
     final_text = draft if done["draft"] is None else done["draft"]
+
+    if subject_history is not None and final_text and not client.is_aborted:
+        async for ev in _editor_events(
+            _reporting_failures(
+                subject_fixation_step(
+                    client,
+                    base,
+                    final_text,
+                    settings,
+                    subject_history,
+                    writer_user_msg=writer_msg,
+                    kv_tracker=kv_tracker,
+                    reasoning_on=reasoning_on,
+                    reasoning_prefill=reasoning_prefill,
+                ),
+                during="subject_fixation",
+                note="Subject fixation edit failed; keeping the draft",
+            )
+        ):
+            if ev["type"] == "done":
+                fixed: PostProcessingResult = ev["result"]
+                final_text = fixed.draft
+                if fixed.tool_calls:
+                    done["tool_calls"] = [*(done.get("tool_calls") or []), *fixed.tool_calls]
+            else:
+                yield ev
 
     if post_processing_fragments and not client.is_aborted:
         yield {"type": "step", "step": "post_processing"}
@@ -257,7 +288,7 @@ async def _editor_events(events: AsyncIterator[Mapping[str, Any]]) -> AsyncItera
     async for ev in events:
         if ev["type"] == "reasoning":
             yield {**reasoning_delta_event(ev), "pass": "editor"}
-        elif ev["type"] in ("draft_update", "failure", "done"):
+        elif ev["type"] in ("step", "draft_update", "failure", "done"):
             yield ev
 
 
@@ -282,9 +313,11 @@ async def editor_stage(
     phrase_bank: list[PhraseGroup] | None,
     feedback_fragments: Sequence[Mapping[str, Any]],
     post_processing_fragments: Sequence[Mapping[str, Any]] = (),
-    editor_audit_msgs: list[str] | None,
+    editor_audit_history: Sequence[Mapping[str, Any]] | None,
     kv_tracker: KVCacheTracker,
     judge_config: JudgeConfig | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
+    speaker_member_id: str | None = None,
 ) -> AsyncIterator[CoreTurnEvent]:
     """Gating + writer->editor boundary event + editor pass + event translation.
 
@@ -314,6 +347,19 @@ async def editor_stage(
         )
         # The draft the browser was last told is authoritative.
         announced = state.resp_text
+        # A steered regenerate audits the original branch, without the reply it replaces. Keep the rows so duplicate text
+        # cannot admit that reply; each scanner applies its own window, and subject tagging filters by group speaker first.
+        editor_audit_msgs = None
+        if editor_audit_history is not None:
+            history = editor_audit_history
+            editor_audit_msgs = [m["content"] for m in reversed(history) if m.get("role") == "assistant"]
+        subject_history = None
+        if cfg.audit_enabled and history is not None and subjects_enabled(settings):
+            try:
+                subject_history = await branch_tags(history, HISTORY_WINDOW, speaker_member_id)
+            except Exception as exc:
+                logger.exception("Subject tagging of the history failed; skipping the subject fixation edit")
+                yield step_failure_warning(exc, "subject_fixation", stage=STAGE_EDITOR)
         # A failed Editor call does not abort the turn: editor_pass keeps the best draft reached and reports the failure as a
         # non-terminal ``warning``. A failure outside the sub-steps' own reporting, such as the initial audit, lands here.
         async for event in _reporting_failures(
@@ -336,6 +382,7 @@ async def editor_stage(
                 post_processing_fragments=post_processing_fragments if post_processing_needed else None,
                 feedback_fragments=feedback_fragments if feedback_needed else None,
                 judge_config=judge_config,
+                subject_history=subject_history,
             ),
             during="editor",
             note="Editor pass failed; keeping the draft it had reached",

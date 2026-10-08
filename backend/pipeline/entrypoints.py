@@ -20,7 +20,6 @@ from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
 from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
 from .passes.director import cooldown
-from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .passes.judge import (
     JudgeResult,
     JudgeTurn,
@@ -358,7 +357,7 @@ async def _generate_reply(
     user_msg_id: int | None,
     asst_turn_index: int,
     log_turn_index: int,
-    editor_audit_msgs: list[str] | None = None,
+    editor_audit_history: Sequence[Mapping[str, Any]] | None = None,
     decision_input: tuple[Sequence[Mapping[str, Any]], str] | None = None,
 ) -> AsyncIterator[PublicTurnEvent]:
     """Run setup, pipeline and persistence, yielding SSE events.
@@ -400,7 +399,7 @@ async def _generate_reply(
         attachments=attachments,
         phrase_bank=ctx.phrase_bank,
         lorebook=setup.lorebook,
-        editor_audit_msgs=editor_audit_msgs,
+        editor_audit_history=editor_audit_history,
         agent_client=ctx.agent_client,
         agent_prefix=setup.agent_prefix,
         macros=setup.macros,
@@ -443,7 +442,7 @@ async def _generate_group_exchange(
     pinned_speaker_id: str | None,
     append_user_to_history: bool = True,
     source_user_message_id: int | None = None,
-    editor_audit_msgs: list[str] | None = None,
+    editor_audit_history: Sequence[Mapping[str, Any]] | None = None,
     decision_exchange_id: str | None = None,
     decision_steering: str = "",
 ) -> AsyncIterator[PublicTurnEvent]:
@@ -620,7 +619,7 @@ async def _generate_group_exchange(
             attachments=pass_attachments,
             phrase_bank=ctx.phrase_bank,
             lorebook=setup.lorebook,
-            editor_audit_msgs=editor_audit_msgs,
+            editor_audit_history=editor_audit_history,
             agent_client=ctx.agent_client,
             agent_prefix=agent_prefix,
             macros=setup.macros,
@@ -1060,12 +1059,6 @@ async def _regenerate_with_steering(
             extended_history.append(user_msg)
         extended_history.append(target)
 
-        # From history, not extended_history: the reply being replaced is excluded
-        # from the audit so the new draft isn't penalised for resembling it.
-        editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][
-            :AUDIT_BASELINE_WINDOW
-        ]
-
         if ctx.cast.grouped:
             speaker_id = target.get("speaker_member_id")
             if not speaker_id:
@@ -1086,7 +1079,8 @@ async def _regenerate_with_steering(
                 pinned_speaker_id=str(speaker_id),
                 append_user_to_history=False,
                 source_user_message_id=source_user_id,
-                editor_audit_msgs=editor_audit_msgs,
+                # Audit the original branch, excluding the replaced reply even when its text duplicates an older one.
+                editor_audit_history=history,
                 # Judge the original exchange input; include steering separately.
                 decision_exchange_id=str(target.get("exchange_id") or "") or None,
                 decision_steering=steer_msg,
@@ -1106,7 +1100,7 @@ async def _regenerate_with_steering(
             user_msg_id=user_msg_id,
             asst_turn_index=target["turn_index"],
             log_turn_index=target["turn_index"],
-            editor_audit_msgs=editor_audit_msgs,
+            editor_audit_history=history,
             # Judge the original request plus steering, before the replaced reply.
             decision_input=(history, "\n\n".join(part for part in (user_msg["content"], steer_msg) if part)),
         ):

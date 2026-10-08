@@ -24,7 +24,7 @@ def _call(search: str, replace: str, *, call_id: str) -> list[dict]:
         {
             "id": call_id,
             "type": "function",
-            "function": {"name": "editor_search_replace", "arguments": {"patches": [{"search": search, "replace": replace}]}},
+            "function": {"name": "editor_find_replace", "arguments": {"patches": [{"find": search, "replace": replace}]}},
         }
     ]
 
@@ -90,7 +90,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     post_calls = [call for call in llm_mock.captured if call["pass"] == "post_processing"]
     writer_call = next(call for call in llm_mock.captured if call["pass"] == "writer")
     tool_names = [tool["function"]["name"] for tool in writer_call["tools"]]
-    assert "editor_search_replace" in tool_names
+    assert "editor_find_replace" in tool_names
     # The blob offers the auditor's tool, but its toggle is off, so no audit call runs.
     assert "editor" not in [name for name, _ in llm_mock.calls]
     assert all(call["tools"] == writer_call["tools"] for call in post_calls)
@@ -115,7 +115,7 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     ]
     assert [event["data"]["refined_text"] for event in events if event.get("event") == "writer_rewrite"] == ["Hey, friend."]
     [editor_done] = [event for event in events if event.get("event") == "editor_done"]
-    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["editor_search_replace", "editor_search_replace"]
+    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["editor_find_replace", "editor_find_replace"]
     assert "first edit reasoning" in "".join(
         event["data"]["delta"] for event in events if event.get("event") == "reasoning" and event["data"]["pass"] == "editor"
     )
@@ -308,7 +308,7 @@ async def test_gates_answering_no_skip_every_fragment_but_feedback_and_workflows
     writer_call = next(call for call in llm_mock.captured if call["pass"] == "writer")
     assert feedback_call["messages"][-2]["content"] == "Mara sat down."
     # A skipped fragment changes nothing in the shared tool blob.
-    assert "editor_search_replace" in [tool["function"]["name"] for tool in writer_call["tools"]]
+    assert "editor_find_replace" in [tool["function"]["name"] for tool in writer_call["tools"]]
     assert json.dumps(feedback_call["tools"]) == json.dumps(writer_call["tools"])
     assert seen_by_workflow == ["Mara sat down."]
     assert [event["data"]["step"] for event in events if event.get("event") == "step_start"] == [
@@ -358,7 +358,7 @@ async def test_a_gate_answering_yes_runs_its_fragment(client, llm_mock, monkeypa
     events = await _drain(handle_turn(cid, "go"))
 
     [editor_done] = [event for event in events if event.get("event") == "editor_done"]
-    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["post_processing_gate", "editor_search_replace"]
+    assert [call["name"] for call in editor_done["data"]["tool_calls"]] == ["post_processing_gate", "editor_find_replace"]
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Mara ran."
 

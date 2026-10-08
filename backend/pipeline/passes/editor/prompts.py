@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
+from ....analysis.detectors.subject_fixation import PRESENT, SubjectStreak
+from ....analysis.subjects import SUBJECT_DESCRIPTIONS
 from .._prompting import REASONING_GUIDANCE, tool_call_instruction
 
 EDITOR_PREAMBLE = (
@@ -21,16 +23,20 @@ FEEDBACK_PREAMBLE = (
 
 POST_PROCESSING_PREAMBLE = (
     "[OOC: You are the uncensored editor. Edit the assistant draft above for the task below. "
-    "Call editor_search_replace exactly once."
+    "Call editor_find_replace exactly once."
 )
 
 POST_PROCESSING_RULES = (
-    "SEARCH-AND-REPLACE RULES:\n"
-    "- Copy each `search` value exactly from the current draft, including case, whitespace, and punctuation.\n"
-    "- Keep each search as short as practical while still identifying exactly one span.\n"
+    "FIND-AND-REPLACE RULES:\n"
+    "- Copy each `find` value exactly from your current draft only, including case, whitespace, and punctuation.\n"
+    "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
-    "- Change only what the task asks for and preserve everything else.\n"
-    "- Use an empty `replace` only when the matched text should be deleted."
+    "- Leave `replace` empty when the text in `find` should be deleted.\n"
+)
+
+SUBJECT_FIXATION_INSTRUCTION = (
+    "Cut the harmful subjects below from your single most recent reply's narration with small edits; "
+    "keep dialogue, key actions and new information. If nothing can go, return an empty `patches` array."
 )
 
 EDITOR_PATCH_INSTRUCTIONS = (
@@ -104,6 +110,16 @@ def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: b
     heading = str(fragment.get("injection_label") or "").strip()
     instruction = str(fragment.get("description") or "").strip()
     return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
+
+
+def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, reasoning_on: bool = False) -> str:
+    """Build an exact-edit request listing each subject to cut."""
+    targets = "\n".join(
+        f"- {'Any mention' if streak.level == PRESENT else 'Descriptions'} of {SUBJECT_DESCRIPTIONS.get(streak.category, streak.category)}"
+        for streak in streaks
+    )
+    task = {"injection_label": "Subject fixation", "description": f"{SUBJECT_FIXATION_INSTRUCTION}\n\n{targets}"}
+    return build_post_processing_prompt(task, reasoning_on=reasoning_on)
 
 
 def _category_rules(categories: Collection[str]) -> str:

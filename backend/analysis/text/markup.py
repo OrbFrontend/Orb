@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from ...core.text_segmentation import (
     PROTECTED_MARKUP_RE,
     extract_unquoted_text,
+    find_quote_spans,
     map_prose,
     split_paragraphs,
     strip_protected_markup,
@@ -15,7 +16,7 @@ from ...core.text_segmentation import (
 from .roleplay import THOUGHT_ATTRIBUTION, AxisStyle, Dialogue, Narration, emphasis_inner, is_inline_emphasis, strip_quotes
 from .roleplay_segmentation import extract_block_spans, find_emphasis_spans
 
-__all__ = ["classify_axes", "narration_only", "protected_runs", "spoken_lines"]
+__all__ = ["classify_axes", "narration_mask", "narration_only", "protected_runs", "spoken_lines"]
 
 
 _NARR_HIGH = 0.6  # >= this fraction of narration chars inside *asterisks* -> ASTERISK
@@ -241,6 +242,33 @@ def narration_only(text: str, dialogue: Dialogue) -> str:
                     if inner:
                         narration.append(inner)
     return _canonical_emphasis(" ".join(narration))
+
+
+def narration_mask(text: str) -> list[bool]:
+    """True at offsets ``narration_only`` reads as narration: outside quotes, or only inside block emphasis when dialogue is bare."""
+    if classify_axes(text).dialogue != Dialogue.BARE:
+        mask = [True] * len(text)
+        for start, end in find_quote_spans(text):
+            mask[start:end] = [False] * (end - start)
+        return mask
+
+    mask = [False] * len(text)
+    cursor = 0
+    for paragraph in split_paragraphs(text):
+        offset = text.find(paragraph, cursor)
+        cursor = offset + len(paragraph)
+        if _remove_attributed_thoughts(paragraph) != paragraph:
+            mask[offset:cursor] = [True] * len(paragraph)
+            for start, end in find_quote_spans(paragraph):
+                mask[offset + start : offset + end] = [False] * (end - start)
+            continue
+        # Protected runs blanked in place, so span offsets stay offsets into *text*.
+        para = PROTECTED_MARKUP_RE.sub(lambda m: " " * len(m.group(0)), paragraph)
+        spans = extract_block_spans(para)
+        for i, (typ, start, end) in enumerate(spans):
+            if typ == "EMPHASIS" and not is_inline_emphasis(spans, i, para):
+                mask[offset + start : offset + end] = [True] * (end - start)
+    return mask
 
 
 def protected_runs(text: str) -> list[str]:

@@ -7,6 +7,7 @@ const STEP_LABELS = {
   writer: "Writing the reply…",
   output_auditor: "Auditing the draft…",
   length_guard: "Checking the length…",
+  subject_fixation: "Cutting repeated descriptions…",
   post_processing: "Applying post-processing…",
   feedback: "Preparing feedback…",
   world_changes: "Checking for world changes…",

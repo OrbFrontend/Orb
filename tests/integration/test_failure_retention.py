@@ -31,12 +31,12 @@ def _direct_scene(**arguments) -> list[dict]:
     return [{"type": "function", "function": {"name": "direct_scene", "arguments": arguments}}]
 
 
-def _search_replace(search: str, replace: str, *, call_id: str) -> list[dict]:
+def _find_replace(find: str, replace: str, *, call_id: str) -> list[dict]:
     return [
         {
             "id": call_id,
             "type": "function",
-            "function": {"name": "editor_search_replace", "arguments": {"patches": [{"search": search, "replace": replace}]}},
+            "function": {"name": "editor_find_replace", "arguments": {"patches": [{"find": find, "replace": replace}]}},
         }
     ]
 
@@ -107,9 +107,9 @@ async def test_an_editor_timeout_warns_and_the_turn_completes_with_the_finished_
     await _post_processing_fragment(client, "second_fix", 2)
     await _post_processing_fragment(client, "third_fix", 3)
     llm_mock.enqueue_writer(REPLY)
-    llm_mock.enqueue_post_processing(_search_replace("barely a whisper", "a low murmur", call_id="pp1"))
+    llm_mock.enqueue_post_processing(_find_replace("barely a whisper", "a low murmur", call_id="pp1"))
     llm_mock.fail("post_processing", httpx.ReadTimeout("timed out"), after=1)
-    llm_mock.enqueue_post_processing(_search_replace("Her voice", "His voice", call_id="pp3"))
+    llm_mock.enqueue_post_processing(_find_replace("Her voice", "His voice", call_id="pp3"))
     llm_mock.enqueue_feedback(_feedback_call("Ask what she heard."))
 
     events = await _drain(handle_turn(cid, "hello"))
@@ -131,7 +131,7 @@ async def test_an_editor_timeout_warns_and_the_turn_completes_with_the_finished_
     reply = await _assistant(cid)
     assert reply["content"] == edited
     log = await _assert_director_record_kept(client, cid, reply)
-    assert [call["name"] for call in log["tool_calls"]].count("editor_search_replace") == 2
+    assert [call["name"] for call in log["tool_calls"]].count("editor_find_replace") == 2
     assert log["feedback"] == {"suggested_actions": "Ask what she heard."}
 
 

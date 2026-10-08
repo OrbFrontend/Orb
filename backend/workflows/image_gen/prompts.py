@@ -150,14 +150,14 @@ def _reference_instruction(referenced: Sequence[tuple[int, str]]) -> str:
     )
 
 
-_AVOID_INSTRUCTION = (
-    "In `avoid`, write only a short comma-separated list of visual concepts that would contradict this shot and that the "
+_UNWANTED_INSTRUCTION = (
+    "In `unwanted`, write only a short comma-separated list of visual concepts that would contradict this shot and that the "
     "image model is likely to add. Use bare concepts that a negative encoder can suppress, not sentences or negations such "
     "as 'no', 'not', or 'without'. Example: write 'looking at viewer' for a back view. Do not list every absent thing. "
 )
 
 
-_LEAVE_AVOID_EMPTY = "Leave `avoid` empty."
+_LEAVE_UNWANTED_EMPTY = "Leave `unwanted` empty."
 
 
 def _format_guide(prompt_format: str, pov: str, *, supports_negative: bool = True) -> str:
@@ -165,10 +165,10 @@ def _format_guide(prompt_format: str, pov: str, *, supports_negative: bool = Tru
     instruction = _FORMAT_INSTRUCTIONS[normalized_format]
     shots = _SHOTS["prose" if normalized_format == "prose" else "counted"]
     shot = shots.get(pov, shots[THIRD])
-    # `avoid` only reaches the image model when the target maps a negative slot;
+    # `unwanted` only reaches the image model when the target maps a negative slot;
     # otherwise the model must not spend effort on a negation that gets discarded.
-    avoid = _AVOID_INSTRUCTION if supports_negative else _LEAVE_AVOID_EMPTY
-    return shot + instruction + _SCENE_FORMAT_TAIL + avoid
+    unwanted = _UNWANTED_INSTRUCTION if supports_negative else _LEAVE_UNWANTED_EMPTY
+    return shot + instruction + _SCENE_FORMAT_TAIL + unwanted
 
 
 def _nullable(description: str) -> dict:
@@ -194,7 +194,7 @@ COMPOSE_TOOL_SCHEMA = {
         "parameters": _strict(
             {
                 "scene": {"type": "string", "description": "A positive scene prompt in the requested format."},
-                "avoid": _nullable(
+                "unwanted": _nullable(
                     "A short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null."
                 ),
                 "visible_subjects": {
@@ -252,7 +252,7 @@ REFINE_TOOL_SCHEMA = {
                     "description": "True to draw the next render from a new seed instead of the current one; false when done.",
                 },
                 "scene": _nullable("The complete revised positive scene prompt in the requested format, or null when done."),
-                "avoid": _nullable("The revised avoid list, or null."),
+                "unwanted": _nullable("The revised unwanted list, or null."),
             }
         ),
     },
@@ -357,7 +357,7 @@ def _downstream_blocks(
         if supports_negative:
             parts.append(
                 "These saved negative exclusions are sent separately. Never put an excluded concept in `scene`, and do not "
-                "repeat it in `avoid`: " + rendered
+                "repeat it in `unwanted`: " + rendered
             )
         else:
             parts.append(
@@ -493,7 +493,7 @@ def refine_ooc(
     `turns_left` counts the renders still available after this review, so the model knows when a revision is its last chance.
     `prompter_reference` says the compose request carried the chat's earlier picture, so the review checks against it too.
     """
-    avoid = "Revise `avoid` by the same rules as before." if supports_negative else _LEAVE_AVOID_EMPTY
+    unwanted = "Revise `unwanted` by the same rules as before." if supports_negative else _LEAVE_UNWANTED_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED
     last = " This is the last revision: the next render is final." if turns_left == 1 else ""
     earlier = (
@@ -507,11 +507,11 @@ def refine_ooc(
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
         "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "
-        "render, set `reseed` to false, and set `scene` and `avoid` to null. Otherwise set `done` to false and write "
+        "render, set `reseed` to false, and set `scene` and `unwanted` to null. Otherwise set `done` to false and write "
         "the complete revised prompt in `scene`. Keep the parts that worked. Fix each problem: make its wording more "
         "explicit, move it earlier, or remove the words that caused it. If the image is completely mangled or wrong, "
         "try a different prompt approach or seed. Sometimes the image model simply cannot render certain perspectives or details. "
-        f"{reseed} Use the same format rules as before. {avoid}{last} Call refine_image_prompt.]"
+        f"{reseed} Use the same format rules as before. {unwanted}{last} Call refine_image_prompt.]"
     )
 
 

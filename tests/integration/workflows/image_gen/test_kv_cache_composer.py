@@ -30,7 +30,7 @@ def _enqueue(llm_mock, name: str, **args) -> None:
     llm_mock.enqueue_workflow({"tool_calls": _tc(name, args)})
 
 
-_DONE_REVIEW = {"critique": "", "done": True, "reseed": False, "scene": None, "avoid": None}
+_DONE_REVIEW = {"critique": "", "done": True, "reseed": False, "scene": None, "unwanted": None}
 
 
 async def _configure(**extra) -> None:
@@ -118,7 +118,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     _enqueue(
         llm_mock,
         "compose_image_prompt",
-        **{"scene": "1girl, sitting, window, rain, night", "avoid": "", "visible_subjects": ["Iris"]},
+        **{"scene": "1girl, sitting, window, rain, night", "unwanted": "", "visible_subjects": ["Iris"]},
     )
 
     resp = await _generate(client, cid, await _last_reply(cid))
@@ -181,7 +181,9 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
     _enqueue(
-        llm_mock, "compose_image_prompt", **{"scene": "1girl, sitting, window, rain", "avoid": "", "visible_subjects": ["Iris"]}
+        llm_mock,
+        "compose_image_prompt",
+        **{"scene": "1girl, sitting, window, rain", "unwanted": "", "visible_subjects": ["Iris"]},
     )
     _enqueue(
         llm_mock,
@@ -191,7 +193,7 @@ async def test_each_review_extends_the_thread_before_it(client, llm_mock, monkey
             "done": False,
             "reseed": True,
             "scene": "1girl, sitting, window, heavy rain",
-            "avoid": None,
+            "unwanted": None,
         },
     )
     _enqueue(llm_mock, "refine_image_prompt", **_DONE_REVIEW)
@@ -249,7 +251,7 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
     await _configure(prompter_reference=True)
     greeting, reply = [m["id"] for m in await get_messages(cid) if m["role"] == "assistant"]
 
-    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, earlier_scene_marker", "avoid": "earlier_avoid_marker"})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, earlier_scene_marker", "unwanted": "earlier_avoid_marker"})
     first = await _generate(client, cid, greeting)
     assert "event: image_gen_done" in first.text
     first_id = _attachment_id(first)
@@ -257,7 +259,7 @@ async def test_the_earlier_chat_image_rides_the_compose_tail_not_the_prefix(clie
 
     await _configure(prompter_reference=True, scene_skills_enabled=True, refine_turns=1)
     _enqueue(llm_mock, "read_image_skills", **{"skill_ids": [], "visible_subjects": ["Iris"]})
-    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, window, rain", "avoid": ""})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, window, rain", "unwanted": ""})
     _enqueue(llm_mock, "refine_image_prompt", **_DONE_REVIEW)
     second = await _generate(client, cid, reply)
     assert "event: image_gen_done" in second.text
@@ -291,7 +293,7 @@ async def test_an_upload_is_not_sent_to_the_prompter_twice(client, llm_mock, mon
     _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Look.", "attachments": [upload]})).text
     reply = await _last_reply(cid)
 
-    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, map", "avoid": ""})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, map", "unwanted": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, reply)).text
 
     assert isinstance([c for c in llm_mock.captured if c["pass"] == "workflow"][-1]["messages"][-1]["content"], str)
@@ -303,14 +305,14 @@ async def test_an_image_older_than_the_last_reply_is_not_sent_to_the_prompter(cl
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", _png_render)
     await _configure(prompter_reference=True)
     greeting = next(m["id"] for m in await get_messages(cid) if m["role"] == "assistant")
-    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, archive", "avoid": ""})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, archive", "unwanted": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, greeting)).text
     llm_mock.enqueue_writer("She leaves the archive.")
     llm_mock.enqueue_editor(None)
     _ = (await client.post_checked(f"/api/conversations/{cid}/send", json={"content": "Go on."})).text
     latest = await _last_reply(cid)
 
-    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, street", "avoid": ""})
+    _enqueue(llm_mock, "compose_image_prompt", **{"scene": "1girl, street", "unwanted": ""})
     assert "event: image_gen_done" in (await _generate(client, cid, latest)).text
 
     compose = [c for c in llm_mock.captured if c["pass"] == "workflow"][-1]

@@ -33,10 +33,10 @@ AUDIT_TYPES = (
 
 # Release defaults for scanners that do not default on. A missing key, or a
 # missing map, falls back to these; every other scanner defaults on.
-AUDIT_DEFAULTS: dict[str, bool] = {"negated_narration": False}
+AUDIT_DEFAULTS: dict[str, bool] = {"negated_narration": False, "subject_fixation": False}
 
 
-def _on(toggles: dict | None, key: str) -> bool:
+def audit_on(toggles: dict | None, key: str) -> bool:
     """Return whether scanner *key* is enabled."""
     default = AUDIT_DEFAULTS.get(key, True)
     return default if toggles is None else bool(toggles.get(key, default))
@@ -156,7 +156,7 @@ def run_audit(
     """Run enabled scanners on the current draft and return their findings."""
     current_msg = structural_text if structural_text is not None else text
     negation_result = None
-    if _on(audit_toggles, "negated_narration"):
+    if audit_on(audit_toggles, "negated_narration"):
         # Draft only: history must not change this category's style or gate.
         negation_result = detect_negated_narration(current_msg, min_hits=negation_min_hits)
         logger.debug(
@@ -166,20 +166,20 @@ def run_audit(
             negation_result.density,
         )
     echo_result = None
-    if user_message and _on(audit_toggles, "anti_echo"):
+    if user_message and audit_on(audit_toggles, "anti_echo"):
         echo_result = detect_anti_echo(current_msg, user_message)
     # Structural repetition and exact phrase repetition are cross-message checks
     # that need the draft as a standalone message plus the previous ones.
     structural_result = None
     phrase_result = None
     if assistant_messages:
-        if _on(audit_toggles, "structural_repetition"):
+        if audit_on(audit_toggles, "structural_repetition"):
             structural_result = detect_structural_repetition(
                 assistant_messages + [current_msg],
                 similarity_threshold=structural_similarity_threshold,
                 min_complexity=structural_min_complexity,
             )
-        if _on(audit_toggles, "phrase_repetition"):
+        if audit_on(audit_toggles, "phrase_repetition"):
             phrase_messages = assistant_messages + [current_msg]
             short_phrases = detect_phrase_repetition(
                 phrase_messages,
@@ -202,20 +202,20 @@ def run_audit(
     return AuditReport(
         cliche_result=(
             detect_cliches(text, phrase_bank, cliche_threshold)
-            if _on(audit_toggles, "banned_phrases")
+            if audit_on(audit_toggles, "banned_phrases")
             else DetectionResult([], [], 0, 0)
         ),
         monotony_result=(
             detect_opening_monotony(text, opener_n_words, opener_min_consecutive)
-            if _on(audit_toggles, "repetitive_openers")
+            if audit_on(audit_toggles, "repetitive_openers")
             else MonotonyResult([], {}, 0, 0.0)
         ),
         template_result=(
             detect_template_repetition(text, max_words=template_max_tags, flag_threshold=template_flag_threshold)
-            if _on(audit_toggles, "repetitive_templates")
+            if audit_on(audit_toggles, "repetitive_templates")
             else TemplateResult([], {}, 0, 0, 0.0)
         ),
-        not_but_result=(detect_contrastive_negation(text) if _on(audit_toggles, "contrastive_negation") else []),
+        not_but_result=(detect_contrastive_negation(text) if audit_on(audit_toggles, "contrastive_negation") else []),
         phrase_result=phrase_result,
         structural_repetition_result=structural_result,
         echo_result=echo_result,
