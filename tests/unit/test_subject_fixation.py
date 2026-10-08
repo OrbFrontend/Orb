@@ -36,7 +36,7 @@ def test_a_draft_that_does_not_describe_the_subject_is_never_nominated():
     assert nominate({"eyes": ACTED}, _replies("eyes", "dddddddd")) == []
 
 
-def test_the_judge_confirms_a_repeat_from_two_of_the_last_eight_replies():
+def test_a_repeat_is_confirmed_from_two_of_the_last_eight_replies():
     streak = confirm("eyes", [0.9, None, 0.2, 0.1, 0.1, 0.1, 0.1, 0.65])
     assert streak is not None and (streak.count, streak.window) == (2, 8)
     assert confirm("eyes", [0.9, 0.55, None, None, None, None, None, None]) is None  # an unread reply never counts
@@ -60,15 +60,11 @@ def test_any_subject_in_every_recent_reply_fires_as_a_presence_streak(history, f
     assert [(s.category, s.count, s.level) for s in streaks] == ([("eyes", 4, PRESENT)] if fires else [])
 
 
-def _settings(
-    toggle: bool | None, local: dict | None = None, *, agent: bool = True, auditor: bool = True, judge: bool = True
-) -> Settings:
+def _settings(toggle: bool | None, local: dict | None = None, *, agent: bool = True, auditor: bool = True) -> Settings:
     toggles = {} if toggle is None else {"subject_fixation": toggle}
     return cast(
         Settings,
         {
-            "decision_endpoint_id": 1 if judge else None,
-            "decision_model": "typesafe/jev-1.13",
             "enable_agent": int(agent),
             "enabled_tools": {"editor_apply_patch": auditor},
             "editor_audit_toggles": toggles,
@@ -78,20 +74,19 @@ def _settings(
 
 
 @pytest.mark.parametrize(
-    "toggle,local,model,agent,auditor,judge,enabled",
+    "toggle,local,missing,agent,auditor,enabled",
     [
-        (True, {}, True, True, True, True, True),
-        (None, {}, True, True, True, True, False),  # off by default
-        (False, {}, True, True, True, True, False),
-        (True, {"subjects_classifier": False}, True, True, True, True, False),  # disabled in Local ML
-        (True, {}, False, True, True, True, False),  # model absent
-        (True, {}, True, False, True, True, False),  # the Output Auditor needs the Agent
-        (True, {}, True, True, False, True, False),  # and its own toggle
-        (True, {}, True, True, True, False, False),  # the Judge confirms every cut
+        (True, {}, None, True, True, True),
+        (None, {}, None, True, True, False),  # off by default
+        (False, {}, None, True, True, False),
+        (True, {"subjects_classifier": False}, None, True, True, False),  # disabled in Local ML
+        (True, {}, "subjects_classifier", True, True, False),  # model absent
+        (True, {}, None, False, True, False),  # the Output Auditor needs the Agent
+        (True, {}, None, True, False, False),  # and its own toggle
     ],
 )
-def test_subjects_enabled_needs_the_auditor_the_toggle_a_judge_and_a_ready_model(
-    monkeypatch, toggle, local, model, agent, auditor, judge, enabled
+def test_subjects_enabled_needs_the_auditor_the_toggle_and_the_ready_analyzer(
+    monkeypatch, toggle, local, missing, agent, auditor, enabled
 ):
-    monkeypatch.setattr(local_ml, "available", lambda feature: (model, ""))
-    assert subject_tags.subjects_enabled(_settings(toggle, local, agent=agent, auditor=auditor, judge=judge)) is enabled
+    monkeypatch.setattr(local_ml, "available", lambda feature: (feature != missing, ""))
+    assert subject_tags.subjects_enabled(_settings(toggle, local, agent=agent, auditor=auditor)) is enabled

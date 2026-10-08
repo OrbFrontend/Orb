@@ -1,4 +1,4 @@
-"""The subject tagger's input and cache identity: pure, shared by tagging at save time and by the audit."""
+"""The subject models' inputs and the tagger's cache identity: pure, shared by tagging at save time and by the audit."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .text.markup import classify_axes, narration_only
 # Bump when subjects_input changes: stored tags carry it, so a shaping change re-tags instead of mixing two input distributions.
 SUBJECTS_INPUT_VERSION = "subjects-input-v1"
 
-# Shared subject scopes for the Judge and Editor; these follow the tagger's categories.
+# Subject scopes for the Editor; these follow the subject models' categories.
 SUBJECT_DESCRIPTIONS: Mapping[str, str] = {
     "eyes": "eyes or gaze",
     "hair": "hair on the head (including braids; excluding body or pubic hair)",
@@ -36,8 +36,13 @@ SUBJECT_DESCRIPTIONS: Mapping[str, str] = {
 
 
 def subjects_input(text: str) -> str:
-    """The narration the tagger reads, shaped as its training input was."""
+    """The narration the subject models read, shaped as their training input was."""
     return narration_only(text, classify_axes(text).dialogue).strip()
+
+
+def subject_pair_parts(earlier_narration: str, draft_narration: str) -> tuple[str, str]:
+    """The comparer's two input parts for an earlier reply and the draft, both already shaped by `subjects_input`."""
+    return f"EARLIER REPLY:\n{earlier_narration}", f"\n\nNEW REPLY:\n{draft_narration}"
 
 
 def content_hash(text: str) -> str:

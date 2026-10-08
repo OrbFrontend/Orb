@@ -113,6 +113,18 @@ def test_a_companion_file_is_required_for_present_and_kept_by_prune(tmp_path, mo
     assert not (tmp_path / "some-other-decoder.onnx").exists()
 
 
+def test_the_subject_analyzer_is_not_ready_without_its_pair_comparer(tmp_path, monkeypatch):
+    """Subject fixation needs both models, so one download fetches both and the tagger alone is not ready."""
+    monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))
+    spec = MODELS["subjects_classifier"]
+    (comparer,) = spec.extra_files
+    (tmp_path / spec.local_name).write_text("tagger")
+    assert not assets.present("subjects_classifier")
+    assert assets.missing_files("subjects_classifier") == [comparer.local_name]
+    (tmp_path / comparer.local_name).write_text("comparer")
+    assert assets.present("subjects_classifier")
+
+
 def test_deleting_a_specs_own_file_takes_its_companions(tmp_path, monkeypatch):
     """They are useless alone, and 23 MB nothing claims is the shape of bug ``prune_stale`` exists to prevent."""
     monkeypatch.setattr(assets, "model_dir", lambda: str(tmp_path))

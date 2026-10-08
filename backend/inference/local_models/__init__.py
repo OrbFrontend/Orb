@@ -32,5 +32,5 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
     if not ok:
         return False, reason
     if not assets.present(feature):
-        return False, f"model file not found: {assets.resolve_path(feature)}"
+        return False, f"model file not found: {', '.join(assets.missing_files(feature)) or assets.resolve_path(feature)}"
     return True, ""

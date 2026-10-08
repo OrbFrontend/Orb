@@ -31,11 +31,10 @@ _memo: dict[str, Probs] = {}
 
 
 def subjects_enabled(settings: Settings) -> bool:
-    """The Output Auditor runs with this toggle on, a Judge model is set, and the tagger is installed, downloaded, and enabled
-    in Local ML."""
+    """The Output Auditor runs with this toggle on, and the subject analyzer (tagger and pair comparer, one download) is
+    installed, downloaded, and enabled in Local ML."""
     return (
         agent_enabled(settings)
-        and bool(settings.get("decision_endpoint_id") and settings.get("decision_model"))
         and bool((settings.get("enabled_tools") or {}).get("editor_apply_patch"))
         and audit_on(settings.get("editor_audit_toggles"), "subject_fixation")
         and settings.get("local_ml_enabled", {}).get(FEATURE, True) is not False

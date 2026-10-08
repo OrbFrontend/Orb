@@ -208,7 +208,6 @@ async def editor_pass(
                     final_text,
                     settings,
                     subject_history,
-                    judge_config,
                     writer_user_msg=writer_msg,
                     kv_tracker=kv_tracker,
                     reasoning_on=reasoning_on,

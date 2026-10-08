@@ -24,7 +24,7 @@ class StreakRule:
 
 # The tagger nominates subjects the draft and recent replies describe; it cannot tell a repeated description from a new one.
 NOMINATE_RULE = StreakRule(window=8, min_count=2, min_prob=0.5)
-# The Judge confirms a nominee: its repeat probability against each earlier reply, read pairwise.
+# The pair comparer confirms a nominee: its repeat probability against each earlier reply, read pairwise.
 REPEAT_RULE = StreakRule(window=8, min_count=2, min_prob=0.6)
 # A subject in every recent reply is recurring focus however it is worded; flag it on presence alone.
 PRESENCE_RULE = StreakRule(window=4, min_count=4, min_prob=0.7, level=PRESENT)
@@ -58,7 +58,7 @@ def _count(history: Sequence[SubjectProbs], category: str, rule: StreakRule) -> 
 
 
 def nominate(draft: SubjectProbs, history: Sequence[SubjectProbs]) -> list[str]:
-    """Categories the draft describes and recent replies (newest first) described, for the Judge to read."""
+    """Categories the draft describes and recent replies (newest first) described, for the pair comparer to read."""
     rule = NOMINATE_RULE
     return [
         category

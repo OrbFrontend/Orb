@@ -140,6 +140,7 @@ MODELS: dict[str, ModelSpec] = {
         size_mb=20,
         revision="758d5236405776dd801452a4954b047ba63775aa",
     ),
+    # The subject analyzer: the tagger nominates subjects, the pair comparer confirms repeats. One feature, both files.
     "subjects_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-subjects-68m",
         filename="gguf/subjects-68m-q8_0.gguf",
@@ -147,6 +148,16 @@ MODELS: dict[str, ModelSpec] = {
         revision="0b027e1b5510acb221b09a1c3d1c9319110eac08",
         local_filename="subjects-68m-v1-q8_0.gguf",
         sha256="8ddc36932a1356b5d5c2dfa156f03cb2c82bc13ca1b66432e5d99b061689326e",
+        extra_files=(
+            ModelFileSpec(
+                repo_id="chartreuse-verte/ettin-subject-pairs-68m",
+                path="gguf/subject-pairs-68m-q8_0.gguf",
+                revision="PLACEHOLDER-pin-the-published-commit-sha",
+                size_mb=72,
+                sha256="c51aedb3c79865c8db76e30b135fdd497e4159cd45b8e7bfccbcb4babdc0ac42",
+                local_filename="subject-pairs-68m-v1-q8_0.gguf",
+            ),
+        ),
     ),
     # Not an in-process model: served by a child llama-server (see local_models/llama_server/, driven by the Prose Rewriter
     # workflow host). `filename`/`size_mb` name the default variant so the legacy single-file paths keep working; the selector

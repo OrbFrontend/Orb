@@ -14,8 +14,6 @@ ON = cast(
     Settings,
     {
         "enable_agent": 1,
-        "decision_endpoint_id": 1,
-        "decision_model": "typesafe/jev-1.13",
         "enabled_tools": {"editor_apply_patch": True},
         "editor_audit_toggles": {"subject_fixation": True},
         "local_ml_enabled": {},

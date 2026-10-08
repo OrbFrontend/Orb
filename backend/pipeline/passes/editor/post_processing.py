@@ -20,7 +20,7 @@ from ...subject_tags import TaggedReply, tag_text
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
 from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
-from .subject_judge import repeat_scores
+from .subject_repeats import repeat_scores
 
 logger = logging.getLogger(__name__)
 
@@ -228,30 +228,26 @@ async def subject_fixation_step(
     draft: str,
     settings: Settings,
     history: Sequence[TaggedReply],
-    judge_config: JudgeConfig | None,
     *,
     writer_user_msg: str | list[ContentPart],
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
 ) -> AsyncIterator[Mapping[str, Any]]:
-    """Tag *draft*; flag subjects every recent reply in *history* (newest first) also had, and ask the Judge whether other
-    descriptions repeat a detail from those replies. One forced exact-edit call reduces the flagged focus in narration
+    """Tag *draft*; flag subjects every recent reply in *history* (newest first) also had, and ask the pair comparer whether
+    other descriptions repeat a detail from those replies. One forced exact-edit call reduces the flagged focus in narration
     while preserving important actions and new information.
 
-    Without a configured Judge only presence streaks count. Nothing to cut changes nothing. A stop keeps the draft."""
+    Nothing to cut changes nothing. A stop keeps the draft."""
     tags = await tag_text(draft)
     history_tags = [reply.probs for reply in history]
     streaks = presence_streaks(tags, history_tags)
     records: list[ParsedToolCall] = []
     present = {streak.category for streak in streaks}
     nominees = [category for category in nominate(tags, history_tags) if category not in present]
-    if nominees and judge_config is not None and judge_config.configured:
-        try:
-            scores, record = await repeat_scores(
-                judge_config, draft, [reply.text for reply in history], nominees, abort=client.abort_token
-            )
-        except DecisionCancelled:
+    if nominees:
+        scores, record = await repeat_scores(draft, [reply.text for reply in history], nominees)
+        if client.is_aborted:
             return
         records.append(record)
         streaks += [streak for category in nominees if (streak := confirm(category, scores[category]))]

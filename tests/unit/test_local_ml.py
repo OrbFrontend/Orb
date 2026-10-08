@@ -267,9 +267,61 @@ async def test_aclassify_subjects_never_loads_the_model_for_empty_narration(monk
         assert all(p == [1.0, 0.0, 0.0] for p in tags.values())
 
 
+# --- the subject pair comparer ---------------------------------------------------
+# One sigmoid per category in SUBJECT_CATEGORIES order; each part is tokenized on its own and cut, as training built it.
+
+
+def test_subject_repeats_are_one_sigmoid_per_category_in_head_order():
+    logits = [0.0] * 20
+    logits[1] = 8.0  # hair
+    logits[19] = -8.0  # weather
+    probs = local_ml.subject_repeats_from_logits(logits)
+    assert list(probs) == list(local_ml.SUBJECT_CATEGORIES)
+    assert probs["eyes"] == 0.5 and probs["hair"] > 0.99 and probs["weather"] < 0.01
+
+
+def test_subject_pair_ids_cut_each_part_on_its_own_between_cls_and_sep():
+    class FakeLlama:
+        class _model:
+            @staticmethod
+            def token_sep() -> int:
+                return -2
+
+        def __init__(self):
+            self.calls: list[tuple[bytes, bool]] = []
+
+        def token_bos(self) -> int:
+            return -1
+
+        def tokenize(self, text: bytes, add_bos: bool = True) -> list[int]:
+            self.calls.append((text, add_bos))
+            return list(range(len(text)))
+
+    llama = FakeLlama()
+    earlier, draft = "e" * 1500, "d" * 20
+    ids = local_ml.subject_pair_ids(llama, earlier, draft)
+    side = local_ml.SUBJECT_PAIR_SIDE_IDS
+    assert ids == [-1, *range(side), *range(20), -2]
+    assert llama.calls == [(earlier.encode(), False), (draft.encode(), False)]
+
+
+async def test_acompare_subjects_never_loads_the_model_for_no_pairs(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("the model must not be reached without a pair to read")
+
+    monkeypatch.setattr(local_ml, "_scorer", boom)
+    assert await local_ml.acompare_subjects([]) == []
+
+
 @pytest.mark.parametrize(
     "feature,n_ctx",
-    [("slop_classifier", 512), ("pov_classifier", 512), ("markup_classifier", 512), ("subjects_classifier", 1024)],
+    [
+        ("slop_classifier", 512),
+        ("pov_classifier", 512),
+        ("markup_classifier", 512),
+        ("subjects_classifier", 1024),
+        ("subjects_comparer", 2048),
+    ],
 )
 def test_scorer_context_is_per_feature(monkeypatch, feature, n_ctx):
     # _rank_logits cuts at n_batch, and an encoder needs the whole sequence in one ubatch: all three must equal n_ctx.
@@ -285,3 +337,17 @@ def test_scorer_context_is_per_feature(monkeypatch, feature, n_ctx):
     local_ml._load_scorer_blocking(feature)
     assert (seen["n_ctx"], seen["n_batch"], seen["n_ubatch"]) == (n_ctx, n_ctx, n_ctx)
     assert seen["embedding"] is True and seen["pooling_type"] == 4
+
+
+def test_the_pair_comparer_loads_the_subject_analyzers_companion_file(monkeypatch):
+    import sys
+    import types
+
+    seen: dict = {}
+    fake = types.SimpleNamespace(LLAMA_POOLING_TYPE_RANK=4, Llama=lambda **kw: seen.update(kw) or object())
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake)
+    monkeypatch.setattr(local_ml, "_llamas", {})
+    monkeypatch.setattr(local_ml, "_load_errors", {})
+    local_ml._load_scorer_blocking(local_ml.SUBJECT_COMPARER)
+    (companion,) = local_ml.MODELS["subjects_classifier"].extra_files
+    assert seen["model_path"] == local_ml.file_path(companion)

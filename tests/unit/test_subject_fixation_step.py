@@ -2,14 +2,12 @@
 
 import json
 
-import httpx
 import pytest
 
-from backend.analysis.subjects import SUBJECT_DESCRIPTIONS
-from backend.inference import CachedBase, DecisionQuestion, DecisionResponse, LLMClient, local_ml
+from backend.analysis.subjects import SUBJECT_DESCRIPTIONS, subject_pair_parts, subjects_input
+from backend.inference import CachedBase, LLMClient, local_ml
 from backend.pipeline import subject_tags
-from backend.pipeline.passes.editor import editor_pass, subject_judge
-from backend.pipeline.passes.judge import JudgeConfig
+from backend.pipeline.passes.editor import editor_pass, subject_repeats
 from backend.pipeline.subject_tags import TaggedReply
 from backend.prompting.tool_catalog import enabled_schemas
 
@@ -19,9 +17,8 @@ DRAFT = '*Her copper braid gleams in the lamplight.* "Hello." *She waits.*'
 HAIR = {"hair": [0.0, 0.0, 1.0]}
 EARLIER = '*Her copper braid catches the light.* "Again?"'
 OTHER = '*She shrugs.* "Fine."'
-# Hair described in every other reply: a nominee for the Judge, short of a presence streak.
+# Hair described in every other reply: a nominee for the comparer, short of a presence streak.
 HISTORY = [TaggedReply(EARLIER, HAIR), TaggedReply(OTHER, {"hair": [1.0, 0.0, 0.0]})] * 4
-JUDGE = JudgeConfig(url="http://judge/alpha/decisions", model="jev")
 
 
 @pytest.fixture(autouse=True)
@@ -37,25 +34,23 @@ def tagger(monkeypatch):
     return seen
 
 
-class Judge:
+class Comparer:
     def __init__(self, monkeypatch, repeat: float | Exception):
-        self.states: list[str] = []
-        self.questions: list[list[DecisionQuestion]] = []
-        judge = self
+        self.pairs: list[tuple[str, str]] = []
+        comparer = self
 
-        async def decide(client, state, questions, **kwargs):
-            judge.states.append(state)
-            judge.questions.append(list(questions))
+        async def compare(pairs):
+            comparer.pairs.extend(pairs)
             if isinstance(repeat, Exception):
                 raise repeat
-            return DecisionResponse(answers={q.key: repeat for q in questions})
+            return [dict.fromkeys(local_ml.SUBJECT_CATEGORIES, repeat) for _ in pairs]
 
-        monkeypatch.setattr(subject_judge.DecisionClient, "decide", decide)
+        monkeypatch.setattr(local_ml, "acompare_subjects", compare)
 
 
 @pytest.fixture
-def judge(monkeypatch):
-    return lambda repeat: Judge(monkeypatch, repeat)
+def comparer(monkeypatch):
+    return lambda repeat: Comparer(monkeypatch, repeat)
 
 
 class Editor:
@@ -86,7 +81,7 @@ def _base() -> CachedBase:
     )
 
 
-async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY, judge_config=JUDGE) -> tuple[list[dict], dict]:
+async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY) -> tuple[list[dict], dict]:
     events = [
         ev
         async for ev in editor_pass(
@@ -97,7 +92,6 @@ async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY, judge_config
             SETTINGS,
             [],
             audit_enabled=False,
-            judge_config=judge_config,
             subject_history=history,
         )
     ]
@@ -105,8 +99,8 @@ async def _run(editor: Editor, draft: str = DRAFT, history=HISTORY, judge_config
 
 
 @pytest.fixture(autouse=True)
-def repeats(judge):
-    return judge(0.9)
+def repeats(comparer):
+    return comparer(0.9)
 
 
 async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats):
@@ -123,37 +117,55 @@ async def test_a_streak_gets_one_forced_exact_edit_on_the_writer_prefix(repeats)
     assert "### Repeated descriptions" in prompt and "### Recurring subjects" not in prompt
     assert "from 8 of the last 8 replies" in prompt
     assert "keep all dialogue unchanged" in prompt and "keeping useful actions and new details" in prompt
-    # The Judge read the narration of each earlier reply against the draft's, one request per reply.
-    assert len(repeats.states) == 8 and all('"' not in state for state in repeats.states)
-    assert {q.key for q in repeats.questions[0]} == {"hair.same", "hair.repeat"}
-    assert all(
-        SUBJECT_DESCRIPTIONS["hair"] in q.instructions and "same character, object or scene feature" in q.instructions
-        for q in repeats.questions[0]
-    )
+    # The comparer read the narration of each earlier reply against the draft's, one pair per reply, newest first.
+    assert repeats.pairs == [subject_pair_parts(subjects_input(r.text), subjects_input(DRAFT)) for r in HISTORY]
     assert SUBJECT_DESCRIPTIONS["hair"] in prompt
+    [record] = [call for call in done["tool_calls"] if call["name"] == subject_repeats.RECORD_NAME]
+    assert record["arguments"] == {"hair": [0.9] * 8}
 
 
-@pytest.mark.parametrize("answer", [0.2, httpx.ConnectError("down")])
-async def test_no_cut_when_the_judge_finds_no_repeat_or_cannot_answer(judge, answer):
-    judge(answer)
+async def test_no_cut_when_the_comparer_finds_no_repeat(comparer):
+    comparer(0.2)
     editor = Editor([("copper braid gleams", "braid sways")])
     events, done = await _run(editor)
     assert editor.calls == [] and done["draft"] is None
     assert not any(ev.get("step") == "subject_fixation" for ev in events)
 
 
-async def test_without_a_judge_a_described_subject_is_never_cut(repeats):
+async def test_a_comparer_failure_is_reported_and_keeps_the_draft(comparer):
+    comparer(RuntimeError("model unavailable"))
     editor = Editor([("copper braid gleams", "braid sways")])
-    _, done = await _run(editor, judge_config=JudgeConfig())
-    assert editor.calls == [] and repeats.states == [] and done["draft"] is None
+    events, done = await _run(editor)
+    assert [ev["during"] for ev in events if ev["type"] == "failure"] == ["subject_fixation"]
+    assert editor.calls == [] and done["draft"] is None
 
 
-async def test_a_subject_in_every_recent_reply_is_cut_without_the_judge(repeats):
+async def test_a_stop_during_the_comparer_read_keeps_the_draft(monkeypatch):
+    editor = Editor([("copper braid gleams", "braid sways")])
+
+    async def compare(pairs):
+        editor.client.abort()
+        return [dict.fromkeys(local_ml.SUBJECT_CATEGORIES, 0.9) for _ in pairs]
+
+    monkeypatch.setattr(local_ml, "acompare_subjects", compare)
+    events, done = await _run(editor)
+    assert editor.calls == [] and done["draft"] is None
+    assert not any(ev.get("step") == "subject_fixation" for ev in events)
+
+
+async def test_a_reply_without_narration_is_never_read_and_never_counts(repeats):
+    spoken = '"Again? Fine."'
+    scores, record = await subject_repeats.repeat_scores(DRAFT, [EARLIER, spoken, EARLIER], ["hair"])
+    assert scores == {"hair": [0.9, None, 0.9]} and record["arguments"] == scores
+    assert repeats.pairs == [subject_pair_parts(subjects_input(EARLIER), subjects_input(DRAFT))] * 2
+
+
+async def test_a_subject_in_every_recent_reply_is_cut_without_the_comparer(repeats):
     editor = Editor([("Her copper braid gleams in the lamplight.", "She looks up from the lamplight.")])
     history = [TaggedReply('*She tugs her braid.* "Again?"', {"hair": [0.0, 1.0, 0.0]})] * 4
-    events, done = await _run(editor, history=history, judge_config=JudgeConfig())
+    events, done = await _run(editor, history=history)
     assert {"type": "step", "step": "subject_fixation"} in events and len(editor.calls) == 1
-    assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*' and repeats.states == []
+    assert done["draft"] == '*She looks up from the lamplight.* "Hello." *She waits.*' and repeats.pairs == []
     prompt = editor.calls[0]["messages"][-1]["content"]
     assert "### Recurring subjects" in prompt and "### Repeated descriptions" not in prompt
     assert "all 4 recent replies" in prompt
@@ -182,7 +194,8 @@ async def test_mixed_flags_get_their_own_editing_rules_in_one_call(monkeypatch, 
     descriptions, mentions = prompt.split("### Repeated descriptions\n\n")[1].split("### Recurring subjects\n\n")
     assert "- eyes or gaze:" in descriptions and "- hair on the head" not in descriptions
     assert "- hair on the head" in mentions and "- eyes or gaze:" not in mentions
-    assert all({q.key for q in questions} == {"eyes.same", "eyes.repeat"} for questions in repeats.questions)
+    [record] = [call for call in done["tool_calls"] if call["name"] == subject_repeats.RECORD_NAME]
+    assert list(record["arguments"]) == ["eyes"]
 
 
 async def test_editor_can_leave_an_essential_recurring_action_unchanged(monkeypatch, repeats):
@@ -195,7 +208,7 @@ async def test_editor_can_leave_an_essential_recurring_action_unchanged(monkeypa
     editor = Editor([])
     events, done = await _run(editor, draft=draft, history=history)
 
-    assert done["draft"] is None and repeats.states == []
+    assert done["draft"] is None and repeats.pairs == []
     [call] = editor.calls
     assert "return an empty `patches` array" in call["messages"][-1]["content"]
     assert not any(ev["type"] == "draft_update" for ev in events)
@@ -210,7 +223,7 @@ async def test_a_patch_that_reaches_into_dialogue_is_skipped():
 async def test_no_streak_means_no_call(repeats):
     editor = Editor([])
     events, done = await _run(editor, draft="*She waits by the fire.*")
-    assert editor.calls == [] and repeats.states == []
+    assert editor.calls == [] and repeats.pairs == []
     assert not any(ev.get("step") == "subject_fixation" for ev in events)
     assert done["draft"] is None
 
