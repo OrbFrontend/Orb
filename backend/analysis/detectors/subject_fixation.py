@@ -53,8 +53,8 @@ class SubjectStreak:
     def reason(self) -> str:
         label = LABELS.get(self.category, self.category)
         if self.level == PRESENT:
-            return f"The draft mentions {label} again - this is repetitive."
-        return f"The draft describes {label} again - this is repetitive."
+            return f"The draft repetitively mentions {label} again."
+        return f"The draft repetitively describes {label} again."
 
 
 def _reaches(probs: Sequence[float] | None, rule: StreakRule) -> bool:

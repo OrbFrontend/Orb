@@ -26,7 +26,7 @@ POST_PROCESSING_PREAMBLE = (
 
 POST_PROCESSING_RULES = (
     "FIND-AND-REPLACE RULES:\n"
-    "- The `find` value must exist in the current draft, including case, whitespace, and punctuation.\n"
+    "- The `find` value must exist in your latest message, including case, whitespace, and punctuation.\n"
     "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
     "- Change only what the task asks for and preserve everything else.\n"
