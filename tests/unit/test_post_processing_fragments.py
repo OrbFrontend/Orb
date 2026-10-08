@@ -62,7 +62,7 @@ def test_prompt_uses_injection_label_as_heading_and_description_as_instruction()
     fragment = _fragment("humanize", "post_processing")
     fragment["injection_label"] = "Humanize Dialogue"
     fragment["description"] = "Change dialogue only."
-    prompt = build_post_processing_prompt(fragment)
+    prompt = build_post_processing_prompt(fragment, draft="Draft.")
     assert "## Humanize Dialogue" in prompt
     assert "Change dialogue only." in prompt
     assert "editor_find_replace" in prompt
@@ -76,7 +76,7 @@ def test_prompts_for_different_fragments_share_everything_before_the_heading():
     second = _fragment("tighten", "post_processing")
     second["injection_label"] = "Tighten Prose"
     second["description"] = "Cut filler."
-    a, b = build_post_processing_prompt(first), build_post_processing_prompt(second)
+    a, b = build_post_processing_prompt(first, draft="Draft."), build_post_processing_prompt(second, draft="Draft.")
     shared = a[: a.index("## Humanize Dialogue")]
     assert b.startswith(shared)
 

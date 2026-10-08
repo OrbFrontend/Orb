@@ -28,14 +28,17 @@ POST_PROCESSING_PREAMBLE = (
 
 POST_PROCESSING_RULES = (
     "FIND-AND-REPLACE RULES:\n"
+    "- Your current draft is the single last assistant message, i.e. the text between: {bounds}.\n"
     "- Copy each `find` value exactly from your current draft only, including case, whitespace, and punctuation.\n"
     "- Keep each find as short as practical while still identifying exactly one span.\n"
     "- Return all useful edits in one `patches` array; do not rewrite the entire draft.\n"
     "- Leave `replace` empty when the text in `find` should be deleted.\n"
 )
 
+DRAFT_BOUND_WORDS = 5
+
 SUBJECT_FIXATION_INSTRUCTION = (
-    "Cut or supplant the harmful subjects below from your single most recent reply's narration with small edits; "
+    "Cut or supplant the monotonous subjects below from your single most recent reply's narration with small edits; "
     "keep dialogue, key actions and new information. If nothing can go, return an empty `patches` array."
 )
 
@@ -100,26 +103,35 @@ def build_feedback_prompt(
     return "\n\n".join(parts) + "]"
 
 
-def build_post_processing_prompt(fragment: Mapping[str, Any], *, reasoning_on: bool = False) -> str:
-    """Build one fragment-defined Editor request.
+def draft_bounds(draft: str, words: int = DRAFT_BOUND_WORDS) -> str:
+    """Quote where *draft* starts and ends, eliding the middle when it is longer than both ends."""
+    tokens = draft.split()
+    if len(tokens) <= 2 * words:
+        return f"`{' '.join(tokens)}`"
+    return f"`{' '.join(tokens[:words])}...{' '.join(tokens[-words:])}`"
 
-    The constant rules precede the per-fragment task so consecutive fragment
-    calls share them as cached prefix whenever the draft came through unchanged.
+
+def build_post_processing_prompt(fragment: Mapping[str, Any], *, draft: str, reasoning_on: bool = False) -> str:
+    """Build one fragment-defined Editor request over *draft*.
+
+    The rules, which quote the draft's ends, precede the per-fragment task so consecutive
+    fragment calls share them as cached prefix whenever the draft came through unchanged.
     """
     preamble = POST_PROCESSING_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    rules = POST_PROCESSING_RULES.format(bounds=draft_bounds(draft))
     heading = str(fragment.get("injection_label") or "").strip()
     instruction = str(fragment.get("description") or "").strip()
-    return "\n\n".join([preamble, POST_PROCESSING_RULES, f"## {heading}", instruction]) + "]"
+    return "\n\n".join([preamble, rules, f"## {heading}", instruction]) + "]"
 
 
-def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, reasoning_on: bool = False) -> str:
+def build_subject_fixation_prompt(streaks: Sequence[SubjectStreak], *, draft: str, reasoning_on: bool = False) -> str:
     """Build an exact-edit request listing each subject to cut."""
     targets = "\n".join(
         f"- {'Any mention' if streak.level == PRESENT else 'Descriptions'} of {SUBJECT_DESCRIPTIONS.get(streak.category, streak.category)}"
         for streak in streaks
     )
     task = {"injection_label": "Subject fixation", "description": f"{SUBJECT_FIXATION_INSTRUCTION}\n\n{targets}"}
-    return build_post_processing_prompt(task, reasoning_on=reasoning_on)
+    return build_post_processing_prompt(task, draft=draft, reasoning_on=reasoning_on)
 
 
 def _category_rules(categories: Collection[str]) -> str:
