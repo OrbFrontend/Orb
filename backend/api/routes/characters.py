@@ -199,14 +199,6 @@ async def api_card_source_login(source: str, req: CardSourceLoginRequest):
     return _account_state(auth["username"])
 
 
-@router.delete("/api/characters/sources/{source}/login")
-async def api_card_source_logout(source: str):
-    """Forget a card site's saved session on this machine."""
-    supported = card_downloader.supports_login(source)  # an unknown source is a 400 before it reaches the JSON path
-    await set_card_source_auth(source, None)
-    return _account_state(supported=supported)
-
-
 @router.post("/api/characters/import-url")
 async def api_import_character_url(req: ImportUrlRequest):
     """Download a character card from an external source and run it through the

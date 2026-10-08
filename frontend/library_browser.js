@@ -484,7 +484,6 @@ function renderSourceAccountBody() {
     return `
       <div class="internet-account">
         <span>Signed in to ${esc(label)} as <strong>${esc(account.username)}</strong></span>
-        <button class="btn btn-sm" data-wf-action="browser:sourceLogout">Sign out</button>
       </div>`;
   }
   const hint = account.expired
@@ -518,15 +517,24 @@ async function loadSourceAccount(source) {
   if (source === _internetSource) refreshSourceAccount();
 }
 
-/** A sign-in change alters what the source lists, so results already on screen are fetched again. A failure leaves the row
- *  as typed. */
-async function changeSourceAccount(request) {
+/** Signing in alters what the source lists, so results already on screen are fetched again. A failure leaves the row as
+ *  typed. */
+async function loginSource() {
+  const username = $("internet-login-user")?.value.trim() || "";
+  const password = $("internet-login-pass")?.value || "";
+  if (!username || !password) {
+    toast(`Enter your ${currentSource().login.toLowerCase()} and password`, true);
+    return;
+  }
   const button = document.querySelector("#internet-account .btn");
   if (button?.disabled) return;
   if (button) button.disabled = true;
   const source = _internetSource;
   try {
-    _sourceAccounts.set(source, await request(source));
+    _sourceAccounts.set(
+      source,
+      await api.post(`/characters/sources/${encodeURIComponent(source)}/login`, { username, password }),
+    );
   } catch (e) {
     toast(`Sign-in failed: ${e.message}`, true);
     if (button) button.disabled = false;
@@ -535,22 +543,6 @@ async function changeSourceAccount(request) {
   if (source !== _internetSource) return;
   refreshSourceAccount();
   if (_internetResults.length) searchInternet();
-}
-
-function loginSource() {
-  const username = $("internet-login-user")?.value.trim() || "";
-  const password = $("internet-login-pass")?.value || "";
-  if (!username || !password) {
-    toast(`Enter your ${currentSource().login.toLowerCase()} and password`, true);
-    return;
-  }
-  changeSourceAccount((source) =>
-    api.post(`/characters/sources/${encodeURIComponent(source)}/login`, { username, password }),
-  );
-}
-
-function logoutSource() {
-  changeSourceAccount((source) => api.del(`/characters/sources/${encodeURIComponent(source)}/login`));
 }
 
 function renderInternetResultsBody() {
@@ -757,5 +749,4 @@ registerActions("browser", {
   sourceLoginKey: (_el, e) => {
     if (e.key === "Enter") loginSource();
   },
-  sourceLogout: () => logoutSource(),
 });
