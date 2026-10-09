@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from scripts.bench.driven.more_cards import MORE_CARDS
+from scripts.bench.driven.more_cards import card as build_card
 
 PERSONA = "A quiet, observant adult who listens more than talks and leaves other characters free to decide their own actions."
 
@@ -530,9 +534,31 @@ CARDS = [
 ]
 
 
+def drafted_cards() -> list[dict]:
+    """Cards 21-60: drafted by `draft_cards.py` and reviewed by hand."""
+    rows = json.loads(Path(__file__).with_name("drafted_cards.json").read_text())["cards"]
+    return [
+        build_card(
+            row["premise_id"],
+            row["card"]["name"],
+            row["card"]["description"],
+            row["card"]["personality"],
+            row["card"]["scenario"],
+            row["card"]["book_name"],
+            [(entry["name"], entry["keys"], entry["content"]) for entry in row["card"]["entries"]],
+            row["card"]["inventory"],
+            row["card"]["opener"],
+            row["card"]["user"],
+            row["card"]["reply"],
+            row["card"]["final"],
+        )
+        for row in rows
+    ]
+
+
 def contexts() -> list[dict]:
-    """Every (card, opening) pair; the first five are the pilot's."""
-    cards = [*CARDS, *MORE_CARDS]
+    """Every (card, opening) pair; the first five are the pilot's, the first twenty the hand-written set."""
+    cards = [*CARDS, *MORE_CARDS, *drafted_cards()]
     rows = []
     for index in range(max(len(card["openings"]) for card in cards)):
         for card in cards:

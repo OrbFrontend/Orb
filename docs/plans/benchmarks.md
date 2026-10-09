@@ -28,8 +28,8 @@ against hand labels before trusting it.
 - **Status.** Bench 1 is done: the harness is under `scripts/bench/cache/`, and its 360-turn sweep (2026-10-09), with
   the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
   The Bench 2 Gemma pilot (5 contexts × 2 arms × 1 repeat, 2026-10-09) ran through Jev scoring; its harness is under
-  `scripts/bench/driven/` and its report in `scripts/bench/driven/results/pilot/`. The full corpus (20 cards) is
-  written, and the pilot's hand labels set the `driven` threshold; the full run is next.
+  `scripts/bench/driven/` and its report in `scripts/bench/driven/results/pilot/`. The corpus is 60 cards, and the
+  pilot's hand labels set the `driven` threshold; the 60-context runs on both models are next.
 
 ## Readiness (checked 2026-10-09)
 
@@ -163,9 +163,11 @@ and the seeded `editor_audit_toggles`. This is the out-of-the-box pipeline with 
 
 ### Corpus
 
-- 20 safe-for-work cards written for the benchmark, one opening each: 20 contexts, each its own card. Samples go to
-  independent cards, not to more openings or repeats of a card, which add turns without narrowing the interval. Load
-  them with `POST /api/characters` (or `/api/characters/import`).
+- 60 safe-for-work cards written for the benchmark, one opening each: 60 contexts, each its own card. Cards 1–20 are
+  hand-written. Cards 21–60 are drafted by the pinned DeepSeek from one-line premises (`draft_cards.py`), with openings
+  that set nothing in motion, and reviewed by hand. Samples go to independent cards, not to more openings or repeats
+  of a card, which add turns without narrowing the interval. Load them with `POST /api/characters` (or
+  `/api/characters/import`).
 - The cards must exercise the stages Bench 4 checks: each card carries lorebook entries and the seeded moods, so the
   lorebook and mood stages run.
 - **Bench 1 histories** are generated once and frozen as fixtures. There is no chat-import route, so the harness
@@ -195,12 +197,12 @@ and the seeded `editor_audit_toggles`. This is the out-of-the-box pipeline with 
 
 ### Statistics
 
-For Benches 2–4, report 95% intervals from a bootstrap that resamples the 20 contexts, one per card. Both arms run on
+For Benches 2–4, report 95% intervals from a bootstrap that resamples the 60 contexts, one per card. Both arms run on
 every context, so bootstrap the paired difference.
 
 Bench 1 resamples independent starting histories, paired across arms, retaining all repeats and consecutive turns
 for each history together. Do not bootstrap its ten turns or repeats of one history as independent contexts, or reuse
-the 30-context denominator from Bench 2. Three repeat blocks per size measure repeatability on the chosen fixture;
+the 60-context denominator from Bench 2. Three repeat blocks per size measure repeatability on the chosen fixture;
 they do not support a population interval. Use the pilot to choose additional independent histories and repeats
 before making a precise comparative README claim. With only one history per size, report descriptive results.
 
@@ -406,8 +408,8 @@ tack a hook onto the end.
 
 - **Arms.** `bench.json` in both, with `enabled_tools.direct_scene` on vs off. `enable_agent` stays 1 in both, so the
   Editor, lorebook and state steps run in both arms and Benches 3 and 4 can reuse these turns without skewing this one.
-- **Turns.** Each of the 20 contexts ends on an open, passive user turn ("I take a seat and order a drink"), where a
-  model left alone tends to just describe. 20 contexts × 2 arms × 1 repeat = 40 replies per model.
+- **Turns.** Each of the 60 contexts ends on an open, passive user turn ("I take a seat and order a drink"), where a
+  model left alone tends to just describe. 60 contexts × 2 arms × 1 repeat = 120 replies per model.
 - **Scoring.** The Jev `choice` question in `scripts/bench/driven/jev_check.py` (`SHAPE`):
 
   | Label | Criterion |
@@ -440,7 +442,7 @@ tack a hook onto the end.
   of 20 replies once to state the noise next to the result.
 - **Length check.** The Director may change reply length, and Jev's label may follow length. Report mean words per arm
   and the `driven` share within length bands.
-- **Hand labels.** Label 40 of the 80 replies (both models, both arms) without knowing which arm each came from
+- **Hand labels.** Label 40 of the 240 replies (both models, both arms) without knowing which arm each came from
   (`hand_labels.py`). Sample them stratified by Jev's label and by P(driven) band (below 0.4, 0.4–0.8, above 0.8), so
   `afterthought` and borderline scores are both represented. Report the 3 × 3 confusion matrix and `driven` precision
   and recall, for the threshold and for Jev's label, not just overall agreement. The pilot's 10 hand labels set the
@@ -514,7 +516,7 @@ establish that every eligible pass ran while silent skips remain uncounted.
        lorebook entry ids, Editor sentence ids. Sentence ids are free strings in the schema, not an enum, so this is
        not grounded by construction. The Editor rejects an unknown id and asks again, so report first-try grounding
        apart from final grounding. Also check `conversation_logs.state_report` for state operations the turn rejected.
-- **Coverage.** Director reliability rests on the 20 Director-on turns per model, and every turn runs `bench.json`
+- **Coverage.** Director reliability rests on the 60 Director-on turns per model, and every turn runs `bench.json`
   (every detector on, the lorebook and one state fragment enabled), not the out-of-the-box settings. Say both next to
   the result.
 - **Limit.** A pass the model skips without failing leaves no trace in the stream or the saved calls, so skips are not
@@ -559,10 +561,13 @@ A short "By the numbers" section under Design Principles:
 | `scripts/bench/driven/bench.json` | The Benches 2–4 settings snapshot |
 | `scripts/bench/driven/corpus.py` | Bench 2 cards 1–5 (the pilot's), their lorebooks, starting inventories and openings; `contexts()` |
 | `scripts/bench/driven/more_cards.py` | Bench 2 cards 6–20, one opening each |
+| `scripts/bench/driven/draft_cards.py` | Drafts Bench 2 cards 21–60 with the pinned DeepSeek, one forced call per premise, with shape checks |
+| `scripts/bench/driven/drafted_cards.json` | Cards 21–60 as drafted and reviewed |
 | `scripts/bench/driven/run.py` | Bench 2 runner per `bench.json` transport: recorder, fresh Orb worktree, arms interleaved per context, provider-error retries, `--resume` |
 | `scripts/bench/driven/orb_turns.py` | Applies and verifies `bench.json`, seeds conversations, switches the arm and saves each turn |
 | `scripts/bench/driven/score.py` | Live Jev preflight and labels with raw answers kept, per-transport wire checks, arm shares, length bands, paired bootstrap over contexts and cards |
-| `scripts/bench/driven/hand_labels.py` | Blind, stratified hand-label sheet and its comparison with Jev |
+| `scripts/bench/driven/hand_labels.py` | Blind, stratified hand-label sheet over one or more runs, and its comparison with Jev |
+| `scripts/bench/driven/noise.py` | Re-asks Jev live on a sample of scored replies and counts label and threshold flips |
 
 ## Deferred
 

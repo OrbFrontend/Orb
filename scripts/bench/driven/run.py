@@ -24,7 +24,7 @@ from scripts.bench.cache.orb_driver import save
 from scripts.bench.driven.corpus import contexts
 
 TURN_SECONDS = 900
-ORB_COMMIT = "d7032cc349a5b4fb345652a8d4d444bb8169f9e5"
+ORB_COMMIT = "8821c07125be648135f7c980ce44d3a3f0d2a4ea"
 SNAPSHOT = json.loads(Path(__file__).with_name("bench.json").read_text())
 SOURCE = Path.home() / "lmg/Anonymous/Orb"
 LLAMA = Path.home() / "lmg/llama-cpp-webui/data/llama.cpp/build/bin/llama-server"
