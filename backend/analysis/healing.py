@@ -121,6 +121,36 @@ def _trim_wrapping_markers(draft: str, start: int, end: int, text: str) -> tuple
     return text, notes
 
 
+_DOUBLE_QUOTES = '"“”'
+# A line closed on a comma or dash hands off to its dialogue tag: `"Look," she said.`
+_TAGGED_LINE_RE = re.compile(r"[,—–][\"”]\s*$")
+_CLOSED_LINE_RE = re.compile(r"[\"”]\s*$")
+
+
+def _drop_restated_dialogue(draft: str, start: int, end: int, text: str) -> tuple[str, list[str]]:
+    """Drop the dialogue a narration replacement wrote for lines the draft already has.
+
+    A dialogue tag's span stops at the quote, so the line it attributes stays in the draft. A replacement that leads with its
+    own quoted line wedges that line between the draft's line and its tag, whether it restates the draft's words or not; a lone
+    closing quote at its end closes speech that never opened.
+    """
+    span = draft[start:end]
+    if any(mark in span for mark in _DOUBLE_QUOTES) or _enclosing_block(draft, start, end) is not None:
+        return text, []
+    notes: list[str] = []
+    left = draft[:start]
+    is_tag = bool(_TAGGED_LINE_RE.search(left)) or (bool(_CLOSED_LINE_RE.search(left)) and span[:1].islower())
+    if is_tag and text[:1] in '"“':
+        close = next((index for index in range(1, len(text)) if text[index] in '"”'), None)
+        if close is not None:
+            text = text[close + 1 :].lstrip()
+            notes.append("dropped the quoted line written ahead of the dialogue tag")
+    if sum(text.count(mark) for mark in _DOUBLE_QUOTES) % 2 and text[-1:] in '"”':
+        text = text[:-1].rstrip()
+        notes.append("dropped an unpaired closing quote")
+    return text, notes
+
+
 _SEPARATORS = ("", " ", "\n", "\n\n")
 
 
@@ -308,6 +338,8 @@ def heal_replacement(draft: str, start: int, end: int, replace: str, *, restatem
         text = text[spans[lo][0] : spans[hi - 1][1]].strip() if lo < hi else ""
     text, marker_notes = _trim_wrapping_markers(draft, start, end, text)
     notes.extend(marker_notes)
+    text, dialogue_notes = _drop_restated_dialogue(draft, start, end, text)
+    notes.extend(dialogue_notes)
 
     if text:
         return HealedPatch(start, end, text, tuple(notes))

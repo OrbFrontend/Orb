@@ -11,7 +11,7 @@ from .audit import AuditReport
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
-from .guarding import guard_protected_sequences, protected_bands
+from .guarding import guard_protected_sequences, guard_quotation, protected_bands
 from .healing import heal_replacement
 from .targets import Target, check_negation_source
 from .text.roleplay_segmentation import split_narration_sentences
@@ -123,6 +123,7 @@ class PatchErrorKind:
     NO_OP = "no_op"  # `replace` repeats the flagged text, before or after healing
     RESTATED_CONTEXT = "restated_context"  # healed away entirely: all copied context
     PROTECTED_SEQUENCE = "protected_sequence"  # clones text outside the target span
+    QUOTATION = "quotation"  # leaves an unpaired quote or wedges a line between dialogue and its tag
 
 
 class PatchError(str):
@@ -286,6 +287,18 @@ def apply_id_patches_with_edits(
             continue
         if healed.replace == out[healed.start : healed.end]:
             heal_errors.append(_no_op_error(target.tid))
+            continue
+        damage = guard_quotation(out, healed.start, healed.end, healed.replace)
+        if damage is not None:
+            logger.warning("Quotation guard rejected patch id %d: %s", target.tid, damage)
+            heal_errors.append(
+                PatchError(
+                    f"Error: the patch for id {target.tid} {damage} — the dialogue around the flagged span is already in the "
+                    "draft; replace only the flagged text.",
+                    tid=target.tid,
+                    kind=PatchErrorKind.QUOTATION,
+                )
+            )
             continue
         previous_end, next_start = bounds[target.tid]
         clone = guard_protected_sequences(

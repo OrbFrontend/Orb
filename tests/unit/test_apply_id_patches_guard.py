@@ -179,6 +179,35 @@ def test_healing_and_guarding_are_distinguishable():
     assert (errors[0].kind, errors[0].tid) == (PatchErrorKind.PROTECTED_SEQUENCE, 1)
 
 
+@pytest.mark.parametrize(
+    ("draft", "span", "replace", "error"),
+    [
+        # Healing only drops a quoted line at the head of a tag's replacement; one left elsewhere still unbalances the reply.
+        (
+            '"Wait," she said. He left.',
+            "she said.",
+            'she said, "Stop.',
+            "Error: the patch for id 1 would leave an unpaired quotation mark — the dialogue around the flagged span is "
+            "already in the draft; replace only the flagged text.",
+        ),
+        (
+            'He waited. "Go," she said.',
+            "He waited.",
+            'He waited. "Now,"',
+            "Error: the patch for id 1 would put a quoted line between a line of dialogue and its tag — the dialogue around "
+            "the flagged span is already in the draft; replace only the flagged text.",
+        ),
+    ],
+)
+def test_a_patch_that_breaks_the_quotation_is_rejected(draft, span, replace, error):
+    start = draft.index(span)
+    targets = [Target(tid=1, span=span, start=start, end=start + len(span))]
+    out, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": replace}])
+    assert out == draft
+    assert errors == [error]
+    assert errors[0].kind == PatchErrorKind.QUOTATION
+
+
 def test_a_patch_error_can_be_built_directly():
     error = PatchError("Error: something.", tid=3, kind=PatchErrorKind.NO_OP)
     assert error == "Error: something."

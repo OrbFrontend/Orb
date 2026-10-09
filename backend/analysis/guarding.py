@@ -1,4 +1,4 @@
-"""Reject editor patches that clone text from adjacent protected spans."""
+"""Reject editor patches that clone text from adjacent protected spans or break the quotation around them."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Band", "ProtectedClone", "guard_protected_sequences", "protected_bands"]
+__all__ = ["Band", "ProtectedClone", "guard_protected_sequences", "guard_quotation", "protected_bands"]
 
 # Require enough tokens and characters to avoid common matches.
 MIN_CLONE_TOKENS = 3
@@ -130,4 +130,23 @@ def guard_protected_sequences(replacement: str, bands: tuple[Band, Band], target
             )
             continue
         return ProtectedClone(source, band.side)
+    return None
+
+
+# A line closed on a comma or dash continues into its dialogue tag, so a second quote right after it is a line wedged in between.
+_WEDGED_LINE_RE = re.compile(r"[,—–][\"”][ \t]+[\"“]")
+
+
+def _quote_balance(text: str) -> tuple[int, int]:
+    """Straight-quote parity and the curly opener surplus of *text*."""
+    return text.count('"') % 2, text.count("“") - text.count("”")
+
+
+def guard_quotation(draft: str, start: int, end: int, replacement: str) -> str | None:
+    """Return why splicing *replacement* over ``draft[start:end]`` would break the draft's quotation, if it would."""
+    if _quote_balance(replacement) != _quote_balance(draft[start:end]):
+        return "would leave an unpaired quotation mark"
+    spliced = draft[:start] + replacement + draft[end:]
+    if len(_WEDGED_LINE_RE.findall(spliced)) > len(_WEDGED_LINE_RE.findall(draft)):
+        return "would put a quoted line between a line of dialogue and its tag"
     return None

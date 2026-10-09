@@ -210,6 +210,93 @@ def test_an_apostrophe_is_not_read_as_a_closing_quote():
     assert errors == []
 
 
+# -- Dialogue written around a dialogue tag ------------------------------------
+#
+# A flagged tag is one narration sentence: its line stays in the draft. Gemma 4 26B-A4B answered tags with the line *and* the
+# tag, misquoting the line, quoting the next one, or closing a quote it never opened (Bench 1 pilot and sweep, Orb arm). The
+# exact-copy trim above misses those, so they spliced as `," "` or an unpaired quote.
+
+
+def test_a_misquoted_line_ahead_of_its_tag_is_dropped():
+    # fair/pilot/r1-32000-orb/turn-01: the model's line misquoted an earlier one and landed in front of the draft's own line,
+    # spliced as `"Look at the numbers," "Something's... it isn't right," she muttered`. Its tag is the flagged text unchanged.
+    draft = '"Look at the numbers," she muttered, almost to herself. "The deliveries... the counts... they aren\'t just inconsistent."'
+    out, errors = _patch(
+        draft, "she muttered, almost to herself.", "\"Something's... it isn't right,\" she muttered, almost to herself."
+    )
+    assert out == draft
+    assert errors == ["Error: the patch for id 1 is a no-op — `replace` repeats the flagged text unchanged."]
+
+
+def test_the_next_line_quoted_ahead_of_the_tag_is_dropped():
+    # fair/sweep/r1-2000-orb/turn-06: the line came from *after* the tag.
+    draft = (
+        '"If we had waited, there wouldn\'t be a town left to tax," he hissed, his eyes searching yours with a desperate, '
+        "pleading intensity. \"The 'units'... the weight that wasn't there...\""
+    )
+    out, errors = _patch(
+        draft,
+        "he hissed, his eyes searching yours with a desperate, pleading intensity.",
+        "\"The 'units'...\" he hissed, searching your face with a desperate, pleading intensity.",
+    )
+    assert out == (
+        '"If we had waited, there wouldn\'t be a town left to tax," he hissed, searching your face with a desperate, '
+        "pleading intensity. \"The 'units'... the weight that wasn't there...\""
+    )
+    assert errors == []
+
+
+def test_an_unpaired_closing_quote_after_the_tag_is_dropped():
+    # fair/pilot/r1-2000-orb/turn-02, the Editor's second round: the restated line was trimmed, its stray closing quote was
+    # not, and the reply saved as `the quiet of the room." "Look at`.
+    draft = '"It\'s not just the numbers," she murmured, her voice barely audible. "Look at the clerk\'s signature."'
+    out, errors = _patch(
+        draft,
+        "she murmured, her voice barely audible.",
+        '"It\'s not just the numbers," she whispered, her voice barely more than a breath against the quiet of the room."',
+    )
+    assert out == (
+        '"It\'s not just the numbers," she whispered, her voice barely more than a breath against the quiet of the room. '
+        '"Look at the clerk\'s signature."'
+    )
+    assert errors == []
+
+
+def test_a_tag_edit_with_a_restated_line_lands_instead_of_being_rejected():
+    # fair/pilot/r1-2000-orb/turn-03: the paraphrased line cloned the next one, so the protected-sequence guard threw away the
+    # tag edit with it. With the line dropped first, the tag edit is all that is left to check.
+    draft = (
+        '"The signatures," she said, her voice regaining its flat edge. "We need to verify the signatures. Someone was sloppy."'
+    )
+    out, errors = _patch(
+        draft,
+        "she said, her voice regaining its flat edge.",
+        '"We need to verify the signatures," she said, her voice returning to a flat, professional tone.',
+    )
+    assert out == (
+        '"The signatures," she said, her voice returning to a flat, professional tone. '
+        '"We need to verify the signatures. Someone was sloppy."'
+    )
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("draft", "span", "replace", "expected"),
+    [
+        # Scare quotes inside narration are the model's own markup.
+        ("He nodded. She called it progress.", "She called it progress.", 'She called it "progress."', None),
+        # A tag rewritten as a tag carries no quotes at all.
+        ('"Go," she said. He left.', "she said.", "she snapped.", '"Go," she snapped. He left.'),
+        # A line that closed on its own full stop has no tag to wedge into, so a new line after it is new speech.
+        ('"Hi." She left.', "She left.", '"Bye," she said.', '"Hi." "Bye," she said.'),
+    ],
+)
+def test_quotes_away_from_a_dialogue_tag_are_kept(draft, span, replace, expected):
+    out, errors = _patch(draft, span, replace)
+    assert out == (expected or draft.replace(span, replace))
+    assert errors == []
+
+
 # -- What healing must leave alone ---------------------------------------------
 
 

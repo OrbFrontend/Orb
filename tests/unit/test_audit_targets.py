@@ -85,12 +85,12 @@ def test_merged_target_splices_without_losing_the_inner_edit():
         monotony_score=0.4,
     )
     targets = build_targets(r, draft)
-    out, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": "REWRITTEN"}])
+    out, errors = apply_id_patches(draft, targets, [{"id": 1, "replace": '"Stay," he said, and meant it.'}])
     assert errors == []
-    # One splice covering both findings. The draft's opening `"` survives -- it sat outside the marker-stripped span, same as
-    # under the old marker-core path. Two ids here would have replaced the inner span and then overwritten it using the outer
-    # span's now-stale `end`, losing the edit silently.
-    assert out == 'He turned. "REWRITTEN She stayed.'
+    # One splice covering both findings. The draft's opening `"` sat outside the marker-stripped span, so the resent one is
+    # dropped and the span's own closing `"` is rewritten in place. Two ids here would have replaced the inner span and then
+    # overwritten it using the outer span's now-stale `end`, losing the edit silently.
+    assert out == 'He turned. "Stay," he said, and meant it. She stayed.'
     assert "not a plea but a demand" not in out
 
 
