@@ -169,7 +169,10 @@ def worktree(harness: Path, run: Path) -> Path:
     tree = run / "orb"
     command(["git", "worktree", "add", "--detach", tree, ORB_COMMIT], SOURCE)
     shutil.copytree(
-        harness / "scripts/bench", tree / "scripts/bench", ignore=shutil.ignore_patterns("evidence", "results", "__pycache__")
+        harness / "scripts/bench",
+        tree / "scripts/bench",
+        ignore=shutil.ignore_patterns("evidence", "results", "__pycache__"),
+        dirs_exist_ok=True,
     )
     # The subject_fixation step runs only with Local ML's subject analyzer on disk; copy the catalog-pinned files.
     models = tree / "backend/data/models"
@@ -225,12 +228,12 @@ def main():
         manifest = {**identity, "corpus_sha256": hashlib.sha256(corpus).hexdigest(), "started_utc_ns": time.time_ns()}
     save(run / "manifest.json", manifest)
     save(run / "recorder-binding.json", {"key": "setup"})
-    if not hosted:
-        start_model(harness, run)
-    start_recorder(harness, run, python, config["upstream"])
     tree = run / "orb" if args.resume else worktree(harness, run)
     if command(["git", "status", "--porcelain", "--", "backend", "frontend"], tree):
         raise ValueError("Orb application source differs from the pinned commit")
+    if not hosted:
+        start_model(harness, run)
+    start_recorder(harness, run, python, config["upstream"])
     pidfile = run / "orb.pid"
     uvicorn = [python, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "18899"]
     driver = [python, "-m", "scripts.bench.driven.orb_turns"]
