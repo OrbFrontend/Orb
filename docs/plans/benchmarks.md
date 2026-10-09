@@ -29,7 +29,9 @@ against hand labels before trusting it.
   the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
   The Bench 2 Gemma pilot (5 contexts × 2 arms × 1 repeat, 2026-10-09) ran through Jev scoring; its harness is under
   `scripts/bench/driven/` and its report in `scripts/bench/driven/results/pilot/`. The corpus is 60 cards, and the
-  pilot's hand labels set the `driven` threshold; the 60-context runs on both models are next.
+  pilot's hand labels set the `driven` threshold. Both models have run all 60 contexts and are scored
+  (`results/c60-gemma/`, `results/c60-deepseek/`, judge noise in `results/c60-noise/`); the 40 blind hand labels
+  (`results/c60-hand-labels/`) are next.
 
 ## Readiness (checked 2026-10-09)
 

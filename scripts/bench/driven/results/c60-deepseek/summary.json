@@ -1,0 +1,112 @@
+{
+  "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+  "transport": "deepseek",
+  "jev_model": "typesafe/jev-1.13-20260917",
+  "driven_threshold": 0.75,
+  "arms": {
+    "on": {
+      "attempted": 60,
+      "clean": 60,
+      "retried": 0,
+      "scored": 60,
+      "driven": 0.38333333333333336,
+      "labels": {
+        "driven": 0.6,
+        "afterthought": 0.16666666666666666,
+        "static": 0.23333333333333334
+      },
+      "mean_p_driven": 0.5478333333333333,
+      "mean_words": 288.1666666666667,
+      "mean_calls": 5.2,
+      "reasoning_chars": 0,
+      "cost": 0.03536347
+    },
+    "off": {
+      "attempted": 60,
+      "clean": 60,
+      "retried": 0,
+      "scored": 60,
+      "driven": 0.3,
+      "labels": {
+        "driven": 0.5666666666666667,
+        "afterthought": 0.18333333333333332,
+        "static": 0.25
+      },
+      "mean_p_driven": 0.48366666666666663,
+      "mean_words": 251.48333333333332,
+      "mean_calls": 4.15,
+      "reasoning_chars": 0,
+      "cost": 0.02445472
+    }
+  },
+  "paired_driven": {
+    "contexts": 60,
+    "cards": 60,
+    "difference": 0.08333333333333333,
+    "ci95_contexts": [
+      -0.05,
+      0.21666666666666667
+    ],
+    "ci95_cards": [
+      -0.05,
+      0.21666666666666667
+    ]
+  },
+  "paired_label_driven": {
+    "contexts": 60,
+    "cards": 60,
+    "difference": 0.03333333333333333,
+    "ci95_contexts": [
+      -0.11666666666666667,
+      0.18333333333333332
+    ],
+    "ci95_cards": [
+      -0.11666666666666667,
+      0.18333333333333332
+    ]
+  },
+  "length_bands": {
+    "short": {
+      "words": [
+        0,
+        242
+      ],
+      "on": {
+        "n": 16,
+        "driven": 0.125
+      },
+      "off": {
+        "n": 23,
+        "driven": 0.2608695652173913
+      }
+    },
+    "middle": {
+      "words": [
+        242,
+        296
+      ],
+      "on": {
+        "n": 15,
+        "driven": 0.4
+      },
+      "off": {
+        "n": 26,
+        "driven": 0.23076923076923078
+      }
+    },
+    "long": {
+      "words": [
+        296,
+        1000000000
+      ],
+      "on": {
+        "n": 29,
+        "driven": 0.5172413793103449
+      },
+      "off": {
+        "n": 11,
+        "driven": 0.5454545454545454
+      }
+    }
+  }
+}

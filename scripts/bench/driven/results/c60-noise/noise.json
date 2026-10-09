@@ -1,0 +1,210 @@
+{
+  "n": 20,
+  "driven_threshold": 0.75,
+  "label_flips": 1,
+  "threshold_flips": 1,
+  "mean_abs_p_driven_move": 0.025499999999999988,
+  "max_abs_p_driven_move": 0.07999999999999996,
+  "pairs": [
+    {
+      "model": "gemma",
+      "key": "r1-tomas-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.88,
+      "p_driven_again": 0.86,
+      "p_afterthought_again": 0.03,
+      "p_static_again": 0.11
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-oyunaa-1-on",
+      "label": "afterthought",
+      "label_again": "afterthought",
+      "p_driven": 0.45,
+      "p_driven_again": 0.46,
+      "p_afterthought_again": 0.51,
+      "p_static_again": 0.03
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-ravi-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.61,
+      "p_driven_again": 0.53,
+      "p_afterthought_again": 0.31,
+      "p_static_again": 0.16
+    },
+    {
+      "model": "gemma",
+      "key": "r1-colette-1-off",
+      "label": "afterthought",
+      "label_again": "afterthought",
+      "p_driven": 0.12,
+      "p_driven_again": 0.13,
+      "p_afterthought_again": 0.56,
+      "p_static_again": 0.31
+    },
+    {
+      "model": "gemma",
+      "key": "r1-priya-1-on",
+      "label": "static",
+      "label_again": "static",
+      "p_driven": 0.28,
+      "p_driven_again": 0.29,
+      "p_afterthought_again": 0.06,
+      "p_static_again": 0.65
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-otis-1-on",
+      "label": "afterthought",
+      "label_again": "afterthought",
+      "p_driven": 0.29,
+      "p_driven_again": 0.31,
+      "p_afterthought_again": 0.52,
+      "p_static_again": 0.17
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-ambrose-1-on",
+      "label": "afterthought",
+      "label_again": "static",
+      "p_driven": 0.24,
+      "p_driven_again": 0.29,
+      "p_afterthought_again": 0.26,
+      "p_static_again": 0.45
+    },
+    {
+      "model": "gemma",
+      "key": "r1-wren-1-on",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.94,
+      "p_driven_again": 0.93,
+      "p_afterthought_again": 0.07,
+      "p_static_again": 0.0
+    },
+    {
+      "model": "gemma",
+      "key": "r1-otis-1-off",
+      "label": "afterthought",
+      "label_again": "afterthought",
+      "p_driven": 0.03,
+      "p_driven_again": 0.03,
+      "p_afterthought_again": 0.51,
+      "p_static_again": 0.46
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-rhea-1-on",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.93,
+      "p_driven_again": 0.92,
+      "p_afterthought_again": 0.02,
+      "p_static_again": 0.06
+    },
+    {
+      "model": "gemma",
+      "key": "r1-ravi-1-off",
+      "label": "static",
+      "label_again": "static",
+      "p_driven": 0.03,
+      "p_driven_again": 0.04,
+      "p_afterthought_again": 0.08,
+      "p_static_again": 0.88
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-nadine-1-off",
+      "label": "static",
+      "label_again": "static",
+      "p_driven": 0.30000000000000004,
+      "p_driven_again": 0.29000000000000004,
+      "p_afterthought_again": 0.010000000000000002,
+      "p_static_again": 0.7000000000000001
+    },
+    {
+      "model": "gemma",
+      "key": "r1-amara-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.57,
+      "p_driven_again": 0.58,
+      "p_afterthought_again": 0.36,
+      "p_static_again": 0.06
+    },
+    {
+      "model": "gemma",
+      "key": "r1-takeshi-1-off",
+      "label": "static",
+      "label_again": "static",
+      "p_driven": 0.46,
+      "p_driven_again": 0.41000000000000003,
+      "p_afterthought_again": 0.010000000000000002,
+      "p_static_again": 0.5800000000000001
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-dominic-1-on",
+      "label": "static",
+      "label_again": "static",
+      "p_driven": 0.37,
+      "p_driven_again": 0.4,
+      "p_afterthought_again": 0.01,
+      "p_static_again": 0.59
+    },
+    {
+      "model": "gemma",
+      "key": "r1-tomas-1-on",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.64,
+      "p_driven_again": 0.62,
+      "p_afterthought_again": 0.38,
+      "p_static_again": 0.0
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-colette-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.9,
+      "p_driven_again": 0.94,
+      "p_afterthought_again": 0.02,
+      "p_static_again": 0.04
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-dale-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.38,
+      "p_driven_again": 0.42,
+      "p_afterthought_again": 0.25,
+      "p_static_again": 0.33
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-anselm-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.76,
+      "p_driven_again": 0.72,
+      "p_afterthought_again": 0.13,
+      "p_static_again": 0.15
+    },
+    {
+      "model": "deepseek",
+      "key": "r1-gloria-1-off",
+      "label": "driven",
+      "label_again": "driven",
+      "p_driven": 0.39,
+      "p_driven_again": 0.43,
+      "p_afterthought_again": 0.28,
+      "p_static_again": 0.29
+    }
+  ]
+}

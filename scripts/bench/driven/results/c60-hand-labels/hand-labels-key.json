@@ -1,0 +1,362 @@
+{
+  "h01": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-rafael-1-on",
+    "context": "rafael-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.59
+  },
+  "h02": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-fiona-1-on",
+    "context": "fiona-1",
+    "arm": "on",
+    "label": "static",
+    "p_driven": 0.11
+  },
+  "h03": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-keiko-1-off",
+    "context": "keiko-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.86
+  },
+  "h04": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-gloria-1-on",
+    "context": "gloria-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.7
+  },
+  "h05": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-amara-1-off",
+    "context": "amara-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.57
+  },
+  "h06": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-wren-1-on",
+    "context": "wren-1",
+    "arm": "on",
+    "label": "afterthought",
+    "p_driven": 0.39
+  },
+  "h07": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-zahra-1-off",
+    "context": "zahra-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.28
+  },
+  "h08": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-thao-1-off",
+    "context": "thao-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.03
+  },
+  "h09": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-keiko-1-on",
+    "context": "keiko-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.35
+  },
+  "h10": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-takeshi-1-off",
+    "context": "takeshi-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.46
+  },
+  "h11": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-lucia-1-on",
+    "context": "lucia-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.87
+  },
+  "h12": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-odile-1-off",
+    "context": "odile-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.98
+  },
+  "h13": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-aino-1-off",
+    "context": "aino-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.03
+  },
+  "h14": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-solveig-1-on",
+    "context": "solveig-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 1.0
+  },
+  "h15": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-amara-1-on",
+    "context": "amara-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.93
+  },
+  "h16": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-aodh-1-on",
+    "context": "aodh-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.95
+  },
+  "h17": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-jomo-1-on",
+    "context": "jomo-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.59
+  },
+  "h18": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-colette-1-on",
+    "context": "colette-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.88
+  },
+  "h19": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-gloria-1-off",
+    "context": "gloria-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.39
+  },
+  "h20": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-tavita-1-off",
+    "context": "tavita-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.01
+  },
+  "h21": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-sungmin-1-on",
+    "context": "sungmin-1",
+    "arm": "on",
+    "label": "static",
+    "p_driven": 0.13
+  },
+  "h22": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-beat-1-on",
+    "context": "beat-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.65
+  },
+  "h23": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-ingrid-1-off",
+    "context": "ingrid-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.38
+  },
+  "h24": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-lucio-1-off",
+    "context": "lucio-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.6
+  },
+  "h25": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-callum-1-off",
+    "context": "callum-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.25
+  },
+  "h26": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-felix-1-on",
+    "context": "felix-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.67
+  },
+  "h27": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-imogen-1-off",
+    "context": "imogen-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.05
+  },
+  "h28": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-ruth-1-on",
+    "context": "ruth-1",
+    "arm": "on",
+    "label": "static",
+    "p_driven": 0.17
+  },
+  "h29": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-thao-1-on",
+    "context": "thao-1",
+    "arm": "on",
+    "label": "static",
+    "p_driven": 0.09
+  },
+  "h30": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-dale-1-off",
+    "context": "dale-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.38
+  },
+  "h31": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-vaclav-1-on",
+    "context": "vaclav-1",
+    "arm": "on",
+    "label": "afterthought",
+    "p_driven": 0.06
+  },
+  "h32": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-tomas-1-off",
+    "context": "tomas-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.88
+  },
+  "h33": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-oyunaa-1-on",
+    "context": "oyunaa-1",
+    "arm": "on",
+    "label": "afterthought",
+    "p_driven": 0.45
+  },
+  "h34": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-rafael-1-off",
+    "context": "rafael-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.15
+  },
+  "h35": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-gloria-1-on",
+    "context": "gloria-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.68
+  },
+  "h36": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-ingvild-1-off",
+    "context": "ingvild-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.06
+  },
+  "h37": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-noor-1-off",
+    "context": "noor-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.92
+  },
+  "h38": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-kestrel-1-on",
+    "context": "kestrel-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.76
+  },
+  "h39": {
+    "model": "gemma",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+    "key": "r1-hattie-1-on",
+    "context": "hattie-1",
+    "arm": "on",
+    "label": "afterthought",
+    "p_driven": 0.24
+  },
+  "h40": {
+    "model": "deepseek",
+    "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+    "key": "r1-wren-1-off",
+    "context": "wren-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.35
+  }
+}
