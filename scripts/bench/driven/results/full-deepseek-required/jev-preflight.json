@@ -1,0 +1,110 @@
+[
+  {
+    "fixture": "pivot_a",
+    "expected": "driven",
+    "selected": "driven",
+    "driven": 0.99,
+    "afterthought": 0.01,
+    "static": 0.0,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "pivot_b",
+    "expected": "driven",
+    "selected": "driven",
+    "driven": 1.0,
+    "afterthought": 0.0,
+    "static": 0.0,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "afterthought_a",
+    "expected": "afterthought",
+    "selected": "afterthought",
+    "driven": 0.04,
+    "afterthought": 0.85,
+    "static": 0.11,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "afterthought_b",
+    "expected": "afterthought",
+    "selected": "afterthought",
+    "driven": 0.01,
+    "afterthought": 0.99,
+    "static": 0.0,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "static_a",
+    "expected": "static",
+    "selected": "static",
+    "driven": 0.17,
+    "afterthought": 0.0,
+    "static": 0.83,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "static_b",
+    "expected": "static",
+    "selected": "static",
+    "driven": 0.38,
+    "afterthought": 0.01,
+    "static": 0.61,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "long_static",
+    "expected": "static",
+    "selected": "static",
+    "driven": 0.01,
+    "afterthought": 0.01,
+    "static": 0.98,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "long_afterthought",
+    "expected": "afterthought",
+    "selected": "afterthought",
+    "driven": 0.01,
+    "afterthought": 0.96,
+    "static": 0.03,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "question_static",
+    "expected": "static",
+    "selected": "static",
+    "driven": 0.07,
+    "afterthought": 0.01,
+    "static": 0.92,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "chatty_afterthought",
+    "expected": "afterthought",
+    "selected": "afterthought",
+    "driven": 0.03,
+    "afterthought": 0.81,
+    "static": 0.16,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "chatty_static",
+    "expected": "static",
+    "selected": "static",
+    "driven": 0.03,
+    "afterthought": 0.01,
+    "static": 0.96,
+    "model": "typesafe/jev-1.13-20260917"
+  },
+  {
+    "fixture": "dialogue_pivot",
+    "expected": "driven",
+    "selected": "driven",
+    "driven": 0.98,
+    "afterthought": 0.02,
+    "static": 0.0,
+    "model": "typesafe/jev-1.13-20260917"
+  }
+]
