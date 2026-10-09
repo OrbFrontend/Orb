@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ....core import (
-    ChatMessage,
     StateOp,
     StateRejection,
     build_multimodal_content,
@@ -19,9 +18,9 @@ from ....core import (
     resolve_inline,
     value_text,
 )
-from ....core.llm_types import CompletionMessage, ParsedToolCall
+from ....core.llm_types import AssistantToolMessage, CompletionMessage, ParsedToolCall, WireMessage
 from ....core.settings import Settings
-from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
+from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
@@ -171,6 +170,43 @@ class DirectorResult:
     calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
     extra_fields: dict = field(default_factory=dict)
+
+
+def missing_required(calls: Sequence[ParsedToolCall], live_schema: Mapping[str, Any] | None) -> list[str]:
+    """Live required fields the ``direct_scene`` call left empty; none when there is no such call to correct."""
+    args = next((tc["arguments"] for tc in calls if tc.get("name") == "direct_scene"), None)
+    if args is None or not live_schema:
+        return []
+    required = live_schema["function"]["parameters"].get("required") or []
+    return [key for key in required if not keeps_director_value(key, args.get(key))]
+
+
+def _corrective_turn(resp: CompletionMessage, calls: Sequence[ParsedToolCall], missing: Sequence[str]) -> list[WireMessage]:
+    """The incomplete call replayed as the model's own turn, answered by a tool result naming what it left out."""
+    call_id = "direct_scene_0"
+    args = next(tc["arguments"] for tc in calls if tc.get("name") == "direct_scene")
+    replay: AssistantToolMessage = {
+        "role": "assistant",
+        "content": (resp.get("content") or "") if resp.get("tool_calls") else "",
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": "direct_scene", "arguments": json.dumps(args, ensure_ascii=False)},
+            }
+        ],
+        **replay_reasoning(resp),
+    }
+    result = f"Rejected: required {', '.join(missing)} left empty. Call direct_scene again with every required field filled."
+    return [replay, {"role": "tool", "tool_call_id": call_id, "content": result}]
+
+
+def _merged(first: list[ParsedToolCall], second: list[ParsedToolCall]) -> list[ParsedToolCall]:
+    """The corrective call's values over the first call's; the first stands if the second brought no ``direct_scene``."""
+    again = next((tc["arguments"] for tc in second if tc.get("name") == "direct_scene"), None)
+    if again is None:
+        return first
+    return [{**tc, "arguments": {**tc["arguments"], **again}} if tc.get("name") == "direct_scene" else tc for tc in first]
 
 
 def apply_tool_calls(
@@ -371,32 +407,46 @@ async def director_pass(
         )
         tail = lorebook_prefix + ((notes_prefix + decisions_prefix) if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
-        trailing: list[ChatMessage] = [{"role": "user", "content": content}]
-        resp: CompletionMessage = {}
-        # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
-        # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
+        trailing: list[WireMessage] = [{"role": "user", "content": content}]
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
         hyperparams = extract_hyperparams(settings, lane="agent")
-        try:
-            async for event in base.complete_into(
-                client,
-                resp,
-                label=f"director:{name}",
-                trailing=trailing,
-                tool_choice=require_tool(name)["choice"],
-                kv_tracker=kv_tracker,
-                json_schema=live_schema["function"]["parameters"] if live_schema else None,
-                **hyperparams,
-                **reasoning_params,
-            ):
-                yield event
-        except Exception as exc:
-            logger.exception("Agent tool=%s: call failed; skipping", name)
-            yield {"type": "failure", "error": exc}
+        parsed: list[ParsedToolCall] = []
+        failed = False
+        # A call that leaves a required field empty is replayed once with the reason; the thread only grows, so the
+        # corrective call reuses the first one's prefix.
+        for corrective in (False, True):
+            resp: CompletionMessage = {}
+            # A failed call skips this tool but must not propagate: the remaining tools and the writer still run, like the
+            # lorebook-select and state steps. Aborting the turn here would also skip persisting the finished reply.
+            try:
+                async for event in base.complete_into(
+                    client,
+                    resp,
+                    label=f"director:{name}",
+                    trailing=trailing,
+                    tool_choice=require_tool(name)["choice"],
+                    kv_tracker=kv_tracker,
+                    json_schema=live_schema["function"]["parameters"] if live_schema else None,
+                    **hyperparams,
+                    **reasoning_params,
+                ):
+                    yield event
+            except Exception as exc:
+                logger.exception("Agent tool=%s: call failed; skipping", name)
+                yield {"type": "failure", "error": exc}
+                failed = not corrective
+                break
+            last_raw = json.dumps(resp, default=str)
+            logger.info("Agent tool=%s output:\n%s", name, last_raw)
+            parsed = _merged(parsed, parse_tool_calls(resp)) if corrective else parse_tool_calls(resp)
+            missing = missing_required(parsed, live_schema) if name == "direct_scene" else []
+            if corrective or not missing or client.is_aborted:
+                break
+            logger.info("Agent tool=%s: required %s left empty; asking once more", name, missing)
+            trailing = [*trailing, *_corrective_turn(resp, parsed, missing)]
+        if failed:
             continue
-        last_raw = json.dumps(resp, default=str)
-        logger.info("Agent tool=%s output:\n%s", name, last_raw)
-        if parsed := parse_tool_calls(resp):
+        if parsed:
             # A value for a field the call was not offered live (disabled or
             # resting) is dropped from the record as well as from the result.
             for tc in parsed:
