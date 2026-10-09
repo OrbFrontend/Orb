@@ -1,0 +1,11 @@
+key,context,card,arm,complete,retried_attempts,error,words,draft_words,seconds,calls,wire_errors,reasoning_chars,cost,rejected,label,p_driven,p_afterthought,p_static,driven,label_driven
+r1-ines-1-on,ines-1,ines,on,True,0,,298,302,10.28517365,6,[],0,0.0,,driven,0.6900000000000001,0.29000000000000004,0.020000000000000004,False,True
+r1-ines-1-off,ines-1,ines,off,True,0,,242,249,5.372265159,4,[],0,0.0,,static,0.25,0.07,0.68,False,False
+r1-tomas-1-off,tomas-1,tomas,off,True,0,,258,258,8.570072757,5,[],0,0.0,,afterthought,0.38,0.42,0.2,False,False
+r1-tomas-1-on,tomas-1,tomas,on,True,0,,301,304,8.671281784,5,[],0,0.0,,driven,0.82,0.08,0.1,True,True
+r1-rhea-1-on,rhea-1,rhea,on,True,0,,373,366,10.615084809,5,[],0,0.0,,driven,0.97,0.03,0.0,True,True
+r1-rhea-1-off,rhea-1,rhea,off,True,0,,262,262,4.507939241,3,[],0,0.0,,static,0.24,0.3,0.46,False,False
+r1-odile-1-off,odile-1,odile,off,True,0,,217,216,7.564802307,4,[],0,0.0,,driven,0.59,0.22,0.19,False,True
+r1-odile-1-on,odile-1,odile,on,True,0,,240,237,7.024877869,5,[],0,0.0,,driven,0.83,0.17,0.0,True,True
+r1-kestrel-1-on,kestrel-1,kestrel,on,True,0,,252,252,7.559117198,4,[],0,0.0,,afterthought,0.04,0.55,0.41,False,False
+r1-kestrel-1-off,kestrel-1,kestrel,off,True,0,,226,228,4.835164211,4,[],0,0.0,,static,0.01,0.11,0.88,False,False

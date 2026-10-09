@@ -7,7 +7,7 @@ Benches 3 and 4 score those turns. The results become a "By the numbers" section
 | README claim | Benchmark | Headline result | Scored by |
 | --- | --- | --- | --- |
 | KV cache keeps multiple passes affordable | 1. Cache overhead and implementation comparison | Wall-clock time and uncached tokens vs context length: Orb, TauriTavern handoffs, and a single TauriTavern Profile (Gemma) | Common request recorder, provider usage, server timings, application events and saved output |
-| Director solves directionlessness | 2. Driven replies | Difference in % of replies Jev labels driven, Director on minus off | Jev `choice` question, checked against 40 hand labels |
+| Director solves directionlessness | 2. Driven replies | Difference in % of replies Jev scores driven (P ≥ 0.75), Director on minus off | Jev `choice` question, checked against 40 hand labels |
 | Editor removes slop | 3. Slop before/after | Repair rate, held-out slop per 1,000 words, % of untouched prose kept | Auditor detectors, held-out phrase list |
 | Built for small models | 4. Pass reliability | % of turns completed without warnings or errors; % of tool arguments that point at real ids | Turn stream, server log, saved tool calls |
 
@@ -27,6 +27,9 @@ against hand labels before trusting it.
 - **Chat transport only.** Text-completion mode is not benchmarked.
 - **Status.** Bench 1 is done: the harness is under `scripts/bench/cache/`, and its 360-turn sweep (2026-10-09), with
   the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
+  The Bench 2 Gemma pilot (5 contexts × 2 arms × 1 repeat, 2026-10-09) ran through Jev scoring; its harness is under
+  `scripts/bench/driven/` and its report in `scripts/bench/driven/results/pilot/`. The full corpus (20 cards) is
+  written, and the pilot's hand labels set the `driven` threshold; the full run is next.
 
 ## Readiness (checked 2026-10-09)
 
@@ -38,8 +41,8 @@ against hand labels before trusting it.
 | Cache behaviour | `scripts/bench/smoke_llama.py` passes at 8k and 32k: a new last user message reuses 35,888 of 35,904 tokens; `cache_prompt: false` reuses 0, so the smoke test's cold numbers are real cold prefills |
 | Speed at 36k tokens | Cold prefill about 3,400 tok/s (11.3 s wall); warm request 1.0 s; decode about 138 tok/s |
 | Box Orb checkout | `~/lmg/Anonymous/Orb` at `e78029f0`, tracked tree clean, `.venv` on Python 3.12 |
-| Claude CLI | 2.1.294 on the Mac only. `--model claude-haiku-5-5` answers, and `modelUsage` lists only that model |
-| Jev | `scripts/bench/driven/jev_check.py` labels 8/8 fixtures correctly; returned model `typesafe/jev-1.13-20260917` |
+| DeepSeek on OpenRouter | `deepseek/deepseek-v4.1-flash` pinned to `sail-research/fp4`, the cheapest upstream that serves a forced `tool_choice` (OpenRouter filters out Decart, Relace, Morph, first-party DeepSeek and four others for it). A forced call returns the tool with valid JSON and 0 reasoning tokens; a 2-turn Orb smoke run cost $0.001 |
+| Jev | `scripts/bench/driven/jev_check.py` labels 12/12 fixtures correctly; returned model `typesafe/jev-1.13-20260917` |
 | Held-out list | antislop-sampler `slop_phrases_2025-04-07.json`, Apache-2.0, 2,500 phrases with counts |
 | TauriTavern source review | `Darkatse/TauriTavern` at `a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375` (`package.json` version 2.3.0); source inspected, not built or benchmarked |
 | TauriTavern comparison readiness | Pending: Linux host on the box, isolated userdata, exported Profiles/preset, prompt/commit bridges, common recorder, auditor parity and stage-completion checks |
@@ -51,7 +54,7 @@ against hand labels before trusting it.
 - **Gemma runs, all four benches:** on the box (z@100.95.103.73, RTX 3090, 31 GB RAM). Orb, TauriTavern for Bench 1,
   the recorder, the auditor adapter and llama-server run there over `127.0.0.1`. A TauriTavern client on the Mac calling
   the box would introduce network and host differences, so it does not qualify for this comparison.
-- **Haiku runs:** on the Mac, the only machine with a logged-in Claude CLI.
+- **DeepSeek runs:** on the box too. Orb calls the recorder on `127.0.0.1:5001`, which forwards to OpenRouter.
 - **Scoring:** anywhere. It reads saved run folders, and Jev scoring needs the Jev key (see `jev_check.py`).
 
 ### A fresh Orb instance per run
@@ -142,21 +145,27 @@ and the seeded `editor_audit_toggles`. This is the out-of-the-box pipeline with 
 - Nothing else may use the GPU during a run (the box also hosts ComfyUI). The harness checks `nvidia-smi` before each
   block. The card runs a custom undervolt and a 270 W power limit (`~/gpu.service`); record it as part of the machine.
 
-### Haiku
+### DeepSeek
 
-- Claude transport (`claude-code://local`, `backend/inference/claude_code.py`) with the model name
-  `claude-haiku-5-5`. Use the full id, not the `haiku` alias: the alias resolves to the same model today, but it moves
-  when a new Haiku ships, and a run must not change model halfway.
-- Before each run, a one-call preflight checks that the CLI's `modelUsage` lists exactly `claude-haiku-5-5`; record the
-  CLI version.
-- The CLI takes no temperature or seed and always runs with `--effort low`. Report the model as "Haiku 5.5 via the
-  Claude Code CLI on its defaults"; do not claim reasoning is off.
-- Expect rate limits: Bench 2 is 180 turns of 3–5 CLI calls each. Pace the run and record any retried turn.
+- `deepseek/deepseek-v4.1-flash` on OpenRouter, through the recorder (`--upstream https://openrouter.ai/api`), so every
+  request and response is saved as for Gemma. The run reads the key from `OPENROUTER_API_KEY` or the main checkout's
+  saved OpenRouter endpoint and never writes it to the run folder.
+- One upstream for the whole run: `extra_body` carries `provider: {order: ["sail-research/fp4"], allow_fallbacks:
+  false}`. Upstreams differ in quantization and in which samplers they honor, and several advertise `tool_choice` but
+  are filtered out for a forced one. Sail honors `top_k`; it ignores `min_p` and `repetition_penalty`, which the seeded
+  config sets to their no-op values. The scorer rejects a turn whose responses name any other upstream.
+- Orb sends `reasoning: {effort: "none", enabled: false}` when a pass has reasoning off, so `extra_body` must not set
+  `reasoning` (it would replace Orb's value). DeepSeek V4.1 Flash ignores a low effort but honors `enabled: false`.
+- Behind the recorder Orb does not see an `openrouter.ai` URL. Its only OpenRouter-specific behavior is retrying without
+  `tool_choice` when an upstream rejects it, which a pinned upstream that serves forced tools never triggers.
+- A 429 or 5xx from the provider is retried after 1, 5 and 20 minutes, from the seeded state, and the failed attempt is
+  kept. Any other failure counts as an attempt.
 
 ### Corpus
 
-- About 5 safe-for-work cards written for the benchmark, with 6 opening situations each: 30 contexts. Load them with
-  `POST /api/characters` (or `/api/characters/import`).
+- 20 safe-for-work cards written for the benchmark, one opening each: 20 contexts, each its own card. Samples go to
+  independent cards, not to more openings or repeats of a card, which add turns without narrowing the interval. Load
+  them with `POST /api/characters` (or `/api/characters/import`).
 - The cards must exercise the stages Bench 4 checks: each card carries lorebook entries and the seeded moods, so the
   lorebook and mood stages run.
 - **Bench 1 histories** are generated once and frozen as fixtures. There is no chat-import route, so the harness
@@ -170,12 +179,12 @@ and the seeded `editor_audit_toggles`. This is the out-of-the-box pipeline with 
 
 ### Controls
 
-- 3 repeats per cell.
-- Bench 2 interleaves arms within a context (A, B, B, A ...), so slow drift never lines up with an arm. Bench 1
+- Bench 1 runs 3 repeat blocks per size and arm. Bench 2 runs one repeat per context.
+- Bench 2 alternates which arm goes first from one context to the next, so slow drift never lines up with an arm. Bench 1
   counterbalances whole ten-turn blocks and restarts llama-server between arms; alternating applications within a
   block would disturb the single-slot cache state being measured.
 - Every run folder records the Orb commit, harness commit, both settings snapshots as applied (read back from the API),
-  the llama-server command line and build, the model hash, the Claude CLI version and the model ids it reported, Jev's
+  the llama-server command line and build, the model hash, a hosted model's id and pinned upstream, Jev's
   returned model, the machine (GPU, power limit, RAM), and the date. Bench 1 also records the TauriTavern source/build,
   Profiles, preset, connection overrides, MCP tool schemas, userdata isolation, recorder and adapter revisions, and
   native stream/retry settings. Hash the effective tool blobs and save the actual request bodies.
@@ -186,8 +195,8 @@ and the seeded `editor_audit_toggles`. This is the out-of-the-box pipeline with 
 
 ### Statistics
 
-For Benches 2–4, repeats share a context, so they are not independent. Report 95% intervals from a bootstrap that
-resamples the 30 contexts. Where both arms ran on the same contexts, bootstrap the paired difference.
+For Benches 2–4, report 95% intervals from a bootstrap that resamples the 20 contexts, one per card. Both arms run on
+every context, so bootstrap the paired difference.
 
 Bench 1 resamples independent starting histories, paired across arms, retaining all repeats and consecutive turns
 for each history together. Do not bootstrap its ten turns or repeats of one history as independent contexts, or reuse
@@ -205,8 +214,7 @@ Size full runs only after their pilots; do not treat a source review as a comple
 
 Measure wall-clock time to produce a directed, audited reply with Orb and equivalent custom TauriTavern agents, then
 explain the result with uncached input, generated tokens and call counts. Keep cache enabled in every native arm.
-Turning cache off would test llama.cpp's cache benefit, not the two applications' implementations. Gemma only: the
-Claude CLI's own prompt and cache management would introduce a different transport.
+Turning cache off would test llama.cpp's cache benefit, not the two applications' implementations. Gemma only.
 
 ### Source findings and workload mapping
 
@@ -398,35 +406,47 @@ tack a hook onto the end.
 
 - **Arms.** `bench.json` in both, with `enabled_tools.direct_scene` on vs off. `enable_agent` stays 1 in both, so the
   Editor, lorebook and state steps run in both arms and Benches 3 and 4 can reuse these turns without skewing this one.
-- **Turns.** Each of the 30 contexts ends on an open, passive user turn ("I take a seat and order a drink"), where a
-  model left alone tends to just describe. 30 contexts × 2 arms × 3 repeats = 180 replies per model.
+- **Turns.** Each of the 20 contexts ends on an open, passive user turn ("I take a seat and order a drink"), where a
+  model left alone tends to just describe. 20 contexts × 2 arms × 1 repeat = 40 replies per model.
 - **Scoring.** The Jev `choice` question in `scripts/bench/driven/jev_check.py` (`SHAPE`):
 
   | Label | Criterion |
   | --- | --- |
-  | `driven` | Partway through, the reply changes course and develops the new direction. |
-  | `afterthought` | The reply stays static and only adds a hook, event or question at the very end. |
-  | `static` | The reply only reacts or describes, with no new direction. |
+  | `driven` | Partway through, the situation changes (an event, a decision, a discovery or a request with stakes) and the rest of the reply develops it. |
+  | `afterthought` | The situation stays the same until the very end, where the reply adds a hook, event or question. |
+  | `static` | The situation stays the same throughout; the reply only reacts, describes or chats, even if a character asks questions along the way. |
 
   Instruction: "Which describes how the reply moves the scene?" The state is `Current request:\n…\n\nReply:\n…`, the
   same shape as `gate_state` in `backend/pipeline/passes/editor/gate.py`. Score the final saved reply
-  (`messages.content`, which equals `messages.writer_draft` once workflows are off). Report the share of each label and
-  the mean probability of `driven`.
-- **Before scoring.** Run `jev_check.py`. Every fixture must keep its label, and the returned model must still be
-  `typesafe/jev-1.13-20260917`. If either changes, the judge has moved: stop and re-validate.
+  (`messages.content`, which equals `messages.writer_draft` once workflows are off).
+- **Driven means P(driven) ≥ 0.75.** Pre-registered on 2026-10-09 from the pilot's 10 hand labels, before the full run:
+  there Jev's own `driven` label had precision 0.6 (it called two replies driven at 0.59 and 0.69), while the threshold
+  matched every hand label. The full run's hand labels test it on replies it was not chosen from. Report Jev's label
+  shares and mean P(driven) beside it. Replies near 0.75 can cross it on a re-ask, so the noise sample below reports
+  threshold flips too.
+- **Before scoring.** `score.py` asks Jev all 12 fixtures live, never from the cache. Every fixture must keep its label,
+  and every answer, fixture or reply, must come back from `typesafe/jev-1.13-20260917`. If either changes, the judge
+  has moved: stop and re-validate.
 - **Keep the raw answers.** Jev is an alpha OpenRouter endpoint that can change or disappear. Commit every raw Jev
   response, keyed by a hash of state and question, so the charts can be rebuilt without calling Jev again.
-- **Why this question.** A probe on 2026-10-09 showed that a plain yes/no "does the reply give the scene a new
-  direction" scores end-of-reply hooks at 0.72–0.83, as high as real driven replies. The three-way question labeled all
-  8 hand-written fixtures correctly at 0.85–0.99 (two of them about 1,600 characters long), matched a human reading of 8
-  real replies, and moved by at most 0.02 on repeat runs.
+- **Why this question.** A plain yes/no "does the reply give the scene a new direction" scores end-of-reply hooks at
+  0.72–0.83, as high as real driven replies, so the question is three-way. Its first wording ("changes course and
+  develops the new direction") labeled a reply `driven` when a character only asks questions and the scene carries on
+  (0.68 and 0.59 on two probes, and on two Gemma pilot replies). The current wording ties `driven` to a change in the
+  situation and says questions alone are `static`: it labels all 12 fixtures correctly, including those four
+  dialogue probes, and keeps real pivots at 0.97–1.00.
+- **Judge noise.** Asked three times, 2 of the 10 pilot replies changed label (one across the `driven` line) and
+  P(driven) moved by 0.05 on average, 0.13 at most. Report mean P(driven) beside the label shares, and re-ask a sample
+  of 20 replies once to state the noise next to the result.
 - **Length check.** The Director may change reply length, and Jev's label may follow length. Report mean words per arm
   and the `driven` share within length bands.
-- **Hand labels.** Label 40 replies from both arms without knowing which arm each came from. Sample them stratified by
-  Jev's label, so that `afterthought`, which the probe never saw in real output, is represented. Report the 3 × 3
-  confusion matrix, not just overall agreement.
-- **Headline.** One stacked bar per arm per model showing the three labels, plus the paired difference in `driven` share
-  with its interval. README line: "On open-ended user turns, X% of replies are driven with the Director on, Y% with it
+- **Hand labels.** Label 40 of the 80 replies (both models, both arms) without knowing which arm each came from
+  (`hand_labels.py`). Sample them stratified by Jev's label and by P(driven) band (below 0.4, 0.4–0.8, above 0.8), so
+  `afterthought` and borderline scores are both represented. Report the 3 × 3 confusion matrix and `driven` precision
+  and recall, for the threshold and for Jev's label, not just overall agreement. The pilot's 10 hand labels set the
+  threshold and are not among the 40.
+- **Headline.** One bar per arm per model showing the `driven` share at the threshold, plus the paired difference with
+  its interval; Jev's three-label shares go beside it. README line: "On open-ended user turns, X% of replies are driven with the Director on, Y% with it
   off." The condition stays in the line: the corpus was chosen to be where the Director should help.
 - **Rule.** If the Director or a post-processing gate ever uses this question at runtime, the benchmark switches to a
   different wording, so the pipeline is not graded by the judge it was tuned against.
@@ -435,7 +455,7 @@ tack a hook onto the end.
 
 Show that the Editor removes what the auditor flags, adds nothing new, and leaves the rest of the draft alone.
 
-- **No extra generation.** The Editor runs in both of Bench 2's arms, so all 180 turns per model give before/after
+- **No extra generation.** The Editor runs in both of Bench 2's arms, so all 40 turns per model give before/after
   pairs. Report by arm as well as pooled.
     - **Before:** the Writer's draft, joined from the `token` events received before `writer_done`. It is saved
       nowhere else.
@@ -478,7 +498,8 @@ establish that every eligible pass ran while silent skips remain uncounted.
   it does not automatically convert every forced call to a strict `response_format.json_schema`. That conversion
   depends on endpoint policy or `tools_in_prompt = false` (`backend/inference/client.py` and `endpoint_profiles.py`).
   A per-call `json_schema` supplied by a pass can be discarded on the native-tool path; server-side tool grammar
-  enforcement is a separate fact to verify. The Claude transport uses the CLI's `--json-schema`. Save the effective
+  enforcement is a separate fact to verify. The OpenRouter transport sends the same native `tools` and forced
+  `tool_choice` to the pinned upstream. Save the effective
   request/constraint for each transport and distinguish application validation from decoding constraints. Include
   observed parse/schema failures where available; do not assume 100% validity by construction or make it the headline.
 - **Measures.**
@@ -493,7 +514,7 @@ establish that every eligible pass ran while silent skips remain uncounted.
        lorebook entry ids, Editor sentence ids. Sentence ids are free strings in the schema, not an enum, so this is
        not grounded by construction. The Editor rejects an unknown id and asks again, so report first-try grounding
        apart from final grounding. Also check `conversation_logs.state_report` for state operations the turn rejected.
-- **Coverage.** Director reliability rests on the 90 Director-on turns per model, and every turn runs `bench.json`
+- **Coverage.** Director reliability rests on the 20 Director-on turns per model, and every turn runs `bench.json`
   (every detector on, the lorebook and one state fragment enabled), not the out-of-the-box settings. Say both next to
   the result.
 - **Limit.** A pass the model skips without failing leaves no trace in the stream or the saved calls, so skips are not
@@ -514,7 +535,7 @@ Bench 2 produces the turns that Benches 3 and 4 score, so it runs right after th
 3. Bench 1 on the box after its pilot: counterbalanced native blocks for all three arms, with server restarts per
    block. Optional frozen-request replay and cold-prefill estimates are separate diagnostics. It can run while the
    Bench 2 hand labels are done; select runtime and sample size from the comparison pilot.
-4. Bench 2 on Gemma (box) and Haiku (Mac), then Jev scoring and the 40 hand labels.
+4. Bench 2 on Gemma and DeepSeek (both from the box), then Jev scoring and the 40 hand labels.
 5. Bench 3, on Bench 2's saved streams and replies.
 6. Bench 4, on Bench 2's saved streams, logs and `conversation_logs`.
 
@@ -535,6 +556,13 @@ A short "By the numbers" section under Design Principles:
 | `scripts/bench/serve_gemma.sh` | Starts llama-server with the pinned flags; extra flags append for sensitivity runs |
 | `scripts/bench/smoke_llama.py` | Standard-library check of checkpoint reuse, `cache_prompt: false` and prefill speed on the inference host |
 | `scripts/bench/driven/jev_check.py` | The benchmark question, the 8 fixtures, and the pre-scoring check that Jev still labels them correctly |
+| `scripts/bench/driven/bench.json` | The Benches 2–4 settings snapshot |
+| `scripts/bench/driven/corpus.py` | Bench 2 cards 1–5 (the pilot's), their lorebooks, starting inventories and openings; `contexts()` |
+| `scripts/bench/driven/more_cards.py` | Bench 2 cards 6–20, one opening each |
+| `scripts/bench/driven/run.py` | Bench 2 runner per `bench.json` transport: recorder, fresh Orb worktree, arms interleaved per context, provider-error retries, `--resume` |
+| `scripts/bench/driven/orb_turns.py` | Applies and verifies `bench.json`, seeds conversations, switches the arm and saves each turn |
+| `scripts/bench/driven/score.py` | Live Jev preflight and labels with raw answers kept, per-transport wire checks, arm shares, length bands, paired bootstrap over contexts and cards |
+| `scripts/bench/driven/hand_labels.py` | Blind, stratified hand-label sheet and its comparison with Jev |
 
 ## Deferred
 

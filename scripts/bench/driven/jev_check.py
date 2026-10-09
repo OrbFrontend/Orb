@@ -1,6 +1,7 @@
 """Preflight for Bench 2: confirm Jev still labels the hand-written fixtures correctly before scoring a run.
 
-The fixtures come from the 2026-10-09 probe, where the `shape` question put all of them in the right class at 0.86-0.99.
+The fixtures cover pivots, end-of-reply hooks, static description, long replies, and dialogue that asks questions without
+changing the situation.
 Run it before every scoring pass; a wrong label or a changed returned model means the judge moved and the run waits.
 
 Credentials come from JEV_URL, JEV_API_KEY and JEV_MODEL, or else from the decision endpoint in backend/data/app.db.
@@ -25,9 +26,11 @@ SHAPE = DecisionQuestion(
     "shape",
     "Which describes how the reply moves the scene?",
     {
-        "driven": "Partway through, the reply changes course and develops the new direction.",
-        "afterthought": "The reply stays static and only adds a hook, event or question at the very end.",
-        "static": "The reply only reacts or describes, with no new direction.",
+        "driven": "Partway through, the situation changes (an event, a decision, a discovery or a request with stakes) "
+        "and the rest of the reply develops it.",
+        "afterthought": "The situation stays the same until the very end, where the reply adds a hook, event or question.",
+        "static": "The situation stays the same throughout; the reply only reacts, describes or chats, even if a "
+        "character asks questions along the way.",
     },
     "choice",
 )
@@ -131,6 +134,54 @@ FIXTURES: dict[str, tuple[str, list[str]]] = {
         "afterthought",
         _LONG_BODY
         + ['Then she looked at you properly for the first time. "You\'re not from Saltmarsh. What are you running from?"'],
+    ),
+    # Dialogue that changes nothing: the earlier wording labeled the first and third `driven`.
+    "question_static": (
+        "static",
+        [
+            _OPENING,
+            '"You\'ve been on the road a while, haven\'t you?" she asked, not looking up from the mug she was drying. "Boots '
+            'say so." She did not wait for an answer. Rain drummed on the shutters, and the fiddler in the corner started the '
+            "same tune again.",
+            "Mara set the mug on the shelf, took down another, and went on drying. The fire popped and settled. A dog slept "
+            "under a table by the door, twitching at whatever it dreamed of.",
+        ],
+    ),
+    "chatty_afterthought": (
+        "afterthought",
+        [
+            _OPENING,
+            '"Most folk who sit at that end want to be left alone," Mara said, leaning on the bar. "That\'s fine by me. I '
+            "get enough talk from the fishermen. They'll tell you about every fish they ever lost.\" She laughed under her "
+            "breath and wiped a ring off the counter.",
+            "The fire popped. The fiddler missed his high note, and someone groaned good-naturedly. Mara refilled the water "
+            "jug near your elbow without being asked.",
+            '"So," she said. "Passing through, or staying the night?"',
+        ],
+    ),
+    "chatty_static": (
+        "static",
+        [
+            _OPENING,
+            '"Where are you headed, then? North?" Mara asked. "Roads north are mud this time of year. Mud to your knees." '
+            "She shook her head and went back to her mugs, humming along with the fiddler.",
+            '"My cousin went north once," she added after a while. "Came back with a cough and a wife. Kept the cough '
+            'longer." The rain kept on. A log shifted in the fire and sent up a spray of sparks.',
+            "She set the bottle back on the shelf and leaned against the counter, content to watch the room.",
+        ],
+    ),
+    "dialogue_pivot": (
+        "driven",
+        [
+            _OPENING,
+            '"Where are you headed, then?" Mara asked, then stopped with the rag still in her hand. "North? You said north?" '
+            "She glanced at the door, then leaned across the bar.",
+            "\"Then you'll pass the Greywater bridge. My brother keeps the toll there and he hasn't answered a letter in "
+            'three weeks." She pulled a folded paper from her apron and pressed it into your hand. "Give him this. And if '
+            "the toll house is empty, don't cross. Come back here and tell me.\"",
+            "She straightened and turned to the next customer as if nothing had been said, but her hands were not quite steady "
+            "on the tap.",
+        ],
     ),
 }
 
