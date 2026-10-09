@@ -493,6 +493,18 @@ def test_an_unclosed_quote_is_skipped_even_under_a_correct_reading():
     assert normalize_to_baseline(draft, FULL_MARKUP_BASELINE, enabled=True, source=source)[0] == draft
 
 
+def test_a_quote_inside_a_beat_holds_only_its_paragraph():
+    """The parser cuts a quote out of its `*...*` beat, so that paragraph stays as written and the rest converts."""
+    beat = '*She narrows her eyes. She doesn\'t want to be "not bothered".*'
+    draft = f'{beat}\n\n"Happy now?" *she snaps.* "Or are you scared?"'
+    asterisk = [
+        "*She smiles, stepping back toward the window.* Hello there.",
+        "*He follows, hands in his pockets.* Good to see you.",
+        "*She turns to face him fully.* It has been too long.",
+    ]
+    assert _converted(draft, asterisk) == f"{beat}\n\nHappy now? *she snaps.* Or are you scared?"
+
+
 # ---------- the action policy (skip-v1): drafts no reading makes safe ----------
 
 
@@ -503,6 +515,9 @@ def test_an_unclosed_quote_is_skipped_even_under_a_correct_reading():
         ("# Chapter One\n\n*She wakes.*", ["heading"]),
         ("| hp | 10 |\n| mp | 4 |", ["table"]),
         ('*Her throat went dry at the word "wild," her fingers tightening.*', ["quote-in-emphasis"]),
+        # Bare speech elsewhere cannot outvote a quote that lives only inside a beat; a quoted line elsewhere can.
+        ('It smelled normal.\n\n*She hates the word "normal".*', ["quote-in-emphasis"]),
+        ('"Fine."\n\n*She hates the word "fine".*', []),
         # Bullet stars are a list, not a stray asterisk; a bullet opens after any hard line break.
         ("Pack these:\n* rope\n* a lantern", ["list"]),
         ("then * rope", []),

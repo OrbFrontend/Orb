@@ -206,8 +206,15 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
 _QUOTE_MARKS = (OPEN_QUOTES | CLOSE_QUOTES | TOGGLE_QUOTES) - {"’"}
 
 
+def _quote_in_emphasis(text: str) -> bool:
+    """Return whether an emphasis span contains a quote mark."""
+    return any(not _QUOTE_MARKS.isdisjoint(text[a:b]) for a, b in find_emphasis_spans(text))
+
+
 def _quote_parse_unreliable(para: str) -> bool:
     """Return whether quote pairing makes this paragraph unsafe to rewrite."""
+    if _quote_in_emphasis(para):
+        return True
     spans = find_quote_spans(para)
     for i, ch in enumerate(para):
         if ch not in _QUOTE_MARKS or any(a <= i < b for a, b in spans):
@@ -253,9 +260,12 @@ def _has_stray_asterisk(text: str) -> bool:
     return any(ch == "*" and i not in paired for i, ch in enumerate(text))
 
 
-def _quote_in_emphasis(text: str) -> bool:
-    """Return whether an emphasis span contains a quote mark."""
-    return any(not _QUOTE_MARKS.isdisjoint(text[a:b]) for a, b in find_emphasis_spans(text))
+def _quotes_only_in_held_paragraphs(text: str) -> bool:
+    """Whether every quoted paragraph is held, so the draft's quoted-dialogue reading may rest on a quote inside a beat."""
+    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+    return any(_quote_in_emphasis(p) for p in paragraphs) and not any(
+        find_quote_spans(p) for p in paragraphs if not _quote_in_emphasis(p)
+    )
 
 
 _SKIP_RULES: tuple[tuple[str, Callable[[str], object]], ...] = (
@@ -266,7 +276,7 @@ _SKIP_RULES: tuple[tuple[str, Callable[[str], object]], ...] = (
     ("table", lambda text: len(_TABLE_ROW.findall(text)) >= 2),
     ("speaker-label", _SPEAKER.search),
     ("stray-asterisk", _has_stray_asterisk),
-    ("quote-in-emphasis", _quote_in_emphasis),
+    ("quote-in-emphasis", _quotes_only_in_held_paragraphs),
 )
 
 
