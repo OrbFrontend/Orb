@@ -19,11 +19,12 @@ from pathlib import Path
 
 import httpx
 
-from scripts.bench.cache.blocks import ORB_COMMIT, command, launch, ready, record_missing_turn, sha256, stop
+from scripts.bench.cache.blocks import command, launch, ready, record_missing_turn, sha256, stop
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.driven.corpus import contexts
 
 TURN_SECONDS = 900
+ORB_COMMIT = "d7032cc349a5b4fb345652a8d4d444bb8169f9e5"
 SNAPSHOT = json.loads(Path(__file__).with_name("bench.json").read_text())
 SOURCE = Path.home() / "lmg/Anonymous/Orb"
 LLAMA = Path.home() / "lmg/llama-cpp-webui/data/llama.cpp/build/bin/llama-server"
