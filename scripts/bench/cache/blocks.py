@@ -17,9 +17,9 @@ import httpx
 
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.cache.tauri_driver import WebView
-from scripts.bench.cache.tt_run import HERE, run
+from scripts.bench.cache.tt_run import HERE, TURN_SECONDS, run
 
-ORB_COMMIT = "e78029f00af528375b117010607b2fcf0e3f1a45"
+ORB_COMMIT = "649bc83ad90982dfb1b26010bbdbf388f7e18ccf"
 TT_COMMIT = "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375"
 
 
@@ -159,28 +159,36 @@ def orb_block(root, harness, block, fixture, turns, pilot):
         started_ns = time.monotonic_ns()
         label = {"arm": "orb", "fixture": fixture.stem, "turn": index + 1, "pilot": pilot, "block": block.name}
         try:
-            command(
+            subprocess.run(
                 [
-                    *common,
-                    "turn",
-                    "--conversation",
-                    cid,
-                    "--fixture",
-                    fixture,
-                    "--output",
-                    block / f"turn-{index + 1:02d}",
-                    "--binding",
-                    root / "pilot/recorder-binding.json",
-                    "--turn",
-                    index,
-                    "--block",
-                    block.name,
-                    *(["--reportable"] if not pilot else []),
+                    str(arg)
+                    for arg in [
+                        *common,
+                        "turn",
+                        "--conversation",
+                        cid,
+                        "--fixture",
+                        fixture,
+                        "--output",
+                        block / f"turn-{index + 1:02d}",
+                        "--binding",
+                        root / "pilot/recorder-binding.json",
+                        "--turn",
+                        index,
+                        "--block",
+                        block.name,
+                        *(["--reportable"] if not pilot else []),
+                    ]
                 ],
-                worktree,
+                cwd=worktree,
+                check=True,
+                # The same limit as a TauriTavern turn (tt_run.TURN_SECONDS), plus the driver's own saving.
+                timeout=TURN_SECONDS + 60,
             )
         except subprocess.CalledProcessError as exc:
             record_missing_turn(output, label, started_ns, f"driver exited {exc.returncode}")
+        except subprocess.TimeoutExpired:
+            record_missing_turn(output, label, started_ns, f"turn exceeded the {TURN_SECONDS}-second limit")
         summary = json.loads((output / "summary.json").read_text())
         print(json.dumps({"block": block.name, "turn": index + 1, "complete": summary["complete"]}), flush=True)
     stop(pidfile, "uvicorn")

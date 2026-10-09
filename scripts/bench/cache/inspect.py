@@ -560,6 +560,11 @@ def score_turn(turn, requests, applied, audit_root):
             if summary.get("terminal_observed_utc_ns") and observed.get("terminalAt")
             else None
         )
+        # Orb's end is pushed over SSE; TauriTavern's is found by the driver's 0.5 s polling. The delay between the backend's
+        # persisted terminal time and the driver noticing it is the harness's, not the application's, so it leaves the wall.
+        native["driver_wall_seconds"] = wall
+        if wall is not None and native["poll_observation_delay_seconds"] is not None:
+            wall -= max(native["poll_observation_delay_seconds"], 0)
         snapshots = summary.get("prose_snapshots") or ([summary["first_prose"]] if summary.get("first_prose") else [])
         prose = next((shot for shot in snapshots if first_prose_text_matches(shot.get("text"), draft)), None)
         if prose and summary.get("started_utc_ns"):

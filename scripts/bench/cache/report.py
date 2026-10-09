@@ -249,6 +249,8 @@ def build(runs, output):
             "## Latency and cost per turn",
             "",
             "Wall time runs from the driver's trigger to Orb's `done` after persistence, or to TauriTavern's completed Run with its chat presentation settled. "
+            "Orb's end is pushed over SSE; TauriTavern's is found by the driver polling every 0.5 s, so the delay between TauriTavern's persisted terminal time "
+            "and the driver noticing it is removed from its wall time (the raw driver time is `driver_wall_seconds` in turns.json). "
             "Medians over qualified turns; turn 1 follows a cold server start and is reported apart from turns 2–10. "
             "First visible prose is Orb's first streamed Writer token at the client, and TauriTavern's first reply text rendered in its chat message "
             "(checked against the start of the reply). Uncached input, calls and generated tokens are medians over all attempts, failures included.",
@@ -479,6 +481,11 @@ def build(runs, output):
             "Prompts carry no JSON examples, because Gemma 4 writes tool arguments in its own quoting syntax and imitated JSON quoting trapped earlier runs in an unterminated argument string. "
             "The auditor returns the same numbered report and per-category fixing rules that Orb's Editor reads, reworded only where Orb names sentence ids. "
             "Orb runs its seeded defaults with the Editor on (`defaults.json`).",
+            "",
+            "Both arms get the same system prompt, card, persona, direction fields and mood descriptions, Orb's Director brief, the same Scene Guidance reading of the direction, "
+            "the same audit report and fixing rules, and the same Editor stopping rule. Native differences kept on purpose: Orb's Director sees the previously active moods "
+            "and Orb releases an ended mood with its negative prompt, while each TauriTavern turn starts from an empty workspace with no mood state; "
+            "Orb's first prose is timed at the client before rendering, TauriTavern's when its WebView renders it; neither arm is told a reply length.",
             "",
             "Per-attempt data: [turns.csv](turns.csv), [turns.json](turns.json); per-call costs: [calls.csv](calls.csv); "
             "grouped medians: [summary.csv](summary.csv).",

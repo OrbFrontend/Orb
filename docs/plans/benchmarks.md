@@ -28,6 +28,9 @@ against hand labels before trusting it.
 - **Status.** The Bench 1 harness is implemented under `scripts/bench/cache/`. The first comparison pilot (2026-10-09)
   under-counted TauriTavern: its checks were stricter for TauriTavern than for Orb, and its Profile prompts provoked a
   Gemma 4 tool-call failure. The fairness revision below fixes both; its results are in `scripts/bench/cache/results/`.
+  A later audit of the recorded requests found three more gaps, now closed: TauriTavern alone was told to respect the
+  user's autonomy, it lacked Orb's Director brief, and its Writer did not read the direction as Orb's Scene Guidance.
+  TauriTavern's wall time also excludes the driver's polling delay, which Orb's pushed `done` never pays.
 
 ## Readiness (checked 2026-10-09)
 

@@ -23,8 +23,13 @@ const common = applied.settings.shared_system_prompt + '\n\n'
     + '- moods (required, a list): the mood ids to activate, from the moods below; leave it empty for a neutral tone.\n'
     + fieldLines.join('\n') + '\n'
     + 'Moods. A selected mood\'s instruction applies to the reply.\n'
-    + moodLines.join('\n') + '\n\n'
-    + 'Replies are safe-for-work prose written as Mara, respecting the visiting surveyor\'s autonomy.';
+    + moodLines.join('\n');
+// Orb's Director brief, verbatim: DIRECTOR_PREAMBLE (backend/pipeline/passes/director/prompts.py) and the direct_scene
+// description (backend/prompting/tool_schemas.py). Orb's Writer reads the direction as Scene Guidance: the selected
+// moods' instructions, then each field under its injection_label (backend/prompting/scene_direction.py).
+const directorBrief = 'Pause to direct the scene. Your output will directly influence the scenario. Think outside the box, be intentional. '
+    + 'Be very specific and intentional with the direction. Aim to keep things fresh, may churn if need to.';
+const guidance = fields.map(fragment => `${fragment.id} as ${fragment.injection_label}`).join(', ');
 const wireExtras = {
     cache_prompt: true, timings: true, temperature: 0.8, top_k: 40, top_p: 0.95,
     min_p: 0, repetition_penalty: 1, max_tokens: 4096,
@@ -85,7 +90,7 @@ const handoffDescription = {
 };
 const directionFile = 'save it with workspace_write_file to scratch/direction.md as plain text, one field per line, each line being the field name, a colon and the value. '
     + 'Always include the lines moods (the mood ids to activate, left empty for a neutral tone), keywords and next_event; user_intent and detected_repetitions are optional. Separate list items with semicolons. For example:\nmoods: grounded; tense\nkeywords: harbor records; tide chart\nnext_event: Mara finds a new lead.\n';
-const writing = 'Write the next roleplay reply as Mara, following the direction\'s next_event and keywords and the instructions of the selected moods. Save it with workspace_write_file to output/main.md; the content is the reply prose only, with no headings, labels or notes.';
+const writing = `Write the next roleplay reply as Mara, applying the direction as scene guidance: the instructions of the selected moods, and the fields read as labelled (${guidance}). Save it with workspace_write_file to output/main.md; the content is the reply prose only, with no headings, labels or notes.`;
 const editing = 'Call audit_draft on output/main.md. If the audit reports no issues, call workspace_commit on output/main.md and then workspace_finish. '
     + 'Otherwise read output/main.md with workspace_read_file, then fix every flagged sentence with workspace_apply_patch: old_string is the exact flagged text copied from the file, and new_string is complete replacement text that fits its context. '
     + 'Change only flagged text and keep all other prose exactly as it is. You may send several patches in one response. '
@@ -98,7 +103,7 @@ const editing = 'Call audit_draft on output/main.md. If the audit reports no iss
 const definitions = [
     {id: 'benchmark-director', name: 'Benchmark Director', caller: null,
         text: 'You are the Director stage. You never write the reply itself; the Writer stage does. You take exactly two actions.\n'
-            + '1. Decide the scene direction for the next reply from the chat, and ' + directionFile
+            + '1. ' + directorBrief + ' Decide the scene direction for the next reply from the chat, and ' + directionFile
             + '2. Call agent_handoff with agentId benchmark-writer; in handoff, set objective to "Write the next reply following scratch/direction.md." and workspaceRefs to a list containing scratch/direction.md.'},
     {id: 'benchmark-writer', name: 'Benchmark Writer', caller: 'benchmark-director',
         text: 'You are the Writer stage. First read scratch/direction.md with workspace_read_file. Then: ' + writing
@@ -107,7 +112,7 @@ const definitions = [
         text: 'You are the Editor stage, the last stage. ' + editing},
     {id: 'benchmark-single', name: 'Benchmark Single Profile', caller: null,
         text: 'Complete this whole task in one invocation, in order.\n'
-            + '1. Direction: decide the scene direction for the next reply and ' + directionFile
+            + '1. Direction: ' + directorBrief + ' Decide the scene direction for the next reply and ' + directionFile
             + '2. Draft: ' + writing + '\n'
             + '3. Edit: ' + editing},
 ];
