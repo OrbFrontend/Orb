@@ -1,0 +1,3999 @@
+[
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I take a seat beside the map table and set my notebook down. I wait while Mara examines the papers.",
+    "started_ns": 25184837085735,
+    "complete": true,
+    "first_prose_ns": 25188084332743,
+    "done_ns": 25194735463968,
+    "stream_end_ns": 25194735747811,
+    "saved_ns": 25194791273546,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25194791525109,
+    "errors": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 9,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 9.898378233,
+    "attempt_elapsed_seconds": 9.954439374,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.596751367,
+        "generated_tokens": 184,
+        "uncached_tokens": 4017
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 3.076135046,
+        "generated_tokens": 270,
+        "uncached_tokens": 1748
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.866349865,
+        "generated_tokens": 472,
+        "uncached_tokens": 307
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 926,
+    "uncached_tokens": 6072,
+    "actual_prompt_tokens": 4600,
+    "first_prompt_tokens": 4017,
+    "prose_words": 356,
+    "draft_words": 360,
+    "initial_findings": 6,
+    "final_findings": 0,
+    "unflagged_sentences": 20,
+    "preserved_unflagged_sentences": 19
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I read the note she points to, then look through the window at the harbor and listen to what she says.",
+    "started_ns": 25194967842602,
+    "complete": true,
+    "first_prose_ns": 25197225952402,
+    "done_ns": 25203275184348,
+    "stream_end_ns": 25203275458751,
+    "saved_ns": 25203328961845,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25203329222347,
+    "errors": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 5,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 8.307341746,
+    "attempt_elapsed_seconds": 8.361379745,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 1.625756042,
+        "generated_tokens": 139,
+        "uncached_tokens": 1272
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 2.331376728,
+        "generated_tokens": 161,
+        "uncached_tokens": 1644
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.999709492,
+        "generated_tokens": 490,
+        "uncached_tokens": 308
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 790,
+    "uncached_tokens": 3224,
+    "actual_prompt_tokens": 4969,
+    "first_prompt_tokens": 4514,
+    "prose_words": 353,
+    "draft_words": 368,
+    "initial_findings": 4,
+    "final_findings": 0,
+    "unflagged_sentences": 32,
+    "preserved_unflagged_sentences": 32
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I slide my notebook toward the middle of the table. I ask which detail she thinks we should check first.",
+    "started_ns": 25203506848036,
+    "complete": true,
+    "first_prose_ns": 25205642834775,
+    "done_ns": 25211545477883,
+    "stream_end_ns": 25211545794156,
+    "saved_ns": 25211604889482,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25211605158965,
+    "errors": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 8,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 8.038629847,
+    "attempt_elapsed_seconds": 8.098310929,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 1.512410094,
+        "generated_tokens": 122,
+        "uncached_tokens": 1283
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 2.767334748,
+        "generated_tokens": 223,
+        "uncached_tokens": 1578
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.362559629,
+        "generated_tokens": 399,
+        "uncached_tokens": 289
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 744,
+    "uncached_tokens": 3150,
+    "actual_prompt_tokens": 5412,
+    "first_prompt_tokens": 5019,
+    "prose_words": 304,
+    "draft_words": 305,
+    "initial_findings": 5,
+    "final_findings": 2,
+    "unflagged_sentences": 22,
+    "preserved_unflagged_sentences": 22
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 25220247455426,
+    "complete": false,
+    "handle": {
+      "runId": "run_4977eab5e1af48909580552880871f38",
+      "workspaceId": "chat_fa550f1bccedd069",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "aa3eee3a-1953-4cbd-b3af-05dc753d7b62"
+    },
+    "native_error": {
+      "retryable": false,
+      "code": "model.output_truncated",
+      "userRetryable": false,
+      "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+      "eventScope": {
+        "invocationId": "inv_root"
+      },
+      "details": {},
+      "message": "provider stopped before completing the Agent turn (length)"
+    },
+    "terminal_observed_ns": 25257883020019,
+    "terminal_observed_utc_ns": 1791529558502301969,
+    "status": "failed",
+    "settled_ns": 25257926325193,
+    "host_completion": {
+      "settled_at_ms": 1791529558504
+    },
+    "finished_ns": 25257979659007,
+    "errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "native.not_completed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "tool_calls": 4,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 0,
+    "native_failures": [
+      {
+        "seq": 75,
+        "id": "evt_7c0be4d95f2f4b438e865aeb6e070428",
+        "runId": "run_4977eab5e1af48909580552880871f38",
+        "timestamp": "2026-10-09T07:05:57.639515246Z",
+        "level": "error",
+        "type": "model_call_attempt_failed",
+        "payload": {
+          "attempt": 1,
+          "eventScope": {
+            "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1"
+          },
+          "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1",
+          "maxRetries": 3,
+          "message": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "round": 3,
+          "willRetry": false
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 79,
+        "id": "evt_40e283e41bab42589c218410b996c7f6",
+        "runId": "run_4977eab5e1af48909580552880871f38",
+        "timestamp": "2026-10-09T07:05:57.640831260Z",
+        "level": "error",
+        "type": "run_failed",
+        "payload": {
+          "code": "model.output_truncated",
+          "details": {},
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "message": "provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "userRetryable": false
+        },
+        "stage": "director"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529521054152960,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529523343308032,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529524611612928,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1"
+        },
+        "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529525375066880,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1"
+        },
+        "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529527493436928,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1"
+        },
+        "invocationId": "inv_759c47f8d1154ade8346688ab94c90e1",
+        "maxRetries": 3,
+        "round": 3
+      }
+    ],
+    "finish_reason": null,
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 36.592282112,
+    "poll_observation_delay_seconds": 0.861470993,
+    "native_terminal_completed": false,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "native.not_completed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "native_wall_seconds": 37.678869767,
+    "attempt_elapsed_seconds": 37.732203581,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 3.0681494350000005,
+        "generated_tokens": 135,
+        "uncached_tokens": 5359
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 32.95539669,
+        "generated_tokens": 4360,
+        "uncached_tokens": 683
+      }
+    },
+    "model_calls": 5,
+    "generated_tokens": 4495,
+    "uncached_tokens": 6042,
+    "actual_prompt_tokens": 5739,
+    "first_prompt_tokens": 5250,
+    "prose_words": 159,
+    "draft_words": 159,
+    "initial_findings": 3,
+    "final_findings": 3,
+    "unflagged_sentences": 9,
+    "preserved_unflagged_sentences": 9
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 25257984140876,
+    "complete": false,
+    "handle": {
+      "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+      "workspaceId": "chat_fa550f1bccedd069",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "aa3eee3a-1953-4cbd-b3af-05dc753d7b62"
+    },
+    "terminal_observed_ns": 25280997559831,
+    "terminal_observed_utc_ns": 1791529581616871660,
+    "status": "completed",
+    "settled_ns": 25281000180659,
+    "host_completion": {
+      "settled_at_ms": 1791529581618
+    },
+    "finished_ns": 25281059204766,
+    "errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "tool_calls": 13,
+    "tool_errors": 6,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 0,
+    "native_failures": [
+      {
+        "seq": 82,
+        "id": "evt_685aeec97f1b4aeb9578d30edf3f421f",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:06.526892303Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "LYMxXZaZ1Jw5Su1n6JGnJaT9Ee03tNAD",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 3,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 93,
+        "id": "evt_7b9f06d2ec504c1f8c83e3c15a1b8e72",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:08.162614674Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "Zzyu7SesJFddR8rd92vPcc80dJZ7IzWD",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 4,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 104,
+        "id": "evt_ef6c2351f66047b38025ff3217cc3895",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:09.792921797Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "1aCRbHHetG1F85PPiVGT4iMIqCDODq15",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 115,
+        "id": "evt_5d3d2663b8d34376be19dd0c1cd084bf",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:11.392033329Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "sv2TQYxkoBwwYIZy1a2MyiexGpdU2eRR",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 126,
+        "id": "evt_99e65ed6d5e64ed281ebc13e53e63668",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:13.002391766Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "9Puq6Mhqpzol2iyZIl985PgjhU5T3OMx",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 145,
+        "id": "evt_4c82390688ae41c0aa54f53a00f78e6b",
+        "runId": "run_29d6faccd8004ce48f89181541ee7d0e",
+        "timestamp": "2026-10-09T07:06:18.420994703Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "D4Hf7KmPsLm2nBvwpgWGANehhQUNH4Ql",
+          "elapsedMs": 0,
+          "errorCode": "workspace.write_requires_read",
+          "eventScope": {
+            "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+          },
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+          "isError": true,
+          "message": "file already exists; read it with workspace_read_file before rewriting it",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 9,
+          "snapshotId": "inv_651832d00841442fa2451c73070eb7ee",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "writer"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529558781999104,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529560013413888,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529561384857856,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529562088196096,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529564805746176,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529566527515904,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529568169491968,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529569799753984,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529571398566912,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529573009180928,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529575526819072,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529578432080128,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529579031873024,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529579854029056,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_651832d00841442fa2451c73070eb7ee"
+        },
+        "invocationId": "inv_651832d00841442fa2451c73070eb7ee",
+        "maxRetries": 3,
+        "round": 12
+      }
+    ],
+    "finish_reason": "Successfully recovered and committed the intended prose to output/direct_output.md. Finishing run.",
+    "presentation_difference": "whitespace_only",
+    "backend_created_to_terminal_seconds": 22.073949952,
+    "poll_observation_delay_seconds": 0.770651628,
+    "native_terminal_completed": true,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "native_wall_seconds": 23.016039783,
+    "attempt_elapsed_seconds": 23.07506389,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 2.021191843,
+        "generated_tokens": 139,
+        "uncached_tokens": 547
+      },
+      "writer": {
+        "calls": 12,
+        "model_seconds": 18.732779724,
+        "generated_tokens": 1882,
+        "uncached_tokens": 2964
+      }
+    },
+    "model_calls": 14,
+    "generated_tokens": 2021,
+    "uncached_tokens": 3511,
+    "actual_prompt_tokens": 8276,
+    "first_prompt_tokens": 5490,
+    "prose_words": 232,
+    "draft_words": 232,
+    "initial_findings": 4,
+    "final_findings": 4,
+    "unflagged_sentences": 12,
+    "preserved_unflagged_sentences": 12
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 25281063899748,
+    "complete": false,
+    "handle": {
+      "runId": "run_b8672557223b405a9ff99e44bb25bfc4",
+      "workspaceId": "chat_fa550f1bccedd069",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "aa3eee3a-1953-4cbd-b3af-05dc753d7b62"
+    },
+    "native_error": {
+      "retryable": false,
+      "code": "model.output_truncated",
+      "userRetryable": false,
+      "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+      "eventScope": {
+        "invocationId": "inv_root"
+      },
+      "details": {},
+      "message": "provider stopped before completing the Agent turn (length)"
+    },
+    "terminal_observed_ns": 25313084513729,
+    "terminal_observed_utc_ns": 1791529613703838329,
+    "status": "failed",
+    "settled_ns": 25313127225708,
+    "host_completion": {
+      "settled_at_ms": 1791529613705
+    },
+    "finished_ns": 25313179477672,
+    "errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "draft.missing",
+      "native.not_completed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "tool_calls": 1,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 0,
+    "native_failures": [
+      {
+        "seq": 28,
+        "id": "evt_3a54bc903dd64d0c89e28fccc6ea59d7",
+        "runId": "run_b8672557223b405a9ff99e44bb25bfc4",
+        "timestamp": "2026-10-09T07:06:53.040785363Z",
+        "level": "error",
+        "type": "model_call_attempt_failed",
+        "payload": {
+          "attempt": 1,
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "maxRetries": 3,
+          "message": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "round": 2,
+          "willRetry": false
+        },
+        "stage": "director"
+      },
+      {
+        "seq": 31,
+        "id": "evt_03912fd44de244a88894567bc6355c0d",
+        "runId": "run_b8672557223b405a9ff99e44bb25bfc4",
+        "timestamp": "2026-10-09T07:06:53.041797554Z",
+        "level": "error",
+        "type": "run_failed",
+        "payload": {
+          "code": "model.output_truncated",
+          "details": {},
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "message": "provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "userRetryable": false
+        },
+        "stage": "director"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529581869047040,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529583280769024,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      }
+    ],
+    "finish_reason": null,
+    "presentation_difference": "content",
+    "backend_created_to_terminal_seconds": 31.182370816,
+    "poll_observation_delay_seconds": 0.662041465,
+    "native_terminal_completed": false,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "draft.missing",
+      "native.not_completed",
+      "stages.handoff_sequence",
+      "stages.invocation_sequence"
+    ],
+    "native_wall_seconds": 32.06332596,
+    "attempt_elapsed_seconds": 32.115577924,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 31.119555327,
+        "generated_tokens": 4175,
+        "uncached_tokens": 630
+      }
+    },
+    "model_calls": 2,
+    "generated_tokens": 4175,
+    "uncached_tokens": 630,
+    "actual_prompt_tokens": 5922,
+    "first_prompt_tokens": 5814,
+    "prose_words": 0,
+    "draft_words": 0,
+    "initial_findings": null,
+    "final_findings": null,
+    "unflagged_sentences": 0,
+    "preserved_unflagged_sentences": 0
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 25321228437751,
+    "complete": false,
+    "handle": {
+      "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+      "workspaceId": "chat_4541bca2d00194da",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "d6ed99b7-5b32-477f-b669-64a72c7af29e"
+    },
+    "terminal_observed_ns": 25350390065295,
+    "terminal_observed_utc_ns": 1791529651009363155,
+    "status": "completed",
+    "settled_ns": 25350433350171,
+    "host_completion": {
+      "settled_at_ms": 1791529651011
+    },
+    "finished_ns": 25350498639808,
+    "errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "direction.required.next_event"
+    ],
+    "tool_calls": 26,
+    "tool_errors": 12,
+    "edit_batches": 2,
+    "patches": 4,
+    "audit_calls": 3,
+    "native_failures": [
+      {
+        "seq": 23,
+        "id": "evt_93232ac554f04a24ba9f2d8b1a571fa0",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:05.186036983Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "MIENmPQfFtJQPaCf9eUo099OKIJX5xG3",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 1,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 34,
+        "id": "evt_591a0a56f8c64fe388244cc6743d9eb9",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:06.182109350Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "pCyYeJpY68RyW4SRWoiLRpTnCS8WNmBY",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 45,
+        "id": "evt_179cd984382e4c7d91e172c599f8807f",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:07.205883482Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "41a8pg81H9Jm0EP2SAqbkbDGCtfDBiom",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 3,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 56,
+        "id": "evt_56735239e038461fb567967807c7ac40",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:08.251269993Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "sX4TIu6ayXt35fMNCa8p0qNo01LWsCeV",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 4,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 67,
+        "id": "evt_b3d3e841ebbe4178a9df8d921193698b",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:09.273738862Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "Id90xRvvmyb2a1IkOG73xxHnRusvAhQ7",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 78,
+        "id": "evt_b885f44d4fb64e4d85678d279ec8ba30",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:10.369911390Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "SShjSLTF6HwyU7R91lTNeC41WK6KlA72",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 89,
+        "id": "evt_58fd1870809d4ebc84b29d28ba63ded1",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:11.335915730Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "8K9WBdds2luugkjkwRV7ba9TQAzfolxk",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 100,
+        "id": "evt_9a92b3afcc0c466a9b8ac6313efaa586",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:12.130784861Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "hO2qXbLx3cOUr2YGwf9rzy5uLAu6kFX8",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 8,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 111,
+        "id": "evt_4c3cca21b75a497ca04706f7fcaccc14",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:12.937781855Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "Rh3IgqtfWsnd1I2MVojq9MJ0jg1arsFn",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 9,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 122,
+        "id": "evt_c7faca1c671e477ca1522ca92ba9f4c7",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:13.746399117Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "9fgNSIFtXu1SnWy9p5JL67xkpl1B5g7W",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 10,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 133,
+        "id": "evt_852b148080ad4a598876b799a971be47",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:14.678641747Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "SgZKkKEniT4dBmParBk43FCvCS2TZxe0",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 11,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 144,
+        "id": "evt_22ee945b22fb4925a07d63706b7ee1a9",
+        "runId": "run_cf6a0af278d3460bb4d0bb25e78c71e6",
+        "timestamp": "2026-10-09T07:07:15.510525676Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "b3gKqPn0kDUJsfzRoUNekM1RxZxyoeUv",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "content is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 12,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529622042414848,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529625186630912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529626182864896,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529627206675968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529628252016128,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529629274488064,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529630376317952,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529631336699136,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529632137185024,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529632944203008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529633752577024,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529634685350912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791529635516947968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791529636350274048,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 14
+      },
+      {
+        "timestamp_ns": 1791529636911439872,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 15
+      },
+      {
+        "timestamp_ns": 1791529638433532928,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 16
+      },
+      {
+        "timestamp_ns": 1791529639035213824,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 17
+      },
+      {
+        "timestamp_ns": 1791529641579073792,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 18
+      },
+      {
+        "timestamp_ns": 1791529642285193984,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 19
+      },
+      {
+        "timestamp_ns": 1791529643635611904,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 20
+      },
+      {
+        "timestamp_ns": 1791529644619726848,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 21
+      },
+      {
+        "timestamp_ns": 1791529645618259968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 22
+      },
+      {
+        "timestamp_ns": 1791529646332338944,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 23
+      },
+      {
+        "timestamp_ns": 1791529647641121024,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 24
+      },
+      {
+        "timestamp_ns": 1791529648381249792,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 25
+      },
+      {
+        "timestamp_ns": 1791529649132948992,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 26
+      }
+    ],
+    "finish_reason": "Audit clean.",
+    "presentation_difference": "whitespace_only",
+    "backend_created_to_terminal_seconds": 28.094659072,
+    "poll_observation_delay_seconds": 0.877990099,
+    "native_terminal_completed": true,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "direction.required.next_event"
+    ],
+    "native_wall_seconds": 29.20491242,
+    "attempt_elapsed_seconds": 29.270202057,
+    "stages": {
+      "single": {
+        "calls": 26,
+        "model_seconds": 26.487738238000002,
+        "generated_tokens": 1796,
+        "uncached_tokens": 8186
+      }
+    },
+    "model_calls": 26,
+    "generated_tokens": 1796,
+    "uncached_tokens": 8186,
+    "actual_prompt_tokens": 9096,
+    "first_prompt_tokens": 4942,
+    "prose_words": 208,
+    "draft_words": 214,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 16,
+    "preserved_unflagged_sentences": 16
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 25350504380352,
+    "complete": false,
+    "handle": {
+      "runId": "run_901e06781a8d4a54b81afb214a546b05",
+      "workspaceId": "chat_4541bca2d00194da",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "d6ed99b7-5b32-477f-b669-64a72c7af29e"
+    },
+    "terminal_observed_ns": 25367505394561,
+    "terminal_observed_utc_ns": 1791529668124690470,
+    "status": "completed",
+    "settled_ns": 25367548506075,
+    "host_completion": {
+      "settled_at_ms": 1791529668126
+    },
+    "finished_ns": 25367610560618,
+    "errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "editor.edit_batch_limit"
+    ],
+    "tool_calls": 14,
+    "tool_errors": 0,
+    "edit_batches": 4,
+    "patches": 4,
+    "audit_calls": 5,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529651345423104,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529653737133056,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529654301186048,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529657309398784,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529657991318016,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529658882940160,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529659527545856,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529660895129856,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529661543511040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529662892646144,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529663546266112,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529664901756160,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791529665562144000,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791529666403004928,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 14
+      }
+    ],
+    "finish_reason": "The audit was clean. The prose is ready.",
+    "presentation_difference": "whitespace_only",
+    "backend_created_to_terminal_seconds": 16.05763712,
+    "poll_observation_delay_seconds": 0.731443494,
+    "native_terminal_completed": true,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "editor.edit_batch_limit"
+    ],
+    "native_wall_seconds": 17.044125723,
+    "attempt_elapsed_seconds": 17.106180266,
+    "stages": {
+      "single": {
+        "calls": 14,
+        "model_seconds": 13.564214282,
+        "generated_tokens": 998,
+        "uncached_tokens": 6380
+      }
+    },
+    "model_calls": 14,
+    "generated_tokens": 998,
+    "uncached_tokens": 6380,
+    "actual_prompt_tokens": 9095,
+    "first_prompt_tokens": 5237,
+    "prose_words": 258,
+    "draft_words": 260,
+    "initial_findings": 2,
+    "final_findings": 0,
+    "unflagged_sentences": 20,
+    "preserved_unflagged_sentences": 20
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 25367615761415,
+    "complete": true,
+    "handle": {
+      "runId": "run_fb287a98893b49559f11c2b05f5bdd62",
+      "workspaceId": "chat_4541bca2d00194da",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "d6ed99b7-5b32-477f-b669-64a72c7af29e"
+    },
+    "terminal_observed_ns": 25386111835928,
+    "terminal_observed_utc_ns": 1791529686731147268,
+    "status": "completed",
+    "settled_ns": 25386154313835,
+    "host_completion": {
+      "settled_at_ms": 1791529686732
+    },
+    "finished_ns": 25386177526941,
+    "errors": [],
+    "tool_calls": 17,
+    "tool_errors": 3,
+    "edit_batches": 2,
+    "patches": 4,
+    "audit_calls": 3,
+    "native_failures": [
+      {
+        "seq": 105,
+        "id": "evt_177fe49b60174299ae5f7146a40b64c0",
+        "runId": "run_fb287a98893b49559f11c2b05f5bdd62",
+        "timestamp": "2026-10-09T07:07:57.303018660Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "hhcYuUw2WpR14lLiBuIAOBXNYzYuENS5",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 127,
+        "id": "evt_ec014b890275498780dcf207207f411c",
+        "runId": "run_fb287a98893b49559f11c2b05f5bdd62",
+        "timestamp": "2026-10-09T07:07:58.746993932Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "pw5a5SaWWGNFMsavnVhB2sqHAq1YOehm",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 9,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 138,
+        "id": "evt_c7ccff614d154122aa8f8f3b59bdd460",
+        "runId": "run_fb287a98893b49559f11c2b05f5bdd62",
+        "timestamp": "2026-10-09T07:07:59.631721319Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "DmTRP7pEZaLLzYMwts15JNh2rArAhSdi",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 10,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "single"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529668429462784,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529669841388032,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529670400655872,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529673565702912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529674248835072,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529675463869184,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529676458745856,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529677309221120,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529677866513920,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529678753395968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529679635121152,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529680207331840,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791529681479116800,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791529682164217088,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 14
+      },
+      {
+        "timestamp_ns": 1791529683485836032,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 15
+      },
+      {
+        "timestamp_ns": 1791529684202024960,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 16
+      },
+      {
+        "timestamp_ns": 1791529684993221888,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 17
+      }
+    ],
+    "finish_reason": "The audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 17.560367104,
+    "poll_observation_delay_seconds": 0.751194116,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 18.53855242,
+    "attempt_elapsed_seconds": 18.561765526,
+    "stages": {
+      "single": {
+        "calls": 17,
+        "model_seconds": 15.802637503,
+        "generated_tokens": 1189,
+        "uncached_tokens": 4610
+      }
+    },
+    "model_calls": 17,
+    "generated_tokens": 1189,
+    "uncached_tokens": 4610,
+    "actual_prompt_tokens": 9916,
+    "first_prompt_tokens": 5599,
+    "prose_words": 270,
+    "draft_words": 275,
+    "initial_findings": 4,
+    "final_findings": 0,
+    "unflagged_sentences": 15,
+    "preserved_unflagged_sentences": 15
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I take a seat beside the map table and set my notebook down. I wait while Mara examines the papers.",
+    "started_ns": 25394850104578,
+    "complete": true,
+    "first_prose_ns": 25408146042687,
+    "done_ns": 25415423050853,
+    "stream_end_ns": 25415423431487,
+    "saved_ns": 25415493379798,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25415493572751,
+    "errors": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 7,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 20.572946275,
+    "attempt_elapsed_seconds": 20.643468173,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 11.970269412,
+        "generated_tokens": 150,
+        "uncached_tokens": 34895
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 4.196555999999999,
+        "generated_tokens": 208,
+        "uncached_tokens": 1497
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.858382266,
+        "generated_tokens": 371,
+        "uncached_tokens": 274
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 729,
+    "uncached_tokens": 36666,
+    "actual_prompt_tokens": 35266,
+    "first_prompt_tokens": 34895,
+    "prose_words": 281,
+    "draft_words": 279,
+    "initial_findings": 6,
+    "final_findings": 1,
+    "unflagged_sentences": 17,
+    "preserved_unflagged_sentences": 17
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I read the note she points to, then look through the window at the harbor and listen to what she says.",
+    "started_ns": 25415676704429,
+    "complete": true,
+    "first_prose_ns": 25419477386663,
+    "done_ns": 25424780540870,
+    "stream_end_ns": 25424780949974,
+    "saved_ns": 25424850211368,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25424850413400,
+    "errors": [],
+    "tool_calls": 2,
+    "tool_errors": null,
+    "edit_batches": 1,
+    "patches": 1,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 9.103836441,
+    "attempt_elapsed_seconds": 9.173708971,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.455224413,
+        "generated_tokens": 153,
+        "uncached_tokens": 1183
+      },
+      "editor": {
+        "calls": 1,
+        "model_seconds": 1.639918481,
+        "generated_tokens": 52,
+        "uncached_tokens": 740
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 4.593507439,
+        "generated_tokens": 471,
+        "uncached_tokens": 261
+      }
+    },
+    "model_calls": 3,
+    "generated_tokens": 676,
+    "uncached_tokens": 2184,
+    "actual_prompt_tokens": 35520,
+    "first_prompt_tokens": 35303,
+    "prose_words": 354,
+    "draft_words": 354,
+    "initial_findings": 1,
+    "final_findings": 0,
+    "unflagged_sentences": 36,
+    "preserved_unflagged_sentences": 36
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I slide my notebook toward the middle of the table. I ask which detail she thinks we should check first.",
+    "started_ns": 25425035446250,
+    "complete": true,
+    "first_prose_ns": 25428647393938,
+    "done_ns": 25436115057179,
+    "stream_end_ns": 25436115455043,
+    "saved_ns": 25436184671847,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 25436184868549,
+    "errors": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 7,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 11.079610929,
+    "attempt_elapsed_seconds": 11.149422299,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.265617952,
+        "generated_tokens": 124,
+        "uncached_tokens": 1280
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 4.159094812999999,
+        "generated_tokens": 216,
+        "uncached_tokens": 1541
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 4.073907586,
+        "generated_tokens": 396,
+        "uncached_tokens": 283
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 736,
+    "uncached_tokens": 3104,
+    "actual_prompt_tokens": 36224,
+    "first_prompt_tokens": 35804,
+    "prose_words": 283,
+    "draft_words": 305,
+    "initial_findings": 6,
+    "final_findings": 1,
+    "unflagged_sentences": 18,
+    "preserved_unflagged_sentences": 18
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 25444640678555,
+    "complete": true,
+    "handle": {
+      "runId": "run_057f4094f61a41cea101c85f80fe8e16",
+      "workspaceId": "chat_7f4fc64c6c3b673e",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "e003799d-325c-4949-92f8-de450a4228d5"
+    },
+    "terminal_observed_ns": 25493152193278,
+    "terminal_observed_utc_ns": 1791529793771473037,
+    "status": "completed",
+    "settled_ns": 25493195328545,
+    "host_completion": {
+      "settled_at_ms": 1791529793773
+    },
+    "finished_ns": 25493232576716,
+    "errors": [],
+    "tool_calls": 19,
+    "tool_errors": 4,
+    "edit_batches": 1,
+    "patches": 3,
+    "audit_calls": 2,
+    "native_failures": [
+      {
+        "seq": 94,
+        "id": "evt_4d79ba81bcb4437eb6fa3b9d5d2610f6",
+        "runId": "run_057f4094f61a41cea101c85f80fe8e16",
+        "timestamp": "2026-10-09T07:09:27.068702723Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "rM1jRkKzGfsAcAcBki13zmbshY2NV9kS",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+          },
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: unknown field `reason`, expected one of `agentId`, `handoff`, `pendingTaskPolicy`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 4,
+          "snapshotId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 105,
+        "id": "evt_426f288be7da4d7a877a8c54524f39e6",
+        "runId": "run_057f4094f61a41cea101c85f80fe8e16",
+        "timestamp": "2026-10-09T07:09:28.736962985Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "R8FO2ITNsLhiFp5Z1JfchnjG7fCKoQzy",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+          },
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: unknown field `reason`, expected one of `agentId`, `handoff`, `pendingTaskPolicy`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 116,
+        "id": "evt_d5427b1c6a644a14bcceacb7cdcda459",
+        "runId": "run_057f4094f61a41cea101c85f80fe8e16",
+        "timestamp": "2026-10-09T07:09:30.248603558Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "ToZBeVVXZMbIxrc9TBInpu1y0vezEG7S",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+          },
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "isError": true,
+          "message": "invalid agent.handoff arguments: missing field `agentId`",
+          "name": "agent.handoff",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+          "toolId": "builtin:agent.handoff"
+        },
+        "stage": "writer"
+      },
+      {
+        "seq": 210,
+        "id": "evt_1e62661e36094a2ea43876a7fce6c2d1",
+        "runId": "run_057f4094f61a41cea101c85f80fe8e16",
+        "timestamp": "2026-10-09T07:09:43.559352060Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "zQH7SxbQ64Fb6tfQm1qA4zL6pNkTBDVH",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+          },
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_7889a6a0de9e484c95e66053e0477ced",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529745587905024,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529757810491136,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529759703415040,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529761188205056,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529762702497024,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529765451436032,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529767075283968,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529768743578880,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529770255106048,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9"
+        },
+        "invocationId": "inv_6f45f61aad8b442a8bdee8cbb6d19eb9",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529772257539072,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529773805933056,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529775277697024,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529778187227136,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529781178500864,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529783565836800,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529784838044928,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529786234010880,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529788696635904,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529790197452032,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529791696909056,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced"
+        },
+        "invocationId": "inv_7889a6a0de9e484c95e66053e0477ced",
+        "maxRetries": 3,
+        "round": 11
+      }
+    ],
+    "finish_reason": "Audit was clean. All identified issues were resolved and the draft is verified.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 47.606514944,
+    "poll_observation_delay_seconds": 0.587388045,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 48.55464999,
+    "attempt_elapsed_seconds": 48.591898161,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 13.699730070000001,
+        "generated_tokens": 140,
+        "uncached_tokens": 36242
+      },
+      "editor": {
+        "calls": 11,
+        "model_seconds": 19.34629601,
+        "generated_tokens": 873,
+        "uncached_tokens": 3114
+      },
+      "writer": {
+        "calls": 7,
+        "model_seconds": 12.051691573,
+        "generated_tokens": 572,
+        "uncached_tokens": 1071
+      }
+    },
+    "model_calls": 20,
+    "generated_tokens": 1585,
+    "uncached_tokens": 40427,
+    "actual_prompt_tokens": 39258,
+    "first_prompt_tokens": 36128,
+    "prose_words": 154,
+    "draft_words": 161,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 8,
+    "preserved_unflagged_sentences": 8
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 25493245566050,
+    "complete": false,
+    "handle": {
+      "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+      "workspaceId": "chat_7f4fc64c6c3b673e",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "e003799d-325c-4949-92f8-de450a4228d5"
+    },
+    "terminal_observed_ns": 25538089931772,
+    "terminal_observed_utc_ns": 1791529838709170431,
+    "status": "completed",
+    "settled_ns": 25538133222821,
+    "host_completion": {
+      "settled_at_ms": 1791529838710
+    },
+    "finished_ns": 25538174640320,
+    "errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed"
+    ],
+    "tool_calls": 21,
+    "tool_errors": 6,
+    "edit_batches": 1,
+    "patches": 3,
+    "audit_calls": 2,
+    "native_failures": [
+      {
+        "seq": 107,
+        "id": "evt_cd93e42ecec24fb98057c2811ec09d43",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:06.536634560Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "HB0BRsdNAS4iet6K07NE8TwcnTRQnkCp",
+          "elapsedMs": 0,
+          "errorCode": "workspace.file_not_found",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "Workspace file not found: output/main.md\"}<tool_call|><|channel>thought\n<channel|><|tool_call>call:mcp__Orb_benchmark_auditor__audit_draft{path:",
+          "name": "workspace.read_file",
+          "resourceRefs": [],
+          "round": 1,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.read_file"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 137,
+        "id": "evt_f2403702cfd1418db83579539a538444",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:12.681565950Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "jmso4ZxEQ656Ivk13uJ3vR0nq2lyduGO",
+          "elapsedMs": 0,
+          "errorCode": "workspace.write_requires_read",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "file already exists; read it with workspace_read_file before rewriting it",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 4,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 148,
+        "id": "evt_f0e0a85c9d3a42b889d5b6344c7d1f50",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:15.454356175Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "BIDYsd1JOjjgPwR6t47JRiDemdKxYB5Y",
+          "elapsedMs": 0,
+          "errorCode": "workspace.write_requires_read",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "file already exists; read it with workspace_read_file before rewriting it",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 159,
+        "id": "evt_b238e9aa0052403d8f52cf93963f0970",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:18.183442740Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "WxTfEaBmPRPfUgxvnW9nrm2p3Qioem7M",
+          "elapsedMs": 0,
+          "errorCode": "workspace.write_requires_read",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "file already exists; read it with workspace_read_file before rewriting it",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 170,
+        "id": "evt_25390f596f974502a2e522f11a471950",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:20.937142439Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "ebl7gAffCIRkma6c2jwpKUMNFx7U2QrT",
+          "elapsedMs": 0,
+          "errorCode": "workspace.write_requires_read",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "file already exists; read it with workspace_read_file before rewriting it",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 221,
+        "id": "evt_92ab5f7c52c54f86b83e922d88f23dd1",
+        "runId": "run_f78f4fdc92f5408eb5e5e918099ff0df",
+        "timestamp": "2026-10-09T07:10:27.886732752Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "D4zfLwf6SPJNprluTCq2xel3d17orBaA",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+          },
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 11,
+          "snapshotId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529794074477824,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529796141448960,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529798152323840,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8"
+        },
+        "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529799686021120,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8"
+        },
+        "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529802730622976,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8"
+        },
+        "invocationId": "inv_cf9336b8fbfe4912a36a3e633371eaa8",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529804718492928,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529806537457920,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529808532516096,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529809963532032,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529812687900160,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529815455208960,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529818189748992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529820943876864,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529822293793792,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529823802920960,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529826167139072,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529827893296128,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791529829255635968,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791529831157936128,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 14
+      },
+      {
+        "timestamp_ns": 1791529833166775040,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 15
+      },
+      {
+        "timestamp_ns": 1791529834752549888,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 16
+      },
+      {
+        "timestamp_ns": 1791529836682868992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b"
+        },
+        "invocationId": "inv_31ddc3b3b4044a52b46750e7dbbea15b",
+        "maxRetries": 3,
+        "round": 17
+      }
+    ],
+    "finish_reason": "Audit was clean. All issues addressed and committed.",
+    "presentation_difference": "whitespace_only",
+    "backend_created_to_terminal_seconds": 44.091095808,
+    "poll_observation_delay_seconds": 0.550069503,
+    "native_terminal_completed": true,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed"
+    ],
+    "native_wall_seconds": 44.887656771,
+    "attempt_elapsed_seconds": 44.92907427,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 3.59090444,
+        "generated_tokens": 126,
+        "uncached_tokens": 516
+      },
+      "editor": {
+        "calls": 17,
+        "model_seconds": 31.949146892,
+        "generated_tokens": 1567,
+        "uncached_tokens": 4158
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 6.134990922,
+        "generated_tokens": 354,
+        "uncached_tokens": 707
+      }
+    },
+    "model_calls": 22,
+    "generated_tokens": 2047,
+    "uncached_tokens": 5381,
+    "actual_prompt_tokens": 40549,
+    "first_prompt_tokens": 36350,
+    "prose_words": 179,
+    "draft_words": 184,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 9,
+    "preserved_unflagged_sentences": 9
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 25538189676356,
+    "complete": true,
+    "handle": {
+      "runId": "run_fbaa6d3bf21d4f55aa3a7d82c72eefeb",
+      "workspaceId": "chat_7f4fc64c6c3b673e",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "e003799d-325c-4949-92f8-de450a4228d5"
+    },
+    "terminal_observed_ns": 25571370531281,
+    "terminal_observed_utc_ns": 1791529871989828700,
+    "status": "completed",
+    "settled_ns": 25571413714538,
+    "host_completion": {
+      "settled_at_ms": 1791529871991
+    },
+    "finished_ns": 25571451074423,
+    "errors": [
+      "editor.unresolved_findings_before_limit"
+    ],
+    "tool_calls": 15,
+    "tool_errors": 1,
+    "edit_batches": 1,
+    "patches": 3,
+    "audit_calls": 2,
+    "native_failures": [
+      {
+        "seq": 194,
+        "id": "evt_8d5bfc0dd6f34ad8bf514d2fa0e4a3b8",
+        "runId": "run_fbaa6d3bf21d4f55aa3a7d82c72eefeb",
+        "timestamp": "2026-10-09T07:11:06.389137628Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "IU5IYltDEaj9BIoLpc2BWvO3gfQWI3DW",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_old_string_not_found",
+          "eventScope": {
+            "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+          },
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+          "isError": true,
+          "message": "old_string was not found in the file",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529839026504960,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529843932332032,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529845604901120,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5"
+        },
+        "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529847130825984,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5"
+        },
+        "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529850691596032,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5"
+        },
+        "invocationId": "inv_02aafd62b36d46a7b353851427f8d8b5",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529852660224000,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529854130898944,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529855626804992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529858618969088,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529860603027968,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529862612189952,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529864110299136,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529866395675904,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529867759270912,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529869628058880,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8"
+        },
+        "invocationId": "inv_05e7cd4364f845c08ddda10de891f4c8",
+        "maxRetries": 3,
+        "round": 10
+      }
+    ],
+    "finish_reason": "Audit completed. One minor phrase repetition issue remained after one patch attempt, but the edit limit was reached.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 32.078143744,
+    "poll_observation_delay_seconds": 0.8920879,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": false,
+    "qualification_errors": [
+      "editor.unresolved_findings_before_limit",
+      "response.reasoning"
+    ],
+    "native_wall_seconds": 33.224038182,
+    "attempt_elapsed_seconds": 33.261398067,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 6.441318379,
+        "generated_tokens": 134,
+        "uncached_tokens": 8717
+      },
+      "editor": {
+        "calls": 10,
+        "model_seconds": 16.568911633,
+        "generated_tokens": 636,
+        "uncached_tokens": 3352
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 6.642024343,
+        "generated_tokens": 427,
+        "uncached_tokens": 789
+      }
+    },
+    "model_calls": 15,
+    "generated_tokens": 1197,
+    "uncached_tokens": 12858,
+    "actual_prompt_tokens": 39845,
+    "first_prompt_tokens": 36607,
+    "prose_words": 246,
+    "draft_words": 240,
+    "initial_findings": 3,
+    "final_findings": 1,
+    "unflagged_sentences": 13,
+    "preserved_unflagged_sentences": 13
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 25579934610408,
+    "complete": true,
+    "handle": {
+      "runId": "run_e9c9f54256864d5ba61dc14155f2ef5d",
+      "workspaceId": "chat_61d0a66de576771c",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "3c71b869-5aa2-494e-8311-8844d2149cc1"
+    },
+    "terminal_observed_ns": 25615195399826,
+    "terminal_observed_utc_ns": 1791529915814484403,
+    "status": "completed",
+    "settled_ns": 25615237222250,
+    "host_completion": {
+      "settled_at_ms": 1791529915815
+    },
+    "finished_ns": 25615254658163,
+    "errors": [],
+    "tool_calls": 12,
+    "tool_errors": 0,
+    "edit_batches": 1,
+    "patches": 5,
+    "audit_calls": 2,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529880868715008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529892806411008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529894083448832,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529897774918912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529899688087040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529901948395008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529903937568000,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529905943938048,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529907997153024,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529910025310976,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529911494784000,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529913481336064,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      }
+    ],
+    "finish_reason": "Audit clean. All issues resolved.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 34.08058496,
+    "poll_observation_delay_seconds": 0.875276467,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": false,
+    "qualification_errors": [
+      "response.reasoning"
+    ],
+    "native_wall_seconds": 35.302611842,
+    "attempt_elapsed_seconds": 35.320047755,
+    "stages": {
+      "single": {
+        "calls": 12,
+        "model_seconds": 31.655174896,
+        "generated_tokens": 1069,
+        "uncached_tokens": 38556
+      }
+    },
+    "model_calls": 12,
+    "generated_tokens": 1069,
+    "uncached_tokens": 38556,
+    "actual_prompt_tokens": 38862,
+    "first_prompt_tokens": 35820,
+    "prose_words": 266,
+    "draft_words": 269,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 11,
+    "preserved_unflagged_sentences": 11
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 25615261857343,
+    "complete": false,
+    "handle": {
+      "runId": "run_a3449819e52a4de0aa23eaa105ed101b",
+      "workspaceId": "chat_61d0a66de576771c",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "3c71b869-5aa2-494e-8311-8844d2149cc1"
+    },
+    "terminal_observed_ns": 25642831350443,
+    "terminal_observed_utc_ns": 1791529943450644683,
+    "status": "completed",
+    "settled_ns": 25642874246799,
+    "host_completion": {
+      "settled_at_ms": 1791529943452
+    },
+    "finished_ns": 25642909791224,
+    "errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "direction.required.keywords",
+      "direction.required.next_event"
+    ],
+    "tool_calls": 13,
+    "tool_errors": 0,
+    "edit_batches": 2,
+    "patches": 5,
+    "audit_calls": 3,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529916074140928,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791529918464400128,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791529919754198016,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791529924088390144,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791529925562254080,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791529928132978944,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791529930134993152,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791529932152061952,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791529934147100928,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791529935590276864,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791529937648550912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791529939167865088,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791529941165966080,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 13
+      }
+    ],
+    "finish_reason": "Audit clean. Prose refined. Task complete.",
+    "presentation_difference": "whitespace_only",
+    "backend_created_to_terminal_seconds": 26.572290304,
+    "poll_observation_delay_seconds": 0.814169547,
+    "native_terminal_completed": true,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "completion.final_file_chat_mismatch",
+      "completion.native_verification_failed",
+      "direction.required.keywords",
+      "direction.required.next_event"
+    ],
+    "native_wall_seconds": 27.612389456,
+    "attempt_elapsed_seconds": 27.647933881,
+    "stages": {
+      "single": {
+        "calls": 13,
+        "model_seconds": 23.654246641,
+        "generated_tokens": 1123,
+        "uncached_tokens": 3815
+      }
+    },
+    "model_calls": 13,
+    "generated_tokens": 1123,
+    "uncached_tokens": 3815,
+    "actual_prompt_tokens": 39681,
+    "first_prompt_tokens": 36182,
+    "prose_words": 313,
+    "draft_words": 316,
+    "initial_findings": 4,
+    "final_findings": 0,
+    "unflagged_sentences": 18,
+    "preserved_unflagged_sentences": 18
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 25642922146851,
+    "complete": false,
+    "handle": {
+      "runId": "run_cc23b1ad579b4b0bb2c59394dc8b56cf",
+      "workspaceId": "chat_61d0a66de576771c",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "3c71b869-5aa2-494e-8311-8844d2149cc1"
+    },
+    "native_error": {
+      "retryable": false,
+      "code": "model.output_truncated",
+      "userRetryable": false,
+      "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+      "eventScope": {
+        "invocationId": "inv_root"
+      },
+      "details": {},
+      "message": "provider stopped before completing the Agent turn (length)"
+    },
+    "terminal_observed_ns": 25675081031508,
+    "terminal_observed_utc_ns": 1791529975700351238,
+    "status": "failed",
+    "settled_ns": 25675124217408,
+    "host_completion": {
+      "settled_at_ms": 1791529975701
+    },
+    "finished_ns": 25675151902805,
+    "errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "direction.missing",
+      "draft.missing",
+      "native.not_completed"
+    ],
+    "tool_calls": 0,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 0,
+    "native_failures": [
+      {
+        "seq": 16,
+        "id": "evt_4a1b811f7272402bbe6ba309eb9fd250",
+        "runId": "run_cc23b1ad579b4b0bb2c59394dc8b56cf",
+        "timestamp": "2026-10-09T07:12:55.217177041Z",
+        "level": "error",
+        "type": "model_call_attempt_failed",
+        "payload": {
+          "attempt": 1,
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "maxRetries": 3,
+          "message": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "round": 1,
+          "willRetry": false
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 19,
+        "id": "evt_7b1e0730cda546c984b3e72171990b71",
+        "runId": "run_cc23b1ad579b4b0bb2c59394dc8b56cf",
+        "timestamp": "2026-10-09T07:12:55.218674927Z",
+        "level": "error",
+        "type": "run_failed",
+        "payload": {
+          "code": "model.output_truncated",
+          "details": {},
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "message": "provider stopped before completing the Agent turn (length)",
+          "retryable": false,
+          "technicalMessage": "Validation error: model.output_truncated: provider stopped before completing the Agent turn (length)",
+          "userRetryable": false
+        },
+        "stage": "single"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791529943848625920,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      }
+    ],
+    "finish_reason": null,
+    "presentation_difference": "content",
+    "backend_created_to_terminal_seconds": 31.380096,
+    "poll_observation_delay_seconds": 0.481677318,
+    "native_terminal_completed": false,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "direction.missing",
+      "draft.missing",
+      "native.not_completed"
+    ],
+    "native_wall_seconds": 32.202070557,
+    "attempt_elapsed_seconds": 32.229755954,
+    "stages": {
+      "single": {
+        "calls": 1,
+        "model_seconds": 31.322833343,
+        "generated_tokens": 4096,
+        "uncached_tokens": 757
+      }
+    },
+    "model_calls": 1,
+    "generated_tokens": 4096,
+    "uncached_tokens": 757,
+    "actual_prompt_tokens": 36625,
+    "first_prompt_tokens": 36625,
+    "prose_words": 0,
+    "draft_words": 0,
+    "initial_findings": null,
+    "final_findings": null,
+    "unflagged_sentences": 0,
+    "preserved_unflagged_sentences": 0
+  }
+]

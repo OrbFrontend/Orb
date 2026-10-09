@@ -1,0 +1,4550 @@
+[
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I take a seat beside the map table and set my notebook down. I wait while Mara examines the papers.",
+    "started_ns": 28135980499182,
+    "complete": true,
+    "first_prose_ns": 28139096728476,
+    "done_ns": 28143459740151,
+    "stream_end_ns": 28143460029305,
+    "saved_ns": 28143511257369,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28143511493012,
+    "direction": {
+      "detected_repetitions": [
+        "repetitive sentence structure",
+        "formulaic dialogue patterns",
+        "repetitive environmental descriptions",
+        "repetitive clerk numbering sequence",
+        "repetitive shopkeeper mentions",
+        "repetitive window light descriptions"
+      ],
+      "keywords": [
+        "missing ferry schedule",
+        "harbor records",
+        "clerk signatures",
+        "discrepancy in numbers"
+      ],
+      "moods": [
+        "tense",
+        "grounded",
+        "talkative"
+      ],
+      "next_event": "Mara discovers a significant anomaly in the cargo list that breaks the established pattern. She realizes the missing ferry schedule might be intentionally obscured rather than lost.",
+      "user_intent": "The user is waiting for the pattern to break and for the investigation to yield a genuine clue."
+    },
+    "errors": [],
+    "observations": [],
+    "tool_calls": 2,
+    "tool_errors": null,
+    "edit_batches": 1,
+    "patches": 6,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 7.479240969,
+    "first_prose_seconds": 3.116229294,
+    "model_seconds": 7.2348175050000005,
+    "non_model_seconds": 0.2444234639999996,
+    "attempt_elapsed_seconds": 7.53099383,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.4798687,
+        "generated_tokens": 166,
+        "uncached_tokens": 4017
+      },
+      "editor": {
+        "calls": 1,
+        "model_seconds": 1.66605838,
+        "generated_tokens": 159,
+        "uncached_tokens": 838
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.088890425,
+        "generated_tokens": 363,
+        "uncached_tokens": 326
+      }
+    },
+    "model_calls": 3,
+    "generated_tokens": 688,
+    "reasoning_chars": 0,
+    "uncached_tokens": 5181,
+    "actual_prompt_tokens": 4402,
+    "first_prompt_tokens": 4017,
+    "prose_words": 254,
+    "draft_words": 268,
+    "initial_findings": 7,
+    "final_findings": 0,
+    "unflagged_sentences": 19,
+    "preserved_unflagged_sentences": 19
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I read the note she points to, then look through the window at the harbor and listen to what she says.",
+    "started_ns": 28143688273045,
+    "complete": true,
+    "first_prose_ns": 28145756642281,
+    "done_ns": 28152376710430,
+    "stream_end_ns": 28152377007914,
+    "saved_ns": 28152417714945,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28152417936898,
+    "direction": {
+      "detected_repetitions": [],
+      "keywords": [
+        "harbor records",
+        "clerk signatures",
+        "missing deliveries",
+        "maritime charts",
+        "scrubbed books"
+      ],
+      "moods": [
+        "tense",
+        "grounded"
+      ],
+      "next_event": "A sudden, heavy knock echoes from the heavy oak door of the archives. Mara freezes, her gaze darting toward the entrance.",
+      "user_intent": "The user wants to investigate the discrepancy and observe Mara's reaction to the discovery of fraud."
+    },
+    "errors": [],
+    "observations": [
+      "prose.adjacent_quotes.editing",
+      "prose.unbalanced_quotes.editing"
+    ],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 8,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 8.688437385,
+    "first_prose_seconds": 2.068369236,
+    "model_seconds": 8.33087749,
+    "non_model_seconds": 0.35755989499999963,
+    "attempt_elapsed_seconds": 8.729663853,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 1.449640277,
+        "generated_tokens": 117,
+        "uncached_tokens": 1155
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 3.139865857,
+        "generated_tokens": 268,
+        "uncached_tokens": 1719
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.741371356,
+        "generated_tokens": 454,
+        "uncached_tokens": 272
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 839,
+    "reasoning_chars": 0,
+    "uncached_tokens": 3146,
+    "actual_prompt_tokens": 4918,
+    "first_prompt_tokens": 4397,
+    "prose_words": 350,
+    "draft_words": 353,
+    "initial_findings": 6,
+    "final_findings": 0,
+    "unflagged_sentences": 24,
+    "preserved_unflagged_sentences": 23
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-orb",
+    "text": "I slide my notebook toward the middle of the table. I ask which detail she thinks we should check first.",
+    "started_ns": 28152597116650,
+    "complete": true,
+    "first_prose_ns": 28154676707587,
+    "done_ns": 28161393905743,
+    "stream_end_ns": 28161394194716,
+    "saved_ns": 28161440325606,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28161440559459,
+    "direction": {
+      "keywords": [
+        "ink-stained ledger",
+        "harbor steps",
+        "clerk signatures",
+        "oak door"
+      ],
+      "moods": [
+        "tense",
+        "grounded",
+        "talkative"
+      ],
+      "next_event": "The person at the door calls out a name, breaking the tension with a mundane request. Mara attempts to regain her composure and answer the user.",
+      "user_intent": "The user wants to ignore the sudden tension and push the investigation forward by focusing on the technical details."
+    },
+    "errors": [],
+    "observations": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 10,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 8.796789093,
+    "first_prose_seconds": 2.079590937,
+    "model_seconds": 8.410503477,
+    "non_model_seconds": 0.38628561599999856,
+    "attempt_elapsed_seconds": 8.843442809,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 1.457302495,
+        "generated_tokens": 115,
+        "uncached_tokens": 1256
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 3.7801437470000003,
+        "generated_tokens": 362,
+        "uncached_tokens": 1621
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.173057235,
+        "generated_tokens": 373,
+        "uncached_tokens": 289
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 850,
+    "reasoning_chars": 0,
+    "uncached_tokens": 3166,
+    "actual_prompt_tokens": 5403,
+    "first_prompt_tokens": 4872,
+    "prose_words": 268,
+    "draft_words": 289,
+    "initial_findings": 6,
+    "final_findings": 0,
+    "unflagged_sentences": 16,
+    "preserved_unflagged_sentences": 16
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 30134449488721,
+    "started_utc_ns": 1791534435068373736,
+    "complete": true,
+    "handle": {
+      "runId": "run_0e05624da88f4934897a4f6bf1b2eee6",
+      "workspaceId": "chat_64fd4a63e6482b0a",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "9b63f05f-426b-4974-b1ff-5ba91d404038"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534437628,
+        "text": "moods:\nuser_intent: The user is pausing to observe Mara and allow the tension of the repetitive discovery to settle.\nkeywords: map table; notebooks; silence; harbor view\nnext_event: Mara notices a strange discrepancy in the pattern of the records and stops her repetitive reading."
+      },
+      {
+        "utc_ms": 1791534442796,
+        "text": "Mara remains silent for a long moment, her eyes scanning the stack of closed folders. The rhythm of her work—the lifting of the ribbon, the placing of the slip, the notation in the margin—suddenly falters. She doesn't reach for the next file. Instead, her hand rests heavily on the edge of the table, her fingers tracing the grain of the wood.\n\nShe looks up from the papers, her gaze drifting toward "
+      }
+    ],
+    "terminal_observed_ns": 30147919987044,
+    "terminal_observed_utc_ns": 1791534448539313674,
+    "status": "completed",
+    "settled_ns": 30147963230382,
+    "host_completion": {
+      "settled_at_ms": 1791534448541
+    },
+    "saved_difference": "cleanup",
+    "finished_ns": 30148024755586,
+    "errors": [],
+    "observations": [
+      "save.native_whitespace_cleanup"
+    ],
+    "direction": {
+      "moods": [],
+      "user_intent": "The user is pausing to observe Mara and allow the tension of the repetitive discovery to settle.",
+      "keywords": [
+        "map table",
+        "notebooks",
+        "silence",
+        "harbor view"
+      ],
+      "next_event": "Mara notices a strange discrepancy in the pattern of the records and stops her repetitive reading."
+    },
+    "tool_calls": 8,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 1,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534435231734016,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534437651727872,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534439800060160,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_630d0145d9654d248310b99d19d1b449"
+        },
+        "invocationId": "inv_630d0145d9654d248310b99d19d1b449",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534440532228096,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_630d0145d9654d248310b99d19d1b449"
+        },
+        "invocationId": "inv_630d0145d9654d248310b99d19d1b449",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534442820663040,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_630d0145d9654d248310b99d19d1b449"
+        },
+        "invocationId": "inv_630d0145d9654d248310b99d19d1b449",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534444824573952,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0d26778a282d4278b631ecd0e115189c"
+        },
+        "invocationId": "inv_0d26778a282d4278b631ecd0e115189c",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534445705274112,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0d26778a282d4278b631ecd0e115189c"
+        },
+        "invocationId": "inv_0d26778a282d4278b631ecd0e115189c",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534446795731968,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0d26778a282d4278b631ecd0e115189c"
+        },
+        "invocationId": "inv_0d26778a282d4278b631ecd0e115189c",
+        "maxRetries": 3,
+        "round": 3
+      }
+    ],
+    "finish_reason": "The audit was clean; no edits were required.",
+    "presentation_difference": "cleanup",
+    "backend_created_to_terminal_seconds": 12.549293056,
+    "poll_observation_delay_seconds": 0.763808522,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 13.513741661,
+    "first_prose_seconds": 7.727626264,
+    "model_seconds": 11.198823954,
+    "non_model_seconds": 2.3149177069999993,
+    "attempt_elapsed_seconds": 13.575266865,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 4.350259756,
+        "generated_tokens": 314,
+        "uncached_tokens": 5217
+      },
+      "editor": {
+        "calls": 3,
+        "model_seconds": 2.059219542,
+        "generated_tokens": 99,
+        "uncached_tokens": 660
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 4.789344656,
+        "generated_tokens": 489,
+        "uncached_tokens": 880
+      }
+    },
+    "model_calls": 8,
+    "generated_tokens": 902,
+    "reasoning_chars": 0,
+    "uncached_tokens": 6757,
+    "actual_prompt_tokens": 5760,
+    "first_prompt_tokens": 5091,
+    "prose_words": 180,
+    "draft_words": 180,
+    "initial_findings": 0,
+    "final_findings": 0,
+    "unflagged_sentences": 14,
+    "preserved_unflagged_sentences": 14
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 30148029248369,
+    "started_utc_ns": 1791534448648133304,
+    "complete": true,
+    "handle": {
+      "runId": "run_c46c1d293b0646d3a83593d7cb49e28c",
+      "workspaceId": "chat_64fd4a63e6482b0a",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "9b63f05f-426b-4974-b1ff-5ba91d404038"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534449943,
+        "text": "moods: tense; inner-thoughts\nkeywords: broken sequence; harbor records; clerical error\nnext_event: Mara discovers a specific discrepancy in the ledger that suggests a deliberate cover-up."
+      },
+      {
+        "utc_ms": 1791534455682,
+        "text": "Mara leans closer to the ledger, the magnifying glass enlarging the ink strokes until they look like jagged scars on the parchment. It's too clean, she thinks, the way the numbers leap from nine to one without the intervening steps. A mistake is a smudge, a blot, or a crossed-out digit. This is a void. She feels a cold prickle at the base of her neck, the same sensation she gets when she finds a m"
+      }
+    ],
+    "terminal_observed_ns": 30172677888506,
+    "terminal_observed_utc_ns": 1791534473297200686,
+    "status": "completed",
+    "settled_ns": 30172721313317,
+    "host_completion": {
+      "settled_at_ms": 1791534473298
+    },
+    "saved_difference": "cleanup",
+    "finished_ns": 30172827896651,
+    "errors": [],
+    "observations": [
+      "save.native_whitespace_cleanup"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "broken sequence",
+        "harbor records",
+        "clerical error"
+      ],
+      "next_event": "Mara discovers a specific discrepancy in the ledger that suggests a deliberate cover-up."
+    },
+    "tool_calls": 15,
+    "tool_errors": 0,
+    "edit_batches": 2,
+    "patches": 4,
+    "audit_calls": 3,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534448826572800,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534449962385920,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534451927792128,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8"
+        },
+        "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534452651724032,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8"
+        },
+        "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534455694304000,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8"
+        },
+        "invocationId": "inv_89e3003e4ebc45d9bb69f0c3dfb242e8",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534457943203072,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534458827334912,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534459402523904,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534461882082048,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534464390019840,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534466876760832,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534467511553024,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534469880865024,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534470531468032,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534471392094976,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a98c024d475041879f52777f37f303a5"
+        },
+        "invocationId": "inv_a98c024d475041879f52777f37f303a5",
+        "maxRetries": 3,
+        "round": 10
+      }
+    ],
+    "finish_reason": "The last audit was clean.",
+    "presentation_difference": "cleanup",
+    "backend_created_to_terminal_seconds": 23.555222016,
+    "poll_observation_delay_seconds": 0.920775726,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 24.692064948,
+    "first_prose_seconds": 7.033866696,
+    "model_seconds": 21.061723409,
+    "non_model_seconds": 3.630341539,
+    "attempt_elapsed_seconds": 24.798648282,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 2.84806339,
+        "generated_tokens": 261,
+        "uncached_tokens": 578
+      },
+      "editor": {
+        "calls": 10,
+        "model_seconds": 12.590605368,
+        "generated_tokens": 1195,
+        "uncached_tokens": 2354
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 5.6230546509999995,
+        "generated_tokens": 607,
+        "uncached_tokens": 932
+      }
+    },
+    "model_calls": 15,
+    "generated_tokens": 2063,
+    "reasoning_chars": 0,
+    "uncached_tokens": 3864,
+    "actual_prompt_tokens": 7839,
+    "first_prompt_tokens": 5355,
+    "prose_words": 276,
+    "draft_words": 268,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 17,
+    "preserved_unflagged_sentences": 17
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-tt-handoff",
+    "started_ns": 30172873710220,
+    "started_utc_ns": 1791534473492595405,
+    "complete": true,
+    "handle": {
+      "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+      "workspaceId": "chat_64fd4a63e6482b0a",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "9b63f05f-426b-4974-b1ff-5ba91d404038"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534474981,
+        "text": "moods: tense; inner-thoughts\nkeywords: ledger; ink; harbor; discrepancies\nnext_event: Mara points to a specific discrepancy in the ink and suggests investigating the clerk's identity."
+      },
+      {
+        "utc_ms": 1791534480662,
+        "text": "Mara's gaze drops back to the ledger, her finger hovering just millimeters above the rigid, upright letters of the cargo list. A different hand. A hand that doesn't care about the rhythm of the harbor, only the accuracy of the lie. The tension in the room feels thick, like the heavy fog that rolls in from the channel and swallows the pier lights whole. She wonders if the person who wrote this is s"
+      }
+    ],
+    "terminal_observed_ns": 30205150865893,
+    "terminal_observed_utc_ns": 1791534505770153683,
+    "status": "completed",
+    "settled_ns": 30205194198794,
+    "host_completion": {
+      "settled_at_ms": 1791534505771
+    },
+    "saved_difference": null,
+    "finished_ns": 30205298264870,
+    "errors": [],
+    "observations": [],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "ledger",
+        "ink",
+        "harbor",
+        "discrepancies"
+      ],
+      "next_event": "Mara points to a specific discrepancy in the ink and suggests investigating the clerk's identity."
+    },
+    "tool_calls": 25,
+    "tool_errors": 5,
+    "edit_batches": 3,
+    "patches": 6,
+    "audit_calls": 4,
+    "native_failures": [
+      {
+        "seq": 118,
+        "id": "evt_534410c02c14464ea5ed7b40a4462485",
+        "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+        "timestamp": "2026-10-09T08:28:07.693103721Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "t9eeLsPOdpII4iLq3TWp8C6rOBEfXnzG",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+          },
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 123,
+        "id": "evt_f3be88d2637b4fbaa222ff78d05dbd27",
+        "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+        "timestamp": "2026-10-09T08:28:07.700111664Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "oYsZG2gW1aITJ5ItKqLjFsvdhWfmkKco",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+          },
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 128,
+        "id": "evt_a250954105c04dd79785debfe24a0880",
+        "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+        "timestamp": "2026-10-09T08:28:07.701731283Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "0Lj9r937YdBZEaP8VlDsCzd6Bzxfl2us",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+          },
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 133,
+        "id": "evt_e298729ddac749e4ab7696f224488228",
+        "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+        "timestamp": "2026-10-09T08:28:07.703398023Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "pornZ35WlKxoscmoMqN9xS52WUYw5PHF",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+          },
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 138,
+        "id": "evt_d56ecb223fcf4467807f2ba32157510b",
+        "runId": "run_16209c04f05046b3aa7ac5e3331e8a4e",
+        "timestamp": "2026-10-09T08:28:07.705006632Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "PQjpKmxqanMA5JymcRGYpslpoRI1hXQU",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+          },
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534473670588928,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534474999036928,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534477270298112,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c"
+        },
+        "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534478002919936,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c"
+        },
+        "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534480694969856,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c"
+        },
+        "invocationId": "inv_4a90c14aa36f4a3193163020f67c863c",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534483272179968,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534484166735872,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534487705772032,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534488295449856,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534493728483840,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534494510034944,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534495086021888,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534499224688128,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534499895780096,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534500492881920,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791534502738877184,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791534503426248192,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791534504241254144,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004"
+        },
+        "invocationId": "inv_9a9603b9ef1f4706a01f659b3198b004",
+        "maxRetries": 3,
+        "round": 13
+      }
+    ],
+    "finish_reason": "Last audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 31.573683968,
+    "poll_observation_delay_seconds": 0.535886803,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 32.320488574,
+    "first_prose_seconds": 7.169404595,
+    "model_seconds": 29.442510485,
+    "non_model_seconds": 2.8779780890000026,
+    "attempt_elapsed_seconds": 32.42455465,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 3.332673186,
+        "generated_tokens": 302,
+        "uncached_tokens": 689
+      },
+      "editor": {
+        "calls": 13,
+        "model_seconds": 20.276162567,
+        "generated_tokens": 2052,
+        "uncached_tokens": 4038
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 5.833674732,
+        "generated_tokens": 623,
+        "uncached_tokens": 919
+      }
+    },
+    "model_calls": 18,
+    "generated_tokens": 2977,
+    "reasoning_chars": 0,
+    "uncached_tokens": 5646,
+    "actual_prompt_tokens": 10308,
+    "first_prompt_tokens": 5729,
+    "prose_words": 226,
+    "draft_words": 226,
+    "initial_findings": 5,
+    "final_findings": 0,
+    "unflagged_sentences": 12,
+    "preserved_unflagged_sentences": 12
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 30213852440962,
+    "started_utc_ns": 1791534514471325797,
+    "complete": true,
+    "handle": {
+      "runId": "run_a104ce9e0b4d44739f2258eadbd15188",
+      "workspaceId": "chat_724b846e6a0e85a5",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "13c03def-eb54-49cb-8221-d86fd7251468"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534516791,
+        "text": "moods:\nkeywords: harbor records; silence; sunlight\nnext_event: Mara notices a discrepancy in the pattern and realizes the records are being intentionally manipulated."
+      },
+      {
+        "utc_ms": 1791534519064,
+        "text": "Mara sat in the sudden silence that followed your movement, the only sound the distant, rhythmic slapping of the tide against the stone piers below. The sunlight shifted across the table, illuminating the dust motes dancing above the open ledgers. She stared at the series of slips she had laid out—the marks of clerks 11 through 18. A slow, uneasy feeling began to settle in her chest. She looked at"
+      }
+    ],
+    "terminal_observed_ns": 30221781646743,
+    "terminal_observed_utc_ns": 1791534522400871382,
+    "status": "completed",
+    "settled_ns": 30221825219616,
+    "host_completion": {
+      "settled_at_ms": 1791534522402
+    },
+    "saved_difference": null,
+    "finished_ns": 30221922511562,
+    "errors": [],
+    "observations": [],
+    "direction": {
+      "moods": [],
+      "keywords": [
+        "harbor records",
+        "silence",
+        "sunlight"
+      ],
+      "next_event": "Mara notices a discrepancy in the pattern and realizes the records are being intentionally manipulated."
+    },
+    "tool_calls": 5,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 1,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534514669751040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534516814007040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534519094358016,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534519734731008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534520721847040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      }
+    ],
+    "finish_reason": "The audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 7.034283008,
+    "poll_observation_delay_seconds": 0.702812374,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 7.972778654,
+    "first_prose_seconds": 4.592674203,
+    "model_seconds": 6.048162871,
+    "non_model_seconds": 1.9246157830000001,
+    "attempt_elapsed_seconds": 8.0700706,
+    "stages": {
+      "single": {
+        "calls": 5,
+        "model_seconds": 6.048162871,
+        "generated_tokens": 412,
+        "uncached_tokens": 5416
+      }
+    },
+    "model_calls": 5,
+    "generated_tokens": 412,
+    "reasoning_chars": 0,
+    "uncached_tokens": 5416,
+    "actual_prompt_tokens": 5447,
+    "first_prompt_tokens": 4877,
+    "prose_words": 190,
+    "draft_words": 190,
+    "initial_findings": 0,
+    "final_findings": 0,
+    "unflagged_sentences": 12,
+    "preserved_unflagged_sentences": 12
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 30221967671194,
+    "started_utc_ns": 1791534522586556099,
+    "complete": true,
+    "handle": {
+      "runId": "run_e427b3e003b048a99729d0616dec0591",
+      "workspaceId": "chat_724b846e6a0e85a5",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "13c03def-eb54-49cb-8221-d86fd7251468"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534523912,
+        "text": "moods: tense; grounded\nkeywords: harbor; ledger; patterns; suspicion\nnext_event: Mara points out the specific mathematical impossibility in the records."
+      },
+      {
+        "utc_ms": 1791534526173,
+        "text": "You looked out at the harbor, where the actual movement of the boats was erratic, governed by the wind and the swell, a stark contrast to the clinical, ascending precision of the numbers on the table. Mara watched your gaze drift toward the water, her brow furrowing. She didn't look at the harbor; she looked at the ink.\n\n\"Look at the sequence,\" she said, her finger hovering just above the paper, n"
+      }
+    ],
+    "terminal_observed_ns": 30231415267566,
+    "terminal_observed_utc_ns": 1791534532034489185,
+    "status": "completed",
+    "settled_ns": 30231458392774,
+    "host_completion": {
+      "settled_at_ms": 1791534532035
+    },
+    "saved_difference": "cleanup",
+    "finished_ns": 30231557481002,
+    "errors": [
+      "editor.whole_file_rewrite"
+    ],
+    "observations": [
+      "save.native_whitespace_cleanup"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "grounded"
+      ],
+      "keywords": [
+        "harbor",
+        "ledger",
+        "patterns",
+        "suspicion"
+      ],
+      "next_event": "Mara points out the specific mathematical impossibility in the records."
+    },
+    "tool_calls": 7,
+    "tool_errors": 0,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 2,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534522804712960,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534523924518144,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534526202461952,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534526858036992,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534528818921984,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534529439867136,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534530343204096,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      }
+    ],
+    "finish_reason": "Audit was clean.",
+    "presentation_difference": "cleanup",
+    "backend_created_to_terminal_seconds": 8.534236928,
+    "poll_observation_delay_seconds": 0.705452129,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": false,
+    "qualification_errors": [
+      "editor.whole_file_rewrite"
+    ],
+    "native_wall_seconds": 9.49072158,
+    "first_prose_seconds": 3.586443901,
+    "model_seconds": 7.546750672,
+    "non_model_seconds": 1.9439709080000007,
+    "attempt_elapsed_seconds": 9.589809808,
+    "stages": {
+      "single": {
+        "calls": 7,
+        "model_seconds": 7.546750672,
+        "generated_tokens": 661,
+        "uncached_tokens": 1467
+      }
+    },
+    "model_calls": 7,
+    "generated_tokens": 661,
+    "reasoning_chars": 0,
+    "uncached_tokens": 1467,
+    "actual_prompt_tokens": 6261,
+    "first_prompt_tokens": 5143,
+    "prose_words": 153,
+    "draft_words": 179,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 11,
+    "preserved_unflagged_sentences": 10
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-2000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-2000-tt-single",
+    "started_ns": 30231602740185,
+    "started_utc_ns": 1791534532221625030,
+    "complete": true,
+    "handle": {
+      "runId": "run_15a8c21304ff400c969e23416d7a9b15",
+      "workspaceId": "chat_724b846e6a0e85a5",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "13c03def-eb54-49cb-8221-d86fd7251468"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534533518,
+        "text": "moods: tense; grounded\nkeywords: harbor records; phantom ferry; ledger discrepancies\nnext_event: Mara decides to cross-reference the ferry's fuel or supply logs against the tide charts."
+      },
+      {
+        "utc_ms": 1791534535971,
+        "text": "Mara looked from the notebook back to the stack of fraudulent ledgers. Her hands, usually so steady while handling delicate maps, rested flat on the table to keep them still. \"The cargo lists are a fiction, but the physical requirements of a vessel are not,\" she said, her voice dropping to a low, focused tone. \"If a ferry moves, it consumes coal or oil. It requires fresh water and provisions. Even"
+      }
+    ],
+    "terminal_observed_ns": 30240418541732,
+    "terminal_observed_utc_ns": 1791534541037771061,
+    "status": "completed",
+    "settled_ns": 30240461184254,
+    "host_completion": {
+      "settled_at_ms": 1791534541039
+    },
+    "saved_difference": "cleanup",
+    "finished_ns": 30240562807632,
+    "errors": [],
+    "observations": [
+      "save.native_whitespace_cleanup"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "grounded"
+      ],
+      "keywords": [
+        "harbor records",
+        "phantom ferry",
+        "ledger discrepancies"
+      ],
+      "next_event": "Mara decides to cross-reference the ferry's fuel or supply logs against the tide charts."
+    },
+    "tool_calls": 7,
+    "tool_errors": 0,
+    "edit_batches": 1,
+    "patches": 1,
+    "audit_calls": 2,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534532357899008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534533538707968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534535991249152,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534536663609088,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534537894664960,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534538544784896,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534539399597056,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      }
+    ],
+    "finish_reason": "Audit was clean after one patch.",
+    "presentation_difference": "cleanup",
+    "backend_created_to_terminal_seconds": 8.034845952,
+    "poll_observation_delay_seconds": 0.650091061,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 8.858444069,
+    "first_prose_seconds": 3.74937497,
+    "model_seconds": 7.080563559,
+    "non_model_seconds": 1.777880510000001,
+    "attempt_elapsed_seconds": 8.960067447,
+    "stages": {
+      "single": {
+        "calls": 7,
+        "model_seconds": 7.080563559,
+        "generated_tokens": 583,
+        "uncached_tokens": 1438
+      }
+    },
+    "model_calls": 7,
+    "generated_tokens": 583,
+    "reasoning_chars": 0,
+    "uncached_tokens": 1438,
+    "actual_prompt_tokens": 6252,
+    "first_prompt_tokens": 5364,
+    "prose_words": 211,
+    "draft_words": 213,
+    "initial_findings": 1,
+    "final_findings": 0,
+    "unflagged_sentences": 14,
+    "preserved_unflagged_sentences": 14
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I take a seat beside the map table and set my notebook down. I wait while Mara examines the papers.",
+    "started_ns": 28266468700961,
+    "complete": true,
+    "first_prose_ns": 28279936613159,
+    "done_ns": 28287485734248,
+    "stream_end_ns": 28287486131233,
+    "saved_ns": 28287557702508,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28287557987332,
+    "direction": {
+      "detected_repetitions": [
+        "repetition of the clerk counting arrivals/departures phrase",
+        "repetition of the cart rattling outside trope",
+        "repetitive structure of record checking and receipt setting apart",
+        "repetitive pattern of the shopkeeper dialogue"
+      ],
+      "keywords": [
+        "harbor records",
+        "clerk receipts",
+        "map room archive",
+        "Bellwick harbor"
+      ],
+      "moods": [
+        "grounded",
+        "talkative"
+      ],
+      "next_event": "The repetitive cycle of checking records breaks as Mara notices a glaring discrepancy in the last three files. She stops mid-sentence, her brow furrowing as she looks at the surveyor with sudden seriousness.",
+      "user_intent": "The user wants to break the repetitive cycle and move into meaningful character interaction or plot progression."
+    },
+    "errors": [],
+    "observations": [
+      "prose.adjacent_quotes.editing"
+    ],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 10,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 21.017033287,
+    "first_prose_seconds": 13.467912198,
+    "model_seconds": 20.460687661,
+    "non_model_seconds": 0.5563456259999988,
+    "attempt_elapsed_seconds": 21.089286371,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 12.151122041,
+        "generated_tokens": 172,
+        "uncached_tokens": 34895
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 4.733492122,
+        "generated_tokens": 304,
+        "uncached_tokens": 1538
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.576073498,
+        "generated_tokens": 336,
+        "uncached_tokens": 297
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 812,
+    "reasoning_chars": 0,
+    "uncached_tokens": 36730,
+    "actual_prompt_tokens": 35320,
+    "first_prompt_tokens": 34895,
+    "prose_words": 250,
+    "draft_words": 244,
+    "initial_findings": 5,
+    "final_findings": 0,
+    "unflagged_sentences": 14,
+    "preserved_unflagged_sentences": 14
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I read the note she points to, then look through the window at the harbor and listen to what she says.",
+    "started_ns": 28287743915256,
+    "complete": true,
+    "first_prose_ns": 28291416947972,
+    "done_ns": 28299028708007,
+    "stream_end_ns": 28299029046822,
+    "saved_ns": 28299099438741,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28299099649164,
+    "direction": {
+      "detected_repetitions": [
+        "repetitive record-checking pattern",
+        "clerk-signature-removal trope",
+        "repetitive window-light descriptions"
+      ],
+      "keywords": [
+        "harbor records",
+        "clerk numbers",
+        "discrepant totals",
+        "municipal map room"
+      ],
+      "moods": [
+        "tense",
+        "talkative"
+      ],
+      "next_event": "Mara points to a specific anomaly in the ledger that suggests a deliberate theft. The surveyor notices a dark figure watching them from the harbor pier.",
+      "user_intent": "The user wants to investigate the evidence and transition from passive observation to active investigation."
+    },
+    "errors": [],
+    "observations": [],
+    "tool_calls": 3,
+    "tool_errors": null,
+    "edit_batches": 2,
+    "patches": 6,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 11.284792751,
+    "first_prose_seconds": 3.673032716,
+    "model_seconds": 10.716106403,
+    "non_model_seconds": 0.568686348,
+    "attempt_elapsed_seconds": 11.355733908,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.337756625,
+        "generated_tokens": 138,
+        "uncached_tokens": 1154
+      },
+      "editor": {
+        "calls": 2,
+        "model_seconds": 3.800306484,
+        "generated_tokens": 166,
+        "uncached_tokens": 1597
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 4.578043294,
+        "generated_tokens": 473,
+        "uncached_tokens": 244
+      }
+    },
+    "model_calls": 4,
+    "generated_tokens": 777,
+    "reasoning_chars": 0,
+    "uncached_tokens": 2995,
+    "actual_prompt_tokens": 35608,
+    "first_prompt_tokens": 35274,
+    "prose_words": 363,
+    "draft_words": 360,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 30,
+    "preserved_unflagged_sentences": 29
+  },
+  {
+    "arm": "orb",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-orb",
+    "text": "I slide my notebook toward the middle of the table. I ask which detail she thinks we should check first.",
+    "started_ns": 28299285166672,
+    "complete": true,
+    "first_prose_ns": 28302842424664,
+    "done_ns": 28308345339968,
+    "stream_end_ns": 28308345761413,
+    "saved_ns": 28308417313897,
+    "warnings": [],
+    "reasoning": [],
+    "reasoning_columns": {},
+    "writer_done": true,
+    "finished_ns": 28308417510089,
+    "direction": {
+      "keywords": [
+        "missing ferry schedule",
+        "clerk signatures",
+        "harbor silhouette",
+        "misaligned records",
+        "sea salt"
+      ],
+      "moods": [
+        "tense",
+        "grounded",
+        "talkative"
+      ],
+      "next_event": "Mara points to the discrepancy between the clerk signatures and the cargo lists. She decides they must verify the shopkeeper's testimony before sunset.",
+      "user_intent": "The user wants to refocus on the investigation and move the plot toward an actionable lead."
+    },
+    "errors": [],
+    "observations": [],
+    "tool_calls": 2,
+    "tool_errors": null,
+    "edit_batches": 1,
+    "patches": 6,
+    "audit_calls": null,
+    "native_failures": [],
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 9.060173296,
+    "first_prose_seconds": 3.557257992,
+    "model_seconds": 8.655651881,
+    "non_model_seconds": 0.4045214149999996,
+    "attempt_elapsed_seconds": 9.132343417,
+    "stages": {
+      "director": {
+        "calls": 1,
+        "model_seconds": 2.209232817,
+        "generated_tokens": 116,
+        "uncached_tokens": 1288
+      },
+      "editor": {
+        "calls": 1,
+        "model_seconds": 2.513022716,
+        "generated_tokens": 174,
+        "uncached_tokens": 829
+      },
+      "writer": {
+        "calls": 1,
+        "model_seconds": 3.933396348,
+        "generated_tokens": 379,
+        "uncached_tokens": 289
+      }
+    },
+    "model_calls": 3,
+    "generated_tokens": 669,
+    "reasoning_chars": 0,
+    "uncached_tokens": 2406,
+    "actual_prompt_tokens": 36119,
+    "first_prompt_tokens": 35783,
+    "prose_words": 284,
+    "draft_words": 283,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 20,
+    "preserved_unflagged_sentences": 20
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 30248377222138,
+    "started_utc_ns": 1791534548996107023,
+    "complete": true,
+    "handle": {
+      "runId": "run_781c3b2ffa3440b8b46001c0e5c7e2cc",
+      "workspaceId": "chat_988de1599315ec60",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "11dfcb71-561c-403d-8873-d4e353cd4fc0"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534561597,
+        "text": "moods:\nuser_intent: The user wants to shift from the repetitive record-checking to a moment of reflection or a shift in the investigation's pace.\nkeywords: map room; notebook; silence; harbor view\nnext_event: Mara looks up from the records and shares her growing suspicion about the discrepancies in the logs."
+      },
+      {
+        "utc_ms": 1791534568842,
+        "text": "Mara looks up from the stacks of paper, the silence of the map room feeling heavier now that the constant rustle of parchment has ceased. She rubs the bridge of her nose, her eyes momentarily losing their focus on the ink before settling on the surveyor. Outside, the harbor remains a hive of activity, but in here, the numbers have begun to tell a story that doesn't quite match the horizon.\n\n\"It's "
+      },
+      {
+        "utc_ms": 1791534577349,
+        "text": "Mara looks up from the stacks of paper, the silence of the archive feeling heavier now that the constant rustle of parchment has ceased. She rubs the bridge of her nose, her eyes momentarily losing their focus on the ink before settling on the surveyor. Outside, the harbor remains a hive of activity, but in here, the numbers have begun to tell a story that doesn't quite match the horizon.\n\n\"It's n"
+      }
+    ],
+    "terminal_observed_ns": 30286347679289,
+    "terminal_observed_utc_ns": 1791534586966819117,
+    "status": "completed",
+    "settled_ns": 30286390182991,
+    "host_completion": {
+      "settled_at_ms": 1791534586967
+    },
+    "saved_difference": null,
+    "finished_ns": 30286459204325,
+    "errors": [],
+    "observations": [],
+    "direction": {
+      "moods": [],
+      "user_intent": "The user wants to shift from the repetitive record-checking to a moment of reflection or a shift in the investigation's pace.",
+      "keywords": [
+        "map room",
+        "notebook",
+        "silence",
+        "harbor view"
+      ],
+      "next_event": "Mara looks up from the records and shares her growing suspicion about the discrepancies in the logs."
+    },
+    "tool_calls": 12,
+    "tool_errors": 0,
+    "edit_batches": 1,
+    "patches": 2,
+    "audit_calls": 2,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534549295692032,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534561607629056,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534564397063936,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8"
+        },
+        "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534565852400128,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8"
+        },
+        "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534568873070848,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8"
+        },
+        "invocationId": "inv_a85155cbd0bb4181aaeca351d5ac61c8",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534571445393152,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534573134798080,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534574399939072,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534577376684800,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534581557555968,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534583065669888,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534584957017856,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed"
+        },
+        "invocationId": "inv_0291c76e886e410b956fb01bf5c7c1ed",
+        "maxRetries": 3,
+        "round": 7
+      }
+    ],
+    "finish_reason": "Last audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 37.136720384,
+    "poll_observation_delay_seconds": 0.544507949,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 38.012960853,
+    "first_prose_seconds": 19.845892977,
+    "model_seconds": 34.547666447,
+    "non_model_seconds": 3.4652944060000053,
+    "attempt_elapsed_seconds": 38.081982187,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 14.870267685,
+        "generated_tokens": 293,
+        "uncached_tokens": 36104
+      },
+      "editor": {
+        "calls": 7,
+        "model_seconds": 12.886445009,
+        "generated_tokens": 672,
+        "uncached_tokens": 1819
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 6.790953753,
+        "generated_tokens": 461,
+        "uncached_tokens": 865
+      }
+    },
+    "model_calls": 12,
+    "generated_tokens": 1426,
+    "reasoning_chars": 0,
+    "uncached_tokens": 38788,
+    "actual_prompt_tokens": 37594,
+    "first_prompt_tokens": 35969,
+    "prose_words": 184,
+    "draft_words": 190,
+    "initial_findings": 3,
+    "final_findings": 0,
+    "unflagged_sentences": 9,
+    "preserved_unflagged_sentences": 9
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 30286472702794,
+    "started_utc_ns": 1791534587091587629,
+    "complete": true,
+    "handle": {
+      "runId": "run_6b998b6368fd4a5ab66b1bd9744612fa",
+      "workspaceId": "chat_988de1599315ec60",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "11dfcb71-561c-403d-8873-d4e353cd4fc0"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534589220,
+        "text": "moods: tense; inner-thoughts\nkeywords: harbor corruption; missing ferry schedule; dock ledger\nnext_event: Mara reveals a specific discrepancy that connects the missing schedule to the suspected theft."
+      },
+      {
+        "utc_ms": 1791534596885,
+        "text": "Mara watches the surveyor's gaze drift toward the window. She wonders if they can see the same shadows she does—not in the water, but in the way the light hits the ledgers. It's a heavy thing, to realize that the history she has spent her life preserving is being rewritten in real-time by men with ink-stained fingers and greedy hearts. She feels a sudden, sharp tightness in her chest. If she goes "
+      }
+    ],
+    "terminal_observed_ns": 30346744420633,
+    "terminal_observed_utc_ns": 1791534647363639272,
+    "status": "completed",
+    "settled_ns": 30346787206168,
+    "host_completion": {
+      "settled_at_ms": 1791534647364
+    },
+    "saved_difference": null,
+    "finished_ns": 30346872206672,
+    "errors": [],
+    "observations": [
+      "editor.edit_batch_limit_exceeded"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "harbor corruption",
+        "missing ferry schedule",
+        "dock ledger"
+      ],
+      "next_event": "Mara reveals a specific discrepancy that connects the missing schedule to the suspected theft."
+    },
+    "tool_calls": 27,
+    "tool_errors": 2,
+    "edit_batches": 5,
+    "patches": 7,
+    "audit_calls": 6,
+    "native_failures": [
+      {
+        "seq": 118,
+        "id": "evt_a89f07123faa4cffa2520ed7feb221b0",
+        "runId": "run_6b998b6368fd4a5ab66b1bd9744612fa",
+        "timestamp": "2026-10-09T08:30:04.081656623Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "MNWZF5vuPiTzOP1Pf5WEGyfAqQpn8Xb3",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+          },
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      },
+      {
+        "seq": 123,
+        "id": "evt_011c414471c44c1b8fa597748d407f6a",
+        "runId": "run_6b998b6368fd4a5ab66b1bd9744612fa",
+        "timestamp": "2026-10-09T08:30:04.088478914Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "kUJJ4KyGJO9vL08soiCjdv2KgjDTGL8E",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+          },
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534587314860032,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534589248828928,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534591897340160,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811"
+        },
+        "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534593326973952,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811"
+        },
+        "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534596917208832,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811"
+        },
+        "invocationId": "inv_92a588ca7b9e40019a53767cc9b61811",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534599953140992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534601648685056,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534604089332992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534605421899008,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534610371595008,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534611940538880,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534613270715904,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534618390382080,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534619972593152,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534621326828032,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791534625905720064,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791534627422481152,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791534628778301952,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791534633428195840,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 14
+      },
+      {
+        "timestamp_ns": 1791534635008420864,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 15
+      },
+      {
+        "timestamp_ns": 1791534636466764800,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 16
+      },
+      {
+        "timestamp_ns": 1791534640925851136,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 17
+      },
+      {
+        "timestamp_ns": 1791534642533540864,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 18
+      },
+      {
+        "timestamp_ns": 1791534644444390912,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0"
+        },
+        "invocationId": "inv_b6b1dd39a6734ddbadf32ee2f7c6f1a0",
+        "maxRetries": 3,
+        "round": 19
+      }
+    ],
+    "finish_reason": "All audit issues resolved. Last audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 59.117957632,
+    "poll_observation_delay_seconds": 0.940959464,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 60.314503374,
+    "first_prose_seconds": 9.793412371,
+    "model_seconds": 55.618525616999996,
+    "non_model_seconds": 4.695977757000001,
+    "attempt_elapsed_seconds": 60.399503878,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 4.326500613,
+        "generated_tokens": 253,
+        "uncached_tokens": 566
+      },
+      "editor": {
+        "calls": 19,
+        "model_seconds": 43.663117088,
+        "generated_tokens": 2807,
+        "uncached_tokens": 5196
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 7.628907915999999,
+        "generated_tokens": 575,
+        "uncached_tokens": 905
+      }
+    },
+    "model_calls": 24,
+    "generated_tokens": 3635,
+    "reasoning_chars": 0,
+    "uncached_tokens": 6667,
+    "actual_prompt_tokens": 42650,
+    "first_prompt_tokens": 36221,
+    "prose_words": 241,
+    "draft_words": 249,
+    "initial_findings": 4,
+    "final_findings": 0,
+    "unflagged_sentences": 13,
+    "preserved_unflagged_sentences": 13
+  },
+  {
+    "arm": "tt-handoff",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-tt-handoff",
+    "started_ns": 30346886353090,
+    "started_utc_ns": 1791534647505237925,
+    "complete": true,
+    "handle": {
+      "runId": "run_ac7604400a5643749bf53a536bca0b3f",
+      "workspaceId": "chat_988de1599315ec60",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "11dfcb71-561c-403d-8873-d4e353cd4fc0"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534652690,
+        "text": "moods: tense; inner-thoughts\nkeywords: ferry office; revenue receipts; missing schedule\nnext_event: Mara suggests investigating the ferry office's physical ledger to cross-reference the unofficial revenue."
+      },
+      {
+        "utc_ms": 1791534660508,
+        "text": "Mara watches the surveyor's hand move across the table. If they turn back now, I can still pretend I was just being thorough. But if they stay, I'm an accomplice to whatever this mess is. The weight of the discovery sits in the room, thicker than the salt air drifting through the window. She keeps her hands folded, trying to hide the slight tremor in her fingers.\n\n\"The revenue receipts from the fe"
+      },
+      {
+        "utc_ms": 1791534681796,
+        "text": "The surveyor's hand rests near the notebook as the silence stretches between them. If they turn back now, I can still pretend I was just being thorough. But if they stay, I'm an accomplice to whatever this mess is. The weight of the discovery sits in the room, thicker than the salt air drifting through the window. She keeps her hands folded, trying to hide the slight tremor in her fingers.\n\n\"The r"
+      }
+    ],
+    "terminal_observed_ns": 30386824505785,
+    "terminal_observed_utc_ns": 1791534687443800735,
+    "status": "completed",
+    "settled_ns": 30386867301131,
+    "host_completion": {
+      "settled_at_ms": 1791534687445
+    },
+    "saved_difference": null,
+    "finished_ns": 30386949172969,
+    "errors": [],
+    "observations": [
+      "response.channel_marker"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "ferry office",
+        "revenue receipts",
+        "missing schedule"
+      ],
+      "next_event": "Mara suggests investigating the ferry office's physical ledger to cross-reference the unofficial revenue."
+    },
+    "tool_calls": 16,
+    "tool_errors": 1,
+    "edit_batches": 2,
+    "patches": 3,
+    "audit_calls": 3,
+    "native_failures": [
+      {
+        "seq": 118,
+        "id": "evt_b3a9da051b7740f1afe2b23b9684d88e",
+        "runId": "run_ac7604400a5643749bf53a536bca0b3f",
+        "timestamp": "2026-10-09T08:31:08.538568095Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "V8swmrql8y8mqz0NxTICsBsKKDDMqrHL",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_requires_read",
+          "eventScope": {
+            "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+          },
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+          "isError": true,
+          "message": "file must be read with workspace_read_file before applying a patch",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_b4ff64b9b731496688792afe687353cf",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "editor"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534647733451008,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534652710396160,
+        "stage": "director",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534655861263104,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf"
+        },
+        "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534657286155008,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf"
+        },
+        "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534660525907968,
+        "stage": "writer",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf"
+        },
+        "invocationId": "inv_ace81b9d6a3d494abea3223c6ef389cf",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534663828600832,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534665464148992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534668545236992,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534669871056128,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534672823653888,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534675807972864,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534677326332160,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534678698865920,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534681824456960,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534683334338048,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791534685330415872,
+        "stage": "editor",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_b4ff64b9b731496688792afe687353cf"
+        },
+        "invocationId": "inv_b4ff64b9b731496688792afe687353cf",
+        "maxRetries": 3,
+        "round": 11
+      }
+    ],
+    "finish_reason": "The last audit was clean. All flagged issues were resolved.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 39.083953152,
+    "poll_observation_delay_seconds": 0.636454559,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 39.980948041,
+    "first_prose_seconds": 13.002762075,
+    "model_seconds": 35.991492044,
+    "non_model_seconds": 3.9894559970000003,
+    "attempt_elapsed_seconds": 40.062819879,
+    "stages": {
+      "director": {
+        "calls": 2,
+        "model_seconds": 7.490913204,
+        "generated_tokens": 273,
+        "uncached_tokens": 8837
+      },
+      "editor": {
+        "calls": 11,
+        "model_seconds": 21.032622144,
+        "generated_tokens": 1134,
+        "uncached_tokens": 2654
+      },
+      "writer": {
+        "calls": 3,
+        "model_seconds": 7.467956696,
+        "generated_tokens": 549,
+        "uncached_tokens": 864
+      }
+    },
+    "model_calls": 16,
+    "generated_tokens": 1956,
+    "reasoning_chars": 0,
+    "uncached_tokens": 12355,
+    "actual_prompt_tokens": 39234,
+    "first_prompt_tokens": 36556,
+    "prose_words": 205,
+    "draft_words": 206,
+    "initial_findings": 4,
+    "final_findings": 0,
+    "unflagged_sentences": 12,
+    "preserved_unflagged_sentences": 12
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 1,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 30395457875856,
+    "started_utc_ns": 1791534696076760681,
+    "complete": true,
+    "handle": {
+      "runId": "run_caa9b172ae9e4355b6d3bbd348780a54",
+      "workspaceId": "chat_1437703b6f20880b",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "0502157a-7140-4d5d-bd7f-8a0e595ffa60"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534708464,
+        "text": "moods:\nuser_intent: The user is pausing the repetitive pattern to signal a shift in pacing and wants to see a breakthrough or a moment of reflection after the long grind.\nkeywords: harbor records; records; table; notebook\nnext_event: Mara notices a glaring discrepancy that breaks the pattern."
+      },
+      {
+        "utc_ms": 1791534712195,
+        "text": "Mara leans back, the wooden chair creaking under her weight as she finally lets the pen rest against the edge of the ledger. The silence in the map room feels heavier now, thick with the dust of a hundred years of archives and the rhythmic, distant thud of waves against the stone. She rubs her eyes, the strain of squinting at minuscule, looping script starting to pull at the corners of her vision."
+      }
+    ],
+    "terminal_observed_ns": 30430408094336,
+    "terminal_observed_utc_ns": 1791534731027378985,
+    "status": "completed",
+    "settled_ns": 30430451201746,
+    "host_completion": {
+      "settled_at_ms": 1791534731029
+    },
+    "saved_difference": null,
+    "finished_ns": 30430525931010,
+    "errors": [],
+    "observations": [
+      "response.reasoning_text"
+    ],
+    "direction": {
+      "moods": [],
+      "user_intent": "The user is pausing the repetitive pattern to signal a shift in pacing and wants to see a breakthrough or a moment of reflection after the long grind.",
+      "keywords": [
+        "harbor records",
+        "records",
+        "table",
+        "notebook"
+      ],
+      "next_event": "Mara notices a glaring discrepancy that breaks the pattern."
+    },
+    "tool_calls": 11,
+    "tool_errors": 1,
+    "edit_batches": 1,
+    "patches": 4,
+    "audit_calls": 2,
+    "native_failures": [
+      {
+        "seq": 83,
+        "id": "evt_a04737f33a11415382f2277f2ba21a9b",
+        "runId": "run_caa9b172ae9e4355b6d3bbd348780a54",
+        "timestamp": "2026-10-09T08:31:59.308921851Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "GKZiOgEMz0fc2RZ927DjI908sBw4hWrO",
+          "elapsedMs": 0,
+          "errorCode": "workspace.patch_no_change",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "old_string and new_string are identical",
+          "name": "workspace.apply_patch",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.apply_patch"
+        },
+        "stage": "single"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534696410682880,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534708474708992,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534712215262976,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534713567183104,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534715136605952,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534717491537152,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534719315819008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534721490722816,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534723474059008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534725478787840,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791534726967842048,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791534728992006144,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      }
+    ],
+    "finish_reason": "The last audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 34.076924928,
+    "poll_observation_delay_seconds": 0.550185001,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 34.99332589,
+    "first_prose_seconds": 16.118239319,
+    "model_seconds": 31.836316235,
+    "non_model_seconds": 3.1570096549999995,
+    "attempt_elapsed_seconds": 35.068055154,
+    "stages": {
+      "single": {
+        "calls": 12,
+        "model_seconds": 31.836316235,
+        "generated_tokens": 1090,
+        "uncached_tokens": 37321
+      }
+    },
+    "model_calls": 12,
+    "generated_tokens": 1090,
+    "reasoning_chars": 104,
+    "uncached_tokens": 37321,
+    "actual_prompt_tokens": 37483,
+    "first_prompt_tokens": 35755,
+    "prose_words": 269,
+    "draft_words": 272,
+    "initial_findings": 2,
+    "final_findings": 0,
+    "unflagged_sentences": 15,
+    "preserved_unflagged_sentences": 15
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 2,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 30430540711284,
+    "started_utc_ns": 1791534731159596109,
+    "complete": true,
+    "handle": {
+      "runId": "run_aa430b8a3c6447bf9c79469fc19e26ad",
+      "workspaceId": "chat_1437703b6f20880b",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "0502157a-7140-4d5d-bd7f-8a0e595ffa60"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534733562,
+        "text": "moods: tense; inner-thoughts\nkeywords: phantom vessel; ink smudge; harbor window\nuser_intent: the user wants to see Mara's reaction to the discovery and the atmosphere shift.\nnext_event: Mara describes the impossible entry, her voice trembling as she realizes the scale of the discrepancy."
+      },
+      {
+        "utc_ms": 1791534737303,
+        "text": "Mara's fingers tremble slightly as she taps the dark, aggressive stroke of ink. It's not just a mistake. A mistake is a smudge, a slip of the pen, a forgotten entry. This… this is an intentional insertion. Someone went to great lengths to make sure this was written, but they didn't use the standard harbor quill. The ink is too thick, too oily.\n\n\"It says The Mourning Star,\" she says, her voice bare"
+      }
+    ],
+    "terminal_observed_ns": 30445023454246,
+    "terminal_observed_utc_ns": 1791534745642745346,
+    "status": "completed",
+    "settled_ns": 30445066270813,
+    "host_completion": {
+      "settled_at_ms": 1791534745644
+    },
+    "saved_difference": null,
+    "finished_ns": 30445138314555,
+    "errors": [],
+    "observations": [],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "phantom vessel",
+        "ink smudge",
+        "harbor window"
+      ],
+      "user_intent": "the user wants to see Mara's reaction to the discovery and the atmosphere shift.",
+      "next_event": "Mara describes the impossible entry, her voice trembling as she realizes the scale of the discrepancy."
+    },
+    "tool_calls": 7,
+    "tool_errors": 0,
+    "edit_batches": 1,
+    "patches": 1,
+    "audit_calls": 2,
+    "native_failures": [],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534731375463936,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534733578373888,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534737333146112,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534738794316032,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534740417540096,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534741854674176,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534743432750848,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      }
+    ],
+    "finish_reason": "The last audit was clean.",
+    "presentation_difference": null,
+    "backend_created_to_terminal_seconds": 13.550432,
+    "poll_observation_delay_seconds": 0.723751426,
+    "native_terminal_completed": true,
+    "verified_saved_reply": true,
+    "qualified": true,
+    "qualification_errors": [],
+    "native_wall_seconds": 14.525559529,
+    "first_prose_seconds": 6.143403891,
+    "model_seconds": 12.79857112,
+    "non_model_seconds": 1.7269884090000005,
+    "attempt_elapsed_seconds": 14.597603271,
+    "stages": {
+      "single": {
+        "calls": 7,
+        "model_seconds": 12.79857112,
+        "generated_tokens": 647,
+        "uncached_tokens": 1653
+      }
+    },
+    "model_calls": 7,
+    "generated_tokens": 647,
+    "reasoning_chars": 0,
+    "uncached_tokens": 1653,
+    "actual_prompt_tokens": 37078,
+    "first_prompt_tokens": 36126,
+    "prose_words": 277,
+    "draft_words": 277,
+    "initial_findings": 1,
+    "final_findings": 0,
+    "unflagged_sentences": 21,
+    "preserved_unflagged_sentences": 21
+  },
+  {
+    "arm": "tt-single",
+    "fixture": "bellwick-32000",
+    "turn": 3,
+    "pilot": true,
+    "block": "r1-32000-tt-single",
+    "started_ns": 30445149789191,
+    "started_utc_ns": 1791534745768673966,
+    "complete": false,
+    "handle": {
+      "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+      "workspaceId": "chat_1437703b6f20880b",
+      "generationType": "normal",
+      "status": "created",
+      "stableChatId": "0502157a-7140-4d5d-bd7f-8a0e595ffa60"
+    },
+    "prose_snapshots": [
+      {
+        "utc_ms": 1791534747942,
+        "text": "moods: tense; inner-thoughts\nkeywords: Mourning Star; harbor secrets; ink; archives\nnext_event: Mara decides to cross-reference the entry with the local shipwright's private ledger."
+      }
+    ],
+    "native_error": {
+      "retryable": false,
+      "code": "agent.max_tool_rounds_exceeded",
+      "userRetryable": true,
+      "technicalMessage": "Validation error: agent.max_tool_rounds_exceeded: workspace.finish or agent.handoff was not called within 32 rounds",
+      "eventScope": {
+        "invocationId": "inv_root"
+      },
+      "details": {},
+      "message": "workspace.finish or agent.handoff was not called within 32 rounds"
+    },
+    "terminal_observed_ns": 30559175407375,
+    "terminal_observed_utc_ns": 1791534859794633104,
+    "status": "failed",
+    "settled_ns": 30559218199502,
+    "host_completion": {
+      "settled_at_ms": 1791534859795
+    },
+    "saved_difference": "content",
+    "finished_ns": 30559302293659,
+    "errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "draft.missing",
+      "native.not_completed"
+    ],
+    "observations": [
+      "first_prose.no_reply_snapshot",
+      "response.reasoning_text"
+    ],
+    "direction": {
+      "moods": [
+        "tense",
+        "inner-thoughts"
+      ],
+      "keywords": [
+        "Mourning Star",
+        "harbor secrets",
+        "ink",
+        "archives"
+      ],
+      "next_event": "Mara decides to cross-reference the entry with the local shipwright's private ledger."
+    },
+    "tool_calls": 32,
+    "tool_errors": 31,
+    "edit_batches": 0,
+    "patches": 0,
+    "audit_calls": 0,
+    "native_failures": [
+      {
+        "seq": 35,
+        "id": "evt_7562ffe559c04028a689911258737d1f",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:31.540266852Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "KZzGD6AsXrNOadzxd728S4DUCxzCl9gN",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 2,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 46,
+        "id": "evt_f83626b7a12f4b3a981fc3596ba8b09a",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:34.966087577Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "epc6fB3RqPrvoBsgHzNF7gyH0VBUVSyL",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 3,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 57,
+        "id": "evt_dbb6069ea7134120b6ba5f405897dcd1",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:38.376427480Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "tfCFvqgDJfWSBxtZUExqz4gdZ8aCZ3WF",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 4,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 68,
+        "id": "evt_b9a89478b041464db2b4108b1efaa5bb",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:41.849508269Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "jbYlgmtCRW74CEhpMVTmcRI9bldSL6zi",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 5,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 79,
+        "id": "evt_631d3f78a8be4133b41c0e4cf72c01c0",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:45.307652162Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "4uYwWGyWlZCbRdQxIiZ1wGoIQGjOOQP9",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 6,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 90,
+        "id": "evt_17b24863f3e34e62b47be4f2c17fc41d",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:48.811126334Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "f8rHbYg0wF8kyH06N27KcQFxQHEBvWaX",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 7,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 101,
+        "id": "evt_cdae579a60204b4baee15aeddf90e616",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:52.287035162Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "ebwSwDhrk64xTkrsFjy8HbT6jHzK5doS",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 8,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 112,
+        "id": "evt_1acfe05ad878471c9789c826d1abcad4",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:55.748150737Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "lsmgFfour6Ziw1RDXxPSSV4jNFdfRvxn",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 9,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 123,
+        "id": "evt_bb9c63ced51246539375a49e17783e96",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:32:59.218228790Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "rItPU2gtUY5g3PXtSNo7EN4W41J2yz9F",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 10,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 134,
+        "id": "evt_f654b0c704d04f12aa5a15d5a343d833",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:02.672050243Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "tW9M7rrtUAAGCkvFAzsUQttSLGg9tuWY",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 11,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 145,
+        "id": "evt_ef194760778e4724ace47e84784948b8",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:06.148319013Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "1RTk5gJDOWDPfJRyTZELvTznhG7eo4vH",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 12,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 156,
+        "id": "evt_3ef46be08c3d4568a873ad6bdbb05fcf",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:09.641403605Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "LgmYpngYrgI0q9pzjfsaFa2hvZzXsG9j",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 13,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 167,
+        "id": "evt_334b6fa295644d4f834894f629a59d33",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:13.177699260Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "mpRjD71qFwvHiL4ED6WjPgxJmT2t5UFS",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 14,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 178,
+        "id": "evt_dbdb624a8cd949238e6c2605c2fa8cb4",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:16.729346249Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "TJYaRxkdttjB90VPmMbUaZHJcBXm0gz4",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 15,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 189,
+        "id": "evt_8a5ae5571e994d34a48ca258f1704103",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:20.263630784Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "UWKqxK6wxqm4yIR2b7oxItO1t34KoE4R",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 16,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 200,
+        "id": "evt_9d54e99be2c044c09cec9d15fbc3f5a4",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:23.819105522Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "TLBqPRB4KGtVttcjK9B4cB3re94K8oUq",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 17,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 211,
+        "id": "evt_83275f8fddde4f52a01e0912cba71d33",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:27.371140762Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "1rqPJySajiZERPovKtmmURLBjb78gIHu",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 18,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 222,
+        "id": "evt_894c6ae9d15b44b2bc401c0775cc12ad",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:30.970799017Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "wN5NVOf8bzIb9hyD3NdGPWeMRAxf8GZr",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 19,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 233,
+        "id": "evt_aa3f37d652d34ecf933d50a1b7dc9b7b",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:34.661579954Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "GkZYX9tE9OUze3BrVsBTrLS0dmxcEerr",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 20,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 244,
+        "id": "evt_856bacc7b8cb4fc896f15efe0d0f4f25",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:38.277927081Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "lgHUsLoxD5QLQyTBFLx2za3e35mzKXiS",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 21,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 255,
+        "id": "evt_db37cf6f051240179aefedc466cff1b2",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:41.930421399Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "EfViPnnG1MJQ2XJG2et5JAiSKDyDqDy1",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 22,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 266,
+        "id": "evt_76a279df80c343539f81ffa62f6c5335",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:45.573694489Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "yBM3QfUMcXkAy7MgrVqSbEHYjIyg4TlK",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 23,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 277,
+        "id": "evt_b3691054440b4e29b3394481b05fa21b",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:49.240485540Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "u2CG0n2Xpmyzdu8kmwzJcWsjsrXiX2J1",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 24,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 288,
+        "id": "evt_1f519eebf9be4c6badec5862ee05d033",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:52.910605632Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "Zq5NQMzVL4vAqanIv7btU48iKd67PzPT",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 25,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 299,
+        "id": "evt_c306dc1b5c9b4b3ca05c9dc5b561c174",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:33:56.599097314Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "mxBuBbXTs8F6znzDS1TBSE0eFPKKDrUv",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 26,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 310,
+        "id": "evt_0423749e593741eb9deb10c19171b04e",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:00.341839291Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "1DGxAc7ierLxGjfTfAqm5zsgYdJqqv18",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 27,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 321,
+        "id": "evt_61d81ca395964a6fa5d188c5f6dff988",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:04.112823745Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "JexfpPZv2aexfRCrwzJoVkGIwKMckyue",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 28,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 332,
+        "id": "evt_483555f75bb54f2cb1d85b10f125eb74",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:07.856609598Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "HSsPMHNRCZaRZGCeX6h4LdSyJm3EYQWM",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 29,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 343,
+        "id": "evt_aca238bbceb046f1b38092fbdc3f028a",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:11.641821244Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "Et0XwTr608KbYEIFr6n8e9E5rlnpI8tj",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 30,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 354,
+        "id": "evt_55944a855a0c4bb6ab89140f26f6e449",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:15.402317069Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "hWr6EvVhqemnXFBoIKsxiPproa9svKh4",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 31,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 365,
+        "id": "evt_f3fa0f960d614d4f8ec1caaaa105a817",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:19.177113156Z",
+        "level": "warn",
+        "type": "tool_call_failed",
+        "payload": {
+          "callId": "z0H9jywJxZOTLx7DzJ71RRIs3BJqvsdR",
+          "elapsedMs": 0,
+          "errorCode": "tool.invalid_arguments",
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "invocationId": "inv_root",
+          "isError": true,
+          "message": "path is required",
+          "name": "workspace.write_file",
+          "resourceRefs": [],
+          "round": 32,
+          "snapshotId": "inv_root",
+          "toolId": "builtin:workspace.write_file"
+        },
+        "stage": "single"
+      },
+      {
+        "seq": 368,
+        "id": "evt_d91ebb98b087474e821c2d37d6528f29",
+        "runId": "run_c950cd211f48436b9e5673a4e240e0c1",
+        "timestamp": "2026-10-09T08:34:19.178128838Z",
+        "level": "error",
+        "type": "run_failed",
+        "payload": {
+          "code": "agent.max_tool_rounds_exceeded",
+          "details": {},
+          "eventScope": {
+            "invocationId": "inv_root"
+          },
+          "message": "workspace.finish or agent.handoff was not called within 32 rounds",
+          "retryable": false,
+          "technicalMessage": "Validation error: agent.max_tool_rounds_exceeded: workspace.finish or agent.handoff was not called within 32 rounds",
+          "userRetryable": true
+        },
+        "stage": "single"
+      }
+    ],
+    "attempt_events": [
+      {
+        "timestamp_ns": 1791534745966702848,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 1
+      },
+      {
+        "timestamp_ns": 1791534747970315008,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 2
+      },
+      {
+        "timestamp_ns": 1791534751546871040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 3
+      },
+      {
+        "timestamp_ns": 1791534754972594944,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 4
+      },
+      {
+        "timestamp_ns": 1791534758377176064,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 5
+      },
+      {
+        "timestamp_ns": 1791534761851830016,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 6
+      },
+      {
+        "timestamp_ns": 1791534765308409856,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 7
+      },
+      {
+        "timestamp_ns": 1791534768817801984,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 8
+      },
+      {
+        "timestamp_ns": 1791534772293667072,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 9
+      },
+      {
+        "timestamp_ns": 1791534775759150080,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 10
+      },
+      {
+        "timestamp_ns": 1791534779225070848,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 11
+      },
+      {
+        "timestamp_ns": 1791534782678843136,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 12
+      },
+      {
+        "timestamp_ns": 1791534786149053184,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 13
+      },
+      {
+        "timestamp_ns": 1791534789648134912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 14
+      },
+      {
+        "timestamp_ns": 1791534793184146944,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 15
+      },
+      {
+        "timestamp_ns": 1791534796736263936,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 16
+      },
+      {
+        "timestamp_ns": 1791534800270278912,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 17
+      },
+      {
+        "timestamp_ns": 1791534803825829888,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 18
+      },
+      {
+        "timestamp_ns": 1791534807378159872,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 19
+      },
+      {
+        "timestamp_ns": 1791534810971540992,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 20
+      },
+      {
+        "timestamp_ns": 1791534814668343040,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 21
+      },
+      {
+        "timestamp_ns": 1791534818284622080,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 22
+      },
+      {
+        "timestamp_ns": 1791534821936723968,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 23
+      },
+      {
+        "timestamp_ns": 1791534825585211904,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 24
+      },
+      {
+        "timestamp_ns": 1791534829247392768,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 25
+      },
+      {
+        "timestamp_ns": 1791534832911258880,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 26
+      },
+      {
+        "timestamp_ns": 1791534836605890048,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 27
+      },
+      {
+        "timestamp_ns": 1791534840348643072,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 28
+      },
+      {
+        "timestamp_ns": 1791534844113480192,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 29
+      },
+      {
+        "timestamp_ns": 1791534847863308032,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 30
+      },
+      {
+        "timestamp_ns": 1791534851642561792,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 31
+      },
+      {
+        "timestamp_ns": 1791534855409132032,
+        "stage": "single",
+        "attempt": 1,
+        "eventScope": {
+          "invocationId": "inv_root"
+        },
+        "invocationId": "inv_root",
+        "maxRetries": 3,
+        "round": 32
+      }
+    ],
+    "finish_reason": null,
+    "presentation_difference": "content",
+    "backend_created_to_terminal_seconds": 113.221715968,
+    "poll_observation_delay_seconds": 0.616504976,
+    "native_terminal_completed": false,
+    "verified_saved_reply": false,
+    "qualified": false,
+    "qualification_errors": [
+      "audit.missing",
+      "completion.audit_commit_finish_order",
+      "draft.missing",
+      "native.not_completed"
+    ],
+    "native_wall_seconds": 114.068410311,
+    "first_prose_seconds": null,
+    "model_seconds": 112.77290376799999,
+    "non_model_seconds": 1.295506543000002,
+    "attempt_elapsed_seconds": 114.152504468,
+    "stages": {
+      "single": {
+        "calls": 32,
+        "model_seconds": 112.77290376799999,
+        "generated_tokens": 9913,
+        "uncached_tokens": 4052
+      }
+    },
+    "model_calls": 32,
+    "generated_tokens": 9913,
+    "reasoning_chars": 9,
+    "uncached_tokens": 4052,
+    "actual_prompt_tokens": 46725,
+    "first_prompt_tokens": 36498,
+    "prose_words": 0,
+    "draft_words": 0,
+    "initial_findings": null,
+    "final_findings": null,
+    "unflagged_sentences": 0,
+    "preserved_unflagged_sentences": 0
+  }
+]

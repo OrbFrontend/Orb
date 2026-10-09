@@ -1,0 +1,7 @@
+[
+  {
+    "arm": "tt-single",
+    "code": "agent.max_tool_rounds_exceeded",
+    "attempts": 1
+  }
+]

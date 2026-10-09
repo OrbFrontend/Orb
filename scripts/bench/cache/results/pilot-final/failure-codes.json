@@ -1,0 +1,12 @@
+[
+  {
+    "arm": "tt-handoff",
+    "code": "model.output_truncated",
+    "attempts": 2
+  },
+  {
+    "arm": "tt-single",
+    "code": "model.output_truncated",
+    "attempts": 1
+  }
+]
