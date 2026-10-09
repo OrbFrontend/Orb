@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import subprocess
 from collections import Counter
 from pathlib import Path
 from statistics import median
@@ -172,6 +173,15 @@ def summary_rows(rows):
     return out
 
 
+def scorer_commit():
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        dirty = subprocess.check_output(["git", "status", "--porcelain", "--", "scripts/bench"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unrecorded"
+    return commit + (" with uncommitted changes" if dirty else "")
+
+
 def build(runs, output):
     rows = json.loads((runs / "turns.json").read_text())
     if not rows:
@@ -298,6 +308,67 @@ def build(runs, output):
             f"{sum(bool(r['final_findings']) for r in group)} | "
             f"{rate(sum(r['preserved_unflagged_sentences'] for r in group), sum(r['unflagged_sentences'] for r in group))} |"
         )
+    kinds = [
+        ("prose.unbalanced_quotes", "Unbalanced quotes"),
+        ("prose.adjacent_quotes_after_comma", 'Two quoted lines together after `,"` or a dash (always a defect)'),
+        (
+            "prose.adjacent_quotes_after_stop",
+            'Two quoted lines together after `."`, `?"` or `!"` (new speech is allowed; needs a look)',
+        ),
+    ]
+    lines.extend(
+        [
+            "",
+            "## Punctuation damage in saved replies",
+            "",
+            "A mechanical check on every saved reply, the same for every arm, attributed to its mechanism: already in the Writer's draft "
+            "(TauriTavern drafts prose inside a tool argument), or introduced by editing. Turns counted, not occurrences.",
+            "",
+            "| Configuration | Defect | From the draft | From editing |",
+            "| --- | --- | ---: | ---: |",
+        ]
+    )
+    for arm, name in ARMS.items():
+        group = [row for row in rows if row["arm"] == arm]
+        for key, label in kinds:
+            drafted = sum(f"{key}.draft" in row.get("observations", []) for row in group)
+            edited = sum(f"{key}.editing" in row.get("observations", []) for row in group)
+            lines.append(f"| {name} | {label} | {drafted}/{len(group)} | {edited}/{len(group)} |")
+    stop_only = [
+        row
+        for row in rows
+        if "prose.adjacent_quotes_after_stop.editing" in row.get("observations", [])
+        and not any(
+            item.startswith(("prose.unbalanced_quotes", "prose.adjacent_quotes_after_comma")) for item in row["observations"]
+        )
+    ]
+    orb = [row for row in rows if row["arm"] == "orb" and row.get("editor_replay_matches") is not None]
+    by_round = Counter(
+        (round_, defect)
+        for row in orb
+        for round_, defects in (row.get("editing_defects_by_round") or {}).items()
+        for defect in defects
+    )
+    lines.extend(
+        [
+            "",
+            f"{len(stop_only)} turn(s) have only an after-stop hit and need reading: "
+            + (", ".join(f"{r['block']} turn {r['turn']}" for r in stop_only) or "none")
+            + ".",
+            "",
+            f"Orb's Editor rounds were replayed with the pinned code (re-audit, rebuild the numbered targets, apply each `editor_apply_patch` call); "
+            f"{sum(row['editor_replay_matches'] for row in orb)} of {len(orb)} edited Orb turns reproduce the saved reply byte for byte. "
+            "Defects by the round that introduced them:",
+            "",
+            "| Editor round | Defect | Orb turns |",
+            "| ---: | --- | ---: |",
+            *[f"| {round_} | `{defect}` | {count} |" for (round_, defect), count in sorted(by_round.items())],
+            *(["| — | None | 0 |"] if not by_round else []),
+        ]
+    )
+    notes = runs / "NOTES.md"
+    if notes.exists():
+        lines.extend(["", "## Disclosures", "", notes.read_text().strip()])
     lines.extend(["", "## Failures and observations", "", "### Native error codes", ""])
     lines.extend(["| Configuration | Error code | Attempts with code |", "| --- | --- | ---: |"])
     native_codes = []
@@ -379,7 +450,7 @@ def build(runs, output):
             f"(release binary SHA-256 `{identity.get('tauritavern_binary_sha256', 'unrecorded')}`); "
             f"benchmark harness `{identity.get('harness_commit', 'unrecorded')}`"
             + (" with uncommitted changes" if identity.get("harness_dirty", True) else "")
-            + ".",
+            + f"; scored and reported by `{scorer_commit()}`.",
             "",
             f"Gemma 4 26B-A4B QAT UD-Q4_K_XL (SHA-256 `{identity.get('model_sha256', 'unrecorded')}`) on llama.cpp "
             f"({'; '.join(identity.get('llama_server_version', [])) or 'build unrecorded'}), RTX 3090 at 270 W, Ubuntu 24.04. "

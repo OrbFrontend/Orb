@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from backend.analysis import Target, apply_id_patches
 from backend.analysis.text.roleplay_segmentation import split_segment_sentences
 from scripts.bench.auditor import contextual_audit
 from scripts.bench.cache.orb_driver import save, saved_difference
@@ -193,10 +194,31 @@ def prose_defects(text):
     defects = []
     if text.count('"') % 2 or text.count("\u201c") != text.count("\u201d"):
         defects.append("prose.unbalanced_quotes")
-    # Two quoted segments jammed together on one line, e.g. a patch that left `," "` behind.
-    if re.search(r'[,.?!\u2026]"[ \t]+"', text):
-        defects.append("prose.adjacent_quotes")
+    # Two quoted segments together on one line. After a comma or dash (`," "`) the first line was never closed: always
+    # a defect. After a full stop, question or exclamation mark (`." "`) it can be new speech, which Orb allows; those
+    # hits need a look unless the reply is also unbalanced.
+    if re.search(r'[,\u2014\u2013-]["\u201d][ \t]+["\u201c]', text):
+        defects.append("prose.adjacent_quotes_after_comma")
+    if re.search(r'[.?!\u2026]["\u201d][ \t]+["\u201c]', text):
+        defects.append("prose.adjacent_quotes_after_stop")
     return defects
+
+
+def orb_editor_rounds(draft, history, user_text, patch_calls, final):
+    """Replay Orb's Editor round by round with the pinned code: re-audit, rebuild the numbered targets, apply the patches.
+
+    The numbered report the Editor saw is not logged; this rebuilds it. Returns the defects each round introduced and
+    whether the replay reproduces the saved reply byte for byte (when it does not, the attribution is not used).
+    """
+    text, introduced = draft, {}
+    for index, patches in enumerate(patch_calls, start=1):
+        targets = [Target(**target) for target in contextual_audit(text, history, user_text)["targets"]]
+        before = set(prose_defects(text))
+        text, _ = apply_id_patches(text, targets, patches)
+        new = [defect for defect in prose_defects(text) if defect not in before]
+        if new:
+            introduced[str(index)] = new
+    return introduced, text == final
 
 
 def first_prose_text_matches(observed, draft):
@@ -478,6 +500,7 @@ def score_orb(turn, summary, selected, applied):
         "tool_errors": None,
         "edit_batches": len(edits),
         "patches": sum(len(tool["arguments"].get("patches", [])) for tool in edits),
+        "patch_calls": [tool["arguments"].get("patches", []) for tool in edits],
         "audit_calls": None,
         "native_failures": summary.get("warnings", []),
     }
@@ -573,6 +596,12 @@ def score_turn(turn, requests, applied, audit_root):
     # Attribute each defect to its mechanism: already in the draft (the drafting path) or introduced by editing.
     drafted = set(prose_defects(draft))
     observations.extend(f"{defect}.{'draft' if defect in drafted else 'editing'}" for defect in prose_defects(final))
+    patch_calls = native.pop("patch_calls", None)
+    editing_defects_by_round, editor_replay_matches = None, None
+    if summary["arm"] == "orb" and patch_calls and draft and final:
+        editing_defects_by_round, editor_replay_matches = orb_editor_rounds(draft, history, text, patch_calls, final)
+        if not editor_replay_matches:
+            observations.append("editor.replay_mismatch")
     unflagged, cursor = [], 0
     for sentence in split_segment_sentences(draft):
         start = draft.find(sentence, cursor)
@@ -626,6 +655,8 @@ def score_turn(turn, requests, applied, audit_root):
         "final_findings": after["total_issues"] if after else None,
         "unflagged_sentences": len(unflagged),
         "preserved_unflagged_sentences": preserved,
+        "editing_defects_by_round": editing_defects_by_round,
+        "editor_replay_matches": editor_replay_matches,
     }
     result.pop("draft", None)
     result.pop("response_events", None)

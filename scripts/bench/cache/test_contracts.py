@@ -89,6 +89,7 @@ def test_first_prose_must_be_the_reply_start():
 
 
 def test_mechanical_prose_defects():
-    assert prose_defects('"Look at the numbers," "Something is off," she said.') == ["prose.adjacent_quotes"]
+    assert prose_defects('"Look at the numbers," "Something is off," she said.') == ["prose.adjacent_quotes_after_comma"]
+    assert prose_defects('"Hi." "Bye," she said.') == ["prose.adjacent_quotes_after_stop"]
     assert prose_defects('She said, "They hid what arrived.') == ["prose.unbalanced_quotes"]
     assert prose_defects('"Done."\n\n"Next," she said.') == []
