@@ -36,8 +36,9 @@ def raw_key(state: str) -> str:
 class Judge:
     """Jev's raw responses keyed by a hash of state and question; a cached reply is never sent to Jev again."""
 
-    def __init__(self, cache: Path, client: DecisionClient | None):
+    def __init__(self, cache: Path, client: DecisionClient | None, concurrency: int = 8):
         self.cache, self.client = cache, client
+        self.limit = asyncio.Semaphore(concurrency)
         self.raw = {}
         if cache.exists():
             for line in cache.read_text().splitlines():
@@ -48,7 +49,7 @@ class Judge:
         if self.client is None:
             raise ValueError("an answer is missing from the raw cache and Jev was not configured")
         body = {"model": self.client.model, "state": state, "questions": {SHAPE.key: SHAPE.payload()}}
-        async with httpx.AsyncClient(timeout=self.client.timeout) as http:
+        async with self.limit, httpx.AsyncClient(timeout=self.client.timeout) as http:
             response = await http.post(self.client.url, json=body, headers={"Authorization": f"Bearer {self.client.api_key}"})
         response.raise_for_status()
         return {
@@ -223,7 +224,7 @@ async def score(run: Path, output: Path, *, judge_on: bool = True) -> dict:
         save(output / "jev-preflight.json", await preflight(judge, output / "jev-preflight-raw.jsonl"))
     transport = SNAPSHOT["transports"][manifest.get("transport", "gemma")]
     calls = wire(run / "requests", transport)
-    rows = []
+    rows, pending = [], []
     for key, turn in plan["turns"].items():
         folder = run / "turns" / key
         summary = json.loads((folder / "summary.json").read_text())
@@ -252,12 +253,15 @@ async def score(run: Path, output: Path, *, judge_on: bool = True) -> dict:
         elif not facts["calls"] or any(error.startswith(("wire.", "response.")) for error in facts["wire_errors"]):
             row["rejected"] = f"request check failed: {sorted(set(facts['wire_errors'])) or 'no recorded calls'}"
         elif judge is not None:
-            answer, _ = await judge.ask(state_for(plan["contexts"][turn["context"]]["user_turn"], final))
+            pending.append((row, state_for(plan["contexts"][turn["context"]]["user_turn"], final)))
+        rows.append(row)
+    if judge is not None:
+        answers = await asyncio.gather(*(judge.ask(state) for _, state in pending))
+        for (row, _), (answer, _) in zip(pending, answers):
             row["label"] = answer.selected
             row.update({f"p_{label}": answer.probabilities.get(label) for label in LABELS})
             row["driven"] = row["p_driven"] >= DRIVEN_THRESHOLD
             row["label_driven"] = row["label"] == "driven"
-        rows.append(row)
     scored = [row for row in rows if row["label"]]
     arms = {}
     for arm in ("on", "off"):

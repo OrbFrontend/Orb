@@ -282,6 +282,7 @@ def main():
         stop(run / "recorder.pid", "scripts.bench.recorder")
         if not hosted and port_busy(5000):
             (run / "metrics-after.txt").write_text(httpx.get("http://127.0.0.1:5000/metrics", trust_env=False).text)
+        stop(run / "llama-server.pid", "llama-server")
     save(run / "run-complete.json", {"finished_utc_ns": time.time_ns()})
 
 

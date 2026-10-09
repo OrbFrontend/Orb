@@ -1,7 +1,10 @@
 """Blind hand labels for Bench 2: sample scored replies, label them without arm or Jev label, then compare with Jev.
 
-    python -m scripts.bench.driven.hand_labels sample --scores OUT/turns.json --run RUN --sheet sheet.md --key key.json
+    python -m scripts.bench.driven.hand_labels sample --scores OUT/turns.json --run RUN [--scores ... --run ...] \
+        --sheet sheet.md --key key.json
     python -m scripts.bench.driven.hand_labels score --sheet sheet.md --key key.json
+
+Each `--scores` pairs with the `--run` it scored; several pairs pool their replies into one sheet, stratified per model too.
 
 The sheet carries each reply under an opaque id with a `label:` line to fill in with driven, afterthought or static. The key
 holds the arm, Jev's label and P(driven) per id; keep it closed until the sheet is done.
@@ -23,15 +26,15 @@ LABELS = list(SHAPE.criteria)
 BANDS = ((0.0, 0.4), (0.4, 0.8), (0.8, 1.01))
 
 
-def stratum(row: dict) -> tuple[str, int]:
+def stratum(row: dict) -> tuple[str, str, int]:
     band = next(index for index, (low, high) in enumerate(BANDS) if low <= row["p_driven"] < high)
-    return row["label"], band
+    return row.get("model", ""), row["label"], band
 
 
 def sample(rows: list[dict], size: int, seed: int = 20261009) -> list[dict]:
-    """Round-robin over (Jev label, P(driven) band) strata, so rare labels and borderline scores are both represented."""
+    """Round-robin over (model, Jev label, P(driven) band) strata, so rare labels and borderline scores are represented."""
     rng = random.Random(seed)
-    strata: dict[tuple[str, int], list[dict]] = {}
+    strata: dict[tuple[str, str, int], list[dict]] = {}
     for row in rows:
         strata.setdefault(stratum(row), []).append(row)
     for members in strata.values():
@@ -45,16 +48,28 @@ def sample(rows: list[dict], size: int, seed: int = 20261009) -> list[dict]:
     return chosen
 
 
-def write_sheet(chosen: list[dict], run: Path, plan: dict, sheet: Path, key: Path):
+def scored_rows(scores: list[Path], runs: list[Path]) -> list[dict]:
+    """Labeled rows from each (turns.json, run) pair, tagged with the run's transport and folder."""
+    if len(scores) != len(runs):
+        raise SystemExit("give one --run per --scores")
+    rows = []
+    for path, run in zip(scores, runs):
+        model = json.loads((run / "manifest.json").read_text()).get("transport", "gemma")
+        rows += [{**row, "model": model, "run": str(run)} for row in json.loads(path.read_text()) if row.get("label")]
+    return rows
+
+
+def write_sheet(chosen: list[dict], sheet: Path, key: Path):
     criteria = "\n".join(f"- **{label}**: {text}" for label, text in SHAPE.criteria.items())
     parts = [f"# Bench 2 hand labels\n\n{SHAPE.instructions}\n\n{criteria}\n"]
     answers = {}
     for index, row in enumerate(chosen, 1):
         item = f"h{index:02d}"
+        run = Path(row["run"])
         reply = (run / "turns" / row["key"] / "final.md").read_text()
-        request = plan["contexts"][row["context"]]["user_turn"]
+        request = json.loads((run / "plan.json").read_text())["contexts"][row["context"]]["user_turn"]
         parts.append(f"## {item}\n\nlabel: \n\n**Request:** {request}\n\n{reply}\n")
-        answers[item] = {field: row[field] for field in ("key", "context", "arm", "label", "p_driven")}
+        answers[item] = {field: row[field] for field in ("model", "run", "key", "context", "arm", "label", "p_driven")}
     sheet.write_text("\n---\n\n".join(parts))
     save(key, answers)
 
@@ -97,16 +112,14 @@ def precision_recall(pairs: list[tuple[bool, bool]]) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["sample", "score"])
-    parser.add_argument("--scores", type=Path, help="score.py's turns.json")
-    parser.add_argument("--run", type=Path)
+    parser.add_argument("--scores", type=Path, action="append", default=[], help="score.py's turns.json")
+    parser.add_argument("--run", type=Path, action="append", default=[])
     parser.add_argument("--sheet", type=Path, required=True)
     parser.add_argument("--key", type=Path, required=True)
     parser.add_argument("--size", type=int, default=40)
     args = parser.parse_args()
     if args.action == "sample":
-        rows = [row for row in json.loads(args.scores.read_text()) if row.get("label")]
-        plan = json.loads((args.run / "plan.json").read_text())
-        write_sheet(sample(rows, args.size), args.run, plan, args.sheet, args.key)
+        write_sheet(sample(scored_rows(args.scores, args.run), args.size), args.sheet, args.key)
     else:
         print(json.dumps(compare(read_sheet(args.sheet), json.loads(args.key.read_text())), indent=2))
 

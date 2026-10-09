@@ -1,0 +1,112 @@
+{
+  "run": "/home/z/lmg/orb-benchmark-20261009/driven/full-deepseek",
+  "transport": "deepseek",
+  "jev_model": "typesafe/jev-1.13-20260917",
+  "driven_threshold": 0.75,
+  "arms": {
+    "on": {
+      "attempted": 20,
+      "clean": 20,
+      "retried": 0,
+      "scored": 20,
+      "driven": 0.25,
+      "labels": {
+        "driven": 0.5,
+        "afterthought": 0.1,
+        "static": 0.4
+      },
+      "mean_p_driven": 0.45499999999999996,
+      "mean_words": 229.15,
+      "mean_calls": 4.85,
+      "reasoning_chars": 0,
+      "cost": 0.00880586
+    },
+    "off": {
+      "attempted": 20,
+      "clean": 20,
+      "retried": 0,
+      "scored": 20,
+      "driven": 0.4,
+      "labels": {
+        "driven": 0.55,
+        "afterthought": 0.3,
+        "static": 0.15
+      },
+      "mean_p_driven": 0.5355000000000001,
+      "mean_words": 222.8,
+      "mean_calls": 3.95,
+      "reasoning_chars": 0,
+      "cost": 0.0069457600000000005
+    }
+  },
+  "paired_driven": {
+    "contexts": 20,
+    "cards": 20,
+    "difference": -0.15,
+    "ci95_contexts": [
+      -0.35,
+      0.05
+    ],
+    "ci95_cards": [
+      -0.35,
+      0.05
+    ]
+  },
+  "paired_label_driven": {
+    "contexts": 20,
+    "cards": 20,
+    "difference": -0.05,
+    "ci95_contexts": [
+      -0.3,
+      0.2
+    ],
+    "ci95_cards": [
+      -0.3,
+      0.2
+    ]
+  },
+  "length_bands": {
+    "short": {
+      "words": [
+        0,
+        214
+      ],
+      "on": {
+        "n": 6,
+        "driven": 0.0
+      },
+      "off": {
+        "n": 7,
+        "driven": 0.2857142857142857
+      }
+    },
+    "middle": {
+      "words": [
+        214,
+        251
+      ],
+      "on": {
+        "n": 5,
+        "driven": 0.2
+      },
+      "off": {
+        "n": 8,
+        "driven": 0.5
+      }
+    },
+    "long": {
+      "words": [
+        251,
+        1000000000
+      ],
+      "on": {
+        "n": 9,
+        "driven": 0.4444444444444444
+      },
+      "off": {
+        "n": 5,
+        "driven": 0.4
+      }
+    }
+  }
+}

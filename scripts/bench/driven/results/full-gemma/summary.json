@@ -1,0 +1,112 @@
+{
+  "run": "/home/z/lmg/orb-benchmark-20261009/driven/full-gemma",
+  "transport": "gemma",
+  "jev_model": "typesafe/jev-1.13-20260917",
+  "driven_threshold": 0.75,
+  "arms": {
+    "on": {
+      "attempted": 20,
+      "clean": 20,
+      "retried": 0,
+      "scored": 20,
+      "driven": 0.4,
+      "labels": {
+        "driven": 0.6,
+        "afterthought": 0.2,
+        "static": 0.2
+      },
+      "mean_p_driven": 0.564,
+      "mean_words": 276.7,
+      "mean_calls": 5.1,
+      "reasoning_chars": 0,
+      "cost": 0.0
+    },
+    "off": {
+      "attempted": 20,
+      "clean": 20,
+      "retried": 0,
+      "scored": 20,
+      "driven": 0.4,
+      "labels": {
+        "driven": 0.45,
+        "afterthought": 0.3,
+        "static": 0.25
+      },
+      "mean_p_driven": 0.499,
+      "mean_words": 283.65,
+      "mean_calls": 4.35,
+      "reasoning_chars": 0,
+      "cost": 0.0
+    }
+  },
+  "paired_driven": {
+    "contexts": 20,
+    "cards": 20,
+    "difference": 0.0,
+    "ci95_contexts": [
+      -0.2,
+      0.2
+    ],
+    "ci95_cards": [
+      -0.2,
+      0.2
+    ]
+  },
+  "paired_label_driven": {
+    "contexts": 20,
+    "cards": 20,
+    "difference": 0.15,
+    "ci95_contexts": [
+      -0.05,
+      0.35
+    ],
+    "ci95_cards": [
+      -0.05,
+      0.35
+    ]
+  },
+  "length_bands": {
+    "short": {
+      "words": [
+        0,
+        259
+      ],
+      "on": {
+        "n": 6,
+        "driven": 0.0
+      },
+      "off": {
+        "n": 7,
+        "driven": 0.2857142857142857
+      }
+    },
+    "middle": {
+      "words": [
+        259,
+        305
+      ],
+      "on": {
+        "n": 6,
+        "driven": 0.5
+      },
+      "off": {
+        "n": 7,
+        "driven": 0.42857142857142855
+      }
+    },
+    "long": {
+      "words": [
+        305,
+        1000000000
+      ],
+      "on": {
+        "n": 8,
+        "driven": 0.625
+      },
+      "off": {
+        "n": 6,
+        "driven": 0.5
+      }
+    }
+  }
+}
