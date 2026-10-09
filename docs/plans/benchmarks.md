@@ -306,8 +306,11 @@ TauriTavern's audit request, reads and commit/finish calls still count.
 A qualifying task has a valid direction artifact consumed before the draft, an initial audit, re-audits after any
 edits, and confirmed final output. Require the correct handoff sequence in `tt-handoff`. Apply the same contract to
 every arm. TauriTavern's save path trims trailing whitespace (`cleanUpMessage`), so a saved reply that differs from
-`output/main.md` only by that cleanup is intact. Findings left after editing and more than three edit batches are
-outcomes, reported for every arm; Orb's own Editor also stops early by its policy. Read the direction that was in
+`output/main.md` only by that cleanup is intact. Every arm follows Orb's Editor stopping rule (with
+reasoning off): after each re-audit, stop when it is clean, when no flagged sentence is left, or when the issue count
+did not go down; at most three batches. Orb enforces it in code and TauriTavern Profiles are told it word for word.
+Repair is scored at the audit where the rule stops, from the shared auditor's recorded audits; editing past it is
+reported and stays in time and call counts. Findings left at that point are an outcome, reported for every arm. Read the direction that was in
 force before the draft (the last one written), and accept list fields given as one delimited string. TauriTavern
 Profiles get Orb's own mood wording ("the list of mood ids to activate; leave it empty for a neutral tone"): an empty
 `moods:` line equals Orb's empty list, and a missing moods line is a failed direction. Retain the pre-edit draft

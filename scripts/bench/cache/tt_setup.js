@@ -89,8 +89,11 @@ const writing = 'Write the next roleplay reply as Mara, following the direction\
 const editing = 'Call audit_draft on output/main.md. If the audit reports no issues, call workspace_commit on output/main.md and then workspace_finish. '
     + 'Otherwise read output/main.md with workspace_read_file, then fix every flagged sentence with workspace_apply_patch: old_string is the exact flagged text copied from the file, and new_string is complete replacement text that fits its context. '
     + 'Change only flagged text and keep all other prose exactly as it is. You may send several patches in one response. '
-    + 'After each batch of patches, call audit_draft again. Stop editing after three batches even if issues remain. '
-    + 'Then call workspace_commit on output/main.md and workspace_finish, giving as the reason whether the last audit was clean or the edit limit was reached. '
+    // Orb's Editor stopping rule (backend/pipeline/passes/editor/editor.py, reasoning off): after each re-audit it stops
+    // when the audit is clean, when no flagged sentence is left, or when the issue count did not go down; at most three batches.
+    + 'After each batch of patches, call audit_draft again. Stop editing as soon as that audit reports no issues, lists no flagged sentences, '
+    + 'or reports as many issues as the audit before it or more; never run more than three batches. '
+    + 'Then call workspace_commit on output/main.md and workspace_finish, giving as the reason which of these stopped the editing. '
     + 'Never rewrite the whole draft with workspace_write_file.';
 const definitions = [
     {id: 'benchmark-director', name: 'Benchmark Director', caller: null,

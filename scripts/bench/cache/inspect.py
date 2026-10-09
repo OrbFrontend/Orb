@@ -221,6 +221,17 @@ def orb_editor_rounds(draft, history, user_text, patch_calls, final):
     return introduced, text == final
 
 
+def stop_rule_index(audits):
+    """The audit at which Orb's Editor stopping rule ends editing (reasoning off): the first audit that is clean or has no
+    patchable target, the first re-audit whose issue count did not go down, or the audit after the third batch."""
+    for index, audit in enumerate(audits):
+        if not audit["total_issues"] or not audit["targets"] or index == EDIT_BATCH_LIMIT:
+            return index
+        if index and audit["total_issues"] >= audits[index - 1]["total_issues"]:
+            return index
+    return len(audits) - 1
+
+
 def first_prose_text_matches(observed, draft):
     """The first visible text must be the start of the reply, not a placeholder or tool JSON."""
     seen = re.sub(r"\W+", "", observed or "").lower()
@@ -387,6 +398,13 @@ def qualify_tt(turn, summary, applied, audit_root):
             batches.add(previous[-1])
     if len(batches) > EDIT_BATCH_LIMIT:
         observations.append("editor.edit_batch_limit_exceeded")
+    # Every arm follows Orb's stopping rule. Score repair where the rule stops; editing past it stays in the time and calls.
+    findings_at_stop_rule = None
+    if audit_results:
+        stop = stop_rule_index(audit_results)
+        findings_at_stop_rule = audit_results[stop]["total_issues"]
+        if stop < len(audit_results) - 1:
+            observations.append("editor.edited_past_stop_rule")
     if not commits or not finishes or not audits or not (audits[-1]["seq"] < commits[-1]["seq"] < finishes[-1]["seq"]):
         errors.append("completion.audit_commit_finish_order")
     if patches and commits and patches[-1]["seq"] > commits[-1]["seq"]:
@@ -440,6 +458,7 @@ def qualify_tt(turn, summary, applied, audit_root):
         "tool_calls": len(tools),
         "tool_errors": sum(not tool["ok"] for tool in tools),
         "edit_batches": len(batches),
+        "findings_at_stop_rule": findings_at_stop_rule,
         "patches": len(patches),
         "audit_calls": len(audits),
         "native_failures": failures,
@@ -653,6 +672,10 @@ def score_turn(turn, requests, applied, audit_root):
         "draft_words": len(draft.split()),
         "initial_findings": before["total_issues"] if before else None,
         "final_findings": after["total_issues"] if after else None,
+        # Findings where the shared stopping rule ends editing: Orb enforces it in code, so its final reply is that point.
+        "repair_findings": (after["total_issues"] if after else None)
+        if summary["arm"] == "orb"
+        else native.get("findings_at_stop_rule"),
         "unflagged_sentences": len(unflagged),
         "preserved_unflagged_sentences": preserved,
         "editing_defects_by_round": editing_defects_by_round,

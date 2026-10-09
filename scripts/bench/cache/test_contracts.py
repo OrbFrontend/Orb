@@ -9,6 +9,7 @@ from scripts.bench.cache.inspect import (
     includes_history,
     parse_direction_text,
     prose_defects,
+    stop_rule_index,
 )
 from scripts.bench.cache.orb_driver import decode_event, saved_difference, sse_data_line
 
@@ -93,3 +94,13 @@ def test_mechanical_prose_defects():
     assert prose_defects('"Hi." "Bye," she said.') == ["prose.adjacent_quotes_after_stop"]
     assert prose_defects('She said, "They hid what arrived.') == ["prose.unbalanced_quotes"]
     assert prose_defects('"Done."\n\n"Next," she said.') == []
+
+
+def test_orb_stopping_rule_applies_to_recorded_audits():
+    def audits(*counts):
+        return [{"total_issues": count, "targets": [None] * count} for count in counts]
+
+    assert stop_rule_index(audits(5, 2, 0)) == 2  # clean
+    assert stop_rule_index(audits(5, 3, 3, 1)) == 2  # no progress
+    assert stop_rule_index(audits(5, 4, 3, 2, 1)) == 3  # three batches
+    assert stop_rule_index([{"total_issues": 2, "targets": []}]) == 0  # nothing patchable

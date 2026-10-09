@@ -45,6 +45,7 @@ TURN_FIELDS = [
     "draft_words",
     "initial_findings",
     "final_findings",
+    "repair_findings",
     "unflagged_sentences",
     "preserved_unflagged_sentences",
     "stages",
@@ -291,21 +292,33 @@ def build(runs, output):
             "",
             "## Repair",
             "",
-            "Findings come from the shared auditor on the pre-edit draft and the saved reply. Preserved sentences are unflagged draft sentences that survive verbatim.",
+            "Every arm follows Orb's Editor stopping rule: after each re-audit, stop when it is clean, when no flagged sentence is left, "
+            "or when the issue count did not go down; at most three batches. Orb enforces the rule in code; TauriTavern Profiles are told it. "
+            "Repair is scored where the rule stops, from the shared auditor's recorded audits; TauriTavern editing past that point is counted "
+            "below and stays in its time and calls. Findings are per 1,000 words, because replies differ in length. "
+            "Preserved sentences are unflagged draft sentences that survive verbatim in the saved reply.",
             "",
-            "| Configuration | Qualified turns | Clean drafts | Mean findings, draft → final | Turns with findings left | Unflagged sentences preserved |",
-            "| --- | ---: | ---: | --- | ---: | ---: |",
+            "| Configuration | Qualified turns | Clean drafts | Findings per 1,000 words: draft → at stop rule | Turns with findings left at stop rule | Turns edited past the rule | Unflagged sentences preserved |",
+            "| --- | ---: | ---: | --- | ---: | ---: | ---: |",
         ]
     )
     for arm, name in ARMS.items():
-        group = [row for row in rows if row["arm"] == arm and row["qualified"] and row["initial_findings"] is not None]
+        group = [
+            row
+            for row in rows
+            if row["arm"] == arm
+            and row["qualified"]
+            and row["initial_findings"] is not None
+            and row.get("repair_findings") is not None
+        ]
         if not group:
             continue
-        before = sum(r["initial_findings"] for r in group) / len(group)
-        after = sum(r["final_findings"] or 0 for r in group) / len(group)
+        before = 1000 * sum(r["initial_findings"] for r in group) / max(sum(r["draft_words"] for r in group), 1)
+        after = 1000 * sum(r["repair_findings"] for r in group) / max(sum(r["draft_words"] for r in group), 1)
         lines.append(
-            f"| {name} | {len(group)} | {sum(r['initial_findings'] == 0 for r in group)} | {before:.2f} → {after:.2f} | "
-            f"{sum(bool(r['final_findings']) for r in group)} | "
+            f"| {name} | {len(group)} | {sum(r['initial_findings'] == 0 for r in group)} | {before:.1f} → {after:.1f} | "
+            f"{sum(bool(r['repair_findings']) for r in group)} | "
+            f"{sum('editor.edited_past_stop_rule' in r.get('observations', []) for r in group)} | "
             f"{rate(sum(r['preserved_unflagged_sentences'] for r in group), sum(r['unflagged_sentences'] for r in group))} |"
         )
     kinds = [
