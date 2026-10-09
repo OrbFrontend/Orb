@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 from statistics import median
 
+from scripts.bench.cache.figure import render, section
 from scripts.bench.cache.orb_driver import save
 
 ARMS = {"orb": "Orb", "tt-handoff": "TauriTavern handoff Profiles", "tt-single": "TauriTavern single Profile"}
@@ -243,6 +244,8 @@ def build(runs, output):
                 f"| {label} | {len(group)} | {rate(sum(native_failed(r) for r in group), len(group))} | "
                 f"{rate(sum(r['qualified'] for r in group), len(group))} |"
             )
+    (output / "figure.svg").write_text(render(rows))
+    lines.extend(["", *section(rows)])
     lines.extend(
         [
             "",
@@ -489,7 +492,7 @@ def build(runs, output):
             "Orb's first prose is timed at the client before rendering, TauriTavern's when its WebView renders it; neither arm is told a reply length.",
             "",
             "Per-attempt data: [turns.csv](turns.csv), [turns.json](turns.json); per-call costs: [calls.csv](calls.csv); "
-            "grouped medians: [summary.csv](summary.csv).",
+            "grouped medians: [summary.csv](summary.csv); figure: [figure.svg](figure.svg).",
             "",
         ]
     )

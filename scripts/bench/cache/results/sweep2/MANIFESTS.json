@@ -1,0 +1,1910 @@
+{
+  "r1-16000-orb": {
+    "arm": "orb",
+    "size": 16000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791544251550904003
+  },
+  "r1-16000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 16000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791544372953352517
+  },
+  "r1-16000-tt-single": {
+    "arm": "tt-single",
+    "size": 16000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791544662050471914
+  },
+  "r1-2000-orb": {
+    "arm": "orb",
+    "size": 2000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791542762471828110
+  },
+  "r1-2000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 2000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791542873951654074
+  },
+  "r1-2000-tt-single": {
+    "arm": "tt-single",
+    "size": 2000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791543204282325888
+  },
+  "r1-32000-orb": {
+    "arm": "orb",
+    "size": 32000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791544930628072456
+  },
+  "r1-32000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 32000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791545073230957767
+  },
+  "r1-32000-tt-single": {
+    "arm": "tt-single",
+    "size": 32000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791545496185416767
+  },
+  "r1-8000-orb": {
+    "arm": "orb",
+    "size": 8000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791543411043011342
+  },
+  "r1-8000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 8000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791543531489139279
+  },
+  "r1-8000-tt-single": {
+    "arm": "tt-single",
+    "size": 8000,
+    "repeat": 1,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "78a1995d7515a83599e68707a5dbb28c48582b80a9e2110613e95c8c375ba10f",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fba5778105f7bd086de43c8a0131bd251e0548873df08edd2d836add91b9ba62",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791543829589300705
+  },
+  "r2-16000-orb": {
+    "arm": "orb",
+    "size": 16000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791547760363377836
+  },
+  "r2-16000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 16000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791547081048618669
+  },
+  "r2-16000-tt-single": {
+    "arm": "tt-single",
+    "size": 16000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791547448336896105
+  },
+  "r2-2000-orb": {
+    "arm": "orb",
+    "size": 2000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791546284792466792
+  },
+  "r2-2000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 2000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791545870166482915
+  },
+  "r2-2000-tt-single": {
+    "arm": "tt-single",
+    "size": 2000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791546143084793818
+  },
+  "r2-32000-orb": {
+    "arm": "orb",
+    "size": 32000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791548685631678413
+  },
+  "r2-32000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 32000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791547885241560714
+  },
+  "r2-32000-tt-single": {
+    "arm": "tt-single",
+    "size": 32000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791548378988977995
+  },
+  "r2-8000-orb": {
+    "arm": "orb",
+    "size": 8000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791546961179080814
+  },
+  "r2-8000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 8000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791546389616814629
+  },
+  "r2-8000-tt-single": {
+    "arm": "tt-single",
+    "size": 8000,
+    "repeat": 2,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791546739487686545
+  },
+  "r3-16000-orb": {
+    "arm": "orb",
+    "size": 16000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791550483070367552
+  },
+  "r3-16000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 16000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791550607466031217
+  },
+  "r3-16000-tt-single": {
+    "arm": "tt-single",
+    "size": 16000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791550125959190011
+  },
+  "r3-2000-orb": {
+    "arm": "orb",
+    "size": 2000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791549012195383678
+  },
+  "r3-2000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 2000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791549124256489646
+  },
+  "r3-2000-tt-single": {
+    "arm": "tt-single",
+    "size": 2000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791548835840036984
+  },
+  "r3-32000-orb": {
+    "arm": "orb",
+    "size": 32000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791551326632946835
+  },
+  "r3-32000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 32000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791551482665599525
+  },
+  "r3-32000-tt-single": {
+    "arm": "tt-single",
+    "size": 32000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791550976408580122
+  },
+  "r3-8000-orb": {
+    "arm": "orb",
+    "size": 8000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791549591804465147
+  },
+  "r3-8000-tt-handoff": {
+    "arm": "tt-handoff",
+    "size": 8000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791549692481481352
+  },
+  "r3-8000-tt-single": {
+    "arm": "tt-single",
+    "size": 8000,
+    "repeat": 3,
+    "pilot": false,
+    "turns": 10,
+    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+    "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
+    "harness_dirty": false,
+    "harness_backend_matches_orb": true,
+    "service_directories": {
+      "recorder": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ],
+      "auditor": [
+        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+      ]
+    },
+    "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
+    "tauritavern_commit": "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375",
+    "tauritavern_binary_sha256": "93f9bcc753d821c9be876497635877a54a256697a139321bf246fcfa9885cdb7",
+    "model_sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+    "llama_server_version": [
+      "version: 0.5.0-dev (build 1, commit edd6e2bb)",
+      "built with GNU 13.3.0 for Linux x86_64"
+    ],
+    "harness_files_sha256": {
+      "scripts/bench/auditor.py": "cb73159b972601971f947e15b14671d6871bfcefba16222bf7ed8861c56d3742",
+      "scripts/bench/cache/blocks.py": "a30af90d8860ac0e7f2826cb8c032be989cd078b66a0b5a2035aad16478cf9a0",
+      "scripts/bench/cache/defaults.json": "954de7d789eaaf427ca64e0442f2d96881cb66e9be594c6a235a4a0fb2349c97",
+      "scripts/bench/cache/fixture.py": "46211c985a337deab03dcef96bef18d48f4b8418f1fff79d03ff1d460344877c",
+      "scripts/bench/cache/fixtures/bellwick-16000.json": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
+      "scripts/bench/cache/fixtures/bellwick-2000.json": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
+      "scripts/bench/cache/fixtures/bellwick-32000.json": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
+      "scripts/bench/cache/fixtures/bellwick-8000.json": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
+      "scripts/bench/cache/inspect.py": "2f2a323ddc93d3d052d3072a1761321ec5ebcc42b3947e9c00f9e32361b409c4",
+      "scripts/bench/cache/orb_driver.py": "e5e09f6ba8b725645f223659c9b25384b4715b1fe32141e45b7775c3c3207072",
+      "scripts/bench/cache/report.py": "fc8ac455fe76692d20152f25f258c79b3b4991c87c8e2f97cca1a756f23eb9c6",
+      "scripts/bench/cache/tauri_driver.py": "d2c48f969406f1ba561faad59385e853b07ce21189f1f3293f683134cf2ae9c1",
+      "scripts/bench/cache/test_contracts.py": "ec0326deb597474e00c50bb728fb1e8b8629fd686e5cb076120d1da3eb72ccfb",
+      "scripts/bench/cache/tt_diagnostic.js": "b5d9abd9bda8e503b969ab842153c7af399aae7d484f00981c226698e027e4da",
+      "scripts/bench/cache/tt_preflight.js": "0403049eb85533557ab36f5fe8c95255667564241150e368d44960ca1ee831af",
+      "scripts/bench/cache/tt_run.py": "239a1651421507fe24af9c21ed45f1dfc8f5a78c2824a923121b6b6789e05506",
+      "scripts/bench/cache/tt_setup.js": "59d8e58382d73e00527ce065e44bf23f0ff6b41a5bdd5a77065754457e0db92d",
+      "scripts/bench/driven/jev_check.py": "5b7d183e16c9465325212c52d11a103bddd9c576d3bb0f1fb7aa840031fdbc5b",
+      "scripts/bench/recorder.py": "1043776e8a35ccf90f39b88abac8ff30e1692420d9a29841f1f6c61e16d06672",
+      "scripts/bench/serve_gemma.sh": "03f46dc5495afb8468e6bcaa8151225ab950fd88d3b7b08ac4ac557c01310c64",
+      "scripts/bench/smoke_llama.py": "e4048903692d2da0d066db4ed7ccd5de5d01106a06d5757d5eaa1761b7567221",
+      "scripts/bench/test_support.py": "8b4ffe6fbb1c1ae01cb60a48021a15ea876650a264c1649dd12b39a0255898a1"
+    },
+    "started_utc_ns": 1791549384861316966
+  }
+}

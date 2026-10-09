@@ -25,12 +25,8 @@ against hand labels before trusting it.
   stage and turn to explain cache reuse. Its optional frozen-request replay is a separate diagnostic, not a native
   turn or an application wall-clock result.
 - **Chat transport only.** Text-completion mode is not benchmarked.
-- **Status.** The Bench 1 harness is implemented under `scripts/bench/cache/`. The first comparison pilot (2026-10-09)
-  under-counted TauriTavern: its checks were stricter for TauriTavern than for Orb, and its Profile prompts provoked a
-  Gemma 4 tool-call failure. The fairness revision below fixes both; its results are in `scripts/bench/cache/results/`.
-  A later audit of the recorded requests found three more gaps, now closed: TauriTavern alone was told to respect the
-  user's autonomy, it lacked Orb's Director brief, and its Writer did not read the direction as Orb's Scene Guidance.
-  TauriTavern's wall time also excludes the driver's polling delay, which Orb's pushed `done` never pays.
+- **Status.** Bench 1 is done: the harness is under `scripts/bench/cache/`, and its 360-turn sweep (2026-10-09), with
+  the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
 
 ## Readiness (checked 2026-10-09)
 

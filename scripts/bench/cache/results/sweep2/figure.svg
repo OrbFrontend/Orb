@@ -1,0 +1,961 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="962" viewBox="0 0 960 962" role="img" aria-labelledby="t d">
+<style>
+svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68; --grid: #e1e0d9; --axis: #c3c2b7;
+  --s-orb: #2a78d6; --s-tt-handoff: #eb6834; --s-tt-single: #1baf7a; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f; --grid: #2c2c2a; --axis: #383835;
+    --s-orb: #3987e5; --s-tt-handoff: #d95926; --s-tt-single: #199e70; }
+}
+text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+.title { font-size: 18px; font-weight: 600; }
+.sub { font-size: 12.5px; fill: var(--ink-2); }
+.panel { font-size: 13px; font-weight: 600; }
+.note { font-size: 11.5px; fill: var(--ink-2); }
+.tick { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.label { font-size: 11.5px; font-weight: 600; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.dot { opacity: 0.4; }
+.median { stroke: var(--surface); stroke-width: 2; }
+.hollow { fill: var(--surface); stroke-width: 2; }
+</style>
+<title id="t">Bench 1: turn time and uncached input against context size</title>
+<desc id="d">Per-turn wall time and uncached input tokens against the largest prompt in the turn, for Orb and two TauriTavern configurations, with turn 1 after a cold server start apart from turns 2 to 10, then completion rates and output lengths by starting history. Every value is in turns.csv and summary.csv beside this figure.</desc>
+<rect width="100%" height="100%" rx="8" fill="var(--surface)"/>
+<text class="title" x="24" y="36">Turn time and uncached input against actual context size</text>
+<text class="sub" x="24" y="56">Bench 1 · 360 attempted turns · Gemma 4 26B-A4B on llama.cpp, one RTX 3090 · starting histories 2k, 8k, 16k, 32k tokens, 3 blocks of 10 turns each</text>
+<circle class="median" cx="29.0" cy="79.0" r="4.5" fill="var(--s-orb)"></circle>
+<text class="note" x="40" y="83">Orb</text>
+<rect class="median" x="74.8" y="75.0" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"></rect>
+<text class="note" x="89.8" y="83">TauriTavern handoff Profiles</text>
+<polygon class="median" points="293.6,73.0 298.8,83.4 288.4,83.4" stroke-linejoin="round" fill="var(--s-tt-single)"></polygon>
+<text class="note" x="304.59999999999997" y="83">TauriTavern single Profile</text>
+<text class="note" x="498.19999999999993" y="83">Small marks: one turn · large marks and lines: median per starting history</text>
+<text class="panel" x="24.0" y="118">Wall seconds per turn, qualified turns · turn 1 (cold server)</text>
+<line class="axis" x1="68.0" x2="452.0" y1="324.0" y2="324.0"/>
+<text class="tick" x="60.0" y="328.0" text-anchor="end">0</text>
+<line class="grid" x1="68.0" x2="452.0" y1="285.2" y2="285.2"/>
+<text class="tick" x="60.0" y="289.2" text-anchor="end">20</text>
+<line class="grid" x1="68.0" x2="452.0" y1="246.4" y2="246.4"/>
+<text class="tick" x="60.0" y="250.4" text-anchor="end">40</text>
+<line class="grid" x1="68.0" x2="452.0" y1="207.6" y2="207.6"/>
+<text class="tick" x="60.0" y="211.6" text-anchor="end">60</text>
+<line class="grid" x1="68.0" x2="452.0" y1="168.8" y2="168.8"/>
+<text class="tick" x="60.0" y="172.8" text-anchor="end">80</text>
+<line class="grid" x1="68.0" x2="452.0" y1="130.0" y2="130.0"/>
+<text class="tick" x="60.0" y="134.0" text-anchor="end">100</text>
+<text class="tick" x="68.0" y="340" text-anchor="middle">0</text>
+<text class="tick" x="144.8" y="340" text-anchor="middle">10k</text>
+<text class="tick" x="221.6" y="340" text-anchor="middle">20k</text>
+<text class="tick" x="298.4" y="340" text-anchor="middle">30k</text>
+<text class="tick" x="375.2" y="340" text-anchor="middle">40k</text>
+<text class="tick" x="452.0" y="340" text-anchor="middle">50k</text>
+<text class="tick" x="452.0" y="354" text-anchor="end">largest prompt in the turn, tokens →</text>
+<circle class="dot" cx="211.6" cy="297.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 1 · context 18,700 · native wall seconds 13.8</title></circle>
+<circle class="dot" cx="103.9" cy="305.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 1 · context 4,672 · native wall seconds 9.6</title></circle>
+<circle class="dot" cx="339.2" cy="287.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 1 · context 35,317 · native wall seconds 18.7</title></circle>
+<circle class="dot" cx="148.8" cy="302.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 1 · context 10,526 · native wall seconds 10.9</title></circle>
+<circle class="dot" cx="211.3" cy="300.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 1 · context 18,656 · native wall seconds 12.4</title></circle>
+<circle class="dot" cx="102.8" cy="306.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 1 · context 4,536 · native wall seconds 9.1</title></circle>
+<circle class="dot" cx="337.6" cy="288.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 1 · context 35,109 · native wall seconds 18.4</title></circle>
+<circle class="dot" cx="150.0" cy="299.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 1 · context 10,673 · native wall seconds 12.7</title></circle>
+<circle class="dot" cx="212.4" cy="297.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 1 · context 18,808 · native wall seconds 13.8</title></circle>
+<circle class="dot" cx="102.3" cy="303.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 1 · context 4,462 · native wall seconds 10.7</title></circle>
+<circle class="dot" cx="338.2" cy="282.9" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 1 · context 35,177 · native wall seconds 21.2</title></circle>
+<circle class="dot" cx="146.4" cy="308.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 1 · context 10,214 · native wall seconds 7.9</title></circle>
+<rect class="dot" x="227.6" y="272.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 1 · context 21,089 · native wall seconds 25.4</title></rect>
+<rect class="dot" x="125.3" y="270.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 1 · context 7,769 · native wall seconds 26.3</title></rect>
+<rect class="dot" x="179.2" y="257.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 1 · context 14,784 · native wall seconds 32.8</title></rect>
+<rect class="dot" x="236.6" y="260.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 1 · context 22,258 · native wall seconds 31.4</title></rect>
+<rect class="dot" x="116.7" y="284.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 1 · context 6,643 · native wall seconds 19.3</title></rect>
+<rect class="dot" x="358.4" y="240.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 1 · context 38,111 · native wall seconds 41.9</title></rect>
+<rect class="dot" x="165.4" y="275.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 1 · context 12,985 · native wall seconds 23.8</title></rect>
+<rect class="dot" x="226.1" y="271.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 1 · context 20,888 · native wall seconds 25.8</title></rect>
+<rect class="dot" x="131.9" y="265.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 1 · context 8,624 · native wall seconds 28.8</title></rect>
+<rect class="dot" x="353.2" y="251.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 1 · context 37,434 · native wall seconds 36.4</title></rect>
+<polygon class="dot" points="222.6,292.7 225.6,298.7 219.6,298.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 1 · context 20,129 · native wall seconds 14.3</title></polygon>
+<polygon class="dot" points="160.8,295.8 163.8,301.8 157.8,301.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 1 · context 12,087 · native wall seconds 12.8</title></polygon>
+<polygon class="dot" points="224.3,287.8 227.3,293.8 221.3,293.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 1 · context 20,348 · native wall seconds 16.9</title></polygon>
+<polygon class="dot" points="119.5,291.8 122.5,297.8 116.6,297.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 1 · context 6,711 · native wall seconds 14.8</title></polygon>
+<polygon class="dot" points="377.9,205.0 380.9,211.0 375.0,211.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 1 · context 40,358 · native wall seconds 59.6</title></polygon>
+<polygon class="dot" points="162.4,291.9 165.4,297.9 159.4,297.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 1 · context 12,287 · native wall seconds 14.8</title></polygon>
+<polygon class="dot" points="224.8,288.8 227.7,294.8 221.8,294.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 1 · context 20,411 · native wall seconds 16.4</title></polygon>
+<polygon class="dot" points="120.5,289.0 123.5,294.9 117.6,294.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 1 · context 6,842 · native wall seconds 16.3</title></polygon>
+<polygon class="dot" points="355.8,256.7 358.8,262.7 352.8,262.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 1 · context 37,472 · native wall seconds 32.9</title></polygon>
+<polygon class="dot" points="160.7,295.7 163.7,301.7 157.7,301.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 1 · context 12,075 · native wall seconds 12.8</title></polygon>
+<path class="line" d="M102.8,305.3 L148.8,302.8 L211.6,297.2 L338.2,287.8" stroke="var(--s-orb)"/>
+<circle class="median" cx="102.8" cy="305.3" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 2,000 · median of 3: context 4,536, 9.6</title></circle>
+<circle class="median" cx="148.8" cy="302.8" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 8,000 · median of 3: context 10,526, 10.9</title></circle>
+<circle class="median" cx="211.6" cy="297.2" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 16,000 · median of 3: context 18,700, 13.8</title></circle>
+<circle class="median" cx="338.2" cy="287.8" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 32,000 · median of 3: context 35,177, 18.7</title></circle>
+<path class="line" d="M127.7,272.9 L174.6,269.0 L230.0,273.9 L358.1,248.0" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="123.6" y="268.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 2,000 · median of 3: context 7,769, 26.3</title></rect>
+<rect class="median" x="170.6" y="265.0" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 8,000 · median of 2: context 13,884, 28.3</title></rect>
+<rect class="median" x="225.9" y="269.8" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 16,000 · median of 3: context 21,089, 25.8</title></rect>
+<rect class="median" x="354.0" y="243.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 32,000 · median of 2: context 37,772, 39.2</title></rect>
+<path class="line" d="M120.0,293.8 L160.8,299.1 L224.3,292.2 L366.9,234.3" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="120.0,287.9 125.2,298.2 114.9,298.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 2,000 · median of 2: context 6,776, 15.6</title></polygon>
+<polygon class="median" points="160.8,293.2 166.0,303.5 155.7,303.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 8,000 · median of 3: context 12,087, 12.8</title></polygon>
+<polygon class="median" points="224.3,286.3 229.4,296.6 219.1,296.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 16,000 · median of 3: context 20,348, 16.4</title></polygon>
+<polygon class="median" points="366.9,228.3 372.0,238.7 361.7,238.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 32,000 · median of 2: context 38,915, 46.2</title></polygon>
+<text class="panel" x="500.0" y="118">Wall seconds per turn, qualified turns · turns 2–10</text>
+<line class="axis" x1="544.0" x2="928.0" y1="324.0" y2="324.0"/>
+<text class="tick" x="536.0" y="328.0" text-anchor="end">0</text>
+<line class="grid" x1="544.0" x2="928.0" y1="285.2" y2="285.2"/>
+<text class="tick" x="536.0" y="289.2" text-anchor="end">20</text>
+<line class="grid" x1="544.0" x2="928.0" y1="246.4" y2="246.4"/>
+<text class="tick" x="536.0" y="250.4" text-anchor="end">40</text>
+<line class="grid" x1="544.0" x2="928.0" y1="207.6" y2="207.6"/>
+<text class="tick" x="536.0" y="211.6" text-anchor="end">60</text>
+<line class="grid" x1="544.0" x2="928.0" y1="168.8" y2="168.8"/>
+<text class="tick" x="536.0" y="172.8" text-anchor="end">80</text>
+<line class="grid" x1="544.0" x2="928.0" y1="130.0" y2="130.0"/>
+<text class="tick" x="536.0" y="134.0" text-anchor="end">100</text>
+<text class="tick" x="544.0" y="340" text-anchor="middle">0</text>
+<text class="tick" x="620.8" y="340" text-anchor="middle">10k</text>
+<text class="tick" x="697.6" y="340" text-anchor="middle">20k</text>
+<text class="tick" x="774.4" y="340" text-anchor="middle">30k</text>
+<text class="tick" x="851.2" y="340" text-anchor="middle">40k</text>
+<text class="tick" x="928.0" y="340" text-anchor="middle">50k</text>
+<text class="tick" x="928.0" y="354" text-anchor="end">largest prompt in the turn, tokens →</text>
+<circle class="dot" cx="690.7" cy="306.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 2 · context 19,103 · native wall seconds 9.2</title></circle>
+<circle class="dot" cx="694.4" cy="309.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 3 · context 19,586 · native wall seconds 7.7</title></circle>
+<circle class="dot" cx="698.1" cy="303.5" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 4 · context 20,066 · native wall seconds 10.6</title></circle>
+<circle class="dot" cx="702.1" cy="303.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 5 · context 20,591 · native wall seconds 10.7</title></circle>
+<circle class="dot" cx="707.2" cy="301.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 6 · context 21,255 · native wall seconds 11.6</title></circle>
+<circle class="dot" cx="710.8" cy="304.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 7 · context 21,723 · native wall seconds 9.9</title></circle>
+<circle class="dot" cx="716.5" cy="302.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 8 · context 22,466 · native wall seconds 11.0</title></circle>
+<circle class="dot" cx="720.0" cy="302.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 9 · context 22,920 · native wall seconds 11.3</title></circle>
+<circle class="dot" cx="726.3" cy="294.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 10 · context 23,732 · native wall seconds 15.1</title></circle>
+<circle class="dot" cx="584.8" cy="304.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 2 · context 5,313 · native wall seconds 10.0</title></circle>
+<circle class="dot" cx="585.7" cy="306.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 3 · context 5,426 · native wall seconds 9.2</title></circle>
+<circle class="dot" cx="590.8" cy="305.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 4 · context 6,089 · native wall seconds 9.5</title></circle>
+<circle class="dot" cx="595.4" cy="307.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 5 · context 6,687 · native wall seconds 8.4</title></circle>
+<circle class="dot" cx="601.2" cy="300.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 6 · context 7,448 · native wall seconds 12.0</title></circle>
+<circle class="dot" cx="607.3" cy="302.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 7 · context 8,248 · native wall seconds 11.2</title></circle>
+<circle class="dot" cx="611.7" cy="303.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 8 · context 8,821 · native wall seconds 10.8</title></circle>
+<circle class="dot" cx="616.2" cy="303.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 9 · context 9,404 · native wall seconds 10.3</title></circle>
+<circle class="dot" cx="621.6" cy="304.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 10 · context 10,100 · native wall seconds 9.9</title></circle>
+<circle class="dot" cx="816.4" cy="303.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 2 · context 35,474 · native wall seconds 10.6</title></circle>
+<circle class="dot" cx="822.1" cy="301.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 3 · context 36,207 · native wall seconds 11.9</title></circle>
+<circle class="dot" cx="823.1" cy="307.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 4 · context 36,335 · native wall seconds 8.6</title></circle>
+<circle class="dot" cx="828.7" cy="299.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 5 · context 37,067 · native wall seconds 12.5</title></circle>
+<circle class="dot" cx="833.9" cy="296.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 6 · context 37,751 · native wall seconds 14.0</title></circle>
+<circle class="dot" cx="835.8" cy="304.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 7 · context 37,998 · native wall seconds 10.1</title></circle>
+<circle class="dot" cx="840.2" cy="299.5" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 8 · context 38,571 · native wall seconds 12.6</title></circle>
+<circle class="dot" cx="843.9" cy="293.5" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 9 · context 39,054 · native wall seconds 15.7</title></circle>
+<circle class="dot" cx="850.8" cy="291.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 10 · context 39,952 · native wall seconds 16.8</title></circle>
+<circle class="dot" cx="627.3" cy="310.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 2 · context 10,848 · native wall seconds 7.0</title></circle>
+<circle class="dot" cx="633.2" cy="307.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 3 · context 11,612 · native wall seconds 8.6</title></circle>
+<circle class="dot" cx="637.6" cy="303.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 4 · context 12,193 · native wall seconds 10.5</title></circle>
+<circle class="dot" cx="644.5" cy="300.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 5 · context 13,080 · native wall seconds 12.4</title></circle>
+<circle class="dot" cx="647.9" cy="305.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 6 · context 13,530 · native wall seconds 9.4</title></circle>
+<circle class="dot" cx="652.6" cy="299.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 7 · context 14,145 · native wall seconds 12.6</title></circle>
+<circle class="dot" cx="655.5" cy="298.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 8 · context 14,513 · native wall seconds 13.3</title></circle>
+<circle class="dot" cx="658.6" cy="304.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 9 · context 14,921 · native wall seconds 9.9</title></circle>
+<circle class="dot" cx="670.3" cy="294.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 10 · context 16,449 · native wall seconds 15.3</title></circle>
+<circle class="dot" cx="691.1" cy="304.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 2 · context 19,153 · native wall seconds 10.1</title></circle>
+<circle class="dot" cx="695.0" cy="304.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 3 · context 19,667 · native wall seconds 10.3</title></circle>
+<circle class="dot" cx="697.9" cy="301.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 4 · context 20,043 · native wall seconds 11.4</title></circle>
+<circle class="dot" cx="704.6" cy="297.6" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 5 · context 20,913 · native wall seconds 13.6</title></circle>
+<circle class="dot" cx="709.5" cy="302.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 6 · context 21,547 · native wall seconds 10.9</title></circle>
+<circle class="dot" cx="713.4" cy="302.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 7 · context 22,053 · native wall seconds 11.3</title></circle>
+<circle class="dot" cx="714.3" cy="307.6" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 8 · context 22,179 · native wall seconds 8.5</title></circle>
+<circle class="dot" cx="718.7" cy="301.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 9 · context 22,752 · native wall seconds 11.5</title></circle>
+<circle class="dot" cx="727.9" cy="296.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 10 · context 23,940 · native wall seconds 14.1</title></circle>
+<circle class="dot" cx="579.2" cy="312.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 2 · context 4,580 · native wall seconds 5.8</title></circle>
+<circle class="dot" cx="585.2" cy="307.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 3 · context 5,367 · native wall seconds 8.6</title></circle>
+<circle class="dot" cx="591.9" cy="305.4" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 4 · context 6,242 · native wall seconds 9.6</title></circle>
+<circle class="dot" cx="597.2" cy="302.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 5 · context 6,925 · native wall seconds 11.2</title></circle>
+<circle class="dot" cx="601.9" cy="308.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 6 · context 7,543 · native wall seconds 8.0</title></circle>
+<circle class="dot" cx="605.5" cy="304.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 7 · context 8,010 · native wall seconds 9.8</title></circle>
+<circle class="dot" cx="610.9" cy="300.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 8 · context 8,711 · native wall seconds 12.0</title></circle>
+<circle class="dot" cx="615.9" cy="304.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 9 · context 9,360 · native wall seconds 9.9</title></circle>
+<circle class="dot" cx="622.6" cy="303.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 10 · context 10,236 · native wall seconds 10.6</title></circle>
+<circle class="dot" cx="820.2" cy="302.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 2 · context 35,970 · native wall seconds 11.1</title></circle>
+<circle class="dot" cx="824.1" cy="300.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 3 · context 36,469 · native wall seconds 11.9</title></circle>
+<circle class="dot" cx="827.0" cy="303.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 4 · context 36,844 · native wall seconds 10.5</title></circle>
+<circle class="dot" cx="835.1" cy="295.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 5 · context 37,898 · native wall seconds 14.6</title></circle>
+<circle class="dot" cx="838.1" cy="299.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 6 · context 38,288 · native wall seconds 12.6</title></circle>
+<circle class="dot" cx="845.3" cy="295.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 7 · context 39,229 · native wall seconds 14.9</title></circle>
+<circle class="dot" cx="854.0" cy="290.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 9 · context 40,371 · native wall seconds 17.1</title></circle>
+<circle class="dot" cx="627.6" cy="310.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 2 · context 10,891 · native wall seconds 6.8</title></circle>
+<circle class="dot" cx="632.6" cy="305.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 3 · context 11,536 · native wall seconds 9.4</title></circle>
+<circle class="dot" cx="637.6" cy="306.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 4 · context 12,187 · native wall seconds 9.1</title></circle>
+<circle class="dot" cx="644.6" cy="300.6" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 5 · context 13,105 · native wall seconds 12.1</title></circle>
+<circle class="dot" cx="645.5" cy="308.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 6 · context 13,215 · native wall seconds 7.8</title></circle>
+<circle class="dot" cx="650.7" cy="299.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 7 · context 13,892 · native wall seconds 12.5</title></circle>
+<circle class="dot" cx="654.7" cy="305.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 8 · context 14,415 · native wall seconds 9.7</title></circle>
+<circle class="dot" cx="660.5" cy="297.4" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 9 · context 15,164 · native wall seconds 13.7</title></circle>
+<circle class="dot" cx="668.1" cy="293.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 10 · context 16,157 · native wall seconds 15.6</title></circle>
+<circle class="dot" cx="690.6" cy="304.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 2 · context 19,090 · native wall seconds 10.0</title></circle>
+<circle class="dot" cx="693.6" cy="309.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 3 · context 19,479 · native wall seconds 7.7</title></circle>
+<circle class="dot" cx="697.7" cy="307.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 4 · context 20,008 · native wall seconds 8.4</title></circle>
+<circle class="dot" cx="702.7" cy="304.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 5 · context 20,658 · native wall seconds 10.3</title></circle>
+<circle class="dot" cx="708.2" cy="302.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 6 · context 21,381 · native wall seconds 11.2</title></circle>
+<circle class="dot" cx="712.3" cy="302.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 7 · context 21,911 · native wall seconds 11.2</title></circle>
+<circle class="dot" cx="716.1" cy="302.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 8 · context 22,414 · native wall seconds 11.1</title></circle>
+<circle class="dot" cx="721.6" cy="295.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 9 · context 23,130 · native wall seconds 14.8</title></circle>
+<circle class="dot" cx="726.4" cy="297.9" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 10 · context 23,744 · native wall seconds 13.5</title></circle>
+<circle class="dot" cx="582.0" cy="309.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 2 · context 4,942 · native wall seconds 7.7</title></circle>
+<circle class="dot" cx="584.1" cy="311.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 3 · context 5,218 · native wall seconds 6.7</title></circle>
+<circle class="dot" cx="589.4" cy="305.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 4 · context 5,908 · native wall seconds 9.4</title></circle>
+<circle class="dot" cx="594.3" cy="303.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 5 · context 6,543 · native wall seconds 10.5</title></circle>
+<circle class="dot" cx="600.7" cy="300.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 6 · context 7,387 · native wall seconds 12.2</title></circle>
+<circle class="dot" cx="605.6" cy="301.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 7 · context 8,017 · native wall seconds 11.5</title></circle>
+<circle class="dot" cx="610.0" cy="304.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 8 · context 8,588 · native wall seconds 10.2</title></circle>
+<circle class="dot" cx="610.8" cy="310.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 9 · context 8,702 · native wall seconds 7.0</title></circle>
+<circle class="dot" cx="621.6" cy="294.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 10 · context 10,100 · native wall seconds 15.5</title></circle>
+<circle class="dot" cx="823.4" cy="303.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 3 · context 36,379 · native wall seconds 10.7</title></circle>
+<circle class="dot" cx="825.7" cy="304.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 4 · context 36,677 · native wall seconds 10.2</title></circle>
+<circle class="dot" cx="833.1" cy="294.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 5 · context 37,646 · native wall seconds 15.3</title></circle>
+<circle class="dot" cx="837.0" cy="301.5" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 6 · context 38,145 · native wall seconds 11.6</title></circle>
+<circle class="dot" cx="845.7" cy="299.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 8 · context 39,283 · native wall seconds 12.7</title></circle>
+<circle class="dot" cx="849.3" cy="294.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 9 · context 39,754 · native wall seconds 15.2</title></circle>
+<circle class="dot" cx="856.7" cy="288.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 10 · context 40,717 · native wall seconds 18.4</title></circle>
+<circle class="dot" cx="629.0" cy="307.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 2 · context 11,063 · native wall seconds 8.5</title></circle>
+<circle class="dot" cx="631.9" cy="306.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 3 · context 11,439 · native wall seconds 8.9</title></circle>
+<circle class="dot" cx="633.0" cy="309.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 4 · context 11,584 · native wall seconds 7.7</title></circle>
+<circle class="dot" cx="637.7" cy="306.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 5 · context 12,206 · native wall seconds 9.1</title></circle>
+<circle class="dot" cx="643.6" cy="307.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 6 · context 12,963 · native wall seconds 8.5</title></circle>
+<circle class="dot" cx="649.3" cy="305.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 8 · context 13,706 · native wall seconds 9.5</title></circle>
+<circle class="dot" cx="653.8" cy="306.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 9 · context 14,299 · native wall seconds 9.2</title></circle>
+<circle class="dot" cx="658.1" cy="299.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 10 · context 14,853 · native wall seconds 12.5</title></circle>
+<rect class="dot" x="705.7" y="277.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 2 · context 21,363 · native wall seconds 22.8</title></rect>
+<rect class="dot" x="716.1" y="259.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 3 · context 22,716 · native wall seconds 32.2</title></rect>
+<rect class="dot" x="717.1" y="260.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 4 · context 22,849 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="716.3" y="268.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 5 · context 22,743 · native wall seconds 27.3</title></rect>
+<rect class="dot" x="718.4" y="272.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 6 · context 23,009 · native wall seconds 25.3</title></rect>
+<rect class="dot" x="740.4" y="252.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 7 · context 25,879 · native wall seconds 35.8</title></rect>
+<rect class="dot" x="720.5" y="278.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 8 · context 23,280 · native wall seconds 22.3</title></rect>
+<rect class="dot" x="736.9" y="258.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 9 · context 25,428 · native wall seconds 32.8</title></rect>
+<rect class="dot" x="606.1" y="267.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 3 · context 8,392 · native wall seconds 27.8</title></rect>
+<rect class="dot" x="597.9" y="290.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 4 · context 7,325 · native wall seconds 16.3</title></rect>
+<rect class="dot" x="609.1" y="272.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 5 · context 8,775 · native wall seconds 25.3</title></rect>
+<rect class="dot" x="613.2" y="272.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 6 · context 9,315 · native wall seconds 25.3</title></rect>
+<rect class="dot" x="643.1" y="243.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 7 · context 13,207 · native wall seconds 40.4</title></rect>
+<rect class="dot" x="620.9" y="271.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 8 · context 10,316 · native wall seconds 25.8</title></rect>
+<rect class="dot" x="618.3" y="278.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 10 · context 9,979 · native wall seconds 22.3</title></rect>
+<rect class="dot" x="830.4" y="263.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 2 · context 37,597 · native wall seconds 29.8</title></rect>
+<rect class="dot" x="847.7" y="239.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 3 · context 39,852 · native wall seconds 42.4</title></rect>
+<rect class="dot" x="832.0" y="273.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 4 · context 37,800 · native wall seconds 24.8</title></rect>
+<rect class="dot" x="843.6" y="259.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 5 · context 39,309 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="846.0" y="253.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 6 · context 39,627 · native wall seconds 35.3</title></rect>
+<rect class="dot" x="865.2" y="229.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 7 · context 42,131 · native wall seconds 47.4</title></rect>
+<rect class="dot" x="855.3" y="249.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 8 · context 40,844 · native wall seconds 37.3</title></rect>
+<rect class="dot" x="864.8" y="242.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 9 · context 42,079 · native wall seconds 40.9</title></rect>
+<rect class="dot" x="860.4" y="247.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 10 · context 41,500 · native wall seconds 38.3</title></rect>
+<rect class="dot" x="649.7" y="276.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 2 · context 14,062 · native wall seconds 23.3</title></rect>
+<rect class="dot" x="642.8" y="289.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 3 · context 13,169 · native wall seconds 16.8</title></rect>
+<rect class="dot" x="649.8" y="280.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 4 · context 14,081 · native wall seconds 21.3</title></rect>
+<rect class="dot" x="662.7" y="268.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 5 · context 15,763 · native wall seconds 27.3</title></rect>
+<rect class="dot" x="658.4" y="277.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 7 · context 15,206 · native wall seconds 22.8</title></rect>
+<rect class="dot" x="659.4" y="276.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 8 · context 15,330 · native wall seconds 23.3</title></rect>
+<rect class="dot" x="671.8" y="261.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 9 · context 16,939 · native wall seconds 30.8</title></rect>
+<rect class="dot" x="678.3" y="258.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 10 · context 17,797 · native wall seconds 32.8</title></rect>
+<rect class="dot" x="707.0" y="279.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 2 · context 21,528 · native wall seconds 21.8</title></rect>
+<rect class="dot" x="743.7" y="223.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 3 · context 26,310 · native wall seconds 50.8</title></rect>
+<rect class="dot" x="726.2" y="265.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 5 · context 24,029 · native wall seconds 28.8</title></rect>
+<rect class="dot" x="723.9" y="272.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 6 · context 23,726 · native wall seconds 25.3</title></rect>
+<rect class="dot" x="725.4" y="266.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 7 · context 23,921 · native wall seconds 28.3</title></rect>
+<rect class="dot" x="723.0" y="268.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 8 · context 23,610 · native wall seconds 27.3</title></rect>
+<rect class="dot" x="728.2" y="270.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 9 · context 24,292 · native wall seconds 26.3</title></rect>
+<rect class="dot" x="742.0" y="242.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 10 · context 26,082 · native wall seconds 40.9</title></rect>
+<rect class="dot" x="616.1" y="268.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 2 · context 9,699 · native wall seconds 27.3</title></rect>
+<rect class="dot" x="608.8" y="277.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 3 · context 8,743 · native wall seconds 22.8</title></rect>
+<rect class="dot" x="597.6" y="292.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 4 · context 7,287 · native wall seconds 15.3</title></rect>
+<rect class="dot" x="620.6" y="260.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 5 · context 10,273 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="615.7" y="265.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 6 · context 9,641 · native wall seconds 28.8</title></rect>
+<rect class="dot" x="611.2" y="281.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 7 · context 9,060 · native wall seconds 20.8</title></rect>
+<rect class="dot" x="615.5" y="280.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 8 · context 9,615 · native wall seconds 21.3</title></rect>
+<rect class="dot" x="617.9" y="280.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 9 · context 9,921 · native wall seconds 21.3</title></rect>
+<rect class="dot" x="659.0" y="229.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 10 · context 15,274 · native wall seconds 47.4</title></rect>
+<rect class="dot" x="837.1" y="255.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 2 · context 38,474 · native wall seconds 34.3</title></rect>
+<rect class="dot" x="844.4" y="243.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 3 · context 39,415 · native wall seconds 40.3</title></rect>
+<rect class="dot" x="837.4" y="266.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 4 · context 38,511 · native wall seconds 28.3</title></rect>
+<rect class="dot" x="846.1" y="260.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 6 · context 39,642 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="848.8" y="264.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 8 · context 39,990 · native wall seconds 29.4</title></rect>
+<rect class="dot" x="860.9" y="251.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 9 · context 41,565 · native wall seconds 36.4</title></rect>
+<rect class="dot" x="676.6" y="228.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 2 · context 17,569 · native wall seconds 47.8</title></rect>
+<rect class="dot" x="644.6" y="288.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 4 · context 13,401 · native wall seconds 17.3</title></rect>
+<rect class="dot" x="666.4" y="265.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 6 · context 16,244 · native wall seconds 28.8</title></rect>
+<rect class="dot" x="668.9" y="254.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 7 · context 16,572 · native wall seconds 34.8</title></rect>
+<rect class="dot" x="659.7" y="276.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 8 · context 15,375 · native wall seconds 23.3</title></rect>
+<rect class="dot" x="667.0" y="266.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 9 · context 16,322 · native wall seconds 28.3</title></rect>
+<rect class="dot" x="704.9" y="282.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 2 · context 21,254 · native wall seconds 20.3</title></rect>
+<rect class="dot" x="749.4" y="230.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 3 · context 27,053 · native wall seconds 46.9</title></rect>
+<rect class="dot" x="710.4" y="280.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 4 · context 21,977 · native wall seconds 21.3</title></rect>
+<rect class="dot" x="727.5" y="259.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 5 · context 24,193 · native wall seconds 32.3</title></rect>
+<rect class="dot" x="725.6" y="269.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 6 · context 23,952 · native wall seconds 26.8</title></rect>
+<rect class="dot" x="721.5" y="278.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 7 · context 23,414 · native wall seconds 22.3</title></rect>
+<rect class="dot" x="739.9" y="255.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 10 · context 25,806 · native wall seconds 34.3</title></rect>
+<rect class="dot" x="598.0" y="281.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 2 · context 7,335 · native wall seconds 20.7</title></rect>
+<rect class="dot" x="603.9" y="279.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 3 · context 8,109 · native wall seconds 21.7</title></rect>
+<rect class="dot" x="606.8" y="281.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 4 · context 8,479 · native wall seconds 20.8</title></rect>
+<rect class="dot" x="617.2" y="260.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 5 · context 9,841 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="612.6" y="274.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 6 · context 9,237 · native wall seconds 24.3</title></rect>
+<rect class="dot" x="616.2" y="276.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 7 · context 9,702 · native wall seconds 23.3</title></rect>
+<rect class="dot" x="619.0" y="271.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 8 · context 10,075 · native wall seconds 25.8</title></rect>
+<rect class="dot" x="615.6" y="280.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 9 · context 9,630 · native wall seconds 21.3</title></rect>
+<rect class="dot" x="622.4" y="274.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 10 · context 10,518 · native wall seconds 24.3</title></rect>
+<rect class="dot" x="831.7" y="263.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 2 · context 37,768 · native wall seconds 29.8</title></rect>
+<rect class="dot" x="859.2" y="235.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 3 · context 41,343 · native wall seconds 44.3</title></rect>
+<rect class="dot" x="841.8" y="260.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 4 · context 39,079 · native wall seconds 31.3</title></rect>
+<rect class="dot" x="841.0" y="267.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 5 · context 38,975 · native wall seconds 27.8</title></rect>
+<rect class="dot" x="907.7" y="154.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 6 · context 47,660 · native wall seconds 86.4</title></rect>
+<rect class="dot" x="854.3" y="231.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 7 · context 40,711 · native wall seconds 46.4</title></rect>
+<rect class="dot" x="862.0" y="254.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 9 · context 41,707 · native wall seconds 34.8</title></rect>
+<rect class="dot" x="658.5" y="255.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 2 · context 15,217 · native wall seconds 34.3</title></rect>
+<rect class="dot" x="667.3" y="254.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 3 · context 16,365 · native wall seconds 34.8</title></rect>
+<rect class="dot" x="660.0" y="262.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 4 · context 15,413 · native wall seconds 30.3</title></rect>
+<rect class="dot" x="667.4" y="259.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 6 · context 16,376 · native wall seconds 31.8</title></rect>
+<rect class="dot" x="666.4" y="268.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 7 · context 16,245 · native wall seconds 27.3</title></rect>
+<rect class="dot" x="688.9" y="235.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 9 · context 19,175 · native wall seconds 44.3</title></rect>
+<rect class="dot" x="682.9" y="245.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 10 · context 18,396 · native wall seconds 39.3</title></rect>
+<polygon class="dot" points="702.7,298.7 705.7,304.6 699.7,304.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 2 · context 20,665 · native wall seconds 11.3</title></polygon>
+<polygon class="dot" points="707.1,294.8 710.1,300.8 704.1,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 3 · context 21,232 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="703.1,306.5 706.1,312.5 700.1,312.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 4 · context 20,714 · native wall seconds 7.2</title></polygon>
+<polygon class="dot" points="712.3,292.8 715.2,298.8 709.3,298.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 5 · context 21,908 · native wall seconds 14.3</title></polygon>
+<polygon class="dot" points="719.4,291.8 722.4,297.8 716.4,297.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 8 · context 22,843 · native wall seconds 14.8</title></polygon>
+<polygon class="dot" points="720.0,297.7 723.0,303.7 717.0,303.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 9 · context 22,914 · native wall seconds 11.8</title></polygon>
+<polygon class="dot" points="598.8,290.9 601.8,296.9 595.8,296.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 2 · context 7,140 · native wall seconds 15.3</title></polygon>
+<polygon class="dot" points="609.3,284.1 612.3,290.0 606.3,290.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 4 · context 8,502 · native wall seconds 18.8</title></polygon>
+<polygon class="dot" points="598.0,306.5 601.0,312.5 595.0,312.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 5 · context 7,030 · native wall seconds 7.2</title></polygon>
+<polygon class="dot" points="615.8,284.1 618.8,290.1 612.8,290.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 6 · context 9,353 · native wall seconds 18.8</title></polygon>
+<polygon class="dot" points="618.7,274.4 621.6,280.3 615.7,280.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 7 · context 9,721 · native wall seconds 23.8</title></polygon>
+<polygon class="dot" points="609.6,297.7 612.6,303.7 606.6,303.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 8 · context 8,545 · native wall seconds 11.8</title></polygon>
+<polygon class="dot" points="612.0,299.7 615.0,305.6 609.1,305.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 9 · context 8,860 · native wall seconds 10.8</title></polygon>
+<polygon class="dot" points="618.2,293.9 621.2,299.8 615.2,299.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 10 · context 9,664 · native wall seconds 13.8</title></polygon>
+<polygon class="dot" points="829.9,278.2 832.9,284.2 826.9,284.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 2 · context 37,230 · native wall seconds 21.8</title></polygon>
+<polygon class="dot" points="827.1,302.6 830.1,308.5 824.1,308.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 4 · context 36,867 · native wall seconds 9.3</title></polygon>
+<polygon class="dot" points="829.3,301.6 832.3,307.6 826.4,307.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 5 · context 37,154 · native wall seconds 9.8</title></polygon>
+<polygon class="dot" points="834.2,290.9 837.1,296.9 831.2,296.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 6 · context 37,781 · native wall seconds 15.3</title></polygon>
+<polygon class="dot" points="841.6,281.2 844.6,287.2 838.6,287.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 7 · context 38,746 · native wall seconds 20.3</title></polygon>
+<polygon class="dot" points="852.5,261.7 855.5,267.7 849.6,267.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 10 · context 40,175 · native wall seconds 30.4</title></polygon>
+<polygon class="dot" points="646.4,288.0 649.4,293.9 643.4,293.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 3 · context 13,335 · native wall seconds 16.8</title></polygon>
+<polygon class="dot" points="643.9,298.7 646.9,304.7 640.9,304.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 4 · context 13,005 · native wall seconds 11.3</title></polygon>
+<polygon class="dot" points="647.1,295.8 650.1,301.8 644.1,301.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 5 · context 13,427 · native wall seconds 12.8</title></polygon>
+<polygon class="dot" points="655.0,287.0 658.0,293.0 652.0,293.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 6 · context 14,457 · native wall seconds 17.3</title></polygon>
+<polygon class="dot" points="648.7,299.7 651.6,305.6 645.7,305.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 7 · context 13,627 · native wall seconds 10.8</title></polygon>
+<polygon class="dot" points="656.9,286.1 659.9,292.1 653.9,292.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 8 · context 14,701 · native wall seconds 17.7</title></polygon>
+<polygon class="dot" points="666.9,275.4 669.9,281.4 664.0,281.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 9 · context 16,009 · native wall seconds 23.3</title></polygon>
+<polygon class="dot" points="659.2,290.9 662.2,296.9 656.2,296.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 10 · context 14,998 · native wall seconds 15.3</title></polygon>
+<polygon class="dot" points="714.1,272.5 717.1,278.5 711.1,278.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 2 · context 22,151 · native wall seconds 24.8</title></polygon>
+<polygon class="dot" points="741.1,237.5 744.1,243.5 738.1,243.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 3 · context 25,663 · native wall seconds 42.8</title></polygon>
+<polygon class="dot" points="718.4,279.3 721.4,285.3 715.4,285.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 4 · context 22,704 · native wall seconds 21.3</title></polygon>
+<polygon class="dot" points="720.4,287.0 723.4,293.0 717.5,293.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 6 · context 22,975 · native wall seconds 17.3</title></polygon>
+<polygon class="dot" points="729.1,269.6 732.1,275.5 726.1,275.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 7 · context 24,099 · native wall seconds 26.3</title></polygon>
+<polygon class="dot" points="724.5,294.8 727.5,300.8 721.5,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 8 · context 23,500 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="595.6,294.8 598.6,300.8 592.6,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 2 · context 6,716 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="597.5,296.8 600.5,302.8 594.5,302.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 3 · context 6,965 · native wall seconds 12.2</title></polygon>
+<polygon class="dot" points="595.0,305.5 598.0,311.5 592.1,311.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 4 · context 6,647 · native wall seconds 7.8</title></polygon>
+<polygon class="dot" points="600.9,297.8 603.9,303.8 597.9,303.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 5 · context 7,407 · native wall seconds 11.7</title></polygon>
+<polygon class="dot" points="617.7,280.2 620.7,286.2 614.7,286.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 6 · context 9,594 · native wall seconds 20.8</title></polygon>
+<polygon class="dot" points="606.5,294.8 609.5,300.8 603.5,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 7 · context 8,140 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="606.3,299.7 609.3,305.7 603.4,305.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 8 · context 8,118 · native wall seconds 10.8</title></polygon>
+<polygon class="dot" points="611.6,295.8 614.6,301.8 608.6,301.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 9 · context 8,801 · native wall seconds 12.8</title></polygon>
+<polygon class="dot" points="834.4,270.5 837.4,276.5 831.4,276.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 2 · context 37,814 · native wall seconds 25.8</title></polygon>
+<polygon class="dot" points="831.8,290.9 834.8,296.9 828.8,296.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 3 · context 37,477 · native wall seconds 15.3</title></polygon>
+<polygon class="dot" points="834.4,290.9 837.4,296.9 831.4,296.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 4 · context 37,809 · native wall seconds 15.3</title></polygon>
+<polygon class="dot" points="845.9,265.7 848.9,271.7 842.9,271.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 5 · context 39,308 · native wall seconds 28.3</title></polygon>
+<polygon class="dot" points="845.6,263.6 848.6,269.6 842.6,269.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 6 · context 39,270 · native wall seconds 29.3</title></polygon>
+<polygon class="dot" points="847.5,281.2 850.5,287.2 844.5,287.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 7 · context 39,522 · native wall seconds 20.3</title></polygon>
+<polygon class="dot" points="844.2,289.9 847.2,295.9 841.2,295.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 8 · context 39,084 · native wall seconds 15.8</title></polygon>
+<polygon class="dot" points="846.2,288.9 849.2,294.9 843.2,294.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 9 · context 39,351 · native wall seconds 16.3</title></polygon>
+<polygon class="dot" points="647.8,282.2 650.8,288.1 644.8,288.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 2 · context 13,514 · native wall seconds 19.8</title></polygon>
+<polygon class="dot" points="643.7,299.6 646.7,305.6 640.7,305.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 4 · context 12,981 · native wall seconds 10.8</title></polygon>
+<polygon class="dot" points="653.1,286.0 656.1,292.0 650.1,292.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 5 · context 14,206 · native wall seconds 17.8</title></polygon>
+<polygon class="dot" points="655.5,286.1 658.5,292.0 652.5,292.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 6 · context 14,523 · native wall seconds 17.8</title></polygon>
+<polygon class="dot" points="658.2,286.0 661.1,292.0 655.2,292.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 8 · context 14,864 · native wall seconds 17.8</title></polygon>
+<polygon class="dot" points="675.4,263.7 678.4,269.7 672.4,269.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 9 · context 17,110 · native wall seconds 29.3</title></polygon>
+<polygon class="dot" points="667.9,278.3 670.9,284.2 664.9,284.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 10 · context 16,138 · native wall seconds 21.8</title></polygon>
+<polygon class="dot" points="709.1,282.2 712.1,288.2 706.1,288.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 2 · context 21,497 · native wall seconds 19.8</title></polygon>
+<polygon class="dot" points="725.5,267.5 728.5,273.5 722.5,273.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 4 · context 23,635 · native wall seconds 27.3</title></polygon>
+<polygon class="dot" points="714.9,286.0 717.9,292.0 711.9,292.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 5 · context 22,252 · native wall seconds 17.8</title></polygon>
+<polygon class="dot" points="722.3,274.4 725.3,280.4 719.3,280.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 6 · context 23,220 · native wall seconds 23.8</title></polygon>
+<polygon class="dot" points="718.7,291.9 721.7,297.9 715.7,297.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 8 · context 22,748 · native wall seconds 14.8</title></polygon>
+<polygon class="dot" points="727.7,283.1 730.7,289.1 724.7,289.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 10 · context 23,922 · native wall seconds 19.3</title></polygon>
+<polygon class="dot" points="591.9,301.6 594.9,307.6 588.9,307.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 2 · context 6,242 · native wall seconds 9.8</title></polygon>
+<polygon class="dot" points="615.0,269.6 618.0,275.5 612.1,275.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 3 · context 9,251 · native wall seconds 26.3</title></polygon>
+<polygon class="dot" points="598.4,294.9 601.4,300.8 595.4,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 4 · context 7,087 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="601.4,296.8 604.4,302.7 598.4,302.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 5 · context 7,473 · native wall seconds 12.3</title></polygon>
+<polygon class="dot" points="601.2,298.7 604.2,304.7 598.2,304.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 6 · context 7,449 · native wall seconds 11.3</title></polygon>
+<polygon class="dot" points="603.8,298.7 606.7,304.7 600.8,304.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 7 · context 7,780 · native wall seconds 11.2</title></polygon>
+<polygon class="dot" points="607.6,295.8 610.6,301.7 604.6,301.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 8 · context 8,284 · native wall seconds 12.8</title></polygon>
+<polygon class="dot" points="611.8,290.0 614.8,295.9 608.8,295.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 9 · context 8,832 · native wall seconds 15.8</title></polygon>
+<polygon class="dot" points="633.8,259.8 636.8,265.8 630.8,265.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 10 · context 11,688 · native wall seconds 31.3</title></polygon>
+<polygon class="dot" points="842.3,259.8 845.3,265.8 839.3,265.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 3 · context 38,837 · native wall seconds 31.3</title></polygon>
+<polygon class="dot" points="835.8,288.9 838.8,294.9 832.8,294.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 4 · context 37,999 · native wall seconds 16.3</title></polygon>
+<polygon class="dot" points="845.1,277.3 848.1,283.2 842.1,283.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 6 · context 39,201 · native wall seconds 22.3</title></polygon>
+<polygon class="dot" points="842.4,288.9 845.4,294.9 839.4,294.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 7 · context 38,859 · native wall seconds 16.3</title></polygon>
+<polygon class="dot" points="853.4,267.5 856.4,273.5 850.4,273.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 8 · context 40,289 · native wall seconds 27.3</title></polygon>
+<polygon class="dot" points="857.6,255.7 860.6,261.7 854.6,261.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 9 · context 40,830 · native wall seconds 33.4</title></polygon>
+<polygon class="dot" points="639.0,302.4 642.0,308.4 636.0,308.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 3 · context 12,369 · native wall seconds 9.4</title></polygon>
+<polygon class="dot" points="652.0,280.2 655.0,286.2 649.0,286.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 4 · context 14,060 · native wall seconds 20.8</title></polygon>
+<polygon class="dot" points="647.0,294.8 650.0,300.8 644.1,300.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 5 · context 13,417 · native wall seconds 13.3</title></polygon>
+<polygon class="dot" points="660.6,274.4 663.6,280.4 657.6,280.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 7 · context 15,181 · native wall seconds 23.8</title></polygon>
+<polygon class="dot" points="657.8,284.1 660.7,290.1 654.8,290.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 8 · context 14,812 · native wall seconds 18.8</title></polygon>
+<polygon class="dot" points="679.9,256.1 682.9,262.0 676.9,262.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 9 · context 17,695 · native wall seconds 33.2</title></polygon>
+<polygon class="dot" points="658.0,295.8 661.0,301.8 655.0,301.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 10 · context 14,844 · native wall seconds 12.8</title></polygon>
+<path class="line" d="M601.2,304.8 L645.1,305.7 L708.2,302.7 L835.1,299.5" stroke="var(--s-orb)"/>
+<circle class="median" cx="601.2" cy="304.8" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 2,000 · median of 27: context 7,448, 9.9</title></circle>
+<circle class="median" cx="645.1" cy="305.7" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 8,000 · median of 26: context 13,160, 9.4</title></circle>
+<circle class="median" cx="708.2" cy="302.7" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 16,000 · median of 27: context 21,381, 11.0</title></circle>
+<circle class="median" cx="835.1" cy="299.5" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 32,000 · median of 23: context 37,898, 12.6</title></circle>
+<text class="label" x="844.1" y="303.5">Orb</text>
+<path class="line" d="M618.0,276.9 L668.8,268.1 L726.2,271.0 L849.3,255.9" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="613.9" y="272.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 2,000 · median of 25: context 9,630, 24.3</title></rect>
+<rect class="median" x="664.7" y="264.1" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 8,000 · median of 21: context 16,244, 28.8</title></rect>
+<rect class="median" x="722.2" y="266.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 16,000 · median of 23: context 23,726, 27.3</title></rect>
+<rect class="median" x="845.2" y="251.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 32,000 · median of 22: context 39,747, 35.1</title></rect>
+<text class="label" x="858.3" y="259.9">TT handoff</text>
+<path class="line" d="M606.5,299.2 L655.3,289.5 L719.1,290.0 L842.4,284.6" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="606.5,293.2 611.7,303.6 601.3,303.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 2,000 · median of 25: context 8,140, 12.8</title></polygon>
+<polygon class="median" points="655.3,283.6 660.5,293.9 650.1,293.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 8,000 · median of 22: context 14,490, 17.8</title></polygon>
+<polygon class="median" points="719.1,284.0 724.2,294.4 713.9,294.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 16,000 · median of 18: context 22,796, 17.5</title></polygon>
+<polygon class="median" points="842.4,278.7 847.5,289.0 837.2,289.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 32,000 · median of 20: context 38,848, 20.3</title></polygon>
+<text class="label" x="851.4" y="288.6">TT single</text>
+<text class="note" x="24" y="368">Both wall-time panels share one scale. The uncached-input panels have their own scales.</text>
+<text class="panel" x="24.0" y="400">Uncached input tokens per turn, all attempts · turn 1 (cold server)</text>
+<line class="axis" x1="68.0" x2="452.0" y1="606.0" y2="606.0"/>
+<text class="tick" x="60.0" y="610.0" text-anchor="end">0</text>
+<line class="grid" x1="68.0" x2="452.0" y1="557.5" y2="557.5"/>
+<text class="tick" x="60.0" y="561.5" text-anchor="end">10k</text>
+<line class="grid" x1="68.0" x2="452.0" y1="509.0" y2="509.0"/>
+<text class="tick" x="60.0" y="513.0" text-anchor="end">20k</text>
+<line class="grid" x1="68.0" x2="452.0" y1="460.5" y2="460.5"/>
+<text class="tick" x="60.0" y="464.5" text-anchor="end">30k</text>
+<line class="grid" x1="68.0" x2="452.0" y1="412.0" y2="412.0"/>
+<text class="tick" x="60.0" y="416.0" text-anchor="end">40k</text>
+<text class="tick" x="68.0" y="622" text-anchor="middle">0</text>
+<text class="tick" x="144.8" y="622" text-anchor="middle">10k</text>
+<text class="tick" x="221.6" y="622" text-anchor="middle">20k</text>
+<text class="tick" x="298.4" y="622" text-anchor="middle">30k</text>
+<text class="tick" x="375.2" y="622" text-anchor="middle">40k</text>
+<text class="tick" x="452.0" y="622" text-anchor="middle">50k</text>
+<text class="tick" x="452.0" y="636" text-anchor="end">largest prompt in the turn, tokens →</text>
+<circle class="dot" cx="211.6" cy="508.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 1 · context 18,700 · uncached tokens 20,073.0</title></circle>
+<circle class="dot" cx="103.9" cy="579.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 1 · context 4,672 · uncached tokens 5,452.0</title></circle>
+<circle class="dot" cx="339.2" cy="430.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 1 · context 35,317 · uncached tokens 36,096.0</title></circle>
+<circle class="dot" cx="148.8" cy="548.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 1 · context 10,526 · uncached tokens 11,922.0</title></circle>
+<circle class="dot" cx="211.3" cy="511.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 1 · context 18,656 · uncached tokens 19,436.0</title></circle>
+<circle class="dot" cx="102.8" cy="577.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 1 · context 4,536 · uncached tokens 5,875.0</title></circle>
+<circle class="dot" cx="337.6" cy="431.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 1 · context 35,109 · uncached tokens 35,888.0</title></circle>
+<circle class="dot" cx="150.0" cy="545.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 1 · context 10,673 · uncached tokens 12,481.0</title></circle>
+<circle class="dot" cx="212.4" cy="511.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 1 · context 18,808 · uncached tokens 19,588.0</title></circle>
+<circle class="dot" cx="102.3" cy="573.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 1 · context 4,462 · uncached tokens 6,682.0</title></circle>
+<circle class="dot" cx="338.2" cy="428.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 1 · context 35,177 · uncached tokens 36,567.0</title></circle>
+<circle class="dot" cx="146.4" cy="552.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 1 · context 10,214 · uncached tokens 10,993.0</title></circle>
+<rect class="dot" x="227.6" y="495.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 1 · context 21,089 · uncached tokens 22,390.0</title></rect>
+<rect class="dot" x="125.3" y="562.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 1 · context 7,769 · uncached tokens 8,495.0</title></rect>
+<rect class="dot" x="375.5" y="421.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 1 · context 40,344 · uncached tokens 37,548.0</title></rect>
+<rect class="dot" x="179.2" y="525.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 1 · context 14,784 · uncached tokens 16,129.0</title></rect>
+<rect class="dot" x="236.6" y="491.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 1 · context 22,258 · uncached tokens 23,182.0</title></rect>
+<rect class="dot" x="116.7" y="565.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 1 · context 6,643 · uncached tokens 7,856.0</title></rect>
+<rect class="dot" x="358.4" y="413.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 1 · context 38,111 · uncached tokens 39,156.0</title></rect>
+<rect class="dot" x="165.4" y="535.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 1 · context 12,985 · uncached tokens 14,078.0</title></rect>
+<rect class="dot" x="226.1" y="496.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 1 · context 20,888 · uncached tokens 22,045.0</title></rect>
+<rect class="dot" x="131.9" y="557.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 1 · context 8,624 · uncached tokens 9,497.0</title></rect>
+<rect class="dot" x="353.2" y="415.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 1 · context 37,434 · uncached tokens 38,709.0</title></rect>
+<rect class="dot" x="199.8" y="520.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 1 · context 17,465 · uncached tokens 17,243.0</title></rect>
+<polygon class="dot" points="222.6,505.6 225.6,511.6 219.6,511.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 1 · context 20,129 · uncached tokens 19,982.0</title></polygon>
+<polygon class="dot" points="132.3,570.2 135.2,576.2 129.3,576.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 1 · context 8,366 · uncached tokens 6,664.0</title></polygon>
+<polygon class="dot" points="412.3,413.1 415.3,419.1 409.3,419.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 1 · context 44,835 · uncached tokens 39,064.0</title></polygon>
+<polygon class="dot" points="160.8,544.6 163.8,550.5 157.8,550.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 1 · context 12,087 · uncached tokens 11,959.0</title></polygon>
+<polygon class="dot" points="224.3,503.9 227.3,509.8 221.3,509.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 1 · context 20,348 · uncached tokens 20,349.0</title></polygon>
+<polygon class="dot" points="119.5,571.7 122.5,577.7 116.6,577.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 1 · context 6,711 · uncached tokens 6,361.0</title></polygon>
+<polygon class="dot" points="377.9,412.2 380.9,418.2 375.0,418.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 1 · context 40,358 · uncached tokens 39,248.0</title></polygon>
+<polygon class="dot" points="162.4,544.1 165.4,550.1 159.4,550.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 1 · context 12,287 · uncached tokens 12,045.0</title></polygon>
+<polygon class="dot" points="224.8,503.8 227.7,509.8 221.8,509.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 1 · context 20,411 · uncached tokens 20,360.0</title></polygon>
+<polygon class="dot" points="120.5,571.4 123.5,577.4 117.6,577.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 1 · context 6,842 · uncached tokens 6,430.0</title></polygon>
+<polygon class="dot" points="355.8,422.7 358.8,428.7 352.8,428.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 1 · context 37,472 · uncached tokens 37,082.0</title></polygon>
+<polygon class="dot" points="160.7,544.5 163.7,550.5 157.7,550.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 1 · context 12,075 · uncached tokens 11,976.0</title></polygon>
+<path class="line" d="M102.8,577.5 L148.8,548.2 L211.6,511.0 L338.2,430.9" stroke="var(--s-orb)"/>
+<circle class="median" cx="102.8" cy="577.5" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 2,000 · median of 3: context 4,536, 5,875.0</title></circle>
+<circle class="median" cx="148.8" cy="548.2" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 8,000 · median of 3: context 10,526, 11,922.0</title></circle>
+<circle class="median" cx="211.6" cy="511.0" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 16,000 · median of 3: context 18,700, 19,588.0</title></circle>
+<circle class="median" cx="338.2" cy="430.9" r="4.5" fill="var(--s-orb)"><title>Orb · turn 1 · start 32,000 · median of 3: context 35,177, 36,096.0</title></circle>
+<path class="line" d="M127.7,564.8 L181.5,527.8 L230.0,497.4 L360.7,418.3" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="123.6" y="560.7" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 2,000 · median of 3: context 7,769, 8,495.0</title></rect>
+<rect class="median" x="177.5" y="523.7" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 8,000 · median of 3: context 14,784, 16,129.0</title></rect>
+<rect class="median" x="225.9" y="493.4" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 16,000 · median of 3: context 21,089, 22,390.0</title></rect>
+<rect class="median" x="356.6" y="414.2" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · turn 1 · start 32,000 · median of 3: context 38,111, 38,709.0</title></rect>
+<path class="line" d="M120.5,574.8 L160.8,547.9 L224.3,507.3 L377.9,416.5" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="120.5,568.9 125.7,579.2 115.4,579.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 2,000 · median of 3: context 6,842, 6,430.0</title></polygon>
+<polygon class="median" points="160.8,542.0 166.0,552.3 155.7,552.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 8,000 · median of 3: context 12,087, 11,976.0</title></polygon>
+<polygon class="median" points="224.3,501.4 229.4,511.7 219.1,511.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 16,000 · median of 3: context 20,348, 20,349.0</title></polygon>
+<polygon class="median" points="377.9,410.6 383.1,420.9 372.8,420.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · turn 1 · start 32,000 · median of 3: context 40,358, 39,064.0</title></polygon>
+<text class="panel" x="500.0" y="400">Uncached input tokens per turn, all attempts · turns 2–10</text>
+<line class="axis" x1="544.0" x2="928.0" y1="606.0" y2="606.0"/>
+<text class="tick" x="536.0" y="610.0" text-anchor="end">0</text>
+<line class="grid" x1="544.0" x2="928.0" y1="567.2" y2="567.2"/>
+<text class="tick" x="536.0" y="571.2" text-anchor="end">2.5k</text>
+<line class="grid" x1="544.0" x2="928.0" y1="528.4" y2="528.4"/>
+<text class="tick" x="536.0" y="532.4" text-anchor="end">5k</text>
+<line class="grid" x1="544.0" x2="928.0" y1="489.6" y2="489.6"/>
+<text class="tick" x="536.0" y="493.6" text-anchor="end">7.5k</text>
+<line class="grid" x1="544.0" x2="928.0" y1="450.8" y2="450.8"/>
+<text class="tick" x="536.0" y="454.8" text-anchor="end">10k</text>
+<line class="grid" x1="544.0" x2="928.0" y1="412.0" y2="412.0"/>
+<text class="tick" x="536.0" y="416.0" text-anchor="end">12.5k</text>
+<text class="tick" x="544.0" y="622" text-anchor="middle">0</text>
+<text class="tick" x="620.8" y="622" text-anchor="middle">10k</text>
+<text class="tick" x="697.6" y="622" text-anchor="middle">20k</text>
+<text class="tick" x="774.4" y="622" text-anchor="middle">30k</text>
+<text class="tick" x="851.2" y="622" text-anchor="middle">40k</text>
+<text class="tick" x="928.0" y="622" text-anchor="middle">50k</text>
+<text class="tick" x="928.0" y="636" text-anchor="end">largest prompt in the turn, tokens →</text>
+<circle class="dot" cx="690.7" cy="558.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 2 · context 19,103 · uncached tokens 3,067.0</title></circle>
+<circle class="dot" cx="694.4" cy="567.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 3 · context 19,586 · uncached tokens 2,471.0</title></circle>
+<circle class="dot" cx="698.1" cy="555.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 4 · context 20,066 · uncached tokens 3,243.0</title></circle>
+<circle class="dot" cx="702.1" cy="552.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 5 · context 20,591 · uncached tokens 3,424.0</title></circle>
+<circle class="dot" cx="707.2" cy="550.5" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 6 · context 21,255 · uncached tokens 3,575.0</title></circle>
+<circle class="dot" cx="710.8" cy="555.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 7 · context 21,723 · uncached tokens 3,284.0</title></circle>
+<circle class="dot" cx="716.5" cy="552.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 8 · context 22,466 · uncached tokens 3,478.0</title></circle>
+<circle class="dot" cx="720.0" cy="552.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 9 · context 22,920 · uncached tokens 3,422.0</title></circle>
+<circle class="dot" cx="726.3" cy="529.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-16000-orb turn 10 · context 23,732 · uncached tokens 4,914.0</title></circle>
+<circle class="dot" cx="584.8" cy="548.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 2 · context 5,313 · uncached tokens 3,698.0</title></circle>
+<circle class="dot" cx="585.7" cy="546.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 3 · context 5,426 · uncached tokens 3,816.0</title></circle>
+<circle class="dot" cx="590.8" cy="554.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 4 · context 6,089 · uncached tokens 3,290.0</title></circle>
+<circle class="dot" cx="595.4" cy="565.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 5 · context 6,687 · uncached tokens 2,614.0</title></circle>
+<circle class="dot" cx="601.2" cy="534.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 6 · context 7,448 · uncached tokens 4,592.0</title></circle>
+<circle class="dot" cx="607.3" cy="541.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 7 · context 8,248 · uncached tokens 4,165.0</title></circle>
+<circle class="dot" cx="611.7" cy="549.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 8 · context 8,821 · uncached tokens 3,656.0</title></circle>
+<circle class="dot" cx="616.2" cy="560.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 9 · context 9,404 · uncached tokens 2,950.0</title></circle>
+<circle class="dot" cx="621.6" cy="558.7" r="2.6" fill="var(--s-orb)"><title>Orb · r1-2000-orb turn 10 · context 10,100 · uncached tokens 3,049.0</title></circle>
+<circle class="dot" cx="816.4" cy="562.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 2 · context 35,474 · uncached tokens 2,774.0</title></circle>
+<circle class="dot" cx="822.1" cy="556.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 3 · context 36,207 · uncached tokens 3,201.0</title></circle>
+<circle class="dot" cx="823.1" cy="571.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 4 · context 36,335 · uncached tokens 2,228.0</title></circle>
+<circle class="dot" cx="828.7" cy="555.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 5 · context 37,067 · uncached tokens 3,278.0</title></circle>
+<circle class="dot" cx="833.9" cy="549.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 6 · context 37,751 · uncached tokens 3,656.0</title></circle>
+<circle class="dot" cx="835.8" cy="566.9" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 7 · context 37,998 · uncached tokens 2,519.0</title></circle>
+<circle class="dot" cx="840.2" cy="556.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 8 · context 38,571 · uncached tokens 3,216.0</title></circle>
+<circle class="dot" cx="843.9" cy="539.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 9 · context 39,054 · uncached tokens 4,309.0</title></circle>
+<circle class="dot" cx="850.8" cy="529.6" r="2.6" fill="var(--s-orb)"><title>Orb · r1-32000-orb turn 10 · context 39,952 · uncached tokens 4,924.0</title></circle>
+<circle class="dot" cx="627.3" cy="571.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 2 · context 10,848 · uncached tokens 2,227.0</title></circle>
+<circle class="dot" cx="633.2" cy="565.8" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 3 · context 11,612 · uncached tokens 2,593.0</title></circle>
+<circle class="dot" cx="637.6" cy="551.4" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 4 · context 12,193 · uncached tokens 3,519.0</title></circle>
+<circle class="dot" cx="644.5" cy="545.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 5 · context 13,080 · uncached tokens 3,919.0</title></circle>
+<circle class="dot" cx="647.9" cy="560.2" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 6 · context 13,530 · uncached tokens 2,954.0</title></circle>
+<circle class="dot" cx="652.6" cy="538.0" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 7 · context 14,145 · uncached tokens 4,379.0</title></circle>
+<circle class="dot" cx="655.5" cy="532.1" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 8 · context 14,513 · uncached tokens 4,763.0</title></circle>
+<circle class="dot" cx="658.6" cy="552.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 9 · context 14,921 · uncached tokens 3,460.0</title></circle>
+<circle class="dot" cx="670.3" cy="551.3" r="2.6" fill="var(--s-orb)"><title>Orb · r1-8000-orb turn 10 · context 16,449 · uncached tokens 3,524.0</title></circle>
+<circle class="dot" cx="691.1" cy="557.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 2 · context 19,153 · uncached tokens 3,135.0</title></circle>
+<circle class="dot" cx="695.0" cy="553.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 3 · context 19,667 · uncached tokens 3,396.0</title></circle>
+<circle class="dot" cx="697.9" cy="545.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 4 · context 20,043 · uncached tokens 3,911.0</title></circle>
+<circle class="dot" cx="704.6" cy="543.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 5 · context 20,913 · uncached tokens 4,052.0</title></circle>
+<circle class="dot" cx="709.5" cy="549.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 6 · context 21,547 · uncached tokens 3,612.0</title></circle>
+<circle class="dot" cx="713.4" cy="551.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 7 · context 22,053 · uncached tokens 3,544.0</title></circle>
+<circle class="dot" cx="714.3" cy="567.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 8 · context 22,179 · uncached tokens 2,461.0</title></circle>
+<circle class="dot" cx="718.7" cy="553.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 9 · context 22,752 · uncached tokens 3,357.0</title></circle>
+<circle class="dot" cx="727.9" cy="540.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-16000-orb turn 10 · context 23,940 · uncached tokens 4,203.0</title></circle>
+<circle class="dot" cx="579.2" cy="573.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 2 · context 4,580 · uncached tokens 2,124.0</title></circle>
+<circle class="dot" cx="585.2" cy="566.3" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 3 · context 5,367 · uncached tokens 2,557.0</title></circle>
+<circle class="dot" cx="591.9" cy="558.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 4 · context 6,242 · uncached tokens 3,059.0</title></circle>
+<circle class="dot" cx="597.2" cy="542.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 5 · context 6,925 · uncached tokens 4,064.0</title></circle>
+<circle class="dot" cx="601.9" cy="560.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 6 · context 7,543 · uncached tokens 2,950.0</title></circle>
+<circle class="dot" cx="605.5" cy="553.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 7 · context 8,010 · uncached tokens 3,416.0</title></circle>
+<circle class="dot" cx="610.9" cy="534.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 8 · context 8,711 · uncached tokens 4,581.0</title></circle>
+<circle class="dot" cx="615.9" cy="560.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 9 · context 9,360 · uncached tokens 2,904.0</title></circle>
+<circle class="dot" cx="622.6" cy="556.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-2000-orb turn 10 · context 10,236 · uncached tokens 3,176.0</title></circle>
+<circle class="dot" cx="820.2" cy="565.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 2 · context 35,970 · uncached tokens 2,632.0</title></circle>
+<circle class="dot" cx="824.1" cy="553.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 3 · context 36,469 · uncached tokens 3,406.0</title></circle>
+<circle class="dot" cx="827.0" cy="568.0" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 4 · context 36,844 · uncached tokens 2,451.0</title></circle>
+<circle class="dot" cx="835.1" cy="543.2" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 5 · context 37,898 · uncached tokens 4,049.0</title></circle>
+<circle class="dot" cx="838.1" cy="550.4" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 6 · context 38,288 · uncached tokens 3,585.0</title></circle>
+<circle class="dot" cx="845.3" cy="545.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 7 · context 39,229 · uncached tokens 3,872.0</title></circle>
+<circle class="dot" cx="848.8" cy="562.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 8 · context 39,694 · uncached tokens 2,787.0</title></circle>
+<circle class="dot" cx="854.0" cy="530.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 9 · context 40,371 · uncached tokens 4,863.0</title></circle>
+<circle class="dot" cx="860.7" cy="539.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-32000-orb turn 10 · context 41,232 · uncached tokens 4,313.0</title></circle>
+<circle class="dot" cx="627.6" cy="570.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 2 · context 10,891 · uncached tokens 2,272.0</title></circle>
+<circle class="dot" cx="632.6" cy="556.1" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 3 · context 11,536 · uncached tokens 3,213.0</title></circle>
+<circle class="dot" cx="637.6" cy="564.9" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 4 · context 12,187 · uncached tokens 2,651.0</title></circle>
+<circle class="dot" cx="644.6" cy="543.4" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 5 · context 13,105 · uncached tokens 4,034.0</title></circle>
+<circle class="dot" cx="645.5" cy="564.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 6 · context 13,215 · uncached tokens 2,663.0</title></circle>
+<circle class="dot" cx="650.7" cy="535.4" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 7 · context 13,892 · uncached tokens 4,551.0</title></circle>
+<circle class="dot" cx="654.7" cy="553.7" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 8 · context 14,415 · uncached tokens 3,371.0</title></circle>
+<circle class="dot" cx="660.5" cy="531.5" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 9 · context 15,164 · uncached tokens 4,798.0</title></circle>
+<circle class="dot" cx="668.1" cy="522.8" r="2.6" fill="var(--s-orb)"><title>Orb · r2-8000-orb turn 10 · context 16,157 · uncached tokens 5,364.0</title></circle>
+<circle class="dot" cx="690.6" cy="559.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 2 · context 19,090 · uncached tokens 3,027.0</title></circle>
+<circle class="dot" cx="693.6" cy="570.1" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 3 · context 19,479 · uncached tokens 2,315.0</title></circle>
+<circle class="dot" cx="697.7" cy="569.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 4 · context 20,008 · uncached tokens 2,384.0</title></circle>
+<circle class="dot" cx="702.7" cy="565.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 5 · context 20,658 · uncached tokens 2,639.0</title></circle>
+<circle class="dot" cx="708.2" cy="548.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 6 · context 21,381 · uncached tokens 3,696.0</title></circle>
+<circle class="dot" cx="712.3" cy="551.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 7 · context 21,911 · uncached tokens 3,529.0</title></circle>
+<circle class="dot" cx="716.1" cy="553.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 8 · context 22,414 · uncached tokens 3,402.0</title></circle>
+<circle class="dot" cx="721.6" cy="534.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 9 · context 23,130 · uncached tokens 4,640.0</title></circle>
+<circle class="dot" cx="726.4" cy="547.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-16000-orb turn 10 · context 23,744 · uncached tokens 3,804.0</title></circle>
+<circle class="dot" cx="582.0" cy="567.5" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 2 · context 4,942 · uncached tokens 2,483.0</title></circle>
+<circle class="dot" cx="584.1" cy="570.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 3 · context 5,218 · uncached tokens 2,283.0</title></circle>
+<circle class="dot" cx="589.4" cy="554.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 4 · context 5,908 · uncached tokens 3,335.0</title></circle>
+<circle class="dot" cx="594.3" cy="550.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 5 · context 6,543 · uncached tokens 3,568.0</title></circle>
+<circle class="dot" cx="600.7" cy="534.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 6 · context 7,387 · uncached tokens 4,597.0</title></circle>
+<circle class="dot" cx="605.6" cy="547.9" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 7 · context 8,017 · uncached tokens 3,745.0</title></circle>
+<circle class="dot" cx="610.0" cy="551.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 8 · context 8,588 · uncached tokens 3,547.0</title></circle>
+<circle class="dot" cx="610.8" cy="570.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 9 · context 8,702 · uncached tokens 2,321.0</title></circle>
+<circle class="dot" cx="621.6" cy="525.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-2000-orb turn 10 · context 10,100 · uncached tokens 5,198.0</title></circle>
+<circle class="dot" cx="816.6" cy="572.5" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 2 · context 35,493 · uncached tokens 2,157.0</title></circle>
+<circle class="dot" cx="823.4" cy="564.5" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 3 · context 36,379 · uncached tokens 2,674.0</title></circle>
+<circle class="dot" cx="825.7" cy="568.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 4 · context 36,677 · uncached tokens 2,449.0</title></circle>
+<circle class="dot" cx="833.1" cy="547.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 5 · context 37,646 · uncached tokens 3,801.0</title></circle>
+<circle class="dot" cx="837.0" cy="561.5" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 6 · context 38,145 · uncached tokens 2,870.0</title></circle>
+<circle class="dot" cx="844.3" cy="525.0" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 7 · context 39,099 · uncached tokens 5,220.0</title></circle>
+<circle class="dot" cx="845.7" cy="562.7" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 8 · context 39,283 · uncached tokens 2,793.0</title></circle>
+<circle class="dot" cx="849.3" cy="539.8" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 9 · context 39,754 · uncached tokens 4,266.0</title></circle>
+<circle class="dot" cx="856.7" cy="531.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-32000-orb turn 10 · context 40,717 · uncached tokens 4,795.0</title></circle>
+<circle class="dot" cx="629.0" cy="568.1" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 2 · context 11,063 · uncached tokens 2,443.0</title></circle>
+<circle class="dot" cx="631.9" cy="558.3" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 3 · context 11,439 · uncached tokens 3,076.0</title></circle>
+<circle class="dot" cx="633.0" cy="562.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 4 · context 11,584 · uncached tokens 2,807.0</title></circle>
+<circle class="dot" cx="637.7" cy="556.8" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 5 · context 12,206 · uncached tokens 3,172.0</title></circle>
+<circle class="dot" cx="643.6" cy="562.9" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 6 · context 12,963 · uncached tokens 2,779.0</title></circle>
+<circle class="dot" cx="643.5" cy="571.2" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 7 · context 12,956 · uncached tokens 2,242.0</title></circle>
+<circle class="dot" cx="649.3" cy="555.6" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 8 · context 13,706 · uncached tokens 3,248.0</title></circle>
+<circle class="dot" cx="653.8" cy="555.4" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 9 · context 14,299 · uncached tokens 3,258.0</title></circle>
+<circle class="dot" cx="658.1" cy="535.8" r="2.6" fill="var(--s-orb)"><title>Orb · r3-8000-orb turn 10 · context 14,853 · uncached tokens 4,524.0</title></circle>
+<rect class="dot" x="705.7" y="549.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 2 · context 21,363 · uncached tokens 3,476.0</title></rect>
+<rect class="dot" x="716.1" y="540.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 3 · context 22,716 · uncached tokens 4,063.0</title></rect>
+<rect class="dot" x="717.1" y="529.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 4 · context 22,849 · uncached tokens 4,761.0</title></rect>
+<rect class="dot" x="716.3" y="545.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 5 · context 22,743 · uncached tokens 3,779.0</title></rect>
+<rect class="dot" x="718.4" y="547.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 6 · context 23,009 · uncached tokens 3,636.0</title></rect>
+<rect class="dot" x="740.4" y="512.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 7 · context 25,879 · uncached tokens 5,900.0</title></rect>
+<rect class="dot" x="720.5" y="554.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 8 · context 23,280 · uncached tokens 3,183.0</title></rect>
+<rect class="dot" x="736.9" y="522.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 9 · context 25,428 · uncached tokens 5,210.0</title></rect>
+<rect class="dot" x="724.9" y="571.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-16000-tt-handoff turn 10 · context 23,859 · uncached tokens 2,075.0</title></rect>
+<rect class="dot" x="657.6" y="476.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 2 · context 15,090 · uncached tokens 8,195.0</title></rect>
+<rect class="dot" x="606.1" y="495.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 3 · context 8,392 · uncached tokens 7,002.0</title></rect>
+<rect class="dot" x="597.9" y="555.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 4 · context 7,325 · uncached tokens 3,119.0</title></rect>
+<rect class="dot" x="609.1" y="542.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 5 · context 8,775 · uncached tokens 3,923.0</title></rect>
+<rect class="dot" x="613.2" y="537.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 6 · context 9,315 · uncached tokens 4,252.0</title></rect>
+<rect class="dot" x="643.1" y="496.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 7 · context 13,207 · uncached tokens 6,899.0</title></rect>
+<rect class="dot" x="620.9" y="463.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 8 · context 10,316 · uncached tokens 9,014.0</title></rect>
+<rect class="dot" x="601.9" y="592.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 9 · context 7,841 · uncached tokens 741.0</title></rect>
+<rect class="dot" x="618.3" y="543.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-2000-tt-handoff turn 10 · context 9,979 · uncached tokens 3,870.0</title></rect>
+<rect class="dot" x="830.4" y="433.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 2 · context 37,597 · uncached tokens 10,971.0</title></rect>
+<rect class="dot" x="847.7" y="532.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 3 · context 39,852 · uncached tokens 4,602.0</title></rect>
+<rect class="dot" x="832.0" y="557.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 4 · context 37,800 · uncached tokens 2,992.0</title></rect>
+<rect class="dot" x="843.6" y="537.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 5 · context 39,309 · uncached tokens 4,292.0</title></rect>
+<rect class="dot" x="846.0" y="536.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 6 · context 39,627 · uncached tokens 4,336.0</title></rect>
+<rect class="dot" x="865.2" y="514.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 7 · context 42,131 · uncached tokens 5,751.0</title></rect>
+<rect class="dot" x="855.3" y="508.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 8 · context 40,844 · uncached tokens 6,143.0</title></rect>
+<rect class="dot" x="864.8" y="512.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 9 · context 42,079 · uncached tokens 5,894.0</title></rect>
+<rect class="dot" x="860.4" y="526.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-32000-tt-handoff turn 10 · context 41,500 · uncached tokens 4,964.0</title></rect>
+<rect class="dot" x="649.7" y="537.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 2 · context 14,062 · uncached tokens 4,298.0</title></rect>
+<rect class="dot" x="642.8" y="554.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 3 · context 13,169 · uncached tokens 3,165.0</title></rect>
+<rect class="dot" x="649.8" y="548.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 4 · context 14,081 · uncached tokens 3,566.0</title></rect>
+<rect class="dot" x="662.7" y="532.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 5 · context 15,763 · uncached tokens 4,581.0</title></rect>
+<rect class="dot" x="678.6" y="565.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 6 · context 17,831 · uncached tokens 2,451.0</title></rect>
+<rect class="dot" x="658.4" y="517.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 7 · context 15,206 · uncached tokens 5,528.0</title></rect>
+<rect class="dot" x="659.4" y="545.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 8 · context 15,330 · uncached tokens 3,754.0</title></rect>
+<rect class="dot" x="671.8" y="525.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 9 · context 16,939 · uncached tokens 5,045.0</title></rect>
+<rect class="dot" x="678.3" y="517.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r1-8000-tt-handoff turn 10 · context 17,797 · uncached tokens 5,557.0</title></rect>
+<rect class="dot" x="707.0" y="546.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 2 · context 21,528 · uncached tokens 3,685.0</title></rect>
+<rect class="dot" x="743.7" y="499.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 3 · context 26,310 · uncached tokens 6,725.0</title></rect>
+<rect class="dot" x="757.2" y="482.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 4 · context 28,061 · uncached tokens 7,803.0</title></rect>
+<rect class="dot" x="726.2" y="514.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 5 · context 24,029 · uncached tokens 5,719.0</title></rect>
+<rect class="dot" x="723.9" y="530.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 6 · context 23,726 · uncached tokens 4,685.0</title></rect>
+<rect class="dot" x="725.4" y="534.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 7 · context 23,921 · uncached tokens 4,450.0</title></rect>
+<rect class="dot" x="723.0" y="544.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 8 · context 23,610 · uncached tokens 3,794.0</title></rect>
+<rect class="dot" x="728.2" y="539.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 9 · context 24,292 · uncached tokens 4,127.0</title></rect>
+<rect class="dot" x="742.0" y="530.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-16000-tt-handoff turn 10 · context 26,082 · uncached tokens 4,734.0</title></rect>
+<rect class="dot" x="616.1" y="519.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 2 · context 9,699 · uncached tokens 5,454.0</title></rect>
+<rect class="dot" x="608.8" y="488.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 3 · context 8,743 · uncached tokens 7,429.0</title></rect>
+<rect class="dot" x="597.6" y="555.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 4 · context 7,287 · uncached tokens 3,123.0</title></rect>
+<rect class="dot" x="620.6" y="531.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 5 · context 10,273 · uncached tokens 4,630.0</title></rect>
+<rect class="dot" x="615.7" y="483.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 6 · context 9,641 · uncached tokens 7,753.0</title></rect>
+<rect class="dot" x="611.2" y="482.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 7 · context 9,060 · uncached tokens 7,830.0</title></rect>
+<rect class="dot" x="615.5" y="540.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 8 · context 9,615 · uncached tokens 4,066.0</title></rect>
+<rect class="dot" x="617.9" y="537.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 9 · context 9,921 · uncached tokens 4,261.0</title></rect>
+<rect class="dot" x="659.0" y="475.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-2000-tt-handoff turn 10 · context 15,274 · uncached tokens 8,253.0</title></rect>
+<rect class="dot" x="837.1" y="546.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 2 · context 38,474 · uncached tokens 3,659.0</title></rect>
+<rect class="dot" x="844.4" y="534.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 3 · context 39,415 · uncached tokens 4,477.0</title></rect>
+<rect class="dot" x="837.4" y="541.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 4 · context 38,511 · uncached tokens 3,985.0</title></rect>
+<rect class="dot" x="874.8" y="500.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 5 · context 43,378 · uncached tokens 6,682.0</title></rect>
+<rect class="dot" x="846.1" y="525.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 6 · context 39,642 · uncached tokens 5,034.0</title></rect>
+<rect class="dot" x="874.1" y="568.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 7 · context 43,284 · uncached tokens 2,278.0</title></rect>
+<rect class="dot" x="848.8" y="520.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 8 · context 39,990 · uncached tokens 5,364.0</title></rect>
+<rect class="dot" x="860.9" y="528.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-32000-tt-handoff turn 9 · context 41,565 · uncached tokens 4,841.0</title></rect>
+<rect class="dot" x="676.6" y="512.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 2 · context 17,569 · uncached tokens 5,908.0</title></rect>
+<rect class="dot" x="671.0" y="516.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 3 · context 16,842 · uncached tokens 5,640.0</title></rect>
+<rect class="dot" x="644.6" y="548.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 4 · context 13,401 · uncached tokens 3,569.0</title></rect>
+<rect class="dot" x="689.8" y="494.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 5 · context 19,294 · uncached tokens 7,066.0</title></rect>
+<rect class="dot" x="666.4" y="505.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 6 · context 16,244 · uncached tokens 6,308.0</title></rect>
+<rect class="dot" x="668.9" y="541.7" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 7 · context 16,572 · uncached tokens 3,992.0</title></rect>
+<rect class="dot" x="659.7" y="549.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 8 · context 15,375 · uncached tokens 3,463.0</title></rect>
+<rect class="dot" x="667.0" y="539.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 9 · context 16,322 · uncached tokens 4,117.0</title></rect>
+<rect class="dot" x="675.1" y="526.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r2-8000-tt-handoff turn 10 · context 17,381 · uncached tokens 4,952.0</title></rect>
+<rect class="dot" x="704.9" y="551.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 2 · context 21,254 · uncached tokens 3,383.0</title></rect>
+<rect class="dot" x="749.4" y="472.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 3 · context 27,053 · uncached tokens 8,451.0</title></rect>
+<rect class="dot" x="710.4" y="543.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 4 · context 21,977 · uncached tokens 3,896.0</title></rect>
+<rect class="dot" x="727.5" y="523.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 5 · context 24,193 · uncached tokens 5,138.0</title></rect>
+<rect class="dot" x="725.6" y="531.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 6 · context 23,952 · uncached tokens 4,668.0</title></rect>
+<rect class="dot" x="721.5" y="539.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 7 · context 23,414 · uncached tokens 4,135.0</title></rect>
+<rect class="dot" x="721.1" y="550.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 8 · context 23,363 · uncached tokens 3,400.0</title></rect>
+<rect class="dot" x="764.2" y="511.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 9 · context 28,971 · uncached tokens 5,911.0</title></rect>
+<rect class="dot" x="739.9" y="489.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-16000-tt-handoff turn 10 · context 25,806 · uncached tokens 7,367.0</title></rect>
+<rect class="dot" x="598.0" y="508.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 2 · context 7,335 · uncached tokens 6,156.0</title></rect>
+<rect class="dot" x="603.9" y="535.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 3 · context 8,109 · uncached tokens 4,401.0</title></rect>
+<rect class="dot" x="606.8" y="540.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 4 · context 8,479 · uncached tokens 4,045.0</title></rect>
+<rect class="dot" x="617.2" y="537.6" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 5 · context 9,841 · uncached tokens 4,254.0</title></rect>
+<rect class="dot" x="612.6" y="486.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 6 · context 9,237 · uncached tokens 7,521.0</title></rect>
+<rect class="dot" x="616.2" y="534.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 7 · context 9,702 · uncached tokens 4,461.0</title></rect>
+<rect class="dot" x="619.0" y="545.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 8 · context 10,075 · uncached tokens 3,729.0</title></rect>
+<rect class="dot" x="615.6" y="550.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 9 · context 9,630 · uncached tokens 3,455.0</title></rect>
+<rect class="dot" x="622.4" y="536.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-2000-tt-handoff turn 10 · context 10,518 · uncached tokens 4,347.0</title></rect>
+<rect class="dot" x="831.7" y="553.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 2 · context 37,768 · uncached tokens 3,249.0</title></rect>
+<rect class="dot" x="859.2" y="502.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 3 · context 41,343 · uncached tokens 6,528.0</title></rect>
+<rect class="dot" x="841.8" y="538.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 4 · context 39,079 · uncached tokens 4,200.0</title></rect>
+<rect class="dot" x="841.0" y="547.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 5 · context 38,975 · uncached tokens 3,621.0</title></rect>
+<rect class="dot" x="907.7" y="436.2" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 6 · context 47,660 · uncached tokens 10,787.0</title></rect>
+<rect class="dot" x="854.3" y="514.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 7 · context 40,711 · uncached tokens 5,720.0</title></rect>
+<rect class="dot" x="853.2" y="533.1" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 8 · context 40,566 · uncached tokens 4,546.0</title></rect>
+<rect class="dot" x="862.0" y="527.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 9 · context 41,707 · uncached tokens 4,907.0</title></rect>
+<rect class="dot" x="902.9" y="478.3" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-32000-tt-handoff turn 10 · context 47,030 · uncached tokens 8,075.0</title></rect>
+<rect class="dot" x="658.5" y="536.5" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 2 · context 15,217 · uncached tokens 4,327.0</title></rect>
+<rect class="dot" x="667.3" y="504.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 3 · context 16,365 · uncached tokens 6,424.0</title></rect>
+<rect class="dot" x="660.0" y="527.0" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 4 · context 15,413 · uncached tokens 4,942.0</title></rect>
+<rect class="dot" x="695.6" y="468.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 5 · context 20,040 · uncached tokens 8,716.0</title></rect>
+<rect class="dot" x="667.4" y="501.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 6 · context 16,376 · uncached tokens 6,555.0</title></rect>
+<rect class="dot" x="666.4" y="537.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 7 · context 16,245 · uncached tokens 4,269.0</title></rect>
+<rect class="dot" x="670.4" y="522.8" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 8 · context 16,765 · uncached tokens 5,212.0</title></rect>
+<rect class="dot" x="688.9" y="507.4" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 9 · context 19,175 · uncached tokens 6,204.0</title></rect>
+<rect class="dot" x="682.9" y="476.9" width="4.7" height="4.7" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · r3-8000-tt-handoff turn 10 · context 18,396 · uncached tokens 8,165.0</title></rect>
+<polygon class="dot" points="702.7,575.3 705.7,581.3 699.7,581.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 2 · context 20,665 · uncached tokens 1,754.0</title></polygon>
+<polygon class="dot" points="707.1,573.6 710.1,579.6 704.1,579.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 3 · context 21,232 · uncached tokens 1,867.0</title></polygon>
+<polygon class="dot" points="703.1,581.1 706.1,587.1 700.1,587.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 4 · context 20,714 · uncached tokens 1,380.0</title></polygon>
+<polygon class="dot" points="712.3,572.3 715.2,578.3 709.3,578.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 5 · context 21,908 · uncached tokens 1,950.0</title></polygon>
+<polygon class="dot" points="735.3,559.9 738.3,565.8 732.4,565.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 6 · context 24,915 · uncached tokens 2,751.0</title></polygon>
+<polygon class="dot" points="795.5,437.8 798.5,443.8 792.5,443.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 7 · context 32,752 · uncached tokens 10,616.0</title></polygon>
+<polygon class="dot" points="719.4,546.2 722.4,552.2 716.4,552.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 8 · context 22,843 · uncached tokens 3,629.0</title></polygon>
+<polygon class="dot" points="720.0,574.4 723.0,580.4 717.0,580.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 9 · context 22,914 · uncached tokens 1,815.0</title></polygon>
+<polygon class="dot" points="734.0,564.8 737.0,570.8 731.0,570.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-16000-tt-single turn 10 · context 24,741 · uncached tokens 2,430.0</title></polygon>
+<polygon class="dot" points="598.8,531.8 601.8,537.8 595.8,537.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 2 · context 7,140 · uncached tokens 4,559.0</title></polygon>
+<polygon class="dot" points="631.8,533.7 634.8,539.7 628.8,539.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 3 · context 11,430 · uncached tokens 4,438.0</title></polygon>
+<polygon class="dot" points="609.3,513.4 612.3,519.3 606.3,519.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 4 · context 8,502 · uncached tokens 5,748.0</title></polygon>
+<polygon class="dot" points="598.0,578.8 601.0,584.8 595.0,584.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 5 · context 7,030 · uncached tokens 1,529.0</title></polygon>
+<polygon class="dot" points="615.8,559.5 618.8,565.5 612.8,565.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 6 · context 9,353 · uncached tokens 2,773.0</title></polygon>
+<polygon class="dot" points="618.7,500.1 621.6,506.0 615.7,506.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 7 · context 9,721 · uncached tokens 6,605.0</title></polygon>
+<polygon class="dot" points="609.6,506.8 612.6,512.8 606.6,512.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 8 · context 8,545 · uncached tokens 6,167.0</title></polygon>
+<polygon class="dot" points="612.0,574.5 615.0,580.5 609.1,580.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 9 · context 8,860 · uncached tokens 1,805.0</title></polygon>
+<polygon class="dot" points="618.2,566.5 621.2,572.4 615.2,572.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-2000-tt-single turn 10 · context 9,664 · uncached tokens 2,326.0</title></polygon>
+<polygon class="dot" points="829.9,455.1 832.9,461.0 826.9,461.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 2 · context 37,230 · uncached tokens 9,504.0</title></polygon>
+<polygon class="dot" points="853.4,548.2 856.4,554.2 850.4,554.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 3 · context 40,287 · uncached tokens 3,500.0</title></polygon>
+<polygon class="dot" points="827.1,583.7 830.1,589.6 824.1,589.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 4 · context 36,867 · uncached tokens 1,218.0</title></polygon>
+<polygon class="dot" points="829.3,583.6 832.3,589.6 826.4,589.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 5 · context 37,154 · uncached tokens 1,221.0</title></polygon>
+<polygon class="dot" points="834.2,576.1 837.1,582.1 831.2,582.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 6 · context 37,781 · uncached tokens 1,703.0</title></polygon>
+<polygon class="dot" points="841.6,567.4 844.6,573.4 838.6,573.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 7 · context 38,746 · uncached tokens 2,264.0</title></polygon>
+<polygon class="dot" points="836.2,581.1 839.1,587.1 833.2,587.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 8 · context 38,041 · uncached tokens 1,384.0</title></polygon>
+<polygon class="dot" points="838.7,580.0 841.7,585.9 835.7,585.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 9 · context 38,377 · uncached tokens 1,456.0</title></polygon>
+<polygon class="dot" points="852.5,564.0 855.5,570.0 849.6,570.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-32000-tt-single turn 10 · context 40,175 · uncached tokens 2,483.0</title></polygon>
+<polygon class="dot" points="654.8,551.6 657.8,557.6 651.8,557.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 2 · context 14,430 · uncached tokens 3,284.0</title></polygon>
+<polygon class="dot" points="646.4,568.2 649.4,574.2 643.4,574.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 3 · context 13,335 · uncached tokens 2,213.0</title></polygon>
+<polygon class="dot" points="643.9,577.5 646.9,583.5 640.9,583.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 4 · context 13,005 · uncached tokens 1,614.0</title></polygon>
+<polygon class="dot" points="647.1,574.7 650.1,580.6 644.1,580.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 5 · context 13,427 · uncached tokens 1,798.0</title></polygon>
+<polygon class="dot" points="655.0,565.4 658.0,571.4 652.0,571.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 6 · context 14,457 · uncached tokens 2,394.0</title></polygon>
+<polygon class="dot" points="648.7,577.0 651.6,582.9 645.7,582.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 7 · context 13,627 · uncached tokens 1,649.0</title></polygon>
+<polygon class="dot" points="656.9,569.9 659.9,575.8 653.9,575.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 8 · context 14,701 · uncached tokens 2,107.0</title></polygon>
+<polygon class="dot" points="666.9,555.7 669.9,561.6 664.0,561.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 9 · context 16,009 · uncached tokens 3,022.0</title></polygon>
+<polygon class="dot" points="659.2,540.0 662.2,546.0 656.2,546.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r1-8000-tt-single turn 10 · context 14,998 · uncached tokens 4,031.0</title></polygon>
+<polygon class="dot" points="714.1,561.4 717.1,567.4 711.1,567.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 2 · context 22,151 · uncached tokens 2,653.0</title></polygon>
+<polygon class="dot" points="741.1,512.3 744.1,518.2 738.1,518.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 3 · context 25,663 · uncached tokens 5,819.0</title></polygon>
+<polygon class="dot" points="718.4,554.3 721.4,560.3 715.4,560.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 4 · context 22,704 · uncached tokens 3,111.0</title></polygon>
+<polygon class="dot" points="739.6,541.0 742.6,547.0 736.6,547.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 5 · context 25,471 · uncached tokens 3,966.0</title></polygon>
+<polygon class="dot" points="720.4,548.0 723.4,553.9 717.5,553.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 6 · context 22,975 · uncached tokens 3,518.0</title></polygon>
+<polygon class="dot" points="729.1,561.7 732.1,567.7 726.1,567.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 7 · context 24,099 · uncached tokens 2,630.0</title></polygon>
+<polygon class="dot" points="724.5,533.5 727.5,539.5 721.5,539.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 8 · context 23,500 · uncached tokens 4,450.0</title></polygon>
+<polygon class="dot" points="740.3,557.4 743.3,563.4 737.3,563.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 9 · context 25,558 · uncached tokens 2,911.0</title></polygon>
+<polygon class="dot" points="760.3,509.4 763.3,515.3 757.3,515.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-16000-tt-single turn 10 · context 28,160 · uncached tokens 6,005.0</title></polygon>
+<polygon class="dot" points="595.6,572.1 598.6,578.1 592.6,578.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 2 · context 6,716 · uncached tokens 1,964.0</title></polygon>
+<polygon class="dot" points="597.5,571.1 600.5,577.1 594.5,577.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 3 · context 6,965 · uncached tokens 2,029.0</title></polygon>
+<polygon class="dot" points="595.0,579.3 598.0,585.3 592.1,585.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 4 · context 6,647 · uncached tokens 1,498.0</title></polygon>
+<polygon class="dot" points="600.9,575.1 603.9,581.1 597.9,581.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 5 · context 7,407 · uncached tokens 1,771.0</title></polygon>
+<polygon class="dot" points="617.7,553.3 620.7,559.3 614.7,559.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 6 · context 9,594 · uncached tokens 3,174.0</title></polygon>
+<polygon class="dot" points="606.5,572.1 609.5,578.1 603.5,578.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 7 · context 8,140 · uncached tokens 1,962.0</title></polygon>
+<polygon class="dot" points="606.3,573.6 609.3,579.6 603.4,579.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 8 · context 8,118 · uncached tokens 1,863.0</title></polygon>
+<polygon class="dot" points="611.6,572.2 614.6,578.2 608.6,578.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 9 · context 8,801 · uncached tokens 1,954.0</title></polygon>
+<polygon class="dot" points="607.8,580.4 610.7,586.4 604.8,586.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-2000-tt-single turn 10 · context 8,301 · uncached tokens 1,426.0</title></polygon>
+<polygon class="dot" points="834.4,446.8 837.4,452.8 831.4,452.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 2 · context 37,814 · uncached tokens 10,034.0</title></polygon>
+<polygon class="dot" points="831.8,577.5 834.8,583.5 828.8,583.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 3 · context 37,477 · uncached tokens 1,612.0</title></polygon>
+<polygon class="dot" points="834.4,576.1 837.4,582.1 831.4,582.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 4 · context 37,809 · uncached tokens 1,704.0</title></polygon>
+<polygon class="dot" points="845.9,560.8 848.9,566.8 842.9,566.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 5 · context 39,308 · uncached tokens 2,690.0</title></polygon>
+<polygon class="dot" points="845.6,555.0 848.6,561.0 842.6,561.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 6 · context 39,270 · uncached tokens 3,062.0</title></polygon>
+<polygon class="dot" points="847.5,550.3 850.5,556.3 844.5,556.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 7 · context 39,522 · uncached tokens 3,365.0</title></polygon>
+<polygon class="dot" points="844.2,576.3 847.2,582.2 841.2,582.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 8 · context 39,084 · uncached tokens 1,695.0</title></polygon>
+<polygon class="dot" points="846.2,573.8 849.2,579.8 843.2,579.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 9 · context 39,351 · uncached tokens 1,852.0</title></polygon>
+<polygon class="dot" points="869.5,561.4 872.5,567.4 866.5,567.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-32000-tt-single turn 10 · context 42,385 · uncached tokens 2,653.0</title></polygon>
+<polygon class="dot" points="647.8,566.1 650.8,572.1 644.8,572.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 2 · context 13,514 · uncached tokens 2,349.0</title></polygon>
+<polygon class="dot" points="666.0,547.4 669.0,553.4 663.0,553.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 3 · context 15,888 · uncached tokens 3,553.0</title></polygon>
+<polygon class="dot" points="643.7,567.4 646.7,573.4 640.7,573.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 4 · context 12,981 · uncached tokens 2,267.0</title></polygon>
+<polygon class="dot" points="653.1,568.0 656.1,574.0 650.1,574.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 5 · context 14,206 · uncached tokens 2,225.0</title></polygon>
+<polygon class="dot" points="655.5,566.4 658.5,572.4 652.5,572.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 6 · context 14,523 · uncached tokens 2,327.0</title></polygon>
+<polygon class="dot" points="660.2,562.7 663.1,568.7 657.2,568.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 7 · context 15,125 · uncached tokens 2,570.0</title></polygon>
+<polygon class="dot" points="658.2,573.1 661.1,579.0 655.2,579.0" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 8 · context 14,864 · uncached tokens 1,901.0</title></polygon>
+<polygon class="dot" points="675.4,551.8 678.4,557.8 672.4,557.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 9 · context 17,110 · uncached tokens 3,271.0</title></polygon>
+<polygon class="dot" points="667.9,526.2 670.9,532.1 664.9,532.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r2-8000-tt-single turn 10 · context 16,138 · uncached tokens 4,923.0</title></polygon>
+<polygon class="dot" points="709.1,568.4 712.1,574.4 706.1,574.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 2 · context 21,497 · uncached tokens 2,200.0</title></polygon>
+<polygon class="dot" points="792.5,517.3 795.5,523.3 789.6,523.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 3 · context 32,362 · uncached tokens 5,492.0</title></polygon>
+<polygon class="dot" points="725.5,541.8 728.5,547.8 722.5,547.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 4 · context 23,635 · uncached tokens 3,914.0</title></polygon>
+<polygon class="dot" points="714.9,558.5 717.9,564.5 711.9,564.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 5 · context 22,252 · uncached tokens 2,840.0</title></polygon>
+<polygon class="dot" points="722.3,563.9 725.3,569.9 719.3,569.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 6 · context 23,220 · uncached tokens 2,492.0</title></polygon>
+<polygon class="dot" points="748.3,511.0 751.3,516.9 745.4,516.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 7 · context 26,608 · uncached tokens 5,902.0</title></polygon>
+<polygon class="dot" points="718.7,547.8 721.7,553.8 715.7,553.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 8 · context 22,748 · uncached tokens 3,529.0</title></polygon>
+<polygon class="dot" points="746.8,541.8 749.8,547.8 743.8,547.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 9 · context 26,404 · uncached tokens 3,916.0</title></polygon>
+<polygon class="dot" points="727.7,533.2 730.7,539.2 724.7,539.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-16000-tt-single turn 10 · context 23,922 · uncached tokens 4,471.0</title></polygon>
+<polygon class="dot" points="591.9,577.8 594.9,583.7 588.9,583.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 2 · context 6,242 · uncached tokens 1,598.0</title></polygon>
+<polygon class="dot" points="615.0,558.2 618.0,564.2 612.1,564.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 3 · context 9,251 · uncached tokens 2,856.0</title></polygon>
+<polygon class="dot" points="598.4,529.6 601.4,535.6 595.4,535.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 4 · context 7,087 · uncached tokens 4,702.0</title></polygon>
+<polygon class="dot" points="601.4,571.4 604.4,577.4 598.4,577.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 5 · context 7,473 · uncached tokens 2,007.0</title></polygon>
+<polygon class="dot" points="601.2,574.8 604.2,580.8 598.2,580.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 6 · context 7,449 · uncached tokens 1,786.0</title></polygon>
+<polygon class="dot" points="603.8,573.6 606.7,579.5 600.8,579.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 7 · context 7,780 · uncached tokens 1,869.0</title></polygon>
+<polygon class="dot" points="607.6,572.4 610.6,578.4 604.6,578.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 8 · context 8,284 · uncached tokens 1,941.0</title></polygon>
+<polygon class="dot" points="611.8,568.6 614.8,574.6 608.8,574.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 9 · context 8,832 · uncached tokens 2,190.0</title></polygon>
+<polygon class="dot" points="633.8,542.4 636.8,548.3 630.8,548.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-2000-tt-single turn 10 · context 11,688 · uncached tokens 3,879.0</title></polygon>
+<polygon class="dot" points="844.0,550.2 847.0,556.2 841.0,556.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 2 · context 39,065 · uncached tokens 3,372.0</title></polygon>
+<polygon class="dot" points="842.3,562.8 845.3,568.8 839.3,568.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 3 · context 38,837 · uncached tokens 2,561.0</title></polygon>
+<polygon class="dot" points="835.8,568.3 838.8,574.3 832.8,574.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 4 · context 37,999 · uncached tokens 2,209.0</title></polygon>
+<polygon class="dot" points="900.1,481.7 903.1,487.7 897.1,487.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 5 · context 46,371 · uncached tokens 7,785.0</title></polygon>
+<polygon class="dot" points="845.1,552.2 848.1,558.2 842.1,558.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 6 · context 39,201 · uncached tokens 3,243.0</title></polygon>
+<polygon class="dot" points="842.4,576.1 845.4,582.1 839.4,582.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 7 · context 38,859 · uncached tokens 1,706.0</title></polygon>
+<polygon class="dot" points="853.4,570.9 856.4,576.9 850.4,576.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 8 · context 40,289 · uncached tokens 2,040.0</title></polygon>
+<polygon class="dot" points="857.6,566.3 860.6,572.3 854.6,572.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 9 · context 40,830 · uncached tokens 2,336.0</title></polygon>
+<polygon class="dot" points="848.5,540.3 851.5,546.3 845.5,546.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-32000-tt-single turn 10 · context 39,653 · uncached tokens 4,012.0</title></polygon>
+<polygon class="dot" points="641.3,576.2 644.2,582.2 638.3,582.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 2 · context 12,664 · uncached tokens 1,697.0</title></polygon>
+<polygon class="dot" points="639.0,580.5 642.0,586.5 636.0,586.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 3 · context 12,369 · uncached tokens 1,421.0</title></polygon>
+<polygon class="dot" points="652.0,563.4 655.0,569.4 649.0,569.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 4 · context 14,060 · uncached tokens 2,521.0</title></polygon>
+<polygon class="dot" points="647.0,572.6 650.0,578.6 644.1,578.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 5 · context 13,417 · uncached tokens 1,931.0</title></polygon>
+<polygon class="dot" points="672.2,536.4 675.2,542.4 669.2,542.4" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 6 · context 16,689 · uncached tokens 4,264.0</title></polygon>
+<polygon class="dot" points="660.6,541.7 663.6,547.7 657.6,547.7" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 7 · context 15,181 · uncached tokens 3,922.0</title></polygon>
+<polygon class="dot" points="657.8,542.2 660.7,548.2 654.8,548.2" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 8 · context 14,812 · uncached tokens 3,891.0</title></polygon>
+<polygon class="dot" points="679.9,543.2 682.9,549.1 676.9,549.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 9 · context 17,695 · uncached tokens 3,827.0</title></polygon>
+<polygon class="dot" points="658.0,572.9 661.0,578.9 655.0,578.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · r3-8000-tt-single turn 10 · context 14,844 · uncached tokens 1,911.0</title></polygon>
+<path class="line" d="M601.2,554.2 L644.6,555.6 L708.2,552.9 L835.8,555.1" stroke="var(--s-orb)"/>
+<circle class="median" cx="601.2" cy="554.2" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 2,000 · median of 27: context 7,448, 3,335.0</title></circle>
+<circle class="median" cx="644.6" cy="555.6" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 8,000 · median of 27: context 13,105, 3,248.0</title></circle>
+<circle class="median" cx="708.2" cy="552.9" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 16,000 · median of 27: context 21,381, 3,422.0</title></circle>
+<circle class="median" cx="835.8" cy="555.1" r="4.5" fill="var(--s-orb)"><title>Orb · later turns · start 32,000 · median of 27: context 37,998, 3,278.0</title></circle>
+<text class="label" x="844.8" y="559.1">Orb</text>
+<path class="line" d="M618.0,537.7 L669.7,529.1 L727.2,536.9 L853.3,530.4" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="613.9" y="533.6" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 2,000 · median of 27: context 9,630, 4,401.0</title></rect>
+<rect class="median" x="665.6" y="525.1" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 8,000 · median of 27: context 16,365, 4,952.0</title></rect>
+<rect class="median" x="723.2" y="532.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 16,000 · median of 27: context 23,859, 4,450.0</title></rect>
+<rect class="median" x="849.3" y="526.3" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · later turns · start 32,000 · median of 26: context 40,278, 4,874.0</title></rect>
+<text class="label" x="862.3" y="534.4">TT handoff</text>
+<path class="line" d="M607.6,574.9 L655.5,569.5 L724.5,557.7 L844.0,569.7" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="607.6,568.9 612.8,579.3 602.4,579.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 2,000 · median of 27: context 8,284, 2,007.0</title></polygon>
+<polygon class="median" points="655.5,563.6 660.7,573.9 650.4,573.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 8,000 · median of 27: context 14,523, 2,349.0</title></polygon>
+<polygon class="median" points="724.5,551.8 729.7,562.1 719.3,562.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 16,000 · median of 27: context 23,500, 3,111.0</title></polygon>
+<polygon class="median" points="844.0,563.8 849.2,574.1 838.8,574.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · later turns · start 32,000 · median of 27: context 39,065, 2,336.0</title></polygon>
+<text class="label" x="853.0" y="573.7">TT single</text>
+<text class="panel" x="24.0" y="678">Turns meeting the task contract, %</text>
+<line class="axis" x1="68.0" x2="296.0" y1="844.0" y2="844.0"/>
+<text class="tick" x="60.0" y="848.0" text-anchor="end">0</text>
+<line class="grid" x1="68.0" x2="296.0" y1="813.2" y2="813.2"/>
+<text class="tick" x="60.0" y="817.2" text-anchor="end">20</text>
+<line class="grid" x1="68.0" x2="296.0" y1="782.4" y2="782.4"/>
+<text class="tick" x="60.0" y="786.4" text-anchor="end">40</text>
+<line class="grid" x1="68.0" x2="296.0" y1="751.6" y2="751.6"/>
+<text class="tick" x="60.0" y="755.6" text-anchor="end">60</text>
+<line class="grid" x1="68.0" x2="296.0" y1="720.8" y2="720.8"/>
+<text class="tick" x="60.0" y="724.8" text-anchor="end">80</text>
+<line class="grid" x1="68.0" x2="296.0" y1="690.0" y2="690.0"/>
+<text class="tick" x="60.0" y="694.0" text-anchor="end">100</text>
+<text class="tick" x="96.5" y="860" text-anchor="middle">2k</text>
+<text class="tick" x="153.5" y="860" text-anchor="middle">8k</text>
+<text class="tick" x="210.5" y="860" text-anchor="middle">16k</text>
+<text class="tick" x="267.5" y="860" text-anchor="middle">32k</text>
+<text class="tick" x="296.0" y="874" text-anchor="end">starting history, tokens →</text>
+<circle class="hollow" cx="87.5" cy="690.0" r="4.5" fill="var(--surface)" stroke="var(--s-orb)"><title>Orb · start 2,000 · native run completed 30/30</title></circle>
+<circle class="hollow" cx="144.5" cy="690.0" r="4.5" fill="var(--surface)" stroke="var(--s-orb)"><title>Orb · start 8,000 · native run completed 30/30</title></circle>
+<circle class="hollow" cx="201.5" cy="690.0" r="4.5" fill="var(--surface)" stroke="var(--s-orb)"><title>Orb · start 16,000 · native run completed 30/30</title></circle>
+<circle class="hollow" cx="258.5" cy="690.0" r="4.5" fill="var(--surface)" stroke="var(--s-orb)"><title>Orb · start 32,000 · native run completed 30/30</title></circle>
+<path class="line" d="M87.5,690.0 L144.5,695.1 L201.5,690.0 L258.5,710.5" stroke="var(--s-orb)"/>
+<circle class="median" cx="87.5" cy="690.0" r="4.5" fill="var(--s-orb)"><title>Orb · start 2,000 · qualified 30/30</title></circle>
+<circle class="median" cx="144.5" cy="695.1" r="4.5" fill="var(--s-orb)"><title>Orb · start 8,000 · qualified 29/30</title></circle>
+<circle class="median" cx="201.5" cy="690.0" r="4.5" fill="var(--s-orb)"><title>Orb · start 16,000 · qualified 30/30</title></circle>
+<circle class="median" cx="258.5" cy="710.5" r="4.5" fill="var(--s-orb)"><title>Orb · start 32,000 · qualified 26/30</title></circle>
+<rect class="hollow" x="92.5" y="696.2" width="8.1" height="8.1" rx="1" fill="var(--surface)" stroke="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 2,000 · native run completed 28/30</title></rect>
+<rect class="hollow" x="149.4" y="701.4" width="8.1" height="8.1" rx="1" fill="var(--surface)" stroke="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 8,000 · native run completed 27/30</title></rect>
+<rect class="hollow" x="206.4" y="701.4" width="8.1" height="8.1" rx="1" fill="var(--surface)" stroke="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 16,000 · native run completed 27/30</title></rect>
+<rect class="hollow" x="263.4" y="711.6" width="8.1" height="8.1" rx="1" fill="var(--surface)" stroke="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 32,000 · native run completed 25/30</title></rect>
+<path class="line" d="M96.5,700.3 L153.5,725.9 L210.5,710.5 L267.5,720.8" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="92.5" y="696.2" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 2,000 · qualified 28/30</title></rect>
+<rect class="median" x="149.4" y="721.9" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 8,000 · qualified 23/30</title></rect>
+<rect class="median" x="206.4" y="706.5" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 16,000 · qualified 26/30</title></rect>
+<rect class="median" x="263.4" y="716.8" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 32,000 · qualified 24/30</title></rect>
+<polygon class="hollow" points="105.5,689.2 110.7,699.5 100.3,699.5" stroke-linejoin="round" fill="var(--surface)" stroke="var(--s-tt-single)"><title>TauriTavern single Profile · start 2,000 · native run completed 29/30</title></polygon>
+<polygon class="hollow" points="162.5,689.2 167.7,699.5 157.3,699.5" stroke-linejoin="round" fill="var(--surface)" stroke="var(--s-tt-single)"><title>TauriTavern single Profile · start 8,000 · native run completed 29/30</title></polygon>
+<polygon class="hollow" points="219.5,720.0 224.7,730.3 214.3,730.3" stroke-linejoin="round" fill="var(--surface)" stroke="var(--s-tt-single)"><title>TauriTavern single Profile · start 16,000 · native run completed 23/30</title></polygon>
+<polygon class="hollow" points="276.5,714.8 281.7,725.2 271.3,725.2" stroke-linejoin="round" fill="var(--surface)" stroke="var(--s-tt-single)"><title>TauriTavern single Profile · start 32,000 · native run completed 24/30</title></polygon>
+<path class="line" d="M105.5,705.4 L162.5,715.7 L219.5,736.2 L276.5,731.1" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="105.5,699.4 110.7,709.8 100.3,709.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 2,000 · qualified 27/30</title></polygon>
+<polygon class="median" points="162.5,709.7 167.7,720.1 157.3,720.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 8,000 · qualified 25/30</title></polygon>
+<polygon class="median" points="219.5,730.2 224.7,740.6 214.3,740.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 16,000 · qualified 21/30</title></polygon>
+<polygon class="median" points="276.5,725.1 281.7,735.5 271.3,735.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 32,000 · qualified 22/30</title></polygon>
+<text class="panel" x="340.0" y="678">Saved reply words, median</text>
+<line class="axis" x1="384.0" x2="612.0" y1="844.0" y2="844.0"/>
+<text class="tick" x="376.0" y="848.0" text-anchor="end">0</text>
+<line class="grid" x1="384.0" x2="612.0" y1="813.2" y2="813.2"/>
+<text class="tick" x="376.0" y="817.2" text-anchor="end">100</text>
+<line class="grid" x1="384.0" x2="612.0" y1="782.4" y2="782.4"/>
+<text class="tick" x="376.0" y="786.4" text-anchor="end">200</text>
+<line class="grid" x1="384.0" x2="612.0" y1="751.6" y2="751.6"/>
+<text class="tick" x="376.0" y="755.6" text-anchor="end">300</text>
+<line class="grid" x1="384.0" x2="612.0" y1="720.8" y2="720.8"/>
+<text class="tick" x="376.0" y="724.8" text-anchor="end">400</text>
+<line class="grid" x1="384.0" x2="612.0" y1="690.0" y2="690.0"/>
+<text class="tick" x="376.0" y="694.0" text-anchor="end">500</text>
+<text class="tick" x="412.5" y="860" text-anchor="middle">2k</text>
+<text class="tick" x="469.5" y="860" text-anchor="middle">8k</text>
+<text class="tick" x="526.5" y="860" text-anchor="middle">16k</text>
+<text class="tick" x="583.5" y="860" text-anchor="middle">32k</text>
+<text class="tick" x="612.0" y="874" text-anchor="end">starting history, tokens →</text>
+<path class="line" d="M403.5,707.4 L460.5,738.0 L517.5,727.9 L574.5,724.6" stroke="var(--s-orb)"/>
+<circle class="median" cx="403.5" cy="707.4" r="4.5" fill="var(--s-orb)"><title>Orb · start 2,000 · median saved reply 444 words over 30 qualified turns</title></circle>
+<circle class="median" cx="460.5" cy="738.0" r="4.5" fill="var(--s-orb)"><title>Orb · start 8,000 · median saved reply 344 words over 29 qualified turns</title></circle>
+<circle class="median" cx="517.5" cy="727.9" r="4.5" fill="var(--s-orb)"><title>Orb · start 16,000 · median saved reply 377 words over 30 qualified turns</title></circle>
+<circle class="median" cx="574.5" cy="724.6" r="4.5" fill="var(--s-orb)"><title>Orb · start 32,000 · median saved reply 388 words over 26 qualified turns</title></circle>
+<path class="line" d="M412.5,773.6 L469.5,769.8 L526.5,773.6 L583.5,771.8" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="408.4" y="769.6" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 2,000 · median saved reply 228 words over 28 qualified turns</title></rect>
+<rect class="median" x="465.4" y="765.7" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 8,000 · median saved reply 241 words over 23 qualified turns</title></rect>
+<rect class="median" x="522.5" y="769.6" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 16,000 · median saved reply 228 words over 26 qualified turns</title></rect>
+<rect class="median" x="579.5" y="767.7" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 32,000 · median saved reply 234 words over 24 qualified turns</title></rect>
+<path class="line" d="M421.5,778.1 L478.5,782.4 L535.5,775.9 L592.5,778.2" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="421.5,772.1 426.7,782.5 416.3,782.5" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 2,000 · median saved reply 214 words over 27 qualified turns</title></polygon>
+<polygon class="median" points="478.5,776.4 483.7,786.8 473.3,786.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 8,000 · median saved reply 200 words over 25 qualified turns</title></polygon>
+<polygon class="median" points="535.5,770.0 540.7,780.3 530.3,780.3" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 16,000 · median saved reply 221 words over 21 qualified turns</title></polygon>
+<polygon class="median" points="592.5,772.3 597.7,782.6 587.3,782.6" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 32,000 · median saved reply 214 words over 22 qualified turns</title></polygon>
+<text class="panel" x="656.0" y="678">Generated tokens per turn, median</text>
+<line class="axis" x1="700.0" x2="928.0" y1="844.0" y2="844.0"/>
+<text class="tick" x="692.0" y="848.0" text-anchor="end">0</text>
+<line class="grid" x1="700.0" x2="928.0" y1="792.7" y2="792.7"/>
+<text class="tick" x="692.0" y="796.7" text-anchor="end">1k</text>
+<line class="grid" x1="700.0" x2="928.0" y1="741.3" y2="741.3"/>
+<text class="tick" x="692.0" y="745.3" text-anchor="end">2k</text>
+<line class="grid" x1="700.0" x2="928.0" y1="690.0" y2="690.0"/>
+<text class="tick" x="692.0" y="694.0" text-anchor="end">3k</text>
+<text class="tick" x="728.5" y="860" text-anchor="middle">2k</text>
+<text class="tick" x="785.5" y="860" text-anchor="middle">8k</text>
+<text class="tick" x="842.5" y="860" text-anchor="middle">16k</text>
+<text class="tick" x="899.5" y="860" text-anchor="middle">32k</text>
+<text class="tick" x="928.0" y="874" text-anchor="end">starting history, tokens →</text>
+<path class="line" d="M719.5,793.8 L776.5,799.9 L833.5,798.4 L890.5,798.5" stroke="var(--s-orb)"/>
+<circle class="median" cx="719.5" cy="793.8" r="4.5" fill="var(--s-orb)"><title>Orb · start 2,000 · median 978 generated tokens over 30 attempts</title></circle>
+<circle class="median" cx="776.5" cy="799.9" r="4.5" fill="var(--s-orb)"><title>Orb · start 8,000 · median 860 generated tokens over 30 attempts</title></circle>
+<circle class="median" cx="833.5" cy="798.4" r="4.5" fill="var(--s-orb)"><title>Orb · start 16,000 · median 889 generated tokens over 30 attempts</title></circle>
+<circle class="median" cx="890.5" cy="798.5" r="4.5" fill="var(--s-orb)"><title>Orb · start 32,000 · median 887 generated tokens over 30 attempts</title></circle>
+<path class="line" d="M728.5,741.9 L785.5,715.1 L842.5,741.5 L899.5,740.0" stroke="var(--s-tt-handoff)"/>
+<rect class="median" x="724.5" y="737.8" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 2,000 · median 1,990 generated tokens over 30 attempts</title></rect>
+<rect class="median" x="781.5" y="711.1" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 8,000 · median 2,510 generated tokens over 30 attempts</title></rect>
+<rect class="median" x="838.5" y="737.4" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 16,000 · median 1,997 generated tokens over 30 attempts</title></rect>
+<rect class="median" x="895.5" y="736.0" width="8.1" height="8.1" rx="1" fill="var(--s-tt-handoff)"><title>TauriTavern handoff Profiles · start 32,000 · median 2,025 generated tokens over 30 attempts</title></rect>
+<path class="line" d="M737.5,799.8 L794.5,792.4 L851.5,784.5 L908.5,786.7" stroke="var(--s-tt-single)"/>
+<polygon class="median" points="737.5,793.8 742.7,804.1 732.3,804.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 2,000 · median 862 generated tokens over 30 attempts</title></polygon>
+<polygon class="median" points="794.5,786.4 799.7,796.8 789.3,796.8" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 8,000 · median 1,006 generated tokens over 30 attempts</title></polygon>
+<polygon class="median" points="851.5,778.6 856.7,788.9 846.3,788.9" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 16,000 · median 1,158 generated tokens over 30 attempts</title></polygon>
+<polygon class="median" points="908.5,780.7 913.7,791.1 903.3,791.1" stroke-linejoin="round" fill="var(--s-tt-single)"><title>TauriTavern single Profile · start 32,000 · median 1,117 generated tokens over 30 attempts</title></polygon>
+<text class="note" x="24" y="886">Contract panel: filled marks met the shared task contract; hollow marks are runs the application itself completed.</text>
+<text class="note" x="24" y="903">The bottom row pools all 30 attempts per arm and starting history. Generated tokens include tool-call JSON.</text>
+<text class="note" x="24" y="920">Wall time runs from the trigger to the persisted reply. Each starting history is one frozen chat, so these are descriptive</text>
+<text class="note" x="24" y="937">medians for this fixture and these configurations, without intervals. Every value is in turns.csv and summary.csv.</text>
+</svg>
