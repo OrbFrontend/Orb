@@ -201,6 +201,10 @@ def prose_defects(text):
         defects.append("prose.adjacent_quotes_after_comma")
     if re.search(r'[.?!\u2026]["\u201d][ \t]+["\u201c]', text):
         defects.append("prose.adjacent_quotes_after_stop")
+    # A line closed with a comma must run into its tag; a capitalised pronoun or article after it means the tag was
+    # swapped for a new sentence (`dock," She looks down`). Names and "I" can start a tag, so they are not counted.
+    if re.search(r',["\u201d][ \t]+(?:She|He|They|It|We|You|Her|His|Their|Its|Our|Your|The|A|An|This|That|There)\b', text):
+        defects.append("prose.capitalized_after_comma")
     return defects
 
 

@@ -94,6 +94,8 @@ def test_mechanical_prose_defects():
     assert prose_defects('"Hi." "Bye," she said.') == ["prose.adjacent_quotes_after_stop"]
     assert prose_defects('She said, "They hid what arrived.') == ["prose.unbalanced_quotes"]
     assert prose_defects('"Done."\n\n"Next," she said.') == []
+    assert prose_defects('"Not the dock," She looks down.') == ["prose.capitalized_after_comma"]
+    assert prose_defects('"Not the dock," Mara says. "Wait," I say.') == []
 
 
 def test_orb_stopping_rule_applies_to_recorded_audits():

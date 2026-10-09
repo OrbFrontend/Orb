@@ -326,6 +326,7 @@ def build(runs, output):
     kinds = [
         ("prose.unbalanced_quotes", "Unbalanced quotes"),
         ("prose.adjacent_quotes_after_comma", 'Two quoted lines together after `,"` or a dash (always a defect)'),
+        ("prose.capitalized_after_comma", 'A new sentence after `,"` where the tag should be (`dock," She looks`)'),
         (
             "prose.adjacent_quotes_after_stop",
             'Two quoted lines together after `."`, `?"` or `!"` (new speech is allowed; needs a look)',
