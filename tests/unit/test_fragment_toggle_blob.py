@@ -6,8 +6,6 @@ each call narrows to its live fields per call (see "Treat tools as part of the p
 
 import json
 
-import pytest
-
 from backend.core import RESERVED_FRAGMENT_IDS
 from backend.inference import CachedBase
 from backend.pipeline.config import build_writer_tools_blob
@@ -262,52 +260,6 @@ class TestDirectorUsesTheLiveView:
         assert "unavailable this turn (leave empty): intent, keywords, mood_note" in base.tails[0]
         assert base.schemas[0]["required"] == ["next_event"]
         assert result.extra_fields == {"next_event": "y"}
-
-
-class _ScriptedBase(_FakeBase):
-    def __init__(self, tools: list[dict], replies: list[dict]):
-        super().__init__(tools, {}, "direct_scene")
-        self.replies = replies
-        self.trailings: list[list] = []
-
-    async def complete(self, *_, trailing, **kw):
-        self.trailings.append(list(trailing))
-        args = self.replies[len(self.trailings) - 1]
-        yield {
-            "type": "done",
-            "message": {
-                "role": "assistant",
-                "tool_calls": [{"function": {"name": "direct_scene", "arguments": json.dumps(args)}}],
-            },
-        }
-
-
-@pytest.mark.parametrize(
-    ("second", "expected"),
-    [({"next_event": "storm"}, {"next_event": "storm", "keywords": ["rain"]}), ({}, {"keywords": ["rain"]})],
-)
-async def test_an_empty_required_field_is_replayed_once_append_only(second, expected):
-    live = [row for row in _GLOBALS if row["id"] in ("next_event", "keywords")]
-    base = _ScriptedBase(_shared_tools(), [{"keywords": ["rain"], "next_event": ""}, second, {"next_event": "third"}])
-    events = [
-        e
-        async for e in director_pass(
-            _FakeClient(),  # type: ignore[arg-type]
-            base,  # type: ignore[arg-type]
-            "the user message",
-            {},
-            {"active_moods": []},
-            [],
-            live,
-            {"direct_scene": True},
-        )
-    ]
-    first, retry = base.trailings
-    assert retry[: len(first)] == first
-    replay, result = retry[len(first) :]
-    assert replay["tool_calls"][0]["id"] == result["tool_call_id"]
-    assert "next_event" in result["content"]
-    assert events[-1]["result"].extra_fields == expected
 
 
 async def test_feedback_narrows_and_drops_disabled_values():

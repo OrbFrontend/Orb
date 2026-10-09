@@ -59,15 +59,7 @@ def _state_call(**fields) -> list[dict]:
 
 
 def _direct(**args) -> list[dict]:
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": "direct_scene",
-                "arguments": {"moods": [], "keywords": ["lamp"], "next_event": "A door opens.", **args},
-            },
-        }
-    ]
+    return [{"type": "function", "function": {"name": "direct_scene", "arguments": {"moods": [], **args}}}]
 
 
 async def _conversation(cid: str) -> str:
