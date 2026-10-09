@@ -126,11 +126,7 @@ def split_interactive_fragments(
 
 
 def _without_required(schema: dict) -> dict:
-    """Drop top-level ``required`` from a fragment-built schema on the shared blob.
-
-    Which fragments are required depends on which are enabled, so it cannot ride
-    the blob. Each call states and narrows its live fields per call instead.
-    """
+    """Drop top-level ``required`` from a fragment-built schema on the shared blob; calls state their live fields instead."""
     schema["function"]["parameters"]["required"] = []
     return schema
 
@@ -168,7 +164,10 @@ def build_writer_tools_blob(
     contract = StateContract.defined(settings, state_fragments)
     scene_rows = contract.direct_scene_rows(defined_fragments)
     direct_scene = build_direct_scene_override(scene_rows, grouped=grouped)
-    overrides: dict = {"direct_scene": _names_only(_without_required(direct_scene), {row["id"] for row in scene_rows})}
+    # Required stays on the wire, where schema-decoding upstreams honor it, except for one-field steps (docs/architecture/kv-cache.md).
+    if settings.get("director_individual_fragments", 0):
+        direct_scene = _without_required(direct_scene)
+    overrides: dict = {"direct_scene": _names_only(direct_scene, {row["id"] for row in scene_rows})}
     if agentic_lorebook:
         enabled_tools["select_lorebook"] = True
     if dynamic_world:

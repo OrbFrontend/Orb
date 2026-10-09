@@ -143,16 +143,20 @@ gate the passes through `PipelineConfig.active_tools` and the lorebook turn;
 they never change the schemas. `PipelineConfig.enabled_tools` is the offered
 map that workflow calls rebuild the blob from.
 
-Fragment cooldowns follow the same rule as the speaking-plan roster and
-per-fragment required fields: their volatile availability is stated in the
-trailing Director prompt and enforced server-side, never by changing the tool
-schema.
+Fragment cooldowns follow the same rule as the speaking-plan roster: their
+volatile availability is stated in the trailing Director prompt and enforced
+server-side, never by changing the tool schema.
 
 Enabling or disabling a fragment follows it too. `direct_scene`,
 `give_feedback`, and `update_state` are built from every fragment the user and
-the cast's cards define, enabled or not, in an order no toggle moves, with no
-top-level `required`; `give_feedback` joins the list once any feedback fragment
-is defined. A fragment-built property carries its
+the cast's cards define, enabled or not, in an order no toggle moves.
+`direct_scene` lists every fragment flagged required as top-level `required`,
+enabled or not, because upstreams that decode against the tool schema follow it
+and ignore a "Required:" line in the trailing request; a disabled required field
+is filled and dropped. Per-fragment Director mode leaves `required` empty, since
+each step fills one field. `give_feedback` and `update_state` carry no
+`required`, and `give_feedback` joins the list once any feedback fragment is
+defined. A fragment-built property carries its
 name and type only. The blob reaches every call on the lane, the Writer's
 included in single-model mode, so a description there would put a disabled
 fragment's instructions in front of the reply. Code-authored properties
@@ -163,8 +167,8 @@ descriptions restored, as the per-call `json_schema`, which narrows text-mode
 grammars and structured-output endpoints while leaving the prompt bytes alone.
 Values for fields the call was not offered live are dropped. Editing a
 fragment's description leaves the blob unchanged; creating or deleting a
-fragment, renaming its id, or moving it to another tool or between a single value
-and a list still rewrites it, as an authoring change rather than a toggle.
+fragment, renaming its id, flagging it required, or moving it to another tool or
+between a single value and a list still rewrites it, as an authoring change rather than a toggle.
 
 The stakes, measured on an 8k-token Director call: a tools list that changes
 on a toggle rebuilds the whole prefix wherever tools render ahead of the

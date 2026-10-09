@@ -71,11 +71,11 @@ class TestBlobSurvivesToggles:
         assert blob == reference
         assert enabled["give_feedback"] and enabled["update_state"]
 
-    def test_disabled_fragments_are_offered_with_nothing_required(self):
+    def test_disabled_fragments_are_offered_and_direct_scene_keeps_required_flags(self):
         schemas = {s["function"]["name"]: s for s in json.loads(_blob(_toggled({"intent", "suggestions"}))[0])}
         direct_scene = schemas["direct_scene"]["function"]["parameters"]
         assert list(direct_scene["properties"]) == ["intent", "next_event", "keywords", "mood_note", "moods"]
-        assert direct_scene["required"] == []
+        assert direct_scene["required"] == ["intent", "next_event"]
         assert schemas["give_feedback"]["function"]["parameters"]["required"] == []
 
     def test_fragment_properties_carry_names_and_types_only(self):
@@ -139,7 +139,6 @@ class TestLiveView:
         out = tool_call_instruction("direct_scene", live_direct_scene_schema(overrides["direct_scene"], _GLOBALS[:2]))
         assert "Parameter order: (intent, next_event, moods)" in out
         assert out.endswith("Required: intent, next_event")
-        assert "Required" not in tool_call_instruction("direct_scene", overrides["direct_scene"])
 
     def test_instruction_lists_descriptions_in_blob_order(self):
         overrides, _ = build_writer_tools_blob(_SETTINGS, _GLOBALS, {})
