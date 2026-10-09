@@ -229,6 +229,15 @@ def tt_block(root, block, fixture, applied, arm, turns, pilot):
         view.close()
 
 
+def service_directories():
+    """Where the running recorder and MCP auditor were started; the auditor imports Orb's backend from there."""
+    found = {}
+    for name in ("recorder", "auditor"):
+        pids = subprocess.run(["pgrep", "-f", f"scripts[.]bench[.]{name}"], capture_output=True, text=True).stdout.split()
+        found[name] = sorted({os.readlink(f"/proc/{pid}/cwd") for pid in pids})
+    return found
+
+
 def provenance(root, harness):
     """Identities every block manifest records, so a block names exactly what it ran."""
     llama = Path.home() / "lmg/llama-cpp-webui/data/llama.cpp/build/bin/llama-server"
@@ -236,6 +245,8 @@ def provenance(root, harness):
     return {
         "harness_commit": command(["git", "rev-parse", "HEAD"], harness),
         "harness_dirty": bool(command(["git", "status", "--porcelain", "--", "scripts/bench"], harness)),
+        "harness_backend_matches_orb": not command(["git", "diff", "--stat", ORB_COMMIT, "HEAD", "--", "backend"], harness),
+        "service_directories": service_directories(),
         "orb_commit": ORB_COMMIT,
         "tauritavern_commit": TT_COMMIT,
         "tauritavern_binary_sha256": sha256(root / "tauritavern/src-tauri/target/release/tauritavern"),
@@ -263,6 +274,10 @@ def main():
     identity = provenance(root, harness)
     if not args.pilot and identity["harness_dirty"]:
         raise ValueError("a reportable sweep needs a committed, clean benchmark harness")
+    if not args.pilot and not identity["harness_backend_matches_orb"]:
+        raise ValueError(f"the harness backend must be Orb {ORB_COMMIT}, which the auditor and replay import")
+    if not args.pilot and any(found != [str(harness)] for found in identity["service_directories"].values()):
+        raise ValueError(f"the recorder and auditor must run from {harness}: {identity['service_directories']}")
     args.output.mkdir(parents=True, exist_ok=True)
     applied = root / "pilot/orb-short/applied.json"
     for repeat in range(args.repeats):
