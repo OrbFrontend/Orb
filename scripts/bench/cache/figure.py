@@ -336,10 +336,6 @@ def section(rows, figure_name="figure.svg"):
         f"{SHORT[arm]} {med(arm, 'turn 1', 'uncached_tokens'):,.0f} of {med(arm, 'turn 1', 'actual_prompt_tokens'):,.0f}"
         for arm in ARMS
     )
-    rates = ", ".join(
-        f"{SHORT[arm]} {sum(r['qualified'] for r in rows if r['arm'] == arm)}/{sum(r['arm'] == arm for r in rows)}"
-        for arm in ARMS
-    )
     lengths = "; ".join(
         f"{SHORT[arm]} {overall(arm, 'prose_words'):,.0f} words, {overall(arm, 'generated_tokens', False):,.0f} tokens"
         for arm in ARMS
@@ -356,7 +352,6 @@ def section(rows, figure_name="figure.svg"):
         "Uncached input sums every call in the turn, so it can exceed the largest single prompt.",
         f"- Turns 2–10, {largest:,} start, the same measure: {uncached}.",
         f"- Median wall time over turns 2–10 from the {smallest:,} to the {largest:,} start: {later}.",
-        f"- Turns meeting the task contract: {rates}.",
         f"- Median saved reply (qualified turns) and generated tokens (all attempts): {lengths}.",
         "",
         "The arms differ in call count, output length and tool behavior as well as cache reuse; the figure does not separate these causes.",

@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import subprocess
+import re
 from collections import Counter
 from pathlib import Path
 from statistics import median
 
-from scripts.bench.cache.figure import render, section
+from scripts.bench.cache.figure import SHORT, render, section
 from scripts.bench.cache.orb_driver import save
 
 ARMS = {"orb": "Orb", "tt-handoff": "TauriTavern handoff Profiles", "tt-single": "TauriTavern single Profile"}
@@ -83,7 +83,7 @@ CALL_FIELDS = [
 
 
 def rate(count, total):
-    return f"{count}/{total} ({100 * count / total:.1f}%)" if total else "—"
+    return f"{count:,}/{total:,} ({100 * count / total:.1f}%)" if total and count else (f"0/{total:,}" if total else "—")
 
 
 def native_failed(row):
@@ -101,7 +101,15 @@ def med(values, digits=1):
 
 def total(rows, key):
     values = [row.get(key) for row in rows]
-    return sum(values) if values and all(value is not None for value in values) else "unavailable"
+    return f"{sum(values):,}" if values and all(value is not None for value in values) else "unavailable"
+
+
+def call_total(calls, key):
+    """Sum a per-call usage figure; a call the provider cut off before reporting usage is counted, not hidden."""
+    values = [call.get(key) for call in calls]
+    known = sum(value for value in values if value is not None)
+    missing = sum(value is None for value in values)
+    return f"{known:,} (+{missing} call{'s' * (missing != 1)} without usage)" if missing else f"{known:,}"
 
 
 def codes(value):
@@ -175,13 +183,27 @@ def summary_rows(rows):
     return out
 
 
-def scorer_commit():
-    try:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        dirty = subprocess.check_output(["git", "status", "--porcelain", "--", "scripts/bench"], text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unrecorded"
-    return commit + (" with uncommitted changes" if dirty else "")
+WITH = {"orb": "in Orb", "tt-handoff": "with TauriTavern handoff Profiles", "tt-single": "with a single TauriTavern Profile"}
+DEFECTS = [
+    ("prose.unbalanced_quotes", "Unbalanced quotes"),
+    ("prose.adjacent_quotes_after_comma", 'Two quoted lines joined after `,"` or a dash'),
+    ("prose.capitalized_after_comma", 'A new sentence after `,"` where the tag should be (`dock," She looks`)'),
+    ("prose.adjacent_quotes_after_stop", 'Two quoted lines joined after `."`, `?"` or `!"`'),
+]
+
+
+def ranked(counter):
+    return dict(sorted(counter.items(), key=lambda pair: (-pair[1], pair[0])))
+
+
+def top(counter, limit=5):
+    items = [f"`{item}` {count}" for item, count in list(ranked(counter).items())[:limit]]
+    rest = len(counter) - limit
+    return ", ".join(items) + (f", {rest} more" if rest > 0 else "") if items else "none"
+
+
+def joined(parts):
+    return ", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else "".join(parts)
 
 
 def build(runs, output):
@@ -191,7 +213,12 @@ def build(runs, output):
     pilot = all(row["pilot"] for row in rows)
     if not pilot and any(row["pilot"] for row in rows):
         raise ValueError("pilot and reportable turns must not be pooled")
-    manifests = [json.loads(path.read_text()) for path in sorted(runs.glob("*/manifest.json"))]
+    blocks = sorted({row["block"] for row in rows})
+    manifests = [
+        json.loads((runs / block / "manifest.json").read_text())
+        for block in blocks
+        if (runs / block / "manifest.json").exists()
+    ]
     identity = manifests[0] if manifests else {}
     output.mkdir(parents=True, exist_ok=True)
     save(output / "turns.json", rows)
@@ -207,56 +234,75 @@ def build(runs, output):
     save(output / "summary.json", summary)
     write_csv(output / "summary.csv", summary, list(summary[0]))
     sizes = sorted({size_of(row) for row in rows})
-    qualified = sum(row["qualified"] for row in rows)
-    kind = "pilot" if pilot else "sweep"
+    largest = sizes[-1]
+    by_arm = {arm: [row for row in rows if row["arm"] == arm] for arm in ARMS}
+    steady = {
+        arm: med(
+            [r["native_wall_seconds"] for r in group if r["qualified"] and phase(r) == "later turns" and size_of(r) == largest]
+        )
+        for arm, group in by_arm.items()
+    }
+    met = [f"{SHORT[arm]} {sum(r['qualified'] for r in group)}/{len(group)}" for arm, group in by_arm.items()]
     lines = [
-        f"# Bench 1 comparison {kind}",
+        f"# Bench 1: Orb and TauriTavern on the same model{' (pilot)' if pilot else ''}",
         "",
-        f"{len(rows)} attempted turns across Orb and two custom TauriTavern configurations; {qualified} met the shared task contract. "
-        f"Starting histories: {', '.join(f'{size:,}' for size in sizes)} nominal tokens; "
-        f"{max(row['turn'] for row in rows)} consecutive scripted user turns per block; "
-        f"{len({json.loads(path.read_text())['repeat'] for path in runs.glob('*/manifest.json')})} repeat block(s) per size and arm. "
-        "llama-server restarted cold before every block, and block order rotated across repeats. "
-        "Starting histories were shared; later turns kept each application's own replies, including the effect of failed turns.",
+        f"{len(rows)} turns of Orb and two custom TauriTavern agent configurations doing the same job on Gemma 4: write a scene "
+        "direction, draft a reply from it, audit the draft with Orb's detectors, repair it under Orb's Editor stopping rule, "
+        f"and save it. Starting histories of {joined([f'{size:,}' for size in sizes])} tokens, "
+        f"{max(row['turn'] for row in rows)} scripted consecutive turns per block, "
+        f"{len({m['repeat'] for m in manifests})} repeat blocks per size and arm. llama-server restarts cold before every "
+        "block and block order rotates across repeats; later turns keep each application's own replies.",
         "",
-        "There is one frozen history per size, so these are descriptive results for this fixture and these configurations, "
-        "not population intervals and not a claim about every TauriTavern configuration.",
+        f"**At the {largest:,}-token start, turns 2–10 take a median "
+        + joined([f"{steady[arm]} s {WITH[arm]}" for arm in ARMS])
+        + f". Turns meeting the task contract: {', '.join(met)}.**",
         "",
-        "## Task contract",
+        "There is one frozen history per size, so these are descriptive results for these configurations, not population "
+        "intervals or a claim about every TauriTavern configuration.",
         "",
-        "Every arm must produce a valid scene direction before its draft and use it, audit the draft with the same detectors, "
-        "re-audit after every edit batch, and save the final reply intact. TauriTavern's native save cleanup (trailing whitespace) counts as intact. "
-        "How editing ended (findings left, more than three batches), reasoning-channel output and save cleanup are reported below as observations for every arm; "
-        "they do not disqualify a turn. Thinking is disabled on the wire in every request and verified there.",
+        *section(rows),
         "",
         "## Completion",
         "",
-        "| Configuration / starting history | Attempts | Native failures | Qualified |",
-        "| --- | ---: | ---: | ---: |",
+        "Every arm must write a valid scene direction before its draft and use it, audit the draft with the same detectors, "
+        "re-audit after every edit batch, and save the final reply intact; TauriTavern's trailing-whitespace cleanup counts as "
+        "intact. A missing moods field, an empty required field, a whole-file rewrite and every native failure fail the turn. "
+        "An unknown mood id next to valid ones, or a list field given as one delimited string, is an observation: Orb drops "
+        "unknown ids and renders either shape into Scene Guidance unchanged. Thinking is off on the wire in every request and "
+        "verified there.",
+        "",
     ]
-    for arm, name in ARMS.items():
-        for size in [None, *sizes]:
-            group = [row for row in rows if row["arm"] == arm and (size is None or size_of(row) == size)]
-            if not group:
-                continue
-            label = name + (" / all" if size is None else f" / {size:,}")
-            lines.append(
-                f"| {label} | {len(group)} | {rate(sum(native_failed(r) for r in group), len(group))} | "
-                f"{rate(sum(r['qualified'] for r in group), len(group))} |"
+    per_size = {arm: [[r for r in group if size_of(r) == size] for size in sizes] for arm, group in by_arm.items()}
+    block_turns = {len(part) for parts in per_size.values() for part in parts}
+    uniform = len(block_turns) == 1
+    lines.extend(
+        [
+            f"| Configuration | Attempts | Native failures | Met the task contract | Met it by start, {' / '.join(f'{size:,}' for size in sizes)}"
+            + (f" (of {block_turns.pop()} each)" if uniform else "")
+            + " |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for arm, group in by_arm.items():
+        lines.append(
+            f"| {ARMS[arm]} | {len(group)} | {rate(sum(native_failed(r) for r in group), len(group))} | "
+            f"{rate(sum(r['qualified'] for r in group), len(group))} | "
+            + " / ".join(
+                f"{sum(r['qualified'] for r in part)}" + ("" if uniform else f"/{len(part)}") for part in per_size[arm]
             )
+            + " |"
+        )
     (output / "figure.svg").write_text(render(rows))
-    lines.extend(["", *section(rows)])
     lines.extend(
         [
             "",
             "## Latency and cost per turn",
             "",
-            "Wall time runs from the driver's trigger to Orb's `done` after persistence, or to TauriTavern's completed Run with its chat presentation settled. "
-            "Orb's end is pushed over SSE; TauriTavern's is found by the driver polling every 0.5 s, so the delay between TauriTavern's persisted terminal time "
-            "and the driver noticing it is removed from its wall time (the raw driver time is `driver_wall_seconds` in turns.json). "
-            "Medians over qualified turns; turn 1 follows a cold server start and is reported apart from turns 2–10. "
-            "First visible prose is Orb's first streamed Writer token at the client, and TauriTavern's first reply text rendered in its chat message "
-            "(checked against the start of the reply). Uncached input, calls and generated tokens are medians over all attempts, failures included.",
+            "Wall time runs from the driver's trigger to the confirmed final save: Orb's `done` after persistence, or TauriTavern's "
+            "completed Run with its chat settled, less the driver's 0.5 s polling delay (the raw value is `driver_wall_seconds`). "
+            "First prose is Orb's first Writer token at the client and TauriTavern's first reply text rendered in its chat. "
+            "Wall and first-prose times are medians over qualified turns; uncached input, calls and tokens are medians over all "
+            "attempts. Turn 1 follows a cold server start.",
             "",
             "| Configuration | Start | Turns | Qualified | Wall s | First prose s | Uncached input | Model calls | Generated tokens | Prompt tokens, max |",
             "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -278,15 +324,15 @@ def build(runs, output):
             "",
             "### Where the time went",
             "",
-            "Model seconds sum each turn's recorded model calls (recorder ingress to stream end). Non-model seconds are the rest of the wall time: "
-            "application work, prompt assembly, tool execution, the auditor, chat saving and, for TauriTavern, its WebView bridge and 0.5 s polling.",
+            "Model seconds sum the turn's recorded model calls, recorder ingress to stream end. The rest is application work: "
+            "prompt assembly, tools, the auditor, saving and, for TauriTavern, its WebView bridge.",
             "",
             "| Configuration | Median wall s | Median model s | Median non-model s | Median calls |",
             "| --- | ---: | ---: | ---: | ---: |",
         ]
     )
     for arm, name in ARMS.items():
-        group = [row for row in rows if row["arm"] == arm and row["qualified"]]
+        group = [row for row in by_arm[arm] if row["qualified"]]
         if group:
             lines.append(
                 f"| {name} | {med([r['native_wall_seconds'] for r in group])} | {med([r['model_seconds'] for r in group])} | "
@@ -297,24 +343,20 @@ def build(runs, output):
             "",
             "## Repair",
             "",
-            "Every arm follows Orb's Editor stopping rule: after each re-audit, stop when it is clean, when no flagged sentence is left, "
-            "or when the issue count did not go down; at most three batches. Orb enforces the rule in code; TauriTavern Profiles are told it. "
-            "Repair is scored where the rule stops, from the shared auditor's recorded audits; TauriTavern editing past that point is counted "
-            "below and stays in its time and calls. Findings are per 1,000 words, because replies differ in length. "
-            "Preserved sentences are unflagged draft sentences that survive verbatim in the saved reply.",
+            "Repair is scored where Orb's Editor stopping rule stops: after a re-audit that is clean, leaves no flagged sentence, or "
+            "did not lower the issue count, and after at most three batches. Orb enforces the rule in code; TauriTavern Profiles "
+            "are told it, and editing past it stays in their time and calls. Findings are per 1,000 draft words. Preserved "
+            "sentences are unflagged draft sentences that survive verbatim in the saved reply.",
             "",
-            "| Configuration | Qualified turns | Clean drafts | Findings per 1,000 words: draft → at stop rule | Turns with findings left at stop rule | Turns edited past the rule | Unflagged sentences preserved |",
+            "| Configuration | Qualified turns | Clean drafts | Findings per 1,000 words: draft → at stop rule | Turns with findings left | Turns edited past the rule | Unflagged sentences preserved |",
             "| --- | ---: | ---: | --- | ---: | ---: | ---: |",
         ]
     )
     for arm, name in ARMS.items():
         group = [
             row
-            for row in rows
-            if row["arm"] == arm
-            and row["qualified"]
-            and row["initial_findings"] is not None
-            and row.get("repair_findings") is not None
+            for row in by_arm[arm]
+            if row["qualified"] and row["initial_findings"] is not None and row.get("repair_findings") is not None
         ]
         if not group:
             continue
@@ -326,95 +368,77 @@ def build(runs, output):
             f"{sum('editor.edited_past_stop_rule' in r.get('observations', []) for r in group)} | "
             f"{rate(sum(r['preserved_unflagged_sentences'] for r in group), sum(r['unflagged_sentences'] for r in group))} |"
         )
-    kinds = [
-        ("prose.unbalanced_quotes", "Unbalanced quotes"),
-        ("prose.adjacent_quotes_after_comma", 'Two quoted lines together after `,"` or a dash (always a defect)'),
-        ("prose.capitalized_after_comma", 'A new sentence after `,"` where the tag should be (`dock," She looks`)'),
-        (
-            "prose.adjacent_quotes_after_stop",
-            'Two quoted lines together after `."`, `?"` or `!"` (new speech is allowed; needs a look)',
-        ),
-    ]
+    damage = []
+    for arm, group in by_arm.items():
+        for key, label in DEFECTS:
+            drafted = sum(f"{key}.draft" in row.get("observations", []) for row in group)
+            edited = sum(f"{key}.editing" in row.get("observations", []) for row in group)
+            if drafted or edited:
+                damage.append(f"| {ARMS[arm]} | {label} | {drafted}/{len(group)} | {edited}/{len(group)} |")
     lines.extend(
         [
             "",
-            "## Punctuation damage in saved replies",
-            "",
-            "A mechanical check on every saved reply, the same for every arm, attributed to its mechanism: already in the Writer's draft "
-            "(TauriTavern drafts prose inside a tool argument), or introduced by editing. Turns counted, not occurrences.",
-            "",
-            "| Configuration | Defect | From the draft | From editing |",
-            "| --- | --- | ---: | ---: |",
+            "A mechanical punctuation check runs on every saved reply in every arm and attributes each defect to the Writer's "
+            "draft or to editing, counting turns.",
         ]
     )
-    for arm, name in ARMS.items():
-        group = [row for row in rows if row["arm"] == arm]
-        for key, label in kinds:
-            drafted = sum(f"{key}.draft" in row.get("observations", []) for row in group)
-            edited = sum(f"{key}.editing" in row.get("observations", []) for row in group)
-            lines.append(f"| {name} | {label} | {drafted}/{len(group)} | {edited}/{len(group)} |")
-    stop_only = [
-        row
-        for row in rows
-        if "prose.adjacent_quotes_after_stop.editing" in row.get("observations", [])
-        and not any(
-            item.startswith(("prose.unbalanced_quotes", "prose.adjacent_quotes_after_comma")) for item in row["observations"]
+    if damage:
+        lines.extend(
+            ["", "| Configuration | Defect | From the draft | From editing |", "| --- | --- | ---: | ---: |", *damage, ""]
         )
-    ]
-    orb = [row for row in rows if row["arm"] == "orb" and row.get("editor_replay_matches") is not None]
+        lines.append("No other defect appears in any arm.")
+    else:
+        lines.append("No arm has any defect.")
+    orb = [row for row in by_arm["orb"] if row.get("editor_replay_matches") is not None]
     by_round = Counter(
         (round_, defect)
         for row in orb
         for round_, defects in (row.get("editing_defects_by_round") or {}).items()
         for defect in defects
     )
-    lines.extend(
-        [
-            "",
-            f"{len(stop_only)} turn(s) have only an after-stop hit and need reading: "
-            + (", ".join(f"{r['block']} turn {r['turn']}" for r in stop_only) or "none")
-            + ".",
-            "",
-            f"Orb's Editor rounds were replayed with the pinned code (re-audit, rebuild the numbered targets, apply each `editor_apply_patch` call); "
-            f"{sum(row['editor_replay_matches'] for row in orb)} of {len(orb)} edited Orb turns reproduce the saved reply byte for byte. "
-            "Defects by the round that introduced them:",
-            "",
-            "| Editor round | Defect | Orb turns |",
-            "| ---: | --- | ---: |",
-            *[f"| {round_} | `{defect}` | {count} |" for (round_, defect), count in sorted(by_round.items())],
-            *(["| — | None | 0 |"] if not by_round else []),
-        ]
-    )
-    notes = runs / "NOTES.md"
-    if notes.exists():
-        lines.extend(["", "## Disclosures", "", notes.read_text().strip()])
-    lines.extend(["", "## Failures and observations", "", "### Native error codes", ""])
-    lines.extend(["| Configuration | Error code | Attempts with code |", "| --- | --- | ---: |"])
-    native_codes = []
-    for arm, name in ARMS.items():
-        counts = Counter(
-            code for row in rows if row["arm"] == arm for code in codes([row.get("native_error"), row.get("native_failures")])
+    if orb:
+        lines[-1] += (
+            f" Replaying Orb's Editor rounds with the pinned code reproduces {sum(row['editor_replay_matches'] for row in orb)} "
+            f"of {len(orb)} edited Orb replies byte for byte"
+            + (
+                "; its editing defects came from "
+                + joined(
+                    [
+                        f"round {round_} (`{defect}`, {count} turn{'s' * (count != 1)})"
+                        for (round_, defect), count in sorted(by_round.items())
+                    ]
+                )
+                if by_round
+                else ""
+            )
+            + "."
         )
-        for code, count in counts.most_common():
-            lines.append(f"| {name} | `{code}` | {count} |")
-            native_codes.append({"arm": arm, "code": code, "attempts": count})
-        if not counts:
-            lines.append(f"| {name} | None recorded | 0 |")
-    for title, key in (
-        ("Task-contract failures", "qualification_errors"),
-        ("Observations (not disqualifying)", "observations"),
-    ):
-        lines.extend(["", f"### {title}", "", "| Configuration | Finding | Attempts |", "| --- | --- | ---: |"])
-        for arm, name in ARMS.items():
-            counts = Counter(item for row in rows if row["arm"] == arm for item in set(row.get(key, [])))
-            for item, count in counts.most_common():
-                lines.append(f"| {name} | `{item}` | {count} |")
-            if not counts:
-                lines.append(f"| {name} | None | 0 |")
+    findings = {}
+    for arm in ARMS:
+        findings[arm] = {
+            "native_errors": ranked(
+                Counter(code for row in by_arm[arm] for code in codes([row.get("native_error"), row.get("native_failures")]))
+            ),
+            "contract_failures": ranked(
+                Counter(item for row in by_arm[arm] for item in set(row.get("qualification_errors", [])))
+            ),
+            "observations": ranked(Counter(item for row in by_arm[arm] for item in set(row.get("observations", [])))),
+        }
+    save(output / "findings.json", findings)
     lines.extend(
         [
             "",
-            "Causes overlap and do not add up to the failure rate. A missing stage after an aborted run is a finding, not a separate attempt.",
+            "## Failures and observations",
+            "",
+            "Attempts per cause, most frequent first. Causes overlap, so they do not add up to the failure rate; every count is in "
+            "[findings.json](findings.json).",
+            "",
+            "| Configuration | Native errors | Task-contract failures | Observations (not disqualifying) |",
+            "| --- | --- | --- | --- |",
+            *[
+                f"| {ARMS[arm]} | {top(found['native_errors'])} | {top(found['contract_failures'])} | {top(found['observations'])} |"
+                for arm, found in findings.items()
+            ],
             "",
             "## Work performed, including failed attempts",
             "",
@@ -423,16 +447,15 @@ def build(runs, output):
         ]
     )
     for arm, name in ARMS.items():
-        group = [row for row in rows if row["arm"] == arm]
         arm_calls = [call for call in calls if call["arm"] == arm]
         lines.append(
-            f"| {name} | {len(arm_calls)} | {total(arm_calls, 'generated_tokens')} | {total(arm_calls, 'uncached_tokens')} | "
-            f"{total(group, 'tool_errors')} | {total(group, 'edit_batches')} |"
+            f"| {name} | {len(arm_calls):,} | {call_total(arm_calls, 'generated_tokens')} | {call_total(arm_calls, 'uncached_tokens')} | "
+            f"{total(by_arm[arm], 'tool_errors')} | {total(by_arm[arm], 'edit_batches')} |"
         )
     lines.extend(
         [
             "",
-            "Orb's turn log does not expose a failed-tool-call denominator, so its column reads `unavailable`. Generated tokens include tool-call JSON and any reasoning-channel output.",
+            "Orb's turn log has no failed-tool-call count. Generated tokens include tool-call JSON and any reasoning-channel output.",
             "",
             "| Configuration / stage | Calls | Model seconds | Generated tokens | Uncached input tokens |",
             "| --- | ---: | ---: | ---: | ---: |",
@@ -441,10 +464,10 @@ def build(runs, output):
     for arm, name in ARMS.items():
         for stage in sorted({call["stage"] for call in calls if call["arm"] == arm}):
             group = [call for call in calls if call["arm"] == arm and call["stage"] == stage]
-            seconds = total(group, "seconds")
-            seconds = f"{seconds:.1f}" if isinstance(seconds, (float, int)) else seconds
+            values = [call.get("seconds") for call in group]
+            seconds = f"{sum(values):,.1f}" if all(value is not None for value in values) else "unavailable"
             lines.append(
-                f"| {name} / {stage} | {len(group)} | {seconds} | {total(group, 'generated_tokens')} | {total(group, 'uncached_tokens')} |"
+                f"| {name} / {stage} | {len(group):,} | {seconds} | {call_total(group, 'generated_tokens')} | {call_total(group, 'uncached_tokens')} |"
             )
     overhead = [call["forwarding_setup_ms"] for call in calls]
     cache_available = [call for call in calls if call["uncached_tokens"] is not None and call["prompt_evaluated"] is not None]
@@ -455,21 +478,30 @@ def build(runs, output):
     ]
     save(output / "cache-crosscheck.json", {"available_calls": len(cache_available), "mismatches": cache_mismatch})
     save(output / "association-crosscheck.json", Counter(call.get("association_method", "Orb tool_choice") for call in calls))
-    save(output / "failure-codes.json", native_codes)
     lines.extend(
         [
             "",
-            f"Recorder forwarding setup: median {median(overhead):.3f} ms, maximum {max(overhead):.3f} ms over {len(overhead)} calls. "
-            f"Provider cache usage matched llama-server timings in {len(cache_available) - len(cache_mismatch)} of {len(cache_available)} calls "
-            "([cache-crosscheck.json](cache-crosscheck.json)); request-to-stage associations: [association-crosscheck.json](association-crosscheck.json).",
+            f"The recorder added a median {median(overhead):.3f} ms of forwarding setup, {max(overhead):.3f} ms at most, over "
+            f"{len(overhead):,} calls. Provider cache usage matched llama-server's timings on {len(cache_available) - len(cache_mismatch):,} "
+            f"of {len(cache_available):,} calls ([cache-crosscheck.json](cache-crosscheck.json)); request-to-stage associations are in "
+            "[association-crosscheck.json](association-crosscheck.json).",
+        ]
+    )
+    notes = runs / "NOTES.md"
+    if notes.exists():
+        nested = re.sub(r"^(#+) ", lambda match: "#" * (len(match.group(1)) + 2) + " ", notes.read_text().strip(), flags=re.M)
+        lines.extend(["", "## Disclosures", "", nested])
+    harnesses = Counter(m.get("harness_commit", "unrecorded") for m in manifests)
+    lines.extend(
+        [
             "",
             "## Configuration",
             "",
             f"Orb `{identity.get('orb_commit', 'unrecorded')}`; TauriTavern 2.3.0 `{identity.get('tauritavern_commit', 'unrecorded')}` "
-            f"(release binary SHA-256 `{identity.get('tauritavern_binary_sha256', 'unrecorded')}`); "
-            f"benchmark harness `{identity.get('harness_commit', 'unrecorded')}`"
-            + (" with uncommitted changes" if identity.get("harness_dirty", True) else "")
-            + f"; scored and reported by `{scorer_commit()}`.",
+            f"(release binary SHA-256 `{identity.get('tauritavern_binary_sha256', 'unrecorded')}`); benchmark harness "
+            + joined([f"`{commit}` ({count} blocks)" for commit, count in ranked(harnesses).items()])
+            + (" with uncommitted changes" if any(m.get("harness_dirty", True) for m in manifests) else "")
+            + ".",
             "",
             f"Gemma 4 26B-A4B QAT UD-Q4_K_XL (SHA-256 `{identity.get('model_sha256', 'unrecorded')}`) on llama.cpp "
             f"({'; '.join(identity.get('llama_server_version', [])) or 'build unrecorded'}), RTX 3090 at 270 W, Ubuntu 24.04. "
@@ -481,12 +513,13 @@ def build(runs, output):
             "",
             "TauriTavern Profiles ([tt_setup.js](../../tt_setup.js)): full chat history through a saved preset with stable content before stage instructions; "
             "plans, skills, world info and delegation off; 32 rounds and 80 calls per invocation; three model retries. "
-            "The handoff Director passes its direction as fields of the native handoff brief; the single Profile writes a plain-text direction file. "
-            "Prompts carry no JSON examples, because Gemma 4 writes tool arguments in its own quoting syntax and imitated JSON quoting trapped earlier runs in an unterminated argument string. "
+            "Both configurations write the direction to a plain-text workspace file (`scratch/direction.md`, one field per line); the handoff Director then hands off "
+            "to the Writer, which reads that file before drafting, and the Writer hands off to the Editor. "
+            "Prompts carry no JSON examples, because Gemma 4 writes tool arguments in its own quoting syntax and imitated JSON quoting can leave an argument string unterminated. "
             "The auditor returns the same numbered report and per-category fixing rules that Orb's Editor reads, reworded only where Orb names sentence ids. "
             "Orb runs its seeded defaults with the Editor on (`defaults.json`).",
             "",
-            "Both arms get the same system prompt, card, persona, direction fields and mood descriptions, Orb's Director brief, the same Scene Guidance reading of the direction, "
+            "Every arm gets the same system prompt, card, persona, direction fields and mood descriptions, Orb's Director brief, the same Scene Guidance reading of the direction, "
             "the same audit report and fixing rules, and the same Editor stopping rule. Native differences kept on purpose: Orb's Director sees the previously active moods "
             "and Orb releases an ended mood with its negative prompt, while each TauriTavern turn starts from an empty workspace with no mood state; "
             "Orb's first prose is timed at the client before rendering, TauriTavern's when its WebView renders it; neither arm is told a reply length.",
@@ -497,7 +530,7 @@ def build(runs, output):
         ]
     )
     (output / "REPORT.md").write_text("\n".join(lines))
-    print(json.dumps({"attempts": len(rows), "qualified": qualified, "output": str(output)}))
+    print(json.dumps({"attempts": len(rows), "qualified": sum(row["qualified"] for row in rows), "output": str(output)}))
 
 
 if __name__ == "__main__":

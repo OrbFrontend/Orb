@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.bench.cache.inspect import (
     direction_errors,
+    direction_observations,
     first_prose_text_matches,
     includes_history,
     parse_direction_text,
@@ -70,9 +71,19 @@ def test_native_direction_artifacts_parse_to_the_common_contract():
     assert parse_direction_text("moods:\nkeywords: ledger\nnext_event: She looks up.", APPLIED)["moods"] == []
     assert direction_errors(parse_direction_text("keywords: ledger\nnext_event: x", APPLIED), APPLIED) == ["direction.moods"]
     assert parse_direction_text("Mara looks up.", APPLIED) is None
-    assert direction_errors(parse_direction_text("moods: calm\nnext_event: x", APPLIED), APPLIED) == [
-        "direction.moods",
-        "direction.required.keywords",
+    calm = parse_direction_text("moods: calm\nnext_event: x", APPLIED)
+    assert direction_errors(calm, APPLIED) == ["direction.required.keywords"]
+    assert direction_observations(calm, APPLIED) == ["direction.unknown_moods"]
+
+
+def test_direction_is_judged_by_what_reaches_the_writer():
+    # Orb's own tool arguments: an invented mood id is dropped by Orb, a list given as one string is rendered as is.
+    slipped = {"moods": ["tense", "suspenseful"], "keywords": "fog, harbor", "next_event": ["The door opens."]}
+    assert direction_errors(slipped, APPLIED) == []
+    assert direction_observations(slipped, APPLIED) == ["direction.unknown_moods", "direction.field_shape"]
+    assert direction_errors({"keywords": ["fog"], "next_event": "x"}, APPLIED) == ["direction.moods"]
+    assert direction_errors({"moods": [], "keywords": ["fog"], "next_event": "  "}, APPLIED) == [
+        "direction.required.next_event"
     ]
 
 

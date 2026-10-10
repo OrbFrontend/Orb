@@ -139,12 +139,18 @@ def includes_history(body, history):
 
 
 def direction_errors(direction, applied):
+    """Whether the Writer received the direction: moods given as a list, every required field present and non-empty.
+
+    Judged by what reaches the Writer, the same for every arm. Orb renders a list field given as one string and a string
+    field given as a list into Scene Guidance unchanged, and the plain-text direction file has no types at all, so a
+    value's shape is an observation (``direction_observations``), not a failure. Unknown mood ids are one too: Orb drops
+    them before the Writer, and a TauriTavern Writer has no instructions for them. An absent moods field fails.
+    """
     if not isinstance(direction, dict):
         return ["direction.not_object"]
     errors = []
     moods = direction.get("moods")
-    allowed = {row["id"] for row in applied["moods"] if row["enabled"]}
-    if not isinstance(moods, list) or any(not isinstance(mood, str) or mood not in allowed for mood in moods):
+    if not isinstance(moods, list) or any(not isinstance(mood, str) for mood in moods):
         errors.append("direction.moods")
     for field in applied["fragments"]:
         if not field["enabled"] or field["field_type"] not in {"string", "array"}:
@@ -153,13 +159,34 @@ def direction_errors(direction, applied):
         if value is None:
             if field["required"]:
                 errors.append("direction.required." + field["id"])
-        elif field["field_type"] == "string" and (not isinstance(value, str) or (field["required"] and not value.strip())):
+            continue
+        items = value if isinstance(value, list) else [value]
+        if any(not isinstance(item, str) for item in items):
             errors.append("direction.type." + field["id"])
-        elif field["field_type"] == "array" and (
-            not isinstance(value, list) or any(not isinstance(item, str) for item in value)
-        ):
-            errors.append("direction.type." + field["id"])
+        elif field["required"] and not any(item.strip() for item in items):
+            errors.append("direction.required." + field["id"])
     return errors
+
+
+def direction_observations(direction, applied):
+    """Direction slips the applications absorb: mood ids that are not moods, and a field in the other shape."""
+    if not isinstance(direction, dict):
+        return []
+    observations = []
+    moods = direction.get("moods")
+    allowed = {row["id"] for row in applied["moods"] if row["enabled"]}
+    if isinstance(moods, list) and any(isinstance(mood, str) and mood not in allowed for mood in moods):
+        observations.append("direction.unknown_moods")
+    shapes = {"string": str, "array": list}
+    if any(
+        field["enabled"]
+        and field["field_type"] in shapes
+        and direction.get(field["id"]) is not None
+        and not isinstance(direction[field["id"]], shapes[field["field_type"]])
+        for field in applied["fragments"]
+    ):
+        observations.append("direction.field_shape")
+    return observations
 
 
 def list_fields(applied):
@@ -342,6 +369,7 @@ def qualify_tt(turn, summary, applied, audit_root):
         errors.append("direction.missing")
     else:
         errors.extend(direction_errors(direction, applied))
+        observations.extend(direction_observations(direction, applied))
     initial = ""
     if not drafts:
         errors.append("draft.missing")
@@ -409,8 +437,13 @@ def qualify_tt(turn, summary, applied, audit_root):
         findings_at_stop_rule = audit_results[stop]["total_issues"]
         if stop < len(audit_results) - 1:
             observations.append("editor.edited_past_stop_rule")
-    if not commits or not finishes or not audits or not (audits[-1]["seq"] < commits[-1]["seq"] < finishes[-1]["seq"]):
-        errors.append("completion.audit_commit_finish_order")
+    # The saved reply must be committed and the run finished after it; whether an audit covered the saved bytes is
+    # checked against the recorded audits (audit.final_bytes_mismatch). An audit of the unchanged text after the commit
+    # leaves the same reply, so the order alone is an observation.
+    if not commits or not finishes or not commits[-1]["seq"] < finishes[-1]["seq"]:
+        errors.append("completion.commit_then_finish")
+    elif audits and audits[-1]["seq"] > commits[-1]["seq"]:
+        observations.append("completion.audited_after_commit")
     if patches and commits and patches[-1]["seq"] > commits[-1]["seq"]:
         errors.append("completion.edit_after_commit")
     expected = (
@@ -427,7 +460,12 @@ def qualify_tt(turn, summary, applied, audit_root):
             stage = profiles.get(tool["invocationId"])
             editing = tool["name"] in {"audit_draft", "workspace.apply_patch", "workspace.commit", "workspace.finish"}
             drafting = tool["name"] == "workspace.write_file" and tool["arguments"].get("path") == "output/main.md"
-            if (
+            if stage == "benchmark-writer" and tool["name"] == "workspace.commit":
+                if "stages.writer_commit" in observations:
+                    continue
+                # Publishes the draft early; the Editor's later commit replaces it, and every draft streams to the chat anyway.
+                observations.append("stages.writer_commit")
+            elif (
                 (stage == "benchmark-director" and (editing or drafting))
                 or (stage == "benchmark-writer" and editing)
                 or (stage == "benchmark-editor" and tool["name"] == "agent.handoff")
@@ -518,7 +556,7 @@ def score_orb(turn, summary, selected, applied):
         "draft": draft,
         "direction": directions[0] if directions else None,
         "errors": errors,
-        "observations": [],
+        "observations": direction_observations(directions[0], applied) if directions else [],
         "tool_calls": len(tools),
         "tool_errors": None,
         "edit_batches": len(edits),

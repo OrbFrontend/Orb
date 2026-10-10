@@ -46,6 +46,20 @@ def command(args, cwd=None, env=None):
     return subprocess.check_output([str(arg) for arg in args], cwd=cwd, env=env, text=True).strip()
 
 
+def exited(pid):
+    """True once the process has exited; reaps it when it is this process's child, so its PID cannot linger as a zombie."""
+    try:
+        if Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z":
+            return False
+    except FileNotFoundError:
+        return True
+    try:
+        os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        pass
+    return True
+
+
 def stop(pidfile, expected):
     if not pidfile.exists():
         return
@@ -53,13 +67,15 @@ def stop(pidfile, expected):
     proc = Path(f"/proc/{pid}/cmdline")
     if not proc.exists():
         return
+    if exited(pid):
+        return
     actual = proc.read_bytes().decode().replace("\x00", " ")
     if expected not in actual:
         raise ValueError(f"refusing to stop PID {pid}: {actual}")
     os.kill(pid, signal.SIGTERM)
     deadline = time.monotonic() + 15
     while proc.exists() and time.monotonic() < deadline:
-        if Path(f"/proc/{pid}/stat").read_text().split()[2] == "Z":
+        if exited(pid):
             return
         time.sleep(0.1)
     if proc.exists():
@@ -135,7 +151,8 @@ def orb_block(root, harness, block, fixture, turns, pilot):
     python = Path.home() / "lmg/Anonymous/Orb/.venv/bin/python"
     source = Path.home() / "lmg/Anonymous/Orb"
     worktree = block / "orb"
-    command(["git", "worktree", "add", "--detach", worktree, ORB_COMMIT], source)
+    # --force: a block set aside after a setup failure keeps its worktree registered under this path.
+    command(["git", "worktree", "add", "--force", "--detach", worktree, ORB_COMMIT], source)
     shutil.copytree(
         harness / "scripts/bench",
         worktree / "scripts/bench",
