@@ -456,6 +456,15 @@ function _measureIntrinsicSizes(nodes) {
   }
 }
 
+// The topmost row on screen, found again by its reconcile key since a changed row is rebuilt as a new node.
+function _topVisibleRow(ct) {
+  const top = ct.getBoundingClientRect().top;
+  const row = Array.from(ct.children).find((el) => el.dataset.rkey && el.getBoundingClientRect().bottom > top);
+  if (!row) return null;
+  const key = row.dataset.rkey;
+  return () => Array.from(ct.children).find((el) => el.dataset.rkey === key) ?? null;
+}
+
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   let renderedMsgs = null;
@@ -521,7 +530,7 @@ export function renderMessages(forceBottom = false) {
       }
       renderTurnError(ct);
     },
-    { forceBottom },
+    { forceBottom, anchor: _topVisibleRow },
   );
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();

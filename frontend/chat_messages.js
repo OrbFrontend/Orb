@@ -243,10 +243,11 @@ async function switchBranch(msgId) {
   try {
     const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
     const ct = $("chat-messages");
-    const topWithin = (el) => el.getBoundingClientRect().top - ct.getBoundingClientRect().top;
     const oldEl = currentBranchMsg?.id ? ct?.querySelector(`.message[data-msg-id="${currentBranchMsg.id}"]`) : null;
-    // The swiped bubble's top holds its place, or lands at the viewport top when it was scrolled past.
-    const anchorTop = oldEl ? Math.max(0, topWithin(oldEl)) : null;
+    // The swiped bubble's top holds its place, or lands at the viewport top when it was scrolled past. Positions
+    // come from layout, not rects: the new bubble's entrance animation offsets its rect while it plays.
+    const oldTop = oldEl?.offsetTop ?? null;
+    const scrolledPast = oldEl ? Math.max(0, ct.getBoundingClientRect().top - oldEl.getBoundingClientRect().top) : 0;
     const scrollTop = ct ? ct.scrollTop : 0;
 
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
@@ -257,9 +258,12 @@ async function switchBranch(msgId) {
     setMessages(switched);
     renderMessages();
     if (ct) {
-      const newEl = anchorTop !== null ? ct.querySelector(`.message[data-msg-id="${msgId}"]`) : null;
+      const newEl = oldTop !== null ? ct.querySelector(`.message[data-msg-id="${msgId}"]`) : null;
       markChatProgrammaticScroll();
-      ct.scrollTo({ top: newEl ? ct.scrollTop + topWithin(newEl) - anchorTop : scrollTop, behavior: "instant" });
+      ct.scrollTo({
+        top: newEl ? scrollTop + newEl.offsetTop - oldTop - scrolledPast : scrollTop,
+        behavior: "instant",
+      });
       setChatFollowing(ct.scrollHeight - ct.scrollTop - ct.clientHeight <= 20);
     }
 

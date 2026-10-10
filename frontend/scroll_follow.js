@@ -98,19 +98,27 @@ export function preserveScroll(getEl, threshold, mutate) {
   else after.scrollTop = snapshot.scrollTop;
 }
 
-export function preserveScrollDistance(getEl, threshold, mutate, { forceBottom = false } = {}) {
+// Off the bottom, `anchor(el)` may name a row to hold still: it returns a finder that locates that row again after
+// the mutation, so growth below the viewport no longer shifts what the reader is looking at.
+export function preserveScrollDistance(getEl, threshold, mutate, { forceBottom = false, anchor = null } = {}) {
   const before = getEl();
   if (!before) {
     mutate();
     return;
   }
   const distFromBottom = before.scrollHeight - before.scrollTop - before.clientHeight;
+  const pinned = forceBottom || distFromBottom <= threshold;
+  const find = pinned ? null : anchor?.(before);
+  // Layout offsets, not rects: a rebuilt row's entrance animation shifts its rect while it plays.
+  const heldTop = find?.()?.offsetTop ?? null;
+  const scrollTop = before.scrollTop;
   mutate();
   const after = getEl();
   if (!after) return;
-  const targetTop =
-    forceBottom || distFromBottom <= threshold
-      ? after.scrollHeight
-      : Math.max(0, after.scrollHeight - after.clientHeight - distFromBottom);
+  const heldNow = heldTop !== null ? find() : null;
+  let targetTop;
+  if (pinned) targetTop = after.scrollHeight;
+  else if (heldNow) targetTop = scrollTop + heldNow.offsetTop - heldTop;
+  else targetTop = Math.max(0, after.scrollHeight - after.clientHeight - distFromBottom);
   after.scrollTo({ top: targetTop, behavior: "instant" });
 }
