@@ -1,0 +1,74 @@
+{
+  "orb": {
+    "native_errors": {},
+    "contract_failures": {
+      "direction.required.next_event": 3,
+      "direction.required.keywords": 2,
+      "direction.moods": 1
+    },
+    "observations": {
+      "editor.findings_remaining": 35,
+      "direction.unknown_moods": 18,
+      "direction.field_shape": 4,
+      "prose.capitalized_after_comma.editing": 1
+    }
+  },
+  "tt-handoff": {
+    "native_errors": {
+      "agent.max_tool_rounds_exceeded": 3,
+      "model.output_truncated": 1
+    },
+    "contract_failures": {
+      "completion.commit_then_finish": 13,
+      "native.not_completed": 13,
+      "audit.missing": 6,
+      "editor.whole_file_rewrite": 6,
+      "stages.handoff_sequence": 6,
+      "stages.invocation_sequence": 6,
+      "audit.final_bytes_mismatch": 4,
+      "audit.missing_before_or_after_edits": 4,
+      "draft.missing": 4,
+      "direction.not_consumed_before_draft": 2,
+      "stages.unexpected_action": 2,
+      "response.incomplete": 1
+    },
+    "observations": {
+      "save.native_whitespace_cleanup": 41,
+      "editor.edited_past_stop_rule": 21,
+      "response.reasoning_text": 12,
+      "editor.edit_batch_limit_exceeded": 8,
+      "editor.findings_remaining": 8,
+      "first_prose.no_reply_snapshot": 4,
+      "completion.audited_after_commit": 2,
+      "stages.writer_commit": 2,
+      "direction.unknown_moods": 1
+    }
+  },
+  "tt-single": {
+    "native_errors": {
+      "model.output_truncated": 3,
+      "agent.max_tool_rounds_exceeded": 2
+    },
+    "contract_failures": {
+      "completion.commit_then_finish": 15,
+      "native.not_completed": 15,
+      "editor.whole_file_rewrite": 10,
+      "audit.final_bytes_mismatch": 8,
+      "audit.missing_before_or_after_edits": 8,
+      "audit.missing": 2,
+      "draft.missing": 1
+    },
+    "observations": {
+      "editor.edited_past_stop_rule": 31,
+      "response.reasoning_text": 24,
+      "save.native_whitespace_cleanup": 24,
+      "editor.edit_batch_limit_exceeded": 15,
+      "editor.findings_remaining": 15,
+      "first_prose.no_reply_snapshot": 1,
+      "prose.adjacent_quotes_after_stop.editing": 1,
+      "prose.unbalanced_quotes.draft": 1,
+      "prose.unbalanced_quotes.editing": 1,
+      "response.channel_marker": 1
+    }
+  }
+}

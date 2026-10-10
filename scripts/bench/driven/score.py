@@ -25,7 +25,7 @@ from scripts.bench.driven.jev_check import FIXTURES, REQUEST, SHAPE, judge_clien
 JEV_MODEL = "typesafe/jev-1.13-20260917"
 SNAPSHOT = json.loads(Path(__file__).with_name("bench.json").read_text())
 LABELS = list(SHAPE.criteria)
-# Pre-registered 2026-10-09 on the pilot's 10 hand labels, before the full run; the full run's hand labels test it.
+# Pre-registered 2026-10-09 on the pilot's 10 hand labels, before the full run.
 DRIVEN_THRESHOLD = 0.75
 
 

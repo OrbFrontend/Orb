@@ -135,7 +135,7 @@ FIXTURES: dict[str, tuple[str, list[str]]] = {
         _LONG_BODY
         + ['Then she looked at you properly for the first time. "You\'re not from Saltmarsh. What are you running from?"'],
     ),
-    # Dialogue that changes nothing: the earlier wording labeled the first and third `driven`.
+    # Dialogue that changes nothing: a character asking questions is still `static`.
     "question_static": (
         "static",
         [

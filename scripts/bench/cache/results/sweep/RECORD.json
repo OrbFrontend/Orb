@@ -1,6 +1,6 @@
 {
   "recorded_utc": "2026-10-09T13:35:31.835677+00:00",
-  "status": "Final sweep report, revised scoring of unchanged native evidence.",
+  "status": "Final sweep report.",
   "source_report_directory": "/home/z/lmg/orb-benchmark-20261009/fair/reports/sweep2",
   "raw_run_directory": "/home/z/lmg/orb-benchmark-20261009/fair/sweep2",
   "raw_requests_directory": "/home/z/lmg/orb-benchmark-20261009/fair/requests",
@@ -27,18 +27,17 @@
     "tt-single": 95
   },
   "sha256": {
-    "REPORT.md": "641ea2b9815e84d53972deb1873102b1e433db555bfb046810623abacbc5df30",
+    "MANIFESTS.json": "71fc6f08d9938112f2692f955759428d1e25598932b5150bb94f995a14b10854",
+    "REPORT.md": "33614c2cdc53c696ab4b5888bee682c87866c24c14bf3454f85f78ff5a62a871",
     "association-crosscheck.json": "66300a5db5b9fe833b63f83fc7042ed30dedef89e95378164290f19a273770af",
     "cache-crosscheck.json": "316ecd1e432324d2c3ec04b60f93d9e29b3e4e2139c1f6d204139c372af7f967",
     "calls.csv": "2cb937d5747a8d497a2f5d0c51c8aadc6a1b2998f14180f8fc08d9b05e255edd",
     "calls.json": "b05cff34f1a743fac5f39a46200d240b0f7bbe71b11814fc61c6846204ce83be",
-    "failure-codes.json": "d8bc6e50a043300617f3ae3850d46ea794bfc285b0e3bbb4339064f69e433b36",
+    "figure.svg": "767430ede7bce871fd2d27091474163ce8c4c7b5bf8d48e0cfb78554e6f3d30b",
+    "findings.json": "93816230a266a20ff63ab82805de5a968fe88871267e5ce8b2afee4f5a434028",
     "summary.csv": "4802baa71ce2693442374a7276055d1e54c2ca831458d2aab250592ed8616276",
     "summary.json": "7428ec295dd3e703023fc732dfaa6b9da0ac9ccfad39272d6b2488bc24ad0d62",
     "turns.csv": "1cfec164e81d7d73cf9096856c0151681a42486f031bde9368402affd875b237",
-    "turns.json": "7d43bd7f5359d3d05970ef88597a054333a406baf9fcb3521c395df0d83eab7f",
-    "MANIFESTS.json": "71fc6f08d9938112f2692f955759428d1e25598932b5150bb94f995a14b10854",
-    "RUN_NOTES.md": "0cb4b18b30d829c02c6b1c3b072970592fd5a9b8bec97d830fdd0f87f3a3dc31",
-    "figure.svg": "767430ede7bce871fd2d27091474163ce8c4c7b5bf8d48e0cfb78554e6f3d30b"
+    "turns.json": "7d43bd7f5359d3d05970ef88597a054333a406baf9fcb3521c395df0d83eab7f"
   }
 }

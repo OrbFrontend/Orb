@@ -1,4 +1,4 @@
-"""Pilot native TauriTavern runs with the real prompt assembly and save bridges."""
+"""Run native TauriTavern turns with the real prompt assembly and save bridges."""
 
 from __future__ import annotations
 

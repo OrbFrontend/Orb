@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start llama-server with the pinned benchmark flags (docs/plans/benchmarks.md, "Reference model").
+# Start llama-server with the pinned benchmark flags (scripts/bench/README.md, "Reproducing").
 #
 #   LLAMA_BIN=/path/to/llama-server MODEL=/path/to/model.gguf scripts/bench/serve_gemma.sh [extra flags...]
 #

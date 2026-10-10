@@ -21,9 +21,10 @@ interval +0.03 to +0.33). DeepSeek V4.1 Flash is a boring Director: 38% on, 30% 
   recorded call.
 - **Code.** Orb `8821c071`, harness `7883a8bd`, both clean.
 - **Judge.** Jev's three-way `shape` question ([jev_check.py](../jev_check.py)); a reply counts as driven at
-  P(driven) ≥ 0.75, pre-registered on the pilot's hand labels. The live preflight labeled all 12 fixtures correctly
-  before each scoring pass, and every answer came back from `typesafe/jev-1.13-20260917`. Raw answers are kept beside
-  each run's scores.
+  P(driven) ≥ 0.75, pre-registered before the full run on a 5-context Gemma pilot: its blind hand-labeled driven
+  replies scored 0.82–0.97 and every other reply 0.69 or less ([pilot/](pilot/hand-labels-result.json)). The live
+  preflight labeled all 12 fixtures correctly before each scoring pass, and every answer came back from
+  `typesafe/jev-1.13-20260917`. Raw answers are kept beside each run's scores.
 
 ## Results
 
@@ -49,7 +50,7 @@ Paired difference in driven share, on minus off, bootstrapped over contexts (one
   Director and 4/40 without; on the hand-written 20, several of which already have a truck, ferry or train on its
   way, it is 9/20 and 7/20. DeepSeek: 10/40 vs 9/40 and 13/20 vs 9/20.
 - **Judge noise.** Re-asked once, live, 1 of 20 replies changed label and 1 crossed the threshold (0.76 → 0.72);
-  P(driven) moved 0.03 on average, 0.08 at most ([c60-noise](c60-noise/noise.json)).
+  P(driven) moved 0.03 on average, 0.08 at most ([noise.json](noise/noise.json)).
 - **Cost and time.** DeepSeek: $0.06 for 120 turns, median 21 s a turn. Gemma: median 8 s.
 
 ## What the Directors ask for
@@ -67,25 +68,13 @@ over the 60 directions: Gemma names an interruption (sudden, bursts, crisis, thu
   Its Writer already drives 30% of the time with no Director, so there is little room left for a quiet Director to
   show.
 
-## Required fields reach this DeepSeek only through the schema
-
-The Director's `next_event` fragment is marked required. On the pinned upstream, a "Required: keywords, next_event"
-line in the request filled it in 1 of 20 calls, and replaying the incomplete call once with the missing fields named
-filled 3 of 20 ([full-deepseek](full-deepseek/), [full-deepseek-required](full-deepseek-required/), 20-context runs on
-earlier Orb commits). The same recorded requests with `required` on the tool schema filled it in 20 of 20, because
-the upstream decodes against the schema. Orb `8821c071` keeps required fragments on the shared `direct_scene` schema;
-on this run all 60 DeepSeek calls carried a `next_event`.
-
 ## Limits
 
 - **No hand labels on the full run.** The 0.75 threshold was set on the pilot's 10 hand labels and is untested on
   these 240 replies. Jev's own label is reported beside it and agrees in direction on both models.
-- **One repeat per context.** With identical code, DeepSeek's Director-off arm gave 8/20 and 5/20 on two earlier
-  20-context runs, so a single run carries real sampling noise; the intervals above include it only through the
-  spread across contexts.
+- **One repeat per context.** The intervals include sampling noise only through the spread across contexts.
 - **The corpus is chosen where the Director should help.** Every context ends on a passive user turn; the result says
   nothing about turns where the user drives.
 - `bench.json` runs every detector, the lorebook and a state fragment, not the out-of-the-box settings.
 
-Per-turn data: [c60-gemma/turns.csv](c60-gemma/turns.csv), [c60-deepseek/turns.csv](c60-deepseek/turns.csv).
-The Gemma pilot is in [pilot/](pilot/REPORT.md).
+Per-turn data: [gemma/turns.csv](gemma/turns.csv), [deepseek/turns.csv](deepseek/turns.csv).

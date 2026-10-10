@@ -85,6 +85,17 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 3. Algorithm-first - if something can be done with an algorithm, don't use LLMs. Avoid making LLMs eyeball for errors
 4. Keep agentic scope small to reduce hallucination, avoid giving agents too much freedom of choice
 
+## By the numbers
+
+On Gemma 4 26B-A4B (RTX 3090) and DeepSeek V4.1 Flash, with thinking off:
+
+- **KV cache**: at a 32k-token history, a directed and audited reply takes a median 12.6 s in Orb, against 35.1 s and 20.3 s for two TauriTavern agent setups doing the same job on the same model
+- **Small models**: 360 of 360 Orb turns finished with no warning or error
+- **Director**: on open-ended user turns, 37% of Gemma replies are driven with the Director on, 18% with it off
+- **Editor**: fixes 97% of flagged slop, leaves 97% of untouched sentences byte-identical, and cuts held-out slop on Gemma by 20%
+
+Method, raw data and limits: [scripts/bench](scripts/bench/README.md).
+
 ## Drawbacks
 
 1. **Speed**: Multiple passes will obviously have a longer time to final response
