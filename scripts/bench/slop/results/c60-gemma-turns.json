@@ -1,0 +1,8878 @@
+[
+  {
+    "key": "r1-agnes-1-off",
+    "context": "agnes-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 223,
+    "words_final": 221,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 5
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-agnes-1-on",
+    "context": "agnes-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 266,
+    "words_final": 271,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 2,
+        "repaired": 0,
+        "introduced": 2
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 9,
+    "flagged_sentences": {
+      "rewritten": 6,
+      "removed": 1,
+      "kept": 1
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-aino-1-off",
+    "context": "aino-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 241,
+    "words_final": 239,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 6,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-aino-1-on",
+    "context": "aino-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 221,
+    "words_final": 214,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 3,
+      "removed": 1
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-amara-1-off",
+    "context": "amara-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 273,
+    "words_final": 266,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-amara-1-on",
+    "context": "amara-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 302,
+    "words_final": 305,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 1
+    },
+    "unflagged_sentences": 13,
+    "unflagged_kept": 13,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ambrose-1-off",
+    "context": "ambrose-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 381,
+    "words_final": 381,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 4,
+      "kept": 2,
+      "removed": 1
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ambrose-1-on",
+    "context": "ambrose-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 395,
+    "words_final": 396,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 6,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-anselm-1-off",
+    "context": "anselm-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 433,
+    "words_final": 446,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 6,
+      "removed": 1
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-anselm-1-on",
+    "context": "anselm-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 327,
+    "words_final": 327,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {
+      "said, his voice barely": 1
+    },
+    "heldout_final": {
+      "said, his voice barely": 1
+    }
+  },
+  {
+    "key": "r1-aodh-1-off",
+    "context": "aodh-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 276,
+    "words_final": 277,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-aodh-1-on",
+    "context": "aodh-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 243,
+    "words_final": 237,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 3,
+      "kept": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "murmured, his voice barely": 1,
+      "voice barely more than a breath": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-bao-1-off",
+    "context": "bao-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 252,
+    "words_final": 256,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-bao-1-on",
+    "context": "bao-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 275,
+    "words_final": 275,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 13,
+    "unflagged_kept": 13,
+    "heldout_draft": {
+      "leaned back in his chair": 1
+    },
+    "heldout_final": {
+      "leaned back in his chair": 1
+    }
+  },
+  {
+    "key": "r1-beat-1-off",
+    "context": "beat-1",
+    "arm": "off",
+    "edited": false,
+    "words_draft": 260,
+    "words_final": 260,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {
+      "long, dancing shadows": 1,
+      "casting long, dancing": 1
+    },
+    "heldout_final": {
+      "long, dancing shadows": 1,
+      "casting long, dancing": 1
+    }
+  },
+  {
+    "key": "r1-beat-1-on",
+    "context": "beat-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 262,
+    "words_final": 259,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-callum-1-off",
+    "context": "callum-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 336,
+    "words_final": 332,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-callum-1-on",
+    "context": "callum-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 360,
+    "words_final": 366,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 8,
+    "flagged_sentences": {
+      "rewritten": 8
+    },
+    "unflagged_sentences": 2,
+    "unflagged_kept": 2,
+    "heldout_draft": {
+      "smile playing on his lips": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-colette-1-off",
+    "context": "colette-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 273,
+    "words_final": 269,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 1
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 1
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 2,
+    "unflagged_kept": 2,
+    "heldout_draft": {
+      "felt less like": 1,
+      "said finally, her voice": 1
+    },
+    "heldout_final": {
+      "felt less like": 1
+    }
+  },
+  {
+    "key": "r1-colette-1-on",
+    "context": "colette-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 358,
+    "words_final": 349,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 14,
+    "unflagged_kept": 14,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-dale-1-off",
+    "context": "dale-1",
+    "arm": "off",
+    "edited": false,
+    "words_draft": 317,
+    "words_final": 317,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {
+      "moment, his expression unreadable": 1
+    },
+    "heldout_final": {
+      "moment, his expression unreadable": 1
+    }
+  },
+  {
+    "key": "r1-dale-1-on",
+    "context": "dale-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 258,
+    "words_final": 261,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1,
+      "removed": 1
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-dominic-1-off",
+    "context": "dominic-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 226,
+    "words_final": 226,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {
+      "casting long shadows": 1,
+      "long shadows across": 1
+    },
+    "heldout_final": {
+      "casting long shadows": 1,
+      "long shadows across": 1
+    }
+  },
+  {
+    "key": "r1-dominic-1-on",
+    "context": "dominic-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 284,
+    "words_final": 289,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 2,
+      "removed": 2
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-earl-1-off",
+    "context": "earl-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 325,
+    "words_final": 324,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {
+      "reached into his pocket and pulled": 1
+    },
+    "heldout_final": {
+      "reached into his pocket and pulled": 1
+    }
+  },
+  {
+    "key": "r1-earl-1-on",
+    "context": "earl-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 274,
+    "words_final": 268,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 14,
+    "unflagged_kept": 14,
+    "heldout_draft": {
+      "muttered, his voice barely": 1
+    },
+    "heldout_final": {
+      "muttered, his voice barely": 1
+    }
+  },
+  {
+    "key": "r1-eilidh-1-off",
+    "context": "eilidh-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 288,
+    "words_final": 283,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 13,
+    "unflagged_kept": 13,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-eilidh-1-on",
+    "context": "eilidh-1",
+    "arm": "on",
+    "edited": false,
+    "words_draft": 337,
+    "words_final": 337,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 16,
+    "unflagged_kept": 16,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-esteban-1-off",
+    "context": "esteban-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 297,
+    "words_final": 287,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-esteban-1-on",
+    "context": "esteban-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 269,
+    "words_final": 269,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-felix-1-off",
+    "context": "felix-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 272,
+    "words_final": 277,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-felix-1-on",
+    "context": "felix-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 347,
+    "words_final": 341,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 1,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 10,
+    "flagged_sentences": {
+      "rewritten": 8,
+      "removed": 2
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-fiona-1-off",
+    "context": "fiona-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 294,
+    "words_final": 294,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-fiona-1-on",
+    "context": "fiona-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 350,
+    "words_final": 335,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 5,
+      "removed": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-folake-1-off",
+    "context": "folake-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 330,
+    "words_final": 330,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 5,
+      "kept": 1
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "turned her attention back": 1
+    },
+    "heldout_final": {
+      "turned her attention back": 1
+    }
+  },
+  {
+    "key": "r1-folake-1-on",
+    "context": "folake-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 241,
+    "words_final": 234,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 13,
+    "unflagged_kept": 13,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-gerald-1-off",
+    "context": "gerald-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 281,
+    "words_final": 278,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-gerald-1-on",
+    "context": "gerald-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 258,
+    "words_final": 257,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {
+      "turned his attention back": 1
+    },
+    "heldout_final": {
+      "turned his attention back": 1
+    }
+  },
+  {
+    "key": "r1-gloria-1-off",
+    "context": "gloria-1",
+    "arm": "off",
+    "edited": false,
+    "words_draft": 253,
+    "words_final": 253,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 2,
+        "final": 2,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "kept": 3
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-gloria-1-on",
+    "context": "gloria-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 289,
+    "words_final": 289,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 15,
+    "unflagged_kept": 15,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-harold-1-off",
+    "context": "harold-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 239,
+    "words_final": 243,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "removed": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-harold-1-on",
+    "context": "harold-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 258,
+    "words_final": 256,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1,
+      "removed": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-hattie-1-off",
+    "context": "hattie-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 222,
+    "words_final": 224,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 3,
+    "unflagged_kept": 3,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-hattie-1-on",
+    "context": "hattie-1",
+    "arm": "on",
+    "edited": false,
+    "words_draft": 190,
+    "words_final": 190,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "movements slow and deliberate": 1
+    },
+    "heldout_final": {
+      "movements slow and deliberate": 1
+    }
+  },
+  {
+    "key": "r1-imogen-1-off",
+    "context": "imogen-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 260,
+    "words_final": 248,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 8,
+    "flagged_sentences": {
+      "rewritten": 8
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-imogen-1-on",
+    "context": "imogen-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 273,
+    "words_final": 271,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 2,
+        "repaired": 0,
+        "introduced": 2
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 5,
+      "kept": 2
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ines-1-off",
+    "context": "ines-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 241,
+    "words_final": 238,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 6,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ines-1-on",
+    "context": "ines-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 250,
+    "words_final": 251,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 4,
+        "final": 0,
+        "repaired": 4,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 5
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ingrid-1-off",
+    "context": "ingrid-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 296,
+    "words_final": 289,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 1
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 10,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ingrid-1-on",
+    "context": "ingrid-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 258,
+    "words_final": 250,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 4,
+      "kept": 1
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "said, her voice barely": 1,
+      "one last time": 1
+    },
+    "heldout_final": {
+      "said, her voice barely": 1
+    }
+  },
+  {
+    "key": "r1-ingvild-1-off",
+    "context": "ingvild-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 243,
+    "words_final": 243,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "removed": 2,
+      "rewritten": 3,
+      "kept": 2
+    },
+    "unflagged_sentences": 3,
+    "unflagged_kept": 3,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ingvild-1-on",
+    "context": "ingvild-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 324,
+    "words_final": 316,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-jomo-1-off",
+    "context": "jomo-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 259,
+    "words_final": 260,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 1,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "movements slow and deliberate": 1
+    },
+    "heldout_final": {
+      "movements slow and deliberate": 1
+    }
+  },
+  {
+    "key": "r1-jomo-1-on",
+    "context": "jomo-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 316,
+    "words_final": 309,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "pocket and pulled out a small": 1,
+      "reached into his pocket and pulled": 1
+    },
+    "heldout_final": {
+      "pocket and pulled out a small": 1,
+      "reached into his pocket and pulled": 1
+    }
+  },
+  {
+    "key": "r1-joost-1-off",
+    "context": "joost-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 270,
+    "words_final": 267,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "removed": 1
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {
+      "said softly, his voice": 1
+    },
+    "heldout_final": {
+      "said softly, his voice": 1
+    }
+  },
+  {
+    "key": "r1-joost-1-on",
+    "context": "joost-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 339,
+    "words_final": 332,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-keiko-1-off",
+    "context": "keiko-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 168,
+    "words_final": 164,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 2,
+      "removed": 1
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 6,
+    "heldout_draft": {
+      "said finally, her voice": 1
+    },
+    "heldout_final": {
+      "said finally, her voice": 1
+    }
+  },
+  {
+    "key": "r1-keiko-1-on",
+    "context": "keiko-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 264,
+    "words_final": 255,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 3,
+      "removed": 2,
+      "kept": 2
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {
+      "eyes never leaving": 1
+    },
+    "heldout_final": {
+      "eyes never leaving": 1,
+      "eyes locked onto": 1
+    }
+  },
+  {
+    "key": "r1-kestrel-1-off",
+    "context": "kestrel-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 254,
+    "words_final": 255,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-kestrel-1-on",
+    "context": "kestrel-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 288,
+    "words_final": 285,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 3,
+      "removed": 1
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-kofi-1-off",
+    "context": "kofi-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 288,
+    "words_final": 287,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-kofi-1-on",
+    "context": "kofi-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 338,
+    "words_final": 327,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 7
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {
+      "smile playing on his lips": 1,
+      "small smile playing": 1
+    },
+    "heldout_final": {
+      "smile playing on his lips": 1,
+      "small smile playing": 1
+    }
+  },
+  {
+    "key": "r1-lucia-1-off",
+    "context": "lucia-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 310,
+    "words_final": 309,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 5,
+      "removed": 1
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {
+      "air was thick with the scent": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-lucia-1-on",
+    "context": "lucia-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 360,
+    "words_final": 349,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 4,
+        "final": 0,
+        "repaired": 4,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 16,
+    "unflagged_kept": 16,
+    "heldout_draft": {
+      "air is thick with the scent": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-lucio-1-off",
+    "context": "lucio-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 316,
+    "words_final": 281,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 8,
+    "flagged_sentences": {
+      "rewritten": 8
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 3,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-lucio-1-on",
+    "context": "lucio-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 300,
+    "words_final": 300,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 5,
+      "removed": 1
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {
+      "one last time": 1
+    },
+    "heldout_final": {
+      "one last time": 1,
+      "smile touched his lips": 1
+    }
+  },
+  {
+    "key": "r1-mags-1-off",
+    "context": "mags-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 294,
+    "words_final": 292,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-mags-1-on",
+    "context": "mags-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 345,
+    "words_final": 343,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 16,
+    "unflagged_kept": 16,
+    "heldout_draft": {
+      "door creaked open": 1
+    },
+    "heldout_final": {
+      "door creaked open": 1
+    }
+  },
+  {
+    "key": "r1-maite-1-off",
+    "context": "maite-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 237,
+    "words_final": 228,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 6,
+      "kept": 1
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-maite-1-on",
+    "context": "maite-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 296,
+    "words_final": 295,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 14,
+    "unflagged_kept": 14,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-marisol-1-off",
+    "context": "marisol-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 226,
+    "words_final": 219,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "removed": 2,
+      "rewritten": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-marisol-1-on",
+    "context": "marisol-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 307,
+    "words_final": 305,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 5
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-mere-1-off",
+    "context": "mere-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 291,
+    "words_final": 290,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "removed": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-mere-1-on",
+    "context": "mere-1",
+    "arm": "on",
+    "edited": false,
+    "words_draft": 298,
+    "words_final": 298,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 14,
+    "unflagged_kept": 14,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-minji-1-off",
+    "context": "minji-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 217,
+    "words_final": 217,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1,
+      "kept": 1
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {
+      "turned her attention back": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-minji-1-on",
+    "context": "minji-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 234,
+    "words_final": 234,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 8,
+    "flagged_sentences": {
+      "rewritten": 6,
+      "removed": 2
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 6,
+    "heldout_draft": {
+      "moment, her expression unreadable": 1
+    },
+    "heldout_final": {
+      "moment, her expression unreadable": 1
+    }
+  },
+  {
+    "key": "r1-nadine-1-off",
+    "context": "nadine-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 286,
+    "words_final": 279,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-nadine-1-on",
+    "context": "nadine-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 352,
+    "words_final": 346,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1,
+      "removed": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-noor-1-off",
+    "context": "noor-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 399,
+    "words_final": 368,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 4,
+        "final": 0,
+        "repaired": 4,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 9,
+    "flagged_sentences": {
+      "rewritten": 6,
+      "removed": 3
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 9,
+    "heldout_draft": {
+      "felt less like": 1
+    },
+    "heldout_final": {
+      "felt less like": 1
+    }
+  },
+  {
+    "key": "r1-noor-1-on",
+    "context": "noor-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 276,
+    "words_final": 269,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 6
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 4,
+    "heldout_draft": {
+      "grin spreading across": 1,
+      "long, dancing shadows": 1,
+      "spreading across her face": 1,
+      "casting long, dancing": 1
+    },
+    "heldout_final": {
+      "grin spreading across": 1,
+      "spreading across her face": 1
+    }
+  },
+  {
+    "key": "r1-odile-1-off",
+    "context": "odile-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 245,
+    "words_final": 245,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {
+      "dust motes dancing": 1,
+      "moment, her expression unreadable": 1
+    },
+    "heldout_final": {
+      "dust motes dancing": 1,
+      "moment, her expression unreadable": 1
+    }
+  },
+  {
+    "key": "r1-odile-1-on",
+    "context": "odile-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 278,
+    "words_final": 277,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-oleander-1-off",
+    "context": "oleander-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 266,
+    "words_final": 275,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 7
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-oleander-1-on",
+    "context": "oleander-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 188,
+    "words_final": 187,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "asked, his voice barely": 1
+    },
+    "heldout_final": {
+      "asked, his voice barely": 1
+    }
+  },
+  {
+    "key": "r1-otis-1-off",
+    "context": "otis-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 245,
+    "words_final": 241,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 4,
+      "kept": 2,
+      "removed": 1
+    },
+    "unflagged_sentences": 2,
+    "unflagged_kept": 2,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-otis-1-on",
+    "context": "otis-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 332,
+    "words_final": 324,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "removed": 2,
+      "rewritten": 4
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-oyunaa-1-off",
+    "context": "oyunaa-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 348,
+    "words_final": 324,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 9,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "find its way back": 1
+    },
+    "heldout_final": {
+      "find its way back": 1
+    }
+  },
+  {
+    "key": "r1-oyunaa-1-on",
+    "context": "oyunaa-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 210,
+    "words_final": 208,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 3,
+      "removed": 1
+    },
+    "unflagged_sentences": 6,
+    "unflagged_kept": 6,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-priya-1-off",
+    "context": "priya-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 348,
+    "words_final": 351,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 1
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-priya-1-on",
+    "context": "priya-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 295,
+    "words_final": 294,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 1,
+      "removed": 1
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {
+      "said, her voice barely": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-rafael-1-off",
+    "context": "rafael-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 294,
+    "words_final": 256,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "felt less like": 1,
+      "like a living thing": 1
+    },
+    "heldout_final": {
+      "felt less like": 1,
+      "like a living thing": 1
+    }
+  },
+  {
+    "key": "r1-rafael-1-on",
+    "context": "rafael-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 270,
+    "words_final": 230,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ravi-1-off",
+    "context": "ravi-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 254,
+    "words_final": 220,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "removed": 1
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ravi-1-on",
+    "context": "ravi-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 196,
+    "words_final": 187,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-rhea-1-off",
+    "context": "rhea-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 330,
+    "words_final": 332,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-rhea-1-on",
+    "context": "rhea-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 283,
+    "words_final": 277,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 6,
+    "flagged_sentences": {
+      "rewritten": 6
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-rogelio-1-off",
+    "context": "rogelio-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 240,
+    "words_final": 241,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-rogelio-1-on",
+    "context": "rogelio-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 266,
+    "words_final": 257,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {
+      "thick with the scent of old": 1
+    },
+    "heldout_final": {
+      "thick with the scent of old": 1
+    }
+  },
+  {
+    "key": "r1-rosalind-1-off",
+    "context": "rosalind-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 256,
+    "words_final": 255,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "pocket and pulled out a small": 1,
+      "reached into her pocket and pulled": 1
+    },
+    "heldout_final": {
+      "pocket and pulled out a small": 1,
+      "reached into her pocket and pulled": 1
+    }
+  },
+  {
+    "key": "r1-rosalind-1-on",
+    "context": "rosalind-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 298,
+    "words_final": 298,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {
+      "leaned forward, her eyes": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ruth-1-off",
+    "context": "ruth-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 305,
+    "words_final": 296,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "removed": 1
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 9,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-ruth-1-on",
+    "context": "ruth-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 258,
+    "words_final": 218,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "moment, her expression unreadable": 1
+    },
+    "heldout_final": {
+      "moment, her expression unreadable": 1
+    }
+  },
+  {
+    "key": "r1-solveig-1-off",
+    "context": "solveig-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 239,
+    "words_final": 228,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 2,
+      "removed": 1
+    },
+    "unflagged_sentences": 5,
+    "unflagged_kept": 5,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-solveig-1-on",
+    "context": "solveig-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 311,
+    "words_final": 308,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 5
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-sungmin-1-off",
+    "context": "sungmin-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 298,
+    "words_final": 273,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 10,
+    "flagged_sentences": {
+      "rewritten": 8,
+      "removed": 2,
+      "kept": 1
+    },
+    "unflagged_sentences": 3,
+    "unflagged_kept": 3,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-sungmin-1-on",
+    "context": "sungmin-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 341,
+    "words_final": 304,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 1,
+        "final": 1,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "removed": 1,
+      "rewritten": 2
+    },
+    "unflagged_sentences": 16,
+    "unflagged_kept": 13,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-takeshi-1-off",
+    "context": "takeshi-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 278,
+    "words_final": 277,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 5,
+    "flagged_sentences": {
+      "rewritten": 4,
+      "removed": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-takeshi-1-on",
+    "context": "takeshi-1",
+    "arm": "on",
+    "edited": false,
+    "words_draft": 284,
+    "words_final": 284,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 9,
+    "unflagged_kept": 9,
+    "heldout_draft": {
+      "one last time": 1
+    },
+    "heldout_final": {
+      "one last time": 1
+    }
+  },
+  {
+    "key": "r1-tavita-1-off",
+    "context": "tavita-1",
+    "arm": "off",
+    "edited": false,
+    "words_draft": 274,
+    "words_final": 274,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 0,
+    "flagged_sentences": {},
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-tavita-1-on",
+    "context": "tavita-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 265,
+    "words_final": 265,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "one,\" she said, her voice": 1
+    },
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-thao-1-off",
+    "context": "thao-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 255,
+    "words_final": 252,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 4,
+    "flagged_sentences": {
+      "rewritten": 4
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {},
+    "heldout_final": {}
+  },
+  {
+    "key": "r1-thao-1-on",
+    "context": "thao-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 228,
+    "words_final": 224,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 2,
+      "removed": 1
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "eyes never leaving": 1,
+      "dust motes dancing": 1
+    },
+    "heldout_final": {
+      "eyes never leaving": 1
+    }
+  },
+  {
+    "key": "r1-tomas-1-off",
+    "context": "tomas-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 303,
+    "words_final": 305,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 1,
+    "flagged_sentences": {
+      "rewritten": 1
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {
+      "long, dancing shadows": 1,
+      "cast long, dancing": 1
+    },
+    "heldout_final": {
+      "long, dancing shadows": 1,
+      "cast long, dancing": 1
+    }
+  },
+  {
+    "key": "r1-tomas-1-on",
+    "context": "tomas-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 325,
+    "words_final": 326,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 12,
+    "unflagged_kept": 12,
+    "heldout_draft": {
+      "long, dancing shadows": 1,
+      "dancing shadows across": 1,
+      "casting long, dancing": 1
+    },
+    "heldout_final": {
+      "long, dancing shadows": 1,
+      "dancing shadows across": 1,
+      "casting long, dancing": 1
+    }
+  },
+  {
+    "key": "r1-vaclav-1-off",
+    "context": "vaclav-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 294,
+    "words_final": 290,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 7,
+    "unflagged_kept": 7,
+    "heldout_draft": {
+      "dust motes danced": 1
+    },
+    "heldout_final": {
+      "dust motes danced": 1
+    }
+  },
+  {
+    "key": "r1-vaclav-1-on",
+    "context": "vaclav-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 320,
+    "words_final": 314,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 10,
+    "unflagged_kept": 10,
+    "heldout_draft": {
+      "dust motes danced": 1
+    },
+    "heldout_final": {
+      "dust motes danced": 1
+    }
+  },
+  {
+    "key": "r1-wren-1-off",
+    "context": "wren-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 229,
+    "words_final": 225,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 2,
+        "final": 0,
+        "repaired": 2,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "leaned back in her chair": 1
+    },
+    "heldout_final": {
+      "leaned back in her chair": 1
+    }
+  },
+  {
+    "key": "r1-wren-1-on",
+    "context": "wren-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 335,
+    "words_final": 318,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 7,
+    "flagged_sentences": {
+      "rewritten": 7
+    },
+    "unflagged_sentences": 11,
+    "unflagged_kept": 11,
+    "heldout_draft": {
+      "said, her voice steady": 1,
+      "casting jagged shadows": 1,
+      "said softly, her voice": 1
+    },
+    "heldout_final": {
+      "casting jagged shadows": 1
+    }
+  },
+  {
+    "key": "r1-zahra-1-off",
+    "context": "zahra-1",
+    "arm": "off",
+    "edited": true,
+    "words_draft": 279,
+    "words_final": 275,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 3,
+        "final": 0,
+        "repaired": 3,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 3,
+    "flagged_sentences": {
+      "rewritten": 3
+    },
+    "unflagged_sentences": 8,
+    "unflagged_kept": 8,
+    "heldout_draft": {
+      "said finally, her voice": 1
+    },
+    "heldout_final": {
+      "said, her voice soft": 1
+    }
+  },
+  {
+    "key": "r1-zahra-1-on",
+    "context": "zahra-1",
+    "arm": "on",
+    "edited": true,
+    "words_draft": 188,
+    "words_final": 186,
+    "detectors": {
+      "banned_phrases": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "repetitive_openers": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "repetitive_templates": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "contrastive_negation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "phrase_repetition": {
+        "draft": 1,
+        "final": 0,
+        "repaired": 1,
+        "introduced": 0
+      },
+      "structural_repetition": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "anti_echo": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "negated_narration": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      },
+      "subject_fixation": {
+        "draft": 0,
+        "final": 0,
+        "repaired": 0,
+        "introduced": 0
+      }
+    },
+    "targets": 2,
+    "flagged_sentences": {
+      "rewritten": 2
+    },
+    "unflagged_sentences": 4,
+    "unflagged_kept": 4,
+    "heldout_draft": {},
+    "heldout_final": {}
+  }
+]

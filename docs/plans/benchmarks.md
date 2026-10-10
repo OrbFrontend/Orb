@@ -28,7 +28,9 @@ pilot's hand labels and a live fixture set before every scoring pass.
 - **Status.** Bench 1 is done: the harness is under `scripts/bench/cache/`, and its 360-turn sweep (2026-10-09), with
   the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
   Bench 2 is done (2026-10-10): 60 contexts on Gemma and DeepSeek, harness under `scripts/bench/driven/`, report in
-  `scripts/bench/driven/results/REPORT.md`. Benches 3 and 4 run on its turns next.
+  `scripts/bench/driven/results/REPORT.md`.
+  Bench 3 is done (2026-10-10): Bench 2's 240 turns scored with thinking off on every turn, scorer
+  `scripts/bench/slop/score.py`, report in `scripts/bench/slop/results/REPORT.md`. Bench 4 runs on the same turns next.
 
 ## Readiness (checked 2026-10-09)
 
@@ -468,10 +470,10 @@ Show that the Editor removes what the auditor flags, adds nothing new, and leave
     - `negated_narration` is default-off and its release still waits on held-out labels. Report it, and
       `subject_fixation`, apart from the other seven.
     - `banned_phrases` checks the 39-phrase seeded bank. Say so next to its number.
-- **Held-out phrase list.** antislop-sampler's `slop_phrases_2025-04-07.json` (Apache-2.0, 2,500 phrases), pinned by
-  commit hash. Drop every entry that fuzzy-matches the seeded phrase bank before scoring. This is the only measure the
-  Editor never sees. Report raw counts alongside the rate, because Gemma's hits on a list built from other models'
-  output may be sparse.
+- **Held-out phrase list.** antislop-sampler's `slop_phrases_2025-04-07.json` (Apache-2.0, 2,500 phrases), pinned to
+  commit `6aa25403` and sha256 `d0bc80be…` in `score.py`. Drop every entry the seeded phrase bank's own matcher flags
+  before scoring. This is the only measure the Editor never sees. Report raw counts alongside the rate, because hits on
+  a list built from other models' output can be sparse (DeepSeek: 8 in 32,500 words).
 - **Measures.**
     1. Repair rate per detector: % of draft findings gone from the final reply, with raw counts, since some detectors
        will be in single digits.
@@ -564,6 +566,7 @@ A short "By the numbers" section under Design Principles:
 | `scripts/bench/driven/score.py` | Live Jev preflight and labels with raw answers kept, per-transport wire checks, arm shares, length bands, paired bootstrap over contexts and cards |
 | `scripts/bench/driven/hand_labels.py` | Blind, stratified hand-label sheet over one or more runs, and its comparison with Jev |
 | `scripts/bench/driven/noise.py` | Re-asks Jev live on a sample of scored replies and counts label and threshold flips |
+| `scripts/bench/slop/score.py` | Bench 3: Orb's detectors and the pinned held-out list on Bench 2's drafts and replies; repair, introduced, held-out, preservation, context bootstrap |
 
 ## Deferred
 
