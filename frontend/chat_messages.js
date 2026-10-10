@@ -29,6 +29,7 @@ import {
   $,
   convUrl,
   initChatScrollFollow,
+  markChatProgrammaticScroll,
   messageBody,
   resolvePlaceholders,
   scrollToBottom,
@@ -241,25 +242,25 @@ async function switchBranch(msgId) {
   const token = S.conversationViewToken;
   try {
     const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
-    const anchorMsgId = currentBranchMsg?.parent_id ?? null;
-
     const ct = $("chat-messages");
-    const anchorEl = anchorMsgId ? ct?.querySelector(`[data-msg-id="${anchorMsgId}"]`) : null;
-    const anchorOffset = anchorEl ? anchorEl.offsetTop - ct.scrollTop : null;
+    const topWithin = (el) => el.getBoundingClientRect().top - ct.getBoundingClientRect().top;
+    const oldEl = currentBranchMsg?.id ? ct?.querySelector(`.message[data-msg-id="${currentBranchMsg.id}"]`) : null;
+    // The swiped bubble's top holds its place, or lands at the viewport top when it was scrolled past.
+    const anchorTop = oldEl ? Math.max(0, topWithin(oldEl)) : null;
     const scrollTop = ct ? ct.scrollTop : 0;
 
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
 
-    // Paint and restore scroll in one task to avoid a frame at the old offset.
+    // Paint and restore scroll in one task to avoid a frame at the old offset. The jump is instant: a smooth
+    // scroll would still sit at the old offset when the next repaint reads it.
     setMessages(switched);
     renderMessages();
-    if (anchorMsgId && anchorOffset !== null) {
-      const newAnchorEl = ct.querySelector(`[data-msg-id="${anchorMsgId}"]`);
-      if (newAnchorEl) ct.scrollTop = newAnchorEl.offsetTop - anchorOffset;
-      else ct.scrollTop = scrollTop;
-    } else if (ct) {
-      ct.scrollTop = scrollTop;
+    if (ct) {
+      const newEl = anchorTop !== null ? ct.querySelector(`.message[data-msg-id="${msgId}"]`) : null;
+      markChatProgrammaticScroll();
+      ct.scrollTo({ top: newEl ? ct.scrollTop + topWithin(newEl) - anchorTop : scrollTop, behavior: "instant" });
+      setChatFollowing(ct.scrollHeight - ct.scrollTop - ct.clientHeight <= 20);
     }
 
     // Inspector-only state. It never feeds the message list, so it trails the
