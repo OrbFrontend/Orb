@@ -268,10 +268,9 @@ class TestPerFragmentLoop:
         assert "Fill ONLY: moods" in base.calls[0][1]
 
 
-class TestDirectSceneRequiredStripped:
-    """The shared direct_scene blob never carries `required`: which fragments are
-    required depends on which are enabled, and the blob must survive a toggle. In
-    per-fragment mode it would also contradict the "Fill ONLY X" step prompt."""
+class TestDirectSceneRequiredOnTheBlob:
+    """The shared direct_scene blob carries the fragments' `required` flags, which no toggle moves, except in per-fragment
+    mode, where it would contradict each step's "Fill ONLY X" prompt."""
 
     _REQUIRED_FRAGS = [
         {"id": "problem", "field_type": "string", "description": "the problem", "sort_order": 1, "required": True},
@@ -287,5 +286,5 @@ class TestDirectSceneRequiredStripped:
     def test_required_dropped_when_per_fragment_on(self):
         assert self._blob(1)["direct_scene"]["function"]["parameters"]["required"] == []
 
-    def test_required_dropped_when_per_fragment_off(self):
-        assert self._blob(0)["direct_scene"]["function"]["parameters"]["required"] == []
+    def test_required_kept_when_per_fragment_off(self):
+        assert self._blob(0)["direct_scene"]["function"]["parameters"]["required"] == ["problem", "next_event"]

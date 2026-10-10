@@ -1,0 +1,32 @@
+{
+  "n": 10,
+  "agreement": 0.6,
+  "rows_human_columns_jev": {
+    "driven": {
+      "driven": 3,
+      "afterthought": 0,
+      "static": 0
+    },
+    "afterthought": {
+      "driven": 1,
+      "afterthought": 0,
+      "static": 0
+    },
+    "static": {
+      "driven": 1,
+      "afterthought": 2,
+      "static": 3
+    }
+  },
+  "driven_threshold": 0.75,
+  "threshold": {
+    "driven_precision": 1.0,
+    "driven_recall": 1.0,
+    "agreement": 1.0
+  },
+  "jev_label": {
+    "driven_precision": 0.6,
+    "driven_recall": 1.0,
+    "agreement": 0.8
+  }
+}

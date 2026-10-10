@@ -1,0 +1,42 @@
+{
+  "recorded_utc": "2026-10-09T13:35:31.835677+00:00",
+  "status": "Final sweep report.",
+  "source_report_directory": "fair/reports/sweep2",
+  "raw_run_directory": "fair/sweep2",
+  "raw_requests_directory": "fair/requests",
+  "raw_audits_directory": "fair/audits",
+  "applied_settings_file": "pilot/orb-short/applied.json",
+  "scorer_commit": "3252a2c072e9ab4cf8698dc7236de06da6597f1c",
+  "scorer_worktree": "scorer-3252a2c0",
+  "harness_commits": {
+    "d216ccc9ebedc4fb92870763682cbf105aa6c83c": 30,
+    "fce3729bab3626d1abe69dec665ed5592a7a7de2": 6
+  },
+  "orb_commit": [
+    "649bc83ad90982dfb1b26010bbdbf388f7e18ccf"
+  ],
+  "tauritavern_commit": [
+    "a1855be4a4f8b6ee7cd0374a84dbb3709c3e5375"
+  ],
+  "attempts": 360,
+  "blocks": 36,
+  "model_calls": 4277,
+  "qualified": {
+    "orb": 115,
+    "tt-handoff": 101,
+    "tt-single": 95
+  },
+  "sha256": {
+    "MANIFESTS.json.gz": "d2ce6162c3680120fba5df513fe17b7e627a954e7e29008b4257c7126cb5b37e",
+    "REPORT.md": "5da862147d523f0c310c9d13a122f3f26111e9e7775951656b2d431ec24e1308",
+    "association-crosscheck.json": "66300a5db5b9fe833b63f83fc7042ed30dedef89e95378164290f19a273770af",
+    "cache-crosscheck.json": "316ecd1e432324d2c3ec04b60f93d9e29b3e4e2139c1f6d204139c372af7f967",
+    "calls.csv.gz": "e2f0dd726f6b0477462e2f76a9083402614ac5ff1aabe7bb9428d405ada5aefb",
+    "figure.svg": "9c573629cc168026089e660c42f657dd4a447539c4c11a77b819f64271577746",
+    "findings.json": "93816230a266a20ff63ab82805de5a968fe88871267e5ce8b2afee4f5a434028",
+    "summary.csv": "4802baa71ce2693442374a7276055d1e54c2ca831458d2aab250592ed8616276",
+    "summary.json": "7428ec295dd3e703023fc732dfaa6b9da0ac9ccfad39272d6b2488bc24ad0d62",
+    "turns.csv.gz": "7e251e736678583acaad2b42b958f010fec9fd5202b1c0e25bc02bea5debb359",
+    "turns.json.gz": "10489e557e0f0c7befa0ce0205f8be2269162553d4f6904cea90fb47a0914684"
+  }
+}

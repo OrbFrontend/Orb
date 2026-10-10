@@ -1,0 +1,72 @@
+{
+  "h01": {
+    "key": "r1-odile-1-on",
+    "context": "odile-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.83
+  },
+  "h02": {
+    "key": "r1-odile-1-off",
+    "context": "odile-1",
+    "arm": "off",
+    "label": "driven",
+    "p_driven": 0.59
+  },
+  "h03": {
+    "key": "r1-ines-1-on",
+    "context": "ines-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.6900000000000001
+  },
+  "h04": {
+    "key": "r1-tomas-1-off",
+    "context": "tomas-1",
+    "arm": "off",
+    "label": "afterthought",
+    "p_driven": 0.38
+  },
+  "h05": {
+    "key": "r1-tomas-1-on",
+    "context": "tomas-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.82
+  },
+  "h06": {
+    "key": "r1-kestrel-1-off",
+    "context": "kestrel-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.01
+  },
+  "h07": {
+    "key": "r1-kestrel-1-on",
+    "context": "kestrel-1",
+    "arm": "on",
+    "label": "afterthought",
+    "p_driven": 0.04
+  },
+  "h08": {
+    "key": "r1-rhea-1-off",
+    "context": "rhea-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.24
+  },
+  "h09": {
+    "key": "r1-ines-1-off",
+    "context": "ines-1",
+    "arm": "off",
+    "label": "static",
+    "p_driven": 0.25
+  },
+  "h10": {
+    "key": "r1-rhea-1-on",
+    "context": "rhea-1",
+    "arm": "on",
+    "label": "driven",
+    "p_driven": 0.97
+  }
+}

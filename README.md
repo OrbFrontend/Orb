@@ -85,6 +85,29 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 3. Algorithm-first - if something can be done with an algorithm, don't use LLMs. Avoid making LLMs eyeball for errors
 4. Keep agentic scope small to reduce hallucination, avoid giving agents too much freedom of choice
 
+## By the numbers
+
+Orb against two optimized TauriTavern 2.3.0 agent setups doing the exact same direct, write, audit and repair job on Gemma 4 26B-A4B
+(RTX 3090), thinking off, 120 turns each from 2k- to 32k-token histories:
+
+| | Orb | TauriTavern handoff | TauriTavern single |
+| --- | ---: | ---: | ---: |
+| Median reply time, 2k → 32k history | **9.9 → 12.6 s** | 24.3 → 35.1 s | 12.8 → 20.3 s |
+| Model calls per turn | **4** | 16 | 11 |
+| Native failures | **0/120** | 13/120 | 15/120 |
+| Turns meeting the task | **115/120** | 101/120 | 95/120 |
+
+Orb's own passes switched off and on, on Gemma 4 and DeepSeek V4.1 Flash:
+
+| Pass | Measure | Off | On |
+| --- | --- | ---: | ---: |
+| Director | Gemma replies driven on open-ended turns | 18% | **37%** |
+| Director | DeepSeek replies driven on open-ended turns | 30% | 38% |
+| Editor | Flagged slop repaired | 0% | **97%** |
+| Editor | Gemma held-out slop hits, a list the Editor never sees | 66 | **52** |
+
+Method, raw data and limits: [scripts/bench](scripts/bench/README.md).
+
 ## Drawbacks
 
 1. **Speed**: Multiple passes will obviously have a longer time to final response

@@ -1,0 +1,112 @@
+{
+  "run": "c60-gemma",
+  "transport": "gemma",
+  "jev_model": "typesafe/jev-1.13-20260917",
+  "driven_threshold": 0.75,
+  "arms": {
+    "on": {
+      "attempted": 60,
+      "clean": 60,
+      "retried": 0,
+      "scored": 60,
+      "driven": 0.36666666666666664,
+      "labels": {
+        "driven": 0.5833333333333334,
+        "afterthought": 0.08333333333333333,
+        "static": 0.3333333333333333
+      },
+      "mean_p_driven": 0.5359999999999999,
+      "mean_words": 283.26666666666665,
+      "mean_calls": 5.116666666666666,
+      "reasoning_chars": 0,
+      "cost": 0.0
+    },
+    "off": {
+      "attempted": 60,
+      "clean": 60,
+      "retried": 0,
+      "scored": 60,
+      "driven": 0.18333333333333332,
+      "labels": {
+        "driven": 0.35,
+        "afterthought": 0.21666666666666667,
+        "static": 0.43333333333333335
+      },
+      "mean_p_driven": 0.3283333333333333,
+      "mean_words": 274.78333333333336,
+      "mean_calls": 4.183333333333334,
+      "reasoning_chars": 0,
+      "cost": 0.0
+    }
+  },
+  "paired_driven": {
+    "contexts": 60,
+    "cards": 60,
+    "difference": 0.18333333333333332,
+    "ci95_contexts": [
+      0.03333333333333333,
+      0.3333333333333333
+    ],
+    "ci95_cards": [
+      0.03333333333333333,
+      0.3333333333333333
+    ]
+  },
+  "paired_label_driven": {
+    "contexts": 60,
+    "cards": 60,
+    "difference": 0.23333333333333334,
+    "ci95_contexts": [
+      0.1,
+      0.38333333333333336
+    ],
+    "ci95_cards": [
+      0.1,
+      0.38333333333333336
+    ]
+  },
+  "length_bands": {
+    "short": {
+      "words": [
+        0,
+        258
+      ],
+      "on": {
+        "n": 17,
+        "driven": 0.23529411764705882
+      },
+      "off": {
+        "n": 23,
+        "driven": 0.08695652173913043
+      }
+    },
+    "middle": {
+      "words": [
+        258,
+        295
+      ],
+      "on": {
+        "n": 16,
+        "driven": 0.25
+      },
+      "off": {
+        "n": 23,
+        "driven": 0.17391304347826086
+      }
+    },
+    "long": {
+      "words": [
+        295,
+        1000000000
+      ],
+      "on": {
+        "n": 27,
+        "driven": 0.5185185185185185
+      },
+      "off": {
+        "n": 14,
+        "driven": 0.35714285714285715
+      }
+    }
+  }
+}

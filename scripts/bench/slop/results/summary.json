@@ -1,0 +1,1238 @@
+{
+  "heldout_url": "https://raw.githubusercontent.com/sam-paech/antislop-sampler/6aa2540392818600372f8974ea232c10f64fa745/slop_phrases_2025-04-07.json",
+  "heldout_sha256": "d0bc80be1c294e03ccb59464553c5d72b1c13dd7bf6d8d99e9da700c3e6fbff1",
+  "runs": {
+    "c60-gemma": {
+      "run": "c60-gemma",
+      "transport": "gemma",
+      "orb_commit": "8821c07125be648135f7c980ce44d3a3f0d2a4ea",
+      "phrase_bank_groups": 39,
+      "heldout_kept": 2199,
+      "heldout_dropped": [
+        "voice barely above a whisper",
+        "voice barely audible",
+        "voice barely a whisper",
+        "said, his voice low",
+        "words hung in the air",
+        "voice a low rumble",
+        "hung heavy in the air",
+        "eyes wide with fear",
+        "said, his voice a low",
+        "hung in the air, heavy",
+        "eyes wide with wonder",
+        "mind raced, trying",
+        "mind racing with questions",
+        "mind racing with the implications",
+        "mind racing with possibilities",
+        "eyes widened in surprise",
+        "eyes wide with a mixture",
+        "eyes widened in shock",
+        "eyes wide with terror",
+        "eyes wide with disbelief",
+        "said, her voice low",
+        "mind racing with a thousand",
+        "hung in the air like",
+        "question hung in the air",
+        "nodded, her mind racing",
+        "voice low and urgent",
+        "eyes wide with shock",
+        "wide with a mixture of fear",
+        "eyes widened in horror",
+        "word hung in the air",
+        "voice a low growl",
+        "eyes widened in disbelief",
+        "voice dropping to a conspiratorial",
+        "filled with a mixture of fear",
+        "voice low and menacing",
+        "hanging heavy in the air",
+        "voice dripping with sarcasm",
+        "voice low and dangerous",
+        "asked, his voice low",
+        "voice dripping with malice",
+        "dropping to a conspiratorial whisper",
+        "mind racing as i tried",
+        "breath catching in her throat",
+        "inside, the air was thick",
+        "mind racing with thoughts",
+        "eyes widening in surprise",
+        "said, my voice low",
+        "mind racing with the possibilities",
+        "voice a low, resonant",
+        "breath catching in my throat",
+        "voice low and gravelly",
+        "voice dripping with disdain",
+        "hum filled the air",
+        "eyes wide with surprise",
+        "mind raced as she tried",
+        "hung in the air, thick",
+        "nodded, my mind racing",
+        "voice low and measured",
+        "voice low and steady",
+        "thick with the scent of ozone",
+        "pounding with a mixture of fear",
+        "voice dropping to a whisper",
+        "eyes narrowing slightly",
+        "eyes wide with a mix",
+        "mischievous glint in his eye",
+        "man's eyes widened",
+        "mind raced with possibilities",
+        "elara's mind raced",
+        "hesitated, my mind racing",
+        "woman's eyes widened",
+        "mind racing as she tried",
+        "hard, my mind racing",
+        "said, her voice a low",
+        "barely audible over the din",
+        "sending a shiver down my spine",
+        "said, his voice dropping",
+        "asked, his voice a low",
+        "mind racing as he tried",
+        "breath, her mind racing",
+        "nodded, his mind racing",
+        "forward, his eyes narrowing",
+        "hesitated, her mind racing",
+        "mind raced as he tried",
+        "voice was barely a whisper",
+        "said, voice low",
+        "breath catching in his throat",
+        "mischievous glint in her eye",
+        "asked, her voice low",
+        "began, his voice a low",
+        "stared at him, my mind racing",
+        "said, voice cracking",
+        "eyes widened as she took",
+        "said, my voice a low",
+        "barely audible above the din",
+        "replied, his voice low",
+        "looked up, his eyes wide",
+        "voice a low, gravelly",
+        "hard, her mind racing",
+        "began, his voice low",
+        "spoke, his voice low",
+        "hesitated, his mind racing",
+        "breath, my mind racing",
+        "voice was barely above a whisper",
+        "back, his eyes wide",
+        "voice low and resonant",
+        "eyes widened as he took",
+        "said, his voice cracking",
+        "mind raced as i tried",
+        "said, its voice a low",
+        "stared at her, my mind racing",
+        "voice barely above a breath",
+        "looked up, her eyes wide",
+        "back, eyes wide",
+        "breath, his mind racing",
+        "spoke, his voice a low",
+        "forward, her eyes narrowing",
+        "asked, my voice low",
+        "voice was a low rumble",
+        "said, her voice dropping",
+        "sending a shiver down her spine",
+        "said, my voice cracking",
+        "said, its voice low",
+        "said, her voice cracking",
+        "replied, his voice a low",
+        "said, their voice low",
+        "hard, his mind racing",
+        "back, her eyes wide",
+        "eyes widened, and she took",
+        "eyes widened, and he took",
+        "stared at me, his eyes wide",
+        "voice was barely audible",
+        "voice, a low rumble",
+        "mind raced with the possibilities",
+        "looked at me, her eyes wide",
+        "asked, my voice a low",
+        "voice a low, menacing",
+        "said, voice dropping",
+        "sending a shiver down his spine",
+        "stared at him, her mind racing",
+        "voice was a low growl",
+        "said, their voice a low",
+        "asked, her voice a low",
+        "looked at me, his eyes wide",
+        "eyes wide with a terror",
+        "voice, barely audible",
+        "hung in the air, a heavy",
+        "voice a low, measured",
+        "mischievous glint in my eye",
+        "looked up at me, her eyes wide",
+        "stared at me, her eyes wide",
+        "mind racing through the possibilities",
+        "eyes wide with a fear",
+        "looked up, eyes wide",
+        "spoke, its voice a low",
+        "voice a barely audible",
+        "replied, my voice a low",
+        "said, my voice dropping",
+        "replied, her voice low",
+        "looked at him, her eyes wide",
+        "back, their eyes wide",
+        "voice, barely a whisper",
+        "hard, mind racing",
+        "looked up at me, his eyes wide",
+        "stared at them, my mind racing",
+        "asked, voice low",
+        "inside, the air thick",
+        "stared at her, his mind racing",
+        "looked up, their eyes wide",
+        "stared at him, her eyes wide",
+        "hung in the air, like",
+        "replied, my voice low",
+        "looked up at him, her eyes wide",
+        "stared at her, his eyes wide",
+        "voice low but steady",
+        "began, her voice low",
+        "voice a low, dangerous",
+        "mind raced through the possibilities",
+        "mind raced through possibilities",
+        "eyes widened as i took",
+        "mind racing through the implications",
+        "looked at each other, their eyes wide",
+        "eyes widened with surprise",
+        "looked at her, his eyes wide",
+        "voice was a low, resonant",
+        "stared at me, eyes wide",
+        "spoke, her voice low",
+        "stared at it, my mind racing",
+        "mind racing with implications",
+        "question that hung in the air",
+        "voice, low and gravelly",
+        "voice, low and resonant",
+        "voice low but urgent",
+        "asked, its voice a low",
+        "spoke again, his voice low",
+        "voice that was barely above a whisper",
+        "began, my voice low",
+        "voice now a low growl",
+        "began, her voice a low",
+        "replied, its voice a low",
+        "eyes widening with surprise",
+        "looked up at her, his eyes wide",
+        "replied, her voice a low",
+        "stared at him, their eyes wide",
+        "spoke, its voice low",
+        "voice, barely above a whisper",
+        "stared at me, their eyes wide",
+        "eyes wide in disbelief",
+        "spoke up, his voice low",
+        "voice, a low, resonant"
+      ],
+      "pooled": {
+        "turns": 120,
+        "contexts": 60,
+        "edited_turns": 112,
+        "words_draft": 33980,
+        "words_final": 33398,
+        "detectors": {
+          "banned_phrases": {
+            "draft": 112,
+            "final": 5,
+            "repaired": 107,
+            "introduced": 0,
+            "repair_rate": 0.9553571428571429
+          },
+          "repetitive_openers": {
+            "draft": 40,
+            "final": 1,
+            "repaired": 39,
+            "introduced": 0,
+            "repair_rate": 0.975
+          },
+          "repetitive_templates": {
+            "draft": 7,
+            "final": 1,
+            "repaired": 7,
+            "introduced": 1,
+            "repair_rate": 1.0
+          },
+          "contrastive_negation": {
+            "draft": 48,
+            "final": 3,
+            "repaired": 47,
+            "introduced": 2,
+            "repair_rate": 0.9791666666666666
+          },
+          "phrase_repetition": {
+            "draft": 90,
+            "final": 2,
+            "repaired": 89,
+            "introduced": 1,
+            "repair_rate": 0.9888888888888889
+          },
+          "structural_repetition": {
+            "draft": 0,
+            "final": 0,
+            "repaired": 0,
+            "introduced": 0,
+            "repair_rate": null
+          },
+          "anti_echo": {
+            "draft": 0,
+            "final": 0,
+            "repaired": 0,
+            "introduced": 0,
+            "repair_rate": null
+          },
+          "negated_narration": {
+            "draft": 9,
+            "final": 4,
+            "repaired": 7,
+            "introduced": 2,
+            "repair_rate": 0.7777777777777778
+          },
+          "subject_fixation": {
+            "draft": 17,
+            "final": 10,
+            "repaired": 7,
+            "introduced": 0,
+            "repair_rate": 0.4117647058823529
+          }
+        },
+        "seven": {
+          "draft": 297,
+          "final": 12,
+          "repaired": 289,
+          "introduced": 4,
+          "repair_rate": 0.9730639730639731,
+          "repair_ci95": [
+            0.9532374100719424,
+            0.9895104895104895
+          ],
+          "draft_per_1k": 8.74043555032372,
+          "final_per_1k": 0.3593029522725912,
+          "introduced_per_1k": 0.11976765075753039,
+          "introduced_ci95": [
+            0.0,
+            0.30291097446460485
+          ]
+        },
+        "heldout": {
+          "draft_hits": 66,
+          "final_hits": 52,
+          "draft_per_1k": 1.9423190111830488,
+          "final_per_1k": 1.556979459847895,
+          "drop": 0.1983914841570989,
+          "drop_ci95": [
+            0.07295962137665557,
+            0.3277853811915795
+          ]
+        },
+        "preservation": {
+          "unflagged_sentences": 1050,
+          "kept": 1020,
+          "rate": 0.9714285714285714,
+          "ci95": [
+            0.951417004048583,
+            0.9874517374517374
+          ]
+        },
+        "flagged_sentences": {
+          "rewritten": 340,
+          "removed": 49,
+          "kept": 20
+        },
+        "removed_share": 0.12596401028277635,
+        "negated_narration": {
+          "draft": 9,
+          "final": 4,
+          "repaired": 7,
+          "introduced": 2,
+          "repair_rate": 0.7777777777777778,
+          "introduced_per_1k": 0.059883825378765194
+        },
+        "subject_fixation": {
+          "draft": 17,
+          "final": 10,
+          "repaired": 7,
+          "introduced": 0,
+          "repair_rate": 0.4117647058823529,
+          "introduced_per_1k": 0.0
+        }
+      },
+      "by_arm": {
+        "on": {
+          "turns": 60,
+          "contexts": 60,
+          "edited_turns": 56,
+          "words_draft": 17253,
+          "words_final": 16946,
+          "detectors": {
+            "banned_phrases": {
+              "draft": 63,
+              "final": 3,
+              "repaired": 60,
+              "introduced": 0,
+              "repair_rate": 0.9523809523809523
+            },
+            "repetitive_openers": {
+              "draft": 20,
+              "final": 0,
+              "repaired": 20,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "repetitive_templates": {
+              "draft": 3,
+              "final": 0,
+              "repaired": 3,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "contrastive_negation": {
+              "draft": 21,
+              "final": 2,
+              "repaired": 21,
+              "introduced": 2,
+              "repair_rate": 1.0
+            },
+            "phrase_repetition": {
+              "draft": 53,
+              "final": 0,
+              "repaired": 53,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "structural_repetition": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "anti_echo": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "negated_narration": {
+              "draft": 5,
+              "final": 2,
+              "repaired": 5,
+              "introduced": 2,
+              "repair_rate": 1.0
+            },
+            "subject_fixation": {
+              "draft": 9,
+              "final": 4,
+              "repaired": 5,
+              "introduced": 0,
+              "repair_rate": 0.5555555555555556
+            }
+          },
+          "seven": {
+            "draft": 160,
+            "final": 5,
+            "repaired": 157,
+            "introduced": 2,
+            "repair_rate": 0.98125,
+            "repair_ci95": [
+              0.9577464788732394,
+              1.0
+            ],
+            "draft_per_1k": 9.273749492841825,
+            "final_per_1k": 0.29505488020771864,
+            "introduced_per_1k": 0.11802195208308745,
+            "introduced_ci95": [
+              0.0,
+              0.3615982643283312
+            ]
+          },
+          "heldout": {
+            "draft_hits": 39,
+            "final_hits": 28,
+            "draft_per_1k": 2.2604764388801946,
+            "final_per_1k": 1.6523073291632244,
+            "drop": 0.2690446576909458,
+            "drop_ci95": [
+              0.07992656460020328,
+              0.450032384967442
+            ]
+          },
+          "preservation": {
+            "unflagged_sentences": 576,
+            "kept": 565,
+            "rate": 0.9809027777777778,
+            "ci95": [
+              0.960644007155635,
+              0.9963833634719711
+            ]
+          },
+          "flagged_sentences": {
+            "rewritten": 182,
+            "removed": 25,
+            "kept": 7
+          },
+          "removed_share": 0.12077294685990338,
+          "negated_narration": {
+            "draft": 5,
+            "final": 2,
+            "repaired": 5,
+            "introduced": 2,
+            "repair_rate": 1.0,
+            "introduced_per_1k": 0.11802195208308745
+          },
+          "subject_fixation": {
+            "draft": 9,
+            "final": 4,
+            "repaired": 5,
+            "introduced": 0,
+            "repair_rate": 0.5555555555555556,
+            "introduced_per_1k": 0.0
+          }
+        },
+        "off": {
+          "turns": 60,
+          "contexts": 60,
+          "edited_turns": 56,
+          "words_draft": 16727,
+          "words_final": 16452,
+          "detectors": {
+            "banned_phrases": {
+              "draft": 49,
+              "final": 2,
+              "repaired": 47,
+              "introduced": 0,
+              "repair_rate": 0.9591836734693877
+            },
+            "repetitive_openers": {
+              "draft": 20,
+              "final": 1,
+              "repaired": 19,
+              "introduced": 0,
+              "repair_rate": 0.95
+            },
+            "repetitive_templates": {
+              "draft": 4,
+              "final": 1,
+              "repaired": 4,
+              "introduced": 1,
+              "repair_rate": 1.0
+            },
+            "contrastive_negation": {
+              "draft": 27,
+              "final": 1,
+              "repaired": 26,
+              "introduced": 0,
+              "repair_rate": 0.9629629629629629
+            },
+            "phrase_repetition": {
+              "draft": 37,
+              "final": 2,
+              "repaired": 36,
+              "introduced": 1,
+              "repair_rate": 0.972972972972973
+            },
+            "structural_repetition": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "anti_echo": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "negated_narration": {
+              "draft": 4,
+              "final": 2,
+              "repaired": 2,
+              "introduced": 0,
+              "repair_rate": 0.5
+            },
+            "subject_fixation": {
+              "draft": 8,
+              "final": 6,
+              "repaired": 2,
+              "introduced": 0,
+              "repair_rate": 0.25
+            }
+          },
+          "seven": {
+            "draft": 137,
+            "final": 7,
+            "repaired": 132,
+            "introduced": 2,
+            "repair_rate": 0.9635036496350365,
+            "repair_ci95": [
+              0.9262295081967213,
+              0.9924242424242424
+            ],
+            "draft_per_1k": 8.190350929634722,
+            "final_per_1k": 0.42548018477996596,
+            "introduced_per_1k": 0.12156576707999027,
+            "introduced_ci95": [
+              0.0,
+              0.375610366846125
+            ]
+          },
+          "heldout": {
+            "draft_hits": 27,
+            "final_hits": 24,
+            "draft_per_1k": 1.614156752555748,
+            "final_per_1k": 1.4587892049598834,
+            "drop": 0.0962530729124455,
+            "drop_ci95": [
+              -0.01706442438481511,
+              0.23642975402081362
+            ]
+          },
+          "preservation": {
+            "unflagged_sentences": 474,
+            "kept": 455,
+            "rate": 0.959915611814346,
+            "ci95": [
+              0.9339805825242719,
+              0.9822834645669292
+            ]
+          },
+          "flagged_sentences": {
+            "rewritten": 158,
+            "removed": 24,
+            "kept": 13
+          },
+          "removed_share": 0.13186813186813187,
+          "negated_narration": {
+            "draft": 4,
+            "final": 2,
+            "repaired": 2,
+            "introduced": 0,
+            "repair_rate": 0.5,
+            "introduced_per_1k": 0.0
+          },
+          "subject_fixation": {
+            "draft": 8,
+            "final": 6,
+            "repaired": 2,
+            "introduced": 0,
+            "repair_rate": 0.25,
+            "introduced_per_1k": 0.0
+          }
+        }
+      }
+    },
+    "c60-deepseek": {
+      "run": "c60-deepseek",
+      "transport": "deepseek",
+      "orb_commit": "8821c07125be648135f7c980ce44d3a3f0d2a4ea",
+      "phrase_bank_groups": 39,
+      "heldout_kept": 2199,
+      "heldout_dropped": [
+        "voice barely above a whisper",
+        "voice barely audible",
+        "voice barely a whisper",
+        "said, his voice low",
+        "words hung in the air",
+        "voice a low rumble",
+        "hung heavy in the air",
+        "eyes wide with fear",
+        "said, his voice a low",
+        "hung in the air, heavy",
+        "eyes wide with wonder",
+        "mind raced, trying",
+        "mind racing with questions",
+        "mind racing with the implications",
+        "mind racing with possibilities",
+        "eyes widened in surprise",
+        "eyes wide with a mixture",
+        "eyes widened in shock",
+        "eyes wide with terror",
+        "eyes wide with disbelief",
+        "said, her voice low",
+        "mind racing with a thousand",
+        "hung in the air like",
+        "question hung in the air",
+        "nodded, her mind racing",
+        "voice low and urgent",
+        "eyes wide with shock",
+        "wide with a mixture of fear",
+        "eyes widened in horror",
+        "word hung in the air",
+        "voice a low growl",
+        "eyes widened in disbelief",
+        "voice dropping to a conspiratorial",
+        "filled with a mixture of fear",
+        "voice low and menacing",
+        "hanging heavy in the air",
+        "voice dripping with sarcasm",
+        "voice low and dangerous",
+        "asked, his voice low",
+        "voice dripping with malice",
+        "dropping to a conspiratorial whisper",
+        "mind racing as i tried",
+        "breath catching in her throat",
+        "inside, the air was thick",
+        "mind racing with thoughts",
+        "eyes widening in surprise",
+        "said, my voice low",
+        "mind racing with the possibilities",
+        "voice a low, resonant",
+        "breath catching in my throat",
+        "voice low and gravelly",
+        "voice dripping with disdain",
+        "hum filled the air",
+        "eyes wide with surprise",
+        "mind raced as she tried",
+        "hung in the air, thick",
+        "nodded, my mind racing",
+        "voice low and measured",
+        "voice low and steady",
+        "thick with the scent of ozone",
+        "pounding with a mixture of fear",
+        "voice dropping to a whisper",
+        "eyes narrowing slightly",
+        "eyes wide with a mix",
+        "mischievous glint in his eye",
+        "man's eyes widened",
+        "mind raced with possibilities",
+        "elara's mind raced",
+        "hesitated, my mind racing",
+        "woman's eyes widened",
+        "mind racing as she tried",
+        "hard, my mind racing",
+        "said, her voice a low",
+        "barely audible over the din",
+        "sending a shiver down my spine",
+        "said, his voice dropping",
+        "asked, his voice a low",
+        "mind racing as he tried",
+        "breath, her mind racing",
+        "nodded, his mind racing",
+        "forward, his eyes narrowing",
+        "hesitated, her mind racing",
+        "mind raced as he tried",
+        "voice was barely a whisper",
+        "said, voice low",
+        "breath catching in his throat",
+        "mischievous glint in her eye",
+        "asked, her voice low",
+        "began, his voice a low",
+        "stared at him, my mind racing",
+        "said, voice cracking",
+        "eyes widened as she took",
+        "said, my voice a low",
+        "barely audible above the din",
+        "replied, his voice low",
+        "looked up, his eyes wide",
+        "voice a low, gravelly",
+        "hard, her mind racing",
+        "began, his voice low",
+        "spoke, his voice low",
+        "hesitated, his mind racing",
+        "breath, my mind racing",
+        "voice was barely above a whisper",
+        "back, his eyes wide",
+        "voice low and resonant",
+        "eyes widened as he took",
+        "said, his voice cracking",
+        "mind raced as i tried",
+        "said, its voice a low",
+        "stared at her, my mind racing",
+        "voice barely above a breath",
+        "looked up, her eyes wide",
+        "back, eyes wide",
+        "breath, his mind racing",
+        "spoke, his voice a low",
+        "forward, her eyes narrowing",
+        "asked, my voice low",
+        "voice was a low rumble",
+        "said, her voice dropping",
+        "sending a shiver down her spine",
+        "said, my voice cracking",
+        "said, its voice low",
+        "said, her voice cracking",
+        "replied, his voice a low",
+        "said, their voice low",
+        "hard, his mind racing",
+        "back, her eyes wide",
+        "eyes widened, and she took",
+        "eyes widened, and he took",
+        "stared at me, his eyes wide",
+        "voice was barely audible",
+        "voice, a low rumble",
+        "mind raced with the possibilities",
+        "looked at me, her eyes wide",
+        "asked, my voice a low",
+        "voice a low, menacing",
+        "said, voice dropping",
+        "sending a shiver down his spine",
+        "stared at him, her mind racing",
+        "voice was a low growl",
+        "said, their voice a low",
+        "asked, her voice a low",
+        "looked at me, his eyes wide",
+        "eyes wide with a terror",
+        "voice, barely audible",
+        "hung in the air, a heavy",
+        "voice a low, measured",
+        "mischievous glint in my eye",
+        "looked up at me, her eyes wide",
+        "stared at me, her eyes wide",
+        "mind racing through the possibilities",
+        "eyes wide with a fear",
+        "looked up, eyes wide",
+        "spoke, its voice a low",
+        "voice a barely audible",
+        "replied, my voice a low",
+        "said, my voice dropping",
+        "replied, her voice low",
+        "looked at him, her eyes wide",
+        "back, their eyes wide",
+        "voice, barely a whisper",
+        "hard, mind racing",
+        "looked up at me, his eyes wide",
+        "stared at them, my mind racing",
+        "asked, voice low",
+        "inside, the air thick",
+        "stared at her, his mind racing",
+        "looked up, their eyes wide",
+        "stared at him, her eyes wide",
+        "hung in the air, like",
+        "replied, my voice low",
+        "looked up at him, her eyes wide",
+        "stared at her, his eyes wide",
+        "voice low but steady",
+        "began, her voice low",
+        "voice a low, dangerous",
+        "mind raced through the possibilities",
+        "mind raced through possibilities",
+        "eyes widened as i took",
+        "mind racing through the implications",
+        "looked at each other, their eyes wide",
+        "eyes widened with surprise",
+        "looked at her, his eyes wide",
+        "voice was a low, resonant",
+        "stared at me, eyes wide",
+        "spoke, her voice low",
+        "stared at it, my mind racing",
+        "mind racing with implications",
+        "question that hung in the air",
+        "voice, low and gravelly",
+        "voice, low and resonant",
+        "voice low but urgent",
+        "asked, its voice a low",
+        "spoke again, his voice low",
+        "voice that was barely above a whisper",
+        "began, my voice low",
+        "voice now a low growl",
+        "began, her voice a low",
+        "replied, its voice a low",
+        "eyes widening with surprise",
+        "looked up at her, his eyes wide",
+        "replied, her voice a low",
+        "stared at him, their eyes wide",
+        "spoke, its voice low",
+        "voice, barely above a whisper",
+        "stared at me, their eyes wide",
+        "eyes wide in disbelief",
+        "spoke up, his voice low",
+        "voice, a low, resonant"
+      ],
+      "pooled": {
+        "turns": 120,
+        "contexts": 60,
+        "edited_turns": 99,
+        "words_draft": 32510,
+        "words_final": 32473,
+        "detectors": {
+          "banned_phrases": {
+            "draft": 5,
+            "final": 0,
+            "repaired": 5,
+            "introduced": 0,
+            "repair_rate": 1.0
+          },
+          "repetitive_openers": {
+            "draft": 43,
+            "final": 3,
+            "repaired": 40,
+            "introduced": 0,
+            "repair_rate": 0.9302325581395349
+          },
+          "repetitive_templates": {
+            "draft": 36,
+            "final": 0,
+            "repaired": 36,
+            "introduced": 0,
+            "repair_rate": 1.0
+          },
+          "contrastive_negation": {
+            "draft": 16,
+            "final": 2,
+            "repaired": 14,
+            "introduced": 0,
+            "repair_rate": 0.875
+          },
+          "phrase_repetition": {
+            "draft": 166,
+            "final": 9,
+            "repaired": 162,
+            "introduced": 5,
+            "repair_rate": 0.9759036144578314
+          },
+          "structural_repetition": {
+            "draft": 0,
+            "final": 0,
+            "repaired": 0,
+            "introduced": 0,
+            "repair_rate": null
+          },
+          "anti_echo": {
+            "draft": 0,
+            "final": 0,
+            "repaired": 0,
+            "introduced": 0,
+            "repair_rate": null
+          },
+          "negated_narration": {
+            "draft": 31,
+            "final": 0,
+            "repaired": 31,
+            "introduced": 0,
+            "repair_rate": 1.0
+          },
+          "subject_fixation": {
+            "draft": 16,
+            "final": 9,
+            "repaired": 9,
+            "introduced": 2,
+            "repair_rate": 0.5625
+          }
+        },
+        "seven": {
+          "draft": 266,
+          "final": 14,
+          "repaired": 257,
+          "introduced": 5,
+          "repair_rate": 0.9661654135338346,
+          "repair_ci95": [
+            0.9423076923076923,
+            0.9872340425531915
+          ],
+          "draft_per_1k": 8.182097816056597,
+          "final_per_1k": 0.4311273981461522,
+          "introduced_per_1k": 0.15397407076648292,
+          "introduced_ci95": [
+            0.030234315948601664,
+            0.3233867411436131
+          ]
+        },
+        "heldout": {
+          "draft_hits": 8,
+          "final_hits": 9,
+          "draft_per_1k": 0.24607812980621346,
+          "final_per_1k": 0.27715332737966925,
+          "drop": -0.12628183413913094,
+          "drop_ci95": [
+            -0.5924673555799009,
+            0.0035455754173437607
+          ]
+        },
+        "preservation": {
+          "unflagged_sentences": 1007,
+          "kept": 976,
+          "rate": 0.9692154915590864,
+          "ci95": [
+            0.9517502365184485,
+            0.9843444227005871
+          ]
+        },
+        "flagged_sentences": {
+          "rewritten": 267,
+          "removed": 47,
+          "kept": 34
+        },
+        "removed_share": 0.14968152866242038,
+        "negated_narration": {
+          "draft": 31,
+          "final": 0,
+          "repaired": 31,
+          "introduced": 0,
+          "repair_rate": 1.0,
+          "introduced_per_1k": 0.0
+        },
+        "subject_fixation": {
+          "draft": 16,
+          "final": 9,
+          "repaired": 9,
+          "introduced": 2,
+          "repair_rate": 0.5625,
+          "introduced_per_1k": 0.06158962830659317
+        }
+      },
+      "by_arm": {
+        "on": {
+          "turns": 60,
+          "contexts": 60,
+          "edited_turns": 51,
+          "words_draft": 17347,
+          "words_final": 17348,
+          "detectors": {
+            "banned_phrases": {
+              "draft": 4,
+              "final": 0,
+              "repaired": 4,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "repetitive_openers": {
+              "draft": 28,
+              "final": 3,
+              "repaired": 25,
+              "introduced": 0,
+              "repair_rate": 0.8928571428571429
+            },
+            "repetitive_templates": {
+              "draft": 19,
+              "final": 0,
+              "repaired": 19,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "contrastive_negation": {
+              "draft": 8,
+              "final": 0,
+              "repaired": 8,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "phrase_repetition": {
+              "draft": 83,
+              "final": 3,
+              "repaired": 81,
+              "introduced": 1,
+              "repair_rate": 0.9759036144578314
+            },
+            "structural_repetition": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "anti_echo": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "negated_narration": {
+              "draft": 25,
+              "final": 0,
+              "repaired": 25,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "subject_fixation": {
+              "draft": 8,
+              "final": 3,
+              "repaired": 6,
+              "introduced": 1,
+              "repair_rate": 0.75
+            }
+          },
+          "seven": {
+            "draft": 142,
+            "final": 6,
+            "repaired": 137,
+            "introduced": 1,
+            "repair_rate": 0.9647887323943662,
+            "repair_ci95": [
+              0.9323308270676691,
+              0.9925925925925926
+            ],
+            "draft_per_1k": 8.185853461693664,
+            "final_per_1k": 0.34586119437399127,
+            "introduced_per_1k": 0.057643532395665206,
+            "introduced_ci95": [
+              0.0,
+              0.18031013342949873
+            ]
+          },
+          "heldout": {
+            "draft_hits": 4,
+            "final_hits": 4,
+            "draft_per_1k": 0.23058742145615957,
+            "final_per_1k": 0.23057412958266083,
+            "drop": 5.764353239567876e-05,
+            "drop_ci95": [
+              -0.006907736665064824,
+              0.006354869279224004
+            ]
+          },
+          "preservation": {
+            "unflagged_sentences": 522,
+            "kept": 505,
+            "rate": 0.9674329501915708,
+            "ci95": [
+              0.9447852760736196,
+              0.9873417721518988
+            ]
+          },
+          "flagged_sentences": {
+            "removed": 32,
+            "rewritten": 154,
+            "kept": 28
+          },
+          "removed_share": 0.17204301075268819,
+          "negated_narration": {
+            "draft": 25,
+            "final": 0,
+            "repaired": 25,
+            "introduced": 0,
+            "repair_rate": 1.0,
+            "introduced_per_1k": 0.0
+          },
+          "subject_fixation": {
+            "draft": 8,
+            "final": 3,
+            "repaired": 6,
+            "introduced": 1,
+            "repair_rate": 0.75,
+            "introduced_per_1k": 0.057643532395665206
+          }
+        },
+        "off": {
+          "turns": 60,
+          "contexts": 60,
+          "edited_turns": 48,
+          "words_draft": 15163,
+          "words_final": 15125,
+          "detectors": {
+            "banned_phrases": {
+              "draft": 1,
+              "final": 0,
+              "repaired": 1,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "repetitive_openers": {
+              "draft": 15,
+              "final": 0,
+              "repaired": 15,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "repetitive_templates": {
+              "draft": 17,
+              "final": 0,
+              "repaired": 17,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "contrastive_negation": {
+              "draft": 8,
+              "final": 2,
+              "repaired": 6,
+              "introduced": 0,
+              "repair_rate": 0.75
+            },
+            "phrase_repetition": {
+              "draft": 83,
+              "final": 6,
+              "repaired": 81,
+              "introduced": 4,
+              "repair_rate": 0.9759036144578314
+            },
+            "structural_repetition": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "anti_echo": {
+              "draft": 0,
+              "final": 0,
+              "repaired": 0,
+              "introduced": 0,
+              "repair_rate": null
+            },
+            "negated_narration": {
+              "draft": 6,
+              "final": 0,
+              "repaired": 6,
+              "introduced": 0,
+              "repair_rate": 1.0
+            },
+            "subject_fixation": {
+              "draft": 8,
+              "final": 6,
+              "repaired": 3,
+              "introduced": 1,
+              "repair_rate": 0.375
+            }
+          },
+          "seven": {
+            "draft": 124,
+            "final": 8,
+            "repaired": 120,
+            "introduced": 4,
+            "repair_rate": 0.967741935483871,
+            "repair_ci95": [
+              0.9338842975206612,
+              0.9925373134328358
+            ],
+            "draft_per_1k": 8.177801226670184,
+            "final_per_1k": 0.5289256198347108,
+            "introduced_per_1k": 0.2644628099173554,
+            "introduced_ci95": [
+              0.0,
+              0.6079848679321759
+            ]
+          },
+          "heldout": {
+            "draft_hits": 4,
+            "final_hits": 5,
+            "draft_per_1k": 0.2638000395700059,
+            "final_per_1k": 0.3305785123966942,
+            "drop": -0.2531404958677687,
+            "drop_ci95": [
+              -1.5154645959463018,
+              0.005250721974271499
+            ]
+          },
+          "preservation": {
+            "unflagged_sentences": 485,
+            "kept": 471,
+            "rate": 0.9711340206185567,
+            "ci95": [
+              0.9506903353057199,
+              0.987603305785124
+            ]
+          },
+          "flagged_sentences": {
+            "rewritten": 113,
+            "removed": 15,
+            "kept": 6
+          },
+          "removed_share": 0.1171875,
+          "negated_narration": {
+            "draft": 6,
+            "final": 0,
+            "repaired": 6,
+            "introduced": 0,
+            "repair_rate": 1.0,
+            "introduced_per_1k": 0.0
+          },
+          "subject_fixation": {
+            "draft": 8,
+            "final": 6,
+            "repaired": 3,
+            "introduced": 1,
+            "repair_rate": 0.375,
+            "introduced_per_1k": 0.06611570247933884
+          }
+        }
+      }
+    }
+  }
+}
