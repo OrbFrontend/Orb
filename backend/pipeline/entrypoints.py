@@ -15,7 +15,7 @@ from ..inference import AbortToken, DecisionCancelled
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
-from .context import PipelineContext, TurnSetup, build_prefixes, load_pipeline_context, prepare_turn
+from .context import PipelineContext, TurnSetup, build_prefixes, enabled_moods, load_pipeline_context, prepare_turn
 from .events import CoreTurnEvent, HookEvent, PublicTurnEvent, SpeakerPlanItem
 from .failures import STAGE_JUDGE, STAGE_SAVE, describe_failure, reported_once, stage_of, staged
 from .orchestrator import open_turn_state, run_director_stage, run_pipeline
@@ -273,7 +273,7 @@ async def _prepare_regen_context(
         history_parent_id = parent_msg.get("id")
     history = await db.get_path_to_leaf(conversation_id, history_parent_id) if history_parent_id is not None else []
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
-    ctx.director["active_moods"] = moods_before
+    ctx.director["active_moods"] = enabled_moods(moods_before, ctx.mood_fragments)
     ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
     ctx.director["decision_cooldowns"] = decision_cooldown_baseline(
         history, before_exchange_id=str(target.get("exchange_id") or "") or None
@@ -331,6 +331,10 @@ async def _open_turn(
 
     judge = committed
     if judge is not None:
+        judge = judge.restricted_to(
+            {candidate.definition.fragment_id for candidate in ctx.decision_candidates}
+            | {broken.fragment_id for broken in ctx.invalid_decisions}
+        )
         if judge.evaluations or judge.skipped:
             yield {"event": "decisions", "data": judge.as_event_data()}
     else:
@@ -911,7 +915,9 @@ async def handle_fork_edit(
         history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
 
         # Reset director to the branch-point baseline (branch-aware state).
-        ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
+        ctx.director["active_moods"] = enabled_moods(
+            await db.get_moods_before_turn(conversation_id, turn_index), ctx.mood_fragments
+        )
         ctx.director["fragment_cooldowns"] = cooldown.branch_baseline(history)
         ctx.director["decision_cooldowns"] = decision_cooldown_baseline(history)
         await _load_fragment_state(ctx, conversation_id, history)

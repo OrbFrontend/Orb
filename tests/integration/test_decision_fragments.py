@@ -967,6 +967,18 @@ async def test_a_later_speaker_regeneration_keeps_the_rolled_outcome_its_parent_
     assert expected["guidance"] in _tail_text(_captured(llm_mock, "writer")[-1])
 
 
+async def test_a_later_speaker_regeneration_drops_a_decision_disabled_since(client, db, llm_mock, monkeypatch):
+    conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
+    await client.put_checked("/api/interactive-fragments/outcome", json={"enabled": False})
+
+    events = await _regenerate(llm_mock, conv["id"], later["id"], "kael — again", reply="kael again")
+    regenerated = (await dbmod.get_messages(conv["id"]))[-1]
+
+    assert _events(events, "decisions") == []
+    assert regenerated["decision_evaluations"] == {}
+    assert _record(first)["guidance"] not in _tail_text(_captured(llm_mock, "writer")[-1])
+
+
 async def test_a_steered_later_speaker_keeps_its_exchanges_outcome(client, db, llm_mock, monkeypatch):
     conv, first, later, gateway = await _two_speaker_roll_exchange(client, llm_mock, monkeypatch, (0.1, 0.9))
 

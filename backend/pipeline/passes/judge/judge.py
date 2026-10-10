@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -157,6 +157,14 @@ class JudgeResult:
             skipped=stored_skipped(stored),
             cooldowns={str(key): int(value) for key, value in cooldowns.items()},
             inherited=True,
+        )
+
+    def restricted_to(self, fragment_ids: Collection[str]) -> JudgeResult:
+        """This result without the decisions outside *fragment_ids*, such as one disabled since the result was committed."""
+        return replace(
+            self,
+            evaluations=[row for row in self.evaluations if row["fragment_id"] in fragment_ids],
+            skipped=[row for row in self.skipped if row.get("fragment_id") in fragment_ids],
         )
 
     @property

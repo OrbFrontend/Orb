@@ -208,3 +208,24 @@ async def test_inspector_distinguishes_missing_mood_history_from_empty_selection
     missing = await client.get_json(url)
     assert missing["mood_data_available"] is False
     assert missing["active_moods"] == []
+
+
+async def test_regeneration_drops_a_mood_disabled_since_the_baseline(client, db, llm_mock):
+    cid = "conv-disabled-mood-regenerate"
+    await _setup(client, cid)
+    await client.post_checked(
+        "/api/fragments", json={**_STORMY, "cooldown_turns": 0, "prompt_text": "Stormy prose.", "negative_prompt": "Calm down."}
+    )
+    await _turn(llm_mock, cid, "one", {"moods": ["stormy"]})
+    await _turn(llm_mock, cid, "two", {"moods": ["stormy"]})
+    reply = await _last_assistant(cid)
+
+    await client.put_checked("/api/fragments/stormy", json={"enabled": False})
+    capture_start = len(llm_mock.captured)
+    llm_mock.enqueue_director(_direct_scene({"moods": []}))
+    llm_mock.enqueue_writer("again")
+    data = _director_data(await _drain(handle_regenerate(cid, reply["id"])))
+
+    prompts = "\n".join(str(message["content"]) for call in llm_mock.captured[capture_start:] for message in call["messages"])
+    assert "stormy" not in prompts.lower()
+    assert data["active_moods"] == []

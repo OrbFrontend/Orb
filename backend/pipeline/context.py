@@ -126,10 +126,8 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
     # (the context is rebuilt per turn); on id collision the global wins.
     card_moods, card_interactive, card_fragment_sources = await db.cast_embedded_fragments(card, cast)
     mood_fragments = db.merge_fragments_by_id([f for f in await db.get_mood_fragments() if f.get("enabled", True)], card_moods)
-    # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
-        enabled_ids = {f["id"] for f in mood_fragments}
-        director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
+        director["active_moods"] = enabled_moods(director["active_moods"], mood_fragments)
     defined_fragments = _defined_fragments(await db.get_interactive_fragments(), card_interactive)
     # The enabled rows in blob order, so every pass lists its live fields in the order the shared schemas offer them. Card rows
     # are always enabled, so this is the enabled globals plus every card row whose id they do not claim.
@@ -177,6 +175,12 @@ async def load_pipeline_context(conversation_id: str, *, abort_token: AbortToken
         state_contract=StateContract.capture(settings, split_interactive_fragments(interactive_fragments)[2]),
         defined_fragments=defined_fragments,
     )
+
+
+def enabled_moods(moods: Sequence[str], mood_fragments: Sequence[Mapping[str, Any]]) -> list[str]:
+    """*moods* without the ids of disabled fragments, which no pass may see."""
+    enabled_ids = {fragment["id"] for fragment in mood_fragments}
+    return [mood for mood in moods if mood in enabled_ids]
 
 
 def _defined_fragments(
