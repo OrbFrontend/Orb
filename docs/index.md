@@ -19,12 +19,14 @@ summer, the user hints at cooling off in Pen Pen's fridge.
 
 **Without Orb**, the reply misses the hint. It pads the prose with sloppy description: 
 a "frosty aura", an expression "shifting from flustered to a look of sudden, genuine 
-realization", eyes softening, "a hint of a laugh in her voice".
+realization", eyes softening, "a hint of a laugh in her voice". The reply shape is stagnant:
+Most of it is spent reacting to what the user says rather than driving the scenario forward,
+ending with an afterthought curveball.
 
 ![Reply without Orb's core features](assets/screenshots/without-orb.png)
 
-**With Orb's [core features](features/index.md)**, The Director spells out the hint.
-The prose is cleaner and every line does something. All of Gemma 4's stock 
+**With Orb's [core features](features/index.md)**, The Director spells out the hint and
+the gameplan. The prose is cleaner and every line does something. All of Gemma 4's stock 
 characteristics are nullified. There's also no repetition from previous messages.
 
 ![Reply with Orb's core features](assets/screenshots/with-orb.png)
