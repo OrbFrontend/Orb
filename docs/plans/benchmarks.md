@@ -7,13 +7,13 @@ Benches 3 and 4 score those turns. The results become a "By the numbers" section
 | README claim | Benchmark | Headline result | Scored by |
 | --- | --- | --- | --- |
 | KV cache keeps multiple passes affordable | 1. Cache overhead and implementation comparison | Wall-clock time and uncached tokens vs context length: Orb, TauriTavern handoffs, and a single TauriTavern Profile (Gemma) | Common request recorder, provider usage, server timings, application events and saved output |
-| Director solves directionlessness | 2. Driven replies | Difference in % of replies Jev scores driven (P ≥ 0.75), Director on minus off | Jev `choice` question, checked against 40 hand labels |
+| Director solves directionlessness | 2. Driven replies | Difference in % of replies Jev scores driven (P ≥ 0.75), Director on minus off | Jev `choice` question, threshold set on the pilot's hand labels |
 | Editor removes slop | 3. Slop before/after | Repair rate, held-out slop per 1,000 words, % of untouched prose kept | Auditor detectors, held-out phrase list |
 | Built for small models | 4. Pass reliability | % of turns completed without warnings or errors; % of tool arguments that point at real ids | Turn stream, server log, saved tool calls |
 
 A benchmark qualifies when no LLM judges prose quality and the result fits in a single README line or chart. One LLM,
-Jev, labels reply structure for Bench 2. That is a classification, not a quality judgement, and the plan checks it
-against hand labels before trusting it.
+Jev, labels reply structure for Bench 2. That is a classification, not a quality judgement, checked against the
+pilot's hand labels and a live fixture set before every scoring pass.
 
 ## Scope
 
@@ -27,11 +27,8 @@ against hand labels before trusting it.
 - **Chat transport only.** Text-completion mode is not benchmarked.
 - **Status.** Bench 1 is done: the harness is under `scripts/bench/cache/`, and its 360-turn sweep (2026-10-09), with
   the comparison figure, is in `scripts/bench/cache/results/sweep2/`.
-  The Bench 2 Gemma pilot (5 contexts × 2 arms × 1 repeat, 2026-10-09) ran through Jev scoring; its harness is under
-  `scripts/bench/driven/` and its report in `scripts/bench/driven/results/pilot/`. The corpus is 60 cards, and the
-  pilot's hand labels set the `driven` threshold. Both models have run all 60 contexts and are scored
-  (`results/c60-gemma/`, `results/c60-deepseek/`, judge noise in `results/c60-noise/`); the 40 blind hand labels
-  (`results/c60-hand-labels/`) are next.
+  Bench 2 is done (2026-10-10): 60 contexts on Gemma and DeepSeek, harness under `scripts/bench/driven/`, report in
+  `scripts/bench/driven/results/REPORT.md`. Benches 3 and 4 run on its turns next.
 
 ## Readiness (checked 2026-10-09)
 
@@ -425,7 +422,7 @@ tack a hook onto the end.
   (`messages.content`, which equals `messages.writer_draft` once workflows are off).
 - **Driven means P(driven) ≥ 0.75.** Pre-registered on 2026-10-09 from the pilot's 10 hand labels, before the full run:
   there Jev's own `driven` label had precision 0.6 (it called two replies driven at 0.59 and 0.69), while the threshold
-  matched every hand label. The full run's hand labels test it on replies it was not chosen from. Report Jev's label
+  matched every hand label. The full run is not hand labeled, so the threshold is untested on it. Report Jev's label
   shares and mean P(driven) beside it. Replies near 0.75 can cross it on a re-ask, so the noise sample below reports
   threshold flips too.
 - **Before scoring.** `score.py` asks Jev all 12 fixtures live, never from the cache. Every fixture must keep its label,
@@ -444,11 +441,8 @@ tack a hook onto the end.
   of 20 replies once to state the noise next to the result.
 - **Length check.** The Director may change reply length, and Jev's label may follow length. Report mean words per arm
   and the `driven` share within length bands.
-- **Hand labels.** Label 40 of the 240 replies (both models, both arms) without knowing which arm each came from
-  (`hand_labels.py`). Sample them stratified by Jev's label and by P(driven) band (below 0.4, 0.4–0.8, above 0.8), so
-  `afterthought` and borderline scores are both represented. Report the 3 × 3 confusion matrix and `driven` precision
-  and recall, for the threshold and for Jev's label, not just overall agreement. The pilot's 10 hand labels set the
-  threshold and are not among the 40.
+- **Hand labels.** The pilot's 10 blind hand labels (`hand_labels.py`) set the threshold. The full run is not hand
+  labeled, so the threshold is untested on it; Jev's own label is reported beside it.
 - **Headline.** One bar per arm per model showing the `driven` share at the threshold, plus the paired difference with
   its interval; Jev's three-label shares go beside it. README line: "On open-ended user turns, X% of replies are driven with the Director on, Y% with it
   off." The condition stays in the line: the corpus was chosen to be where the Director should help.
@@ -537,9 +531,9 @@ Bench 2 produces the turns that Benches 3 and 4 score, so it runs right after th
 2. Bench 2 pilot (5 contexts, Gemma), through scoring. Separately validate Bench 1's auditor parity, Profiles,
    history inclusion, prompt/commit bridges, clocks and completion checks; then run its short/long comparison pilot.
 3. Bench 1 on the box after its pilot: counterbalanced native blocks for all three arms, with server restarts per
-   block. Optional frozen-request replay and cold-prefill estimates are separate diagnostics. It can run while the
-   Bench 2 hand labels are done; select runtime and sample size from the comparison pilot.
-4. Bench 2 on Gemma and DeepSeek (both from the box), then Jev scoring and the 40 hand labels.
+   block. Optional frozen-request replay and cold-prefill estimates are separate diagnostics. Select runtime and sample
+   size from the comparison pilot.
+4. Bench 2 on Gemma and DeepSeek (both from the box), then Jev scoring.
 5. Bench 3, on Bench 2's saved streams and replies.
 6. Bench 4, on Bench 2's saved streams, logs and `conversation_logs`.
 
