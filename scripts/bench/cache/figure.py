@@ -203,7 +203,7 @@ def render(rows):
         '<title id="t">Bench 1: turn time and uncached input against context size</title>',
         '<desc id="d">Per-turn wall time and uncached input tokens against the largest prompt in the turn, for Orb and two '
         "TauriTavern configurations, with turn 1 after a cold server start apart from turns 2 to 10, then completion rates "
-        "and output lengths by starting history. Every value is in turns.csv and summary.csv beside this figure.</desc>",
+        "and output lengths by starting history. Every value is in turns.csv.gz and summary.csv beside this figure.</desc>",
         '<rect width="100%" height="100%" rx="8" fill="var(--surface)"/>',
         '<text class="title" x="24" y="36">Turn time and uncached input against actual context size</text>',
         f'<text class="sub" x="24" y="56">Bench 1 · {len(rows)} attempted turns · Gemma 4 26B-A4B on llama.cpp, one RTX 3090 · '
@@ -298,7 +298,7 @@ def render(rows):
         "Contract panel: filled marks met the shared task contract; hollow marks are runs the application itself completed.",
         "The bottom row pools all 30 attempts per arm and starting history. Generated tokens include tool-call JSON.",
         "Wall time runs from the trigger to the persisted reply. Each starting history is one frozen chat, so these are descriptive",
-        "medians for this fixture and these configurations, without intervals. Every value is in turns.csv and summary.csv.",
+        "medians for this fixture and these configurations, without intervals. Every value is in turns.csv.gz and summary.csv.",
     ]
     for line in notes:
         out.append(f'<text class="note" x="24" y="{top}">{escape(line)}</text>')

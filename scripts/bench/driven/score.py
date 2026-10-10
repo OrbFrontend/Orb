@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import csv
 import hashlib
+import io
 import json
 import random
 import re
@@ -19,6 +20,7 @@ from pathlib import Path
 import httpx
 
 from backend.inference.jev import ChoiceAnswer, DecisionClient, normalize_response
+from scripts.bench.archive import append_line, read_text, write_text
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.driven.jev_check import FIXTURES, REQUEST, SHAPE, judge_client, state_for
 
@@ -41,7 +43,7 @@ class Judge:
         self.limit = asyncio.Semaphore(concurrency)
         self.raw = {}
         if cache.exists():
-            for line in cache.read_text().splitlines():
+            for line in read_text(cache).splitlines():
                 row = json.loads(line)
                 self.raw[row["key"]] = row
 
@@ -64,8 +66,7 @@ class Judge:
         key = raw_key(state)
         if key not in self.raw:
             row = await self.post(state)
-            with self.cache.open("a") as stream:
-                stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+            append_line(self.cache, json.dumps(row, ensure_ascii=False))
             self.raw[key] = row
         return answer_of(self.raw[key])
 
@@ -85,8 +86,7 @@ async def preflight(judge: Judge, log: Path) -> list[dict]:
     rows = []
     for name, (expected, paragraphs) in FIXTURES.items():
         raw = await judge.post(state_for(REQUEST, "\n\n".join(paragraphs)))
-        with log.open("a") as stream:
-            stream.write(json.dumps({"fixture": name, **raw}, ensure_ascii=False) + "\n")
+        append_line(log, json.dumps({"fixture": name, **raw}, ensure_ascii=False))
         answer, model = answer_of(raw)
         rows.append(
             {"fixture": name, "expected": expected, "selected": answer.selected, **answer.probabilities, "model": model}
@@ -219,9 +219,9 @@ async def score(run: Path, output: Path, *, judge_on: bool = True) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     plan = json.loads((run / "plan.json").read_text())
     manifest = json.loads((run / "manifest.json").read_text())
-    judge = Judge(output / "jev-raw.jsonl", judge_client()) if judge_on else None
+    judge = Judge(output / "jev-raw.jsonl.gz", judge_client()) if judge_on else None
     if judge is not None:
-        save(output / "jev-preflight.json", await preflight(judge, output / "jev-preflight-raw.jsonl"))
+        save(output / "jev-preflight.json", await preflight(judge, output / "jev-preflight-raw.jsonl.gz"))
     transport = SNAPSHOT["transports"][manifest.get("transport", "gemma")]
     calls = wire(run / "requests", transport)
     rows, pending = [], []
@@ -290,12 +290,13 @@ async def score(run: Path, output: Path, *, judge_on: bool = True) -> dict:
         "paired_label_driven": paired_driven(scored, plan["contexts"], "label_driven"),
         "length_bands": length_bands(scored),
     }
-    save(output / "turns.json", rows)
-    with (output / "turns.csv").open("w", newline="") as stream:
-        fields = list(dict.fromkeys(key for row in rows for key in row if key != "warnings"))
-        writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    save(output / "turns.json.gz", rows)
+    stream = io.StringIO(newline="")
+    fields = list(dict.fromkeys(key for row in rows for key in row if key != "warnings"))
+    writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    write_text(output / "turns.csv.gz", stream.getvalue())
     save(output / "summary.json", summary)
     return summary
 

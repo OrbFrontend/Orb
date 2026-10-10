@@ -15,6 +15,7 @@ from pathlib import Path
 
 import httpx
 
+from scripts.bench.archive import read_bytes, read_text
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.cache.tauri_driver import WebView
 from scripts.bench.cache.tt_run import HERE, TURN_SECONDS, run
@@ -174,7 +175,13 @@ def orb_block(root, harness, block, fixture, turns, pilot):
     for index in range(turns):
         output = block / f"turn-{index + 1:02d}"
         started_ns = time.monotonic_ns()
-        label = {"arm": "orb", "fixture": fixture.stem, "turn": index + 1, "pilot": pilot, "block": block.name}
+        label = {
+            "arm": "orb",
+            "fixture": fixture.name.removesuffix(".json.gz"),
+            "turn": index + 1,
+            "pilot": pilot,
+            "block": block.name,
+        }
         try:
             subprocess.run(
                 [
@@ -226,14 +233,14 @@ def tt_block(root, block, fixture, applied, arm, turns, pilot):
         view.evaluate(HERE.joinpath("tt_preflight.js").read_text())
         configured = view.evaluate(
             HERE.joinpath("tt_setup.js").read_text(),
-            {"fixture": json.loads(fixture.read_text()), "applied": json.loads(applied.read_text())},
+            {"fixture": json.loads(read_text(fixture)), "applied": json.loads(applied.read_text())},
         )
         save(block / "configuration.json", configured)
         for index in range(turns):
             run(
                 view,
                 profile,
-                json.loads(fixture.read_text()),
+                json.loads(read_text(fixture)),
                 data,
                 block / f"turn-{index + 1:02d}",
                 root / "pilot/recorder-binding.json",
@@ -299,7 +306,7 @@ def main():
     applied = root / "pilot/orb-short/applied.json"
     for repeat in range(args.repeats):
         for size in args.sizes:
-            fixture = root / f"fixtures/bellwick-{size}.json"
+            fixture = root / f"fixtures/bellwick-{size}.json.gz"
             for arm in args.arms[repeat % len(args.arms) :] + args.arms[: repeat % len(args.arms)]:
                 block = args.output / f"r{repeat + 1}-{size}-{arm}"
                 if (block / "block-complete.json").exists() or (block / "block-failed.json").exists():
@@ -313,8 +320,8 @@ def main():
                         "repeat": repeat + 1,
                         "pilot": args.pilot,
                         "turns": args.turns,
-                        "fixture": str(fixture),
-                        "fixture_sha256": sha256(fixture),
+                        "fixture": fixture.name,
+                        "fixture_sha256": hashlib.sha256(read_bytes(fixture)).hexdigest(),
                         **identity,
                         "started_utc_ns": time.time_ns(),
                     },
@@ -337,7 +344,7 @@ def main():
                     for index in range(args.turns):
                         label = {
                             "arm": arm,
-                            "fixture": fixture.stem,
+                            "fixture": fixture.name.removesuffix(".json.gz"),
                             "turn": index + 1,
                             "pilot": args.pilot,
                             "block": block.name,

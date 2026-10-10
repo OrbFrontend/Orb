@@ -12,7 +12,7 @@ interval +0.03 to +0.33). DeepSeek V4.1 Flash is a boring Director: 38% on, 30% 
   a seat by the stove and watch her work"). Cards 1–20 are hand-written ([corpus.py](../corpus.py),
   [more_cards.py](../more_cards.py)). Cards 21–60 were drafted by the pinned DeepSeek from one-line premises with
   nothing already on its way, and reviewed by hand ([draft_cards.py](../draft_cards.py),
-  [drafted_cards.json](../drafted_cards.json)). Corpus sha256 `d1c68fb2…`.
+  [drafted_cards.json.gz](../drafted_cards.json.gz)). Corpus sha256 `d1c68fb2…`.
 - **Arms.** [bench.json](../bench.json) in both, with `enabled_tools.direct_scene` on or off; `enable_agent` = 1, so
   lorebook selection, the Editor and the state step run in both. Arm order alternates by context. 60 contexts × 2 arms
   × 1 repeat = 120 turns per model.
@@ -77,4 +77,4 @@ over the 60 directions: Gemma names an interruption (sudden, bursts, crisis, thu
   nothing about turns where the user drives.
 - `bench.json` runs every detector, the lorebook and a state fragment, not the out-of-the-box settings.
 
-Per-turn data: [gemma/turns.csv](gemma/turns.csv), [deepseek/turns.csv](deepseek/turns.csv).
+Per-turn data: [gemma/turns.csv.gz](gemma/turns.csv.gz), [deepseek/turns.csv.gz](deepseek/turns.csv.gz).

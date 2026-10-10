@@ -1,9 +1,9 @@
 """Bench 2 judge noise: re-ask Jev once, live, on a sample of scored replies and count label and threshold flips.
 
-    PYTHONPATH=. .venv/bin/python -m scripts.bench.driven.noise --scores OUT/turns.json --run RUN [--scores ... --run ...] \
+    PYTHONPATH=. .venv/bin/python -m scripts.bench.driven.noise --scores OUT/turns.json.gz --run RUN [--scores ... --run ...] \
         --output OUT
 
-The re-asks append to OUT/jev-reask-raw.jsonl and are never read back as answers, so a rerun asks again.
+The re-asks append to OUT/jev-reask-raw.jsonl.gz and are never read back as answers, so a rerun asks again.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from scripts.bench.driven.score import DRIVEN_THRESHOLD, LABELS, Judge, answer_o
 
 async def reask(rows: list[dict], output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
-    judge = Judge(output / "jev-reask-raw.jsonl", judge_client())
-    save(output / "jev-reask-preflight.json", await preflight(judge, output / "jev-reask-preflight-raw.jsonl"))
+    judge = Judge(output / "jev-reask-raw.jsonl.gz", judge_client())
+    save(output / "jev-reask-preflight.json", await preflight(judge, output / "jev-reask-preflight-raw.jsonl.gz"))
 
     async def again(row: dict) -> dict:
         run = Path(row["run"])
@@ -60,7 +60,7 @@ async def reask(rows: list[dict], output: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scores", type=Path, action="append", default=[], help="score.py's turns.json")
+    parser.add_argument("--scores", type=Path, action="append", default=[], help="score.py's turns.json.gz")
     parser.add_argument("--run", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--size", type=int, default=20)

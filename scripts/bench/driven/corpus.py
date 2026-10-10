@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.bench.archive import read_text
 from scripts.bench.driven.more_cards import MORE_CARDS
 from scripts.bench.driven.more_cards import card as build_card
 
@@ -536,7 +537,7 @@ CARDS = [
 
 def drafted_cards() -> list[dict]:
     """Cards 21-60: drafted by `draft_cards.py` and reviewed by hand."""
-    rows = json.loads(Path(__file__).with_name("drafted_cards.json").read_text())["cards"]
+    rows = json.loads(read_text(Path(__file__).with_name("drafted_cards.json.gz")))["cards"]
     return [
         build_card(
             row["premise_id"],

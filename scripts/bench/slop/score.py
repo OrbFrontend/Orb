@@ -309,7 +309,7 @@ async def main():
         cache: dict = {}
         rows = [await score_turn(turn, bank, patterns, cache) for turn in sorted((run / "turns").iterdir())]
         name = run.name
-        save(args.output / f"{name}-turns.json", rows)
+        save(args.output / f"{name}-turns.json.gz", rows)
         results["runs"][name] = {
             "run": run.name,
             "transport": manifest["transport"],

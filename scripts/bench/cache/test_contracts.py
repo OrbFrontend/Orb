@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from scripts.bench.archive import read_text
 from scripts.bench.cache.inspect import (
     direction_errors,
     direction_observations,
@@ -53,8 +54,8 @@ def test_malformed_native_artifact_is_a_failure_not_a_scoring_crash():
 
 
 def test_fixture_rows_and_unique_user_script():
-    for path in Path(__file__).parent.joinpath("fixtures").glob("*.json"):
-        fixture = json.loads(path.read_text())
+    for path in Path(__file__).parent.joinpath("fixtures").glob("*.json.gz"):
+        fixture = json.loads(read_text(path))
         assert len(fixture["user_script"]) == len(set(fixture["user_script"])) == 10
         assert all(row["role"] == ("user" if index % 2 == 0 else "assistant") for index, row in enumerate(fixture["history"]))
 

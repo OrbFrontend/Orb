@@ -1,4 +1,4 @@
-"""Draft Bench 2 cards 21-60 with the pinned DeepSeek, one forced `write_card` call per premise, frozen to drafted_cards.json.
+"""Draft Bench 2 cards 21-60 with the pinned DeepSeek, one forced `write_card` call per premise, frozen to drafted_cards.json.gz.
 
     PYTHONPATH=. .venv/bin/python -m scripts.bench.driven.draft_cards [--only ID ...]
 
@@ -16,10 +16,11 @@ from pathlib import Path
 
 import httpx
 
+from scripts.bench.archive import read_text
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.driven.run import SNAPSHOT, api_key
 
-OUTPUT = Path(__file__).with_name("drafted_cards.json")
+OUTPUT = Path(__file__).with_name("drafted_cards.json.gz")
 
 PREMISES = {
     "solveig": "a lighthouse keeper on a Norwegian skerry, on the evening watch with the user, a relief keeper",
@@ -186,7 +187,7 @@ async def draft(http: httpx.AsyncClient, key: str, premise_id: str, premise: str
 
 
 async def main_async(only: list[str]):
-    previous = json.loads(OUTPUT.read_text()) if OUTPUT.exists() else {"cards": []}
+    previous = json.loads(read_text(OUTPUT)) if OUTPUT.exists() else {"cards": []}
     kept = [row for row in previous["cards"] if only and row["premise_id"] not in only]
     todo = {key: value for key, value in PREMISES.items() if not only or key in only}
     key = api_key(SNAPSHOT["transports"]["deepseek"]["upstream"])

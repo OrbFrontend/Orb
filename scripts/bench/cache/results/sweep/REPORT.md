@@ -139,4 +139,4 @@ TauriTavern Profiles ([tt_setup.js](../../tt_setup.js)): full chat history throu
 
 Every arm gets the same system prompt, card, persona, direction fields and mood descriptions, Orb's Director brief, the same Scene Guidance reading of the direction, the same audit report and fixing rules, and the same Editor stopping rule. Native differences kept on purpose: Orb's Director sees the previously active moods and Orb releases an ended mood with its negative prompt, while each TauriTavern turn starts from an empty workspace with no mood state; Orb's first prose is timed at the client before rendering, TauriTavern's when its WebView renders it; neither arm is told a reply length.
 
-Per-attempt data: [turns.csv](turns.csv), [turns.json](turns.json); per-call costs: [calls.csv](calls.csv); grouped medians: [summary.csv](summary.csv); figure: [figure.svg](figure.svg).
+Per-attempt data: [turns.csv.gz](turns.csv.gz), [turns.json.gz](turns.json.gz); per-call costs: [calls.csv.gz](calls.csv.gz); grouped medians: [summary.csv](summary.csv); figure: [figure.svg](figure.svg).

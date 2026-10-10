@@ -18,6 +18,7 @@ from pathlib import Path
 
 from backend.analysis import Target, apply_id_patches
 from backend.analysis.text.roleplay_segmentation import split_segment_sentences
+from scripts.bench.archive import read_text
 from scripts.bench.auditor import contextual_audit
 from scripts.bench.cache.orb_driver import save, saved_difference
 
@@ -37,7 +38,7 @@ CHANNEL_MARKERS = re.compile(r"<\|channel>|<channel\|>|\bthought\b")
 
 
 def read(path):
-    return json.loads(path.read_text())
+    return json.loads(read_text(path))
 
 
 def read_optional(path, default):
@@ -405,7 +406,7 @@ def qualify_tt(turn, summary, applied, audit_root):
         audited = contextual_audit(
             draft_bytes.decode(),
             read(turn / "history.json"),
-            read(Path(__file__).parent / "fixtures" / (summary["fixture"] + ".json"))["user_script"][summary["turn"] - 1],
+            read(Path(__file__).parent / "fixtures" / (summary["fixture"] + ".json.gz"))["user_script"][summary["turn"] - 1],
         )
         if any(audited[key] != result[key] for key in ("report", "targets", "numbered_report", "audit_toggles")):
             errors.append("audit.contextual_parity")
@@ -573,7 +574,7 @@ def score_turn(turn, requests, applied, audit_root):
     history = read(turn / "history.json") if history_available else []
     text = summary.get("text")
     if text is None:
-        fixture = read(Path(__file__).parent / "fixtures" / (summary["fixture"] + ".json"))
+        fixture = read(Path(__file__).parent / "fixtures" / (summary["fixture"] + ".json.gz"))
         text = fixture["user_script"][summary["turn"] - 1]
     selected = [
         call

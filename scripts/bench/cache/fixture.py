@@ -9,6 +9,8 @@ from pathlib import Path
 
 import httpx
 
+from scripts.bench.archive import write_text
+
 CARD = {
     "id": "benchmark-mara",
     "name": "Mara Vale",
@@ -96,16 +98,16 @@ def freeze(base: str, output: Path, sizes: list[int]):
                 "history": rows,
                 "user_script": USER_SCRIPT,
             }
-            payload = (json.dumps(fixture, indent=2, ensure_ascii=False) + "\n").encode()
-            path = output / f"bellwick-{target}.json"
-            path.write_bytes(payload)
+            payload = json.dumps(fixture, indent=2, ensure_ascii=False) + "\n"
+            path = output / f"bellwick-{target}.json.gz"
+            write_text(path, payload)
             print(
                 json.dumps(
                     {
                         "path": str(path),
                         "history_tokens": measured,
                         "messages": len(rows),
-                        "sha256": hashlib.sha256(payload).hexdigest(),
+                        "sha256": hashlib.sha256(payload.encode()).hexdigest(),
                     }
                 ),
                 flush=True,

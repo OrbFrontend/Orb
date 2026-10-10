@@ -8,6 +8,7 @@ import shutil
 import time
 from pathlib import Path
 
+from scripts.bench.archive import read_text
 from scripts.bench.cache.orb_driver import save, saved_difference
 from scripts.bench.cache.tauri_driver import WebView
 
@@ -172,7 +173,7 @@ def main():
     parser.add_argument("--profile", choices=["benchmark-director", "benchmark-single"], required=True)
     parser.add_argument("--turns", type=int, default=3)
     args = parser.parse_args()
-    fixture = json.loads(args.fixture.read_text())
+    fixture = json.loads(read_text(args.fixture))
     args.output.mkdir(parents=True, exist_ok=False)
     view = WebView(args.application)
     try:

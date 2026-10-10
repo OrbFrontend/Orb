@@ -11,12 +11,11 @@ from pathlib import Path
 
 import httpx
 
+from scripts.bench.archive import read_text, write_text
+
 
 def save(path: Path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-    temporary.replace(path)
+    write_text(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
 def native_cleanup(text: str) -> str:
@@ -206,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--block", default="ad-hoc-pilot")
     parser.add_argument("--reportable", action="store_true")
     args = parser.parse_args()
-    fixture = json.loads(args.fixture.read_text())
+    fixture = json.loads(read_text(args.fixture))
     if args.action == "prepare":
         print(prepare(args.base, fixture, args.output))
     elif args.action == "seed":

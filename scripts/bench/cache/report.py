@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import re
 from collections import Counter
 from pathlib import Path
 from statistics import median
 
+from scripts.bench.archive import write_text
 from scripts.bench.cache.figure import SHORT, render, section
 from scripts.bench.cache.orb_driver import save
 
@@ -122,13 +124,12 @@ def codes(value):
 
 
 def write_csv(path, rows, fields):
-    with path.open("w", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in row.items()}
-            )
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in row.items()})
+    write_text(path, output.getvalue())
 
 
 def phase(row):
@@ -221,15 +222,15 @@ def build(runs, output):
     ]
     identity = manifests[0] if manifests else {}
     output.mkdir(parents=True, exist_ok=True)
-    (output / "turns.json").write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")) + "\n")
-    write_csv(output / "turns.csv", rows, TURN_FIELDS)
+    save(output / "turns.json.gz", rows)
+    write_csv(output / "turns.csv.gz", rows, TURN_FIELDS)
     calls = []
     for row in rows:
         path = runs / row["block"] / f"turn-{row['turn']:02d}" / "scored-calls.json"
         for call in json.loads(path.read_text()) if path.exists() else []:
             call["path"] = Path(call["path"]).name
             calls.append({"block": row["block"], "arm": row["arm"], "turn": row["turn"], **call})
-    write_csv(output / "calls.csv", calls, CALL_FIELDS)
+    write_csv(output / "calls.csv.gz", calls, CALL_FIELDS)
     summary = summary_rows(rows)
     save(output / "summary.json", summary)
     write_csv(output / "summary.csv", summary, list(summary[0]))
@@ -524,7 +525,7 @@ def build(runs, output):
             "and Orb releases an ended mood with its negative prompt, while each TauriTavern turn starts from an empty workspace with no mood state; "
             "Orb's first prose is timed at the client before rendering, TauriTavern's when its WebView renders it; neither arm is told a reply length.",
             "",
-            "Per-attempt data: [turns.csv](turns.csv), [turns.json](turns.json); per-call costs: [calls.csv](calls.csv); "
+            "Per-attempt data: [turns.csv.gz](turns.csv.gz), [turns.json.gz](turns.json.gz); per-call costs: [calls.csv.gz](calls.csv.gz); "
             "grouped medians: [summary.csv](summary.csv); figure: [figure.svg](figure.svg).",
             "",
         ]

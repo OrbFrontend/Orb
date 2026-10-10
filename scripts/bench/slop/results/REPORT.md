@@ -85,6 +85,6 @@ By Bench 2 arm (7 audit types):
 ## Files
 
 - [summary.json](summary.json): every measure, pooled and by arm, with the held-out entries dropped.
-- [gemma-turns.json](gemma-turns.json), [deepseek-turns.json](deepseek-turns.json): per-turn counts.
+- [gemma-turns.json.gz](gemma-turns.json.gz), [deepseek-turns.json.gz](deepseek-turns.json.gz): per-turn counts.
 - Rebuild: `PYTHONPATH=. .venv/bin/python -m scripts.bench.slop.score --run RUN --run RUN --heldout PHRASES --output OUT`
   on Bench 2's run folders, with the held-out file fetched from the URL in [score.py](../score.py).

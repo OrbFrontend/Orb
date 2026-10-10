@@ -21,7 +21,7 @@ text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(
 .hollow { fill: var(--surface); stroke-width: 2; }
 </style>
 <title id="t">Bench 1: turn time and uncached input against context size</title>
-<desc id="d">Per-turn wall time and uncached input tokens against the largest prompt in the turn, for Orb and two TauriTavern configurations, with turn 1 after a cold server start apart from turns 2 to 10, then completion rates and output lengths by starting history. Every value is in turns.csv and summary.csv beside this figure.</desc>
+<desc id="d">Per-turn wall time and uncached input tokens against the largest prompt in the turn, for Orb and two TauriTavern configurations, with turn 1 after a cold server start apart from turns 2 to 10, then completion rates and output lengths by starting history. Every value is in turns.csv.gz and summary.csv beside this figure.</desc>
 <rect width="100%" height="100%" rx="8" fill="var(--surface)"/>
 <text class="title" x="24" y="36">Turn time and uncached input against actual context size</text>
 <text class="sub" x="24" y="56">Bench 1 · 360 attempted turns · Gemma 4 26B-A4B on llama.cpp, one RTX 3090 · starting histories 2k, 8k, 16k, 32k tokens, 3 blocks of 10 turns each</text>
@@ -957,5 +957,5 @@ text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(
 <text class="note" x="24" y="886">Contract panel: filled marks met the shared task contract; hollow marks are runs the application itself completed.</text>
 <text class="note" x="24" y="903">The bottom row pools all 30 attempts per arm and starting history. Generated tokens include tool-call JSON.</text>
 <text class="note" x="24" y="920">Wall time runs from the trigger to the persisted reply. Each starting history is one frozen chat, so these are descriptive</text>
-<text class="note" x="24" y="937">medians for this fixture and these configurations, without intervals. Every value is in turns.csv and summary.csv.</text>
+<text class="note" x="24" y="937">medians for this fixture and these configurations, without intervals. Every value is in turns.csv.gz and summary.csv.</text>
 </svg>

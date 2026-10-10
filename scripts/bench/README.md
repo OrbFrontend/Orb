@@ -118,7 +118,7 @@ python -m scripts.bench.cache.report --runs "$BENCH_ROOT/sweep" --output "$BENCH
 # Bench 2: one run per transport (gemma, deepseek); Jev needs its key, see jev_check.py
 python -m scripts.bench.driven.run --transport gemma --contexts 60 --model-sha256 MODEL.sha256 --output RUN
 python -m scripts.bench.driven.score --run RUN --output SCORES
-python -m scripts.bench.driven.noise --scores SCORES/turns.json --run RUN --output NOISE
+python -m scripts.bench.driven.noise --scores SCORES/turns.json.gz --run RUN --output NOISE
 
 # Bench 3: on Bench 2's run folders, with the held-out list from the URL in slop/score.py
 python -m scripts.bench.slop.score --run GEMMA_RUN --run DEEPSEEK_RUN --heldout PHRASES --output OUT

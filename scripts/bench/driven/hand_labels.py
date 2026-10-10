@@ -1,6 +1,6 @@
 """Blind hand labels for Bench 2: sample scored replies, label them without arm or Jev label, then compare with Jev.
 
-    python -m scripts.bench.driven.hand_labels sample --scores OUT/turns.json --run RUN [--scores ... --run ...] \
+    python -m scripts.bench.driven.hand_labels sample --scores OUT/turns.json.gz --run RUN [--scores ... --run ...] \
         --sheet sheet.md --key key.json
     python -m scripts.bench.driven.hand_labels score --sheet sheet.md --key key.json
 
@@ -18,6 +18,7 @@ import random
 import re
 from pathlib import Path
 
+from scripts.bench.archive import read_text
 from scripts.bench.cache.orb_driver import save
 from scripts.bench.driven.jev_check import SHAPE
 from scripts.bench.driven.score import DRIVEN_THRESHOLD
@@ -49,13 +50,13 @@ def sample(rows: list[dict], size: int, seed: int = 20261009) -> list[dict]:
 
 
 def scored_rows(scores: list[Path], runs: list[Path]) -> list[dict]:
-    """Labeled rows from each (turns.json, run) pair, tagged with the run's transport and folder."""
+    """Labeled rows from each (turns.json.gz, run) pair, tagged with the run's transport and folder."""
     if len(scores) != len(runs):
         raise SystemExit("give one --run per --scores")
     rows = []
     for path, run in zip(scores, runs):
         model = json.loads((run / "manifest.json").read_text()).get("transport", "gemma")
-        rows += [{**row, "model": model, "run": str(run)} for row in json.loads(path.read_text()) if row.get("label")]
+        rows += [{**row, "model": model, "run": str(run)} for row in json.loads(read_text(path)) if row.get("label")]
     return rows
 
 
@@ -112,7 +113,7 @@ def precision_recall(pairs: list[tuple[bool, bool]]) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["sample", "score"])
-    parser.add_argument("--scores", type=Path, action="append", default=[], help="score.py's turns.json")
+    parser.add_argument("--scores", type=Path, action="append", default=[], help="score.py's turns.json.gz")
     parser.add_argument("--run", type=Path, action="append", default=[])
     parser.add_argument("--sheet", type=Path, required=True)
     parser.add_argument("--key", type=Path, required=True)
