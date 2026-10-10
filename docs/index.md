@@ -1,3 +1,9 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
 # Orb
 
 ![Orb](assets/Orb.png)
