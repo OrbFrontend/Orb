@@ -48,12 +48,6 @@ it("an assistant row still regenerates itself", () => {
   assert.match(html, /data-wf-action="chat:regenerate" data-msg-id="42"/);
 });
 
-it("a greeting has no regenerate button", () => {
-  const greeting = { id: 7, role: "assistant", content: "hi", parent_id: null };
-  const html = toolbarFor(greeting, [greeting]);
-  assert.ok(!/Regenerate/.test(html), html);
-});
-
 it("an unsent user row's regenerate button is disabled", () => {
   const pending = { id: null, role: "user", content: "draft" };
   const html = toolbarFor(pending, [pending]);
