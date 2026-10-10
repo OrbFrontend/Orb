@@ -182,11 +182,10 @@ from .queries.settings import (
 )
 from .queries.slop_suggestions import (
     accept_slop_suggestion,
-    count_model_replies,
     dismiss_slop_suggestion,
-    get_slop_replies_at_run,
+    get_slop_mining_state,
     iter_model_replies,
-    list_slop_dismissed_keys,
+    list_slop_dismissals,
     list_slop_suggestion_keys,
     list_slop_suggestions,
     open_readonly,

@@ -113,6 +113,7 @@ def mine(
     bank: list[PhraseGroup],
     audit_toggles: Mapping[str, object],
     dismissed: Iterable[str],
+    dismissed_patterns: Iterable[str] = (),
     *,
     now: datetime | None = None,
 ) -> MineResult:
@@ -153,7 +154,8 @@ def mine(
     finally:
         conn.close()
 
-    banked = {g["pattern"] for g in bank if isinstance(g, dict) and g["kind"] == "regex"}
+    # A dismissed pattern stays gone even when a different key mines it.
+    banked = {g["pattern"] for g in bank if isinstance(g, dict) and g["kind"] == "regex"} | set(dismissed_patterns)
     kept_keys: set[str] = set()
     kept_patterns: set[str] = set()
 

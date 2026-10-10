@@ -523,13 +523,11 @@ CREATE TABLE IF NOT EXISTS slop_dismissals (
     dismissed_at TEXT NOT NULL
 );
 
--- The suggestion miner's one bookkeeping row: when it last ran, how many model
--- replies existed then (the staleness check compares against this), and why the
--- last run suggested nothing or failed.
+-- The suggestion miner's one bookkeeping row: when it last ran and why the last
+-- run suggested nothing or failed.
 CREATE TABLE IF NOT EXISTS slop_mining_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last_run_at TEXT,
-    replies_at_run INTEGER NOT NULL DEFAULT 0,
     last_status TEXT NOT NULL DEFAULT ''
 );
 

@@ -19,8 +19,8 @@ messages.
 
 - **Add** opens a ready-made regular expression. Review or edit it, then save
   it to the Phrase Bank. Suggestions do not block anything until you add them.
-- **Dismiss** hides the suggestion permanently. Presets and backups keep your
-  dismissals.
+- **Dismiss** hides the suggestion permanently, including its regular expression
+  if a later search finds it again. Presets and backups keep your dismissals.
 
 Each suggestion shows examples. In sentence patterns, `…` marks words that can
 vary; the common choices appear below the examples.
@@ -32,8 +32,10 @@ rate of use, it would appear about ten times in that card text.
 **New** means use has increased in the last 150 days. **Long-standing** means
 an older, recurring habit.
 
-Suggestions update automatically in the background. They need replies from at
-least 40 characters and enough card text for comparison.
+Click **Find suggestions** to search your chats. The search runs in the
+background and replaces earlier suggestions. Suggestions never update on their
+own. A search needs replies from at least 40 characters and enough card text
+for comparison.
 
 ## Built-in checks
 

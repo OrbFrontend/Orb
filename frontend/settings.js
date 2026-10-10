@@ -604,7 +604,7 @@ export async function showPhraseBankModal() {
       ${groupRows.length ? groupRows : '<div class="phrase-bank-empty">No phrase groups yet</div>'}
     </div>
 
-    <div id="phrase-suggest-section" hidden></div>
+    <div id="phrase-suggest-section"></div>
   `);
   _loadSuggestions();
 }
@@ -646,8 +646,16 @@ function _suggestionCard(s) {
     </div>`;
 }
 
-function _syncSuggestionSection(section) {
-  section.hidden = !section.querySelector(".phrase-suggest-item, .phrase-suggest-status");
+function _suggestionStatus(data) {
+  if (data.refreshing) return "Searching your chats…";
+  const status = data.last_run?.last_status || "";
+  if (status.startsWith("skipped: ")) return `Not enough data yet: ${status.slice(9)}.`;
+  if (status.startsWith("error: ")) return "The last search failed. Details are in the server log.";
+  if (data.last_run?.last_run_at) {
+    const when = new Date(data.last_run.last_run_at).toLocaleString();
+    return data.suggestions.length ? `Last searched ${when}.` : `No new suggestions. Last searched ${when}.`;
+  }
+  return "Find phrases and sentence patterns the model overuses across your chats.";
 }
 
 async function _loadSuggestions() {
@@ -663,12 +671,25 @@ async function _loadSuggestions() {
   if (load !== _suggestionLoad || !section) return;
   _suggestions = new Map(data.suggestions.map((s) => [s.id, s]));
   section.innerHTML = `
-    <div class="modal-heading" role="heading" aria-level="3">Suggested${
-      data.refreshing ? '<span class="phrase-suggest-status">Updating suggestions…</span>' : ""
-    }</div>
+    <div class="modal-heading" role="heading" aria-level="3">Suggested</div>
+    <div class="phrase-suggest-bar">
+      <span>${esc(_suggestionStatus(data))}</span>
+      <button class="btn btn-sm" data-wf-action="phrase-suggestion:refresh"${data.refreshing ? " disabled" : ""}>Find suggestions</button>
+    </div>
     ${data.suggestions.map(_suggestionCard).join("")}`;
-  _syncSuggestionSection(section);
   if (data.refreshing) setTimeout(() => load === _suggestionLoad && _loadSuggestions(), SUGGESTION_POLL_MS);
+}
+
+async function refreshPhraseSuggestions(el) {
+  el.disabled = true;
+  try {
+    await api.post("/phrase-bank/suggestions/refresh", {});
+  } catch (e) {
+    el.disabled = false;
+    toast(`Failed to start: ${e.message}`, true);
+    return;
+  }
+  _loadSuggestions();
 }
 
 function addPhraseSuggestion(el) {
@@ -688,8 +709,6 @@ async function dismissPhraseSuggestion(el) {
   }
   _suggestions.delete(id);
   el.closest(".phrase-suggest-item")?.remove();
-  const section = document.getElementById("phrase-suggest-section");
-  if (section) _syncSuggestionSection(section);
   toast("Suggestion dismissed");
 }
 
@@ -1043,6 +1062,7 @@ registerActions("settings", {
 });
 
 registerActions("phrase-suggestion", {
+  refresh: (el) => refreshPhraseSuggestions(el),
   add: (el) => addPhraseSuggestion(el),
   dismiss: (el) => dismissPhraseSuggestion(el),
 });

@@ -73,8 +73,7 @@ async def reset_to_defaults() -> None:
         await db.execute("DELETE FROM mood_fragments")
         await db.execute("DELETE FROM interactive_fragments")
         await db.execute("DELETE FROM phrase_bank")
-        # Suggestions and dismissals belong to the bank they were mined against;
-        # forgetting the run as well lets the next Phrase Bank visit re-mine.
+        # Suggestions, dismissals and the last run's status belong to the bank they were mined against.
         await db.execute("DELETE FROM slop_suggestions")
         await db.execute("DELETE FROM slop_dismissals")
         await db.execute("DELETE FROM slop_mining_state")

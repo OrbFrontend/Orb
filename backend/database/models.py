@@ -59,6 +59,13 @@ class SlopSuggestionRow(SlopSuggestionDraft):
     mined_at: str
 
 
+class SlopMiningStateRow(TypedDict):
+    """The miner's ``slop_mining_state`` row."""
+
+    last_run_at: str | None
+    last_status: str
+
+
 class MessageSubjectsRow(TypedDict):
     """A ``message_subjects`` row with ``probs`` decoded: ``{category: [absent, action, description]}``."""
 

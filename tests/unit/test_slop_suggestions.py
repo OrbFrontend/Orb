@@ -7,7 +7,6 @@ import pytest
 from backend.analysis.detectors.slop_detector import MAX_PHRASE_REGEX
 from backend.analysis.text.roleplay_segmentation import split_segment_sentences
 from backend.features.slop_suggestions.patterns import LOOSE, STRICT, Shape, build_regex
-from backend.features.slop_suggestions.runner import REFRESH_REPLIES, stale
 from backend.features.slop_suggestions.scoring import KeyStats, count_candidates, count_card, fill_lane, key_stats, overuse_lb
 from backend.features.slop_suggestions.shapes import sentence_keys, sentences
 
@@ -106,10 +105,3 @@ def test_a_lane_fills_past_keys_whose_regex_fails():
     rejected = {"n:a beat X", "n:then X"}
     assert fill_lane(ranked, lambda s: None if s.key in rejected else s.key, limit=3) == ["n:a beat", "n:the X of", "n:as if"]
     assert fill_lane(ranked, lambda s: s.key, limit=3, attempts=1) == ["n:a beat X"]
-
-
-def test_suggestions_go_stale_when_replies_are_deleted_too():
-    assert stale(None, 0)
-    assert not stale(1000, 1000 + REFRESH_REPLIES - 1)
-    assert stale(1000, 1000 + REFRESH_REPLIES)
-    assert stale(1000, 1000 - REFRESH_REPLIES)

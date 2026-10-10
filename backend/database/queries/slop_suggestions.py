@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from ..connection import immediate_tx, select_rows
-from ..models import SlopCardRow, SlopReplyRow, SlopSuggestionDraft, SlopSuggestionRow
+from ..models import SlopCardRow, SlopMiningStateRow, SlopReplyRow, SlopSuggestionDraft, SlopSuggestionRow
 
 _MODEL_REPLIES = "m.role = 'assistant' AND m.turn_index > 0"
 
@@ -88,15 +88,10 @@ def _suggestion(row) -> SlopSuggestionRow:
     return cast(SlopSuggestionRow, out)
 
 
-async def count_model_replies() -> int:
-    rows = await select_rows(f"SELECT COUNT(*) FROM messages m WHERE {_MODEL_REPLIES}")  # nosec B608
-    return int(rows[0][0])
-
-
-async def get_slop_replies_at_run() -> int | None:
-    """The model reply count when the miner last ran, or ``None`` if it never has."""
-    rows = await select_rows("SELECT replies_at_run FROM slop_mining_state WHERE id = 1")
-    return int(rows[0][0]) if rows else None
+async def get_slop_mining_state() -> SlopMiningStateRow | None:
+    """When the miner last ran and how that run ended, or ``None`` if it never has."""
+    rows = await select_rows("SELECT last_run_at, last_status FROM slop_mining_state WHERE id = 1")
+    return cast(SlopMiningStateRow, dict(rows[0])) if rows else None
 
 
 async def list_slop_suggestions() -> list[SlopSuggestionRow]:
@@ -112,15 +107,15 @@ async def list_slop_suggestion_keys() -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-async def list_slop_dismissed_keys() -> list[str]:
-    rows = await select_rows("SELECT key FROM slop_dismissals ORDER BY key")
-    return [str(row[0]) for row in rows]
+async def list_slop_dismissals() -> tuple[list[str], list[str]]:
+    """Dismissed keys and their patterns; a run offers neither again."""
+    rows = await select_rows("SELECT key, pattern FROM slop_dismissals ORDER BY key")
+    return [str(row[0]) for row in rows], [str(row[1]) for row in rows]
 
 
 async def replace_slop_suggestions(
     drafts: Sequence[SlopSuggestionDraft] | None,
     *,
-    replies_at_run: int,
     status: str,
     mined_at: str,
     keys_at_start: Collection[str] = (),
@@ -128,14 +123,17 @@ async def replace_slop_suggestions(
     """Record a run and atomically replace suggestions; None preserves existing results.
 
     Do not reoffer keys removed since keys_at_start. Re-read dismissals and bank
-    regexes under the write lock to preserve actions taken during mining.
+    regexes under the write lock to preserve actions taken during mining; a
+    dismissed pattern stays gone even when a different key mines it.
     """
     async with immediate_tx() as db:
         if drafts is not None:
             current = {str(row[0]) for row in await db.execute_fetchall("SELECT key FROM slop_suggestions")}
             skip = set(keys_at_start) - current
-            skip |= {str(row[0]) for row in await db.execute_fetchall("SELECT key FROM slop_dismissals")}
-            banked = {row[0] for row in await db.execute_fetchall("SELECT pattern FROM phrase_bank WHERE kind = 'regex'")}
+            dismissed = list(await db.execute_fetchall("SELECT key, pattern FROM slop_dismissals"))
+            skip |= {str(row[0]) for row in dismissed}
+            hidden = {row[1] for row in dismissed}
+            hidden |= {row[0] for row in await db.execute_fetchall("SELECT pattern FROM phrase_bank WHERE kind = 'regex'")}
             await db.execute("DELETE FROM slop_suggestions")
             await db.executemany(
                 "INSERT INTO slop_suggestions (key, lane, label, pattern, stats, fillers, examples, mined_at) "
@@ -150,14 +148,13 @@ async def replace_slop_suggestions(
                         mined_at,
                     )
                     for d in drafts
-                    if d["key"] not in skip and d["pattern"] not in banked
+                    if d["key"] not in skip and d["pattern"] not in hidden
                 ],
             )
         await db.execute(
-            "INSERT INTO slop_mining_state (id, last_run_at, replies_at_run, last_status) VALUES (1, ?, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET last_run_at = excluded.last_run_at, "
-            "replies_at_run = excluded.replies_at_run, last_status = excluded.last_status",
-            (mined_at, replies_at_run, status),
+            "INSERT INTO slop_mining_state (id, last_run_at, last_status) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET last_run_at = excluded.last_run_at, last_status = excluded.last_status",
+            (mined_at, status),
         )
 
 

@@ -1,4 +1,4 @@
-"""Phrase Bank suggestion routes: read, accept, dismiss.
+"""Phrase Bank suggestion routes: read, refresh, accept, dismiss.
 
 Accept is the only path from a suggestion into the phrase bank.
 """
@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
-from ...database import accept_slop_suggestion, dismiss_slop_suggestion, list_slop_suggestions
-from ...features.slop_suggestions import refresh_if_stale
+from ...database import accept_slop_suggestion, dismiss_slop_suggestion, get_slop_mining_state, list_slop_suggestions
+from ...features import slop_suggestions
 from ..deps import validate_phrase_group
 from ..schemas import SlopSuggestionAccept
 
@@ -19,9 +19,19 @@ router = APIRouter()
 
 @router.get("/api/phrase-bank/suggestions")
 async def api_get_slop_suggestions():
-    """Stored suggestions, starting a background run when the corpus has grown."""
-    refreshing = await refresh_if_stale()
-    return {"suggestions": await list_slop_suggestions(), "refreshing": refreshing}
+    """Stored suggestions and how the last run ended. Reading never starts a run."""
+    return {
+        "suggestions": await list_slop_suggestions(),
+        "refreshing": slop_suggestions.refreshing(),
+        "last_run": await get_slop_mining_state(),
+    }
+
+
+@router.post("/api/phrase-bank/suggestions/refresh")
+async def api_refresh_slop_suggestions():
+    """Start a background run unless one is already in progress."""
+    slop_suggestions.refresh()
+    return {"refreshing": True}
 
 
 @router.post("/api/phrase-bank/suggestions/{suggestion_id}/accept")

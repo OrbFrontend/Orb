@@ -241,8 +241,8 @@
   border: 1px dashed var(--border); border-radius: var(--radius); background: var(--bg-surface); }
 
 /* Suggested: phrases mined from model replies, offered for one-click adding. */
-.phrase-suggest-status { margin-left: 10px; font-weight: 400; letter-spacing: 0; text-transform: none;
-  color: var(--text-muted); }
+.phrase-suggest-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px;
+  margin-bottom: 8px; font-size: 11px; color: var(--text-muted); }
 .phrase-suggest-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
   margin-bottom: 8px; background: var(--bg-surface); font-size: 11px; color: var(--text-muted); }
 .phrase-suggest-head { display: flex; align-items: center; justify-content: space-between; }

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import sqlite3
@@ -61,14 +60,10 @@ async def lifespan(app: FastAPI):
     # connection and stop paying 32 KiB of wal-index teardown each (see open_wal_anchor). Opened last: migrations, init_db and
     # the VACUUM above all want the file to themselves, and the anchor is only useful once requests start.
     await open_wal_anchor()
-    # The Phrase Bank's suggestion miner checks for staleness once the server has
-    # settled. A run happens in a child process, so it never competes with a turn.
-    suggestion_check = asyncio.create_task(slop_suggestions.refresh_after_startup())
     try:
         async with card_http_session():
             yield
     finally:
-        suggestion_check.cancel()
         try:
             await slop_suggestions.shutdown()
             # Every supervised llama-server child. Without this teardown an orphan keeps its model resident and holds the GPU

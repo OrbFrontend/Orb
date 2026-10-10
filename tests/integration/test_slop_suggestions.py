@@ -6,7 +6,7 @@ from contextlib import closing
 
 import pytest
 
-from backend.database import count_model_replies, replace_slop_suggestions
+from backend.database import replace_slop_suggestions
 from backend.features.slop_suggestions import miner
 
 FILLER = (
@@ -69,6 +69,8 @@ def test_a_tic_spread_across_characters_and_absent_from_cards_is_suggested(db_pa
     assert beat["examples"] == ["*A beat.*"]
 
     assert "n:= a beat" not in _keys(miner.mine(path, [], {}, ["n:= a beat"])), "a dismissed key came back"
+    redismissed = miner.mine(path, [], {}, ["n:another key"], [beat["pattern"]])
+    assert beat["pattern"] not in {d["pattern"] for d in redismissed["suggestions"] or []}, "a dismissed pattern came back"
 
     flagged = miner.mine(path, [{"kind": "literal", "variants": ["a beat"]}], {}, [])
     assert "n:= a beat" not in _keys(flagged), "a phrase the bank already catches was suggested"
@@ -99,15 +101,15 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
             ("n:= a pause", "A pause.", r"^[\W_]*a[\W_]+pause[\W_]*$"),
         ]
     ]
-    # Recorded at the current reply count, so reading the list starts no run.
-    await replace_slop_suggestions(drafts, replies_at_run=await count_model_replies(), status="ok", mined_at=STAMP)
+    await replace_slop_suggestions(drafts, status="ok", mined_at=STAMP)
 
     async def bank_size() -> int:
         return (await (await db.execute("SELECT COUNT(*) FROM phrase_bank")).fetchone())[0]
 
     before = await bank_size()
     listed = await client.get_json("/api/phrase-bank/suggestions")
-    assert listed["refreshing"] is False
+    assert listed["refreshing"] is False, "reading the list started a run"
+    assert listed["last_run"] == {"last_run_at": STAMP, "last_status": "ok"}
     assert [s["label"] for s in listed["suggestions"]] == ["A beat.", "A pause."]
     beat, pause = listed["suggestions"]
 
@@ -126,14 +128,9 @@ async def test_accept_is_the_only_path_into_the_bank_and_dismissals_persist(clie
 
     # A run that started before both actions mines both keys again, with the
     # original patterns: the dismissed key and the one accepted with an edit stay gone.
-    await replace_slop_suggestions(
-        drafts,
-        replies_at_run=await count_model_replies(),
-        status="ok",
-        mined_at=STAMP,
-        keys_at_start=[d["key"] for d in drafts],
-    )
+    await replace_slop_suggestions(drafts, status="ok", mined_at=STAMP, keys_at_start=[d["key"] for d in drafts])
     assert (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"] == []
-    # A later run still never offers the dismissed key.
-    await replace_slop_suggestions(drafts, replies_at_run=await count_model_replies(), status="ok", mined_at=STAMP)
+    # A later run still never offers the dismissed key, nor its pattern under another key.
+    rekeyed = {**drafts[1], "key": "n:a pause X"}
+    await replace_slop_suggestions([*drafts, rekeyed], status="ok", mined_at=STAMP)
     assert [s["label"] for s in (await client.get_json("/api/phrase-bank/suggestions"))["suggestions"]] == ["A beat."]
