@@ -231,15 +231,23 @@ async def _load_fragment_state(
     ctx.director["state_carried"] = [dict(event) for event in carried]
 
 
-async def _resolve_target_and_parent(
-    conversation_id: str, assistant_msg_id: int
-) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
-    """Return (assistant target, parent) or a specific error for missing, foreign or non-assistant targets."""
+async def _resolve_target(conversation_id: str, assistant_msg_id: int) -> Mapping[str, Any] | str:
+    """Return the assistant target or a specific error for missing, foreign or non-assistant targets."""
     target = await db.get_message_by_id(assistant_msg_id)
     if not target or target["conversation_id"] != conversation_id:
         return "That message is no longer in this conversation — reload it"
     if target["role"] != "assistant":
         return "Only an assistant reply can be regenerated"
+    return target
+
+
+async def _resolve_target_and_parent(
+    conversation_id: str, assistant_msg_id: int
+) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
+    """Return (assistant target, parent) or the error from :func:`_resolve_target`, or a missing parent."""
+    target = await _resolve_target(conversation_id, assistant_msg_id)
+    if isinstance(target, str):
+        return target
     parent_id = target["parent_id"]
     parent = await db.get_message_by_id(parent_id) if parent_id else None
     if not parent:
@@ -248,15 +256,19 @@ async def _resolve_target_and_parent(
 
 
 async def _prepare_regen_context(
-    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], parent_msg: Mapping[str, Any]
+    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], parent_msg: Mapping[str, Any] | None
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Load history and attachments for a regeneration, and reset the director.
 
     Resets the director's active moods and state fragments to the pre-turn baseline so the regenerated reply starts from the
-    same state as the original, plus the user's corrections anchored on it. Returns ``(history, attachments)``.
+    same state as the original, plus the user's corrections anchored on it. Returns ``(history, attachments)``; a root greeting
+    (*parent_msg* None) has neither.
     """
-    if parent_msg.get("role") == "user":
-        history_parent_id: int | None = parent_msg.get("parent_id")
+    from_user = parent_msg is not None and parent_msg.get("role") == "user"
+    if parent_msg is None:
+        history_parent_id: int | None = None
+    elif from_user:
+        history_parent_id = parent_msg.get("parent_id")
     else:
         history_parent_id = parent_msg.get("id")
     history = await db.get_path_to_leaf(conversation_id, history_parent_id) if history_parent_id is not None else []
@@ -269,9 +281,9 @@ async def _prepare_regen_context(
     ctx.director["decision_replay"] = stored_evaluations(db.decision_evaluations_of(target))
     # State folds through the parent even when *history* stops short of it: a correction the user anchored on the parent user
     # message (the leaf before this reply existed) is on this reply's path, exactly as on the first turn.
-    state_path = [*history, parent_msg] if parent_msg.get("role") == "user" else history
+    state_path = [*history, parent_msg] if parent_msg is not None and from_user else history
     await _load_fragment_state(ctx, conversation_id, state_path, replacing=target)
-    attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg.get("role") == "user" else []
+    attachments = await db.get_user_attachments_for_message(parent_msg["id"]) if parent_msg is not None and from_user else []
     return history, attachments
 
 
@@ -1043,19 +1055,24 @@ async def _regenerate_with_steering(
 
     async def _body(ctx: PipelineContext) -> AsyncIterator[PublicTurnEvent]:
         settings = ctx.settings
-        result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
-        if isinstance(result, str):
-            yield {"event": "error", "data": result}
+        target = await _resolve_target(conversation_id, assistant_msg_id)
+        if isinstance(target, str):
+            yield {"event": "error", "data": target}
             return
-        target, user_msg = result
-
+        # A root greeting has no parent: its rewrite saves as another root, beside the alternate greetings.
         user_msg_id = target["parent_id"]
+        user_msg = await db.get_message_by_id(user_msg_id) if user_msg_id is not None else None
+        if user_msg_id is not None and user_msg is None:
+            yield {"event": "error", "data": "Parent message not found"}
+            return
+        user_content = user_msg["content"] if user_msg is not None else ""
+
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
 
         # Include the original parent and target so the model sees what it wrote before being steered. In a group cascade the
         # parent may itself be an assistant and may already be the end of ``history``.
         extended_history = list(history)
-        if not extended_history or extended_history[-1].get("id") != user_msg.get("id"):
+        if user_msg is not None and (not extended_history or extended_history[-1].get("id") != user_msg.get("id")):
             extended_history.append(user_msg)
         extended_history.append(target)
 
@@ -1093,7 +1110,7 @@ async def _regenerate_with_steering(
             conversation_id,
             history=extended_history,
             settings=settings,
-            last_user_message=user_msg["content"],
+            last_user_message=user_content,
             lorebook_messages=extended_history,
             user_message=steer_msg,
             attachments=attachments,
@@ -1102,7 +1119,7 @@ async def _regenerate_with_steering(
             log_turn_index=target["turn_index"],
             editor_audit_history=history,
             # Judge the original request plus steering, before the replaced reply.
-            decision_input=(history, "\n\n".join(part for part in (user_msg["content"], steer_msg) if part)),
+            decision_input=(history, "\n\n".join(part for part in (user_content, steer_msg) if part)),
         ):
             yield event
 

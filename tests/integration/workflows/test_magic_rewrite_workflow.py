@@ -110,3 +110,25 @@ async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_m
     assert len(logs_after) == logs_before + 1
     if action == "magic_rewrite":
         assert _DIRECTION in json.dumps(captured, default=str)
+
+
+@pytest.mark.parametrize(("action", "payload"), [("super_regenerate", {}), ("magic_rewrite", {"direction": _DIRECTION})])
+async def test_steered_rewrite_of_a_greeting_adds_a_root_sibling(client, llm_mock, action, payload):
+    card = await client.post_json(
+        "/api/characters", json={"name": "Aria", "description": "An elf ranger.", "first_mes": "The woods are quiet."}
+    )
+    cid = await client.create("/api/conversations", json={"character_card_id": card["id"]})
+    await set_workflow_enabled("format_consistency", False)
+    (greeting,) = await get_messages(cid)
+
+    llm_mock.enqueue_writer("The woods are loud.")
+    start = len(llm_mock.captured)
+    _ = (await client.post_checked(f"/api/conversations/{cid}/messages/{greeting['id']}/{action}", json=payload)).text
+
+    if action == "magic_rewrite":
+        assert _DIRECTION in json.dumps(llm_mock.captured[start:], default=str)
+    original = await get_message_by_id(greeting["id"])
+    assert original is not None and original["content"] == "The woods are quiet."
+    (rewrite,) = await get_messages(cid)
+    assert rewrite["id"] != greeting["id"]
+    assert (rewrite["content"], rewrite["parent_id"], rewrite["turn_index"]) == ("The woods are loud.", None, 0)

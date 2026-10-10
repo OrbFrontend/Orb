@@ -6,3 +6,6 @@ repeating its structure and wording.
 
 Use it when a normal **Regenerate** keeps producing similar results. Different
 models respond to the request with different levels of variation.
+
+Super-regenerate also works on the opening greeting. The new version becomes
+another greeting beside the alternate greetings.

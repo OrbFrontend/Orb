@@ -7,3 +7,6 @@ such as unbalanced asterisks.
 Select **Magic Rewrite** on the message, describe the change, review the result,
 and keep or discard it. The rewrite changes the selected message in its current
 branch.
+
+Magic Rewrite also works on the opening greeting. The rewrite becomes another
+greeting beside the alternate greetings.

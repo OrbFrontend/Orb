@@ -150,12 +150,12 @@ export function buildMsgToolbar(m) {
       : `<button ${regenAction} title="Regenerate">${ICON_REGEN}</button>`;
 
   const superRegenBtn =
-    isAssistant && m.id && !isGreeting
+    isAssistant && m.id
       ? `<button data-wf-action="chat:superRegenerate" data-msg-id="${m.id}" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
       : "";
 
   const magicBtn =
-    isAssistant && m.id && !isGreeting
+    isAssistant && m.id
       ? `<button class="msg-btn-magic" data-wf-action="chat:toggleMagic" data-msg-id="${m.id}" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
@@ -171,7 +171,7 @@ export function buildMsgToolbar(m) {
     : "";
 
   const magicInput =
-    isAssistant && m.id && !isGreeting && S.magicInputMsgId === m.id
+    isAssistant && m.id && S.magicInputMsgId === m.id
       ? `<span class="magic-input-wrap" id="magic-wrap-${m.id}"><input class="magic-input" type="text" placeholder="Direction/Fix..." id="magic-input-${m.id}" data-wf-action="chat:magicKey" data-wf-on="keydown" data-msg-id="${m.id}" autofocus><button class="magic-apply" data-wf-action="chat:submitMagic" data-msg-id="${m.id}" title="Apply">${ICON_SEND}</button></span>`
       : "";
 
