@@ -87,12 +87,24 @@ For a visual walkthrough of the cache mechanism across all three passes and the 
 
 ## By the numbers
 
-On Gemma 4 26B-A4B (RTX 3090) and DeepSeek V4.1 Flash, with thinking off:
+Orb against two optimized TauriTavern 2.3.0 agent setups doing the exact same direct, write, audit and repair job on Gemma 4 26B-A4B
+(RTX 3090), thinking off, 120 turns each from 2k- to 32k-token histories:
 
-- **KV cache**: at a 32k-token history, a directed and audited reply takes a median 12.6 s in Orb, against 35.1 s and 20.3 s for two TauriTavern agent setups doing the same job on the same model
-- **Small models**: 360 of 360 Orb turns finished with no warning or error
-- **Director**: on open-ended user turns, 37% of Gemma replies are driven with the Director on, 18% with it off
-- **Editor**: fixes 97% of flagged slop, leaves 97% of untouched sentences byte-identical, and cuts held-out slop on Gemma by 20%
+| | Orb | TauriTavern handoff | TauriTavern single |
+| --- | ---: | ---: | ---: |
+| Median reply time, 2k → 32k history | **9.9 → 12.6 s** | 24.3 → 35.1 s | 12.8 → 20.3 s |
+| Model calls per turn | **4** | 16 | 11 |
+| Native failures | **0/120** | 13/120 | 15/120 |
+| Turns meeting the task | **115/120** | 101/120 | 95/120 |
+
+Orb's own passes switched off and on, on Gemma 4 and DeepSeek V4.1 Flash:
+
+| Pass | Measure | Off | On |
+| --- | --- | ---: | ---: |
+| Director | Gemma replies driven on open-ended turns | 18% | **37%** |
+| Director | DeepSeek replies driven on open-ended turns | 30% | 38% |
+| Editor | Flagged slop repaired | 0% | **97%** |
+| Editor | Gemma held-out slop hits, a list the Editor never sees | 66 | **52** |
 
 Method, raw data and limits: [scripts/bench](scripts/bench/README.md).
 
