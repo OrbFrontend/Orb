@@ -1,5 +1,5 @@
 {
-  "run": "/home/z/lmg/orb-benchmark-20261009/driven/pilot",
+  "run": "pilot",
   "transport": "gemma",
   "jev_model": "typesafe/jev-1.13-20260917",
   "driven_threshold": 0.75,

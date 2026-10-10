@@ -3,7 +3,7 @@
   "heldout_sha256": "d0bc80be1c294e03ccb59464553c5d72b1c13dd7bf6d8d99e9da700c3e6fbff1",
   "runs": {
     "c60-gemma": {
-      "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-gemma",
+      "run": "c60-gemma",
       "transport": "gemma",
       "orb_commit": "8821c07125be648135f7c980ce44d3a3f0d2a4ea",
       "phrase_bank_groups": 39,
@@ -619,7 +619,7 @@
       }
     },
     "c60-deepseek": {
-      "run": "/home/z/lmg/orb-benchmark-20261009/driven/c60-deepseek",
+      "run": "c60-deepseek",
       "transport": "deepseek",
       "orb_commit": "8821c07125be648135f7c980ce44d3a3f0d2a4ea",
       "phrase_bank_groups": 39,

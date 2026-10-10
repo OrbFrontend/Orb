@@ -311,7 +311,7 @@ async def main():
         name = run.name
         save(args.output / f"{name}-turns.json", rows)
         results["runs"][name] = {
-            "run": str(run),
+            "run": run.name,
             "transport": manifest["transport"],
             "orb_commit": manifest["orb_commit"],
             "phrase_bank_groups": len(bank),

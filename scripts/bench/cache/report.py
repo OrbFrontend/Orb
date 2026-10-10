@@ -221,14 +221,14 @@ def build(runs, output):
     ]
     identity = manifests[0] if manifests else {}
     output.mkdir(parents=True, exist_ok=True)
-    save(output / "turns.json", rows)
+    (output / "turns.json").write_text(json.dumps(rows, ensure_ascii=False, separators=(",", ":")) + "\n")
     write_csv(output / "turns.csv", rows, TURN_FIELDS)
     calls = []
     for row in rows:
         path = runs / row["block"] / f"turn-{row['turn']:02d}" / "scored-calls.json"
         for call in json.loads(path.read_text()) if path.exists() else []:
+            call["path"] = Path(call["path"]).name
             calls.append({"block": row["block"], "arm": row["arm"], "turn": row["turn"], **call})
-    save(output / "calls.json", calls)
     write_csv(output / "calls.csv", calls, CALL_FIELDS)
     summary = summary_rows(rows)
     save(output / "summary.json", summary)

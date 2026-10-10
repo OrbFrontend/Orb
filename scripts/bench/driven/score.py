@@ -281,7 +281,7 @@ async def score(run: Path, output: Path, *, judge_on: bool = True) -> dict:
             "cost": sum(row["cost"] for row in attempted),
         }
     summary = {
-        "run": str(run),
+        "run": run.name,
         "transport": manifest.get("transport", "gemma"),
         "jev_model": JEV_MODEL if judge is not None else None,
         "driven_threshold": DRIVEN_THRESHOLD,

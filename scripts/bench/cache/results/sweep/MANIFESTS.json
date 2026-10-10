@@ -5,17 +5,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -58,17 +58,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -111,17 +111,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -164,17 +164,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -217,17 +217,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -270,17 +270,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -323,17 +323,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -376,17 +376,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -429,17 +429,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -482,17 +482,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -535,17 +535,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -588,17 +588,17 @@
     "repeat": 1,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "fce3729bab3626d1abe69dec665ed5592a7a7de2",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-fce3729b"
+        "harness-fce3729b"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -641,17 +641,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -694,17 +694,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -747,17 +747,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -800,17 +800,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -853,17 +853,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -906,17 +906,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -959,17 +959,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1012,17 +1012,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1065,17 +1065,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1118,17 +1118,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1171,17 +1171,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1224,17 +1224,17 @@
     "repeat": 2,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1277,17 +1277,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1330,17 +1330,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1383,17 +1383,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-16000.json",
+    "fixture": "bellwick-16000.json",
     "fixture_sha256": "43278ac1ae061f27a0016e944930a0b06fcb98f89b919705d03f789cb733242b",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1436,17 +1436,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1489,17 +1489,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1542,17 +1542,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-2000.json",
+    "fixture": "bellwick-2000.json",
     "fixture_sha256": "41092853139e51c2beca587eff485de49b382f3ed7e0e525e9504753a188bd18",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1595,17 +1595,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1648,17 +1648,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1701,17 +1701,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-32000.json",
+    "fixture": "bellwick-32000.json",
     "fixture_sha256": "acf315fc32bbf5cdc6411ecb4b88933f7a665cb1e75ae2a27ced6124ec9230bc",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1754,17 +1754,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1807,17 +1807,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
@@ -1860,17 +1860,17 @@
     "repeat": 3,
     "pilot": false,
     "turns": 10,
-    "fixture": "/home/z/lmg/orb-benchmark-20261009/fixtures/bellwick-8000.json",
+    "fixture": "bellwick-8000.json",
     "fixture_sha256": "cd5983aefd6163d78f5f06a6857092a0151f1ac280cf86496f26951641efae7c",
     "harness_commit": "d216ccc9ebedc4fb92870763682cbf105aa6c83c",
     "harness_dirty": false,
     "harness_backend_matches_orb": true,
     "service_directories": {
       "recorder": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ],
       "auditor": [
-        "/home/z/lmg/orb-benchmark-20261009/harness-d216ccc9"
+        "harness-d216ccc9"
       ]
     },
     "orb_commit": "649bc83ad90982dfb1b26010bbdbf388f7e18ccf",
