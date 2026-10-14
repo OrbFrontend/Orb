@@ -454,8 +454,7 @@ CREATE TABLE IF NOT EXISTS dataset_meta (
 
 CREATE TABLE IF NOT EXISTS access_password (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    password_hash TEXT NOT NULL,
-    session_key TEXT NOT NULL
+    password_hash TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS documents (

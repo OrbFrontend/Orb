@@ -118,7 +118,7 @@ function renderAccessSection({ password_set: on }) {
   const el = $("access-settings");
   if (!el) return;
   el.innerHTML = `
-    <div class="tool-card-desc">${on ? "On. Every browser must sign in." : "Off. Anyone who can reach this address can open Orb."}</div>
+    <div class="tool-card-desc">${on ? "On. Check app.db if forgot password." : "Off. Anyone who can reach this address can open Orb."}</div>
     <div class="field-row" style="margin:8px 0">
       <input type="password" id="access-password" placeholder="${on ? "New password" : "Password"}" autocomplete="new-password" aria-label="${on ? "New password" : "Password"}" style="flex:1;min-width:0" data-wf-action="settings:accessPasswordKey" data-wf-on="keydown">
       <button class="btn btn-sm" data-wf-action="settings:accessPasswordSet">Set</button>

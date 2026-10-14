@@ -118,7 +118,32 @@ async def test_presets_never_carry_the_password_and_restore_keeps_the_live_one(c
         assert snapshot.execute("SELECT COUNT(*) FROM access_password").fetchone()[0] == 0
 
     await client.put_checked("/api/access/password", json={"password": "new"})
-    live_before = await db.one("SELECT password_hash, session_key FROM access_password")
+    live_before = await db.one("SELECT password_hash FROM access_password")
     await client.post_checked(f"/api/presets/{export['name']}/restore", json={})
 
-    assert tuple(await db.one("SELECT password_hash, session_key FROM access_password")) == tuple(live_before)
+    assert tuple(await db.one("SELECT password_hash FROM access_password")) == tuple(live_before)
+
+
+async def test_each_sign_in_opens_the_page_once(client, browser):
+    etag = (await client.get("/static/index.html")).headers["etag"]
+    await client.put_checked("/api/access/password", json={"password": "hunter2"})
+    assert (await client.get("/api/settings")).status_code == 200
+    assert (await client.get("/")).status_code == 401
+
+    laptop = browser()
+    signed_in = await _sign_in(laptop, "hunter2")
+    assert "max-age" not in signed_in.headers["set-cookie"].lower()
+    assert (await laptop.get("/")).status_code == 200
+    assert (await laptop.get("/api/settings")).status_code == 200
+    spent = [await laptop.get(path) for path in ("/", "/static/index.html", "/static/./index.html", "/docs")]
+    assert {r.status_code for r in spent} == {401}
+    assert (await laptop.get("/api/settings")).status_code == 200
+    assert (await _sign_in(laptop, "hunter2")).status_code == 303
+    assert (await laptop.get("/")).status_code == 200
+
+    stale = browser()
+    await _sign_in(stale, "hunter2")
+    page = await stale.get("/static/index.html", headers={"If-None-Match": etag, "Sec-Fetch-Mode": "navigate"})
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store"
+    assert (await stale.get("/")).status_code == 401

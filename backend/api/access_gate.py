@@ -6,17 +6,20 @@ import asyncio
 import time
 from urllib.parse import parse_qs
 
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import HTTPConnection
 from starlette.responses import HTMLResponse, RedirectResponse, Response
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..database import get_access_password
+from ..database.models import AccessPasswordRow
 from ..features import access
 
 SESSION_COOKIE = "session"
-_SESSION_MAX_AGE = 400 * 24 * 3600
+visit_passes = access.VisitPasses()
 _MAX_FORM_BYTES = 4096
+_PAGE_TYPES = ("text/html", "application/xhtml+xml")
+_CONDITIONAL_HEADERS = (b"if-none-match", b"if-modified-since")
 
 _PAGE = """<!doctype html>
 <html lang="en">
@@ -34,6 +37,8 @@ input,button{font:inherit;padding:10px 12px;border-radius:6px}
 input{border:1px solid GrayText;background:Field;color:FieldText}
 button{border:0;background:CanvasText;color:Canvas;cursor:pointer}
 p{margin:0;font-size:14px}
+input:autofill{animation:filled 1ms}
+@keyframes filled{from{}to{}}
 </style>
 </head>
 <body>
@@ -41,6 +46,10 @@ p{margin:0;font-size:14px}
 <input type="password" name="password" placeholder="Password" aria-label="Password" autocomplete="current-password" required autofocus>
 NOTICE<button>Sign in</button>
 </form>
+<script>
+const input = document.querySelector("input");
+input.addEventListener("animationstart", () => input.select());
+</script>
 </body>
 </html>
 """
@@ -56,40 +65,82 @@ class AccessGateMiddleware:
             await self.app(scope, receive, send)
             return
         lock = await get_access_password()
-        if lock is None or access.session_valid(lock, HTTPConnection(scope).cookies.get(SESSION_COOKIE)):
+        if lock is None:
             await self.app(scope, receive, send)
             return
-        if scope["type"] != "http":
-            await send({"type": "websocket.close", "code": 1008})
+        if _is_sign_in(scope):
+            await self._sign_in(lock, scope, receive, send)
             return
-        notice = ""
-        if scope["method"] == "POST" and Headers(scope=scope).get("content-type", "").startswith(
-            "application/x-www-form-urlencoded"
-        ):
-            client = scope["client"][0] if scope.get("client") else ""
-            if not self.throttle.attempt(client, time.monotonic()):
-                notice = "Too many attempts. Wait a minute and try again."
-            elif await asyncio.to_thread(access.password_matches, lock, await _posted_password(receive)):
-                self.throttle.succeeded(client)
-                response = RedirectResponse("/", status_code=303)
-                set_session_cookie(response, scope, lock["session_key"])
-                await response(scope, receive, send)
-                return
-            else:
-                notice = "Wrong password."
-        page = _PAGE.replace("NOTICE", f'<p role="alert">{notice}</p>\n' if notice else "")
-        await HTMLResponse(page, status_code=401, headers={"Cache-Control": "no-store"})(scope, receive, send)
+        cookie = HTTPConnection(scope).cookies.get(SESSION_COOKIE)
+        if visit_passes.valid(cookie):
+            await self.app(_uncached_navigation(scope), receive, _open_pages_once(scope, receive, send, cookie))
+        elif scope["type"] != "http":
+            await send({"type": "websocket.close", "code": 1008})
+        else:
+            await _sign_in_page("")(scope, receive, send)
+
+    async def _sign_in(self, lock: AccessPasswordRow, scope: Scope, receive: Receive, send: Send) -> None:
+        client = scope["client"][0] if scope.get("client") else ""
+        if not self.throttle.attempt(client, time.monotonic()):
+            notice = "Too many attempts. Wait a minute and try again."
+        elif await asyncio.to_thread(access.password_matches, lock, await _posted_password(receive)):
+            self.throttle.succeeded(client)
+            response = RedirectResponse("/", status_code=303)
+            grant_session(response, scope, page_open=False)
+            await response(scope, receive, send)
+            return
+        else:
+            notice = "Wrong password."
+        await _sign_in_page(notice)(scope, receive, send)
 
 
-def set_session_cookie(response: Response, scope: Scope, session_key: str) -> None:
+def _is_sign_in(scope: Scope) -> bool:
+    return (
+        scope["type"] == "http"
+        and scope["method"] == "POST"
+        and Headers(scope=scope).get("content-type", "").startswith("application/x-www-form-urlencoded")
+    )
+
+
+def _sign_in_page(notice: str) -> Response:
+    page = _PAGE.replace("NOTICE", f'<p role="alert">{notice}</p>\n' if notice else "")
+    return HTMLResponse(page, status_code=401, headers={"Cache-Control": "no-store"})
+
+
+def grant_session(response: Response, scope: Scope, *, page_open: bool) -> None:
     response.set_cookie(
         SESSION_COOKIE,
-        session_key,
-        max_age=_SESSION_MAX_AGE,
+        visit_passes.issue(opened=page_open),
         httponly=True,
         samesite="lax",
         secure=scope.get("scheme") == "https",
     )
+
+
+def _uncached_navigation(scope: Scope) -> Scope:
+    if scope["type"] != "http" or Headers(scope=scope).get("sec-fetch-mode", "navigate") != "navigate":
+        return scope
+    return {**scope, "headers": [(k, v) for k, v in scope["headers"] if k not in _CONDITIONAL_HEADERS]}
+
+
+def _open_pages_once(scope: Scope, receive: Receive, send: Send, token: str | None) -> Send:
+    refused = False
+
+    async def send_page_once(message: Message) -> None:
+        nonlocal refused
+        if refused:
+            return
+        if message["type"] == "http.response.start":
+            headers = MutableHeaders(scope=message)
+            if headers.get("content-type", "").startswith(_PAGE_TYPES):
+                if not visit_passes.open_page(token):
+                    refused = True
+                    await _sign_in_page("")(scope, receive, send)
+                    return
+                headers["Cache-Control"] = "no-store"
+        await send(message)
+
+    return send_page_once
 
 
 async def _posted_password(receive: Receive) -> str:

@@ -70,7 +70,9 @@ without a valid session gets only a plain sign-in page, whatever address it
 asks for. That page and its headers do not name Orb, so a network scanner
 cannot tell which app is answering.
 
-- A browser stays signed in for up to 400 days.
+- Each sign-in opens Orb once. Reloading, reopening the browser or opening
+  Orb in a new tab asks for the password again, and restarting Orb signs
+  everyone out. A tab that is already open stays usable.
 - Setting a new password signs out every other browser. The browser you set
   it from stays signed in.
 - Setting an empty password removes it.

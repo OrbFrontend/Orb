@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from .origins import AllowedHosts, host_name, parse_allowed_hosts, rebind_safe_host, same_origin_write
-from .passwords import new_lock, password_matches, session_valid
+from .passwords import new_lock, password_matches
 from .throttle import LoginThrottle
+from .visits import VisitPasses

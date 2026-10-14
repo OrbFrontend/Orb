@@ -16,7 +16,7 @@ async def get_access_password() -> AccessPasswordRow | None:
     path = connection.DB_PATH
     if _cached is not None and _cached[0] == path:
         return _cached[1]
-    rows = await select_rows("SELECT password_hash, session_key FROM access_password WHERE id = 1")
+    rows = await select_rows("SELECT password_hash FROM access_password WHERE id = 1")
     row = cast(AccessPasswordRow, dict(rows[0])) if rows else None
     _cached = (path, row)
     return row
@@ -26,9 +26,9 @@ async def set_access_password(row: AccessPasswordRow) -> None:
     global _cached
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO access_password (id, password_hash, session_key) VALUES (1, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, session_key = excluded.session_key",
-            (row["password_hash"], row["session_key"]),
+            "INSERT INTO access_password (id, password_hash) VALUES (1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash",
+            (row["password_hash"],),
         )
         await db.commit()
     _cached = (connection.DB_PATH, row)

@@ -627,4 +627,3 @@ class DocumentRow(DocumentListRow):
 
 class AccessPasswordRow(TypedDict):
     password_hash: str
-    session_key: str
