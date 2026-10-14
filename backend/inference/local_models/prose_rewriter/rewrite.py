@@ -11,7 +11,7 @@ from . import text as T
 
 logger = logging.getLogger(__name__)
 
-TEMPERATURE = 0.9
+TEMPERATURE = 0.85
 TOP_P = 0.9
 
 
