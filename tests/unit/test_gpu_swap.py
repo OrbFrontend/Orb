@@ -444,3 +444,36 @@ async def test_host_plan_needs_the_option_and_an_unloadable_lane(monkeypatch, op
     assert probed == ([ROOT] if option else [])  # off never touches the network
     if enabled:
         assert (plan.target_for(ROOT + "/"), plan.comfy_url, plan.wait_cap) == (plan.llm_targets[0], COMFY, 60.0)
+
+
+async def test_render_reports_unloading_only_when_something_is_loaded(monkeypatch):
+    servers = _Servers(monkeypatch, set())
+    _plan(monkeypatch)
+    heard: list[str] = []
+    async with gpu_swap.comfy_lease(heard.append):
+        pass
+    servers.loaded.add("g")
+    async with gpu_swap.comfy_lease(heard.append):
+        pass
+    assert heard == ["unloading"]
+
+
+async def test_unreachable_llm_server_still_frees_comfy_and_leaves_the_error_to_the_call(monkeypatch):
+    servers = _Servers(monkeypatch, set())
+    _plan(monkeypatch)
+
+    async def down(target, model):
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(gpu_swap, "model_loaded", down)
+    async with gpu_swap.llm_lease(ROOT, "g") as admitted:
+        assert admitted
+    assert servers.log == ["free"]
+
+
+def test_a_swap_failure_in_a_turn_names_the_swap():
+    from backend.pipeline.failures import GPU_SWAP_HEADLINE, describe_failure
+
+    failure = describe_failure(gpu_swap.GpuSwapError("Timed out waiting for ComfyUI to finish with the GPU (180s)"))
+    assert (failure["headline"], failure["kind"]) == (GPU_SWAP_HEADLINE, "workflow")
+    assert failure["sentence"].startswith("Timed out")

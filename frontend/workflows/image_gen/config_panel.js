@@ -777,6 +777,7 @@ function refreshStyleState(el) {
 function relinkStyle(el) {
   const connection = rebuildStyleRow(el.closest("[data-style-index]"));
   if (connection) loadModels(connection.source === "cloud" ? connection.id : COMFY_CONNECTION);
+  loadGpuSwap();
 }
 
 function workflowField(selected) {

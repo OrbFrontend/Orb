@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -75,8 +75,7 @@ def _json(resp: httpx.Response) -> Any:
 _kinds: dict[str, ServerKind] = {}
 
 
-def forget(root: str) -> None:
-    """Drop a cached server kind so the next probe asks again."""
+def _forget(root: str) -> None:
     _kinds.pop(root.rstrip("/"), None)
 
 
@@ -165,7 +164,7 @@ async def loaded_models(target: LlmTarget) -> set[str]:
         try:
             return await _resident(client, target)
         except httpx.ConnectError:
-            forget(target.root)
+            _forget(target.root)
             raise
 
 
@@ -178,7 +177,7 @@ async def model_loaded(target: LlmTarget, model: str) -> bool:
                 return any(model in names and status in _ROUTER_RESIDENT for names, _, status in entries)
             return _ollama_name(model) in await _resident(client, target)
         except httpx.ConnectError:
-            forget(target.root)
+            _forget(target.root)
             raise
 
 
@@ -277,6 +276,7 @@ class _Arbiter:
             return True
         deadline = time.monotonic() + cap
         stopped = asyncio.ensure_future(stop()) if stop is not None else None
+        change: asyncio.Future | None = None
         try:
             while not ready():
                 if stopped is not None and stopped.done():
@@ -292,8 +292,9 @@ class _Arbiter:
                 change.cancel()
             return True
         finally:
-            if stopped is not None:
-                stopped.cancel()
+            for pending in (change, stopped):
+                if pending is not None:
+                    pending.cancel()
 
     def observe(self, plan: SwapPlan) -> None:
         """Forget the owner when the plan turns on or points somewhere new."""
@@ -321,16 +322,6 @@ async def current_plan() -> SwapPlan:
     return plan
 
 
-def _distinct_roots(targets: Iterable[LlmTarget]) -> list[LlmTarget]:
-    seen: set[str] = set()
-    out: list[LlmTarget] = []
-    for target in targets:
-        if target.root not in seen:
-            seen.add(target.root)
-            out.append(target)
-    return out
-
-
 async def _notify(notify: Notify | None, stage: str) -> None:
     if notify is not None:
         maybe = notify(stage)
@@ -338,9 +329,10 @@ async def _notify(notify: Notify | None, stage: str) -> None:
             await maybe
 
 
-async def _unload_all(plan: SwapPlan) -> None:
-    for target in _distinct_roots(plan.llm_targets):
+async def _unload_all(plan: SwapPlan, notify: Notify | None) -> None:
+    for target in {t.root: t for t in plan.llm_targets}.values():
         for model in sorted(await loaded_models(target)):
+            await _notify(notify, "unloading")
             logger.info("gpu swap: unloading %s from %s before a ComfyUI render", model, target.root)
             await unload(target, model)
 
@@ -349,7 +341,7 @@ async def _unload_all(plan: SwapPlan) -> None:
 async def comfy_lease(notify: Notify | None = None) -> AsyncIterator[None]:
     """Hold the GPU for one ComfyUI render, unloading the planned LLMs first.
 
-    Waits for live turns and LLM calls to finish. *notify* hears ``waiting`` before a wait and ``unloading`` before an unload.
+    Waits for live turns and LLM calls to finish. *notify* hears ``waiting`` before a wait and ``unloading`` before each unload.
     """
     plan = await current_plan()
     if not plan.enabled:
@@ -366,8 +358,7 @@ async def comfy_lease(notify: Notify | None = None) -> AsyncIterator[None]:
     if arb.comfy_inflight == 0:
         arb.switching = True
         try:
-            await _notify(notify, "unloading")
-            await _unload_all(plan)
+            await _unload_all(plan, notify)
             arb.owner = "comfy"
         except httpx.HTTPError as exc:
             raise GpuSwapError(f"Could not unload the LLM before rendering: {exc}") from exc
@@ -383,7 +374,12 @@ async def comfy_lease(notify: Notify | None = None) -> AsyncIterator[None]:
 
 
 async def _claim_for_llm(plan: SwapPlan, target: LlmTarget, model: str) -> None:
-    if not await model_loaded(target, model):
+    try:
+        loaded = await model_loaded(target, model)
+    except httpx.HTTPError:
+        # The call itself reports an unreachable LLM server better than the swap can; freeing ComfyUI is always safe.
+        loaded = False
+    if not loaded:
         logger.info("gpu swap: freeing ComfyUI before %s reloads on %s", model, target.root)
         await comfy_free(plan.comfy_url, plan.comfy_key, queue_cap=plan.wait_cap)
     _arbiter.owner = "llm"
@@ -410,7 +406,7 @@ async def llm_lease(root: str, model: str, *, stop: Stop | None = None) -> Async
         try:
             await _claim_for_llm(plan, target, model)
         except httpx.HTTPError as exc:
-            raise GpuSwapError(f"Could not hand the GPU back to the LLM: {exc}") from exc
+            raise GpuSwapError(f"Could not free ComfyUI before the LLM reloads: {exc}") from exc
         finally:
             arb.switching = False
             arb.changed()
