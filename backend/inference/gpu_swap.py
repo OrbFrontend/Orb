@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -26,6 +28,7 @@ UNLOAD_CAP = 30.0
 SETTLE_CAP = 5.0
 SETTLE_RISE = 256 * 1024 * 1024
 SETTLE_AGREE = 64 * 1024 * 1024
+SLOT_TIMEOUT = 120.0
 _ROUTER_RESIDENT = frozenset({"loaded", "loading"})
 
 
@@ -49,6 +52,7 @@ class SwapPlan:
     comfy_url: str = ""
     comfy_key: str = ""
     wait_cap: float = 180.0
+    slot_restore: bool = False
 
     def target_for(self, root: str) -> LlmTarget | None:
         root = root.rstrip("/")
@@ -198,6 +202,54 @@ async def unload(target: LlmTarget, model: str) -> None:
             await asyncio.sleep(POLL_INTERVAL)
 
 
+def slot_filename(model: str, slot: int) -> str:
+    """One fixed file per model and slot, so the files on the server's tmpfs never outgrow slots x models."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", model).strip("._")[:48]
+    return f"orb-{safe}-{hashlib.sha256(model.encode()).hexdigest()[:8]}-{slot}.bin"
+
+
+async def save_slots(target: LlmTarget, model: str) -> tuple[int, ...]:
+    """Save every slot of a loaded router model to the server's ``--slot-save-path``; the slots that saved."""
+    saved: list[int] = []
+    async with _client(target.headers, target.proxy, SLOT_TIMEOUT) as client:
+        resp = await client.get(f"{target.root}/slots", params={"model": model, "autoload": "false"})
+        resp.raise_for_status()
+        data = _json(resp)
+        ids = (
+            [item["id"] for item in data if isinstance(item, dict) and isinstance(item.get("id"), int)]
+            if isinstance(data, list)
+            else []
+        )
+        for slot in ids:
+            resp = await client.post(
+                f"{target.root}/slots/{slot}",
+                params={"action": "save"},
+                json={"model": model, "filename": slot_filename(model, slot)},
+            )
+            if resp.status_code >= 400:
+                logger.info(
+                    "gpu swap: slot %d of %s did not save (HTTP %d): %s", slot, model, resp.status_code, resp.text[:200]
+                )
+                continue
+            saved.append(slot)
+    return tuple(saved)
+
+
+async def restore_slots(target: LlmTarget, model: str, slots: tuple[int, ...]) -> None:
+    """Restore saved slots; the first restore loads the model. A slot that fails just prefills on its next call."""
+    async with _client(target.headers, target.proxy, SLOT_TIMEOUT) as client:
+        for slot in slots:
+            resp = await client.post(
+                f"{target.root}/slots/{slot}",
+                params={"action": "restore"},
+                json={"model": model, "filename": slot_filename(model, slot)},
+            )
+            if resp.status_code >= 400:
+                logger.info(
+                    "gpu swap: slot %d of %s did not restore (HTTP %d): %s", slot, model, resp.status_code, resp.text[:200]
+                )
+
+
 async def _vram_free(client: httpx.AsyncClient, url: str) -> int | None:
     resp = await client.get(f"{url}/system_stats")
     resp.raise_for_status()
@@ -263,6 +315,7 @@ class _Arbiter:
         self.holds = 0
         self.switching = False
         self.plan_identity: tuple | None = None
+        self.saved: dict[tuple[str, str], tuple[int, ...]] = {}
         self._changed: asyncio.Event | None = None
 
     def changed(self) -> None:
@@ -302,6 +355,7 @@ class _Arbiter:
         if identity != self.plan_identity:
             self.plan_identity = identity
             self.owner = None
+            self.saved.clear()
 
 
 _arbiter = _Arbiter()
@@ -332,6 +386,15 @@ async def _notify(notify: Notify | None, stage: str) -> None:
 async def _unload_all(plan: SwapPlan, notify: Notify | None) -> None:
     for target in {t.root: t for t in plan.llm_targets}.values():
         for model in sorted(await loaded_models(target)):
+            if plan.slot_restore and target.kind == "llama_router":
+                await _notify(notify, "saving")
+                try:
+                    slots = await save_slots(target, model)
+                except httpx.HTTPError as exc:
+                    logger.info("gpu swap: could not save the slots of %s (%r); its next call prefills", model, exc)
+                    slots = ()
+                if slots:
+                    _arbiter.saved[(target.root, model)] = slots
             await _notify(notify, "unloading")
             logger.info("gpu swap: unloading %s from %s before a ComfyUI render", model, target.root)
             await unload(target, model)
@@ -341,7 +404,8 @@ async def _unload_all(plan: SwapPlan, notify: Notify | None) -> None:
 async def comfy_lease(notify: Notify | None = None) -> AsyncIterator[None]:
     """Hold the GPU for one ComfyUI render, unloading the planned LLMs first.
 
-    Waits for live turns and LLM calls to finish. *notify* hears ``waiting`` before a wait and ``unloading`` before each unload.
+    Waits for live turns and LLM calls to finish. *notify* hears ``waiting`` before a wait, and ``saving`` and ``unloading``
+    before each model's slot save (when the plan restores slots) and unload.
     """
     plan = await current_plan()
     if not plan.enabled:
@@ -379,10 +443,17 @@ async def _claim_for_llm(plan: SwapPlan, target: LlmTarget, model: str) -> None:
     except httpx.HTTPError:
         # The call itself reports an unreachable LLM server better than the swap can; freeing ComfyUI is always safe.
         loaded = False
-    if not loaded:
+    if not loaded and _arbiter.owner != "llm":
         logger.info("gpu swap: freeing ComfyUI before %s reloads on %s", model, target.root)
         await comfy_free(plan.comfy_url, plan.comfy_key, queue_cap=plan.wait_cap)
     _arbiter.owner = "llm"
+    slots = _arbiter.saved.pop((target.root, model), ())
+    if slots and not loaded:
+        logger.info("gpu swap: restoring %d slot(s) of %s on %s", len(slots), model, target.root)
+        try:
+            await restore_slots(target, model, slots)
+        except httpx.HTTPError as exc:
+            logger.info("gpu swap: could not restore the slots of %s (%r); the call prefills", model, exc)
 
 
 @contextlib.asynccontextmanager
@@ -401,7 +472,7 @@ async def llm_lease(root: str, model: str, *, stop: Stop | None = None) -> Async
     if not await arb.wait_until(lambda: not arb.switching and arb.comfy_inflight == 0, plan.wait_cap, "ComfyUI", stop):
         yield False
         return
-    if arb.owner != "llm":
+    if arb.owner != "llm" or (target.root, model) in arb.saved:
         arb.switching = True
         try:
             await _claim_for_llm(plan, target, model)

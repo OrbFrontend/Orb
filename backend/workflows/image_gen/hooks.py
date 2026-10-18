@@ -132,6 +132,8 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
         return f"Rendering on {backend}..." if isinstance(backend, str) and backend else "Rendering in ComfyUI..."
     if stage == "gpu_waiting":
         return "Waiting for the chat model to finish..."
+    if stage == "gpu_saving":
+        return "Saving the chat model's cache..."
     if stage == "gpu_unloading":
         return "Unloading the chat model from the GPU..."
     if stage == "queued":

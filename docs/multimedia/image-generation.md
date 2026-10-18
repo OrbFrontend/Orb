@@ -373,11 +373,24 @@ has no unload route. A saved option whose endpoint no longer qualifies stays
 visible and reads as inactive. It is off by default.
 
 The swap has costs. The next chat turn reloads the model and re-reads its whole
-prompt, which takes tens of seconds on a long chat. A render requested during a
+prompt, which takes tens of seconds on a long chat. ComfyUI is freed before each
+reload, so the first render after a chat turn loads its models again. A render requested during a
 turn waits for the whole turn, and a turn waits for a running render. Prompt
 composition and each review turn call the chat model, so every review turn adds
 two swaps. Turn it on for workflows that do not fit beside the chat model, and
 leave it off for light ones. Cloud styles never swap.
+
+**Keep the chat cache across swaps**, under the swap option, saves the chat
+model's cache before each render and restores it before the next chat call, so
+that turn skips re-reading its prompt. The model itself still reloads. It needs a
+llama-server router started with `--slot-save-path` pointing at a RAM-backed
+directory such as `/dev/shm/orb-slots`. A path on a disk writes several
+gigabytes per render. Each slot's file grows with the chat's cached tokens;
+sliding-window models such as Gemma also store their context checkpoints, which
+can make a 20k-token chat's file about 6 GB. The file stays in the server's RAM
+until it is overwritten or the machine restarts, including after the option is
+turned off. Saving adds a few seconds to the start of each render. It is off by
+default and does nothing on Ollama.
 
 The render status shows **Waiting for the chat model to finish** while a turn
 runs. A wait longer than **Render timeout** stops with an error instead of

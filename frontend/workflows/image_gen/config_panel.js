@@ -859,7 +859,15 @@ function gpuSwapField() {
   const on = draft.comfy.gpu_swap === true;
   if (!gpuSwap?.available && !on) return "";
   const inactive = gpuSwap && !gpuSwap.available ? ` Inactive: ${gpuSwap.reason || "no unloadable LLM endpoint."}` : "";
-  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the local chat model before each render and frees ComfyUI before it reloads. The next chat turn re-reads its whole prompt, and each review turn adds two swaps.${esc(inactive)}</span></span></label>`;
+  const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the local chat model before each render and frees ComfyUI before it reloads. The next chat turn re-reads its whole prompt, and each review turn adds two swaps.${esc(inactive)}</span></span></label>`;
+  return swap + gpuRestoreField();
+}
+
+function gpuRestoreField() {
+  const on = draft.comfy.gpu_swap_restore === true;
+  const router = (gpuSwap?.lanes || []).some((lane) => lane.kind === "llama_router");
+  if (!router && !on) return "";
+  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">Saves the chat model's cache before each render and restores it after, so the next turn skips re-reading its prompt; the model still reloads. llama-server router only, started with <code>--slot-save-path</code> on tmpfs such as <code>/dev/shm</code>. A long chat's cache can hold 6 GB of the server's RAM per slot until it is overwritten, and saving adds a few seconds to the start of each render.</span></span></label>`;
 }
 
 async function loadGpuSwap() {
@@ -978,11 +986,13 @@ function captureConnections() {
     const get = (name) => row.querySelector(`[data-ig-conn-field="${name}"]`)?.value;
     if (id === COMFY_CONNECTION) {
       const swap = row.querySelector('[data-ig-conn-field="gpu_swap"]');
+      const restore = row.querySelector('[data-ig-conn-field="gpu_swap_restore"]');
       draft.comfy = {
         ...draft.comfy,
         api_url: get("api_url") ?? draft.comfy.api_url ?? "",
         api_key: get("api_key") ?? draft.comfy.api_key ?? "",
         gpu_swap: swap ? swap.checked : draft.comfy.gpu_swap === true,
+        gpu_swap_restore: restore ? restore.checked : draft.comfy.gpu_swap_restore === true,
       };
       continue;
     }
@@ -1134,7 +1144,12 @@ function openSettings(expandStyleId = "") {
     styles: (Array.isArray(cfg.styles) ? cfg.styles : []).map((s) => ({ ...s })),
     scene_skills: (Array.isArray(cfg.scene_skills) ? cfg.scene_skills : []).map((skill) => ({ ...skill })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
-    comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "", gpu_swap: ext.gpu_swap === true },
+    comfy: {
+      api_url: ext.api_url || "",
+      api_key: ext.api_key || "",
+      gpu_swap: ext.gpu_swap === true,
+      gpu_swap_restore: ext.gpu_swap_restore === true,
+    },
     connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
     default_style: cfg.default_style || "",
   };
@@ -1258,6 +1273,7 @@ function readConfig() {
       api_url: draft.comfy.api_url ?? ext.api_url ?? "",
       api_key: draft.comfy.api_key ?? ext.api_key ?? "",
       gpu_swap: draft.comfy.gpu_swap === true,
+      gpu_swap_restore: draft.comfy.gpu_swap_restore === true,
       user_graphs: draft.graphs,
     },
     cloud: { ...(cfg.cloud || {}), providers: { ...draft.connections } },

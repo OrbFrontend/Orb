@@ -83,6 +83,7 @@ async def _build() -> gpu_swap.SwapPlan:
         comfy_url=str(external.get("api_url") or "").rstrip("/"),
         comfy_key=str(external.get("api_key") or ""),
         wait_cap=_wait_cap(config),
+        slot_restore=external.get("gpu_swap_restore") is True,
     )
 
 

@@ -477,3 +477,86 @@ def test_a_swap_failure_in_a_turn_names_the_swap():
     failure = describe_failure(gpu_swap.GpuSwapError("Timed out waiting for ComfyUI to finish with the GPU (180s)"))
     assert (failure["headline"], failure["kind"]) == (GPU_SWAP_HEADLINE, "workflow")
     assert failure["sentence"].startswith("Timed out")
+
+
+# -- Slot save and restore (phase 3) -------------------------------------------
+
+
+async def test_slot_calls_name_the_model_and_a_fixed_file(monkeypatch):
+    def handle(request):
+        if request.method == "GET":
+            assert (request.url.params["model"], request.url.params["autoload"]) == ("org/m:Q4", "false")
+            return httpx.Response(200, json=[{"id": 0}, {"id": 1}])
+        if request.url.path == "/slots/1" and request.url.params["action"] == "save":
+            return httpx.Response(501, json={"error": "slot save is not enabled"})
+        return httpx.Response(200, json={"n_saved": 10})
+
+    seen = _serve(monkeypatch, handle)
+    target = _target(model="org/m:Q4")
+    assert await gpu_swap.save_slots(target, "org/m:Q4") == (0,)
+    await gpu_swap.restore_slots(target, "org/m:Q4", (0,))
+    posts = [(r.url.path, r.url.params["action"], json.loads(r.content)) for r in seen if r.method == "POST"]
+    name = gpu_swap.slot_filename("org/m:Q4", 0)
+    assert posts[0] == ("/slots/0", "save", {"model": "org/m:Q4", "filename": name})
+    assert posts[-1] == ("/slots/0", "restore", {"model": "org/m:Q4", "filename": name})
+    assert "/" not in name and ":" not in name
+    assert name == gpu_swap.slot_filename("org/m:Q4", 0) != gpu_swap.slot_filename("org/m:Q5", 0)
+
+
+class _SlotServers(_Servers):
+    def __init__(self, monkeypatch, loaded, *, saves=(0, 1)):
+        super().__init__(monkeypatch, loaded)
+        self.saves = saves
+        monkeypatch.setattr(gpu_swap, "save_slots", self._save)
+        monkeypatch.setattr(gpu_swap, "restore_slots", self._restore)
+
+    async def _save(self, target, model):
+        self.log.append(f"save {model}")
+        return self.saves
+
+    async def _restore(self, target, model, slots):
+        self.log.append(f"restore {model} {list(slots)}")
+        self.loaded.add(model)
+
+
+def _restoring(monkeypatch, *targets):
+    plan = gpu_swap.SwapPlan(enabled=True, llm_targets=targets or (_target(),), comfy_url=COMFY, slot_restore=True)
+
+    async def provider():
+        return plan
+
+    monkeypatch.setattr(gpu_swap, "_provider", provider)
+
+
+async def test_render_saves_before_unloading_and_the_next_call_restores_after_free(monkeypatch):
+    servers = _SlotServers(monkeypatch, {"g"})
+    _restoring(monkeypatch)
+    heard: list[str] = []
+    async with gpu_swap.comfy_lease(heard.append):
+        pass
+    for _ in range(2):
+        async with gpu_swap.llm_lease(ROOT, "g"):
+            pass
+    assert servers.log == ["save g", "unload g", "free", "restore g [0, 1]"]
+    assert heard == ["saving", "unloading"]
+
+
+async def test_the_lane_the_router_swapped_out_restores_on_its_own_next_call(monkeypatch):
+    servers = _SlotServers(monkeypatch, {"writer"})
+    _restoring(monkeypatch, _target(model="writer"), _target(model="agent"))
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "agent"):
+        servers.loaded.add("agent")
+    servers.loaded.discard("agent")  # --models-max 1: the router swaps the agent out for the writer
+    async with gpu_swap.llm_lease(ROOT, "writer"):
+        pass
+    assert servers.log == ["save writer", "unload writer", "free", "restore writer [0, 1]"]
+
+
+async def test_a_failed_save_still_unloads_and_restores_nothing(monkeypatch):
+    servers = _SlotServers(monkeypatch, {"g"}, saves=())
+    _restoring(monkeypatch)
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    assert servers.log == ["save g", "unload g", "free"]

@@ -102,6 +102,15 @@ Paths are relative to the server root, the base URL without `/v1`. A router's
 configured name compares as `name:latest`. A kind is cached per root once a
 server answers, and a connection failure forgets it.
 
+With **Keep the chat cache across swaps** on, a router target saves each slot
+before its unload: `GET /slots?model=M&autoload=false` lists them, and
+`POST /slots/{id}?action=save` with `{"model", "filename"}` writes one. The
+next call for that model restores them with `action=restore` once ComfyUI has
+freed its memory, which also loads the model. Each model and slot has one fixed
+file name, so the files never outnumber slots times models. llama.cpp has no
+delete call, and the files outlive the server process. A slot that fails to
+save or restore costs only a prefill.
+
 ## Lane presets
 
 Each lane sends the sampler preset of the endpoint it is calling. Director,

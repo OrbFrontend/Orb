@@ -165,6 +165,7 @@ CONFIG_DEFAULTS = {
         # A ComfyUI graph is meaningless to any other backend, so this one stays put.
         "user_graphs": [],
         "gpu_swap": False,
+        "gpu_swap_restore": False,
     },
     # Connectivity only: an address and a credential, exactly as wide as
     # `external_comfy`'s. What an image looks like belongs to the style.
@@ -646,6 +647,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
             "api_key": _text(external_raw.get("api_key"), 2_048),
             "user_graphs": graphs,
             "gpu_swap": external_raw.get("gpu_swap") is True,
+            "gpu_swap_restore": external_raw.get("gpu_swap_restore") is True,
         },
         "cloud": _cloud(raw.get("cloud"), provider_override),
     }

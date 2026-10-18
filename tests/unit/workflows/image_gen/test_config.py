@@ -669,3 +669,8 @@ def test_a_character_reference_image_survives_only_with_both_halves():
     ):
         profile = normalize_profile(raw)
         assert (profile["reference_image_b64"], profile["reference_mime"]) == ("", "")
+
+
+def test_gpu_swap_restore_is_an_explicit_boolean_defaulting_off():
+    assert normalize_config({})["external_comfy"]["gpu_swap_restore"] is False
+    assert normalize_config({"external_comfy": {"gpu_swap_restore": True}})["external_comfy"]["gpu_swap_restore"] is True
