@@ -350,8 +350,8 @@ async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_t
 async def comfy_gpu_lease(notify: Callable[[str], Awaitable[None] | None] | None = None) -> AsyncIterator[None]:
     """Hold the GPU for one ComfyUI render when the GPU swap option is on; a no-op otherwise.
 
-    Waits for live turns and LLM calls, then unloads the local LLM. *notify* hears ``waiting`` and ``unloading``. A swap that
-    cannot finish raises ``WorkflowUnavailableError`` and the render does not start.
+    Waits for live turns and LLM calls, then unloads the local LLM. *notify* hears ``waiting``, ``saving`` and ``unloading``. A
+    swap that cannot finish raises ``WorkflowUnavailableError`` and the render does not start.
     """
     async with _gpu_swap_host.comfy_lease(notify):
         yield

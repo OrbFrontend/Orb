@@ -99,8 +99,9 @@ The probe never names a model, so it never loads one:
 
 Paths are relative to the server root, the base URL without `/v1`. A router's
 `sleeping` status counts as unloaded. Ollama reports `name:tag`, so a bare
-configured name compares as `name:latest`. A kind is cached per root once a
-server answers, and a connection failure forgets it.
+configured name compares as `name:latest`. A kind is cached per root for 30
+seconds once a server answers, so a server restarted in another mode is noticed.
+A failed model listing forgets it sooner.
 
 With **Keep the chat cache across swaps** on, a router target saves each slot
 before its unload: `GET /slots?model=M&autoload=false` lists them, and

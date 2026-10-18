@@ -860,7 +860,7 @@ function gpuSwapField() {
   if (!gpuSwap?.available && !on) return "";
   const inactive = gpuSwap && !gpuSwap.available ? ` Inactive: ${gpuSwap.reason || "no unloadable LLM endpoint."}` : "";
   const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the local chat model before each render and frees ComfyUI before it reloads. The next chat turn re-reads its whole prompt, and each review turn adds two swaps.${esc(inactive)}</span></span></label>`;
-  return swap + gpuRestoreField();
+  return `<div class="ig-toggles">${swap}${gpuRestoreField()}</div>`;
 }
 
 function gpuRestoreField() {

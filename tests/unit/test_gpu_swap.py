@@ -560,3 +560,32 @@ async def test_a_failed_save_still_unloads_and_restores_nothing(monkeypatch):
     async with gpu_swap.llm_lease(ROOT, "g"):
         pass
     assert servers.log == ["save g", "unload g", "free"]
+
+
+async def test_turning_restore_off_drops_saved_slots(monkeypatch):
+    servers = _SlotServers(monkeypatch, {"g"})
+    _restoring(monkeypatch)
+    await _render()
+    _plan(monkeypatch)
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    assert servers.log == ["save g", "unload g", "free"]
+
+
+async def test_a_failed_listing_forgets_the_server_kind(monkeypatch):
+    _serve(monkeypatch, lambda r: httpx.Response(200, json={"role": "router"}))
+    assert await gpu_swap.probe(ROOT) == "llama_router"
+    _serve(monkeypatch, lambda r: httpx.Response(404))
+    with pytest.raises(httpx.HTTPStatusError):
+        await gpu_swap.loaded_models(_target())
+    _serve(monkeypatch, lambda r: httpx.Response(200, json={}, headers={"Server": "llama.cpp"}))
+    assert await gpu_swap.probe(ROOT) == "llama_single"
+
+
+async def test_a_cached_kind_expires(monkeypatch):
+    _serve(monkeypatch, lambda r: httpx.Response(200, json={"role": "router"}))
+    assert await gpu_swap.probe(ROOT) == "llama_router"
+    _serve(monkeypatch, lambda r: httpx.Response(200, json={}, headers={"Server": "llama.cpp"}))
+    assert await gpu_swap.probe(ROOT) == "llama_router"
+    monkeypatch.setattr(gpu_swap, "KIND_TTL", 0.0)
+    assert await gpu_swap.probe(ROOT) == "llama_single"

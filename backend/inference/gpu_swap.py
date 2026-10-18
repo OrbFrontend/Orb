@@ -29,6 +29,7 @@ SETTLE_CAP = 5.0
 SETTLE_RISE = 256 * 1024 * 1024
 SETTLE_AGREE = 64 * 1024 * 1024
 SLOT_TIMEOUT = 120.0
+KIND_TTL = 30.0
 _ROUTER_RESIDENT = frozenset({"loaded", "loading"})
 
 
@@ -76,7 +77,7 @@ def _json(resp: httpx.Response) -> Any:
         return None
 
 
-_kinds: dict[str, ServerKind] = {}
+_kinds: dict[str, tuple[float, ServerKind]] = {}
 
 
 def _forget(root: str) -> None:
@@ -88,11 +89,13 @@ async def probe(
 ) -> ServerKind:
     """What kind of server answers at *root* (the base URL without ``/v1``); never loads a model.
 
-    A kind is cached per root once a server answered. A root nothing answers at is ``other`` and stays uncached.
+    A kind is cached per root for :data:`KIND_TTL` seconds once a server answered, so a server restarted in another mode is
+    noticed; a failed residency read forgets it sooner. A root nothing answers at is ``other`` and stays uncached.
     """
     root = root.rstrip("/")
-    if not fresh and root in _kinds:
-        return _kinds[root]
+    cached = _kinds.get(root)
+    if not fresh and cached is not None and time.monotonic() - cached[0] < KIND_TTL:
+        return cached[1]
     answered = False
     kind: ServerKind = "other"
     async with _client(headers, proxy) as client:
@@ -118,7 +121,7 @@ async def probe(
                 if isinstance(data, dict) and "version" in data:
                     kind = "ollama"
     if answered:
-        _kinds[root] = kind
+        _kinds[root] = (time.monotonic(), kind)
     return kind
 
 
@@ -167,7 +170,7 @@ async def loaded_models(target: LlmTarget) -> set[str]:
     async with _client(target.headers, target.proxy) as client:
         try:
             return await _resident(client, target)
-        except httpx.ConnectError:
+        except httpx.HTTPError:
             _forget(target.root)
             raise
 
@@ -180,7 +183,7 @@ async def model_loaded(target: LlmTarget, model: str) -> bool:
                 entries = await _router_entries(client, target.root)
                 return any(model in names and status in _ROUTER_RESIDENT for names, _, status in entries)
             return _ollama_name(model) in await _resident(client, target)
-        except httpx.ConnectError:
+        except httpx.HTTPError:
             _forget(target.root)
             raise
 
@@ -350,11 +353,13 @@ class _Arbiter:
                     pending.cancel()
 
     def observe(self, plan: SwapPlan) -> None:
-        """Forget the owner when the plan turns on or points somewhere new."""
+        """Forget the owner when the plan turns on or points somewhere new, and saved slots once restoring is off."""
         identity = plan.identity() if plan.enabled else None
         if identity != self.plan_identity:
             self.plan_identity = identity
             self.owner = None
+            self.saved.clear()
+        if not plan.slot_restore:
             self.saved.clear()
 
 
