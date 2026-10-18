@@ -85,6 +85,43 @@ route or an ambiguous route. An explicit OpenAI resource only retries when the
 response names the native `x-api-key` header. This retry is independently
 bounded and never changes hosts; provider and model names are not evidence.
 
+### Local server kinds
+
+The image workflow's GPU swap option asks what kind of server each lane calls.
+The probe never names a model, so it never loads one:
+
+| Kind | Detected by | Unload |
+|---|---|---|
+| llama-server router (`--models-preset`, `--models-dir`) | `GET /props` answers `"role": "router"` | `POST /models/unload`, then poll `GET /models` until the entry leaves `loaded`/`loading` |
+| llama-server single model (`-m`) | `Server: llama.cpp` with no router role | none, so the option stays hidden |
+| Ollama | `GET /api/version` answers a version | `POST /api/generate` with `keep_alive: 0`, then poll `GET /api/ps` |
+| tabbyAPI | `GET /.well-known/serviceinfo` names `TabbyAPI`; `GET /v1/auth/permission` answers `admin` | `POST /v1/model/unload`; reload with `POST /v1/model/load` |
+| text-generation-webui | `GET /v1/internal/model/info` answers `model_name` and `loader`; `GET /v1/internal/model/list` accepts the key | `POST /v1/internal/model/unload`; reload with `POST /v1/internal/model/load` |
+| anything else | — | none |
+
+Paths are relative to the server root, the base URL without `/v1`. A router's
+`sleeping` status counts as unloaded. Ollama reports `name:tag`, so a bare
+configured name compares as `name:latest`. A kind is cached per root for 30
+seconds once a server answers, so a server restarted in another mode is noticed.
+A failed model listing forgets it sooner.
+
+tabbyAPI and text-generation-webui hold one model, answer the unload once it is
+gone, and never load one back by themselves. A key that is not the admin key
+reads as unable to unload. Before unloading, Orb reads what the server holds:
+tabbyAPI's `GET /v1/model` card gives the load settings back, and
+text-generation-webui's model info gives the model, loader, and LoRAs. The next
+call on that server, after ComfyUI is freed, loads it again and waits for the
+load to finish. A failed reload stays pending and is retried on the next call.
+
+With **Keep the chat cache across swaps** on, a router target saves each slot
+before its unload: `GET /slots?model=M&autoload=false` lists them, and
+`POST /slots/{id}?action=save` with `{"model", "filename"}` writes one. The
+next call for that model restores them with `action=restore` once ComfyUI has
+freed its memory, which also loads the model. Each model and slot has one fixed
+file name, so the files never outnumber slots times models. llama.cpp has no
+delete call, and the files outlive the server process. A slot that fails to
+save or restore costs only a prefill.
+
 ## Lane presets
 
 Each lane sends the sampler preset of the endpoint it is calling. Director,
@@ -158,6 +195,11 @@ value; the rejection is learned per model like any other capability fact.
 
 `logprobs` is not supported on this surface, so Document mode's per-token
 steering is unavailable on Gemini for the same reason it is on Anthropic.
+
+Text Completion calls on a llama-server router name the model on every native
+route: `/props?model=`, and `model` in the `/apply-template` and `/completion`
+bodies. A router rejects a body without it and loads the named model when it is
+not resident. A single-model server ignores the field.
 
 ## Stable external contracts
 

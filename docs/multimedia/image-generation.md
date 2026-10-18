@@ -355,6 +355,71 @@ metadata or review logs. Use the
 image's variant arrows to browse renders and the generation button's **Stop**
 control to end refinement and keep the renders already made.
 
+## Share the GPU with a local chat model
+
+Use this when ComfyUI and your local chat model don't fit on the GPU together.
+Orb unloads the chat model for each render and loads it back for the next reply.
+Replies after a render start slower, so leave it off for light workflows.
+
+### 1. Start your chat server
+
+**llama.cpp** needs router mode; a plain `llama-server -m` can't unload.
+
+1. Save this as `models.ini`, with your model's path:
+
+   ```ini
+   version = 1
+
+   [my-model]
+   model = /path/to/model.gguf
+   mmproj = /path/to/mmproj.gguf
+   ctx-size = 16384
+   n-gpu-layers = -1
+   slot-save-path = /dev/shm/orb-slots
+   ```
+
+2. Run:
+
+   ```sh
+   mkdir -p /dev/shm/orb-slots
+   llama-server --models-preset models.ini --models-max 1 --port 5000
+   ```
+
+3. In Orb, set the endpoint to `http://127.0.0.1:5000/v1` and the model to
+   `my-model`.
+
+**Ollama** works as is, at `http://127.0.0.1:11434/v1`.
+
+**tabbyAPI**: use the `admin_key` from its `api_tokens.yml` as the endpoint's
+API key in Orb. The normal `api_key` can't unload models.
+
+**text-generation-webui**: start it with `--api`. If you set `--admin-key`, use
+that key in Orb. Save your model's settings on its **Model** tab, because Orb
+reloads the model with its saved settings.
+
+### 2. Turn it on
+
+1. Open the Image Generation **Settings**, then **Connections → ComfyUI**.
+2. Tick **Swap the GPU with the chat model**.
+3. On llama.cpp, also tick **Keep the chat cache across swaps**. The next reply
+   then skips re-reading the whole chat.
+4. Select **Save**.
+
+The option is hidden until a style uses ComfyUI and the endpoint runs on one of
+the servers above. When it can't work, it reads **Inactive** with the reason.
+
+### What to expect
+
+- A render waits for the current reply to finish and shows **Waiting for the
+  chat model to finish**.
+- The first render after a reply loads ComfyUI's models again.
+- The chat cache takes a few GB of RAM until you reboot. To free it sooner,
+  run `rm /dev/shm/orb-slots/*`.
+- If you turn the option off right after a render on tabbyAPI or
+  text-generation-webui, load the model again from that server.
+- Cloud styles never swap, and renders started from ComfyUI's own page aren't
+  noticed.
+
 ## Troubleshooting
 
 | Problem | Try this |
@@ -365,6 +430,8 @@ control to end refinement and keep the renders already made.
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |
+| **Could not reload** with GPU swap on | Check the chat server's log, then load the model from the server. |
+| **Timed out waiting for the LLM** | A reply took longer than **Render timeout**. Wait for it, or raise the timeout. |
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |
 | Prompt generation fails | Check the LLM endpoint and use a model with tool calling. |

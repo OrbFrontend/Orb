@@ -67,7 +67,7 @@ class _WireCapture:
         else:
             yield {"type": "done", "message": {"content": json.dumps({"patches": []})}}
 
-    async def render_prompt(self, messages, *, prefill=None, reasoning=False, fmt=None):
+    async def render_prompt(self, messages, *, model, prefill=None, reasoning=False, fmt=None):
         self.render_calls.append({"messages": [dict(m) for m in messages], "prefill": prefill, "reasoning": reasoning})
         return f"<render|{_serialize_messages(messages)}|{prefill or ''}>"
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import prose_rewriter_host
+from . import gpu_swap_host, prose_rewriter_host
 from .contracts import (
     EV_ATTACH_ARTIFACT,
     EV_DRAFT_REPLACED,

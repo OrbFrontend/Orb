@@ -11,7 +11,8 @@ In **Settings**, set an endpoint's **API Mode** to:
 - **Chat Completions**: the default OpenAI-compatible transport
 - **Text Completion (llama.cpp)**: the native llama.cpp transport
 
-Use a llama.cpp server or a compatible implementation. Conversations with images
+Use a llama.cpp server, single-model or router mode, or a compatible
+implementation. Conversations with images
 fall back to Chat Completions on the same endpoint because Text Completion Mode
 does not yet have a multimodal path.
 

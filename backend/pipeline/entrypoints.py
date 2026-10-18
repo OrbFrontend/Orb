@@ -12,6 +12,7 @@ from .. import database as db
 from ..core import card_description, resolve_inline
 from ..core.settings import Settings
 from ..inference import AbortToken, DecisionCancelled
+from ..inference.gpu_swap import turn_hold
 from ..prompting import prefix_is_speaker_scoped, tail_carries_identity
 from .cast import choose_speakers
 from .config import resolve_pipeline_config
@@ -119,8 +120,10 @@ async def _run_turn_handler(
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-        async for event in reported_once(body(ctx), abort_token):
-            yield event
+        # Held for the whole turn, so a ComfyUI render never slips into the gap between two passes.
+        async with turn_hold():
+            async for event in reported_once(body(ctx), abort_token):
+                yield event
     except Exception as e:
         # A call the stop cut short can fail on the way out; the stop is its own
         # explanation. A reply that could not be saved still is not.

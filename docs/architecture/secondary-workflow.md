@@ -293,6 +293,11 @@ alone. Its workflow card manages the model through the generic Local ML
 routes, which also own the shared llama-server runtime. A hook failure is
 isolated so the main reply and other workflows can continue.
 
+With the image workflow's GPU swap option on, every turn holds the GPU from
+start to `done`, and a ComfyUI render waits for it. Image renders run from
+on-demand, regenerate and reroll hooks, outside any turn. A post-hook that
+awaited a ComfyUI render would wait on its own turn until the render timeout.
+
 Stop is checked before each hook and after its locks are acquired, so no hook
 starts once the turn is stopped. The running hook is interrupted: its pending
 step is cancelled and its generator closed, so a local rewrite or remote

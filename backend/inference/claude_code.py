@@ -222,6 +222,7 @@ class ClaudeCodeClient(LLMClient):
         self,
         messages: Sequence[Mapping[str, Any]],
         *,
+        model: str,
         prefill: str | None = None,
         reasoning: bool = False,
         fmt: Any = None,

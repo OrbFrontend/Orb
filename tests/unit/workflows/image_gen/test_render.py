@@ -1,5 +1,7 @@
 """The render seam applies explicit settings without interpreting remote prose."""
 
+import contextlib
+
 import pytest
 
 from backend.workflows.image_gen.engine.contracts import ImageRequest, ImageResult, RenderTarget
@@ -76,3 +78,33 @@ async def test_a_seed_ceiling_does_not_make_a_seedless_provider_send_one():
     await resolve_and_generate(adapter, _request(original), target=_target(supports_seed=False, seed_max=10))
 
     assert adapter.requests[0].seed == original
+
+
+async def test_only_a_comfy_render_holds_the_gpu_lease(monkeypatch):
+    from dataclasses import replace
+
+    from backend.workflows.image_gen.engine import render
+    from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+    from backend.workflows.toolkit import WorkflowUnavailableError
+
+    leases: list[str] = []
+    fail = False
+
+    @contextlib.asynccontextmanager
+    async def lease(notify=None):
+        leases.append("held")
+        if fail:
+            raise WorkflowUnavailableError("Timed out waiting for the LLM")
+        yield
+
+    monkeypatch.setattr(render, "comfy_gpu_lease", lease)
+    adapter = _Adapter()
+    await resolve_and_generate(adapter, _request(), target=_target())
+    assert leases == []
+    comfy = replace(_target(), source="external_comfy")
+    await resolve_and_generate(adapter, _request(), target=comfy)
+    assert leases == ["held"]
+    fail = True
+    with pytest.raises(ImageGenerationError, match="Timed out"):
+        await resolve_and_generate(adapter, _request(), target=comfy)
+    assert len(adapter.requests) == 2

@@ -112,6 +112,12 @@ def test_prompter_reference_is_an_explicit_boolean_defaulting_off():
     assert normalize_config({"prompter_reference": "true"})["prompter_reference"] is False
 
 
+def test_gpu_swap_is_an_explicit_boolean_defaulting_off():
+    assert normalize_config({})["external_comfy"]["gpu_swap"] is False
+    assert normalize_config({"external_comfy": {"gpu_swap": True}})["external_comfy"]["gpu_swap"] is True
+    assert normalize_config({"external_comfy": {"gpu_swap": "true"}})["external_comfy"]["gpu_swap"] is False
+
+
 def test_scene_skills_migrate_legacy_flag_and_current_flag_wins():
     assert normalize_config({"scene_analysis": True})["scene_skills_enabled"] is True
     current = normalize_config({"scene_analysis": True, "scene_skills_enabled": False})
@@ -663,3 +669,8 @@ def test_a_character_reference_image_survives_only_with_both_halves():
     ):
         profile = normalize_profile(raw)
         assert (profile["reference_image_b64"], profile["reference_mime"]) == ("", "")
+
+
+def test_gpu_swap_restore_is_an_explicit_boolean_defaulting_off():
+    assert normalize_config({})["external_comfy"]["gpu_swap_restore"] is False
+    assert normalize_config({"external_comfy": {"gpu_swap_restore": True}})["external_comfy"]["gpu_swap_restore"] is True
