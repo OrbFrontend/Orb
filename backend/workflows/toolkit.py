@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 
 from ..analysis import (
@@ -72,6 +73,7 @@ from ..prompting import macro_identity as _macro_identity
 from ..prompting import persona_macros as _persona_macros
 from ..prompting import resolve_persona_id as _resolve_persona_id
 from ..prompting.lorebook import compute_constant_lorebook_block as _compute_constant_lorebook_block
+from . import gpu_swap_host as _gpu_swap_host
 from . import spark_tts_host as _spark_tts_host
 from ._forced_call import forced_tool_call
 from .attachment_cache import (
@@ -170,6 +172,7 @@ __all__ = [
     "classify_pov",
     "classify_pov_tense_chunks",
     "classify_axes",
+    "comfy_gpu_lease",
     "markup_axes",
     "emphasis_inner",
     "extract_block_spans",
@@ -203,6 +206,7 @@ __all__ = [
     "get_workflow_config",
     "get_workflow_message_state",
     "get_workflow_state",
+    "gpu_swap_support",
     "insert_workflow_attachment",
     "insert_workflow_variant",
     "local_feature_available",
@@ -340,6 +344,22 @@ async def spark_voice_speak(
 async def spark_voice_reference_audio(reference_tokens: Sequence[int], speaker_tokens: Sequence[int]) -> tuple[bytes, int]:
     """An advanced voice's reference excerpt as ``(pcm16, sample_rate)``, rebuilt from its tokens."""
     return await _spark_tts_host.reference_audio(reference_tokens, speaker_tokens)
+
+
+@asynccontextmanager
+async def comfy_gpu_lease(notify: Callable[[str], Awaitable[None] | None] | None = None) -> AsyncIterator[None]:
+    """Hold the GPU for one ComfyUI render when the GPU swap option is on; a no-op otherwise.
+
+    Waits for live turns and LLM calls, then unloads the local LLM. *notify* hears ``waiting`` and ``unloading``. A swap that
+    cannot finish raises ``WorkflowUnavailableError`` and the render does not start.
+    """
+    async with _gpu_swap_host.comfy_lease(notify):
+        yield
+
+
+async def gpu_swap_support(settings: Settings) -> dict[str, Any]:
+    """Whether a Writer or Agent endpoint can be unloaded: ``{"available", "lanes", "reason"}``; never loads a model."""
+    return await _gpu_swap_host.support(settings)
 
 
 async def get_scene_cast(conversation_id: str) -> TurnCast:

@@ -85,6 +85,7 @@ let modelsByConnection = {};
 let modelsByGraph = {};
 let probeIds = {};
 let pendingConnections = new Set();
+let gpuSwap = null;
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
@@ -853,12 +854,31 @@ function capabilityLine(preset) {
   return `<div class="image-gen-note ig-capability">${esc(`${preset.label} ${gaps.join(". ")}.`)}${esc(unverified)}</div>`;
 }
 
+function gpuSwapField() {
+  const on = draft.comfy.gpu_swap === true;
+  if (!gpuSwap?.available && !on) return "";
+  const inactive = gpuSwap && !gpuSwap.available ? ` Inactive: ${gpuSwap.reason || "no unloadable LLM endpoint."}` : "";
+  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the local chat model before each render and frees ComfyUI before it reloads. The next chat turn re-reads its whole prompt, and each review turn adds two swaps.${esc(inactive)}</span></span></label>`;
+}
+
+async function loadGpuSwap() {
+  try {
+    gpuSwap = await query("gpu_swap", { config: readConfig() });
+  } catch {
+    gpuSwap = null;
+  }
+  captureConnections();
+  const host = document.getElementById("ig-gpu-swap");
+  if (host) host.innerHTML = gpuSwapField();
+}
+
 function comfyFields() {
   const comfy = draft.comfy;
   return `<div class="ig-grid">
       <label>Server URL<input ${connField("api_url")} value="${escAttr(comfy.api_url || "http://127.0.0.1:8188")}"></label>
       <label>API key<input type="password" ${connField("api_key")} value="${escAttr(comfy.api_key || "")}"></label>
     </div>
+    <div id="ig-gpu-swap">${gpuSwapField()}</div>
     <div class="image-gen-note">ComfyUI is the built-in local connection and cannot be removed.</div>`;
 }
 
@@ -956,10 +976,12 @@ function captureConnections() {
     const id = row.dataset.connId;
     const get = (name) => row.querySelector(`[data-ig-conn-field="${name}"]`)?.value;
     if (id === COMFY_CONNECTION) {
+      const swap = row.querySelector('[data-ig-conn-field="gpu_swap"]');
       draft.comfy = {
         ...draft.comfy,
         api_url: get("api_url") ?? draft.comfy.api_url ?? "",
         api_key: get("api_key") ?? draft.comfy.api_key ?? "",
+        gpu_swap: swap ? swap.checked : draft.comfy.gpu_swap === true,
       };
       continue;
     }
@@ -1105,12 +1127,13 @@ function openSettings(expandStyleId = "") {
   modelsByConnection = {};
   modelsByGraph = {};
   pendingConnections = new Set();
+  gpuSwap = null;
   resetCharacterProfile();
   draft = {
     styles: (Array.isArray(cfg.styles) ? cfg.styles : []).map((s) => ({ ...s })),
     scene_skills: (Array.isArray(cfg.scene_skills) ? cfg.scene_skills : []).map((skill) => ({ ...skill })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
-    comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "" },
+    comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "", gpu_swap: ext.gpu_swap === true },
     connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
     default_style: cfg.default_style || "",
   };
@@ -1178,6 +1201,7 @@ function openSettings(expandStyleId = "") {
   setModalCloseGuard(() => !isDirty() || window.confirm(DISCARD_MESSAGE));
   populateProfile();
   loadModels(COMFY_CONNECTION);
+  loadGpuSwap();
   const linked = new Set(draft.styles.map((style) => styleConnectionId(style, cfg)));
   for (const connection of connections) {
     if (connection.source === "cloud" && linked.has(connection.id) && draft.connections[connection.id]?.api_key)
@@ -1232,6 +1256,7 @@ function readConfig() {
       ...ext,
       api_url: draft.comfy.api_url ?? ext.api_url ?? "",
       api_key: draft.comfy.api_key ?? ext.api_key ?? "",
+      gpu_swap: draft.comfy.gpu_swap === true,
       user_graphs: draft.graphs,
     },
     cloud: { ...(cfg.cloud || {}), providers: { ...draft.connections } },

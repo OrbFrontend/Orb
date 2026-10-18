@@ -85,6 +85,23 @@ route or an ambiguous route. An explicit OpenAI resource only retries when the
 response names the native `x-api-key` header. This retry is independently
 bounded and never changes hosts; provider and model names are not evidence.
 
+### Local server kinds
+
+The image workflow's GPU swap option asks what kind of server each lane calls.
+The probe never names a model, so it never loads one:
+
+| Kind | Detected by | Unload |
+|---|---|---|
+| llama-server router (`--models-preset`, `--models-dir`) | `GET /props` answers `"role": "router"` | `POST /models/unload`, then poll `GET /models` until the entry leaves `loaded`/`loading` |
+| llama-server single model (`-m`) | `Server: llama.cpp` with no router role | none, so the option stays hidden |
+| Ollama | `GET /api/version` answers a version | `POST /api/generate` with `keep_alive: 0`, then poll `GET /api/ps` |
+| anything else | — | none |
+
+Paths are relative to the server root, the base URL without `/v1`. A router's
+`sleeping` status counts as unloaded. Ollama reports `name:tag`, so a bare
+configured name compares as `name:latest`. A kind is cached per root once a
+server answers, and a connection failure forgets it.
+
 ## Lane presets
 
 Each lane sends the sampler preset of the endpoint it is calling. Director,

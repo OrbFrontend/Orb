@@ -48,6 +48,7 @@ from ...workflows import (
     get_subscription,
     get_workflow,
     get_workflow_config,
+    gpu_swap_host,
     list_workflows,
     prose_rewriter_host,
     public_event_error,
@@ -180,6 +181,7 @@ async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     async with workflow_config_lock():
         await set_workflow_config(workflow_id, config)
         effective = await get_workflow_config(workflow_id)
+    gpu_swap_host.invalidate()
     logger.info("workflow %r config updated (%d keys)", scrub_log(workflow_id), len(data.config))
     return {"config": _normalized(workflow_id, effective)}
 

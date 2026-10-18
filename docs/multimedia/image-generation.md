@@ -355,6 +355,34 @@ metadata or review logs. Use the
 image's variant arrows to browse renders and the generation button's **Stop**
 control to end refinement and keep the renders already made.
 
+## Share the GPU with a local chat model
+
+A local chat model and ComfyUI on one GPU compete for VRAM. A heavy workflow can
+run out of memory, and a chat model that loads while ComfyUI holds memory may
+offload layers to the CPU and run several times slower. **Swap the GPU with the
+chat model**, under **Connections → ComfyUI**, keeps them apart:
+
+- Before a ComfyUI render, Orb waits for the current turn to finish, then
+  unloads the chat model.
+- Before the chat model reloads, Orb frees ComfyUI's models and waits for the
+  VRAM to return.
+
+The option appears only when the Writer or Agent endpoint is a llama-server
+router or Ollama and a style renders on ComfyUI. A single-model `llama-server -m`
+has no unload route. A saved option whose endpoint no longer qualifies stays
+visible and reads as inactive. It is off by default.
+
+The swap has costs. The next chat turn reloads the model and re-reads its whole
+prompt, which takes tens of seconds on a long chat. A render requested during a
+turn waits for the whole turn, and a turn waits for a running render. Prompt
+composition and each review turn call the chat model, so every review turn adds
+two swaps. Turn it on for workflows that do not fit beside the chat model, and
+leave it off for light ones. Cloud styles never swap.
+
+The render status shows **Waiting for the chat model to finish** while a turn
+runs. A wait longer than **Render timeout** stops with an error instead of
+loading into a busy GPU. ComfyUI used from its own interface is not noticed.
+
 ## Troubleshooting
 
 | Problem | Try this |
@@ -365,6 +393,7 @@ control to end refinement and keep the renders already made.
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |
+| **Timed out waiting for the LLM** | A turn or chat call outlasted **Render timeout** with GPU swap on. Wait for it, or raise the timeout. |
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |
 | Prompt generation fails | Check the LLM endpoint and use a model with tool calling. |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..toolkit import QueryCtx, get_workflow_config
+from ..toolkit import QueryCtx, get_workflow_config, gpu_swap_support
 from . import pov as pov_mod
 from .config import MAX_REFERENCE_SLOTS, WORKFLOW_ID, active_style, normalize_config, style_source
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, health, list_sources
@@ -123,6 +123,15 @@ async def _node_types(body) -> dict:
         return {"nodes": {}}
 
 
+async def _gpu_swap(ctx: QueryCtx, body) -> dict:
+    """Whether the GPU swap option can act: an unloadable LLM lane and a style that renders on ComfyUI."""
+    config = await _config_from_query(body)
+    support = await gpu_swap_support(ctx.settings)
+    comfy_style = any(style_source(config, style)[0] == "external_comfy" for style in config["styles"])
+    reason = support["reason"] or ("" if comfy_style else "No style renders on ComfyUI.")
+    return {**support, "available": support["available"] and comfy_style, "reason": reason}
+
+
 _QUERY_ACTIONS = {
     "status": _status,
     "styles": _styles,
@@ -135,5 +144,7 @@ _QUERY_ACTIONS = {
 
 async def query(ctx: QueryCtx, body: dict) -> dict:
     action = body.get("action") if isinstance(body, dict) else None
+    if action == "gpu_swap":
+        return await _gpu_swap(ctx, body)
     handler = _QUERY_ACTIONS.get(action) if isinstance(action, str) else None
     return await handler(body) if handler else {"error": f"unknown action: {action!r}"}

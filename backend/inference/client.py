@@ -13,7 +13,7 @@ import httpx
 from ..core.domain_types import AgentLane
 from ..core.llm_types import CompletionDone, CompletionEvent, CompletionMessage, ParsedToolCall, ReasoningReplay
 from ..core.settings import Settings
-from . import anthropic, endpoint_profiles, prompt_cache, text_completion
+from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, text_completion
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
 from .errors import EndpointConfigError, LLMCallError, llm_call_error
@@ -297,6 +297,10 @@ class LLMClient:
     def is_aborted(self) -> bool:
         return self.abort_token.is_aborted
 
+    def request_headers(self) -> dict:
+        """The auth and extra headers every native request carries."""
+        return self._headers()
+
     def _headers(self) -> dict:
         base: dict = {}
         if self.api_key:
@@ -374,7 +378,7 @@ class LLMClient:
             last_response.raise_for_status()
         raise ValueError("Endpoint did not expose a models response")
 
-    def _server_root(self) -> str:
+    def server_root(self) -> str:
         """Server root for llama.cpp native endpoints (/completion, /apply-template,
         /props), which sit beside the OpenAI-compat ``/v1`` surface. Strips a
         trailing ``/v1`` from ``base_url``."""
@@ -436,8 +440,11 @@ class LLMClient:
             transport = self._complete_chat
 
         # Retry transient server failures via _with_retry, which re-opens a fresh transport stream per attempt.
-        async for event in self._with_retry(lambda: transport(messages, model, tools, tool_choice, **params)):
-            yield event
+        async with gpu_swap.llm_lease(self.server_root(), model, stop=self.abort_token.wait) as admitted:
+            if not admitted:
+                return
+            async for event in self._with_retry(lambda: transport(messages, model, tools, tool_choice, **params)):
+                yield event
 
     async def _with_retry(self, open_stream: Callable[[], AsyncIterator[CompletionEvent]]) -> AsyncIterator[CompletionEvent]:
         """Retry fresh streams on transient failures only before the first yielded event.
@@ -907,9 +914,27 @@ class LLMClient:
         *template_thinking* renders a reasoning-off call with thinking on and closes the thought at the tail, keeping the
         lane's prefix (see :func:`lane_template_thinking`).
         """
+        async with gpu_swap.llm_lease(self.server_root(), model, stop=self.abort_token.wait) as admitted:
+            if not admitted:
+                raise gpu_swap.GpuSwapError("Stopped while waiting for ComfyUI to free the GPU.")
+            return await self._render_prompt(
+                messages, model=model, prefill=prefill, reasoning=reasoning, fmt=fmt, template_thinking=template_thinking
+            )
+
+    async def _render_prompt(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        model: str,
+        prefill: str | None,
+        reasoning: bool,
+        fmt: rf.ReasoningFormat | None,
+        template_thinking: bool,
+    ) -> str:
+        """:meth:`render_prompt` without the GPU lease, for the text transport's own call inside its lease."""
         close_thought = template_thinking and not reasoning and not prefill
         reasoning = reasoning or close_thought
-        server_root = self._server_root()
+        server_root = self.server_root()
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
             render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
@@ -959,12 +984,12 @@ class LLMClient:
         # same llama.cpp server, which reuses its slot prefix without markers.
         params.pop("cache_prefix_len", None)
         template_thinking = bool(params.pop("template_thinking", False))
-        server_root = self._server_root()
+        server_root = self.server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         fmt = await self._reasoning_format(server_root, model=model)
         # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
-            prompt = await self.render_prompt(
+            prompt = await self._render_prompt(
                 messages, model=model, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
             )
         except httpx.HTTPError as e:
@@ -1071,8 +1096,11 @@ class LLMClient:
 
     async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Stream a raw completion for prompt."""
-        async for event in self._with_retry(lambda: self._complete_raw(prompt, model, **params)):
-            yield event
+        async with gpu_swap.llm_lease(self.server_root(), model, stop=self.abort_token.wait) as admitted:
+            if not admitted:
+                return
+            async for event in self._with_retry(lambda: self._complete_raw(prompt, model, **params)):
+                yield event
 
     async def _complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
@@ -1098,7 +1126,7 @@ class LLMClient:
         content_parts: list[str] = []
         usage: dict | None = None
         finish_reason: str | None = None
-        async for data in self._stream_completion(f"{self._server_root()}/completion", body):
+        async for data in self._stream_completion(f"{self.server_root()}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
                 usage, finish_reason = text_completion.terminal_state(data)
