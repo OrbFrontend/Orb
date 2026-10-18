@@ -95,6 +95,8 @@ The probe never names a model, so it never loads one:
 | llama-server router (`--models-preset`, `--models-dir`) | `GET /props` answers `"role": "router"` | `POST /models/unload`, then poll `GET /models` until the entry leaves `loaded`/`loading` |
 | llama-server single model (`-m`) | `Server: llama.cpp` with no router role | none, so the option stays hidden |
 | Ollama | `GET /api/version` answers a version | `POST /api/generate` with `keep_alive: 0`, then poll `GET /api/ps` |
+| tabbyAPI | `GET /.well-known/serviceinfo` names `TabbyAPI`; `GET /v1/auth/permission` answers `admin` | `POST /v1/model/unload`; reload with `POST /v1/model/load` |
+| text-generation-webui | `GET /v1/internal/model/info` answers `model_name` and `loader`; `GET /v1/internal/model/list` accepts the key | `POST /v1/internal/model/unload`; reload with `POST /v1/internal/model/load` |
 | anything else | — | none |
 
 Paths are relative to the server root, the base URL without `/v1`. A router's
@@ -102,6 +104,14 @@ Paths are relative to the server root, the base URL without `/v1`. A router's
 configured name compares as `name:latest`. A kind is cached per root for 30
 seconds once a server answers, so a server restarted in another mode is noticed.
 A failed model listing forgets it sooner.
+
+tabbyAPI and text-generation-webui hold one model, answer the unload once it is
+gone, and never load one back by themselves. A key that is not the admin key
+reads as unable to unload. Before unloading, Orb reads what the server holds:
+tabbyAPI's `GET /v1/model` card gives the load settings back, and
+text-generation-webui's model info gives the model, loader, and LoRAs. The next
+call on that server, after ComfyUI is freed, loads it again and waits for the
+load to finish. A failed reload stays pending and is retried on the next call.
 
 With **Keep the chat cache across swaps** on, a router target saves each slot
 before its unload: `GET /slots?model=M&autoload=false` lists them, and

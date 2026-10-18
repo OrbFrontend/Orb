@@ -119,8 +119,15 @@ async def support(settings: Settings) -> dict:
     """Which lanes run on a server Orb can unload, probed fresh."""
     lanes = await probe_lanes(settings, fresh=True)
     available = any(target.kind in gpu_swap.UNLOADABLE for _, target in lanes)
+    locked = next((lane for lane, target in lanes if target.kind == "needs_admin"), None)
+    if available:
+        reason = ""
+    elif locked is not None:
+        reason = f"The {locked.capitalize()} endpoint's key can't load or unload models; use the server's admin key."
+    else:
+        reason = "No Writer or Agent endpoint is a llama-server router, Ollama, tabbyAPI, or text-generation-webui."
     return {
         "available": available,
         "lanes": [{"lane": lane, "kind": target.kind, "model": target.model} for lane, target in lanes],
-        "reason": "" if available else "No Writer or Agent endpoint is a llama-server router or Ollama.",
+        "reason": reason,
     }

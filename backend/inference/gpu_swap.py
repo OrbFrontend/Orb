@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import re
 import time
@@ -16,8 +17,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ServerKind = Literal["llama_router", "llama_single", "ollama", "other"]
-UNLOADABLE: frozenset[ServerKind] = frozenset({"llama_router", "ollama"})
+ServerKind = Literal["llama_router", "llama_single", "ollama", "tabby", "ooba", "needs_admin", "other"]
+UNLOADABLE: frozenset[ServerKind] = frozenset({"llama_router", "ollama", "tabby", "ooba"})
+RELOADED: frozenset[ServerKind] = frozenset({"tabby", "ooba"})
 Owner = Literal["llm", "comfy"]
 Notify = Callable[[str], Awaitable[None] | None]
 Stop = Callable[[], Awaitable[object]]
@@ -29,8 +31,19 @@ SETTLE_CAP = 5.0
 SETTLE_RISE = 256 * 1024 * 1024
 SETTLE_AGREE = 64 * 1024 * 1024
 SLOT_TIMEOUT = 120.0
+LOAD_TIMEOUT = 600.0
 KIND_TTL = 30.0
 _ROUTER_RESIDENT = frozenset({"loaded", "loading"})
+_TABBY_LOAD_FIELDS = {
+    "max_seq_len": "max_seq_len",
+    "cache_size": "cache_size",
+    "cache_mode": "cache_mode",
+    "rope_scale": "rope_scale",
+    "rope_alpha": "rope_alpha",
+    "chunk_size": "chunk_size",
+    "prompt_template": "prompt_template",
+    "use_vision": "vision",
+}
 
 
 class GpuSwapError(RuntimeError):
@@ -84,6 +97,49 @@ def _forget(root: str) -> None:
     _kinds.pop(root.rstrip("/"), None)
 
 
+async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response | None:
+    try:
+        return await client.get(url)
+    except httpx.HTTPError:
+        return None
+
+
+def _ok_json(resp: httpx.Response | None) -> Any:
+    return _json(resp) if resp is not None and resp.status_code < 400 else None
+
+
+async def _detect(client: httpx.AsyncClient, root: str) -> tuple[bool, ServerKind]:
+    """``(answered, kind)``; tabbyAPI and text-generation-webui keep load and unload behind an admin key."""
+    answered = False
+    resp = await _get(client, f"{root}/props")
+    if resp is not None:
+        answered = True
+        data = _ok_json(resp)
+        if isinstance(data, dict) and data.get("role") == "router":
+            return True, "llama_router"
+        if "llama.cpp" in resp.headers.get("server", ""):
+            return True, "llama_single"
+    resp = await _get(client, f"{root}/api/version")
+    answered = answered or resp is not None
+    data = _ok_json(resp)
+    if isinstance(data, dict) and "version" in data:
+        return True, "ollama"
+    resp = await _get(client, f"{root}/.well-known/serviceinfo")
+    answered = answered or resp is not None
+    data = _ok_json(resp)
+    software = data.get("software") if isinstance(data, dict) else None
+    if isinstance(software, dict) and software.get("name") == "TabbyAPI":
+        data = _ok_json(await _get(client, f"{root}/v1/auth/permission"))
+        return True, "tabby" if isinstance(data, dict) and data.get("permission") == "admin" else "needs_admin"
+    resp = await _get(client, f"{root}/v1/internal/model/info")
+    answered = answered or resp is not None
+    data = _ok_json(resp)
+    if isinstance(data, dict) and {"model_name", "loader"} <= data.keys():
+        resp = await _get(client, f"{root}/v1/internal/model/list")
+        return True, "ooba" if resp is not None and resp.status_code < 400 else "needs_admin"
+    return answered, "other"
+
+
 async def probe(
     root: str, headers: Mapping[str, str] | None = None, proxy: str | None = None, *, fresh: bool = False
 ) -> ServerKind:
@@ -96,30 +152,8 @@ async def probe(
     cached = _kinds.get(root)
     if not fresh and cached is not None and time.monotonic() - cached[0] < KIND_TTL:
         return cached[1]
-    answered = False
-    kind: ServerKind = "other"
     async with _client(headers, proxy) as client:
-        try:
-            resp = await client.get(f"{root}/props")
-        except httpx.HTTPError:
-            resp = None
-        if resp is not None:
-            answered = True
-            data = _json(resp) if resp.status_code < 400 else None
-            if isinstance(data, dict) and data.get("role") == "router":
-                kind = "llama_router"
-            elif "llama.cpp" in resp.headers.get("server", ""):
-                kind = "llama_single"
-        if kind == "other":
-            try:
-                resp = await client.get(f"{root}/api/version")
-            except httpx.HTTPError:
-                resp = None
-            if resp is not None:
-                answered = True
-                data = _json(resp) if resp.status_code < 400 else None
-                if isinstance(data, dict) and "version" in data:
-                    kind = "ollama"
+        answered, kind = await _detect(client, root)
     if answered:
         _kinds[root] = (time.monotonic(), kind)
     return kind
@@ -157,11 +191,26 @@ async def _ollama_resident(client: httpx.AsyncClient, root: str) -> set[str]:
     return names
 
 
+async def _held(client: httpx.AsyncClient, target: LlmTarget) -> dict[str, Any]:
+    """The one model a tabbyAPI or text-generation-webui server holds: its card or info, empty when none is loaded."""
+    path = "/v1/model" if target.kind == "tabby" else "/v1/internal/model/info"
+    resp = await client.get(f"{target.root}{path}")
+    if target.kind == "tabby" and resp.status_code == 503:
+        return {}
+    resp.raise_for_status()
+    data = _json(resp)
+    name = data.get("id" if target.kind == "tabby" else "model_name") if isinstance(data, dict) else None
+    return data if isinstance(data, dict) and isinstance(name, str) and name not in ("", "None") else {}
+
+
 async def _resident(client: httpx.AsyncClient, target: LlmTarget) -> set[str]:
     if target.kind == "llama_router":
         return {mid for _, mid, status in await _router_entries(client, target.root) if status in _ROUTER_RESIDENT}
     if target.kind == "ollama":
         return await _ollama_resident(client, target.root)
+    if target.kind in RELOADED:
+        held = await _held(client, target)
+        return {held["id" if target.kind == "tabby" else "model_name"]} if held else set()
     raise GpuSwapError(f"{target.root} cannot unload models")
 
 
@@ -176,9 +225,11 @@ async def loaded_models(target: LlmTarget) -> set[str]:
 
 
 async def model_loaded(target: LlmTarget, model: str) -> bool:
-    """Whether *model* is resident on *target*'s server."""
+    """Whether *model* is resident on *target*'s server; a one-model server answers with whatever it holds."""
     async with _client(target.headers, target.proxy) as client:
         try:
+            if target.kind in RELOADED:
+                return bool(await _held(client, target))
             if target.kind == "llama_router":
                 entries = await _router_entries(client, target.root)
                 return any(model in names and status in _ROUTER_RESIDENT for names, _, status in entries)
@@ -195,6 +246,10 @@ async def unload(target: LlmTarget, model: str) -> None:
             resp = await client.post(f"{target.root}/models/unload", json={"model": model})
         elif target.kind == "ollama":
             resp = await client.post(f"{target.root}/api/generate", json={"model": model, "keep_alive": 0})
+        elif target.kind in RELOADED:
+            path = "/v1/model/unload" if target.kind == "tabby" else "/v1/internal/model/unload"
+            (await client.post(f"{target.root}{path}")).raise_for_status()
+            return
         else:
             raise GpuSwapError(f"{target.root} cannot unload models")
         resp.raise_for_status()
@@ -251,6 +306,69 @@ async def restore_slots(target: LlmTarget, model: str, slots: tuple[int, ...]) -
                 logger.info(
                     "gpu swap: slot %d of %s did not restore (HTTP %d): %s", slot, model, resp.status_code, resp.text[:200]
                 )
+
+
+async def reload_spec(target: LlmTarget) -> dict[str, Any]:
+    """The load request that brings back what a tabbyAPI or text-generation-webui server holds now; empty when it holds none.
+
+    tabbyAPI reports the settings it loaded with. text-generation-webui reports only the model, loader and LoRAs, so the
+    reload takes the rest from the model's saved settings on that server.
+    """
+    async with _client(target.headers, target.proxy) as client:
+        held = await _held(client, target)
+    if not held:
+        return {}
+    if target.kind == "ooba":
+        spec: dict[str, Any] = {"model_name": held["model_name"]}
+        if isinstance(held.get("loader"), str):
+            spec["args"] = {"loader": held["loader"]}
+        loras = held.get("lora_names")
+        if isinstance(loras, list) and loras:
+            spec["lora_names"] = [name for name in loras if isinstance(name, str)]
+        return spec
+    params = held.get("parameters")
+    if not isinstance(params, dict):
+        params = {}
+    spec = {
+        "model_name": held["id"],
+        **{dst: params[src] for src, dst in _TABBY_LOAD_FIELDS.items() if params.get(src) is not None},
+    }
+    draft = params.get("draft")
+    if isinstance(draft, dict) and isinstance(draft.get("id"), str):
+        spec["draft_model"] = {"draft_model_name": draft["id"]}
+    return spec
+
+
+async def reload(target: LlmTarget, spec: Mapping[str, Any]) -> None:
+    """Load *spec* back on *target* and return once the server holds a model."""
+    async with _client(target.headers, target.proxy, LOAD_TIMEOUT) as client:
+        if target.kind == "tabby":
+            async with client.stream("POST", f"{target.root}/v1/model/load", json=dict(spec)) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    event = _sse_json(line)
+                    error = event.get("error") if isinstance(event, dict) else None
+                    if isinstance(error, dict):
+                        raise GpuSwapError(str(error.get("message") or error))
+        else:
+            body = {key: value for key, value in spec.items() if key != "lora_names"}
+            (await client.post(f"{target.root}/v1/internal/model/load", json=body)).raise_for_status()
+            if spec.get("lora_names"):
+                resp = await client.post(f"{target.root}/v1/internal/lora/load", json={"lora_names": spec["lora_names"]})
+                resp.raise_for_status()
+        if not await _held(client, target):
+            raise GpuSwapError(f"{spec['model_name']} did not load on {target.root}")
+
+
+def _sse_json(line: str) -> Any:
+    if not line.startswith("data:"):
+        return None
+    try:
+        return json.loads(line[5:])
+    except ValueError:
+        return None
 
 
 async def _vram_free(client: httpx.AsyncClient, url: str) -> int | None:
@@ -319,6 +437,7 @@ class _Arbiter:
         self.switching = False
         self.plan_identity: tuple | None = None
         self.saved: dict[tuple[str, str], tuple[int, ...]] = {}
+        self.reloads: dict[str, Mapping[str, Any]] = {}
         self._changed: asyncio.Event | None = None
 
     def changed(self) -> None:
@@ -353,7 +472,10 @@ class _Arbiter:
                     pending.cancel()
 
     def observe(self, plan: SwapPlan) -> None:
-        """Forget the owner when the plan turns on or points somewhere new, and saved slots once restoring is off."""
+        """Forget the owner when the plan turns on or points somewhere new, and saved slots once restoring is off.
+
+        Pending reloads stay: the server holds nothing until one runs.
+        """
         identity = plan.identity() if plan.enabled else None
         if identity != self.plan_identity:
             self.plan_identity = identity
@@ -400,6 +522,10 @@ async def _unload_all(plan: SwapPlan, notify: Notify | None) -> None:
                     slots = ()
                 if slots:
                     _arbiter.saved[(target.root, model)] = slots
+            if target.kind in RELOADED:
+                spec = await reload_spec(target)
+                if spec:
+                    _arbiter.reloads[target.root] = spec
             await _notify(notify, "unloading")
             logger.info("gpu swap: unloading %s from %s before a ComfyUI render", model, target.root)
             await unload(target, model)
@@ -459,6 +585,14 @@ async def _claim_for_llm(plan: SwapPlan, target: LlmTarget, model: str) -> None:
             await restore_slots(target, model, slots)
         except httpx.HTTPError as exc:
             logger.info("gpu swap: could not restore the slots of %s (%r); the call prefills", model, exc)
+    spec = _arbiter.reloads.pop(target.root, None)
+    if spec is not None and not loaded:
+        logger.info("gpu swap: reloading %s on %s", spec["model_name"], target.root)
+        try:
+            await reload(target, spec)
+        except (httpx.HTTPError, GpuSwapError) as exc:
+            _arbiter.reloads[target.root] = spec
+            raise GpuSwapError(f"Could not reload {spec['model_name']} on {target.root}: {exc}") from exc
 
 
 @contextlib.asynccontextmanager
@@ -477,7 +611,7 @@ async def llm_lease(root: str, model: str, *, stop: Stop | None = None) -> Async
     if not await arb.wait_until(lambda: not arb.switching and arb.comfy_inflight == 0, plan.wait_cap, "ComfyUI", stop):
         yield False
         return
-    if arb.owner != "llm" or (target.root, model) in arb.saved:
+    if arb.owner != "llm" or (target.root, model) in arb.saved or target.root in arb.reloads:
         arb.switching = True
         try:
             await _claim_for_llm(plan, target, model)

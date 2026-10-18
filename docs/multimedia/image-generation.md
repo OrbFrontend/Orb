@@ -367,10 +367,17 @@ chat model**, under **Connections → ComfyUI**, keeps them apart:
 - Before the chat model reloads, Orb frees ComfyUI's models and waits for the
   VRAM to return.
 
-The option appears only when the Writer or Agent endpoint is a llama-server
-router or Ollama and a style renders on ComfyUI. A single-model `llama-server -m`
-has no unload route. A saved option whose endpoint no longer qualifies stays
-visible and reads as inactive. It is off by default.
+The option appears only when a style renders on ComfyUI and the Writer or Agent
+endpoint is a llama-server router, Ollama, tabbyAPI, or text-generation-webui. A
+single-model `llama-server -m` has no unload route. tabbyAPI and
+text-generation-webui need the endpoint's key to be the server's admin key, and
+they do not reload a model by themselves: Orb loads it back before the next chat
+call. tabbyAPI reloads with the settings it was loaded with. text-generation-webui
+reloads the same model, loader, and LoRAs with that model's saved settings, so
+save any changed settings on its Model tab first. If the option is turned off
+while a render has the model unloaded, load it from the server. A saved option
+whose endpoint no longer qualifies stays visible and reads as inactive. It is off
+by default.
 
 The swap has costs. The next chat turn reloads the model and re-reads its whole
 prompt, which takes tens of seconds on a long chat. ComfyUI is freed before each
@@ -390,7 +397,7 @@ sliding-window models such as Gemma also store their context checkpoints, which
 can make a 20k-token chat's file about 6 GB. The file stays in the server's RAM
 until it is overwritten or the machine restarts, including after the option is
 turned off. Saving adds a few seconds to the start of each render. It is off by
-default and does nothing on Ollama.
+default and needs a llama-server router.
 
 The render status shows **Waiting for the chat model to finish** while a turn
 runs. A wait longer than **Render timeout** stops with an error instead of
@@ -406,6 +413,7 @@ loading into a busy GPU. ComfyUI used from its own interface is not noticed.
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |
+| **Could not reload** with GPU swap on | The server rejected the reload. Check its log and the model's saved settings, then load it from the server. |
 | **Timed out waiting for the LLM** | A turn or chat call outlasted **Render timeout** with GPU swap on. Wait for it, or raise the timeout. |
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |

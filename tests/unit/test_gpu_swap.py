@@ -589,3 +589,118 @@ async def test_a_cached_kind_expires(monkeypatch):
     assert await gpu_swap.probe(ROOT) == "llama_router"
     monkeypatch.setattr(gpu_swap, "KIND_TTL", 0.0)
     assert await gpu_swap.probe(ROOT) == "llama_single"
+
+
+# -- One-model servers that Orb reloads ----------------------------------------
+
+TABBY_CARD = {
+    "id": "q27",
+    "parameters": {"max_seq_len": 32768, "cache_size": 32768, "cache_mode": "6,6", "max_batch_size": 4, "use_vision": False},
+}
+
+
+def _tabby(state: dict, log: list[str], *, admin: bool = True, load_error: str = ""):
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/.well-known/serviceinfo":
+            return httpx.Response(200, json={"software": {"name": "TabbyAPI"}})
+        if path == "/v1/auth/permission":
+            return httpx.Response(200, json={"permission": "admin" if admin else "api"})
+        if path == "/v1/model":
+            return httpx.Response(200, json=state["card"]) if state.get("card") else httpx.Response(503)
+        if path == "/v1/model/unload":
+            log.append("unload")
+            state["card"] = None
+            return httpx.Response(200)
+        if path == "/v1/model/load":
+            body = json.loads(request.content)
+            log.append(f"load {sorted(body.items())}")
+            if load_error:
+                return httpx.Response(200, text=f'data: {{"error": {{"message": "{load_error}"}}}}\n\n')
+            state["card"] = TABBY_CARD
+            return httpx.Response(200, text='data: {"module": 1, "modules": 1, "status": "finished"}\n\n')
+        return httpx.Response(404)
+
+    return handle
+
+
+def _ooba(state: dict, log: list[str], *, admin: bool = True):
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/v1/internal/model/info":
+            return httpx.Response(200, json={"model_name": state["name"], "lora_names": state["loras"], "loader": "llama.cpp"})
+        if path == "/v1/internal/model/list":
+            return httpx.Response(200, json={"model_names": []}) if admin else httpx.Response(401)
+        if path == "/v1/internal/model/unload":
+            log.append("unload")
+            state.update(name="None", loras=[])
+            return httpx.Response(200, json="OK")
+        if path == "/v1/internal/model/load":
+            body = json.loads(request.content)
+            log.append(f"load {body}")
+            state["name"] = body["model_name"]
+            return httpx.Response(200, json="OK")
+        if path == "/v1/internal/lora/load":
+            state["loras"] = json.loads(request.content)["lora_names"]
+            log.append(f"loras {state['loras']}")
+            return httpx.Response(200, json="OK")
+        return httpx.Response(404)
+
+    return handle
+
+
+@pytest.mark.parametrize("server", [_tabby, _ooba])
+async def test_one_model_servers_need_the_admin_key(monkeypatch, server):
+    kind = "tabby" if server is _tabby else "ooba"
+    state = {"card": TABBY_CARD, "name": "m.gguf", "loras": []}
+    _serve(monkeypatch, server(state, [], admin=True))
+    assert await gpu_swap.probe(ROOT, fresh=True) == kind
+    _serve(monkeypatch, server(state, [], admin=False))
+    assert await gpu_swap.probe(ROOT, fresh=True) == "needs_admin"
+
+
+def _reloading(monkeypatch, kind: gpu_swap.ServerKind, log: list[str]):
+    async def free(url, api_key="", *, queue_cap=0.0):
+        log.append("free")
+
+    monkeypatch.setattr(gpu_swap, "comfy_free", free)
+    _plan(monkeypatch, targets=(_target(kind, model="configured-name"),))
+
+
+async def test_tabby_reloads_with_the_settings_it_held_after_comfy_frees(monkeypatch):
+    log: list[str] = []
+    state = {"card": TABBY_CARD}
+    _serve(monkeypatch, _tabby(state, log))
+    _reloading(monkeypatch, "tabby", log)
+    await _render()
+    for _ in range(2):
+        async with gpu_swap.llm_lease(ROOT, "configured-name"):
+            pass
+    expected = [("cache_mode", "6,6"), ("cache_size", 32768), ("max_seq_len", 32768), ("model_name", "q27"), ("vision", False)]
+    assert log == ["unload", "free", f"load {expected}"]
+
+
+async def test_ooba_reloads_its_model_loader_and_loras(monkeypatch):
+    log: list[str] = []
+    state = {"name": "m.gguf", "loras": ["style"]}
+    _serve(monkeypatch, _ooba(state, log))
+    _reloading(monkeypatch, "ooba", log)
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "configured-name"):
+        pass
+    assert log == ["unload", "free", "load {'model_name': 'm.gguf', 'args': {'loader': 'llama.cpp'}}", "loras ['style']"]
+
+
+async def test_a_failed_reload_names_the_swap_and_stays_pending(monkeypatch):
+    log: list[str] = []
+    state = {"card": TABBY_CARD}
+    _serve(monkeypatch, _tabby(state, log, load_error="out of memory"))
+    _reloading(monkeypatch, "tabby", log)
+    await _render()
+    with pytest.raises(gpu_swap.GpuSwapError, match="Could not reload q27.*out of memory"):
+        async with gpu_swap.llm_lease(ROOT, "configured-name"):
+            pass
+    _serve(monkeypatch, _tabby(state, log))
+    async with gpu_swap.llm_lease(ROOT, "configured-name"):
+        pass
+    assert state["card"] == TABBY_CARD
