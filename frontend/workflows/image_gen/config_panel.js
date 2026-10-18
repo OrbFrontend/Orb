@@ -859,7 +859,7 @@ function gpuSwapField() {
   const on = draft.comfy.gpu_swap === true;
   if (!gpuSwap?.available && !on) return "";
   const inactive = gpuSwap && !gpuSwap.available ? ` Inactive: ${gpuSwap.reason || "no unloadable LLM endpoint."}` : "";
-  const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the local chat model before each render and frees ComfyUI before it reloads. The next chat turn re-reads its whole prompt, and each review turn adds two swaps.${esc(inactive)}</span></span></label>`;
+  const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the chat model while ComfyUI renders. Fits heavier workflows, but the next reply starts slower.${esc(inactive)}</span></span></label>`;
   return `<div class="ig-toggles">${swap}${gpuRestoreField()}</div>`;
 }
 
@@ -867,7 +867,7 @@ function gpuRestoreField() {
   const on = draft.comfy.gpu_swap_restore === true;
   const router = (gpuSwap?.lanes || []).some((lane) => lane.kind === "llama_router");
   if (!router && !on) return "";
-  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">Saves the chat model's cache before each render and restores it after, so the next turn skips re-reading its prompt; the model still reloads. llama-server router only, started with <code>--slot-save-path</code> on tmpfs such as <code>/dev/shm</code>. A long chat's cache can hold 6 GB of the server's RAM per slot until it is overwritten, and saving adds a few seconds to the start of each render.</span></span></label>`;
+  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">The next reply skips re-reading the chat. Needs <code>--slot-save-path</code> on <code>/dev/shm</code> and a few GB of RAM.</span></span></label>`;
 }
 
 async function loadGpuSwap() {
