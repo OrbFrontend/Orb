@@ -357,51 +357,68 @@ control to end refinement and keep the renders already made.
 
 ## Share the GPU with a local chat model
 
-A local chat model and ComfyUI on one GPU compete for VRAM. A heavy workflow can
-run out of memory, and a chat model that loads while ComfyUI holds memory may
-offload layers to the CPU and run several times slower. **Swap the GPU with the
-chat model**, under **Connections → ComfyUI**, keeps them apart:
+Use this when ComfyUI and your local chat model don't fit on the GPU together.
+Orb unloads the chat model for each render and loads it back for the next reply.
+Replies after a render start slower, so leave it off for light workflows.
 
-- Before a ComfyUI render, Orb waits for the current turn to finish, then
-  unloads the chat model.
-- Before the chat model reloads, Orb frees ComfyUI's models and waits for the
-  VRAM to return.
+### 1. Start your chat server
 
-The option appears only when a style renders on ComfyUI and the Writer or Agent
-endpoint is a llama-server router, Ollama, tabbyAPI, or text-generation-webui. A
-single-model `llama-server -m` has no unload route. tabbyAPI and
-text-generation-webui need the endpoint's key to be the server's admin key, and
-they do not reload a model by themselves: Orb loads it back before the next chat
-call. tabbyAPI reloads with the settings it was loaded with. text-generation-webui
-reloads the same model, loader, and LoRAs with that model's saved settings, so
-save any changed settings on its Model tab first. If the option is turned off
-while a render has the model unloaded, load it from the server. A saved option
-whose endpoint no longer qualifies stays visible and reads as inactive. It is off
-by default.
+**llama.cpp** needs router mode; a plain `llama-server -m` can't unload.
 
-The swap has costs. The next chat turn reloads the model and re-reads its whole
-prompt, which takes tens of seconds on a long chat. ComfyUI is freed before each
-reload, so the first render after a chat turn loads its models again. A render requested during a
-turn waits for the whole turn, and a turn waits for a running render. Prompt
-composition and each review turn call the chat model, so every review turn adds
-two swaps. Turn it on for workflows that do not fit beside the chat model, and
-leave it off for light ones. Cloud styles never swap.
+1. Save this as `models.ini`, with your model's path:
 
-**Keep the chat cache across swaps**, under the swap option, saves the chat
-model's cache before each render and restores it before the next chat call, so
-that turn skips re-reading its prompt. The model itself still reloads. It needs a
-llama-server router started with `--slot-save-path` pointing at a RAM-backed
-directory such as `/dev/shm/orb-slots`. A path on a disk writes several
-gigabytes per render. Each slot's file grows with the chat's cached tokens;
-sliding-window models such as Gemma also store their context checkpoints, which
-can make a 20k-token chat's file about 6 GB. The file stays in the server's RAM
-until it is overwritten or the machine restarts, including after the option is
-turned off. Saving adds a few seconds to the start of each render. It is off by
-default and needs a llama-server router.
+   ```ini
+   version = 1
 
-The render status shows **Waiting for the chat model to finish** while a turn
-runs. A wait longer than **Render timeout** stops with an error instead of
-loading into a busy GPU. ComfyUI used from its own interface is not noticed.
+   [my-model]
+   model = /path/to/model.gguf
+   mmproj = /path/to/mmproj.gguf
+   ctx-size = 16384
+   n-gpu-layers = -1
+   slot-save-path = /dev/shm/orb-slots
+   ```
+
+2. Run:
+
+   ```sh
+   mkdir -p /dev/shm/orb-slots
+   llama-server --models-preset models.ini --models-max 1 --port 5000
+   ```
+
+3. In Orb, set the endpoint to `http://127.0.0.1:5000/v1` and the model to
+   `my-model`.
+
+**Ollama** works as is, at `http://127.0.0.1:11434/v1`.
+
+**tabbyAPI**: use the `admin_key` from its `api_tokens.yml` as the endpoint's
+API key in Orb. The normal `api_key` can't unload models.
+
+**text-generation-webui**: start it with `--api`. If you set `--admin-key`, use
+that key in Orb. Save your model's settings on its **Model** tab, because Orb
+reloads the model with its saved settings.
+
+### 2. Turn it on
+
+1. Open the Image Generation **Settings**, then **Connections → ComfyUI**.
+2. Tick **Swap the GPU with the chat model**.
+3. On llama.cpp, also tick **Keep the chat cache across swaps**. The next reply
+   then skips re-reading the whole chat.
+4. Select **Save**.
+
+The option is hidden until a style uses ComfyUI and the endpoint runs on one of
+the servers above. When it can't work, it reads **Inactive** with the reason.
+
+### What to expect
+
+- A render waits for the current reply to finish and shows **Waiting for the
+  chat model to finish**.
+- The first render after a reply loads ComfyUI's models again.
+- The chat cache takes a few GB of RAM until you reboot. To free it sooner,
+  run `rm /dev/shm/orb-slots/*`.
+- If you turn the option off right after a render on tabbyAPI or
+  text-generation-webui, load the model again from that server.
+- Cloud styles never swap, and renders started from ComfyUI's own page aren't
+  noticed.
 
 ## Troubleshooting
 
@@ -413,8 +430,8 @@ loading into a busy GPU. ComfyUI used from its own interface is not noticed.
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |
-| **Could not reload** with GPU swap on | The server rejected the reload. Check its log and the model's saved settings, then load it from the server. |
-| **Timed out waiting for the LLM** | A turn or chat call outlasted **Render timeout** with GPU swap on. Wait for it, or raise the timeout. |
+| **Could not reload** with GPU swap on | Check the chat server's log, then load the model from the server. |
+| **Timed out waiting for the LLM** | A reply took longer than **Render timeout**. Wait for it, or raise the timeout. |
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |
 | Prompt generation fails | Check the LLM endpoint and use a model with tool calling. |
