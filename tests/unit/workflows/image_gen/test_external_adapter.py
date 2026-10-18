@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 
+from backend.workflows.image_gen import queries
 from backend.workflows.image_gen.config import normalize_config, resolve_style
 from backend.workflows.image_gen.engine.adapters.external_comfy import ExternalComfyAdapter
 from backend.workflows.image_gen.engine.comfy_client import ComfyClient, invalidate_object_info
@@ -75,8 +76,12 @@ def _handler(models_response: httpx.Response, info: dict | None = None):
             return httpx.Response(
                 200, json={"system": {"comfyui_version": "0.22.0"}, "devices": [{"name": "RTX 3090", "vram_total": 1}]}
             )
+        catalogue = info if info is not None else OBJECT_INFO
         if request.url.path == "/object_info":
-            return httpx.Response(200, json=info if info is not None else OBJECT_INFO)
+            return httpx.Response(200, json=catalogue)
+        if request.url.path.startswith("/object_info/"):
+            class_type = request.url.path.removeprefix("/object_info/")
+            return httpx.Response(200, json={class_type: catalogue[class_type]} if class_type in catalogue else {})
         if request.url.path == "/models/checkpoints":
             return models_response
         return httpx.Response(404)
@@ -116,6 +121,41 @@ async def test_connection_test_reports_whatever_checkpoints_it_could_discover(mo
 
     assert result["ok"] is True
     assert result["models"] == expected
+
+
+async def test_each_workflow_lists_the_models_its_loader_accepts(monkeypatch):
+    """A diffusion-model loader reads another folder than a checkpoint loader, so the menu comes from the slot's own node."""
+    info = {**OBJECT_INFO, "UnetLoaderGGUF": {"input": {"required": {"unet_name": ["COMBO", {"options": ["q8.gguf"]}]}}}}
+    _install_client(monkeypatch, _handler(httpx.Response(200, json=["anime.safetensors"]), info))
+    ckpt_graph = {
+        **USER_GRAPH,
+        "graph": {**USER_GRAPH["graph"], "5": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "x"}}},
+        "slots": {**USER_GRAPH["slots"], "checkpoint": ["5", "ckpt_name"]},
+    }
+    gguf_graph = {
+        **UNET_USER_GRAPH,
+        "id": "user_gguf",
+        "graph": {**UNET_USER_GRAPH["graph"], "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": "x.gguf"}}},
+    }
+    config = _config(user_graphs=[ckpt_graph, UNET_USER_GRAPH, gguf_graph, EDIT_USER_GRAPH])
+
+    result = await ExternalComfyAdapter(config).validate_connection()
+
+    assert result["graph_models"] == {
+        "user_1": ["anime.safetensors"],
+        "user_unet": ["real.safetensors"],
+        "user_gguf": ["q8.gguf"],
+    }
+
+
+async def test_workflow_menus_survive_a_refused_checkpoint_listing(monkeypatch):
+    _install_client(monkeypatch, _handler(httpx.Response(403)))
+    invalidate_object_info()
+    config = {"external_comfy": {"user_graphs": [UNET_USER_GRAPH]}, "styles": [{"id": "s", "workflow": "user_unet"}]}
+
+    result = await queries.query(None, {"action": "models", "config": config})
+
+    assert result["graph_models"] == {"user_unet": ["real.safetensors"]}
 
 
 @pytest.mark.parametrize("overridden", [True, False], ids=["override validated", "graph's own pin surfaced"])

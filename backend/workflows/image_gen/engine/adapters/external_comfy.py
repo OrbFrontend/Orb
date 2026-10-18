@@ -61,7 +61,7 @@ class ExternalComfyAdapter(ImageAdapter):
     def readiness(self, model: str = "") -> dict:
         """Check only the bound style's readiness.
 
-        Ignore model: the graph pins its checkpoint. Other cloud-linked or unfinished styles must not block this one.
+        Ignore model: the graph pins its own. Other cloud-linked or unfinished styles must not block this one.
         """
         config = self.config
         graphs = {graph["id"]: graph for graph in self._graphs()}
@@ -76,7 +76,7 @@ class ExternalComfyAdapter(ImageAdapter):
                 "detail": f"{label!r} names a workflow that is not imported: {style['workflow']}",
             }
         if not style["checkpoint"] and "checkpoint" in graphs[style["workflow"]]["slots"]:
-            return {"ready": False, "reason": "no_checkpoint", "detail": f"Choose a checkpoint for {label!r} before generating"}
+            return {"ready": False, "reason": "no_checkpoint", "detail": f"Choose a model for {label!r} before generating"}
         return {"ready": True, "reason": "", "detail": f"External ComfyUI at {config['external_comfy']['api_url']}"}
 
     def _graph_slots(self, graph_id: str) -> Mapping[str, Any]:
@@ -219,10 +219,39 @@ class ExternalComfyAdapter(ImageAdapter):
             discovered = await available_checkpoints()
         except ImageGenerationError:
             discovered = []
-        return {"ok": True, "capabilities": dict(CAPABILITIES), "system": _safe_system_summary(stats), "models": discovered}
+        return {
+            "ok": True,
+            "capabilities": dict(CAPABILITIES),
+            "system": _safe_system_summary(stats),
+            "models": discovered,
+            "graph_models": await self.graph_models(),
+        }
 
     async def list_models(self) -> list[str]:
         return await self._client().models("checkpoints")
+
+    async def graph_models(self) -> dict[str, list[str]]:
+        """Each imported workflow's model menu, read off the loader node its model slot names."""
+        client = self._client()
+        declarations: dict[str, dict] = {}
+        menus: dict[str, list[str]] = {}
+        for item in self._graphs():
+            slot = item["slots"].get("checkpoint")
+            if not isinstance(slot, (list, tuple)) or len(slot) != 2:
+                continue
+            node = item["graph"].get(str(slot[0]))
+            class_type = node.get("class_type") if isinstance(node, Mapping) else None
+            if not isinstance(class_type, str) or not class_type:
+                continue
+            if class_type not in declarations:
+                try:
+                    declarations[class_type] = await client.node_info(class_type)
+                except ImageGenerationError:
+                    declarations[class_type] = {}
+            options = _combo_options(declared_inputs(declarations[class_type]).get(str(slot[1])))
+            if options is not None:
+                menus[item["id"]] = options
+        return menus
 
     async def node_roles(self, class_types: Sequence[str]) -> dict:
         """Which inputs of the named node classes can carry which slot role.
@@ -341,6 +370,19 @@ def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
         for name, value in declared_inputs(info).items()
         if isinstance(value, (list, tuple)) and value and value[0] == wanted
     ]
+
+
+def _combo_options(spec: Any) -> list[str] | None:
+    """A combo input's choices, in either `/object_info` spelling: `[[...], {...}]` or `["COMBO", {"options": [...]}]`."""
+    if not isinstance(spec, (list, tuple)) or not spec:
+        return None
+    if isinstance(spec[0], list):
+        options = spec[0]
+    elif spec[0] == "COMBO" and len(spec) > 1 and isinstance(spec[1], Mapping) and isinstance(spec[1].get("options"), list):
+        options = spec[1]["options"]
+    else:
+        return None
+    return sorted(x for x in options if isinstance(x, str) and len(x) <= 512)
 
 
 def _image_upload_inputs(info: Mapping[str, Any]) -> list[str]:

@@ -82,6 +82,7 @@ let backends = { sources: [], providers: [] };
 let draft = { styles: [], scene_skills: [], graphs: [], comfy: {}, connections: {} };
 let connections = [];
 let modelsByConnection = {};
+let modelsByGraph = {};
 let probeIds = {};
 let pendingConnections = new Set();
 
@@ -270,11 +271,11 @@ function modelField(state, { attrs, emptyLabel, placeholder }) {
 
 const styleField = (name) => `data-ig-field="${name}" data-wf-action="image_gen:styleChange" data-wf-on="change"`;
 
-function checkpointField(value) {
-  return modelField(modelPickerState(modelsByConnection[COMFY_CONNECTION], value), {
+function checkpointField(style) {
+  return modelField(modelPickerState(modelsByGraph[style.workflow], style.checkpoint || ""), {
     attrs: styleField("checkpoint"),
-    emptyLabel: "Choose a checkpoint",
-    placeholder: "checkpoint.safetensors",
+    emptyLabel: "Choose a model",
+    placeholder: "model.safetensors",
   });
 }
 
@@ -433,6 +434,10 @@ function graphTakesSize(workflowId) {
   return !!(slots?.width && slots?.height);
 }
 
+function graphTakesModel(workflowId) {
+  return !!draft.graphs.find((g) => g.id === workflowId)?.slots?.checkpoint;
+}
+
 const promptFormatOptions = (value) => optionList(PROMPT_FORMATS, normalizePromptFormat(value));
 
 function styleConnectionOptions(selected) {
@@ -464,7 +469,7 @@ function backendFields(style, connection) {
   if (!connection) return "";
   if (connection.source === "cloud") return cloudStyleFields(style, connection);
   return `<div class="ig-grid">
-      <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
+      ${graphTakesModel(style.workflow) ? `<label>Model${checkpointField(style)}</label>` : ""}
       <label>Workflow${workflowField(style.workflow || "")}</label>
       ${graphTakesSize(style.workflow) ? resolutionField(style, { comfy: true }) : ""}
     </div>
@@ -539,7 +544,7 @@ const CHECKPOINT_EXTENSION = /\.(safetensors|ckpt|sft|pt|gguf)$/i;
 
 function styleTargetBadge(style, connection) {
   if (connection?.source === "cloud") return style.model || connection.preset?.default_model || "";
-  if (style.checkpoint) return style.checkpoint.replace(CHECKPOINT_EXTENSION, "");
+  if (style.checkpoint && graphTakesModel(style.workflow)) return style.checkpoint.replace(CHECKPOINT_EXTENSION, "");
   return draft.graphs.find((g) => g.id === style.workflow)?.label || "";
 }
 
@@ -1034,13 +1039,22 @@ function configForConnection(id) {
   return { ...next, styles };
 }
 
-function applyModels(id, names) {
+function applyModels(id, names, graphModels = {}) {
   const models = modelPickerState(names).models;
   const previous = modelsByConnection[id];
-  if (previous && previous.length === models.length && previous.every((name, i) => name === models[i])) return;
+  const graphs =
+    id === COMFY_CONNECTION && graphModels && typeof graphModels === "object" ? graphModels : modelsByGraph;
+  if (
+    previous &&
+    previous.length === models.length &&
+    previous.every((name, i) => name === models[i]) &&
+    JSON.stringify(graphs) === JSON.stringify(modelsByGraph)
+  )
+    return;
   const openStyles = openStyleIds();
   captureForm();
   modelsByConnection[id] = models;
+  modelsByGraph = graphs;
   rebuildConnections();
   renderStyles(openStyles);
 }
@@ -1049,13 +1063,15 @@ async function loadModels(id) {
   probeIds[id] = (probeIds[id] || 0) + 1;
   const probeId = probeIds[id];
   let models = [];
+  let graphModels = {};
   try {
     const res = await query("models", { config: configForConnection(id) });
     models = Array.isArray(res?.models) ? res.models : [];
+    graphModels = res?.graph_models || {};
   } catch {
     models = [];
   }
-  if (probeIds[id] === probeId) applyModels(id, models);
+  if (probeIds[id] === probeId) applyModels(id, models, graphModels);
 }
 
 async function testConnection(id) {
@@ -1071,7 +1087,7 @@ async function testConnection(id) {
       if (result) result.textContent = res.error;
       return;
     }
-    applyModels(id, res?.models);
+    applyModels(id, res?.models, res?.graph_models);
     const who = res?.system?.devices?.[0]?.name || res?.system?.provider;
     if (result) result.textContent = who ? `Connected — ${who}` : "Connected";
   } catch {
@@ -1087,6 +1103,7 @@ function openSettings(expandStyleId = "") {
   pendingGraph = null;
   probeIds = {};
   modelsByConnection = {};
+  modelsByGraph = {};
   pendingConnections = new Set();
   resetCharacterProfile();
   draft = {
@@ -1341,6 +1358,7 @@ function addPendingGraph() {
   if (picker)
     picker.innerHTML = `<div class="image-gen-note">Added ${esc(label)}. Test the connection, then save your settings.</div>`;
   pendingGraph = null;
+  loadModels(COMFY_CONNECTION);
 }
 
 async function saveSettings() {

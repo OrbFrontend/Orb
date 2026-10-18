@@ -5,7 +5,7 @@ an external ComfyUI server or a cloud image provider.
 
 | Backend | You need | Cost |
 |---|---|---|
-| **External ComfyUI** | A running server, checkpoint, and imported workflow | Your hardware and electricity |
+| **External ComfyUI** | A running server, model, and imported workflow | Your hardware and electricity |
 | **Cloud API** | A provider account and API key | Provider charges for each image |
 
 Start with [ComfyUI Setup](comfyui-setup.md) or
@@ -16,7 +16,7 @@ Start with [ComfyUI Setup](comfyui-setup.md) or
 You need:
 
 - A working LLM endpoint in Orb
-- A reachable ComfyUI server with a checkpoint and workflow, or a cloud provider
+- A reachable ComfyUI server with a model and workflow, or a cloud provider
   connection
 
 The Agent model reads the conversation up to the selected reply and writes the
@@ -43,7 +43,9 @@ connection. Each style can use a different connection.
 2. Enter the server URL, normally `http://127.0.0.1:8188`.
 3. Enter a Bearer-token API key if the server requires one.
 4. Import a workflow and assign it to each style.
-5. Select a checkpoint for styles whose workflow allows Orb to replace the model.
+5. Select a model for styles whose workflow allows Orb to replace it. The list
+   shows the files the workflow's loader accepts: checkpoints for a checkpoint
+   loader, diffusion models for a diffusion-model loader.
 6. Select **Test connection**, then **Save**.
 
 The connection test checks each assigned workflow and its required nodes, models,
@@ -89,7 +91,7 @@ developer options and use **Save (API Format)** or **Export (API)**.
 6. Optionally map matching `width` and `height` inputs.
 7. If the workflow has **Load Image** nodes, review the reference-image slots.
 8. Select **Confirm slots and add workflow**.
-9. Assign the workflow to a style and choose its checkpoint.
+9. Assign the workflow to a style and choose its model.
 10. Set the style's **Reference image** option when the workflow needs an image.
 11. Select **Test connection**, then **Save**.
 
@@ -232,7 +234,7 @@ another one. A style contains:
 | **Positive/negative style tags** | Visual details to include or avoid |
 | **Extra instructions** | Guidance for the Agent prompt writer |
 | **Connection** | ComfyUI or cloud connection |
-| **Checkpoint / Workflow** | ComfyUI model and workflow |
+| **Model / Workflow** | ComfyUI model and workflow |
 | **Model / Resolution / Quality** | Cloud provider settings, where supported |
 | **Reference images** | Images sent to the style's render target |
 
@@ -359,7 +361,7 @@ control to end refinement and keep the renders already made.
 |---|---|
 | Image button is missing | Enable the workflow and select an assistant reply without an image. |
 | **Import a ComfyUI workflow** | Import and assign a workflow to the selected style. |
-| **Choose a checkpoint** | Select a checkpoint in each ComfyUI style that needs one. |
+| **Choose a model** | Select a model in each ComfyUI style that needs one. |
 | Connection test fails | Check the URL, port, server status, firewall, API key, nodes, and models. |
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |

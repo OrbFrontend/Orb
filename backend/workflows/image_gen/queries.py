@@ -95,10 +95,14 @@ async def _probe(body) -> dict:
 
 async def _external_models(body) -> dict:
     config = await _config_from_query(body)
+    result: dict = {}
     try:
-        return {"models": await _default_adapter(config).list_models()}
+        result["models"] = await _default_adapter(config).list_models()
     except ImageGenerationError as exc:
-        return {"error": str(exc)}
+        result["error"] = str(exc)
+    if style_source(config, active_style(config))[0] == "external_comfy":
+        result["graph_models"] = await comfy_adapter(config).graph_models()
+    return result
 
 
 async def _node_types(body) -> dict:

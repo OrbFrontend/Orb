@@ -11,7 +11,7 @@ positive and negative prompts, not the conversation or character card.
 
 | Backend | You need | Billing |
 |---|---|---|
-| **External ComfyUI** | A ComfyUI server, checkpoint, and imported workflow | Your hardware and electricity |
+| **External ComfyUI** | A ComfyUI server, model, and imported workflow | Your hardware and electricity |
 | **Cloud API** | A provider account and API key | Provider charges per image |
 
 Orb does not install ComfyUI or image models. Start with [ComfyUI Setup](comfyui-setup.md)
