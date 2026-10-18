@@ -306,7 +306,7 @@ class FakeLLMClient:
         payload = self._queues["director"].pop(0) if self._queues["director"] else {"tool_calls": []}
         yield {"type": "done", "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])}}
 
-    async def render_prompt(self, messages, *, prefill=None, reasoning=False, fmt=None) -> str:
+    async def render_prompt(self, messages, *, model, prefill=None, reasoning=False, fmt=None) -> str:
         """Deterministic /apply-template stand-in (doc-mode text+assisted patch).
 
         Captures the render inputs and returns a marker string so tests can

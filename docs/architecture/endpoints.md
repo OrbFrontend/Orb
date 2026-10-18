@@ -159,6 +159,11 @@ value; the rejection is learned per model like any other capability fact.
 `logprobs` is not supported on this surface, so Document mode's per-token
 steering is unavailable on Gemini for the same reason it is on Anthropic.
 
+Text Completion calls on a llama-server router name the model on every native
+route: `/props?model=`, and `model` in the `/apply-template` and `/completion`
+bodies. A router rejects a body without it and loads the named model when it is
+not resident. A single-model server ignores the field.
+
 ## Stable external contracts
 
 Endpoint routing is internal and ephemeral. Public API and browser SSE shapes,

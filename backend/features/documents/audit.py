@@ -245,7 +245,7 @@ async def patch_document(
         # decoding only; prompt bytes untouched.
         if assisted:
             gen_messages, prefill = build_generation_messages(context, assisted=True, completion_mode="text")
-            base = await client.render_prompt(gen_messages, prefill=prefill, reasoning=False)
+            base = await client.render_prompt(gen_messages, model=model, prefill=prefill, reasoning=False)
         else:
             base = context
         stream = client.complete_raw(

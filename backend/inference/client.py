@@ -771,14 +771,22 @@ class LLMClient:
                 yield payload
 
     async def _apply_template(
-        self, server_root: str, messages: Sequence[Mapping[str, Any]], chat_template_kwargs: Mapping[str, Any] | None = None
+        self,
+        server_root: str,
+        messages: Sequence[Mapping[str, Any]],
+        chat_template_kwargs: Mapping[str, Any] | None = None,
+        *,
+        model: str,
     ) -> str:
         """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``.
 
         *chat_template_kwargs* (e.g. ``{"enable_thinking": False}``) is forwarded so
-        the template renders its own reasoning on/off bytes -- see ``_complete_text``.
+        the template renders its own reasoning on/off bytes -- see ``_complete_text``. *model* routes the call on a llama-server
+        router, which rejects a body without it; a single-model server ignores it.
         """
         body: dict[str, Any] = {"messages": list(messages)}
+        if model:
+            body["model"] = model
         if chat_template_kwargs is not None:
             body["chat_template_kwargs"] = dict(chat_template_kwargs)
         async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
@@ -795,7 +803,7 @@ class LLMClient:
         return "" if self.reasoning_effort == "custom" else self.reasoning_effort
 
     async def _render_with_effort_fallback(
-        self, server_root: str, render_msgs: Sequence[Mapping[str, Any]], ctk: dict[str, Any] | None
+        self, server_root: str, render_msgs: Sequence[Mapping[str, Any]], ctk: dict[str, Any] | None, *, model: str
     ) -> str:
         """``/apply-template``, retried once without ``reasoning_effort`` if refused.
 
@@ -805,7 +813,7 @@ class LLMClient:
         transport, losing the byte control this transport exists for.
         """
         try:
-            return await self._apply_template(server_root, render_msgs, ctk)
+            return await self._apply_template(server_root, render_msgs, ctk, model=model)
         except httpx.HTTPError as e:
             if not (ctk and "reasoning_effort" in ctk):
                 raise
@@ -813,13 +821,16 @@ class LLMClient:
                 "text mode: /apply-template refused reasoning_effort=%r (%r); rendering without it", ctk["reasoning_effort"], e
             )
             return await self._apply_template(
-                server_root, render_msgs, {k: v for k, v in ctk.items() if k != "reasoning_effort"}
+                server_root, render_msgs, {k: v for k, v in ctk.items() if k != "reasoning_effort"}, model=model
             )
 
-    async def _fetch_chat_template(self, server_root: str) -> str:
-        """Fetch validated metadata; a failed lookup never means non-thinking."""
+    async def _fetch_chat_template(self, server_root: str, *, model: str) -> str:
+        """Fetch validated metadata; a failed lookup never means non-thinking.
+
+        A router's own ``/props`` carries no template, so *model* names the one to read (and loads it, as the call is about to).
+        """
         async with httpx.AsyncClient(timeout=self.timeout, proxy=self.proxy) as client:
-            resp = await client.get(f"{server_root}/props", headers=self._headers())
+            resp = await client.get(f"{server_root}/props", params={"model": model} if model else None, headers=self._headers())
             resp.raise_for_status()
             try:
                 data = resp.json()
@@ -830,13 +841,13 @@ class LLMClient:
                 raise rf.ReasoningFormatError("Cannot read the server's /props reasoning metadata: missing chat_template.")
             return template
 
-    async def _reasoning_format(self, server_root: str) -> rf.ReasoningFormat:
+    async def _reasoning_format(self, server_root: str, *, model: str) -> rf.ReasoningFormat:
         """Learn from synthetic renders once per client/template, with no inference.
 
         Fetch the template every call to notice model swaps. Do not reuse a
         cached result when metadata is unavailable, or cache failed discovery.
         """
-        template = await self._fetch_chat_template(server_root)
+        template = await self._fetch_chat_template(server_root, model=model)
         cached = self._reasoning_profile
         if cached and cached[0] == template:
             return cached[1]
@@ -851,10 +862,11 @@ class LLMClient:
                 server_root,
                 rf.probe_messages(history=history, empty=empty),
                 {"enable_thinking": thinking, "thinking": thinking},
+                model=model,
             )
         fmt = rf.format_from_probes(**renders)
         fmt.require_supported()
-        if await self._fetch_chat_template(server_root) != template:
+        if await self._fetch_chat_template(server_root, model=model) != template:
             raise rf.ReasoningFormatError("The loaded template changed during reasoning discovery; retry the call.")
         self._reasoning_profile = (template, fmt)
         return fmt
@@ -862,8 +874,8 @@ class LLMClient:
     async def _stream_completion(self, url: str, body: dict) -> AsyncIterator[dict]:
         """Stream parsed llama.cpp /completion SSE chunks with abortable reads.
 
-        Keep the (url, body) seam for tests. Rejections have no model attribution:
-        the server selects its loaded model, not a body field.
+        Keep the (url, body) seam for tests. Rejections have no model attribution: a
+        single-model server ignores the body ``model`` a router routes by.
         """
         # read=None for the same reason as the chat transport: llama.cpp is silent for the whole prefill, which legitimately
         # exceeds any flat read timeout on long contexts.
@@ -882,6 +894,7 @@ class LLMClient:
         self,
         messages: Sequence[Mapping[str, Any]],
         *,
+        model: str,
         prefill: str | None = None,
         reasoning: bool = False,
         fmt: rf.ReasoningFormat | None = None,
@@ -910,11 +923,11 @@ class LLMClient:
             effort = self._template_effort() if reasoning else ""
             if effort:
                 ctk["reasoning_effort"] = effort
-        prompt = await self._render_with_effort_fallback(server_root, render_msgs, ctk)
+        prompt = await self._render_with_effort_fallback(server_root, render_msgs, ctk, model=model)
         if close_thought:
-            return rf.select_reply(prompt, fmt or await self._reasoning_format(server_root))
+            return rf.select_reply(prompt, fmt or await self._reasoning_format(server_root, model=model))
         if not reasoning and not prefill:
-            fmt = fmt or await self._reasoning_format(server_root)
+            fmt = fmt or await self._reasoning_format(server_root, model=model)
             fmt.require_supported()
             if fmt.channel:
                 prompt = rf.select_reply(prompt, fmt)
@@ -948,11 +961,11 @@ class LLMClient:
         template_thinking = bool(params.pop("template_thinking", False))
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
-        fmt = await self._reasoning_format(server_root)
+        fmt = await self._reasoning_format(server_root, model=model)
         # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
             prompt = await self.render_prompt(
-                messages, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
+                messages, model=model, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
             )
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
@@ -983,6 +996,8 @@ class LLMClient:
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
+        if model:
+            body["model"] = model
         if grammar is not None:
             # Caller-supplied raw GBNF wins over the schema-derived grammar: a prefilled call continues mid-JSON, where
             # json_schema (which constrains a fresh, complete object) would reject the remainder.
@@ -1056,16 +1071,18 @@ class LLMClient:
 
     async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Stream a raw completion for prompt."""
-        async for event in self._with_retry(lambda: self._complete_raw(prompt, **params)):
+        async for event in self._with_retry(lambda: self._complete_raw(prompt, model, **params)):
             yield event
 
-    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[CompletionEvent]:
+    async def _complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[CompletionEvent]:
         """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
         grammar = params.pop("grammar", None)
         schema = params.pop("json_schema", None)
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
+        if model:
+            body["model"] = model
         if grammar is not None:
             body["grammar"] = grammar
         elif schema is not None:

@@ -365,12 +365,12 @@ def _wired(template="P", props="", pieces=("x",), final=None) -> tuple[LLMClient
     client = LLMClient("http://x/v1", completion_mode="text")
     captured: dict = {}
 
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
+    async def fake_apply(root, msgs, chat_template_kwargs=None, *, model):
         captured["msgs"] = list(msgs)
         captured["ctk"] = chat_template_kwargs
         return template(msgs, chat_template_kwargs) if callable(template) else template
 
-    async def fake_format(root):
+    async def fake_format(root, *, model):
         return _format(props)
 
     async def fake_stream(url, body):
@@ -502,7 +502,7 @@ async def test_complete_text_apply_template_error_falls_back_to_chat():
     captured: dict = {}
     client, _ = _wired()
 
-    async def boom(root, msgs, chat_template_kwargs=None):
+    async def boom(root, msgs, chat_template_kwargs=None, *, model):
         raise httpx.ConnectError("nope")
 
     client._apply_template = boom  # type: ignore[method-assign]
@@ -670,18 +670,18 @@ async def test_render_prompt_reproduces_the_transports_reply_channel_bytes():
     # The doc-mode auditor re-derives a past generation's prompt; a byte of drift is a KV-cache miss on every audited turn.
     client, captured = _wired("<|start|>assistant", ONYX_TEMPLATE)
     await _complete(client, **reasoning_cfg(False))
-    assert await client.render_prompt(HI, reasoning=False) == captured["prompt"]
+    assert await client.render_prompt(HI, model="m", reasoning=False) == captured["prompt"]
 
 
 async def test_render_prompt_skips_the_sniff_for_a_prefilled_call():
     # A prefill can never need the disable bytes, so it must not pay for /props.
     client, _ = _wired(REPLY + "He", ONYX_TEMPLATE)
 
-    async def must_not_run(root):
+    async def must_not_run(root, *, model):
         raise AssertionError("/props fetched for a prefilled render")
 
     client._reasoning_format = must_not_run  # type: ignore[method-assign]
-    assert await client.render_prompt(HI, prefill="He") == REPLY + "He"
+    assert await client.render_prompt(HI, model="m", prefill="He") == REPLY + "He"
 
 
 # -- Reasoning effort rides the text-mode render -----------------------------
@@ -693,11 +693,11 @@ def _effort_client(effort: str, refuse: tuple[str, ...] = ()) -> tuple[LLMClient
     client.reasoning_effort = effort
     real = client._apply_template
 
-    async def apply(root, msgs, chat_template_kwargs=None):
+    async def apply(root, msgs, chat_template_kwargs=None, *, model):
         captured.setdefault("attempts", []).append(chat_template_kwargs)
         if chat_template_kwargs and chat_template_kwargs.get("reasoning_effort") in refuse:
             raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "http://x"), response=httpx.Response(500))
-        return await real(root, msgs, chat_template_kwargs)
+        return await real(root, msgs, chat_template_kwargs, model=model)
 
     client._apply_template = apply  # type: ignore[method-assign]
     return client, captured
@@ -715,14 +715,14 @@ def _effort_client(effort: str, refuse: tuple[str, ...] = ()) -> tuple[LLMClient
 async def test_render_prompt_reasoning_effort(effort, reasoning, ctk):
     client, captured = _effort_client(effort)
     client.reasoning_effort_param, client.reasoning_effort_value = "think_budget", "512"
-    await client.render_prompt(HI, reasoning=reasoning)
+    await client.render_prompt(HI, model="m", reasoning=reasoning)
     assert captured["ctk"] == ctk
 
 
 async def test_render_prompt_retries_without_a_refused_reasoning_effort():
     # Qwen3.8 accepts only low/medium/xhigh and raises on the rest; dropping the effort keeps the call in the text transport.
     client, captured = _effort_client("high", refuse=("high",))
-    assert await client.render_prompt(HI, reasoning=True) == "P"
+    assert await client.render_prompt(HI, model="m", reasoning=True) == "P"
     assert captured["attempts"] == [
         {"enable_thinking": True, "thinking": True, "reasoning_effort": "high"},
         {"enable_thinking": True, "thinking": True},
@@ -737,9 +737,9 @@ async def test_render_prompt_reraises_a_failure_that_is_not_about_effort():
     # No effort to drop -> the caller's chat-transport fallback still owns this.
     client, _ = _effort_client("")
 
-    async def always_fail(root, msgs, chat_template_kwargs=None):
+    async def always_fail(root, msgs, chat_template_kwargs=None, *, model):
         raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "http://x"), response=httpx.Response(500))
 
     client._apply_template = always_fail  # type: ignore[method-assign]
     with pytest.raises(httpx.HTTPStatusError):
-        await client.render_prompt(HI, reasoning=True)
+        await client.render_prompt(HI, model="m", reasoning=True)

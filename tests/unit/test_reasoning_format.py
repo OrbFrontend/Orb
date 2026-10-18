@@ -169,11 +169,11 @@ def _client(monkeypatch, current):
     client = LLMClient("http://test/v1", completion_mode="text", retry=RetryPolicy(count=0))
     calls = {"props": 0, "renders": 0, "completion": 0}
 
-    async def props(root):
+    async def props(root, *, model):
         calls["props"] += 1
         return (FIXTURES / f"{current[0]}.jinja").read_text()
 
-    async def render(root, messages, chat_template_kwargs=None):
+    async def render(root, messages, chat_template_kwargs=None, *, model):
         calls["renders"] += 1
         if messages[-1]["role"] == "assistant":
             name = "history" if messages[-1].get("reasoning_content") else "empty_history"
@@ -195,12 +195,12 @@ def _client(monkeypatch, current):
 async def test_profile_reused_but_model_swaps_reprobed(monkeypatch):
     current = ["qwen"]
     client, calls = _client(monkeypatch, current)
-    first = await client._reasoning_format("http://test")
-    assert await client._reasoning_format("http://test") is first
+    first = await client._reasoning_format("http://test", model="m")
+    assert await client._reasoning_format("http://test", model="m") is first
     assert calls["renders"] == 4
     assert calls["props"] == 3  # before/after discovery, then a cache validation
     current[0] = "muse"
-    assert (await client._reasoning_format("http://test")).channel
+    assert (await client._reasoning_format("http://test", model="m")).channel
     assert calls["renders"] == 8
 
 
@@ -216,15 +216,15 @@ async def test_model_change_during_discovery_is_not_cached(monkeypatch):
 
     monkeypatch.setattr(client, "_apply_template", swap)
     with pytest.raises(rf.ReasoningFormatError):
-        await client._reasoning_format("http://test")
+        await client._reasoning_format("http://test", model="m")
     assert client._reasoning_profile is None
 
 
 async def test_metadata_outage_never_uses_cached_profile_or_emits_raw_content(monkeypatch):
     client, calls = _client(monkeypatch, ["qwen"])
-    await client._reasoning_format("http://test")
+    await client._reasoning_format("http://test", model="m")
 
-    async def unavailable(root):
+    async def unavailable(root, *, model):
         raise httpx.ConnectError("metadata unavailable")
 
     monkeypatch.setattr(client, "_fetch_chat_template", unavailable)
@@ -242,7 +242,7 @@ async def test_invalid_props_is_an_error_not_a_nonreasoning_model(monkeypatch, b
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs))
     client = LLMClient("http://test/v1", completion_mode="text")
     with pytest.raises(rf.ReasoningFormatError, match="metadata"):
-        await client._fetch_chat_template("http://test")
+        await client._fetch_chat_template("http://test", model="m")
 
 
 @pytest.mark.parametrize("name", ["qwen", "gemma", "muse"])
@@ -258,3 +258,44 @@ async def test_captured_render_through_constrained_transport(monkeypatch, name):
     assert "reasoning_content" not in events[-1]["message"]
     fmt = rf.format_from_probes(**_renders(name))
     assert rf.prompt_state(calls["body"]["prompt"], fmt) == "content"
+
+
+def _router(monkeypatch, name="qwen"):
+    """A llama-server router: every native route needs the model, and its own ``/props`` has no template."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/props":
+            if request.url.params.get("model") != "m":
+                return httpx.Response(200, json={"role": "router"})
+            return httpx.Response(200, json={"chat_template": (FIXTURES / f"{name}.jinja").read_text()})
+        body = json.loads(request.content)
+        if body.get("model") != "m":
+            return httpx.Response(400, json={"error": {"message": "model name is missing from the request"}})
+        if request.url.path == "/apply-template":
+            messages = body["messages"]
+            if messages[-1]["role"] == "assistant":
+                key = "history" if messages[-1].get("reasoning_content") else "empty_history"
+            else:
+                key = "on" if body["chat_template_kwargs"]["enable_thinking"] else "off"
+            return httpx.Response(200, json={"prompt": _renders(name)[key]})
+        return httpx.Response(200, text='data: {"content": "Blue", "stop": true}\n\n')
+
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(handle)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real_client(transport=transport, **kwargs))
+    return seen
+
+
+async def test_text_mode_names_the_model_on_every_router_call(monkeypatch):
+    seen = _router(monkeypatch)
+    client = LLMClient("http://test/v1", completion_mode="text", retry=RetryPolicy(count=0))
+    messages = [{"role": "user", "content": "Hi"}]
+    events = [e async for e in client.complete(messages=messages, model="m", **reasoning_cfg(False))]
+    assert events[-1]["message"]["content"] == "Blue"
+    assert {r.url.path for r in seen} == {"/props", "/apply-template", "/completion"}
+    assert all(r.url.params["model"] == "m" for r in seen if r.method == "GET")
+    raw = [e async for e in client.complete_raw("p", "m")]
+    assert raw[-1]["message"]["content"] == "Blue"
+    assert json.loads(seen[-1].content)["model"] == "m"
