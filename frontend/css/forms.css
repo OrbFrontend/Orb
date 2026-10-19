@@ -78,6 +78,10 @@ label { display: block; font-size: 11px; font-weight: 500; color: var(--text-sec
 /* A two- or three-digit number beside wider controls: a fixed sliver rather
    than an equal share of the row. */
 .field-row > .field-narrow { flex: 0 0 88px; min-width: 0; }
+
+/* An input and the button that submits it: one line at every width, unlike a
+   .field-row, which stacks on phones. */
+.access-password-row { display: flex; gap: 8px; margin: 8px 0; }
 .tab-lock-banner { display: none; background: var(--red); color: #fff; padding: 10px 16px; align-items: center;
   justify-content: center; gap: 10px; font-size: 13px; font-weight: 500; }
 #main.tab-locked .tab-lock-banner { display: flex; }
