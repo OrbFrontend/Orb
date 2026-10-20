@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from ..core.settings import Settings
 from ..database import get_settings
@@ -67,6 +68,32 @@ def _wait_cap(config: Mapping[str, Any]) -> float:
         return 180.0
 
 
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    try:
+        port = parts.port
+    except ValueError:  # a malformed port fails the calls themselves; it must not turn the whole plan off
+        return scheme, url, None
+    return scheme, (parts.hostname or "").lower(), port or {"http": 80, "https": 443}.get(scheme)
+
+
+def _hosted_comfy(comfy_url: str, targets: list[gpu_swap.LlmTarget]) -> tuple[str, str]:
+    """``(llama-swap root, model ID)`` when ComfyUI is served through a lane's llama-swap, else empty strings."""
+    for target in targets:
+        if target.kind != "llama_swap" or _origin(comfy_url) != _origin(target.root):
+            continue
+        base, path = urlsplit(target.root).path.rstrip("/"), urlsplit(comfy_url).path.rstrip("/")
+        if not path.startswith(base):
+            continue
+        rest = path[len(base) :]
+        if rest == "/comfyui":
+            return target.root, "comfyui_auto"
+        if rest.startswith("/upstream/") and rest != "/upstream/":
+            return target.root, unquote(rest[len("/upstream/") :])
+    return "", ""
+
+
 async def _build() -> gpu_swap.SwapPlan:
     settings = await get_settings()
     config = await get_workflow_config(IMAGE_GEN)
@@ -77,13 +104,17 @@ async def _build() -> gpu_swap.SwapPlan:
     for _, target in await probe_lanes(settings):
         if target.kind in gpu_swap.UNLOADABLE and all((t.root, t.model) != (target.root, target.model) for t in targets):
             targets.append(target)
+    comfy_url = str(external.get("api_url") or "").rstrip("/")
+    comfy_host, comfy_model = _hosted_comfy(comfy_url, targets)
     return gpu_swap.SwapPlan(
         enabled=bool(targets),
         llm_targets=tuple(targets),
-        comfy_url=str(external.get("api_url") or "").rstrip("/"),
+        comfy_url=comfy_url,
         comfy_key=str(external.get("api_key") or ""),
         wait_cap=_wait_cap(config),
         slot_restore=external.get("gpu_swap_restore") is True,
+        comfy_host=comfy_host,
+        comfy_model=comfy_model,
     )
 
 
@@ -124,8 +155,10 @@ async def support(settings: Settings) -> dict:
         reason = ""
     elif locked is not None:
         reason = f"The {locked.capitalize()} endpoint's key can't load or unload models; use the server's admin key."
+    elif any(target.kind == "koboldcpp" for _, target in lanes):
+        reason = "KoboldCpp can't unload its model over the API. Run it under llama-swap to share the GPU."
     else:
-        reason = "No Writer or Agent endpoint is a llama-server router, Ollama, tabbyAPI, or text-generation-webui."
+        reason = "No Writer or Agent endpoint is a llama-server router, llama-swap, Ollama, tabbyAPI, or text-generation-webui."
     return {
         "available": available,
         "lanes": [{"lane": lane, "kind": target.kind, "model": target.model} for lane, target in lanes],

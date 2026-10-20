@@ -94,7 +94,9 @@ The probe never names a model, so it never loads one:
 |---|---|---|
 | llama-server router (`--models-preset`, `--models-dir`) | `GET /props` answers `"role": "router"` | `POST /models/unload`, then poll `GET /models` until the entry leaves `loaded`/`loading` |
 | llama-server single model (`-m`) | `Server: llama.cpp` with no router role | none, so the option stays hidden |
-| Ollama | `GET /api/version` answers a version | `POST /api/generate` with `keep_alive: 0`, then poll `GET /api/ps` |
+| llama-swap | `GET /running` answers a `running` list | `POST /api/models/unload/{id}`, then poll `GET /running` until the ID leaves |
+| Ollama | `GET /api/version` answers a version and `GET /` answers `Ollama is running` | `POST /api/generate` with `keep_alive: 0`, then poll `GET /api/ps` |
+| KoboldCpp | `GET /api/version` answers a version and `GET /api/extra/version` answers `"result": "KoboldCpp"` | none; the reason points at llama-swap |
 | tabbyAPI | `GET /.well-known/serviceinfo` names `TabbyAPI`; `GET /v1/auth/permission` answers `admin` | `POST /v1/model/unload`; reload with `POST /v1/model/load` |
 | text-generation-webui | `GET /v1/internal/model/info` answers `model_name` and `loader`; `GET /v1/internal/model/list` accepts the key | `POST /v1/internal/model/unload`; reload with `POST /v1/internal/model/load` |
 | anything else | — | none |
@@ -104,6 +106,31 @@ Paths are relative to the server root, the base URL without `/v1`. A router's
 configured name compares as `name:latest`. A kind is cached per root for 30
 seconds once a server answers, so a server restarted in another mode is noticed.
 A failed model listing forgets it sooner.
+
+KoboldCpp emulates Ollama's routes: its `/api/version` body is the same as
+Ollama's, its `/api/ps` never drops the model, and its `/api/generate` runs a
+real generation. The `GET /` check keeps Orb from sending it an Ollama unload.
+A reverse proxy that rewrites Ollama's root makes Ollama read as `other`, which
+hides the option.
+
+With `apiKeys` set, llama-swap answers a call without the key with a 401 whose
+body has `"src": "llama-swap"`, and Orb reports that the key can't unload.
+
+llama-swap reports each process it has not stopped in `GET /running`, with
+the state `starting`, `ready`, or `stopping`. Every listed process counts as
+resident, because a stopping one still holds VRAM, but only `starting` and
+`ready` count as a loaded model. `/running` names real model IDs, so a lane
+configured with an alias is resolved through `GET /v1/models`, whose records
+carry `meta.llamaswap.aliases`. A name that list leaves out (unlisted models,
+`setParamsByID` variants, selectors) reads as not loaded and keeps no chat
+cache. The unload answers once the process has stopped and cuts off that
+model's in-flight requests, which is safe for Orb because a render waits for
+its LLM calls first. Another app on the same llama-swap loses its request. A
+render unloads every model llama-swap runs, like a router. A 404 from the
+per-model unload route means a llama-swap too old to have it. llama-swap loads
+a model again on the next request that names it, so Orb never reloads one. It
+forwards the OpenAI routes and `/completion` but not `/apply-template`, so a
+lane in text mode can't run through it.
 
 tabbyAPI and text-generation-webui hold one model, answer the unload once it is
 gone, and never load one back by themselves. A key that is not the admin key
@@ -121,6 +148,40 @@ freed its memory, which also loads the model. Each model and slot has one fixed
 file name, so the files never outnumber slots times models. llama.cpp has no
 delete call, and the files outlive the server process. A slot that fails to
 save or restore costs only a prefill.
+
+A llama-swap target uses the same slot calls through
+`/upstream/{id}/slots`, the one llama-server that runs the model. Any request
+there starts a stopped model, so Orb saves only models in the `ready` state.
+The restore that follows a render cold-starts the process, so it waits up to
+the 600-second load timeout instead of the 120-second slot timeout. The model's
+`cmd` needs `--slot-save-path`.
+
+#### ComfyUI hosted by llama-swap
+
+ComfyUI counts as hosted when its URL has the same scheme, host, and port as a
+llama-swap lane's root and its path is `/comfyui` (llama-swap's reserved
+`comfyui_auto` model) or `/upstream/{id}`. Use the real model ID there, not an
+alias. `/running` reports real IDs, so with an alias Orb can't tell ComfyUI
+apart from a chat model: it reports `starting` before every render and tries,
+harmlessly, to save ComfyUI's slots. llama-swap then evicts models for ComfyUI
+and the other way around, following its groups, so Orb changes two steps:
+
+- **Before a render**, Orb waits as usual and, with the chat cache option on,
+  saves the slots of `ready` models. It does not unload them. If ComfyUI is
+  not `ready`, Orb sends `GET {comfy}/system_stats` with the load timeout and
+  reports the `starting` stage. That request makes llama-swap start ComfyUI and
+  evict what its groups say to, so the render's own calls hit a warm server.
+  A group that lets a small model run beside ComfyUI is respected.
+- **Before the next LLM call**, Orb never sends ComfyUI's `/free`, because any
+  request but a few static `GET`s starts a stopped ComfyUI. The model's own
+  request, or the first slot restore, makes llama-swap evict ComfyUI. An LLM
+  lane on another server stops ComfyUI with llama-swap's unload instead.
+
+The arbiter is still needed: llama-swap counts only HTTP requests as in
+flight, and ComfyUI's `POST /prompt` returns at once, so without it a reply
+during a render would evict ComfyUI and kill the render. The image settings'
+connection test and model lists reach ComfyUI outside the arbiter, so with
+ComfyUI hosted they start it and evict the chat model, which loses its cache.
 
 ## Lane presets
 

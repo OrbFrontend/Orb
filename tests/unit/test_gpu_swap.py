@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -35,7 +36,7 @@ def _serve(monkeypatch, handle):
         gpu_swap,
         "_client",
         lambda headers, proxy, timeout=gpu_swap.PROBE_TIMEOUT: httpx.AsyncClient(
-            transport=transport, headers=dict(headers or {})
+            transport=transport, headers=dict(headers or {}), timeout=timeout
         ),
     )
     return seen
@@ -62,6 +63,68 @@ def _router(models: dict[str, str], *, lag: int = 2):
     return handle
 
 
+def _swap(models: dict[str, str], *, aliases: dict[str, list[str]] | None = None, group: bool = False, old: bool = False):
+    """llama-swap: unload answers once the process stopped, and any request to a stopped model starts it.
+
+    With *group*, starting one model stops the rest. *old* lacks the per-model unload route.
+    """
+    aliases = aliases or {}
+
+    def start(model: str) -> None:
+        for other in models if group else ():
+            models[other] = "stopped"
+        models[model] = "ready"
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/props":
+            return httpx.Response(404, json={"src": "llama-swap", "error": {"message": "no model id could be identified"}})
+        if path == "/running":
+            running = [{"model": m, "state": state, "cmd": "x"} for m, state in models.items() if state != "stopped"]
+            return httpx.Response(200, json={"running": running})
+        if path == "/v1/models":
+            data = [
+                {
+                    "id": m,
+                    "status": {"value": "loaded" if state == "ready" else "unloaded"},
+                    "meta": {"llamaswap": {"aliases": aliases.get(m, [])}},
+                }
+                for m, state in models.items()
+            ]
+            return httpx.Response(200, json={"object": "list", "data": data})
+        if path.startswith("/api/models/unload/") and not old:
+            models[unquote(path.removeprefix("/api/models/unload/"))] = "stopped"
+            return httpx.Response(200, text="OK")
+        if path.startswith("/upstream/"):
+            model, rest = path.removeprefix("/upstream/").split("/", 1)
+            start(model)
+            return httpx.Response(200, json=[{"id": 0}, {"id": 1}] if rest == "slots" else {"n_saved": 1})
+        if path.startswith("/comfyui/"):
+            start("comfyui_auto")
+            return httpx.Response(200, json={"devices": [{"vram_free": 0}]})
+        if path == "/api/version":
+            return httpx.Response(200, json={"build_date": "unknown", "commit": "abcd1234", "version": "0"})
+        return httpx.Response(404, text="404 page not found")
+
+    return handle
+
+
+def _koboldcpp(request: httpx.Request) -> httpx.Response:
+    """KoboldCpp's Ollama emulation: the same version body, a model that never leaves ``/api/ps``, and a real generate."""
+    path = request.url.path
+    if path == "/api/version":
+        return httpx.Response(200, json={"version": "0.7.0"})
+    if path == "/":
+        return httpx.Response(200, text="<!doctype html><title>KoboldAI Lite</title>")
+    if path == "/api/extra/version":
+        return httpx.Response(200, json={"result": "KoboldCpp", "version": "1.80"})
+    if path in ("/api/ps", "/api/tags"):
+        return httpx.Response(200, json={"models": [{"name": "koboldcpp/m", "expires_at": "2055-01-01T00:00:00Z"}]})
+    if path == "/api/generate":
+        return httpx.Response(200, json={"response": "Once upon a time"})
+    return httpx.Response(404)
+
+
 def _target(kind: gpu_swap.ServerKind = "llama_router", model: str = "g") -> gpu_swap.LlmTarget:
     return gpu_swap.LlmTarget(root=ROOT, model=model, kind=kind)
 
@@ -73,7 +136,18 @@ async def test_probe_kinds_and_cache(monkeypatch):
     responses = {
         "llama_router": lambda r: httpx.Response(200, json={"role": "router"}),
         "llama_single": lambda r: httpx.Response(200, json={"chat_template": "x"}, headers={"Server": "llama.cpp"}),
-        "ollama": lambda r: httpx.Response(404) if r.url.path == "/props" else httpx.Response(200, json={"version": "0.9"}),
+        "ollama": lambda r: (
+            httpx.Response(404)
+            if r.url.path == "/props"
+            else httpx.Response(200, text="Ollama is running")
+            if r.url.path == "/"
+            else httpx.Response(200, json={"version": "0.9"})
+        ),
+        "llama_swap": _swap({}),
+        "koboldcpp": _koboldcpp,
+        "needs_admin": lambda r: httpx.Response(  # llama-swap with apiKeys, called without the key
+            401, json={"src": "llama-swap", "error": {"message": "unauthorized: invalid or missing API key"}}
+        ),
         "other": lambda r: httpx.Response(404),
     }
     for kind, handle in responses.items():
@@ -413,23 +487,21 @@ async def _drain(stream):
 # -- The host's plan -----------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "option,kind,enabled",
-    [(True, "llama_router", True), (True, "ollama", True), (True, "llama_single", False), (False, "llama_router", False)],
-)
-async def test_host_plan_needs_the_option_and_an_unloadable_lane(monkeypatch, option, kind, enabled):
+SETTINGS = {"endpoint_url": f"{ROOT}/v1", "model_name": "g", "agent_same_as_writer": True}
+
+
+async def _host_plan(monkeypatch, kind, *, option=True, comfy_url=COMFY + "/", probed: list[str] | None = None):
     from backend.workflows import gpu_swap_host
 
-    settings = {"endpoint_url": f"{ROOT}/v1", "model_name": "g", "agent_same_as_writer": True}
-    config = {"timeout_seconds": 60, "external_comfy": {"api_url": COMFY + "/", "gpu_swap": option}}
-    probed: list[str] = []
+    config = {"timeout_seconds": 60, "external_comfy": {"api_url": comfy_url, "gpu_swap": option}}
+    probed = [] if probed is None else probed
 
     async def probe(root, headers=None, proxy=None, *, fresh=False):
         probed.append(root)
         return kind
 
     async def get_settings():
-        return settings
+        return SETTINGS
 
     async def get_config(workflow_id):
         return config
@@ -440,10 +512,56 @@ async def test_host_plan_needs_the_option_and_an_unloadable_lane(monkeypatch, op
     gpu_swap_host.invalidate()
     plan = await gpu_swap_host.plan()
     gpu_swap_host.invalidate()
+    return plan
+
+
+@pytest.mark.parametrize(
+    "option,kind,enabled",
+    [
+        (True, "llama_router", True),
+        (True, "llama_swap", True),
+        (True, "ollama", True),
+        (True, "llama_single", False),
+        (True, "koboldcpp", False),
+        (False, "llama_router", False),
+    ],
+)
+async def test_host_plan_needs_the_option_and_an_unloadable_lane(monkeypatch, option, kind, enabled):
+    probed: list[str] = []
+    plan = await _host_plan(monkeypatch, kind, option=option, probed=probed)
     assert plan.enabled is enabled
     assert probed == ([ROOT] if option else [])  # off never touches the network
     if enabled:
         assert (plan.target_for(ROOT + "/"), plan.comfy_url, plan.wait_cap) == (plan.llm_targets[0], COMFY, 60.0)
+        assert (plan.comfy_host, plan.comfy_model) == ("", "")
+
+
+@pytest.mark.parametrize(
+    "comfy_url,hosted",
+    [
+        (f"{ROOT}/comfyui/", (ROOT, "comfyui_auto")),
+        (f"{ROOT}/upstream/comfy%2Fsdxl", (ROOT, "comfy/sdxl")),
+        ("http://llm:5001/comfyui", ("", "")),
+        (f"{ROOT}/other", ("", "")),
+        ("http://llm:port/comfyui", ("", "")),  # malformed: not hosted, and swapping stays on
+    ],
+)
+async def test_host_plan_finds_comfy_behind_the_lanes_llama_swap(monkeypatch, comfy_url, hosted):
+    plan = await _host_plan(monkeypatch, "llama_swap", comfy_url=comfy_url)
+    assert plan.enabled
+    assert (plan.comfy_host, plan.comfy_model) == hosted
+    assert plan.identity()[-2:] == hosted  # moving ComfyUI behind llama-swap resets the arbiter
+
+
+async def test_koboldcpp_reads_as_unable_to_unload_and_is_never_sent_a_generate(monkeypatch):
+    from backend.workflows import gpu_swap_host
+
+    seen = _serve(monkeypatch, _koboldcpp)
+    support = await gpu_swap_host.support(SETTINGS)
+    assert support["available"] is False
+    assert support["reason"].startswith("KoboldCpp can't unload")
+    assert support["lanes"] == [{"lane": "writer", "kind": "koboldcpp", "model": "g"}]
+    assert seen and all(r.method == "GET" for r in seen)
 
 
 async def test_render_reports_unloading_only_when_something_is_loaded(monkeypatch):
@@ -704,3 +822,125 @@ async def test_a_failed_reload_names_the_swap_and_stays_pending(monkeypatch):
     async with gpu_swap.llm_lease(ROOT, "configured-name"):
         pass
     assert state["card"] == TABBY_CARD
+
+
+# -- llama-swap ----------------------------------------------------------------
+
+
+def _hosting(monkeypatch, *, slot_restore=True) -> None:
+    plan = gpu_swap.SwapPlan(
+        enabled=True,
+        llm_targets=(_target("llama_swap"),),
+        comfy_url=f"{ROOT}/comfyui",
+        slot_restore=slot_restore,
+        comfy_host=ROOT,
+        comfy_model="comfyui_auto",
+    )
+
+    async def provider():
+        return plan
+
+    monkeypatch.setattr(gpu_swap, "_provider", provider)
+
+
+def _upstream_posts(seen: list[httpx.Request]) -> list[tuple[str, str]]:
+    return [(r.url.path, r.url.params["action"]) for r in seen if r.method == "POST" and r.url.path.startswith("/upstream/")]
+
+
+async def test_swap_render_unloads_every_resident_model_by_id(monkeypatch):
+    models = {"a": "ready", "b": "stopping", "c": "stopped"}
+    seen = _serve(monkeypatch, _swap(models))
+    assert await gpu_swap.probe(ROOT, fresh=True) == "llama_swap"
+    _plan(monkeypatch, targets=(_target("llama_swap", "a"),))
+    await _render()
+    assert set(models.values()) == {"stopped"}
+    assert sorted(r.url.path for r in seen if r.method == "POST") == ["/api/models/unload/a", "/api/models/unload/b"]
+
+
+async def test_swap_slots_saved_under_the_real_id_restore_for_an_alias(monkeypatch):
+    models = {"real": "ready", "b": "stopped"}
+    seen = _serve(monkeypatch, _swap(models, aliases={"real": ["alias"]}))
+    freed: list[str] = []
+
+    async def free(url, api_key="", *, queue_cap=0.0):
+        freed.append(url)
+
+    monkeypatch.setattr(gpu_swap, "comfy_free", free)
+    _restoring(monkeypatch, _target("llama_swap", "alias"), _target("llama_swap", "b"))
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "b"):
+        pass  # the other lane claims the GPU first; the alias's slots must still restore on its own call
+    for _ in range(2):
+        async with gpu_swap.llm_lease(ROOT, "alias"):
+            pass
+    assert _upstream_posts(seen) == [
+        ("/upstream/real/slots/0", "save"),
+        ("/upstream/real/slots/1", "save"),
+        ("/upstream/real/slots/0", "restore"),
+        ("/upstream/real/slots/1", "restore"),
+    ]
+    restore = next(r for r in seen if r.url.params.get("action") == "restore")
+    assert restore.extensions["timeout"]["read"] == gpu_swap.LOAD_TIMEOUT  # the first restore cold-starts the model
+    assert models["real"] == "ready"
+    assert freed == [COMFY]
+
+
+async def test_swap_slots_no_lane_restores_stop_claiming_after_one_call(monkeypatch):
+    seen = _serve(monkeypatch, _swap({"other-app": "ready", "g": "stopped"}))
+
+    async def free(url, api_key="", *, queue_cap=0.0):
+        pass
+
+    monkeypatch.setattr(gpu_swap, "comfy_free", free)
+    _restoring(monkeypatch, _target("llama_swap"))
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    before = len(seen)
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    assert len(seen) == before
+
+
+async def test_swap_save_never_starts_a_model(monkeypatch):
+    seen = _serve(monkeypatch, _swap({"s": "starting", "x": "stopped"}))
+    target = _target("llama_swap")
+    assert await gpu_swap.save_slots(target, "s") == ()
+    assert await gpu_swap.save_slots(target, "x") == ()
+    assert not any(r.url.path.startswith("/upstream/") for r in seen)
+
+
+async def test_old_swap_without_the_per_model_unload_names_llama_swap(monkeypatch):
+    _serve(monkeypatch, _swap({"a": "ready"}, old=True))
+    with pytest.raises(gpu_swap.GpuSwapError, match="upgrade llama-swap"):
+        await gpu_swap.unload(_target("llama_swap", "a"), "a")
+
+
+async def test_hosted_comfy_render_starts_it_and_the_next_call_restores_without_free(monkeypatch):
+    models = {"g": "ready", "comfyui_auto": "stopped"}
+    seen = _serve(monkeypatch, _swap(models, group=True))
+    _hosting(monkeypatch)
+    heard: list[str] = []
+    async with gpu_swap.comfy_lease(heard.append):
+        assert models == {"g": "stopped", "comfyui_auto": "ready"}  # llama-swap evicted the model for ComfyUI
+    async with gpu_swap.comfy_lease(heard.append):
+        pass  # already running: no second start
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    assert heard == ["saving", "starting"]
+    assert models == {"g": "ready", "comfyui_auto": "stopped"}
+    paths = [r.url.path for r in seen]
+    assert not any(path.startswith("/api/models/unload") or path.endswith("/free") for path in paths)
+    prewarm = [r for r in seen if r.url.path == "/comfyui/system_stats"]
+    assert len(prewarm) == 1 and prewarm[0].extensions["timeout"]["read"] == gpu_swap.LOAD_TIMEOUT
+    assert _upstream_posts(seen)[-2:] == [("/upstream/g/slots/0", "restore"), ("/upstream/g/slots/1", "restore")]
+
+
+async def test_hosted_comfy_without_slot_restore_touches_only_comfy(monkeypatch):
+    models = {"g": "ready", "comfyui_auto": "stopped"}
+    seen = _serve(monkeypatch, _swap(models, group=True))
+    _hosting(monkeypatch, slot_restore=False)
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass  # the call itself makes llama-swap swap ComfyUI out
+    assert [r.url.path for r in seen if r.url.path != "/running"] == ["/comfyui/system_stats", "/v1/models"]

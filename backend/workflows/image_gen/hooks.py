@@ -136,6 +136,8 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
         return "Saving the chat model's cache..."
     if stage == "gpu_unloading":
         return "Unloading the chat model from the GPU..."
+    if stage == "gpu_starting":
+        return "Starting ComfyUI..."
     if stage == "queued":
         ahead = detail.get("ahead")
         if isinstance(ahead, int) and not isinstance(ahead, bool) and ahead > 0:
