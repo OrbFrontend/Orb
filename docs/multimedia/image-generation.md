@@ -363,7 +363,8 @@ Replies after a render start slower, so leave it off for light workflows.
 
 ### 1. Start your chat server
 
-**llama.cpp** needs router mode; a plain `llama-server -m` can't unload.
+**llama.cpp** needs router mode; a plain `llama-server -m` can't unload. Or
+run it under llama-swap, below.
 
 1. Save this as `models.ini`, with your model's path:
 
@@ -397,12 +398,70 @@ API key in Orb. The normal `api_key` can't unload models.
 that key in Orb. Save your model's settings on its **Model** tab, because Orb
 reloads the model with its saved settings.
 
+**KoboldCpp** can't unload its model over the API. Run it under llama-swap.
+
+#### llama-swap
+
+[llama-swap](https://github.com/mostlygeek/llama-swap) runs any server Orb
+can't unload by itself, such as a plain `llama-server -m`, KoboldCpp, or vLLM.
+It can also run ComfyUI, so the two swap on the same GPU.
+
+1. Save this as `config.yaml`, with your paths:
+
+   ```yaml
+   models:
+     my-model:
+       cmd: >
+         llama-server --port ${PORT} -m /path/to/model.gguf
+         --ctx-size 16384 -ngl 99
+         --slot-save-path /dev/shm/orb-slots
+
+     comfyui_auto:
+       checkEndpoint: /
+       cmd: /path/to/ComfyUI/venv/bin/python /path/to/ComfyUI/main.py --port ${PORT}
+       ttl: 0
+   ```
+
+   With no groups, llama-swap runs one model at a time, so starting ComfyUI
+   stops the chat model and the other way around. Leave `comfyui_auto` out if
+   ComfyUI runs on its own.
+
+2. Run:
+
+   ```sh
+   mkdir -p /dev/shm/orb-slots
+   llama-swap --config config.yaml --listen 127.0.0.1:8080
+   ```
+
+3. In Orb, set the endpoint to `http://127.0.0.1:8080/v1` and the model to
+   `my-model`. Set the ComfyUI URL to `http://127.0.0.1:8080/comfyui`. If you
+   set `apiKeys` in llama-swap, enter the key as both the endpoint's and
+   ComfyUI's API key.
+
+Keep these in mind:
+
+- Keep **Swap the GPU with the chat model** on, even though llama-swap swaps by
+  itself. llama-swap doesn't see a render in progress, so without the option a
+  reply during a render stops ComfyUI and the render is lost.
+- Leave llama-swap's `sendLoadingState` off. When it's on, its loading
+  messages show up as the reply's reasoning.
+- If the Writer and Agent use different models, put both in a group with
+  `swap: false` if they fit on the GPU together. Otherwise every pass swaps
+  models.
+- For Python servers such as tabbyAPI or vLLM, run them in Docker and set
+  `cmdStop` to `docker stop` the container, so the VRAM is actually released.
+- With ComfyUI under llama-swap, the image settings' connection test and model
+  lists start ComfyUI and stop the chat model, so the next reply re-reads the
+  chat.
+- When Orb unloads a model, any other app using it through the same llama-swap
+  loses its request in progress.
+
 ### 2. Turn it on
 
 1. Open the Image Generation **Settings**, then **Connections → ComfyUI**.
 2. Tick **Swap the GPU with the chat model**.
-3. On llama.cpp, also tick **Keep the chat cache across swaps**. The next reply
-   then skips re-reading the whole chat.
+3. On llama.cpp or llama-swap, also tick **Keep the chat cache across swaps**.
+   The next reply then skips re-reading the whole chat.
 4. Select **Save**.
 
 The option is hidden until a style uses ComfyUI and the endpoint runs on one of
@@ -412,6 +471,8 @@ the servers above. When it can't work, it reads **Inactive** with the reason.
 
 - A render waits for the current reply to finish and shows **Waiting for the
   chat model to finish**.
+- With ComfyUI under llama-swap, a render first shows **Starting ComfyUI**
+  while llama-swap stops the chat model and starts ComfyUI.
 - The first render after a reply loads ComfyUI's models again.
 - The chat cache takes a few GB of RAM until you reboot. To free it sooner,
   run `rm /dev/shm/orb-slots/*`.
@@ -431,6 +492,8 @@ the servers above. When it can't work, it reads **Inactive** with the reason.
 | ComfyUI completes without an image | Select a valid image-output node during workflow import. |
 | Render times out | Check the ComfyUI queue or increase **Render timeout** from 10 to 900 seconds. |
 | **Could not reload** with GPU swap on | Check the chat server's log, then load the model from the server. |
+| GPU swap reads **Inactive** on KoboldCpp | KoboldCpp can't unload its model. Run it under llama-swap. |
+| **upgrade llama-swap** with GPU swap on | Your llama-swap can't unload one model at a time. Install a newer release. |
 | **Timed out waiting for the LLM** | A reply took longer than **Render timeout**. Wait for it, or raise the timeout. |
 | Reference image is required | Create or upload an image, or set a character reference and choose a source that includes it. |
 | Reference image is too large or unreadable | Use PNG, JPEG, or WebP and a smaller file. |

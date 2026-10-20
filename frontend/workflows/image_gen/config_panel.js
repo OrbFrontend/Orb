@@ -865,9 +865,12 @@ function gpuSwapField() {
 
 function gpuRestoreField() {
   const on = draft.comfy.gpu_swap_restore === true;
-  const router = (gpuSwap?.lanes || []).some((lane) => lane.kind === "llama_router");
-  if (!router && !on) return "";
-  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">The next reply skips re-reading the chat. Needs <code>--slot-save-path</code> on <code>/dev/shm</code> and a few GB of RAM.</span></span></label>`;
+  const kinds = (gpuSwap?.lanes || []).map((lane) => lane.kind);
+  const router = kinds.includes("llama_router");
+  const swap = kinds.includes("llama_swap");
+  if (!router && !swap && !on) return "";
+  const where = swap && !router ? " in the model's <code>cmd</code>" : "";
+  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">The next reply skips re-reading the chat. Needs <code>--slot-save-path</code> on <code>/dev/shm</code>${where} and a few GB of RAM.</span></span></label>`;
 }
 
 async function loadGpuSwap() {
