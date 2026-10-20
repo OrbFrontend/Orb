@@ -113,6 +113,9 @@ real generation. The `GET /` check keeps Orb from sending it an Ollama unload.
 A reverse proxy that rewrites Ollama's root makes Ollama read as `other`, which
 hides the option.
 
+With `apiKeys` set, llama-swap answers a call without the key with a 401 whose
+body has `"src": "llama-swap"`, and Orb reports that the key can't unload.
+
 llama-swap reports each process it has not stopped in `GET /running`, with
 the state `starting`, `ready`, or `stopping`. Every listed process counts as
 resident, because a stopping one still holds VRAM, but only `starting` and
@@ -125,7 +128,9 @@ model's in-flight requests, which is safe for Orb because a render waits for
 its LLM calls first. Another app on the same llama-swap loses its request. A
 render unloads every model llama-swap runs, like a router. A 404 from the
 per-model unload route means a llama-swap too old to have it. llama-swap loads
-a model again on the next request that names it, so Orb never reloads one.
+a model again on the next request that names it, so Orb never reloads one. It
+forwards the OpenAI routes and `/completion` but not `/apply-template`, so a
+lane in text mode can't run through it.
 
 tabbyAPI and text-generation-webui hold one model, answer the unload once it is
 gone, and never load one back by themselves. A key that is not the admin key

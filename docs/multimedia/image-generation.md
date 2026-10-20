@@ -433,10 +433,10 @@ It can also run ComfyUI, so the two swap on the same GPU.
    llama-swap --config config.yaml --listen 127.0.0.1:8080
    ```
 
-3. In Orb, set the endpoint to `http://127.0.0.1:8080/v1` and the model to
-   `my-model`. Set the ComfyUI URL to `http://127.0.0.1:8080/comfyui`. If you
-   set `apiKeys` in llama-swap, enter the key as both the endpoint's and
-   ComfyUI's API key.
+3. In Orb, set the endpoint to `http://127.0.0.1:8080/v1`, the model to
+   `my-model`, and **API Mode** to **Chat Completions**. Set the ComfyUI URL
+   to `http://127.0.0.1:8080/comfyui`. If you set `apiKeys` in llama-swap,
+   enter the key as both the endpoint's and ComfyUI's API key.
 
 Keep these in mind:
 

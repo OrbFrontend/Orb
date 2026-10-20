@@ -135,6 +135,10 @@ async def _detect(client: httpx.AsyncClient, root: str) -> tuple[bool, ServerKin
     data = _ok_json(resp)
     if isinstance(data, dict) and isinstance(data.get("running"), list):
         return True, "llama_swap"
+    if resp is not None and resp.status_code in (401, 403):  # llama-swap's apiKeys gate every route
+        data = _json(resp)
+        if isinstance(data, dict) and data.get("src") == "llama-swap":
+            return True, "needs_admin"
     resp = await _get(client, f"{root}/api/version")
     answered = answered or resp is not None
     data = _ok_json(resp)
@@ -532,6 +536,7 @@ class _Arbiter:
         self.switching = False
         self.plan_identity: tuple | None = None
         self.saved: dict[tuple[str, str], tuple[int, ...]] = {}
+        self.swap_ids: dict[tuple[str, str], str] = {}
         self.reloads: dict[str, Mapping[str, Any]] = {}
         self._changed: asyncio.Event | None = None
 
@@ -576,13 +581,17 @@ class _Arbiter:
             self.plan_identity = identity
             self.owner = None
             self.saved.clear()
+            self.swap_ids.clear()
         if not plan.slot_restore:
             self.saved.clear()
 
     def restoring(self, target: LlmTarget, model: str) -> bool:
         """Whether a call to *model* may have saved slots to restore first."""
-        if target.kind == "llama_swap":  # saved under real IDs, which a configured alias does not name
-            return any(root == target.root for root, _ in self.saved)
+        if target.kind == "llama_swap":  # saved under real IDs; until a claim resolves *model*, it may be an alias
+            real = self.swap_ids.get((target.root, model))
+            if real is None:
+                return any(root == target.root for root, _ in self.saved)
+            model = real
         return (target.root, model) in self.saved
 
 
@@ -681,6 +690,7 @@ async def _claim_state(target: LlmTarget, model: str) -> tuple[str, bool]:
         except httpx.HTTPError:
             _forget(target.root)
             raise
+    _arbiter.swap_ids[(target.root, model)] = real or model
     return real or model, loaded
 
 

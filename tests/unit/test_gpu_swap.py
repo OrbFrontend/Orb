@@ -145,6 +145,9 @@ async def test_probe_kinds_and_cache(monkeypatch):
         ),
         "llama_swap": _swap({}),
         "koboldcpp": _koboldcpp,
+        "needs_admin": lambda r: httpx.Response(  # llama-swap with apiKeys, called without the key
+            401, json={"src": "llama-swap", "error": {"message": "unauthorized: invalid or missing API key"}}
+        ),
         "other": lambda r: httpx.Response(404),
     }
     for kind, handle in responses.items():
@@ -880,6 +883,23 @@ async def test_swap_slots_saved_under_the_real_id_restore_for_an_alias(monkeypat
     assert restore.extensions["timeout"]["read"] == gpu_swap.LOAD_TIMEOUT  # the first restore cold-starts the model
     assert models["real"] == "ready"
     assert freed == [COMFY]
+
+
+async def test_swap_slots_no_lane_restores_stop_claiming_after_one_call(monkeypatch):
+    seen = _serve(monkeypatch, _swap({"other-app": "ready", "g": "stopped"}))
+
+    async def free(url, api_key="", *, queue_cap=0.0):
+        pass
+
+    monkeypatch.setattr(gpu_swap, "comfy_free", free)
+    _restoring(monkeypatch, _target("llama_swap"))
+    await _render()
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    before = len(seen)
+    async with gpu_swap.llm_lease(ROOT, "g"):
+        pass
+    assert len(seen) == before
 
 
 async def test_swap_save_never_starts_a_model(monkeypatch):
