@@ -4,7 +4,7 @@ uvicorn[standard]==0.54.0
 aiosqlite==0.22.1
 httpx[socks]==0.28.1
 pydantic==2.13.5
-Pillow==12.3.0
+Pillow==13.0.0
 python-multipart==0.0.32
 edge-tts>=7.2.8
 regex>=2026.9.10
