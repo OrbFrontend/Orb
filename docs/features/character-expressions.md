@@ -6,15 +6,15 @@ You supply the images for each character.
 ## Set up expressions
 
 1. Open **Settings → Expression Playback**. Download **Character Expressions**
-   and turn it on.
+    and turn it on.
 2. Make a ZIP of images named after emotions. For example:
 
-   ```text
-   neutral.png
-   joy.png
-   anger.webp
-   sadness.jpg
-   ```
+    ```text
+    neutral.png
+    joy.png
+    anger.webp
+    sadness.jpg
+    ```
 
 3. Open the character editor → **Advanced → Expression Images → Upload .zip**.
 

@@ -10,21 +10,21 @@
 
 1. Clone the repository:
 
-   ```bash
-   git clone https://github.com/OrbFrontend/Orb.git
-   cd Orb
-   ```
+    ```bash
+    git clone https://github.com/OrbFrontend/Orb.git
+    cd Orb
+    ```
 
 2. Check that Python is available:
 
-   ```bash
-   python3 --version
-   ```
+    ```bash
+    python3 --version
+    ```
 
 3. Start Orb:
 
-   - Linux and macOS: `./run_unix.sh`
-   - Windows: `run_windows.bat`
+    - Linux and macOS: `./run_unix.sh`
+    - Windows: `run_windows.bat`
 
 The launcher creates `.venv`, installs `requirements.txt`, and starts the server.
 You do not need to activate the environment for normal use.

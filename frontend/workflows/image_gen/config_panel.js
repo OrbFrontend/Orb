@@ -86,6 +86,8 @@ let modelsByGraph = {};
 let probeIds = {};
 let pendingConnections = new Set();
 let gpuSwap = null;
+const GPU_SWAP_GUIDE =
+  "https://orbfrontend.github.io/Orb/multimedia/image-generation/#share-the-gpu-with-a-local-chat-model";
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
@@ -857,10 +859,11 @@ function capabilityLine(preset) {
 
 function gpuSwapField() {
   const on = draft.comfy.gpu_swap === true;
-  if (!gpuSwap?.available && !on) return "";
+  const guide = `<div class="image-gen-note">GPU sharing needs server config: <a href="${GPU_SWAP_GUIDE}" target="_blank" rel="noopener noreferrer">setup guide</a></div>`;
+  if (!gpuSwap?.available && !on) return guide;
   const inactive = gpuSwap && !gpuSwap.available ? ` Inactive: ${gpuSwap.reason || "no unloadable LLM endpoint."}` : "";
-  const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the chat model while ComfyUI renders. Fits heavier workflows, but the next reply starts slower.${esc(inactive)}</span></span></label>`;
-  return `<div class="ig-toggles">${swap}${gpuRestoreField()}</div>`;
+  const swap = `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Swap the GPU with the chat model</span><span class="image-gen-note">Unloads the chat model during renders; the next reply starts slower.${esc(inactive)}</span></span></label>`;
+  return `<div class="ig-toggles">${swap}${gpuRestoreField()}${guide}</div>`;
 }
 
 function gpuRestoreField() {
@@ -869,8 +872,7 @@ function gpuRestoreField() {
   const router = kinds.includes("llama_router");
   const swap = kinds.includes("llama_swap");
   if (!router && !swap && !on) return "";
-  const where = swap && !router ? " in the model's <code>cmd</code>" : "";
-  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">The next reply skips re-reading the chat. Needs <code>--slot-save-path</code> on <code>/dev/shm</code>${where} and a few GB of RAM.</span></span></label>`;
+  return `<label class="ig-toggle"><input type="checkbox" data-ig-conn-field="gpu_swap_restore"${on ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Keep the chat cache across swaps</span><span class="image-gen-note">The next reply skips re-reading the chat. Uses a few GB of RAM.</span></span></label>`;
 }
 
 async function loadGpuSwap() {

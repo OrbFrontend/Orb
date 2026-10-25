@@ -368,26 +368,26 @@ run it under llama-swap, below.
 
 1. Save this as `models.ini`, with your model's path:
 
-   ```ini
-   version = 1
+    ```ini
+    version = 1
 
-   [my-model]
-   model = /path/to/model.gguf
-   mmproj = /path/to/mmproj.gguf
-   ctx-size = 16384
-   n-gpu-layers = -1
-   slot-save-path = /dev/shm/orb-slots
-   ```
+    [my-model]
+    model = /path/to/model.gguf
+    mmproj = /path/to/mmproj.gguf
+    ctx-size = 16384
+    n-gpu-layers = -1
+    slot-save-path = /dev/shm/orb-slots
+    ```
 
 2. Run:
 
-   ```sh
-   mkdir -p /dev/shm/orb-slots
-   llama-server --models-preset models.ini --models-max 1 --port 5000
-   ```
+    ```sh
+    mkdir -p /dev/shm/orb-slots
+    llama-server --models-preset models.ini --models-max 1 --port 5000
+    ```
 
 3. In Orb, set the endpoint to `http://127.0.0.1:5000/v1` and the model to
-   `my-model`.
+    `my-model`.
 
 **Ollama** works as is, at `http://127.0.0.1:11434/v1`.
 
@@ -408,35 +408,35 @@ It can also run ComfyUI, so the two swap on the same GPU.
 
 1. Save this as `config.yaml`, with your paths:
 
-   ```yaml
-   models:
-     my-model:
-       cmd: >
-         llama-server --port ${PORT} -m /path/to/model.gguf
-         --ctx-size 16384 -ngl 99
-         --slot-save-path /dev/shm/orb-slots
+    ```yaml
+    models:
+      my-model:
+        cmd: >
+          llama-server --port ${PORT} -m /path/to/model.gguf
+          --ctx-size 16384 -ngl 99
+          --slot-save-path /dev/shm/orb-slots
 
-     comfyui_auto:
-       checkEndpoint: /
-       cmd: /path/to/ComfyUI/venv/bin/python /path/to/ComfyUI/main.py --port ${PORT}
-       ttl: 0
-   ```
+      comfyui_auto:
+        checkEndpoint: /
+        cmd: /path/to/ComfyUI/venv/bin/python /path/to/ComfyUI/main.py --port ${PORT}
+        ttl: 0
+    ```
 
-   With no groups, llama-swap runs one model at a time, so starting ComfyUI
-   stops the chat model and the other way around. Leave `comfyui_auto` out if
-   ComfyUI runs on its own.
+    With no groups, llama-swap runs one model at a time, so starting ComfyUI
+    stops the chat model and the other way around. Leave `comfyui_auto` out if
+    ComfyUI runs on its own.
 
 2. Run:
 
-   ```sh
-   mkdir -p /dev/shm/orb-slots
-   llama-swap --config config.yaml --listen 127.0.0.1:8080
-   ```
+    ```sh
+    mkdir -p /dev/shm/orb-slots
+    llama-swap --config config.yaml --listen 127.0.0.1:8080
+    ```
 
 3. In Orb, set the endpoint to `http://127.0.0.1:8080/v1`, the model to
-   `my-model`, and **API Mode** to **Chat Completions**. Set the ComfyUI URL
-   to `http://127.0.0.1:8080/comfyui`. If you set `apiKeys` in llama-swap,
-   enter the key as both the endpoint's and ComfyUI's API key.
+    `my-model`, and **API Mode** to **Chat Completions**. Set the ComfyUI URL
+    to `http://127.0.0.1:8080/comfyui`. If you set `apiKeys` in llama-swap,
+    enter the key as both the endpoint's and ComfyUI's API key.
 
 Keep these in mind:
 
@@ -461,7 +461,7 @@ Keep these in mind:
 1. Open the Image Generation **Settings**, then **Connections → ComfyUI**.
 2. Tick **Swap the GPU with the chat model**.
 3. On llama.cpp or llama-swap, also tick **Keep the chat cache across swaps**.
-   The next reply then skips re-reading the whole chat.
+    The next reply then skips re-reading the whole chat.
 4. Select **Save**.
 
 The option is hidden until a style uses ComfyUI and the endpoint runs on one of
