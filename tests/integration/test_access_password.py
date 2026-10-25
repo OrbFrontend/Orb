@@ -147,3 +147,21 @@ async def test_each_sign_in_opens_the_page_once(client, browser):
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store"
     assert (await stale.get("/")).status_code == 401
+
+
+async def test_an_open_tab_can_reload_itself_once(client, browser, monkeypatch):
+    from backend.api import access_gate
+
+    await client.put_checked("/api/access/password", json={"password": "hunter2"})
+    laptop, stranger = browser(), browser()
+    await _sign_in(laptop, "hunter2")
+    assert (await laptop.get("/")).status_code == 200
+
+    assert (await stranger.post("/api/access/reload")).status_code == 401
+    assert (await laptop.post("/api/access/reload")).status_code == 200
+    assert (await laptop.get("/")).status_code == 200
+    assert (await laptop.get("/")).status_code == 401
+
+    monkeypatch.setattr(access_gate.visit_passes, "reload_window", -1.0)
+    assert (await laptop.post("/api/access/reload")).status_code == 200
+    assert (await laptop.get("/")).status_code == 401

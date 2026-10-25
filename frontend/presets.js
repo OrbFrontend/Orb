@@ -1,5 +1,5 @@
 import { registerActions } from "./actions.js";
-import { api } from "./api.js";
+import { api, reloadPage } from "./api.js";
 import { CLOSE_ICON, DOWNLOAD_ICON } from "./icons.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
 import { $, downloadBlob, esc, escAttr, toast } from "./utils.js";
@@ -226,7 +226,7 @@ function restorePreset(name) {
       runPresetOp(`Restoring “${presetTitle(name)}”…`, name, "Restore failed", async () => {
         await api.post(`/presets/${encodeURIComponent(name)}/restore`, {});
         setStatus({ text: "Restored — reloading…", busy: true, row: name });
-        setTimeout(() => location.reload(), 600);
+        setTimeout(reloadPage, 600);
       }),
   );
 }
@@ -250,7 +250,7 @@ function finishApply(r) {
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
   setStatus({ text: `Imported${counts ? `: ${counts}` : ""} — reloading…`, busy: true, row: status.row });
-  setTimeout(() => location.reload(), 800);
+  setTimeout(reloadPage, 800);
 }
 
 async function refreshPresetLibrary() {

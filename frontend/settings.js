@@ -1,5 +1,5 @@
 import { registerActions } from "./actions.js";
-import { api } from "./api.js";
+import { api, reloadPage } from "./api.js";
 import { expressionPlaybackEnabled } from "./expression_playback.js";
 import { CLOSE_ICON } from "./icons.js";
 import { closeModal, confirmDelete, setModalDismiss, showModal, showSubConfirmModal } from "./modal.js";
@@ -1021,7 +1021,7 @@ async function showResetConfirmModal() {
       try {
         await api.post("/reset", { confirm: true });
         toast("Reset successful — reloading…");
-        window.location.reload();
+        reloadPage();
       } catch (e) {
         toast(`Failed to reset: ${e.message}`, true);
       }

@@ -133,7 +133,7 @@ def _open_pages_once(scope: Scope, receive: Receive, send: Send, token: str | No
         if message["type"] == "http.response.start":
             headers = MutableHeaders(scope=message)
             if headers.get("content-type", "").startswith(_PAGE_TYPES):
-                if not visit_passes.open_page(token):
+                if not visit_passes.open_page(token, time.monotonic()):
                     refused = True
                     await _sign_in_page("")(scope, receive, send)
                     return

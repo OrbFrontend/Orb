@@ -9,6 +9,12 @@ export function onRefreshRequired(fn) {
   _onRefreshRequired = fn;
 }
 
+// A locked server opens its page once per sign-in; this tells it the next open is this tab reloading itself.
+export async function reloadPage() {
+  await fetch("/api/access/reload", { method: "POST" }).catch(() => {});
+  window.location.reload();
+}
+
 export async function apiFetch(path, opts = {}) {
   const headers = { ...opts.headers, ...(_epoch && { "X-Orb-Epoch": _epoch }) };
   const response = await fetch(path, { ...opts, headers });

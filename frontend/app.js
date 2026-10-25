@@ -1,5 +1,5 @@
 import { registerActions } from "./actions.js";
-import { onRefreshRequired } from "./api.js";
+import { onRefreshRequired, reloadPage } from "./api.js";
 import { initAudioPlayer } from "./audio_transport.js";
 import {
   initAutoscroll,
@@ -181,5 +181,5 @@ onRefreshRequired(() => {
   const input = document.getElementById("chat-input");
   if (input && S.activeConvId) localStorage.setItem(`orb-chat-draft:${S.activeConvId}`, input.value);
   // The reload fires the real beforeunload, which flushes document drafts.
-  window.location.reload();
+  reloadPage();
 });
