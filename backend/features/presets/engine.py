@@ -461,6 +461,14 @@ _EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset(
 )
 
 
+def _scratch_connect(path: str) -> sqlite3.Connection:
+    """Open a private temp copy without journal or fsync; an integrity check gates whatever it produces."""
+    conn = sqlite3.connect(path, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    return conn
+
+
 def _drop_local_rows(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA secure_delete = ON")
     for tbl in ps.LOCAL_TABLES:
@@ -469,7 +477,7 @@ def _drop_local_rows(conn: sqlite3.Connection) -> None:
 
 
 def _carry_local_rows(prepared: str, live: str) -> None:
-    conn = sqlite3.connect(prepared, isolation_level=None)
+    conn = _scratch_connect(prepared)
     try:
         conn.execute("ATTACH DATABASE ? AS live", (live,))
         for tbl in ps.LOCAL_TABLES:
@@ -543,9 +551,56 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
         _blank_json_paths(conn, table, col, paths)
 
 
-def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
+def _clone_domains(conn: sqlite3.Connection, live: str, selected: set[str]) -> None:
+    """Copy the live schema and the selected domains' rows; dangling keys then take their ON DELETE action, as a delete would."""
+    conn.execute("ATTACH DATABASE ? AS live", (live,))
+    conn.execute(f"PRAGMA main.page_size = {int(conn.execute('PRAGMA live.page_size').fetchone()[0])}")
+    ddl = conn.execute("SELECT type, name, sql FROM live.sqlite_master WHERE sql IS NOT NULL ORDER BY rowid").fetchall()
+    tables = [(name, sql) for kind, name, sql in ddl if kind == "table" and not name.startswith("sqlite_")]
+    conn.execute("BEGIN")  # one read transaction on live: every table comes from the same snapshot
+    for _name, sql in tables:
+        conn.execute(sql)
+    schema = _build_schema_model(conn)
+    skipped = set(ps.DERIVED_TABLES) | set(ps.LOCAL_TABLES)
+    for name, _sql in tables:
+        if name in skipped:
+            continue
+        if name in schema.tables and schema.tables[name].kind != "singleton" and schema.domain_of(name) not in selected:
+            continue
+        conn.execute(f"INSERT INTO main.{name} SELECT * FROM live.{name}")  # nosec B608 -- schema-derived identifier
+    if conn.execute("SELECT 1 FROM main.sqlite_master WHERE name = 'sqlite_sequence'").fetchone():
+        conn.execute("DELETE FROM main.sqlite_sequence")
+        conn.execute("INSERT INTO main.sqlite_sequence SELECT * FROM live.sqlite_sequence")
+    # Indexes and triggers come after the rows, so no insert trigger fires on copied data.
+    for kind, name, sql in ddl:
+        if kind != "table" and not name.startswith("sqlite_"):
+            conn.execute(sql)
+    conn.execute("COMMIT")
+    conn.execute("DETACH DATABASE live")
+    conn.execute("PRAGMA foreign_keys=ON")
+    seen: list = []
+    while dangling := conn.execute("PRAGMA foreign_key_check").fetchall():
+        if dangling == seen:
+            raise PresetError(f"Could not prune {len(dangling)} rows left pointing at excluded data; aborted.")
+        seen = dangling
+        groups: dict[tuple[str, int], list[int]] = {}
+        for table, rowid, _parent, fk_id in dangling:
+            groups.setdefault((table, fk_id), []).append(rowid)
+        for (table, fk_id), rowids in groups.items():
+            edge = [r for r in conn.execute(f"PRAGMA foreign_key_list({table})").fetchall() if r[0] == fk_id]
+            if edge[0][6] == "CASCADE":
+                action = f"DELETE FROM {table}"  # nosec B608 -- schema-derived identifier
+            elif edge[0][6] == "SET NULL":
+                action = f"UPDATE {table} SET " + ", ".join(f"{r[3]} = NULL" for r in edge)  # nosec B608 -- schema-derived identifier
+            else:
+                raise PresetError(f"{table} has rows that need the left-out {edge[0][2]} rows; export that domain too.")
+            for i in range(0, len(rowids), 500):
+                chunk = rowids[i : i + 500]
+                conn.execute(f"{action} WHERE rowid IN ({','.join('?' * len(chunk))})", chunk)
+
+
+def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str = "manual") -> str:
     """Clone the live DB, prune unselected domains, tag with meta, store in the library. Returns the on-disk file name."""
-    kind = "manual"  # always a user-initiated snapshot; auto/import are tagged elsewhere
     selected = set(selected_domains)
     unknown = selected - set(ALL_DOMAINS)
     if unknown:
@@ -560,13 +615,14 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     src = sqlite3.connect(current_db_path())
     try:
         assert_schema_safe(src)
-        src.execute("VACUUM INTO ?", (tmp,))
     finally:
         src.close()
 
     keys_stripped = False
-    c = sqlite3.connect(tmp, isolation_level=None)
+    packed = f"{tmp}.packed"
+    c = _scratch_connect(tmp)
     try:
+        _clone_domains(c, current_db_path(), selected)
         _assert_integrity(c, "the exported preset clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
@@ -609,13 +665,22 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
-        c.execute("VACUUM")  # reclaim pages freed by the deletes
-        _assert_integrity(c, "the exported preset")
+        # Repack so freed pages, stripped keys included, leave the file; in-place VACUUM costs several times VACUUM INTO.
+        c.execute("VACUUM INTO ?", (packed,))
+        c.close()
+        chk = sqlite3.connect(packed)
+        try:
+            _assert_integrity(chk, "the exported preset")
+        finally:
+            chk.close()
+        name = _unique_name(kind, label)
+        shutil.move(packed, os.path.join(_snapshots_dir(), name))
     finally:
         c.close()
-
-    name = _unique_name(kind, label)
-    shutil.move(tmp, os.path.join(_snapshots_dir(), name))
+        for p in (tmp, packed):
+            if os.path.exists(p):
+                with contextlib.suppress(OSError):
+                    os.remove(p)
     return name
 
 
@@ -909,9 +974,37 @@ def restore_partial(preset_path: str) -> dict:
     return apply_preset(preset_path, replace=True)
 
 
-def create_snapshot(label: str = "") -> str:
-    """Take an automatic full-clone backup of the live DB into the library,
-    pruned to a bounded count. Used before destructive ops (import/apply/restore)."""
+def _backup_scope(preset_path: str) -> set[str] | None:
+    """Domains a merge of ``preset_path`` can write (its own plus any pointing into them), or None when only a full backup can
+    undo it: a surrogate-keyed table comes back from a partial restore under new ids."""
+    included = set(preset_domains(preset_path)) & set(ALL_DOMAINS)
+    conn = sqlite3.connect(current_db_path())
+    try:
+        schema = _build_schema_model(conn)
+    finally:
+        conn.close()
+    scope = set(included)
+    for t in schema.tables.values():
+        domain = schema.domain_of(t.name)
+        if domain and any(fk.kind == "crossref" and schema.domain_of(fk.parent) in included for fk in t.fks):
+            scope.add(domain)
+    for trigger, implied in ps.IMPLIED_DOMAINS.items():
+        if trigger in scope:
+            scope |= implied
+    if not scope or scope >= set(ALL_DOMAINS):
+        return None
+    if any(schema.tables[t].kind == "surrogate" for domain in scope for t in schema.domain_tables(domain)):
+        return None
+    return scope
+
+
+def create_snapshot(label: str = "", merging: str | None = None) -> str:
+    """Back up the live DB (or, before merging a partial file, the domains that merge can write) into the pruned library."""
+    scope = _backup_scope(merging) if merging else None
+    if scope:
+        name = build_preset(scope, False, label, kind="auto")
+        prune_auto()
+        return name
     name = _unique_name("auto", label)
     dest = os.path.join(_snapshots_dir(), name)
     src = sqlite3.connect(current_db_path())
@@ -988,7 +1081,7 @@ def restore_full(name: str) -> None:
     try:
         # Drop the preset marker so it doesn't ride along in the live DB, and bring the file up to the current schema -- all on
         # the temp copy, which nothing else has open.
-        conn = sqlite3.connect(tmp, isolation_level=None)
+        conn = _scratch_connect(tmp)
         try:
             conn.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
         finally:

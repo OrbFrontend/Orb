@@ -94,7 +94,7 @@ async def api_apply_preset(name: str):
     async with dataset_maintenance(), maintenance_lock():
         try:
             path = presets._library_path(name)
-            backup = await _finish_thread(presets.create_snapshot, f"before applying {name}")
+            backup = await _finish_thread(presets.create_snapshot, f"before applying {name}", path)
             summary = await _finish_thread(presets.apply_preset, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -107,8 +107,8 @@ async def api_restore_preset(name: str):
         try:
             path = presets._library_path(name)
             meta = presets.read_meta(path) or {}
-            backup = await _finish_thread(presets.create_snapshot, "before restore")
             full = set(meta.get("included_domains") or presets.ALL_DOMAINS) >= set(presets.ALL_DOMAINS)
+            backup = await _finish_thread(presets.create_snapshot, "before restore", None if full else path)
             if full:
                 await _finish_thread(presets.restore_full, name)
                 summary = None

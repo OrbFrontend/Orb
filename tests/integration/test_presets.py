@@ -296,6 +296,28 @@ async def test_partial_restore_nulls_dangling_world(client, db):
         assert await cur.fetchall() == []
 
 
+async def test_partial_apply_backup_is_scoped_and_undoes_it(client):
+    """Applying a characters preset backs up only characters, and restoring that backup undoes the apply."""
+    from backend.features.presets import ALL_DOMAINS
+
+    cid = await client.create("/api/characters", json={"name": "Orig"})
+    name = (await client.post_json("/api/presets/export", json={"domains": ["characters"]}))["name"]
+    await client.put(f"/api/characters/{cid}", json={"name": "Changed"})
+
+    backup = (await client.post_json(f"/api/presets/{name}/apply", json={}))["backup"]
+    entries = {e["name"]: e for e in await client.get_json("/api/presets")}
+    assert entries[backup]["included_domains"] == ["characters"]
+
+    await client.post_checked(f"/api/presets/{backup}/restore", json={})
+    assert (await client.get_json(f"/api/characters/{cid}"))["name"] == "Changed"
+
+    # lorebook entries take new ids when merged back, so only a full backup can undo a lorebooks restore
+    lore = (await client.post_json("/api/presets/export", json={"domains": ["lorebooks"]}))["name"]
+    backup = (await client.post_json(f"/api/presets/{lore}/restore", json={}))["backup"]
+    entries = {e["name"]: e for e in await client.get_json("/api/presets")}
+    assert sorted(entries[backup]["included_domains"]) == sorted(ALL_DOMAINS)
+
+
 async def test_apply_nulls_dangling_character_persona_lock(client, db):
     """A characters backup carries character_cards.persona_lock_id but not the
     user_personas it points at (those live in the configs domain). Applying it

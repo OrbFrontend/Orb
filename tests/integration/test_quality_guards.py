@@ -144,7 +144,7 @@ async def test_cancelled_preset_worker_keeps_both_maintenance_guards(client, mon
         return {}
 
     monkeypatch.setattr(presets.presets, "_library_path", lambda _name: "test.db")
-    monkeypatch.setattr(presets.presets, "create_snapshot", lambda _label: "before.db")
+    monkeypatch.setattr(presets.presets, "create_snapshot", lambda *_args: "before.db")
     monkeypatch.setattr(presets.presets, "read_meta", lambda _path: {})
     monkeypatch.setattr(presets.presets, "apply_preset" if operation == "apply" else "restore_full", blocked)
     route = presets.api_apply_preset if operation == "apply" else presets.api_restore_preset

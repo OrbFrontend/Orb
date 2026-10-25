@@ -64,4 +64,5 @@ older Orb snapshots to the current schema. Files from a newer Orb version are
 rejected until Orb is updated.
 
 Orb creates an automatic backup before **Apply** and **Restore**. If the result is
-wrong, restore the newest `auto` entry. Orb keeps the 10 newest automatic backups.
+wrong, restore the newest `auto` entry. For a partial preset, that backup may cover only
+the parts the preset can change. Orb keeps the 10 newest automatic backups.
