@@ -98,13 +98,14 @@
 /* ── Judge lane ───────────────────────────────────────────────────────────── */
 
 .judge-note { font-size: 11px; line-height: 1.5; color: var(--text-muted); margin-bottom: 10px; }
-.judge-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.judge-actions .btn { flex-shrink: 0; }
-.judge-test-result, .judge-status { font-family: var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
-.judge-test-result { font-size: 11px; }
+.endpoint-test { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.endpoint-test .btn { flex-shrink: 0; }
+.endpoint-test-results, .judge-status { font-family: var(--font-mono); color: var(--text-muted); overflow-wrap: anywhere; }
+.endpoint-test-results { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
+.endpoint-test-results > span { white-space: nowrap; }
 .judge-status { font-size: 10px; }
-.judge-test-ok { color: var(--accent); }
-.judge-test-fail { color: var(--red); }
+.endpoint-test-ok { color: var(--accent); }
+.endpoint-test-fail { color: var(--red); }
 .judge-status-warn { color: var(--dec-warn); }
 
 /* ── Inspector ────────────────────────────────────────────────────────────── */

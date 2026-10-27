@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
+from time import perf_counter
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from ...core.domain_types import EndpointKind
+from ...core.domain_types import AgentLane, EndpointKind
 from ...core.settings import Settings
 from ...database import (
     create_endpoint,
@@ -18,10 +20,22 @@ from ...database import (
     get_endpoint,
     get_endpoints,
     get_model_configs,
+    get_settings,
     update_endpoint,
     update_model_config,
 )
-from ...inference import LLMClient, provider_sentence, redact
+from ...inference import (
+    EndpointConfigError,
+    LLMCallError,
+    LLMClient,
+    RetryPolicy,
+    agent_client_from_settings,
+    client_from_settings,
+    provider_sentence,
+    reasoning_cfg,
+    redact,
+    separate_agent_lane_configured,
+)
 from ...inference.claude_code import ENDPOINT as CLAUDE_CODE_ENDPOINT
 from ...inference.claude_code import ClaudeCodeError, cli_status
 from ..schemas import EndpointCreate, EndpointUpdate, ModelConfigCreate, ModelConfigUpdate
@@ -31,6 +45,7 @@ router = APIRouter()
 # Saved keys stay on the server: endpoint and settings responses carry only a hint, and the key itself goes out one endpoint at
 # a time from /api/endpoints/{id}/api-key, when the user asks to see it.
 _KEY_MASK = "••••••••"
+_TEST_TIMEOUT = 10
 
 
 def api_key_hint(key: str) -> str:
@@ -98,6 +113,78 @@ async def api_reveal_endpoint_key(endpoint_id: int):
 async def api_create_endpoint(data: EndpointCreate):
     check_claude_endpoint(data.url, data.api_key, data.kind)
     return public_endpoint(await create_endpoint(data.url, data.api_key, data.kind))
+
+
+async def _test_chat_lane(settings: Settings, lane: AgentLane) -> dict[str, Any]:
+    """Probe the saved lane with a synthetic, one-token completion and no transient retries."""
+    started = perf_counter()
+    try:
+        async with asyncio.timeout(_TEST_TIMEOUT):
+            if lane == "agent":
+                separate_agent_lane_configured(settings)
+                model = settings.get("agent_model_name", "")
+                client = agent_client_from_settings(settings)
+            else:
+                model = settings["model_name"]
+                client = client_from_settings(settings)
+            if not model:
+                raise EndpointConfigError(f"No {lane.title()} model is selected")
+            if client.base_url == CLAUDE_CODE_ENDPOINT:
+                # The CLI owns its output budget, so check login without launching an unbounded generation.
+                status = await cli_status()
+                if not status["authenticated"]:
+                    raise ClaudeCodeError("Claude Code is not authenticated on the machine hosting Orb")
+                return {"ok": True, "message": "CLI authenticated"}
+            client.retry = RetryPolicy(count=0)
+            # Keep routing options, but never let saved body overrides enlarge or reshape this diagnostic request.
+            controlled = {
+                "model",
+                "messages",
+                "stream",
+                "max_tokens",
+                "max_completion_tokens",
+                "max_output_tokens",
+                "n",
+                "tools",
+                "tool_choice",
+                "response_format",
+                "reasoning",
+                "reasoning_effort",
+                "thinking",
+                "chat_template_kwargs",
+            }
+            client.extra_body = {key: value for key, value in client.extra_body.items() if key not in controlled}
+            completed = False
+            async for event in client.complete(
+                [{"role": "user", "content": "Reply OK."}], model=model, max_tokens=1, **reasoning_cfg(False)
+            ):
+                if event["type"] == "done":
+                    completed = True
+            if completed:
+                return {"ok": True, "elapsed_ms": round((perf_counter() - started) * 1000)}
+            return {"ok": False, "error": "The endpoint did not complete its response"}
+    except EndpointConfigError as exc:
+        return {"ok": False, "error": str(exc), "reason": "not_configured"}
+    except LLMCallError as exc:
+        return {"ok": False, "error": exc.sentence, "status": exc.response.status_code}
+    except TimeoutError:
+        return {"ok": False, "error": f"No response within {_TEST_TIMEOUT} seconds", "reason": "timeout"}
+    except httpx.RequestError:
+        return {"ok": False, "error": "Could not reach the endpoint", "reason": "unreachable"}
+    except (ClaudeCodeError, ValueError) as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception:  # noqa: BLE001 -- diagnostic failures must not hide the other lane's result
+        return {"ok": False, "error": "Connection test failed"}
+
+
+@router.post("/api/endpoints/test")
+async def api_test_chat_endpoints():
+    settings = await get_settings()
+    if settings.get("agent_same_as_writer", True):
+        writer = await _test_chat_lane(settings, "writer")
+        return {"writer": writer, "agent": {**writer, "same_as_writer": True}}
+    writer, agent = await asyncio.gather(_test_chat_lane(settings, "writer"), _test_chat_lane(settings, "agent"))
+    return {"writer": writer, "agent": agent}
 
 
 @router.put("/api/endpoints/{endpoint_id}")

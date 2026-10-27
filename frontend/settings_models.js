@@ -271,6 +271,10 @@ export function renderEndpoints() {
       </div>
     </div>
     ${_judgeLaneHtml()}
+    <div class="endpoint-test">
+      <button type="button" class="btn btn-sm" id="endpoint-test-btn" data-wf-action="models:test">Test</button>
+      <div id="endpoint-test-results" class="endpoint-test-results" role="status" aria-live="polite"></div>
+    </div>
   `;
   document.querySelector("[data-claude-code-enable]")?.addEventListener("click", enableClaudeCode);
   initComboboxes();
@@ -368,22 +372,14 @@ function _judgeLaneHtml() {
       <div class="field"><label>Judge Proxy</label>
         <input type="text" value="${escAttr(endpoint?.proxy || "")}" data-key="judge_proxy" placeholder="socks5://127.0.0.1:1080" autocomplete="off">
       </div>
-      <div class="judge-actions">
-        <button type="button" class="btn btn-sm" id="judge-test-btn" data-wf-action="models:judgeTest">Test</button>
-        <span id="judge-test-result" class="judge-test-result"></span>
-      </div>
       ${_judgeStatusHtml()}
     </div>`;
 }
 
-/** The derived read-out: the resolved route, or why there is none. */
+/** Keep the unconfigured warning without exposing a derived route label. */
 function _judgeStatusHtml() {
   const config = decisionConfig();
-  const text = !config
-    ? ""
-    : config.configured
-      ? `Resolved route: ${config.resolved_url}`
-      : "Not configured — enabled decisions are skipped.";
+  const text = config?.configured === false ? "Not configured — enabled decisions are skipped." : "";
   return `<div id="judge-status" class="judge-status${config?.configured === false ? " judge-status-warn" : ""}">${esc(text)}</div>`;
 }
 
@@ -457,25 +453,52 @@ document.addEventListener("change", (event) => {
   );
 });
 
-async function _runJudgeTest() {
-  const button = document.getElementById("judge-test-btn");
-  const out = document.getElementById("judge-test-result");
+async function _runEndpointTests() {
+  const button = document.getElementById("endpoint-test-btn");
+  const out = document.getElementById("endpoint-test-results");
   if (!button || !out) return;
   button.disabled = true;
-  out.classList.remove("judge-test-ok", "judge-test-fail");
-  out.textContent = "Testing…";
+  const lanes = ["Writer", "Agent", "Judge"];
+  out.innerHTML = lanes.map((lane) => `<span data-test-lane="${lane}">${lane}: …</span>`).join("");
+  const paint = (lane, result) => {
+    const el = out.querySelector(`[data-test-lane="${lane}"]`);
+    const label = result.ok
+      ? "OK"
+      : result.reason === "not_configured"
+        ? "Not set"
+        : result.status
+          ? `HTTP ${result.status}`
+          : result.reason === "timeout"
+            ? "Timed out"
+            : "Failed";
+    el.textContent = `${lane}: ${label}`;
+    el.className = result.ok ? "endpoint-test-ok" : result.reason === "not_configured" ? "" : "endpoint-test-fail";
+    el.title = result.error || result.message || (result.same_as_writer ? "Same as Writer" : "");
+  };
+  const failed = (error) => ({ ok: false, error: error.message });
+  const testJudge = async () => {
+    const config = decisionConfig() || (await loadDecisionConfig());
+    if (!config) return { ok: false, error: "Could not load Judge settings" };
+    return config.configured ? api.post("/decisions/test", {}) : { ok: false, reason: "not_configured" };
+  };
   try {
-    const result = await api.post("/decisions/test", {});
-    if (result.ok) {
-      out.textContent = `${result.returned_model || "answered"} · p=${Number(result.probability).toFixed(2)} · ${result.elapsed_ms}ms`;
-      out.classList.add("judge-test-ok");
-    } else {
-      out.textContent = result.error || "Failed";
-      out.classList.add("judge-test-fail");
-    }
-  } catch (e) {
-    out.textContent = e.message;
-    out.classList.add("judge-test-fail");
+    await _endpointSaveQueue.catch(() => {});
+    await Promise.all([
+      api.post("/endpoints/test", {}).then(
+        (results) => {
+          paint("Writer", results.writer);
+          paint("Agent", results.agent);
+        },
+        (error) => {
+          paint("Writer", failed(error));
+          paint("Agent", failed(error));
+        },
+      ),
+      testJudge().then(
+        (result) => paint("Judge", result),
+        (error) => paint("Judge", failed(error)),
+      ),
+    ]);
   } finally {
     button.disabled = false;
   }
@@ -1377,7 +1400,7 @@ registerActions("models", {
   saveAgent: (el) => saveAgentSetting(el),
   sameAsWriter: (el) => toggleAgentSameAsWriter(el.checked),
   toggleApiKey: (el) => _toggleApiKeyVisibility(el),
-  judgeTest: () => _runJudgeTest(),
+  test: () => _runEndpointTests(),
   deleteOption: (el) => {
     const option = el.closest(".cb-option");
     _deleteComboboxItem(option.dataset.type, Number(option.dataset.id), el.dataset.lane);

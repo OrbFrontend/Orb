@@ -185,6 +185,14 @@ ComfyUI hosted they start it and evict the chat model, which loses its cache.
 
 ## Lane presets
 
+The Endpoints **Test** action checks Writer and Agent with a synthetic prompt,
+reasoning disabled, and `max_tokens: 1`, independent of their saved generation
+budgets. Separate lanes run concurrently, with no transient retries and a
+10-second timeout per lane. **Same as Writer** reuses the Writer result. The
+Judge retains its synthetic decision check; its API returns a probability rather
+than generated tokens. Claude Code checks CLI authentication because the CLI
+owns its output limit.
+
 Each lane sends the sampler preset of the endpoint it is calling. Director,
 Editor, and workflow tool calls read the Agent model config's temperature,
 budget, and samplers; they fall back to the Writer's whenever the Agent lane does
