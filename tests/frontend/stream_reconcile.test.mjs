@@ -494,7 +494,7 @@ it("two conversations keep independent buffers, reasoning, drafts, and targeted 
   const opB = S.streamOp;
   send('parallel-b', 'step_start', { step: 'writer' });
   await waitState(() => S.pendingGenerationStep === 'Writing the reply…');
-  assert.equal(S.generationStep, 'Waiting for the model', 'a queued endpoint has useful feedback before its first token');
+  assert.equal(S.generationStep, 'Waiting for the model…', 'a queued endpoint has useful feedback before its first token');
   send('parallel-a', 'speaker_start', { exchange_id: 'background-exchange', member_id: 1, name: 'Background Speaker' });
   send('parallel-a', 'token', 'A only');
   send('parallel-a', 'reasoning', { pass: 'writer', delta: 'A thinks' });

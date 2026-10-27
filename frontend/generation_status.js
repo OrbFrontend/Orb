@@ -14,7 +14,7 @@ const STEP_LABELS = {
   sheet_updates: "Reviewing character sheets…",
 };
 
-export const WAITING_LABEL = "Waiting for the model";
+export const WAITING_LABEL = "Waiting for the model…";
 
 export function generationStepLabel(step) {
   return Object.hasOwn(STEP_LABELS, step) ? STEP_LABELS[step] : "";
