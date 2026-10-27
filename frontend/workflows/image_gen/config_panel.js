@@ -186,7 +186,7 @@ function refreshCard() {
 }
 
 export function configPanelRenderer() {
-  return `<div class="tool-card-desc">Generate images on demand with ComfyUI on your machine or through a cloud API.</div>
+  return `<div class="tool-card-desc">Generates images on demand with ComfyUI on your machine or through a cloud API.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 

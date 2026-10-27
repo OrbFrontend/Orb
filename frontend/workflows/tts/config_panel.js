@@ -155,7 +155,7 @@ function query(action, extra) {
 }
 
 export function configPanelRenderer() {
-  return `<div class="tool-card-desc">Generate audio for dialogue.</div>
+  return `<div class="tool-card-desc">Generates audio for dialogue.</div>
     <button class="btn btn-sm tool-card-btn" data-wf-action="tts:openSettings">Settings</button>`;
 }
 

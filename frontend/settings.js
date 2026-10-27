@@ -445,7 +445,7 @@ function buildWorkflowToggleRows() {
     globalOn,
     "Secondary Workflows",
     'data-wf-action="settings:workflowsGlobal" data-wf-on="change"',
-    '<div class="tool-card-desc">Toggle everything below.</div>',
+    '<div class="tool-card-desc">Toggles everything below.</div>',
   );
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
@@ -487,7 +487,7 @@ export function renderToolsPanel() {
     alOn,
     "Agentic Lorebook",
     'data-wf-action="settings:agenticLorebook" data-wf-on="change"',
-    '<div class="tool-card-desc">Let the agent pick relevant lorebook entries. It sees keywords.</div>',
+    '<div class="tool-card-desc">Lets the agent pick relevant lorebook entries. It sees keywords.</div>',
   );
 
   const cardById = {};
