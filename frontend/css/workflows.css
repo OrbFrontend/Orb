@@ -36,7 +36,7 @@
 .workflow-swipe-btn.next svg { transform: rotate(-90deg); }
 .workflow-swipe-btn:hover:not(:disabled) { color: var(--text-primary); border-color: var(--accent); }
 .workflow-swipe-btn:disabled { opacity: .35; cursor: default; }
-.workflow-artifact-counter { align-self: center; font-size: 10px; color: var(--text-muted);
+.workflow-artifact-counter { align-self: center; font-size: 11px; color: var(--text-muted);
   font-variant-numeric: tabular-nums; pointer-events: none; }
 .workflow-regen-button { flex-shrink: 0; width: 26px; height: 26px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--bg-elevated); color: var(--text-secondary); cursor: pointer;

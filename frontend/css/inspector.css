@@ -46,7 +46,7 @@ details.inspector-block[open] > summary .reasoning-summary-arrow { transform: ro
 
 /* Readable output (feedback, state changes): a label over its value, spaced apart. */
 .feedback-row + .feedback-row { margin-top: 12px; }
-.feedback-row-label { display: block; font-size: 10px; font-weight: 500; text-transform: uppercase;
+.feedback-row-label { display: block; font-size: 11px; font-weight: 500; text-transform: uppercase;
   letter-spacing: .4px; color: var(--text-muted); margin-bottom: 4px; }
 
 /* Set like the raw text blocks, so a turn's output reads as one voice. */
@@ -65,7 +65,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .inspect-chip.resting { border-style: dashed; opacity: .65; text-decoration: line-through; }
 
 /* A status: small, uppercase, rounded. */
-.inspect-chip.pill { padding: 3px 6px; font-family: inherit; font-size: 9px; font-weight: 700;
+.inspect-chip.pill { padding: 3px 6px; font-family: inherit; font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .5px; border-radius: 999px; }
 .inspect-chip.warn { color: var(--dec-warn, #c8a84b); border-color: currentColor; }
 .inspect-chip.danger { color: var(--red); border-color: var(--red); }
@@ -74,14 +74,14 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 
 .reasoning-stepper { display: flex; align-items: flex-start; }
 .reasoning-dot-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.reasoning-enabled-label { display: flex; align-items: center; gap: 2px; font-size: 9px; color: var(--text-muted);
+.reasoning-enabled-label { display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--text-muted);
   font-family: var(--font-mono); cursor: pointer; -webkit-user-select: none; user-select: none; white-space: nowrap; }
 .reasoning-enabled-label input[type="checkbox"] { width: 10px; height: 10px; margin: 0; cursor: pointer; }
 .reasoning-dot { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center;
-  justify-content: center; font-size: 10px; font-weight: 700; font-family: var(--font-mono); cursor: pointer;
+  justify-content: center; font-size: 11px; font-weight: 700; font-family: var(--font-mono); cursor: pointer;
   transition: background .2s, border-color .2s; padding: 0; flex-shrink: 0; line-height: 1; }
 .reasoning-rail-line { width: 20px; height: 2px; flex-shrink: 0; transition: background .3s; margin-top: 8px; }
-.reasoning-pass-label { font-size: 10px; color: var(--text-muted); margin-left: 8px; margin-top: 3px;
+.reasoning-pass-label { font-size: 11px; color: var(--text-muted); margin-left: 8px; margin-top: 3px;
   letter-spacing: .04em; font-family: var(--font-mono); }
 
 /* An input, so unlike the text above it, it keeps the frame every textarea has. */
@@ -98,7 +98,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .state-frag-head { display: flex; align-items: center; min-height: 20px; justify-content: space-between; gap: 8px; }
 .state-frag-label { font-size: 12px; font-weight: 600; color: var(--text-primary); min-width: 0;
   overflow-wrap: anywhere; }
-.state-frag-desc { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted);
+.state-frag-desc { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted);
   margin: 2px 0 6px; }
 .state-entry { border-top: 1px solid var(--border); padding: 6px 0; }
 
@@ -114,7 +114,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 4px;
 }
 .state-entry-meta, .state-editor-count {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted);
+  font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted);
 }
 .state-editor-count { margin-right: auto; }
 .state-entry-actions, .state-frag-actions { display: flex; gap: 6px; justify-content: flex-end; }
@@ -124,7 +124,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .state-history { list-style: none; margin: 8px 0 0; padding: 6px 0 0; border-top: 1px dashed var(--border);
   max-height: 240px; overflow-y: auto; }
 .state-history-row { margin-bottom: 6px; }
-.state-history-meta { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+.state-history-meta { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
 .state-history-text { font-size: 12px; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
 
 /* ── Inspector: this turn's state changes ── */
@@ -150,7 +150,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
   text-box: trim-both cap alphabetic; }
 .msg-inspect > summary::-webkit-details-marker { display: none; }
 .msg-inspect[open] > summary .reasoning-summary-arrow { transform: rotate(90deg); }
-.msg-inspect-title { flex-shrink: 0; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px;
+.msg-inspect-title { flex-shrink: 0; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px;
   color: var(--text-muted); }
 
 /* The collapsed line; the open body shows it all, so it steps aside. */

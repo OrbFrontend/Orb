@@ -42,7 +42,7 @@
 
 @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to   { opacity: 1; } }
 
-.message .msg-role { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px;
+.message .msg-role { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .8px;
   color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
 .message.user .msg-role { justify-content: flex-end; color: var(--accent-dim); }
 .message .msg-body { font-family: var(--font-prose); font-size: var(--font-prose-size); line-height: 1.65;
@@ -199,11 +199,11 @@
 .swipe-nav button:hover { color: var(--text-primary); background: var(--bg-hover); }
 .swipe-nav button:disabled { opacity: .3; cursor: default; }
 .swipe-nav button:disabled:hover { color: var(--text-muted); background: none; }
-.swipe-counter { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); min-width: 28px;
+.swipe-counter { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-width: 28px;
   text-align: center; }
 
 /* Takes the role line's colour, so a theme that tints the name tints this too. */
-.msg-num { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0; text-transform: none; opacity: .75;
+.msg-num { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0; text-transform: none; opacity: .75;
   white-space: nowrap; }
 .msg-edit-area textarea { font-family: var(--font-prose); font-size: var(--font-prose-size); line-height: 1.65;
   min-height: 80px; background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius);
@@ -306,14 +306,14 @@
 .conv-history-item:hover { background: var(--bg-hover); }
 .conv-history-item.active-conv { background: var(--accent-glow); border-left: 2px solid var(--accent); }
 .conv-history-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.conv-history-date { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); margin-left: auto; }
+.conv-history-date { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); margin-left: auto; }
 .conv-history-delete { flex-shrink: 0; background: none; border: none; cursor: pointer; color: var(--text-muted);
   font-size: 11px; padding: 2px 4px; border-radius: 3px; line-height: 1; transition: color .1s, background .1s; }
 .conv-history-delete:hover { color: var(--text-primary); background: var(--bg-hover); }
 .conv-history-preview { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; font-family: var(--font-prose); }
 .conv-history-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
-.conv-history-info { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 10px;
+.conv-history-info { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px;
   color: var(--text-muted); }
 .conv-history-info-sep { color: var(--border); }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;

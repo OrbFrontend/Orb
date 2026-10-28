@@ -205,7 +205,7 @@
 .persona-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .persona-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .persona-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
-.persona-active-badge { font-size: 10px; color: var(--accent); background: var(--accent-glow); padding: 4px 6px;
+.persona-active-badge { font-size: 11px; color: var(--accent); background: var(--accent-glow); padding: 4px 6px;
   border-radius: 999px; font-weight: 500; }
 .persona-desc { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
@@ -234,7 +234,7 @@
   align-items: center; }
 .phrase-variant { display: inline-block; padding: 2px 6px; background: var(--bg-elevated); border-radius: 4px;
   font-size: 11px; border: 1px solid var(--border); white-space: nowrap; }
-.phrase-group-count { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
+.phrase-group-count { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;
   color: var(--accent); background: var(--bg-elevated); border: 1px solid var(--border); padding: 2px 6px;
   border-radius: 10px; margin-left: 8px; flex-shrink: 0; }
 .phrase-bank-empty { color: var(--text-muted); text-align: center; padding: 30px 20px; font-size: 12px;
@@ -272,7 +272,7 @@
 .preset-item-title { font-size: 13px; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
 .preset-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .preset-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
-.preset-chip { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--bg-elevated);
+.preset-chip { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--bg-elevated);
   border: 1px solid var(--border); color: var(--text-secondary); }
 
 /* Icon squares take the row's height, so they line up with the text buttons
@@ -291,7 +291,7 @@
   border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .preset-status:not(.busy) .gen-bar, .preset-status:not(.busy) .gen-dot { display: none; }
 .preset-status.error { color: var(--red); border-color: var(--red); }
-.preset-kind { font-size: 9px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px;
+.preset-kind { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px;
   background: var(--bg-deep); color: var(--text-muted); border: 1px solid var(--border); }
 .preset-kind-auto { color: var(--text-muted); }
 .preset-kind-manual { color: var(--accent); border-color: var(--accent-dim, var(--border)); }

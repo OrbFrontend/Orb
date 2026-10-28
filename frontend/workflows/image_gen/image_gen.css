@@ -15,14 +15,14 @@
 .image-gen-card-controls{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin-top:10px}
 .image-gen-card-controls>label{margin:0}
 .image-gen-card-controls>select{width:100%;min-width:0}
-.image-gen-card-summary{margin-top:8px;color:var(--text-muted);font-size:10px;line-height:1.3}
+.image-gen-card-summary{margin-top:8px;color:var(--text-muted);font-size:11px;line-height:1.3}
 .image-gen-card-status{display:flex;align-items:center;gap:6px;min-width:0;color:var(--accent);font-size:11px;line-height:1.4}
 .image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
 .image-gen-card-status.image-gen-card-unready{color:var(--danger,var(--accent))}
 .image-gen-card-setup .image-gen-card-btn{flex:none;margin-left:auto}
 .image-gen-card-alert{display:grid;gap:4px;justify-items:start;margin-top:8px;padding:8px 10px;border:1px solid var(--danger,var(--border));border-radius:var(--radius);background:color-mix(in srgb,var(--danger,var(--accent)) 8%,transparent)}
 .image-gen-card-alert-head{color:var(--danger,var(--accent));font-size:11px;font-weight:500;line-height:1.3}
-.image-gen-card-alert-detail{color:var(--text-muted);font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.image-gen-card-alert-detail{color:var(--text-muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
 .image-gen-card-setup+.image-gen-card-alert-detail{margin-top:4px}
 .ig-section{display:grid;gap:10px}
 .ig-section>.btn{justify-self:start}
@@ -42,8 +42,8 @@
 .image-gen-settings :is(.ig-style,.ig-skill,.ig-conn)[open]>summary{border-bottom:1px solid var(--border)}
 .image-gen-settings :is(.ig-style,.ig-skill,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
 .ig-style-name{flex:none;white-space:nowrap;font-weight:500;color:var(--text-primary)}
-.ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-secondary)}
-.ig-style-model{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-muted)}
+.ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:11px;color:var(--text-secondary)}
+.ig-style-model{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text-muted)}
 .ig-style-model:empty{display:none}
 .ig-style-format{flex:none;margin-left:auto;white-space:nowrap;color:var(--text-muted)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
@@ -58,7 +58,7 @@
 .ig-link:hover{text-decoration:underline}
 .ig-conn-list{display:grid;gap:6px}
 .ig-conn-name{flex:none;font-weight:500;color:var(--text-primary)}
-.ig-conn-kind{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-muted)}
+.ig-conn-kind{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:11px;color:var(--text-muted)}
 .ig-conn-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text-muted)}
 .ig-conn-body{display:grid;gap:10px;padding:10px}
 .ig-conn-remove{margin-left:auto}

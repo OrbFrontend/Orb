@@ -65,17 +65,17 @@ export function renderMoodFragments() {
 function _moodFragFormHtml(d, isEdit) {
   return `<div class="align-controls">
     <div class="field-row">
-      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
+      <div class="field"><label>ID <span style="font-size:11px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="terse"></div>
-      <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
+      <div class="field"><label>Label <span style="font-size:11px;color:var(--text-muted)">(For display only)</span></label>
         <input id="frag-label" value="${escAttr(d.label)}" placeholder="Terse"></div>
     </div>
-    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate)</span></label>
+    <div class="field"><label>Description <span style="font-size:11px;color:var(--text-muted)">(tells the Director when to activate)</span></label>
       <input id="frag-desc" value="${escAttr(d.description)}" placeholder="The scene is finalizing and deserves a spontaneous haiku."></div>
-    <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
+    <div class="field"><label>Prompt Text <span style="font-size:11px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
       <textarea id="frag-text" rows="4" placeholder="Write the reply like a haiku, strictly following haiku format (5-7-5).">${esc(d.prompt_text)}</textarea></div>
     <div class="field">
-      <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
+      <label>Negative Prompt <span style="font-size:11px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
       <textarea id="frag-neg" rows="3" placeholder="Stop writing like it's a haiku.">${esc(d.negative_prompt || "")}</textarea>
     </div>
     <div class="field-row">
@@ -522,15 +522,15 @@ function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
   return `<div class="ifrag-form align-controls">
     <div class="field-row">
-      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
+      <div class="field"><label>ID <span style="font-size:11px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="interactive-frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${escAttr(ex.id)}"></div>
-      <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
+      <div class="field"><label>Label <span style="font-size:11px;color:var(--text-muted)">(For display only)</span></label>
         <input id="interactive-frag-label" value="${escAttr(d.label)}" placeholder="${escAttr(ex.label)}"></div>
       <div class="field field-narrow"><label>Cooldown</label>
         <input id="interactive-frag-cooldown" type="number" min="0" max="50" step="1" value="${escAttr(d.cooldown_turns || 0)}" title="Turns to wait before this fragment can fire again"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
+      <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:11px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
         <input id="interactive-frag-inj-label" value="${escAttr(d.injection_label)}" placeholder="${escAttr(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
         <select id="interactive-frag-type" data-wf-action="fragments:exampleType" data-wf-on="change">
@@ -545,7 +545,7 @@ function _interactiveFragFormHtml(d, isEdit) {
     </div>
     ${_stateSectionHtml(d)}
     <div class="field" id="interactive-frag-desc-row" style="${d.field_type === "decision" ? "display:none" : ""}">
-      <label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
+      <label>Description <span id="interactive-frag-desc-hint" style="font-size:11px;color:var(--text-muted)">(${esc(ex.desc_hint || "")})</span></label>
       <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description || "")}">${esc(d.description)}</textarea></div>
     ${_gateRowHtml(d)}
     <div class="field-row" id="interactive-frag-required-row" style="${_requiredApplies(d.field_type, d.state_mode, d.state_update) ? "" : "display:none"}">

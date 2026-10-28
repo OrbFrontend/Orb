@@ -6,8 +6,7 @@
   border-radius: var(--radius); font-size: 13px; color: var(--text-primary); animation: toastIn .2s ease; }
 .toast-transient { animation: toastIn .2s ease, toastOut .3s ease 2.7s forwards; }
 .toast-leaving { animation: toastOut .2s ease forwards; }
-.toast.error { border-color: var(--red) !important; border-left: 3px solid var(--red) !important;
-  color: var(--text-primary) !important; max-width: 100%; }
+.toast.error { border-color: var(--red) !important; color: var(--text-primary) !important; max-width: 100%; }
 .toast-head { display: flex; align-items: baseline; gap: 8px; }
 .toast-icon { color: var(--red); flex-shrink: 0; }
 .toast-headline { flex: 1; font-size: 13px; font-weight: 500; }

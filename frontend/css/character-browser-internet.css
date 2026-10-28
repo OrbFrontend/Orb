@@ -25,7 +25,7 @@
 .internet-result-creator { min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* One line tall: a stat that does not fit wraps out of view whole rather than pushing the tile taller. */
 .internet-result-stats { --ui-icon-size: 10px; display: flex; justify-content: center; gap: 4px 7px; flex-wrap: wrap;
-  height: 1.3em; overflow: hidden; font-size: 10px; font-variant-numeric: tabular-nums; }
+  height: 1.3em; overflow: hidden; font-size: 11px; font-variant-numeric: tabular-nums; }
 .internet-stat { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .internet-stat-rating .ui-icon { color: var(--warning, #c8a84b); }
 .internet-import-btn { width: 100%; margin-top: auto; padding: 5px 0; font-size: 12px; border-radius: 4px;

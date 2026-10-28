@@ -10,7 +10,7 @@ button { font-family: var(--font-ui); cursor: pointer; border: none; outline: no
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-icon { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px; display: inline-flex; align-items: center; justify-content: center; }
 .btn-icon:hover { color: var(--text-primary); }
-.btn-xs { padding: 2px 6px; font-size: 10px; }
+.btn-xs { padding: 2px 6px; font-size: 11px; }
 
 /* Square SVG buttons stay centred across theme fonts. Size with
    --btn-square-size / --ui-icon-size instead of positional transforms. */

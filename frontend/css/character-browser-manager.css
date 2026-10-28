@@ -27,12 +27,12 @@
    The wrapper sheds the global label's margin; its caption span takes the look. */
 label.lib-manager-field { margin: 0; }
 .lib-manager-field > label, .lib-manager-field-label {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 10px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 11px;
   letter-spacing: .08em; color: var(--text-secondary);
 }
 
 /* Numbers are mono everywhere in this panel; prose never is. */
-.lib-manager-count { font-family: var(--font-mono); font-size: 10px; text-transform: none; letter-spacing: 0;
+.lib-manager-count { font-family: var(--font-mono); font-size: 11px; text-transform: none; letter-spacing: 0;
   color: var(--text-muted); }
 
 /* 64 chips is several rows tall inside a 600px modal, so the editor scrolls
@@ -82,7 +82,7 @@ label.lib-manager-field { margin: 0; }
   overflow: hidden; }
 .lib-progress-fill { height: 100%; width: 0; background: var(--accent-dim); transition: width .2s; }
 .lib-progress-line {
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
   /* One card's name and tags on one line — a long name must not reflow the panel. */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

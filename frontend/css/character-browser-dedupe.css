@@ -25,7 +25,7 @@
    whatever the theme font makes of an arrow glyph. */
 .lib-dupe-compare-head .btn { --ui-icon-size: 12px; }
 .lib-dupe-badge, .lib-dupe-section-label {
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
   color: var(--accent);
 }
 
@@ -35,7 +35,7 @@
 .lib-dupe-group-title { min-width: 0; font-size: 13px; color: var(--text-primary); }
 .lib-dupe-reasons { display: flex; flex-wrap: wrap; gap: 5px; }
 .lib-dupe-reason, .lib-dupe-chip {
-  padding: 6px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; color: var(--text-muted);
+  padding: 6px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; color: var(--text-muted);
 }
 .lib-dupe-chip { flex: 0 0 auto; border-color: var(--accent-dim); color: var(--accent); }
 
@@ -43,7 +43,7 @@
    every other member of its cluster, so it leads every label it appears in.
    Its box is sized from its capitals; see "Badges beside text" in base.css. */
 .lib-dupe-mark { flex: 0 0 auto; width: 16px; padding-block: calc((16px - 1cap) / 2); margin-right: 6px;
-  border-radius: 4px; background: var(--accent-glow); font-family: var(--font-mono); font-size: 9px; text-align: center;
+  border-radius: 4px; background: var(--accent-glow); font-family: var(--font-mono); font-size: 11px; text-align: center;
   color: var(--accent); }
 .lib-dupe-choices, .lib-dupe-pairs, .lib-dupe-fields {
   display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none;
@@ -86,7 +86,7 @@
   border-radius: 50%; object-fit: cover; }
 
 /* Absence drawn as absence: a dashed ring rather than a filled portrait. */
-.lib-dupe-no-avatar { display: grid; place-items: center; padding: 2px; border-style: dashed; font-size: 9px;
+.lib-dupe-no-avatar { display: grid; place-items: center; padding: 2px; border-style: dashed; font-size: 11px;
   line-height: 1; color: var(--text-muted); text-align: center; }
 .lib-dupe-collision-note { padding: 8px 10px; border-left: 2px solid var(--accent-dim);
   border-radius: 0 var(--radius) var(--radius) 0; background: var(--accent-glow); font-size: 11px; line-height: 1.45;
@@ -110,7 +110,7 @@
 .lib-dupe-field-name { margin-right: auto; }
 summary.lib-dupe-field-head { cursor: pointer; -webkit-user-select: none; user-select: none; }
 .lib-dupe-field.is-empty { opacity: .6; }
-.lib-dupe-field-tag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em;
+.lib-dupe-field-tag { flex: 0 0 auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
   text-transform: uppercase; color: var(--text-muted); }
 .lib-dupe-field-tag.is-changed { color: var(--accent); }
 .lib-dupe-field-body { max-height: 320px; padding: 8px 10px; overflow-y: auto; border-top: 1px solid var(--border);
@@ -121,7 +121,7 @@ summary.lib-dupe-field-head { cursor: pointer; -webkit-user-select: none; user-s
 .lib-dupe-resolve-actions { flex-wrap: wrap; justify-content: flex-start; }
 .lib-dupe-keep { display: flex; flex: 1 1 200px; flex-direction: column; align-items: flex-start; gap: 3px;
   text-align: left; }
-.lib-dupe-keep-sub { font-size: 10px; font-weight: 400; opacity: .75; }
+.lib-dupe-keep-sub { font-size: 11px; font-weight: 400; opacity: .75; }
 
 @media (max-width: 620px) {
   .lib-dupe-pair, .lib-dupe-choice { flex-direction: column; align-items: stretch; }

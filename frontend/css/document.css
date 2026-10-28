@@ -19,7 +19,7 @@
 .doc-audit-id { font-variant-numeric: tabular-nums; opacity: 0.7; }
 .doc-audit-snippet { display: block; padding-left: 8px; }
 .doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
-.doc-audit-hint { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+.doc-audit-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
 .doc-audit-phrasebank { margin: 12px 0; }
 #mode-switch-btn { background: none; border: none; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px;
   border-radius: var(--radius); opacity: 0.8; }
@@ -31,7 +31,7 @@
 .doc-item.active { background: var(--accent-glow); border: 1px solid var(--accent-dim); }
 .doc-item-info { flex: 1; min-width: 0; }
 .doc-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.doc-item-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.doc-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 .doc-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
 .doc-item:hover .doc-item-actions { opacity: 1; }
 .doc-item-actions button { --ui-icon-size: 14px; padding: 2px 6px; color: var(--text-muted); }
