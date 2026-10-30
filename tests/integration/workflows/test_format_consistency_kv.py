@@ -4,9 +4,12 @@ import json
 
 import pytest
 
-from backend.database import set_workflow_enabled
-from backend.workflows import set_workflow_config
+from backend.api.routes import messages as message_routes
+from backend.database import add_message, get_messages, set_workflow_enabled
+from backend.workflows import prose_rewriter_host, set_workflow_config
 from backend.workflows.format_consistency import VOICE_REWRITE_LENGTH_RULE, VOICE_REWRITE_TOOL_NAME, hooks, voice
+
+from ._fixtures import make_workflow, register_for_test
 
 # Third/past baseline, second/present draft -> a drift the hook must repair.
 BASELINE = "She smiles and steps back. The woods were quiet that evening."
@@ -93,6 +96,71 @@ async def test_voice_rewrite_carries_no_conversation(client, llm_mock, voice_on)
     assert "and then?" not in _wire(rewrite["messages"])
 
     assert len(_wire(rewrite["messages"])) < len(_wire(director["messages"]))
+
+
+@pytest.mark.parametrize("manual", [False, True])
+async def test_voice_repair_runs_once_before_local_prose_rewrite(client, llm_mock, voice_on, monkeypatch, manual):
+    cid = await _seed(client)
+    config = {"variant_id": "test", "gpu": False, "batch_size": 1}
+    sources: list[str] = []
+    downstream: list[str] = []
+    polished = "She moved closer, watching her carefully."
+
+    async def prose_rewrite(source, _config):
+        sources.append(source)
+        yield {"type": "rewritten", "draft": polished}
+
+    async def artifact_hook(ctx):
+        downstream.append(ctx.draft)
+        if False:
+            yield  # pragma: no cover -- generator shape
+
+    monkeypatch.setattr(prose_rewriter_host, "resolve_config", lambda _settings: config)
+    monkeypatch.setattr(prose_rewriter_host, "rewrite_events", prose_rewrite)
+    monkeypatch.setattr(message_routes, "resolve_config", lambda _settings: config)
+    monkeypatch.setattr(message_routes, "rewrite_events", prose_rewrite)
+    llm_mock.enqueue_workflow(
+        {
+            "tool_calls": [
+                {
+                    "id": "voice",
+                    "type": "function",
+                    "function": {"name": VOICE_REWRITE_TOOL_NAME, "arguments": json.dumps({"rewritten_text": REWRITTEN})},
+                }
+            ]
+        }
+    )
+    if manual:
+        # Manual-only mode must still use the same order, without dispatching
+        # automatic prose or artifact hooks while preparing the source.
+        await set_workflow_config("prose_rewriter", {"automatic": False})
+        history = await get_messages(cid)
+        mid, _ = await add_message(
+            cid,
+            "assistant",
+            DRIFTING_DRAFT,
+            1,
+            parent_id=history[-1]["id"],
+            writer_draft=DRIFTING_DRAFT,
+            advance_leaf=True,
+        )
+        url, body = f"/api/conversations/{cid}/messages/{mid}/prose-rewrite", {}
+    else:
+        llm_mock.enqueue_director([{"id": "c1", "type": "function", "function": {"name": "direct_scene", "arguments": "{}"}}])
+        llm_mock.enqueue_writer(DRIFTING_DRAFT)
+        url, body = f"/api/conversations/{cid}/send", {"content": "and then?", "attachments": []}
+
+    with register_for_test(make_workflow("after_prose", post_pipeline=artifact_hook)):
+        response = await client.post_checked(url, json=body)
+
+    assert sources == [REWRITTEN]
+    assert len([call for call in llm_mock.captured if call["pass"] == "workflow"]) == 1
+    assert downstream == ([] if manual else [polished])
+    assert (await get_messages(cid))[-1]["content"] == polished
+    if not manual:
+        assert response.text.index('"channel": "workflow:format_consistency", "state": "done"') < response.text.index(
+            '"channel": "workflow:prose_rewriter", "label": "Rewriting prose'
+        )
 
 
 async def test_voice_off_leaves_the_turn_untouched(client, llm_mock, voice_on):

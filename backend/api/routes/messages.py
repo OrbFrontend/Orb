@@ -43,8 +43,8 @@ from ...pipeline import (
     handle_speak,
     handle_super_regenerate,
     handle_turn,
+    prepare_prose_rewrite,
     prose_rewrite_source,
-    rerun_after_prose_rewrite,
     retained_draft,
 )
 from ...prompting import resolve_persona_id
@@ -247,7 +247,7 @@ async def api_magic_rewrite_msg(
 async def _stream_prose_rewrite_message(
     cid: str, msg_id: int, config: ProseRewriteConfig, abort_token: AbortToken, settings: Settings | None = None
 ) -> AsyncIterator[PublicEvent]:
-    """Stream the retained draft or saved text through the local rewriter.
+    """Apply Format Consistency, then stream a local rewrite of the source.
 
     Load after acquiring the conversation lock to avoid stale edits. Persist only
     after the final rewritten event; failures and disconnects leave the row unchanged.
@@ -266,6 +266,13 @@ async def _stream_prose_rewrite_message(
         "event": "prose_rewrite_done",
         "data": {"message_id": msg_id, "content": current_content, "changed": False, "warning": "", "aborted": True},
     }
+    if abort_token.is_aborted:
+        yield aborted
+        return
+    source = await prepare_prose_rewrite(cid, message, source, settings, abort_token)
+    if abort_token.is_aborted:
+        yield aborted
+        return
     rewritten = source
     warning = ""
     async with contextlib.aclosing(until_aborted(rewrite_events(source, config), abort_token)) as events:
@@ -279,12 +286,6 @@ async def _stream_prose_rewrite_message(
     if abort_token.is_aborted:
         yield aborted
         return
-    if not warning:
-        rewritten = await rerun_after_prose_rewrite(cid, message, rewritten, settings, abort_token)
-    if abort_token.is_aborted:
-        yield aborted
-        return
-
     changed = not warning and rewritten != current_content
     if changed:
         await update_message_content(msg_id, rewritten)

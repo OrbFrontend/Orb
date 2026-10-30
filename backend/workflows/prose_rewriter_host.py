@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 FEATURE = catalog.FEATURE
 
-# Post-pipeline hooks that rerun on a manually rewritten reply: the markup normalizer, so the rewrite keeps the chat's
-# formatting. Named by id rather than imported, so a rewrite still works where that workflow is not installed.
-RERUN_AFTER_REWRITE: frozenset[str] = frozenset({"format_consistency"})
+# Post-pipeline hooks that prepare a manual rewrite's source, matching automatic
+# turns. Named by id so a rewrite still works where that workflow is not installed.
+PRE_REWRITE_WORKFLOWS: frozenset[str] = frozenset({"format_consistency"})
 
 # Strong references to fire-and-forget host tasks. Without this the only reference is the event loop's weak one and the task can
 # be collected mid-load, which shows up as a model that silently never finishes warming.
@@ -58,14 +58,14 @@ def resolve_config(settings: Settings) -> ProseRewriteConfig | None:
 
 
 async def post_pipeline(ctx: PostCtx) -> AsyncIterator[PostEvent]:
-    """Rewrite the post-Editor draft before later secondary workflows."""
+    """Polish the draft after Format Consistency and before artifact workflows."""
     draft = ctx.draft
     if not draft or not normalize_config(await get_workflow_config(FEATURE))["automatic"]:
         return
     cfg = resolve_config(ctx.settings)
     if cfg is None:
         return
-    logger.info("Prose rewriter starting after Editor (draft=%d chars, variant=%s)", len(draft), cfg["variant_id"])
+    logger.info("Prose rewriter starting after Format Consistency (draft=%d chars, variant=%s)", len(draft), cfg["variant_id"])
     channel = f"workflow:{FEATURE}"
     yield {"event": "phase_status", "data": {"channel": channel, "label": "Rewriting prose…"}}
     async for event in rewrite_events(draft, cfg):

@@ -14,5 +14,5 @@ from .entrypoints import (
 )
 from .passes.judge import remap_anchors as remap_decision_anchors
 from .predicates import agent_enabled
-from .prose_rewrite import prose_rewrite_source, rerun_after_prose_rewrite, retained_draft
+from .prose_rewrite import prepare_prose_rewrite, prose_rewrite_source, retained_draft
 from .state import LorebookTurn, ModelLane, PipelineConfig, TurnState

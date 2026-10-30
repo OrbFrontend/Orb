@@ -273,8 +273,8 @@ Director → Writer → Editor
 retain post-Editor draft
         ↓
 POST_PIPELINE hooks
-  Prose Rewriter (-20)
-  Format Consistency (-10)
+  Format Consistency (-20)
+  Prose Rewriter (-10)
   later text/artifact hooks (0+)
         ↓
 persist assistant message, state, and attachments
@@ -285,13 +285,18 @@ SSE done
 Pre-hooks can add system blocks, enable tools, or emit public events. Post-hooks
 can replace the draft, set message state, stage attachments, or emit public
 events. Hooks run in subscription priority order, and equal priorities run in
-registration order. The Prose Rewriter is a registered post-hook; its negative
-priority puts it before Format Consistency and artifact workflows. Its standard
+registration order. Format Consistency repairs voice and markup first; Prose
+Rewriter then polishes that result before artifact workflows consume it. This
+keeps expensive POV/tense rewrites ahead of the inexpensive local prose pass,
+with no Format Consistency rerun afterward. The Prose Rewriter's standard
 workflow toggle turns the rewriter on for both automatic runs and the
 saved-message rewrite route, and its `automatic` config gates the post-hook
-alone. Its workflow card manages the model through the generic Local ML
-routes, which also own the shared llama-server runtime. A hook failure is
-isolated so the main reply and other workflows can continue.
+alone. Saved-message rewrites apply Format Consistency to the retained
+post-Editor draft (or saved text when absent) before the local rewrite, using the
+same enablement and voice settings as a turn. Its workflow card manages the model
+through the generic Local ML routes, which also own the shared llama-server
+runtime. A hook failure is isolated so the main reply and other workflows can
+continue.
 
 With the image workflow's GPU swap option on, every turn holds the GPU from
 start to `done`, and a ComfyUI render waits for it. Image renders run from

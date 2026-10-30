@@ -34,9 +34,9 @@ def test_every_plugin_package_is_registered_in_name_order_with_its_declared_subs
             assert (bound.callable, bound.priority, bound.workflow_id) == (sub.callable, sub.priority, name)
 
 
-def test_post_pipeline_runs_rewriter_then_format_consistency_then_tts():
+def test_post_pipeline_runs_format_consistency_then_rewriter_then_tts():
     assert [(s.workflow_id, s.priority, s.callable) for s in iter_subscriptions(HookType.POST_PIPELINE)] == [
-        ("prose_rewriter", -20, prose_rewriter_host.post_pipeline),
-        ("format_consistency", -10, format_consistency_hooks.post_pipeline),
+        ("format_consistency", -20, format_consistency_hooks.post_pipeline),
+        ("prose_rewriter", -10, prose_rewriter_host.post_pipeline),
         ("tts", 0, tts_hooks.post_pipeline),
     ]

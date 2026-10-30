@@ -21,8 +21,7 @@ WORKFLOW = Workflow(
     config_schema=CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
     config_normalizer=normalize_config,
-    # Negative priority makes the deterministic markup normalizer run before TTS's
-    # post hook (priority 0), so TTS -- and any future artifact hook -- synthesizes
-    # from the normalized text rather than the raw draft.
-    subscriptions=[subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=-10)],
+    # Fix voice and markup before Prose Rewriter (-10) polishes the result.
+    # Artifact hooks (0+) then consume the final prose without another voice call.
+    subscriptions=[subscription(HookType.POST_PIPELINE, hooks.post_pipeline, priority=-20)],
 )

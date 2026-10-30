@@ -159,8 +159,8 @@ async def run_pipeline(
 ) -> AsyncIterator[PipelineEvent]:
     """Run the director -> writer -> editor passes for one turn.
 
-    Streams SSE events as each pass runs, retains the post-Editor draft, then runs the local prose rewriter and post-pipeline
-    workflow hooks before emitting one ``_result`` event.
+    Streams SSE events as each pass runs, retains the post-Editor draft, then runs post-pipeline hooks (Format Consistency,
+    Prose Rewriter, and artifact workflows) before emitting one ``_result`` event.
 
     A stop during the director pass exits cleanly with no output. A stop during the writer pass still emits ``_result`` with the
     partial draft so persistence can save it.

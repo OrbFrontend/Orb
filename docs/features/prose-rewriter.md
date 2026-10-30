@@ -1,8 +1,8 @@
 # Prose Rewriter
 
 Prose Rewriter is an optional secondary workflow backed by a local language
-model. It revises each paragraph after the Editor finishes, focusing on cadence,
-stock phrasing, and other signs of machine-written prose.
+model. It revises each paragraph after the Editor and Format Consistency finish,
+focusing on cadence, stock phrasing, and other signs of machine-written prose.
 
 It is designed for English fiction. Technical text, lists, and other languages
 may get worse. Paragraphs shorter than 80 bytes or longer than 512 tokens are left
@@ -13,12 +13,14 @@ unchanged. It does not guarantee that text will pass an AI detector.
 The order is:
 
 ```text
-Director → Writer → Editor → save draft → Prose Rewriter → other workflows
+Director → Writer → Editor → retain draft → Format Consistency → Prose Rewriter → artifact workflows
 ```
 
 Orb retains the Editor's result before rewriting it. The Editor audit and Length
-Guard therefore evaluate the Writer's prose, and the Prose Rewriter runs as the
-first secondary text workflow. Later workflows receive its rewritten text. In
+Guard therefore evaluate the Writer's prose. Format Consistency fixes narrative
+voice and markup before Prose Rewriter polishes the result, keeping expensive
+POV/tense rewrites ahead of the inexpensive local prose pass. Later workflows
+receive the final prose without another Format Consistency pass. In
 group chats, Orb runs the rewriter separately for each speaker. The retained
 snapshot and final reply are committed together after the workflows finish.
 
@@ -37,8 +39,8 @@ retained post-Editor draft when it is available; otherwise it uses the saved
 reply.
 
 - A rewrite from the retained draft preserves Editor patches while replacing the
-  previous Prose Rewriter result and any later text-workflow changes.
-- After the local rewrite, Format Consistency runs on the result just as it does
+  previous secondary text-workflow changes.
+- Before the local rewrite, Format Consistency runs on the source just as it does
   during a generated turn. Its workflow enablement and voice setting still apply.
 - Editing a reply removes its retained draft, so later rewrites use the edit.
 - The reply stays in the same branch and updates in place.
@@ -94,8 +96,9 @@ The local process unloads after five minutes without work. Set
 workflow off unloads it without waiting for that timeout and stops a load still
 in progress; a rewrite already running finishes first.
 
-If the local model fails to start or stops, Orb keeps the Editor's reply and
-shows a warning.
+If the local model fails to start or stops during a turn, Orb keeps the draft
+from Format Consistency and shows a warning. A failed saved-message rewrite
+leaves the saved reply unchanged.
 
 The models and rewrite logic come from
 [ProseRewriterWebUI](https://github.com/OrbFrontend/ProseRewriterWebUI). Model

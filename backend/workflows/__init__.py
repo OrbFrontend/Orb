@@ -66,9 +66,9 @@ from .registry import (
 register_plugins(__name__, Path(__file__).parent)
 
 # The rewriter's post hook runs the local model, below the toolkit, so its host
-# adapter binds it here. Priority -20 runs it before Format Consistency (-10) and
-# TTS (0), so both act on the rewritten draft. Its workflow toggle turns it on for
-# manual and automatic rewrites; its ``automatic`` config gates turns.
-subscribe(prose_rewriter_host.FEATURE, HookType.POST_PIPELINE, prose_rewriter_host.post_pipeline, priority=-20)
+# adapter binds it here. Priority -10 runs it after Format Consistency (-20) and
+# before TTS (0), so artifacts use the final prose. Its workflow toggle turns it
+# on for manual and automatic rewrites; its ``automatic`` config gates turns.
+subscribe(prose_rewriter_host.FEATURE, HookType.POST_PIPELINE, prose_rewriter_host.post_pipeline, priority=-10)
 
 finalize_registry()

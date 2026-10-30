@@ -9,7 +9,7 @@ from .. import database as db
 from ..core.settings import Settings
 from ..database.models import CharacterCardRow, ConversationRow
 from ..inference import AbortToken, KVCacheTracker, agent_lane_from_settings, client_from_settings
-from ..workflows.prose_rewriter_host import RERUN_AFTER_REWRITE
+from ..workflows.prose_rewriter_host import PRE_REWRITE_WORKFLOWS
 from .workflow_bridge import PostPipelineResult, run_post_pipeline
 
 
@@ -42,10 +42,10 @@ async def _speaker_card(conv: ConversationRow | None, message: Mapping[str, Any]
     return character_id, await db.get_character_card(character_id) if character_id else None
 
 
-async def rerun_after_prose_rewrite(
+async def prepare_prose_rewrite(
     cid: str, message: Mapping[str, Any], draft: str, settings: Settings, abort_token: AbortToken
 ) -> str:
-    """Re-run the post workflows a rewrite invalidates on *draft*, as the character who wrote *message*."""
+    """Apply pre-rewrite workflows to *draft*, as the character who wrote *message*."""
     history = await db.get_messages_before(cid, message["id"])
     character_id, card = await _speaker_card(await db.get_conversation(cid), message)
     client = client_from_settings(settings, abort_token=abort_token)
@@ -68,7 +68,7 @@ async def rerun_after_prose_rewrite(
         schema_overrides={},
         agent_client=agent_client,
         agent_model_name=agent_model_name,
-        post_workflow_ids=RERUN_AFTER_REWRITE,
+        post_workflow_ids=PRE_REWRITE_WORKFLOWS,
     ):
         if isinstance(event, PostPipelineResult):
             post = event

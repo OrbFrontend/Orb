@@ -233,7 +233,7 @@ def _patched_rewriter(rewrite, config=_REWRITER_CONFIG):
     )
 
 
-async def test_prose_rewriter_runs_before_registered_post_pipeline_hooks(client):
+async def test_prose_rewriter_runs_before_later_post_pipeline_hooks(client):
     seen: list[str] = []
 
     async def prose_rewrite(source, config):

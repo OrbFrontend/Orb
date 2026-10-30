@@ -113,19 +113,30 @@ async def test_manual_rewrite_remains_available_when_automatic_rewriting_is_off(
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-async def test_format_consistency_runs_after_the_saved_message_rewrite_unless_disabled(client, db, monkeypatch, enabled):
+@pytest.mark.parametrize("retained", [True, False])
+async def test_format_consistency_prepares_the_rewrite_source_unless_disabled(client, db, monkeypatch, enabled, retained):
     cid = f"message-prose-format-{enabled}"
     message_id = await _three_turns(cid)
     if not enabled:
         await dbmod.set_workflow_enabled("format_consistency", False)
-    rewritten = "*She steps closer, watching him carefully.* Are you sure about this?"
-    _rewriter(monkeypatch, rewritten)
+    source = "*She steps closer, watching him carefully.* Are you sure about this?"
+    await dbmod.update_message_content(message_id, source)
+    if retained:
+        await db.execute("UPDATE messages SET writer_draft = ? WHERE id = ?", (source, message_id))
+    else:
+        await dbmod.clear_writer_draft(message_id)
+    await db.commit()
+    sources: list[str] = []
+    # Deliberately introduce new markup so a second normalization would change it.
+    rewritten = "*She nods slowly, considering his answer.* All right, then."
+    _rewriter(monkeypatch, rewritten, sources=sources)
 
     response = await _rewrite(client, cid, message_id)
 
-    expected = 'She steps closer, watching him carefully. "Are you sure about this?"' if enabled else rewritten
-    assert _done_event(response)["content"] == expected
-    assert await _content(db, message_id) == expected
+    expected_source = 'She steps closer, watching him carefully. "Are you sure about this?"' if enabled else source
+    assert sources == [expected_source]
+    assert _done_event(response)["content"] == rewritten
+    assert await _content(db, message_id) == rewritten
 
 
 async def test_streams_a_snapshot_before_persisting_the_rewrite(streaming_client, db, monkeypatch):
@@ -187,6 +198,27 @@ async def test_abort_keeps_the_saved_message_unchanged(client, db, monkeypatch):
     continue_rewrite.set()
     await stream.aclose()
     assert await _content(db, message_id) == "Editor-final reply."
+
+
+async def test_abort_during_format_consistency_skips_the_local_rewrite(client, db, monkeypatch):
+    cid = "message-prose-abort-format"
+    message_id = await _assistant_message(cid, "Visible reply.", writer_draft="Retained draft.")
+    token = AbortToken()
+    sources: list[str] = []
+    _rewriter(monkeypatch, "Must not run.", sources=sources)
+
+    async def prepare(_cid, _message, source, _settings, abort_token):
+        assert source == "Retained draft."
+        abort_token.abort()
+        return "Format-corrected source."
+
+    monkeypatch.setattr(message_routes, "prepare_prose_rewrite", prepare)
+    events = await _drain(_stream(cid, message_id, token))
+
+    assert sources == []
+    assert len(events) == 1
+    assert events[0]["data"]["aborted"] is True
+    assert await _content(db, message_id) == "Visible reply."
 
 
 async def test_stream_loads_the_current_message_after_acquiring_its_lock(client, db, monkeypatch):
