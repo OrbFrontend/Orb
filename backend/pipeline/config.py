@@ -33,6 +33,7 @@ def resolve_pipeline_config(
     prefix: list[ChatMessage],
     phrase_bank: list[PhraseGroup] | None,
     schema_overrides: Mapping[str, dict],
+    cache_shape: str = "",
 ) -> PipelineConfig:
     """Build the immutable per-turn config.
 
@@ -74,6 +75,7 @@ def resolve_pipeline_config(
             model=settings["model_name"],
             resolve=macros.resolve_prompt_messages,
             template_thinking=lane_template_thinking(reasoning_passes, lane="writer", separate_agent_lane=dual_model),
+            shape=cache_shape,
         ),
     )
     if dual_model:
@@ -86,6 +88,7 @@ def resolve_pipeline_config(
                 model=settings.get("agent_model_name", settings["model_name"]),
                 resolve=macros.resolve_prompt_messages,
                 template_thinking=lane_template_thinking(reasoning_passes, lane="agent", separate_agent_lane=True),
+                shape=cache_shape,
             ),
         )
     else:

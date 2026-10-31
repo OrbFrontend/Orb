@@ -42,6 +42,7 @@ async def cached_complete(
     tool_choice: dict | str | None = None,
     kv_tracker: KVCacheTracker | None = None,
     record: bool = True,
+    shape: str = "",
     **params: Any,
 ) -> AsyncIterator[CompletionEvent]:
     """Run ``client.complete`` and snapshot the KV tracker from the same args.
@@ -53,7 +54,7 @@ async def cached_complete(
     if kv_tracker is not None and record:
         # The client's server is half the lane key: two endpoints have independent
         # KV caches even when they answer to the same model name.
-        kv_tracker.record(label, messages, tools, model=model, endpoint=getattr(client, "base_url", ""))
+        kv_tracker.record(label, messages, tools, model=model, endpoint=getattr(client, "base_url", ""), shape=shape)
     async for event in mark_call_start(
         client.complete(messages=messages, model=model, tools=tools, tool_choice=tool_choice, **params)
     ):
@@ -81,6 +82,8 @@ class CachedBase:
     resolve: Callable[[Sequence[Mapping[str, Any]]], list[dict]] | None = None
     # The lane renders text-mode prompts with thinking on (see ``lane_template_thinking``).
     template_thinking: bool = False
+    # The tracker's lane shape for a prefix that is intentionally one of several on the same server (see ``KVCacheTracker``).
+    shape: str = ""
 
     def complete(
         self,
@@ -112,6 +115,7 @@ class CachedBase:
             tool_choice=tool_choice,
             kv_tracker=kv_tracker,
             record=record,
+            shape=self.shape,
             cache_prefix_len=len(self.prefix),
             **({"template_thinking": True} if self.template_thinking else {}),
             **params,

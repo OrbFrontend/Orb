@@ -1,4 +1,5 @@
 import json
+import logging
 from os.path import commonprefix
 
 import pytest
@@ -446,12 +447,16 @@ async def test_both_model_lanes_agree_on_the_cast_when_the_prefix_is_shared(clie
 
 
 @pytest.mark.kv_divergence_expected
-async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, llm_mock):
+async def test_classic_card_swap_swaps_the_card_on_the_agent_lane_too(client, llm_mock, caplog):
     """An Editor auditing Aria must not be reading Kael's card."""
-    await _dual_model_exchange(client, llm_mock, "swap")
+    with caplog.at_level(logging.INFO, logger="backend.inference.kv_tracker"):
+        await _dual_model_exchange(client, llm_mock, "swap")
     _assert_cards_speaker_only(_systems(llm_mock, "writer"))
     _assert_cards_speaker_only(_systems(llm_mock, "editor"))
     assert "ARIA PRIVATE" not in _systems(llm_mock, "director")[0]
+    # Each speaker's prefix is its own tracker lane, so the report compares a speaker with itself.
+    legend = [line for line in caplog.text.splitlines() if "lanes:" in line][-1]
+    assert "[swap:aria]" in legend and "[swap:kael]" in legend, legend
 
 
 @pytest.mark.kv_divergence_expected

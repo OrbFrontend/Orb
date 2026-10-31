@@ -10,6 +10,7 @@ from ..core import CardScripts, CastMember, ChatMessage, GroupContextMode, Macro
 from ..core.settings import Settings
 from ..database.models import PhraseGroup
 from ..inference import KVCacheTracker, LLMClient
+from ..prompting import prefix_cache_shape
 from .config import resolve_pipeline_config, split_interactive_fragments
 from .events import CoreTurnEvent, PipelineEvent, PublicTurnEvent, ResultEvent
 from .failures import (
@@ -185,6 +186,7 @@ async def run_pipeline(
         prefix=prefix,
         phrase_bank=phrase_bank,
         schema_overrides=schema_overrides,
+        cache_shape=prefix_cache_shape(context_mode, speaker),
     )
 
     # Feedback and post-processing fragments are handled after the Writer, and

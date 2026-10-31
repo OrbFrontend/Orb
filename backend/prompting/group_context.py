@@ -41,6 +41,11 @@ def prefix_is_speaker_scoped(mode: GroupContextMode) -> bool:
     return mode == "swap"
 
 
+def prefix_cache_shape(mode: GroupContextMode, speaker: CastMember | None) -> str:
+    """The tracker lane shape for a speaker's prefix: one per speaker under swap, the shared lane otherwise."""
+    return f"swap:{speaker.speaker_key}" if speaker is not None and prefix_is_speaker_scoped(mode) else ""
+
+
 def tail_carries_identity(mode: GroupContextMode) -> bool:
     """True when the speaker's description/personality/examples ride the trailing Writer message rather than the shared system
     body.

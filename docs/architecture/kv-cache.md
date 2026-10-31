@@ -344,8 +344,8 @@ provider cache reads, but its adapted response schema is not sent as an Orb
 tool array, so the tracker does not compare tool arrays for that transport.
 
 The tracker compares a call with the previous call **on its own lane**, falling
-back to the last same-label call of the previous turn — which makes the first call
-of a new turn useful rather than an unhelpful zero baseline.
+back to the last same-label call on that lane from an earlier turn — which makes
+the first call of a new turn useful rather than an unhelpful zero baseline.
 
 A tracker lane is `(server, model, shape)`. Server and model identify the physical
 cache owner, matching the first two fields used by the test-time checker. Shape is
@@ -354,7 +354,9 @@ intentionally independent rendered prefix. For example, format consistency's
 self-contained voice rewrite records `format_consistency:voice_rewrite`, so a
 group exchange's next Director call skips that short prefix and compares with the
 last conversation call instead. `forced_tool_call` accepts this as
-`cache_shape` and passes it to the tracker.
+`cache_shape` and passes it to the tracker. Under Swap each speaker's prefix is
+its own lane, `swap:<speaker_key>`, carried by `CachedBase.shape`, so a speaker is
+compared with its own last call even across exchanges it sat out.
 
 The shape is a semantic discriminator, not a fingerprint of the current message
 or tools bytes. Calls in one intended family must remain comparable so an

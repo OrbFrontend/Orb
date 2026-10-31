@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
-# Per-conversation snapshot of the previous turn's entries, keyed by conversation_id.
+# Per-conversation entries from earlier turns, the latest per (lane, label), keyed by conversation_id.
 _prev_turn_entries: dict[str, list[dict]] = {}
 
 
@@ -207,7 +207,7 @@ class KVCacheTracker:
                     tools_note = "tools_MATCH"
                 else:
                     tools_note = f"tools_DIFFER (prev={prev['tools_chars']}c, this={e['tools_chars']}c)"
-                turn_tag = "prev-turn " if cross_turn else ""
+                turn_tag = "earlier-turn " if cross_turn else ""
                 local_note = (
                     f"local: msgs_overlap={msgs_overlap}/{msgs_total}c ({msgs_pct:.1f}%) "
                     f"vs {turn_tag}{prev['label']!r}; {tools_note}"
@@ -242,4 +242,8 @@ class KVCacheTracker:
         logger.info("\n".join(lines))
 
         if self._conversation_id:
-            _prev_turn_entries[self._conversation_id] = list(self._entries)
+            # Keep older turns' calls on lanes this request did not touch: a swap speaker's lane is idle for every exchange it
+            # sits out, and its next call still has to find its own last one.
+            touched = {(_lane_of(e), e["label"]) for e in self._entries}
+            kept = [e for e in self._prev_entries if (_lane_of(e), e["label"]) not in touched]
+            _prev_turn_entries[self._conversation_id] = kept + self._entries

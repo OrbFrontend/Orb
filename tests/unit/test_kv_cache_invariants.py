@@ -811,6 +811,23 @@ def test_a_new_request_is_measured_against_the_latest_call_of_that_label(monkeyp
     assert "SHARED-AND-MORE" in prev["msgs_serialized"], "compared against the stalest same-label call"
 
 
+def test_a_swap_speaker_that_sat_out_an_exchange_still_finds_its_own_last_call(monkeypatch):
+    """Each swap speaker is its own lane, idle for every exchange it does not speak in."""
+    from backend.inference import kv_tracker as mod
+
+    monkeypatch.setattr(mod, "_prev_turn_entries", {}, raising=True)
+    first = mod.KVCacheTracker(conversation_id="c1")
+    _entry(first, "writer", "ARIA-PREFIX", shape="swap:aria")
+    first.log_summary()
+    second = mod.KVCacheTracker(conversation_id="c1")
+    _entry(second, "writer", "KAEL-PREFIX", shape="swap:kael")
+    second.log_summary()
+
+    third = mod.KVCacheTracker(conversation_id="c1")
+    prev, cross_turn = third._find_prev(0, ("", "m", "swap:aria"), "writer")
+    assert cross_turn and prev is not None and "ARIA-PREFIX" in prev["msgs_serialized"]
+
+
 # -- Lanes ---------------------------------------------------------------------
 #
 # A tracker lane is (server, model, rendered-prompt shape). The first two fields identify the physical cache owner. The third

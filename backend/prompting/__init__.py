@@ -7,6 +7,7 @@ from .group_context import (
     context_size_components,
     macro_identity,
     member_macros,
+    prefix_cache_shape,
     prefix_is_speaker_scoped,
     render_cast_section,
     tail_carries_identity,
