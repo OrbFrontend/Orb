@@ -177,6 +177,9 @@ CREATE TABLE IF NOT EXISTS messages (
     workflow_state TEXT DEFAULT NULL,
     speaker_member_id TEXT DEFAULT NULL REFERENCES group_members(id) ON DELETE SET NULL,
     exchange_id TEXT DEFAULT NULL,
+    -- The persona a user row was sent as; the name survives the persona's deletion.
+    persona_id INTEGER DEFAULT NULL REFERENCES user_personas(id) ON DELETE SET NULL,
+    persona_name TEXT DEFAULT NULL,
     -- Versioned evaluations for this reply, used as its replay record.
     decision_evaluations TEXT NOT NULL DEFAULT '{}',
     -- Decision cooldowns count completed exchanges; Director cooldowns count firings.

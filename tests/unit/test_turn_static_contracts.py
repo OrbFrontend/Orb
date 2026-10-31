@@ -84,7 +84,7 @@ async def declarations() -> AsyncIterator[PublicTurnEvent]:
     yield {"event": "draft_update", "data": {"draft": "preview"}}
     yield {"event": "reasoning", "data": {"pass": "writer", "delta": "thought"}}
     yield {"event": "phase_status", "data": {"channel": "workflow:x", "state": "done"}}
-    yield {"event": "user_message_created", "data": {"id": 1, "content": "hi"}}
+    yield {"event": "user_message_created", "data": {"id": 1, "content": "hi", "persona_id": None, "persona_name": None}}
     yield {"event": "writer_done", "data": {"editor_will_run": False}}
     yield {"event": "feedback", "data": {"values": {"feature": [1, 2]}}}
     yield {"event": "speaking_plan", "data": {"exchange_id": "x", "plan": []}}
@@ -97,7 +97,7 @@ async def declarations() -> AsyncIterator[PublicTurnEvent]:
     yield {"event": "writer_rewrite", "data": {"refined_text": 1}}  # rejected
     yield {"event": "writer_rewrite", "data": {"refined_txt": "typo"}}  # rejected
     yield {"event": "reasoning", "data": {"pass": "writer", "delta": 1}}  # rejected
-    yield {"event": "user_message_created", "data": {"id": "bad", "content": "hi"}}  # rejected
+    yield {"event": "user_message_created", "data": {"id": "bad", "content": "hi", "persona_id": None, "persona_name": None}}  # rejected
     yield {"event": "writer_done", "data": {"editor_will_run": "yes"}}  # rejected
     yield {"event": "speaking_plan", "data": {"exchange_id": "x", "plan": [{"member_id": 1}]}}  # rejected
     yield {"event": "done", "data": {"fake": True}}  # rejected

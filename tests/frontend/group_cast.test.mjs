@@ -278,9 +278,34 @@ test("a reply is labelled with its speaker's name", () => {
   assert.equal(speakerLabel({ role: "assistant", speaker_member_id: "m1" }), "Walter");
 });
 
-test("the user is always 'You', in a group as in a solo chat", () => {
+test("a user line is labelled with the persona it was sent as, not the one active now", () => {
   scene();
-  assert.equal(speakerLabel({ role: "user", speaker_member_id: null }), "You");
+  withPersona({
+    personas: [
+      { id: 7, name: "Kit", has_avatar: false },
+      { id: 8, name: "Bex", has_avatar: false },
+    ],
+    activeId: 8,
+  });
+  const sentAsKit = { role: "user", persona_id: 7, persona_name: "Kit" };
+  assert.equal(speakerLabel(sentAsKit), "Kit");
+  assert.equal(speakerAvatar(sentAsKit), "K");
+});
+
+test("a user line keeps its name after its persona is deleted", () => {
+  scene();
+  withPersona({ personas: [{ id: 8, name: "Bex", has_avatar: true }], activeId: 8 });
+  const orphan = { role: "user", persona_id: null, persona_name: "Kit" };
+  assert.equal(speakerLabel(orphan), "Kit");
+  assert.equal(speakerAvatar(orphan), "K");
+});
+
+test("an unattributed user line reads as the effective persona, else 'You'", () => {
+  scene();
+  withPersona({ personas: [{ id: 8, name: "Bex", has_avatar: false }], activeId: 8 });
+  assert.equal(speakerLabel({ role: "user" }), "Bex");
+  withPersona();
+  assert.equal(speakerLabel({ role: "user" }), "You");
 });
 
 test("a removed member still labels the lines it wrote", () => {

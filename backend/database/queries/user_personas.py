@@ -96,6 +96,7 @@ async def delete_user_persona(persona_id: int) -> bool:
     async with get_db() as db:
         await db.execute("UPDATE conversations  SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
         await db.execute("UPDATE character_cards SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
+        await db.execute("UPDATE messages SET persona_id = NULL WHERE persona_id = ?", (persona_id,))
         cur = await db.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))
         await db.commit()
         return cur.rowcount > 0

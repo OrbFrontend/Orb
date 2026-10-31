@@ -66,6 +66,8 @@ class WriterDoneData(TypedDict):
 class UserMessageData(TypedDict):
     id: int
     content: str
+    persona_id: int | None
+    persona_name: str | None
 
 
 class DirectorData(TypedDict):

@@ -272,6 +272,8 @@ async def add_message(
     fragment_cooldowns: dict[str, int] | None = None,
     speaker_member_id: str | None = None,
     exchange_id: str | None = None,
+    persona_id: int | None = None,
+    persona_name: str | None = None,
     writer_draft: str | None = None,
     decision_evaluations: Mapping[str, Any] | None = None,
     decision_cooldowns: Mapping[str, int] | None = None,
@@ -306,7 +308,7 @@ async def add_message(
         now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
-                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, fragment_cooldowns, created_at, speaker_member_id, exchange_id, decision_evaluations, decision_cooldowns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO messages (conversation_id, role, content, writer_draft, turn_index, parent_id, fragment_cooldowns, created_at, speaker_member_id, exchange_id, persona_id, persona_name, decision_evaluations, decision_cooldowns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cid,
                     role,
@@ -318,6 +320,8 @@ async def add_message(
                     now,
                     speaker_member_id,
                     exchange_id,
+                    persona_id,
+                    persona_name,
                     json.dumps(dict(decision_evaluations or {}), ensure_ascii=False),
                     json.dumps(dict(decision_cooldowns or {})),
                 ),

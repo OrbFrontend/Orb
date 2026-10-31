@@ -427,7 +427,11 @@ async def api_autocomplete(
         {
             "role": m["role"],
             "content": macros.resolve_prompt(m["content"] or ""),
-            "name": speaker_names.get(str(m.get("speaker_member_id")), "") if m.get("speaker_member_id") else "",
+            "name": (
+                speaker_names.get(str(m.get("speaker_member_id")), "")
+                if m.get("speaker_member_id")
+                else (user_name if m.get("persona_id") == persona_id else m.get("persona_name") or "")
+            ),
         }
         for m in messages[-4:]
     ]

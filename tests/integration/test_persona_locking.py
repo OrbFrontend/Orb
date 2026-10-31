@@ -6,6 +6,8 @@ tests/unit/test_resolve_persona_id.py; here we pin that the write paths and the 
 persist.
 """
 
+from backend.pipeline import handle_turn
+
 
 async def _make_persona(client, name):
     return await client.create("/api/user-personas", json={"name": name})
@@ -73,3 +75,22 @@ async def test_deleting_persona_clears_dangling_locks(client, db):
         assert (await cur.fetchone())["persona_lock_id"] is None
     async with db.execute("SELECT persona_lock_id FROM character_cards WHERE id = ?", (card_id,)) as cur:
         assert (await cur.fetchone())["persona_lock_id"] is None
+
+
+async def test_user_rows_keep_the_persona_they_were_sent_as(client, db, llm_mock):
+    kit = await _make_persona(client, "Kit")
+    bex = await _make_persona(client, "Bex")
+    cid = await client.create("/api/conversations", json={"title": "Switch"})
+
+    for persona_id, text in ((kit, "first"), (bex, "second")):
+        await client.put(f"/api/conversations/{cid}", json={"persona_lock_id": persona_id})
+        llm_mock.enqueue_writer("Reply.")
+        events = [ev async for ev in handle_turn(cid, text)]
+        created = next(e["data"] for e in events if e.get("event") == "user_message_created")
+        assert created["persona_id"] == persona_id
+
+    await client.delete_checked(f"/api/user-personas/{kit}")
+
+    rows = await client.get_json(f"/api/conversations/{cid}/messages")
+    users = [(m["content"], m["persona_id"], m["persona_name"]) for m in rows if m["role"] == "user"]
+    assert users == [("first", None, "Kit"), ("second", bex, "Bex")]

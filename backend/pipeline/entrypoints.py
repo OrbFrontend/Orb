@@ -38,6 +38,11 @@ from .tools import DIRECTOR_LOOP_TOOL_NAMES
 logger = logging.getLogger(__name__)
 
 
+def _sent_as(ctx: PipelineContext) -> tuple[int | None, str | None]:
+    persona = ctx.active_persona
+    return (persona["id"], persona["name"]) if persona else (None, None)
+
+
 def _history_attachments(attachments: Sequence[Mapping[str, Any]]) -> list[dict]:
     """Re-key uploads into the shape history rows carry.
 
@@ -791,6 +796,7 @@ async def handle_turn(
                     }
                 )
             exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+            persona_id, persona_name = _sent_as(ctx)
             user_msg_id, _ = await db.add_message(
                 conversation_id,
                 "user",
@@ -799,11 +805,16 @@ async def handle_turn(
                 parent_id=user_parent_id,
                 attachments=db_attachments,
                 exchange_id=exchange_id,
+                persona_id=persona_id,
+                persona_name=persona_name,
                 advance_leaf=True,
             )
             # content carries the macro-resolved text so the frontend can sync
             # the optimistic bubble with what was actually persisted.
-            yield {"event": "user_message_created", "data": {"id": user_msg_id, "content": user_message}}
+            yield {
+                "event": "user_message_created",
+                "data": {"id": user_msg_id, "content": user_message, "persona_id": persona_id, "persona_name": persona_name},
+            }
 
         asst_turn = user_turn + 1
 
@@ -929,6 +940,7 @@ async def handle_fork_edit(
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)
 
         exchange_id = str(uuid.uuid4()) if ctx.cast.grouped else None
+        persona_id, persona_name = _sent_as(ctx)
         new_user_id, _ = await db.add_message(
             conversation_id,
             "user",
@@ -937,9 +949,14 @@ async def handle_fork_edit(
             parent_id=parent_id,
             attachments=carried_atts,
             exchange_id=exchange_id,
+            persona_id=persona_id,
+            persona_name=persona_name,
             advance_leaf=True,
         )
-        yield {"event": "user_message_created", "data": {"id": new_user_id, "content": new_content}}
+        yield {
+            "event": "user_message_created",
+            "data": {"id": new_user_id, "content": new_content, "persona_id": persona_id, "persona_name": persona_name},
+        }
 
         if ctx.cast.grouped:
             assert exchange_id is not None

@@ -539,6 +539,8 @@ async def api_compress_conversation(
             attachments=user_attachment_payloads(msg),
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
+            persona_id=msg.get("persona_id"),
+            persona_name=msg.get("persona_name"),
             writer_draft=msg.get("writer_draft"),
             decision_evaluations=remap_decision_anchors(decision_evaluations_of(msg), compression_map),
             decision_cooldowns=msg.get("decision_cooldowns") or {},
@@ -577,6 +579,8 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             fragment_cooldowns=msg.get("fragment_cooldowns") or {},
             speaker_member_id=member_map.get(str(msg.get("speaker_member_id"))) if msg.get("speaker_member_id") else None,
             exchange_id=msg.get("exchange_id"),
+            persona_id=msg.get("persona_id"),
+            persona_name=msg.get("persona_name"),
             writer_draft=msg.get("writer_draft"),
             # Anchors are remapped through the same id map the logs below use. The path is copied root-to-leaf, so a reply's own
             # anchor -- always an earlier row -- is already in the map by the time it is read.

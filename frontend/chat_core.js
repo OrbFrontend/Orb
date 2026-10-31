@@ -74,7 +74,7 @@ subscribe("cast", () => renderMessages());
 subscribe("expression-playback", () => renderMessages(true));
 subscribe("settings", (patch) => MESSAGE_SETTINGS.some((key) => key in patch) && renderMessages());
 subscribe("local-ml", () => S.isStreaming || renderMessages()); // the prose rewrite button gates on it
-subscribe("personas", () => S.showChatAvatars && renderMessages());
+subscribe("personas", () => renderMessages());
 subscribe("attachments", () => renderMessages());
 
 function normalizeMessages(msgs) {

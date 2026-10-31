@@ -151,7 +151,7 @@ export function visibleGroups(families, { query = "", expanded = false } = {}) {
 }
 
 export function speakerLabel(msg) {
-  if (msg?.role === "user") return "You";
+  if (msg?.role === "user") return messagePersona(msg)?.name || msg?.persona_name || "You";
   if (!S.groupCast) return S.conversations.find((c) => c.id === S.activeConvId)?.character_name || "Character";
   if (!msg?.speaker_member_id) return "Summary";
   return S.groupCast.speakerNames?.get(msg.speaker_member_id) || "Unknown speaker";
@@ -162,16 +162,19 @@ const AVATAR_IMG_ATTRS = 'loading="lazy" decoding="async" alt=""';
 const NARRATOR_AVATAR = "\u2712\ufe0f";
 const GENERIC_AVATAR = "\ud83d\udc64";
 
-/** Return a message's avatar markup. */
-function messagePersona() {
+/** The persona a user message was sent as; rows from before personas were recorded use the effective one. */
+function messagePersona(msg) {
+  if (msg?.persona_id) return S.personas?.find((p) => p.id === msg.persona_id) || null;
+  if (msg?.persona_name) return null;
   return S.personas?.find((p) => p.id === effectivePersonaId()) || null;
 }
 
+/** Return a message's avatar markup. */
 export function speakerAvatar(msg) {
   if (msg?.role === "user") {
-    const persona = messagePersona();
+    const persona = messagePersona(msg);
     const src = personaAvatarSrc(persona);
-    const initial = persona?.name?.charAt(0).toUpperCase() || "";
+    const initial = (persona?.name || msg.persona_name)?.charAt(0).toUpperCase() || "";
     if (src) return avatarCell(escAttr(src), { icon: initial || GENERIC_AVATAR, attrs: AVATAR_IMG_ATTRS });
     return initial ? esc(initial) : GENERIC_AVATAR;
   }
@@ -188,7 +191,7 @@ export function speakerAvatarCell(msg) {
   const inner = speakerAvatar(msg);
   let style = "";
   if (msg?.role === "user" && !inner.startsWith("<img")) {
-    const colour = safePersonaColour(messagePersona()?.avatar_color);
+    const colour = safePersonaColour(messagePersona(msg)?.avatar_color);
     if (colour) style = ` style="background:${colour};color:${readableInk(colour)}"`;
   }
   return `<div class="msg-avatar"${style}>${inner}</div>`;

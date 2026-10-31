@@ -804,12 +804,9 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
         if (!realId) break;
         const pendingIdx = state.messages.findLastIndex((m) => m.role === "user" && !m.id);
         const prevContent = pendingIdx >= 0 ? state.messages[pendingIdx].content : null;
-        if (pendingIdx >= 0) {
-          state.messages[pendingIdx].id = realId;
-        }
-        if (state.pendingUserMsg) {
-          state.pendingUserMsg.id = realId;
-        }
+        const persona = { persona_id: d.persona_id ?? null, persona_name: d.persona_name ?? null };
+        if (pendingIdx >= 0) Object.assign(state.messages[pendingIdx], { id: realId }, persona);
+        if (state.pendingUserMsg) Object.assign(state.pendingUserMsg, { id: realId }, persona);
         const editing = state.editingPendingUserMsg || state.pendingUserMsgEdit != null;
         const resolved = typeof d.content === "string" && !editing ? d.content : null;
         if (resolved !== null) {

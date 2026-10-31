@@ -69,6 +69,30 @@ async def test_autocomplete_in_a_group_names_the_speaker_and_the_cast(client, mo
     assert prompt.endswith("I step")
 
 
+async def test_autocomplete_names_each_user_line_by_the_persona_it_was_sent_as(client, monkeypatch):
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (True, ""))
+    captured: dict[str, str] = {}
+
+    async def fake_complete(prompt, *a, **k):
+        captured["prompt"] = prompt
+        return ""
+
+    monkeypatch.setattr("backend.features.autocomplete.complete", fake_complete)
+    kit = await client.create("/api/user-personas", json={"name": "Kit"})
+    bex = await client.create("/api/user-personas", json={"name": "Bex"})
+    cid = "conv-ac-persona"
+    await dbmod.create_conversation(cid, "Chat", "Nova", "")
+    prev = None
+    for persona_id, name, text in ((kit, "Kit", "hello"), (bex, "Bex", "again")):
+        prev, _ = await dbmod.add_message(cid, "user", text, 0, parent_id=prev, persona_id=persona_id, persona_name=name)
+    await dbmod.set_active_leaf(cid, prev)
+    await client.put(f"/api/user-personas/{bex}", json={"name": "Bexley"})
+    await client.put(f"/api/conversations/{cid}", json={"persona_lock_id": bex})
+
+    await client.post_checked(f"/api/conversations/{cid}/autocomplete", json={"draft": "I step"})
+    assert captured["prompt"].splitlines()[-3:] == ["Kit: hello", "Bexley: again", "Bexley: I step"]
+
+
 async def test_autocomplete_leaves_the_cast_macro_alone_in_a_solo_chat(client, monkeypatch):
     """`{{cast}}` is a group macro: the turn itself fills it only in a group, so
     filling it here would have a draft preview one thing and send another."""
