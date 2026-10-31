@@ -128,6 +128,7 @@ async def test_wipe_covers_every_column_not_whitelisted(client, db):
     assert cols - LOG_KEEP_COLUMNS == {
         "tool_calls",
         "injection_block",
+        "injection_block_without_moods",
         "reasoning_director",
         "reasoning_writer",
         "reasoning_editor",
