@@ -180,13 +180,20 @@ async def download_card(source: str, full_path: str) -> dict:
 
 
 async def _fetch(
-    url: str, *, what: str, params: dict | None = None, timeout: float = 30, headers: dict | None = None
+    url: str,
+    *,
+    what: str,
+    params: dict | None = None,
+    timeout: float = 30,
+    headers: dict | None = None,
+    missing_ok: bool = False,
 ) -> httpx.Response:
-    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail."""
+    """GET url, mapping transport/status failures to HTTP 502 with *what* as the detail; *missing_ok* hands a 404 back."""
     try:
         async with _client() as client:
             resp = await client.get(url, params=params, headers=headers, timeout=timeout)
-            resp.raise_for_status()
+            if not (missing_ok and resp.status_code == 404):
+                resp.raise_for_status()
             return resp
     except httpx.HTTPError as e:
         logger.exception("%s", what)
@@ -267,9 +274,14 @@ def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, 
     finally:
         os.unlink(tmp_path)
 
-    card_id = orb_id or str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
+    card_id = orb_id or _stable_card_id(content)
     avatar_b64 = base64.b64encode(content).decode("ascii")
     return card_dict, avatar_b64, "image/png", card_id
+
+
+def _stable_card_id(seed: bytes) -> str:
+    """A card id derived from its bytes, so re-importing the same card relinks history."""
+    return str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
 
 
 async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | None, str | None, bytes]:
@@ -318,7 +330,7 @@ async def _chub_page(q: str, page: int) -> tuple[dict, int]:
         full_path = n.get("fullPath") or n.get("full_path") or ""
         avatar_url = n.get("avatar_url") or n.get("max_res_url")
         if not avatar_url and full_path:
-            avatar_url = f"https://avatars.charhub.io/avatars/{full_path}/avatar.webp"
+            avatar_url = _chub_thumbnail_url(full_path)
         topics = n.get("topics") or n.get("tags") or []
         if not isinstance(topics, list):
             topics = []
@@ -408,9 +420,11 @@ async def _download_characterhub_card(full_path: str):
     if "/" not in full_path:
         raise HTTPException(status_code=400, detail=f"Invalid Chub full_path (expected creator/name): {full_path}")
     url = f"{_CHUB_AVATARS_BASE}/{full_path}/chara_card_v2.png"
-    content = (await _fetch(url, what="Failed to download card")).content
+    resp = await _fetch(url, what="Failed to download card", missing_ok=True)
+    if resp.status_code == 404:
+        return await _download_chub_definition(full_path)
 
-    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "Chub")
+    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(resp.content, "Chub")
     # The embedded card's expression pack is null; the detail API has it. Merge
     # it into extensions so the shared create-time auto-import can pick it up.
     pack = await _chub_expression_pack(full_path)
@@ -418,6 +432,65 @@ async def _download_characterhub_card(full_path: str):
         ext = card_dict.setdefault("extensions", {})
         ext.setdefault("chub", {})["expressions"] = pack
     return card_dict, avatar_b64, avatar_mime, card_id
+
+
+def _text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _strings(value: object) -> list[str]:
+    return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _chub_definition_card(node: dict, full_path: str) -> dict:
+    """A card dict from the chub detail API's ``definition``.
+
+    Chub names fields its own way: its ``personality`` is the spec's description, ``tavern_personality`` the spec's
+    personality, and ``description`` the creator notes.
+    """
+    definition = node.get("definition")
+    if not isinstance(definition, dict):
+        raise HTTPException(status_code=502, detail="Failed to download card: the site sent no card definition")
+    book = definition.get("embedded_lorebook")
+    if isinstance(book, dict):
+        try:
+            book = parsing.CharacterBook.model_validate(book).model_dump(exclude_none=True)
+        except ValueError as e:
+            logger.warning("Dropping unreadable Chub lorebook for %s: %s", full_path, e)
+            book = None
+    else:
+        book = None
+    extensions = definition.get("extensions")
+    data = {
+        "name": _text(definition.get("name")) or _text(node.get("name")),
+        "description": _text(definition.get("personality")),
+        "personality": _text(definition.get("tavern_personality")),
+        "scenario": _text(definition.get("scenario")),
+        "first_mes": _text(definition.get("first_message")),
+        "mes_example": _text(definition.get("example_dialogs")),
+        "creator_notes": _text(definition.get("description")),
+        "system_prompt": _text(definition.get("system_prompt")),
+        "post_history_instructions": _text(definition.get("post_history_instructions")),
+        "alternate_greetings": _strings(definition.get("alternate_greetings")),
+        "character_book": book,
+        "tags": _strings(node.get("topics")),
+        "creator": full_path.split("/", 1)[0],
+        "extensions": extensions if isinstance(extensions, dict) else {},
+    }
+    return parsing.card_to_dict(parsing.from_json_obj({"spec": "chara_card_v2", "spec_version": "2.0", "data": data}))
+
+
+async def _download_chub_definition(full_path: str):
+    """Build a card whose CDN PNG chub no longer hosts from the definition its detail API still serves."""
+    url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
+    payload = await _fetch_json(url, what="Failed to download card", timeout=15, headers=_CHUB_SITE_HEADERS)
+    node = payload.get("node")
+    if not isinstance(node, dict):
+        raise HTTPException(status_code=502, detail="Failed to download card: the site sent no card definition")
+    card_dict = _chub_definition_card(node, full_path)
+    avatar_url = node.get("avatar_url") or _chub_thumbnail_url(full_path)
+    avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(avatar_url, "Chub")
+    return card_dict, avatar_b64, avatar_mime, _stable_card_id(avatar_bytes or full_path.encode("utf-8"))
 
 
 register_source("characterhub", _chub_search, _download_characterhub_card, _randomize_characterhub)
@@ -467,13 +540,17 @@ def _chararc_card_token(item: dict) -> str | None:
     return f"{source}/def/{ctype}/{path}"
 
 
+def _chub_thumbnail_url(path: str) -> str:
+    return f"{_CHUB_AVATARS_BASE}/{path}/avatar.webp"
+
+
 def _chararc_avatar_url(item: dict) -> str | None:
     """Best-effort thumbnail URL for a browse result (chub CDN for chub cards)."""
     src_obj = item.get("chub")
     if isinstance(src_obj, dict):
         path = _chararc_full_path_str(src_obj)
         if path:
-            return f"https://avatars.charhub.io/avatars/{path}/avatar.webp"
+            return _chub_thumbnail_url(path)
     return None
 
 
@@ -556,14 +633,15 @@ async def _download_chararc_card(token: str):
     if not card_dict.get("mes_example") and data.get("example_dialogue"):
         card_dict["mes_example"] = data["example_dialogue"]
 
-    # Pull the avatar image (a CDN URL embedded in the definition).
+    # The definition's avatar URL can be dead on the chub CDN while the thumbnail browse showed still serves.
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Bernkastel")
+    chub_prefix = "chub/def/character/"
+    if not avatar_bytes and token.startswith(chub_prefix):
+        avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(
+            _chub_thumbnail_url(token.removeprefix(chub_prefix)), "Bernkastel"
+        )
 
-    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the card path.
-    seed = avatar_bytes or token.encode("utf-8")
-    card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
-
-    return card_dict, avatar_b64, avatar_mime, card_id
+    return card_dict, avatar_b64, avatar_mime, _stable_card_id(avatar_bytes or token.encode("utf-8"))
 
 
 register_source("chararc", _browse_chararc, _download_chararc_card, _randomize_chararc)
@@ -973,11 +1051,7 @@ async def _download_wyvern_card(full_path: str):
     # Pull the avatar image (Cloudflare Images CDN URL).
     avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(obj.get("avatar"), "Wyvern")
 
-    # Stable id so re-importing the same card relinks history: hash the avatar bytes when present, else the character id.
-    seed = avatar_bytes or char_id.encode("utf-8")
-    card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
-
-    return card_dict, avatar_b64, avatar_mime, card_id
+    return card_dict, avatar_b64, avatar_mime, _stable_card_id(avatar_bytes or char_id.encode("utf-8"))
 
 
 register_source(

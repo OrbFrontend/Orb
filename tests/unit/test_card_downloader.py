@@ -1,6 +1,7 @@
 """Card sources answer what the remote site sent: a page that is not a JSON object is the site's failure (502), never Orb's
 (a bare 500), and one malformed field does not sink a whole search or import."""
 
+import base64
 from collections import OrderedDict
 
 import httpx
@@ -164,3 +165,52 @@ async def test_shared_connections_keep_auth_per_request_discard_cookies_and_clos
     assert "Authorization" not in requests[1].headers
     assert "Cookie" not in requests[1].headers
     assert downloader._http_client is None
+
+
+async def test_a_bernkastel_card_whose_definition_avatar_is_dead_imports_the_browse_thumbnail(monkeypatch):
+    path = "creator/slug-1"
+    thumbnail = b"RIFF\x00\x00\x00\x00WEBPVP8 "
+
+    def site(request):
+        if request.url.host == "chararc.bernkastel.pictures":
+            avatar = f"https://avatars.charhub.io/avatars/{path}/chara_card_v2.png"
+            return httpx.Response(200, json={"spec": "chara_card_v2", "data": {"name": "Card", "avatar": avatar}})
+        if request.url.path.endswith("/avatar.webp"):
+            return httpx.Response(200, headers={"content-type": "image/webp"}, content=thumbnail)
+        return httpx.Response(404)
+
+    _serve(monkeypatch, site)
+    card = await downloader.download_card("chararc", f"chub/def/character/{path}")
+    assert card["avatar_mime"] == "image/webp"
+    assert card["avatar_b64"] == base64.b64encode(thumbnail).decode("ascii")
+
+
+async def test_a_chub_card_whose_png_is_gone_imports_from_the_detail_definition(monkeypatch):
+    thumbnail = b"RIFF\x00\x00\x00\x00WEBPVP8 "
+    definition = {
+        "name": "Card",
+        "personality": "the character",
+        "tavern_personality": "traits",
+        "description": "notes",
+        "first_message": "hello",
+        "example_dialogs": "<START>",
+        "alternate_greetings": ["again", None],
+        "embedded_lorebook": {"entries": [{"keys": ["k"], "content": "lore", "position": ""}]},
+        "extensions": {"chub": {"expressions": None}},
+    }
+    node = {"definition": definition, "topics": ["Tag"], "avatar_url": "https://avatars.charhub.io/avatars/me/card/avatar.webp"}
+
+    def site(request):
+        if request.url.host == "api.chub.ai":
+            return httpx.Response(200, json={"node": node})
+        if request.url.path.endswith("/avatar.webp"):
+            return httpx.Response(200, headers={"content-type": "image/webp"}, content=thumbnail)
+        return httpx.Response(404)
+
+    _serve(monkeypatch, site)
+    card = await downloader.download_card("characterhub", "me/card")
+    assert (card["description"], card["personality"], card["creator_notes"]) == ("the character", "traits", "notes")
+    assert (card["first_mes"], card["mes_example"], card["alternate_greetings"]) == ("hello", "<START>", ["again"])
+    assert card["character_book"]["entries"][0]["content"] == "lore"
+    assert (card["tags"], card["creator"]) == (["Tag"], "me")
+    assert card["avatar_b64"] == base64.b64encode(thumbnail).decode("ascii")
