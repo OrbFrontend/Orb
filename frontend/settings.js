@@ -86,6 +86,7 @@ export function renderSettings() {
     ${toggleCard(S.preventPromptOverrides, "Prevent prompt overrides", 'data-setting-toggle="preventPromptOverrides"', '<div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>', "", " data-setting-stop")}
     ${toggleCard(S.showChatAvatars, "Show avatars in chat", 'data-setting-toggle="showChatAvatars"', '<div class="tool-card-desc">Show the speaker\'s portrait beside each message.</div>', "", " data-setting-stop")}
     ${toggleCard(S.inspectorInline, "Show Inspector in chat", 'data-setting-toggle="inspectorInline"', '<div class="tool-card-desc">Show turn details above chatbox rather than in side panel.</div>', "", " data-setting-stop")}
+    ${toggleCard(S.showMoodInjection, "Show moods injection", 'data-setting-toggle="showMoodInjection"', '<div class="tool-card-desc">Show mood prompts in Inspector\'s Injection Block.</div>', "", " data-setting-stop")}
     ${divider("Expression Playback")}
     <div id="expression-playback-settings" class="expression-settings"><div class="tool-card-desc">Loading…</div></div>
     ${divider("Local ML")}
@@ -151,6 +152,7 @@ const SETTING_TOGGLES = {
   hideUntilBaked: "hide_streaming_until_baked",
   showChatAvatars: "show_chat_avatars",
   inspectorInline: "inspector_inline",
+  showMoodInjection: "show_mood_injection",
   preventPromptOverrides: "prevent_prompt_overrides",
 };
 

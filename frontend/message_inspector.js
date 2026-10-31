@@ -90,6 +90,11 @@ export function moodsOf(data, resting) {
   return { known, activeIds: known ? data.active_moods : [], resting };
 }
 
+/** The injection block the Inspector shows; a turn without a mood-free copy shows it whole. */
+export function shownInjection(data) {
+  return ((S.showMoodInjection ? null : data?.injection_block_without_moods) ?? data?.injection_block) || "";
+}
+
 // *msgId* is null for the streaming reply.
 function turnView(msgId, data, resting, rest) {
   return {
@@ -97,7 +102,7 @@ function turnView(msgId, data, resting, rest) {
     live: msgId == null,
     moods: moodsOf(data, resting),
     toolCalls: data?.tool_calls || [],
-    injection: data?.injection_block || "",
+    injection: shownInjection(data),
     latency: data?.agent_latency_ms || 0,
     ...rest,
   };

@@ -51,6 +51,7 @@ class _SettingsBase(ConnectionSettings):
     show_editor_diff: ReadOnly[int]
     show_chat_avatars: ReadOnly[int]
     inspector_inline: ReadOnly[int]
+    show_mood_injection: ReadOnly[int]
     editor_audit_toggles: ReadOnly[dict]  # decoded to its in-memory shape by get_settings()
     document_audit_enabled: ReadOnly[int]
     document_audit_autopatch: ReadOnly[int]

@@ -161,6 +161,7 @@ const settingViews = {
   showEditorDiff: (s) => flag(s.show_editor_diff, true), // show editor-pass diff highlights
   showChatAvatars: (s) => flag(s.show_chat_avatars, false), // portrait gutter on chat messages
   inspectorInline: (s) => Boolean(s.inspector_inline), // each reply's Inspector sections above its text in the chat
+  showMoodInjection: (s) => flag(s.show_mood_injection, true), // mood prompts in the Inspector's Injection Block
   reasoningEnabled: (s) =>
     Object.freeze({
       director: false,

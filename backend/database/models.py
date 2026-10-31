@@ -558,6 +558,7 @@ class ConversationLogRow(TypedDict):
     tool_calls: list
     active_moods_after: list
     injection_block: str | None
+    injection_block_without_moods: str | None
     agent_latency_ms: int | None
     created_at: str
     message_id: int | None

@@ -81,6 +81,7 @@ class TurnResultData(TypedDict):
     resp_text: str
     writer_draft: str
     inj_block: str
+    inj_block_without_moods: str | None
     extra_fields: dict
     fragment_cooldowns: dict[str, int]
     decision_evaluations: dict
@@ -113,6 +114,7 @@ _DIRECTOR_SEED_FIELDS = (
     "writer_decision_guidance",
     "selected_lorebook_entries",
     "inj_block",
+    "inj_block_without_moods",
     "scene_direction",
     "writer_lorebook_block",
     "reasoning_director",
@@ -156,6 +158,7 @@ class TurnState:
     writer_decision_guidance: str = ""
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
+    inj_block_without_moods: str | None = None
     # Scene Direction before the state block and decision guidance are added.
     scene_direction: str = ""
     writer_lorebook_block: str = ""
@@ -215,6 +218,7 @@ class TurnState:
             "resp_text": self.resp_text,
             "writer_draft": self.writer_draft,
             "inj_block": self.inj_block,
+            "inj_block_without_moods": self.inj_block_without_moods,
             "extra_fields": self.extra_fields,
             "fragment_cooldowns": self.fragment_cooldowns,
             "decision_evaluations": self.decision_evaluations,

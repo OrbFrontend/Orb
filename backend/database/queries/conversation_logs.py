@@ -22,17 +22,19 @@ async def add_conversation_log(
     reasoning_editor: str = "",
     feedback: dict | None = None,
     state_report: dict | None = None,
+    injection_without_moods: str | None = None,
 ):
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, state_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, injection_block_without_moods, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, state_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cid,
                 turn_index,
                 json.dumps(tool_calls),
                 json.dumps(styles_after),
                 injection,
+                injection_without_moods,
                 latency_ms,
                 now,
                 message_id,

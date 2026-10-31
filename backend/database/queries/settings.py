@@ -249,6 +249,7 @@ async def update_settings(data: dict) -> Settings:
             "show_editor_diff",
             "show_chat_avatars",
             "inspector_inline",
+            "show_mood_injection",
             "editor_audit_toggles",
             "document_audit_enabled",
             "document_audit_autopatch",

@@ -63,6 +63,7 @@ const MESSAGE_SETTINGS = [
   "show_chat_avatars",
   "hide_streaming_until_baked",
   "inspector_inline",
+  "show_mood_injection",
   "expression_rendering",
   "local_ml_enabled",
   "workflows_globally_enabled",

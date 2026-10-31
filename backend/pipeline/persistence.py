@@ -42,6 +42,7 @@ def conversation_log_writer(conversation_id: str, log_turn_index: int) -> Result
             res.inj_block,
             res.latency,
             message_id=asst_id,
+            injection_without_moods=res.inj_block_without_moods,
             reasoning_director=res.reasoning_director,
             reasoning_writer=res.reasoning_writer,
             reasoning_editor=res.reasoning_editor,

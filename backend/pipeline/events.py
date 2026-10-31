@@ -71,6 +71,7 @@ class UserMessageData(TypedDict):
 class DirectorData(TypedDict):
     active_moods: list[str]
     injection_block: str
+    injection_block_without_moods: str | None
     tool_calls: list[ParsedToolCall]
     agent_latency_ms: int
     extra_fields: dict[str, Any]

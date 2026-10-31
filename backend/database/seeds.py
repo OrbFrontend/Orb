@@ -311,6 +311,7 @@ DEFAULT_SETTINGS: Settings = {
     "show_editor_diff": 1,
     "show_chat_avatars": 0,
     "inspector_inline": 0,
+    "show_mood_injection": 1,
     "editor_audit_toggles": {
         "banned_phrases": True,
         "repetitive_openers": True,

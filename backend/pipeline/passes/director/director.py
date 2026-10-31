@@ -607,6 +607,7 @@ async def director_stage(
         yield {"event": "state", "data": state_event_payload(state)}
 
     scene_ids = {fragment["id"] for fragment in scene_fragments}
+    scene_extra = {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids}
     state.scene_direction = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
@@ -616,7 +617,7 @@ async def director_stage(
             inj_mood_fragments,
             scene_fragments,
             direct_scene_enabled,
-            {fid: value for fid, value in state.extra_fields.items() if fid in scene_ids},
+            scene_extra,
         )
     )
 
@@ -656,18 +657,30 @@ async def director_stage(
     # direct_scene and of whether updates are on -- and includes this turn's before-Writer changes, a changed one-value field
     # rendering as ``old -> new``.
     writer_block = render_state_block(state_contract.to_writer(), view, prior=state.state_prior)
-    state.inj_block = state.scene_direction
-    if writer_block:
-        state.inj_block = (state.inj_block + "\n\n" + macros.resolve_message(writer_block)).strip()
-    # Keep decision guidance even when the Director is disabled, and place it first.
-    if writer_decision_guidance:
-        state.inj_block = (writer_decision_guidance + "\n\n" + state.inj_block).strip()
+    state_text = macros.resolve_message(writer_block) if writer_block else ""
+
+    def injection_block(scene_direction: str) -> str:
+        block = scene_direction
+        if writer_block:
+            block = (block + "\n\n" + state_text).strip()
+        # Keep decision guidance even when the Director is disabled, and place it first.
+        if writer_decision_guidance:
+            block = (writer_decision_guidance + "\n\n" + block).strip()
+        return block
+
+    state.inj_block = injection_block(state.scene_direction)
+    # The Inspector can hide the mood prompts, which the user picked and can already read. None when no mood prompt rendered.
+    without_moods = injection_block(
+        macros.resolve_message(compute_style_injection_block([], [], [], scene_fragments, direct_scene_enabled, scene_extra))
+    )
+    state.inj_block_without_moods = without_moods if without_moods != state.inj_block else None
 
     yield {
         "event": "director_done",
         "data": {
             "active_moods": state.active_moods,
             "injection_block": state.inj_block,
+            "injection_block_without_moods": state.inj_block_without_moods,
             "tool_calls": state.calls,
             "agent_latency_ms": state.latency,
             "extra_fields": state.extra_fields,

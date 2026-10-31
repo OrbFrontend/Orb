@@ -18,6 +18,7 @@ import {
   refreshInlineInspector,
   rememberInspection,
   renderLiveInspector,
+  shownInjection,
   toolCallsHtml,
 } from "./message_inspector.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
@@ -481,7 +482,7 @@ function _renderInspectorMain() {
     _renderDirectorPanel({
       latency: data.agent_latency_ms || 0,
       toolCalls: data.tool_calls || [],
-      injection: data.injection_block || "",
+      injection: shownInjection(data),
       feedback: data.feedback,
       stateChanges: data.state,
     });
@@ -512,7 +513,7 @@ function _renderInspectorMain() {
   _renderDirectorPanel({
     latency: ld.agent_latency_ms || 0,
     toolCalls: ld.tool_calls || [],
-    injection: ld.injection_block || "",
+    injection: shownInjection(ld),
     feedback: S.lastFeedback?.values,
     stateChanges: S.lastState,
   });
@@ -618,7 +619,8 @@ async function _expressionTick() {
 
 subscribe("expression-playback", () => void _expressionTick());
 subscribe("settings", (patch) => {
-  if ("inspector_inline" in patch || "agent_same_as_writer" in patch) renderInspector();
+  if ("inspector_inline" in patch || "agent_same_as_writer" in patch || "show_mood_injection" in patch)
+    renderInspector();
   else if ("workflows_globally_enabled" in patch || "workflow_enabled" in patch) renderInspectorWorkflows();
   else if ("reasoning_enabled_passes" in patch) _refreshReasoningSection();
 });
