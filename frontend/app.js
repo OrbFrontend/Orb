@@ -34,6 +34,8 @@ import { $, fromMessageBody, initImageFallbacks } from "./utils.js";
 import { loadWorkflowModules, preloadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
 
+const LS_SIDEBAR_COLLAPSED = "orb-sidebar-collapsed";
+
 // Sidebar sections collapse from their header. A collapsed header that was
 // pinned at the top scrolls back into view so its old offset does not hide it.
 function initSidebarSections() {
@@ -58,7 +60,18 @@ function initSidebarSections() {
       }
       markStuck();
     },
+    toggleCollapsed: () => {
+      const app = $("app");
+      app.classList.add("sidebar-toggled");
+      setSidebarCollapsed(!app.classList.contains("sidebar-collapsed"));
+    },
   });
+  setSidebarCollapsed(localStorage.getItem(LS_SIDEBAR_COLLAPSED) === "1");
+}
+
+function setSidebarCollapsed(collapsed) {
+  $("app").classList.toggle("sidebar-collapsed", collapsed);
+  localStorage.setItem(LS_SIDEBAR_COLLAPSED, collapsed ? "1" : "0");
 }
 
 function toggleBurger() {

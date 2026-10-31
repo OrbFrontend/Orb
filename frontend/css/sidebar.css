@@ -161,3 +161,16 @@
   padding: 3px 4px; }
 .frag-toggle-wrapper { display: flex; align-items: center; margin-left: 8px; flex-shrink: 0; position: relative;
   z-index: 1; }
+#sidebar-collapse-btn, #sidebar-expand-btn { --ui-icon-size: 14px; display: none; padding: 4px; background: none;
+  border: none; border-radius: var(--radius); color: var(--text-muted); cursor: pointer; transition: color .15s; }
+:is(#sidebar-collapse-btn, #sidebar-expand-btn):hover { color: var(--text-primary); }
+#sidebar-collapse-btn { margin-left: auto; }
+@media (min-width: 901px) {
+  #sidebar-collapse-btn { display: inline-flex; }
+  #sidebar > * { min-width: calc(var(--sidebar-width) - 1px); }
+  #app.sidebar-collapsed #sidebar { width: 0; min-width: 0; border-right-width: 0; }
+  #app.sidebar-toggled #sidebar { transition: width .25s, min-width .25s; }
+  #app.sidebar-collapsed :is(#chat-header, #doc-header) { padding-left: 46px; }
+  #app.sidebar-collapsed #sidebar-expand-btn { display: inline-flex; position: absolute; top: 16px; left: 12px;
+    z-index: 30; }
+}
