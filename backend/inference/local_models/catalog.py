@@ -110,10 +110,10 @@ _WHISPER_REV = "36050c46d777d46dc4b5f43f6d90574fc38f8732"
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
-        repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.2",
-        filename="GGUF/orb-human-typeahead-1b-v2.2-Q4_0.gguf",
+        repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.3",
+        filename="GGUF/orb-human-typeahead-1b-v2.3-Q4_0.gguf",
         size_mb=930,
-        revision="2e340db799eca2ef36ef80fc6938e40ab1ece111",
+        revision="1351b6b71dc6879544cc43bad9df9b8fa23589fa",
     ),
     "slop_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin150m-purple-GGUF",
