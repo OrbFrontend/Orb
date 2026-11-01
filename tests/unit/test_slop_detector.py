@@ -174,3 +174,17 @@ class TestDialogueNarrationSeparation:
         for fs in result.flagged_sentences:
             assert fs.sentence in text
             assert not (fs.sentence.count('"') == 1)  # no half-quoted snippets
+
+
+class TestVariantsWithoutAsciiWords:
+    TEXT = "She smiled. He left the room — quietly. The rain kept falling."
+
+    def test_non_latin_variants_flag_only_matching_sentences(self):
+        result = detect_cliches(self.TEXT + " Её глаза сверкнули.", [["её глаза сверкнули"], ["她笑了"]])
+
+        assert [fs.sentence for fs in result.flagged_sentences] == ["Её глаза сверкнули."]
+
+    def test_punctuation_variant_flags_only_sentences_containing_it(self):
+        result = detect_cliches(self.TEXT, [["—"]])
+
+        assert [fs.sentence for fs in result.flagged_sentences] == ["He left the room — quietly."]

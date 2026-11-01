@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..text.lexical import ngrams
+from ..text.lexical import ngrams, tokenize
 from ..text.roleplay_segmentation import split_segment_sentences
 
 if TYPE_CHECKING:
@@ -41,10 +41,6 @@ class DetectionResult:
     unique_cliches: list[str]
     total_sentences: int
     flagged_count: int
-
-
-def _tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", text.lower())
 
 
 def _gram_set(tokens: list[str], n: int) -> set[tuple[str, ...]]:
@@ -133,7 +129,13 @@ def _match_sentence(
         best_score = 0.0
 
         for variant in variant_group:
-            var_tokens = _tokenize(variant)
+            var_tokens = tokenize(variant)
+
+            if not var_tokens:
+                if variant.strip().lower() in sent_lower and 1.0 > best_score:
+                    best_score = 1.0
+                    best = ClicheHit(phrase=variant, score=1.0)
+                continue
 
             if len(var_tokens) <= _EXACT_MATCH_MAX_LEN:
                 if len(var_tokens) == 1:
@@ -172,16 +174,19 @@ def _match_sentence(
     return _deduplicate_hits(hits)
 
 
+def _hit_tokens(phrase: str) -> set[str]:
+    return set(tokenize(phrase)) or {phrase.strip().lower()}
+
+
 def _deduplicate_hits(hits: list[ClicheHit]) -> list[ClicheHit]:
     """Drop lower-scored hits that substantially overlap a better hit."""
     if len(hits) <= 1:
         return hits
     kept: list[ClicheHit] = []
     for hit in hits:
-        hit_toks = set(_tokenize(hit.phrase))
+        hit_toks = _hit_tokens(hit.phrase)
         dominated = any(
-            len(hit_toks & set(_tokenize(better.phrase))) / len(hit_toks | set(_tokenize(better.phrase))) >= 0.5
-            for better in kept
+            len(hit_toks & (better_toks := _hit_tokens(better.phrase))) / len(hit_toks | better_toks) >= 0.5 for better in kept
         )
         if not dominated:
             kept.append(hit)
@@ -195,7 +200,7 @@ def detect_cliches(text: str, phrase_bank: list[PhraseGroup], threshold: float =
     all_phrases: set[str] = set()
 
     for sentence in sentences:
-        tokens = _tokenize(sentence)
+        tokens = tokenize(sentence)
         sent_lower = sentence.lower()
         hits = _match_sentence(tokens, sent_lower, sentence, compiled_groups, threshold)
         if hits:
