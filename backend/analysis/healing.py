@@ -167,8 +167,11 @@ _TERMINAL = ".!?…—–。！？"
 _ORPHAN_RE = re.compile(r"[.,;:!?…]+(?=\s|$|[*_\"”」』）】])|[。，、；：！？][.,;:!?…。，、；：！？]*")
 _PRIOR_MARK_RE = re.compile(r"([.,;:!?…—–。，、；：！？])([\"”’)*_」』）】]*)$")
 _ENDS_SENTENCE_RE = re.compile(r"(?<!\.\.)[.!?。！？][\"”’)*_」』）】]*$")
-_REMOVED_TERMINAL_RE = re.compile(r"([.!?…。！？]+)[\"”’)*_」』）】]*$")
-_SENTENCE_START_RE = re.compile(r"(?:^|[.!?…][\"”’)*_]*\s+|\n)[\"“*_(\s]*([^.!?…\n]*)$")
+# The lookbehind starts the search only at the head of a run, keeping it linear on long runs of marks.
+_REMOVED_TERMINAL_RE = re.compile(r"(?<![.!?…。！？])([.!?…。！？]+)[\"”’)*_」』）】]*$")
+_SENTENCE_BREAKS = ".!?…\n"
+_SENTENCE_GAP_RE = re.compile(r"[\"”’)*_]*\s+[\"“*_(\s]*")
+_SENTENCE_LEAD_RE = re.compile(r"[\"“*_(\s]*")
 _QUESTION_OPENER_RE = re.compile(
     r"(?:wh\w+|how|do|does|did|is|are|was|were|am|can|could|will|would|shall|should|have|has|had|may|might|must)(?:n't)?\b",
     re.IGNORECASE,
@@ -221,6 +224,14 @@ def _stranded_markers(text: str, start: int, end: int) -> tuple[str, str]:
     return closers, "".join(stack)
 
 
+def _last_sentence(left: str) -> str | None:
+    """The sentence *left* ends on, past its opening marks; None when its last stop has no space after it."""
+    cut = max(map(left.rfind, _SENTENCE_BREAKS))
+    tail = left[cut + 1 :]
+    lead = _SENTENCE_GAP_RE.match(tail) if cut >= 0 and left[cut] != "\n" else _SENTENCE_LEAD_RE.match(tail)
+    return tail[lead.end() :] if lead else None
+
+
 def _carried_terminal(removed: str, left: str) -> str:
     """The sentence end a deletion took with it when it cut a sentence's last clause, else ``""``."""
     body = removed.strip()
@@ -229,8 +240,8 @@ def _carried_terminal(removed: str, left: str) -> str:
         return ""
     mark = match.group(1)
     if "?" in mark and body.startswith(","):
-        sentence = _SENTENCE_START_RE.search(left)
-        if not (sentence and _QUESTION_OPENER_RE.match(sentence.group(1))):
+        sentence = _last_sentence(left)
+        if sentence is None or not _QUESTION_OPENER_RE.match(sentence):
             return "."
     return mark
 
