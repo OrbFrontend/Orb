@@ -51,32 +51,11 @@ esac
 URL="http://$URL_HOST:8899"
 
 echo ""
-echo "Starting server on $URL"
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Detect the right "open URL" command for this platform.
-if command -v xdg-open >/dev/null 2>&1; then
-    OPEN_CMD="xdg-open"
-elif command -v open >/dev/null 2>&1; then
-    OPEN_CMD="open"
-else
-    OPEN_CMD=""
-fi
-
-# Wait for the server to come up, then open the browser once.
-if [ -n "$OPEN_CMD" ]; then
-    (
-        for _ in $(seq 1 60); do
-            if curl -sS -o /dev/null "$URL" 2>/dev/null; then
-                "$OPEN_CMD" "$URL" >/dev/null 2>&1 || true
-                break
-            fi
-            sleep 1
-        done
-    ) &
-fi
+python scripts/wait_for_server.py "$URL" --pid $$ &
 
 # Reload watches backend/ only; the default is the whole repo, .venv and
 # node_modules included. The frontend is static and needs no restart.
-uvicorn backend.main:app --host "$HOST" --port 8899 --no-server-header --reload --reload-dir backend
+exec uvicorn backend.main:app --host "$HOST" --port 8899 --no-server-header --reload --reload-dir backend

@@ -51,12 +51,10 @@ if "%ORB_HOST%"=="::" set "URL_HOST=localhost"
 set "URL=http://%URL_HOST%:8899"
 
 echo.
-echo Starting server on %URL%
 echo Press Ctrl+C to stop
 echo.
 
-REM Wait for the server to come up in the background, then open the browser once.
-start "" /b cmd /c "for /l %%i in (1,1,60) do (curl -sS -o nul %URL% && (start "" %URL% & exit) || timeout /t 1 /nobreak >nul)"
+start "" /b python scripts\wait_for_server.py %URL%
 
 REM Reload watches backend/ only; the default is the whole repo, .venv and
 REM node_modules included. The frontend is static and needs no restart.

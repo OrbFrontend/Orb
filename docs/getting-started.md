@@ -28,7 +28,8 @@
     - Linux and macOS: `./run_unix.sh`
     - Windows: `run_windows.bat`
 
-The launcher creates `.venv`, installs `requirements.txt`, and starts the server.
+The launcher creates `.venv`, installs `requirements.txt`, starts the server,
+and opens Orb in your browser once it is ready.
 You do not need to activate the environment for normal use.
 
 ## Update Orb
