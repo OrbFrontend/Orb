@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -14,7 +15,9 @@ from .character_cards import get_character_card, render_public_profile
 
 
 def allocate_speaker_key(name: str, used: set[str]) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")[:24] or "speaker"
+    folded = unicodedata.normalize("NFC", name.casefold())
+    kept = "".join(ch if ch.isalnum() or unicodedata.category(ch)[0] == "M" else "-" for ch in folded)
+    base = re.sub(r"-{2,}", "-", kept).strip("-")[:24] or "speaker"
     key = base
     suffix = 2
     while key in used:

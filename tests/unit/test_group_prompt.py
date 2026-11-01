@@ -96,6 +96,13 @@ def test_group_director_schema_and_plan_policy_distinguish_rest_from_malformed()
     assert round_robin_member(members, [{"speaker_member_id": "a"}])["id"] == "k"
 
 
+def test_speaker_keys_keep_non_latin_names_apart():
+    used: set[str] = set()
+    assert [allocate_speaker_key(name, used) for name in ("张三", "李四", "नमस्ते", "Zoë")] == ["张三", "李四", "नमस्ते", "zoë"]
+    cast = [{"id": "z", "speaker_key": "张三", "display_name": "张三", "active": 1, "muted": 0}]
+    assert [(m["id"], exchange) for m, exchange in parse_speaking_plan(["张三：点头"], cast, 1)] == [("z", "点头")]
+
+
 def test_speaking_plan_resolves_hyphenated_speaker_keys_and_names():
     """A kebab-cased key is the shape `build_direct_scene_override` asks for.
 

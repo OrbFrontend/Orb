@@ -8,10 +8,10 @@ from collections.abc import Mapping, Sequence
 # What may sit between a resolved speaker and its cue. Applied to the text *after* the speaker has already been identified,
 # never to find the speaker: a `-` is as much a part of `jean-luc-picard` as of `alice-hart`, and every multi-word display name
 # produces a hyphenated speaker key, so splitting on it to locate the boundary discarded the whole plan for most casts.
-_PLAN_SEPARATOR = re.compile(r"\A\s*[—–:-]?\s*")
+_PLAN_SEPARATOR = re.compile(r"\A\s*[—–:：-]?\s*")
 
 # The label must end where the cue begins. Without this, a member keyed `aria` would claim a plan line naming `arianna`.
-_PLAN_BOUNDARY = re.compile(r"\A[\s—–:-]")
+_PLAN_BOUNDARY = re.compile(r"\A[\s—–:：-]")
 
 
 def _resolve_item(text: str, labels: Sequence[tuple[str, Mapping]]) -> tuple[Mapping, str] | None:

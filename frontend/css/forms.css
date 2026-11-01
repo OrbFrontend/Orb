@@ -50,7 +50,7 @@ input:not([type="checkbox"]):not([type="radio"]):hover, textarea:hover, select:h
 input:not([type="checkbox"]):not([type="radio"]):focus, textarea:focus, select:focus {
   border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
 }
-textarea { resize: vertical; min-height: 60px; }
+textarea { resize: vertical; min-height: 60px; unicode-bidi: plaintext; }
 textarea[data-key="system_prompt"] { min-height: 30px; height: 30px; }
 label { display: block; font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px;
   text-transform: uppercase; letter-spacing: .5px; }

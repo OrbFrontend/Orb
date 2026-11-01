@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from ..core.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT
 from .audit import OUTER_MARKERS
+from .text.lexical import count_words, word_spans
 from .text.roleplay_segmentation import extract_block_spans
 
 __all__ = ["HealedPatch", "heal_deletion", "heal_replacement"]
@@ -25,14 +26,6 @@ class HealedPatch:
     rejection: str | None = None
 
 
-_WORD_RE = re.compile(r"\S+")
-
-
-def _word_spans(text: str) -> list[tuple[int, int]]:
-    """Return whitespace-delimited word offsets."""
-    return [match.span() for match in _WORD_RE.finditer(text)]
-
-
 def _key(word: str) -> str:
     """Return the case-folded comparison key for a word."""
     return word.casefold()
@@ -40,7 +33,8 @@ def _key(word: str) -> str:
 
 def _neighbour_keys(text: str) -> list[str]:
     """Return comparison keys for non-punctuation neighbour words."""
-    return [_key(word) for word in _WORD_RE.findall(text) if any(ch.isalnum() for ch in word)]
+    words = (text[start:end] for start, end in word_spans(text))
+    return [_key(word) for word in words if any(ch.isalnum() for ch in word)]
 
 
 def _tail_repeat(keys: Sequence[str], following: Sequence[str]) -> int:
@@ -164,13 +158,16 @@ def _separator_strength(run: str) -> int:
     return 1 if run else 0
 
 
-_PAIRS = {"*": "*", "_": "_", '"': '"', "“": "”", "(": ")"}
+_PAIRS = {"*": "*", "_": "_", '"': '"', "“": "”", "(": ")", "「": "」", "『": "』", "（": "）", "【": "】"}
 _CLOSERS = frozenset(_PAIRS.values())
-_TERMINAL = ".!?…—–"
-_ORPHAN_RE = re.compile(r"[.,;:!?…]+(?=\s|$|[*_\"”])")
-_PRIOR_MARK_RE = re.compile(r"([.,;:!?…—–])([\"”’)*_]*)$")
-_ENDS_SENTENCE_RE = re.compile(r"(?<!\.\.)[.!?][\"”’)*_]*$")
-_REMOVED_TERMINAL_RE = re.compile(r"([.!?…]+)[\"”’)*_]*$")
+_ASYMMETRIC_OPENERS = frozenset(mark for mark, closer in _PAIRS.items() if mark != closer)
+_ASYMMETRIC_CLOSERS = frozenset(_PAIRS[mark] for mark in _ASYMMETRIC_OPENERS)
+_TERMINAL = ".!?…—–。！？"
+# Full-width punctuation never needs a space after it, so it is an orphan wherever it starts the right side.
+_ORPHAN_RE = re.compile(r"[.,;:!?…]+(?=\s|$|[*_\"”」』）】])|[。，、；：！？][.,;:!?…。，、；：！？]*")
+_PRIOR_MARK_RE = re.compile(r"([.,;:!?…—–。，、；：！？])([\"”’)*_」』）】]*)$")
+_ENDS_SENTENCE_RE = re.compile(r"(?<!\.\.)[.!?。！？][\"”’)*_」』）】]*$")
+_REMOVED_TERMINAL_RE = re.compile(r"([.!?…。！？]+)[\"”’)*_」』）】]*$")
 _SENTENCE_START_RE = re.compile(r"(?:^|[.!?…][\"”’)*_]*\s+|\n)[\"“*_(\s]*([^.!?…\n]*)$")
 _QUESTION_OPENER_RE = re.compile(
     r"(?:wh\w+|how|do|does|did|is|are|was|were|am|can|could|will|would|shall|should|have|has|had|may|might|must)(?:n't)?\b",
@@ -183,7 +180,7 @@ def _opens(text: str) -> bool:
     """Whether *text* ends in a quote or emphasis opener."""
     if not text or text[-1] not in _PAIRS:
         return False
-    if text[-1] in "“(" or len(text) == 1 or text[-2].isspace() or text[-2] in "([":
+    if text[-1] in _ASYMMETRIC_OPENERS or len(text) == 1 or text[-2].isspace() or text[-2] in "([":
         return True
     return (text[-2] in "—–" and text[-1] in "*_") or _opens(text[:-1])
 
@@ -192,13 +189,13 @@ def _closes(text: str) -> bool:
     """Whether *text* starts with a quote or emphasis closer."""
     if not text or text[0] not in _CLOSERS:
         return False
-    if text[0] in "”)" or len(text) == 1:
+    if text[0] in _ASYMMETRIC_CLOSERS or len(text) == 1:
         return True
     if text[1] in _CLOSERS:
         return _closes(text[1:])
     if text.startswith(("...", "…"), 1):
         return False
-    return text[1].isspace() or text[1] in ".,;:!?)]’'" or (text[1] in "—–" and text[0] in "*_")
+    return text[1].isspace() or text[1] in ".,;:!?)]’'。，、；：！？" or (text[1] in "—–" and text[0] in "*_")
 
 
 def _odd_count(line: str, mark: str) -> bool:
@@ -228,7 +225,7 @@ def _carried_terminal(removed: str, left: str) -> str:
     """The sentence end a deletion took with it when it cut a sentence's last clause, else ``""``."""
     body = removed.strip()
     match = _REMOVED_TERMINAL_RE.search(body)
-    if not match or not left[-1:].isalnum() or len(body.split()) < 2:
+    if not match or not left[-1:].isalnum() or count_words(body) < 2:
         return ""
     mark = match.group(1)
     if "?" in mark and body.startswith(","):
@@ -321,7 +318,7 @@ def heal_replacement(draft: str, start: int, end: int, replace: str, *, restatem
     removal, restating the neighbours is how a model says "drop this", so it splices as a deletion.
     """
     text = replace.strip()
-    spans = _word_spans(text)
+    spans = word_spans(text)
     keys = [_key(text[s:e]) for s, e in spans]
     notes: list[str] = []
     lo, hi = 0, len(spans)

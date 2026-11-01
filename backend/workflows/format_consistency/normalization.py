@@ -234,13 +234,13 @@ def _rewrite_segment(text: str, src: AxisStyle, td: Dialogue | None, tn: Narrati
 
 
 # Skip structure and malformed markup that the span parser may misclassify.
-_META = re.compile(r"(?m)^[ \t]*[A-Z][A-Z0-9 _/&-]{2,}:(?:[ \t]|$)")
+_META = re.compile(r"(?m)^[ \t]*([^\W\d_][\w /&-]{2,}):(?:[ \t]|$)")
 _RULE = re.compile(r"(?m)^[ \t]*(?:-{3,}|={3,}|—{2,})[ \t]*$")
 _HEADING = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+\S")
 _TABLE_ROW = re.compile(r"(?m)^[ \t]*\|.*\|[ \t]*$")
 # One to three capitalised words, a colon, then speech or a beat: `Carol: "..."`.
 # `She said: "..."` is prose: its second word is not capitalised.
-_SPEAKER = re.compile(r"(?m)^[ \t]*[A-Z][\w'’.-]*(?: [A-Z][\w'’.-]*){0,2}:[ \t]*[\"“*(]")
+_SPEAKER = re.compile(r"(?m)^[ \t]*([^\W\d_][\w'’.-]*(?: [^\W\d_][\w'’.-]*){0,2}):[ \t]*[\"“„«»‹›*(]")
 _LIST_ITEM = re.compile(r"[ \t]*([-+•*]|\d{1,2}[.)])[ \t]+\S")
 # A markdown bullet star (`* item` after any hard line break) is never emphasis.
 _BULLET_STAR = re.compile(r"(?:^|(?<=[\n\v\f\r\x1c-\x1e\x85\u2028\u2029]))[ \t]*(\*)(?=[ \t])")
@@ -269,12 +269,12 @@ def _quotes_only_in_held_paragraphs(text: str) -> bool:
 
 
 _SKIP_RULES: tuple[tuple[str, Callable[[str], object]], ...] = (
-    ("metadata", _META.search),
+    ("metadata", lambda text: any(m[1][0].isupper() and not any(ch.islower() for ch in m[1]) for m in _META.finditer(text))),
     ("rule", _RULE.search),
     ("heading", _HEADING.search),
     ("list", lambda text: _list_items(text) >= 2),
     ("table", lambda text: len(_TABLE_ROW.findall(text)) >= 2),
-    ("speaker-label", _SPEAKER.search),
+    ("speaker-label", lambda text: any(all(word[0].isupper() for word in m[1].split(" ")) for m in _SPEAKER.finditer(text))),
     ("stray-asterisk", _has_stray_asterisk),
     ("quote-in-emphasis", _quotes_only_in_held_paragraphs),
 )

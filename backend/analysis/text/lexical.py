@@ -15,7 +15,14 @@ def tokenize(text: str) -> list[str]:
     return [token.replace("’", "'") for token in TOKEN_RE.findall(folded)]
 
 
-_CJK_WORD_CHAR = re.compile(r"[ぁ-ゖァ-ヺー-ヿ㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
+_CJK = r"ぁ-ゖァ-ヺー-ヿ㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f"
+_CJK_WORD_CHAR = re.compile(f"[{_CJK}]")
+_WORD_UNIT = re.compile(rf"[{_CJK}]|[^\s{_CJK}]+")
+
+
+def word_spans(text: str) -> list[tuple[int, int]]:
+    """Offsets of whitespace words, with each Han or kana character split out as its own word."""
+    return [match.span() for match in _WORD_UNIT.finditer(text)]
 
 
 def count_words(text: str) -> int:

@@ -141,11 +141,10 @@ async def test_synthesize_blocks_raises_without_dialogue(monkeypatch):
         await synth.synthesize_blocks("Narration only, no quotes here.", profile)
 
 
-def test_alignable_tokens_keeps_alnum_drops_punctuation_and_nonascii():
+def test_alignable_tokens_keeps_alnum_drops_punctuation():
     assert synth._alignable_tokens("hello world") == ["hello", "world"]
     assert synth._alignable_tokens("-- ... !!!") == []
-    # A CJK-only token (here U+4F60 U+597D) carries no ASCII letter or digit and is dropped; the ASCII word survives.
-    assert synth._alignable_tokens("你好 hi") == ["hi"]
+    assert synth._alignable_tokens("你好 — hi") == ["你好", "hi"]
     # Trailing punctuation rides along on an otherwise-alphanumeric token.
     assert synth._alignable_tokens("Hi, friend!") == ["Hi,", "friend!"]
 

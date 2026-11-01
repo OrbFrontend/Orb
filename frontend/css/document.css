@@ -58,7 +58,7 @@
 #doc-page { width: 100%; max-width: 760px; flex: 1 0 auto; padding: 56px 68px; background: var(--bg-elevated);
   border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 6px 32px rgba(0, 0, 0, 0.35);
   font-family: var(--font-prose); font-size: var(--font-prose-size, 16px); line-height: 1.7; color: var(--text-primary);
-  white-space: pre-wrap; word-wrap: break-word; outline: none; caret-color: var(--accent); }
+  white-space: pre-wrap; word-wrap: break-word; outline: none; caret-color: var(--accent); unicode-bidi: plaintext; }
 #doc-page:empty::before { content: "Start writing…"; color: var(--text-muted); pointer-events: none; }
 #app:not(.doc-open) #doc-page:empty::before { content: "Create or select a document from the sidebar."; }
 #app:not(.doc-open) #doc-title-edit-btn { display: none; }

@@ -253,16 +253,16 @@ async def synthesize(text: str, profile: dict, *, settings: Settings | None = No
 
 
 def _alignment_key(token: str) -> str:
-    """Workflow-private ASCII karaoke key, mirrored by the frontend plugin."""
-    return "".join(char for char in token.lower() if char.isascii() and char.isalnum())
+    """Workflow-private karaoke key, mirrored by the frontend plugin."""
+    return "".join(char for char in token.lower() if char.isalnum())
 
 
 def _alignable_tokens(text: str) -> list[str]:
-    """Whitespace tokens of ``text`` carrying at least one ASCII letter or digit.
+    """Whitespace tokens of ``text`` carrying at least one letter or digit.
 
-    This is the word-alignment contract shared with the frontend karaoke mapper, which applies the same rule (lowercase, strip
-    non-``[a-z0-9]``, drop empties). Punctuation-only and non-ASCII-only tokens are dropped on both sides, so the k-th span
-    produced here lines up with the k-th highlighted on-screen word.
+    This is the word-alignment contract shared with the frontend karaoke mapper, which applies the same rule (lowercase, keep
+    Unicode letters and digits, drop empties). Punctuation-only tokens are dropped on both sides, so the k-th span produced here
+    lines up with the k-th highlighted on-screen word.
     """
     return [token for token in text.split() if _alignment_key(token)]
 

@@ -132,7 +132,7 @@ function spokenText(text) {
 }
 
 export function alignmentKey(token) {
-  return token.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return token.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 export function alignableKeys(text) {

@@ -80,6 +80,17 @@ def test_a_whole_line_restatement_leaves_the_flagged_text_unchanged():
 # -- Shape of the trim ---------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("draft", "span", "replace", "expected"),
+    [
+        ("她笑了。他打开了门，走了进去。", "他打开了", "他慢慢地打开了门", "她笑了。他慢慢地打开了门，走了进去。"),
+        ("她低声说：「走吧。」", "走吧", "「快走」", "她低声说：「快走。」"),
+    ],
+)
+def test_text_without_spaces_trims_per_character(draft, span, replace, expected):
+    assert _patch(draft, span, replace)[0] == expected
+
+
 def test_both_ends_are_trimmed_in_one_patch():
     draft = "Alpha one. Beta two. Gamma three."
     out, errors = _patch(draft, "Beta two.", "Alpha one. Delta four. Gamma three.")
@@ -423,6 +434,9 @@ def _delete(draft: str, find: str) -> str:
         # A word that now opens the sentence takes the capital the cut opening had.
         ("Mara laughed, and the lamp flickered.", "Mara laughed, and ", "The lamp flickered."),
         ("Rain fell.\n\n*Why now?* she wondered.", "*Why now?* ", "Rain fell.\n\nShe wondered."),
+        # Scripts without spaces: full-width marks and corner brackets follow the same rules.
+        ("她说：「走吧。」他离开了。", "「走吧", "她说：他离开了。"),
+        ("他点点头，然后转身离开了。她笑了。", "，然后转身离开了。", "他点点头。她笑了。"),
     ],
 )
 def test_deletion_heals_the_seam_it_leaves(draft, find, expected):

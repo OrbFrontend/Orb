@@ -228,7 +228,7 @@ def run_audit(
 
 # Outer markers are omitted from reported snippets so the rewrite model searches for the prose core rather than depending on a
 # particular quote/emphasis style. Straight ' is excluded so contractions/possessives survive.
-OUTER_MARKERS = '*_"“”‘’'
+OUTER_MARKERS = '*_"“”‘’«»‹›„「」『』'
 
 
 def strip_markers(s: str) -> str:

@@ -512,6 +512,9 @@ def test_a_quote_inside_a_beat_holds_only_its_paragraph():
     "draft,reasons",
     [
         ('Carol: "We have been *thinking*."\nCeline: "Arguing."', ["speaker-label"]),
+        ("Élodie : « Salut. »\nЖанна: «Привет»", ["speaker-label"]),
+        ("ÉTAT: calme\n\n*Elle sourit.*", ["metadata"]),
+        ("他低声说: 好", []),  # a caseless script has no capitals to mark a label
         ("# Chapter One\n\n*She wakes.*", ["heading"]),
         ("| hp | 10 |\n| mp | 4 |", ["table"]),
         ('*Her throat went dry at the word "wild," her fingers tightening.*', ["quote-in-emphasis"]),
