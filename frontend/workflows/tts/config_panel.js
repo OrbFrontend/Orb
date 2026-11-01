@@ -370,7 +370,7 @@ function setupNoticeHtml() {
   const pending = cloneFeatures().filter((f) => !featureReady(f.id));
   const unavailable = pending.find((f) => !mlFeature(f.id).deps_ok);
   if (unavailable) {
-    const cmd = mlStatus.install_cmd || "pip install -r requirements-ml.txt";
+    const cmd = mlFeature(unavailable.id).install_cmd || "pip install -r requirements-onnx.txt";
     return `<span class="tts-note">Voice cloning needs the optional ML extras: <code>${esc(cmd)}</code></span>`;
   }
   const missing = pending.filter((f) => !mlFeature(f.id).present);

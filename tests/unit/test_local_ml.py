@@ -7,6 +7,7 @@ leave the code under test running against the real disk.
 """
 
 import os
+import sys
 
 import pytest
 
@@ -37,6 +38,14 @@ def test_deps_ok_reports_missing_extra(monkeypatch):
     ok, reason = dependencies.deps_ok()
     assert ok is False
     assert "requirements-ml.txt" in reason
+
+
+def test_onnx_features_install_without_llama_cpp(monkeypatch):
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    ok, reason = dependencies.deps_ok("speech_recognizer")
+    assert ok is False
+    assert "requirements-onnx.txt" in reason
+    assert dependencies.install_cmd("prose_rewriter").strip('"').endswith(os.sep + "requirements.txt")
 
 
 def test_install_cmd_paths_are_absolute():

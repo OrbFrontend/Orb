@@ -283,7 +283,7 @@ async def test_status_payload_keys_are_unchanged(client):
     assert set(st) == {"deps_ok", "reason", "install_cmd", "features"}
 
     plain = st["features"]["autocomplete"]
-    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "runtime"}
+    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "install_cmd", "runtime"}
 
     rewriter = st["features"]["prose_rewriter"]
     assert set(rewriter) == {

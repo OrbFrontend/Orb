@@ -110,6 +110,7 @@ async def api_local_ml_status():
             "size_mb": spec.size_mb,
             "deps_ok": f_ok,
             "reason": f_reason,
+            "install_cmd": dependencies.install_cmd(f),
             "runtime": spec.runtime,
         }
         if spec.variants:
