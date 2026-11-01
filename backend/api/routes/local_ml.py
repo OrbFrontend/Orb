@@ -269,6 +269,8 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
 async def api_local_ml_runtime():
     """Fetch the shared llama-server runtime used by local model features."""
     async with _download_lock:
+        if llama_binary.runtime_ok():  # a press queued behind another one finds its install
+            return {"ok": True, "path": str(llama_binary.find_binary(gpu=True))}
         try:
             # The fetch replaces the binaries every running child was launched from.
             await llama_server.manager.release_all()

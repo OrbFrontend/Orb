@@ -301,13 +301,27 @@ async def test_status_payload_keys_are_unchanged(client):
     assert all(set(v) == {"id", "label", "detail", "size_mb", "present"} for v in rewriter["variants"])
 
 
-async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monkeypatch):
+@pytest.fixture
+def _runtime_missing(monkeypatch):
+    monkeypatch.setattr(llama_binary, "runtime_ok", lambda: False)
+
+
+async def test_the_runtime_fetch_is_shared_by_local_model_features(client, monkeypatch, _runtime_missing):
     monkeypatch.setattr(llama_binary, "fetch", lambda: "/bin/llama-bin/gpu/llama-server")
 
     assert (await client.post_json("/api/local-ml/runtime", json={})) == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
 
 
-async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch):
+async def test_a_runtime_press_queued_behind_another_finds_the_install(client, monkeypatch):
+    """Several cards ask for the runtime at once; only the first fetch replaces the binaries."""
+    monkeypatch.setattr(llama_binary, "runtime_ok", lambda: True)
+    monkeypatch.setattr(llama_binary, "find_binary", lambda gpu=True: "/bin/llama-bin/gpu/llama-server")
+    monkeypatch.setattr(llama_binary, "fetch", lambda: (_ for _ in ()).throw(AssertionError("must not fetch")))
+
+    assert (await client.post_json("/api/local-ml/runtime", json={})) == {"ok": True, "path": "/bin/llama-bin/gpu/llama-server"}
+
+
+async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatch, _runtime_missing):
     """``LlamaServerMissing`` carries the message the panel shows; anything else
     is a 500 with the detail in the server log rather than in the response."""
 

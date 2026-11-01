@@ -75,6 +75,21 @@ def test_pov_download_uses_the_upstream_name_but_stores_the_versioned_alias(tmp_
     assert Path(assets.resolve_path("pov_classifier")).read_bytes() == b"downloaded v2"
 
 
+def test_a_download_queued_behind_the_same_one_fetches_nothing(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(assets, "_ROOT", str(tmp_path))
+    Path(assets.resolve_path("pov_classifier")).write_bytes(b"already here")
+
+    def fetch(**_kwargs):
+        raise AssertionError("must not fetch")
+
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=fetch))
+    assets.download("pov_classifier")
+    assert Path(assets.resolve_path("pov_classifier")).read_bytes() == b"already here"
+
+
 def test_generic_upstream_names_are_stored_under_their_own(tmp_path, monkeypatch):
     """Whisper's ``config.json`` would otherwise be every future model's
     ``config.json``; and the download's ``onnx/`` mirror must not outlive it."""
