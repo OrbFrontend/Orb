@@ -6,7 +6,7 @@ pre-commit:
   commands:
     format-python:
       glob: "*.py"
-      run: python3 -m ruff check --select I --fix --quiet {staged_files} && python3 -m ruff format --quiet {staged_files}
+      run: ./scripts/ruff.sh check --select I --fix --quiet {staged_files} && ./scripts/ruff.sh format --quiet {staged_files}
       stage_fixed: true
 
     format-js:
@@ -17,4 +17,4 @@ pre-commit:
 
     lint-python:
       glob: "*.py"
-      run: python3 -m ruff check {staged_files}
+      run: ./scripts/ruff.sh check {staged_files}
