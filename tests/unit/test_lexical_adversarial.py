@@ -2,7 +2,14 @@
 
 import pytest
 
-from backend.analysis.text.lexical import count_content_words, is_contiguous_subsequence, ngrams, normalize_word, tokenize
+from backend.analysis.text.lexical import (
+    count_content_words,
+    count_words,
+    is_contiguous_subsequence,
+    ngrams,
+    normalize_word,
+    tokenize,
+)
 
 
 def test_tokenize_keeps_unicode_words_instead_of_clipping_them():
@@ -37,3 +44,16 @@ def test_ngrams_rejects_nonpositive_window_sizes(size: int):
 
 def test_empty_sequence_is_not_reported_as_a_contained_phrase():
     assert is_contiguous_subsequence((), ("anything",)) is False
+
+
+@pytest.mark.parametrize(
+    "text", ["", 'She said, "Wait" — then left.', "*He waits.*\n\n  well-known  ... don’t", "Élodie drank café"]
+)
+def test_count_words_matches_whitespace_split_without_cjk(text):
+    assert count_words(text) == len(text.split())
+
+
+def test_count_words_counts_each_han_and_kana_character():
+    assert count_words("*他走进房间。*\n\n“你来了。”她说。") == 10
+    assert count_words("ありがとう、カード") == 8
+    assert count_words("OK，他说 fine") == 4

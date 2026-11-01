@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from ....analysis.text.lexical import count_words
 from ....core.settings import Settings
 
 
@@ -65,7 +66,7 @@ def evaluate_length_guard(draft: str, length_guard: LengthGuard | None) -> tuple
     """
     if length_guard is None:
         return False, "", 0
-    word_count = len(draft.split())
+    word_count = count_words(draft)
     if word_count <= length_guard["max_words"]:
         return False, "", word_count
     instruction = LENGTH_GUARD_INSTRUCTIONS.format(

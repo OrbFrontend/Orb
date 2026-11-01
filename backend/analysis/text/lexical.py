@@ -15,6 +15,18 @@ def tokenize(text: str) -> list[str]:
     return [token.replace("’", "'") for token in TOKEN_RE.findall(folded)]
 
 
+_CJK_WORD_CHAR = re.compile(r"[ぁ-ゖァ-ヺー-ヿ㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
+
+
+def count_words(text: str) -> int:
+    """Count whitespace words, with each Han or kana character as its own word."""
+    total = 0
+    for word in text.split():
+        cjk = len(_CJK_WORD_CHAR.findall(word))
+        total += cjk + (1 if not cjk or TOKEN_RE.search(_CJK_WORD_CHAR.sub("", word)) else 0)
+    return total
+
+
 def normalize_word(word: str) -> str:
     """Normalize one whitespace-delimited word."""
     return "".join(tokenize(word))

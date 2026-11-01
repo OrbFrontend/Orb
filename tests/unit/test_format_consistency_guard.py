@@ -25,6 +25,12 @@ def test_a_rewrite_that_grows_is_rejected():
     assert rejection(DRAFT, grown).startswith("grew from")
 
 
+def test_a_chinese_rewrite_that_grows_inside_a_paragraph_is_rejected():
+    draft = "*他走进房间，看着窗外。*\n\n“你来了。”她说。"
+    grown = "*他走进房间，看着窗外，窗外的雨下得很大，街上一个人也没有。*\n\n“你来了。”她说。"
+    assert rejection(draft, grown).startswith("grew from")
+
+
 def test_a_word_or_two_of_slack_is_allowed():
     assert rejection(DRAFT, FAITHFUL.replace("I crossed", "I am crossing")) == ""
 

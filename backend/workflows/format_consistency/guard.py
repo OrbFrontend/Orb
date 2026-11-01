@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from ..toolkit import protected_runs, spoken_lines
+from ..toolkit import count_words, protected_runs, spoken_lines
 from .config import VOICE_REWRITE_TOOL_NAME
 
 # A restatement may be slightly shorter, and may grow only by the few words a
@@ -45,8 +45,8 @@ def rejection(draft: str, rewritten: str) -> str:
     if not rewritten.strip():
         return "empty"
 
-    draft_words = len(draft.split())
-    words = len(rewritten.split())
+    draft_words = count_words(draft)
+    words = count_words(rewritten)
     if words > max(draft_words * _MAX_WORD_RATIO, draft_words + _MIN_EXTRA_WORDS):
         return f"grew from {draft_words} to {words} words"
     if words < draft_words * _MIN_WORD_RATIO:

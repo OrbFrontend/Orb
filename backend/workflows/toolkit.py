@@ -22,6 +22,7 @@ from ..analysis import (
     speech_segments,
     spoken_lines,
 )
+from ..analysis.text.lexical import count_words
 
 # Shared span primitives used by markup repair, voice shaping, and classification.
 from ..analysis.text.roleplay import emphasis_inner, span_role, split_ws, strip_quotes
@@ -173,6 +174,7 @@ __all__ = [
     "classify_pov_tense_chunks",
     "classify_axes",
     "comfy_gpu_lease",
+    "count_words",
     "markup_axes",
     "emphasis_inner",
     "extract_block_spans",
