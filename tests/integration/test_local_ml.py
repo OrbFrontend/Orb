@@ -50,12 +50,9 @@ def _empty_model_dir(tmp_path, monkeypatch):
 def _deps_installed(monkeypatch):
     """Report the rewriter's extras as installed, for the tests past the gate.
 
-    CI installs requirements-dev.txt and never requirements-ml.txt, so ``huggingface_hub`` is absent,
-    ``deps_ok("prose_rewriter")`` is False, and the download route 400s at its deps check -- before it reaches the patched
-    ``download`` or the selection sweep that follows it. A developer machine with the extras 200s instead, which is why the two
-    selection tests below passed locally and failed in CI (the second one silently: its assertions still hold when the sweep
-    never runs, so it passed there for the wrong reason). Those tests are about the sweep, not the gate; the gate has its own
-    tests above and they patch ``deps_ok`` the other way.
+    The download route 400s at its deps check when ``huggingface_hub`` is missing, before it reaches the patched ``download``
+    or the selection sweep that follows it. Those tests are about the sweep, not the gate; the gate has its own tests above and
+    they patch ``deps_ok`` the other way.
     """
     monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
 

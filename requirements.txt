@@ -11,3 +11,5 @@ regex>=2026.9.10
 jsonschema>=4.23,<5
 # Imported directly for ReadOnly TypedDict items; pydantic already requires at least this version.
 typing-extensions>=4.14.1
+# Model downloads for Settings → Local ML; llama-server features need nothing else.
+huggingface_hub>=1.22,<3

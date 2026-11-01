@@ -4,13 +4,8 @@
 # Then use Settings → Local ML to download the models into backend/data/models/,
 # or set ORB_AUTOCOMPLETE_MODEL to an existing typeahead GGUF's path.
 #
-# NOT every local-ML feature needs both. The Prose Rewriter has
-# runtime="llama_server": it drives a child llama-server process over HTTP
-# rather than loading a model in-process, so huggingface_hub alone (for the
-# download) is enough for it. deps_ok() checks per feature, so installing
-# only huggingface_hub leaves the rewriter usable and the rest greyed out.
+# The Prose Rewriter runs a child llama-server and needs none of these.
 llama-cpp-python>=0.3.0
-huggingface_hub
 
 # The built-in Spark-TTS voice cloner (runtime="onnx"): the speaker encoder and
 # the bicodec decoder are ONNX graphs, so onnxruntime is all it needs at run
