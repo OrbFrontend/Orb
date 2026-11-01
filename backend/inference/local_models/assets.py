@@ -170,7 +170,7 @@ def _fetch(repo_id: str, path: str, revision: str, local_name: str, sha256: str)
 
 
 def download(feature: str, variant: str | None = None) -> None:
-    """Fetch a feature's artifacts and prune stale weights."""
+    """Fetch a feature's missing artifacts and prune stale weights."""
     spec = MODELS[feature]
     repo_id, path, revision, local_name = variant_spec(feature, variant)
     # Fetch companions first so partial downloads are not reported as ready.
@@ -179,7 +179,8 @@ def download(feature: str, variant: str | None = None) -> None:
             _fetch(companion.repo_id, companion.path, companion.revision, companion.local_name, companion.sha256)
     # A variant download carries no per-variant checksum; the spec's own hash
     # describes the spec's own file and must not be applied to a sibling.
-    _fetch(repo_id, path, revision, local_name, spec.sha256 if variant is None else "")
+    if not os.path.exists(os.path.join(model_dir(), local_name)):
+        _fetch(repo_id, path, revision, local_name, spec.sha256 if variant is None else "")
     prune_stale()  # after fetch: new file lands before old ones go, so a failed download keeps the old model
 
 

@@ -110,6 +110,7 @@ async def api_local_ml_status():
             "size_mb": spec.size_mb,
             "deps_ok": f_ok,
             "reason": f_reason,
+            "install_cmd": dependencies.install_cmd(f),
             "runtime": spec.runtime,
         }
         if spec.variants:
@@ -170,6 +171,10 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
         raise HTTPException(status_code=404, detail=f"Unknown variant {variant!r} for {feature!r}")
     onnx = spec.runtime == "onnx"
     controller = None if onnx else _MANAGEMENT.get(feature)
+    if controller is not None:
+        release = controller.model_deletion()
+    else:
+        release = nullcontext() if onnx else local_ml.model_deletion(feature)
 
     def remove():
         with onnx_runtime.exclusive_release() if onnx else nullcontext():
@@ -177,7 +182,7 @@ async def api_local_ml_delete_model(feature: str, variant: str | None = None):
 
     async with _download_lock:
         try:
-            async with controller.model_deletion() if controller is not None else nullcontext():
+            async with release:
                 removed = await asyncio.to_thread(remove)
         except TimeoutError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -254,6 +259,8 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
         # Switching a feature on means "make this work", so the slice gets to
         # repair a selection that points at nothing, and pre-warm what it picks.
         await controller.on_enabled(enabled)
+    elif not enabled:
+        await local_ml.release(feature)
     settings = await get_settings()
     return {"local_ml_enabled": settings.get("local_ml_enabled", {}), "local_ml_config": settings.get("local_ml_config", {})}
 
@@ -262,6 +269,8 @@ async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B
 async def api_local_ml_runtime():
     """Fetch the shared llama-server runtime used by local model features."""
     async with _download_lock:
+        if llama_binary.runtime_ok():  # a press queued behind another one finds its install
+            return {"ok": True, "path": str(llama_binary.find_binary(gpu=True))}
         try:
             # The fetch replaces the binaries every running child was launched from.
             await llama_server.manager.release_all()

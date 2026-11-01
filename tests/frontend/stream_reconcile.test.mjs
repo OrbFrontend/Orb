@@ -397,6 +397,58 @@ it("settings keep the expression model beside its rendering mode and save the se
   }
 });
 
+it("concurrent local model downloads share one runtime fetch and keep every pending card busy", async () => {
+  const { renderSettings } = await import("../../frontend/settings.js");
+  const form = document.createElement("div");
+  form.id = "settings-form";
+  document.body.appendChild(form);
+  const originalFetch = globalThis.fetch;
+  // Switched off, so a finished download does not repaint the tools panel this page lacks.
+  const card = () => ({ present: false, enabled: false, deps_ok: true, runtime: "llama_server", runtime_ok: false });
+  const features = { autocomplete: card(), slop_classifier: card() };
+  S.localMlFeatures = structuredClone(features);
+  const gates = { runtime: deferred(), autocomplete: deferred(), slop_classifier: deferred() };
+  const posts = [];
+  const reply = (body) => ({ ok: true, status: 200, json: async () => structuredClone(body), text: async () => "" });
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.endsWith("/local-ml/status")) return reply({ deps_ok: true, features });
+    posts.push(path);
+    if (path.endsWith("/local-ml/runtime")) {
+      await gates.runtime.promise;
+      for (const info of Object.values(features)) info.runtime_ok = true;
+      return reply({ ok: true });
+    }
+    const feature = path.split("/").at(-2);
+    await gates[feature]?.promise;
+    if (features[feature]) features[feature].present = true;
+    return reply({ ok: true });
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const button = (f) => form.querySelector(`#local-ml-section [data-ml-feature="${f}"]`);
+  try {
+    renderSettings();
+    await tick();
+    button("autocomplete").click();
+    button("slop_classifier").click();
+    await tick();
+    assert.equal(posts.filter((p) => p.endsWith("/local-ml/runtime")).length, 1);
+    gates.runtime.resolve();
+    gates.autocomplete.resolve();
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(button("autocomplete").dataset.mlAct, "enabled");
+    assert.equal(button("slop_classifier").disabled, true);
+    assert.ok(button("slop_classifier").closest(".tool-card").classList.contains("ml-busy"));
+    gates.slop_classifier.resolve();
+    for (let i = 0; i < 5; i++) await tick();
+    assert.equal(button("slop_classifier").dataset.mlAct, "enabled");
+    assert.equal(posts.filter((p) => p.endsWith("/local-ml/runtime")).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    form.remove();
+  }
+});
+
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });

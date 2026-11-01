@@ -27,7 +27,7 @@ EXE = ".exe" if IS_WINDOWS else ""
 BINARY_NAME = f"llama-server{EXE}"
 
 #: Verified build. Bump deliberately, never automatically.
-DEFAULT_BUILD = "b10549"
+DEFAULT_BUILD = "b12032"
 REPO_SLUG = "ggml-org/llama.cpp"
 #: Outbound only, on the GitHub releases API. Named for the binary rather than
 #: for the one feature that happens to use it today.
@@ -52,6 +52,28 @@ def bin_dir() -> str:
     d = os.path.join(_ROOT, "backend", "data", "llama-bin")
     os.makedirs(d, exist_ok=True)
     return d
+
+
+#: The build tag ``fetch`` installed, beside the two flavour directories.
+_BUILD_FILE = "BUILD"
+
+
+def wanted_build() -> str:
+    """The tag the managed runtime must be: the pin, or an ``ORB_LLAMA_CPP_BUILD`` override (``latest`` takes any)."""
+    return os.environ.get("ORB_LLAMA_CPP_BUILD") or DEFAULT_BUILD
+
+
+def installed_build() -> str:
+    """The tag ``fetch`` recorded, or ``""`` for an install from before the record (or none)."""
+    try:
+        return Path(bin_dir(), _BUILD_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _managed_current() -> bool:
+    installed = installed_build()
+    return bool(installed) and wanted_build() in ("latest", installed)
 
 
 def flavour_dir(gpu: bool) -> str:
@@ -107,8 +129,10 @@ def find_binary(gpu: bool = True) -> Path:
     if found:
         return Path(found)
     local = Path(flavour_dir(gpu)) / BINARY_NAME
-    if _executable(local):
+    if _executable(local) and _managed_current():
         return local
+    if _executable(local):
+        raise LlamaServerMissing(f"The llama.cpp runtime is out of date; download {wanted_build()} again.")
     raise LlamaServerMissing(
         "No llama-server binary. Downloading a model that needs it fetches one, "
         "or point ORB_LLAMA_SERVER at one you already have."
@@ -121,7 +145,7 @@ def runtime_ok() -> bool:
     BOTH flavours have to resolve, because the GPU toggle switches between them with no download in the way: half a pair is a
     toggle that works in one direction and silently does nothing in the other. An install from before the split has a flat
     ``llama-bin/`` and reads as missing here, which puts the Download button back on screen -- one press installs the pair, and
-    that is the whole migration.
+    that is the whole migration. A managed pair from another build than the pin reads the same way.
     """
     try:
         for gpu in (False, True):
@@ -239,30 +263,14 @@ def _arch() -> str:
     raise LlamaServerMissing(f"No prebuilt llama.cpp binary for {machine}; build one and set ORB_LLAMA_SERVER.")
 
 
-def gpu_build_published(*, system: str, arch: str) -> bool:
-    """Whether this platform offers a general GPU build, without fetching it.
-
-    macOS includes Metal; Windows arm64 has no Vulkan archive.
-    """
-    if system == "windows":
-        return arch == "x64"
-    return True
-
-
 def asset_name(tag: str, backend: str, *, system: str, arch: str) -> str:
-    """The release asset for this platform, GPU flavour and architecture.
-
-    A ``gpu`` request on a platform with no GPU build degrades to the CPU
-    archive rather than 404ing on an asset the release does not carry.
-    """
-    gpu = backend == "gpu" and gpu_build_published(system=system, arch=arch)
+    """The release asset for this platform, GPU flavour and architecture. macOS has one build, with Metal."""
+    gpu = backend == "gpu"
     if system == "darwin":
         return f"llama-{tag}-bin-macos-{arch}.tar.gz"
     if system == "windows":
-        return f"llama-{tag}-bin-win-vulkan-x64.zip" if gpu else f"llama-{tag}-bin-win-cpu-{arch}.zip"
-    if gpu:
-        return f"llama-{tag}-bin-ubuntu-vulkan-{arch}.tar.gz"
-    return f"llama-{tag}-bin-ubuntu-{arch}.tar.gz"
+        return f"llama-{tag}-bin-win-{'vulkan' if gpu else 'cpu'}-{arch}.zip"
+    return f"llama-{tag}-bin-ubuntu-{'vulkan-' if gpu else ''}{arch}.tar.gz"
 
 
 def _system() -> str:
@@ -283,7 +291,7 @@ def _api(url: str):
 
 def resolve_release(tag: str | None = None) -> dict:
     """The release to take binaries from: the pin, an explicit tag, or newest-with-assets."""
-    tag = tag or os.environ.get("ORB_LLAMA_CPP_BUILD") or DEFAULT_BUILD
+    tag = tag or wanted_build()
     if tag != "latest":
         return _api(f"https://api.github.com/repos/{REPO_SLUG}/releases/tags/{tag}")
     for release in _api(f"https://api.github.com/repos/{REPO_SLUG}/releases?per_page=30"):
@@ -409,6 +417,9 @@ def fetch() -> str:
     # The paths did not change, so every cached answer about them is now about a build that is gone. Dropped wholesale rather
     # than per key: `_flatten` replaced directories, not files inside them.
     _forget_probes()
+    # Last, after both builds proved themselves: an interrupted fetch leaves no record, so it reads as missing and offers itself
+    # again. `_clear_legacy_builds` removed the previous record when this fetch began.
+    Path(bin_dir(), _BUILD_FILE).write_text(tag, encoding="utf-8")
     logger.info("llama-server %s ready: %s", tag, ", ".join(f"{k} at {v}" for k, v in installed.items()))
     return str(installed["gpu"])
 

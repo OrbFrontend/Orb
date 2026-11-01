@@ -38,6 +38,11 @@ class LaunchProfile:
     http_threads: int
     cont_batching: bool = True
     ubatch_size: int = 0  # 0 = llama-server's own default; see spark_tts/config.py for why a feature sets it
+    batch_size: int = 0  # 0 = llama-server's own default
+    threads: int = 0  # 0 = llama-server's own default
+    threads_batch: int = 0  # 0 = llama-server's own default
+    flash_attn: bool | None = None  # None = llama-server's own default
+    rank_head: bool = False  # serve the GGUF's classification head through /embedding
     no_webui: bool = True  # asked for only if the binary says it knows the flag
     label: str = ""  # log text
     size_mb: int = 0  # log text
@@ -45,9 +50,18 @@ class LaunchProfile:
     def __post_init__(self) -> None:
         # Every argv-bound number is an int owned by this process, not a value
         # that arrived over HTTP. type() is exact on purpose: bool is an int.
-        for value in (self.gpu_layers, self.ctx_size, self.parallel, self.http_threads, self.ubatch_size):
-            if type(value) is not int:
-                raise TypeError("launch profile numbers must be code-owned ints")
+        numbers = (
+            self.gpu_layers,
+            self.ctx_size,
+            self.parallel,
+            self.http_threads,
+            self.ubatch_size,
+            self.batch_size,
+            self.threads,
+            self.threads_batch,
+        )
+        if any(type(value) is not int for value in numbers):
+            raise TypeError("launch profile numbers must be code-owned ints")
 
 
 def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
@@ -74,6 +88,16 @@ def _argv(profile: LaunchProfile, binary: Path, port: int) -> list[str]:
         argv.append("--cont-batching")
     if profile.ubatch_size:
         argv += ["--ubatch-size", str(profile.ubatch_size)]
+    if profile.batch_size:
+        argv += ["--batch-size", str(profile.batch_size)]
+    if profile.threads:
+        argv += ["--threads", str(profile.threads)]
+    if profile.threads_batch:
+        argv += ["--threads-batch", str(profile.threads_batch)]
+    if profile.flash_attn is not None:
+        argv += ["--flash-attn", "on" if profile.flash_attn else "off"]
+    if profile.rank_head:
+        argv += ["--embeddings", "--pooling", "rank"]
     argv += ["--threads-http", str(profile.http_threads)]
     # Optional, and asked for only if this build has it: nothing here calls
     # /v1/chat/completions, and llama.cpp's own front end has no business being
@@ -170,7 +194,7 @@ class LlamaServerClient:
                     return
             except Exception:  # not up yet is the common case, not an error
                 pass
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.05)
         await self.stop()
         raise RuntimeError(f"llama-server did not become ready within {timeout:.0f}s:\n{self.tail()}")
 
@@ -279,13 +303,15 @@ class LlamaServerClient:
                         stopped = bool(message.get("stopped_eos") or message.get("stopped_word"))
         return stopped
 
-    async def tokenize(self, text: str, *, parse_special: bool = False) -> list[int]:
+    async def tokenize(self, text: str, *, parse_special: bool = False, add_special: bool = False) -> list[int]:
         """*text* as token ids from the model's own vocabulary.
 
         ``parse_special`` defaults OFF, which is the safe direction for text that came from a user: with it on, a line
         containing ``<|end_content|>`` becomes a control token instead of six characters of dialogue.
         """
-        body = {"content": text, "parse_special": parse_special}
+        body: dict = {"content": text, "parse_special": parse_special}
+        if add_special:
+            body["add_special"] = True
         response = await self._http().post("/tokenize", json=body, timeout=30.0)
         if response.status_code != 200:
             raise RuntimeError(_error_text(response.text))
@@ -319,3 +345,27 @@ class LlamaServerClient:
         parts: list[str] = []
         stopped = await self._stream(payload, lambda message: parts.append(message.get("content") or ""))
         return "".join(parts), stopped
+
+    async def head_logits(self, inputs: Sequence[str | Sequence[int]], n: int) -> list[list[float]]:
+        """The first *n* classification-head outputs for each id sequence, in input order.
+
+        Only a ``rank_head`` child answers this. The server copies a full embedding width out of a head buffer that holds
+        ``n_cls_out`` floats, so everything past the head is undefined and normalisation must stay off.
+        """
+        body = {"content": [item if isinstance(item, str) else list(item) for item in inputs], "embd_normalize": -1}
+        response = await self._http().post("/embedding", json=body, timeout=120.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        rows = sorted(response.json(), key=lambda row: row["index"])
+        out = [[float(x) for x in row["embedding"][0][:n]] for row in rows]
+        if len(out) != len(inputs) or any(len(row) < n for row in out):
+            raise RuntimeError(f"classifier returned fewer than {n} logits (wrong head?)")
+        return out
+
+    async def complete(self, prompt: str, *, n_predict: int, stop: Sequence[str], **sampling: float | int) -> str:
+        """One non-streaming raw continuation of *prompt*."""
+        body = {"prompt": prompt, "n_predict": n_predict, "stop": list(stop), "cache_prompt": True, **sampling}
+        response = await self._http().post("/completion", json=body, timeout=60.0)
+        if response.status_code != 200:
+            raise RuntimeError(_error_text(response.text))
+        return str(response.json().get("content") or "")

@@ -386,9 +386,9 @@ async def api_autocomplete(
     data: AutocompleteInput,
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
-    """Predict a short continuation of the user's in-progress draft (CPU, in-process).
+    """Predict a short continuation of the user's in-progress draft (CPU, local llama-server).
 
-    Opt-in: 503 unless the llama-cpp-python extra and the GGUF are present. Uses a
+    Opt-in: 503 unless the GGUF and the llama.cpp runtime are present. Uses a
     trimmed context (char/persona names + last few messages), NOT the Director pipeline.
     """
     settings = await get_settings()

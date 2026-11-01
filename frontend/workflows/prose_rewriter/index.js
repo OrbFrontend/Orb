@@ -79,7 +79,7 @@ function cardBody() {
   const f = info();
   if (!f) return desc;
   if (!f.deps_ok) {
-    const cmd = status.install_cmd || "pip install -r requirements-ml.txt";
+    const cmd = f.install_cmd || "pip install -r requirements.txt";
     return `${desc}<div class="tool-card-desc">Needs the optional ML extras: <code>${esc(cmd)}</code></div>`;
   }
   const anyPresent = f.variants.some((v) => v.present);

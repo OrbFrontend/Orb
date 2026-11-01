@@ -218,26 +218,43 @@ const mlReadySignature = () =>
     .map((f) => `${f}:${localMlReady(f) ? 1 : 0}`)
     .join(",");
 
-/** Fetch local model status and publish it to every gate that reads it. */
+let statusSeq = 0;
+
+/** Fetch local model status and publish it to every gate that reads it; a reply that lost a race is not published. */
 export async function refreshLocalMlStatus() {
+  const seq = ++statusSeq;
   const st = await api.get("/local-ml/status");
-  publishLocalMlFeatures(st.features);
+  if (seq === statusSeq) publishLocalMlFeatures(st.features);
   return st;
 }
+
+// Features with a Download in flight, so a repaint after one finishes keeps the others busy.
+const mlDownloads = new Set();
+let runtimeFetch = null;
+let sectionStatus = null;
+let sectionSeq = 0;
 
 async function loadLocalMLSection() {
   const el = $("local-ml-section");
   if (!el) return;
+  const seq = ++sectionSeq;
   let st;
   try {
     st = await refreshLocalMlStatus(); // every feature: gates elsewhere read the ones not shown here
   } catch (_e) {
+    if (seq !== sectionSeq) return;
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     const expressions = $("expression-playback-settings");
     if (expressions)
       expressions.innerHTML = '<div class="tool-card-desc">Could not load expression model status.</div>';
     return;
   }
+  if (seq !== sectionSeq) return;
+  sectionStatus = st;
+  renderLocalMlSection(el, st);
+}
+
+function renderLocalMlSection(el, st) {
   renderExpressionPlaybackSettings(st);
   const shown = settingsFeatures(st.features);
   if (!st.deps_ok) {
@@ -246,7 +263,7 @@ async function loadLocalMLSection() {
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
       <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
-      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements.txt")}</div>
     </div>`;
     return;
   }
@@ -261,7 +278,7 @@ function renderExpressionPlaybackSettings(st) {
   if (!el) return;
   const info = st.features?.emotion_classifier;
   const model = !st.deps_ok
-    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div></div>`
+    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements.txt")}</div></div>`
     : info
       ? localMlCard("emotion_classifier", info)
       : '<div class="tool-card-desc">Expression model unavailable.</div>';
@@ -281,21 +298,24 @@ function renderExpressionPlaybackSettings(st) {
 
 function localMlCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
-  if (!info.present) {
-    return `<div class="tool-card">
+  const desc = LOCAL_ML_DESCS[f] || "";
+  const descHtml = desc ? `<div class="tool-card-desc">${desc}</div>` : "";
+  if (!info.present || info.runtime_ok === false) {
+    const act = info.present ? "runtime" : "download";
+    const busy = mlDownloads.has(f);
+    return `<div class="tool-card${busy ? " ml-busy" : ""}"${busy ? ' aria-busy="true"' : ""}>
       <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-        <button class="btn btn-sm" data-ml-act="download" data-ml-feature="${escAttr(f)}">Download</button></div>
-      <div class="tool-card-desc">Not downloaded (~${info.size_mb} MB)</div>
+        <button class="btn btn-sm" data-ml-act="${act}" data-ml-feature="${escAttr(f)}"${busy ? " disabled" : ""}>${busy ? "Downloading…" : "Download"}</button></div>
+      ${descHtml}
     </div>`;
   }
-  const desc = LOCAL_ML_DESCS[f] || "";
   return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
     <div class="tool-card-header"><span class="tool-card-name">${name}</span>
       <label class="tog" data-ml-act="stop">
         <input type="checkbox" ${info.enabled ? "checked" : ""} data-ml-act="enabled" data-ml-feature="${escAttr(f)}">
         <span class="tog-slider"></span>
       </label></div>
-    ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
+    ${descHtml}
   </div>`;
 }
 
@@ -311,7 +331,8 @@ function onLocalMLClick(ev) {
   if (!target) return;
   const { mlAct: act, mlFeature: feature } = target.dataset;
   if (act === "stop") return ev.stopPropagation();
-  if (act === "download") return downloadLocalMlModel(feature, target);
+  if (act === "download") return downloadLocalMlModel(feature);
+  if (act === "runtime") return downloadLocalMlModel(feature, { runtimeOnly: true });
 }
 
 function onLocalMLChange(ev) {
@@ -324,20 +345,27 @@ function applyLocalMlResponse(res) {
   if (typeof res.local_ml_enabled === "object") applySettings({ local_ml_enabled: res.local_ml_enabled });
 }
 
-async function downloadLocalMlModel(feature, btn) {
-  const card = btn.closest(".tool-card");
-  card?.classList.add("ml-busy");
-  card?.setAttribute("aria-busy", "true");
-  btn.disabled = true;
+/** One shared runtime fetch however many cards need it; the server queues the model downloads behind it. */
+function fetchLocalMlRuntime() {
+  runtimeFetch ??= api.post("/local-ml/runtime", {}).finally(() => {
+    runtimeFetch = null;
+  });
+  return runtimeFetch;
+}
+
+async function downloadLocalMlModel(feature, { runtimeOnly = false } = {}) {
+  if (mlDownloads.has(feature)) return;
+  mlDownloads.add(feature);
+  const el = $("local-ml-section");
+  if (el && sectionStatus) renderLocalMlSection(el, sectionStatus);
   try {
-    applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, {}));
-    await loadLocalMLSection(); // flips the card to a toggle
+    if (S.localMlFeatures[feature]?.runtime_ok === false) await fetchLocalMlRuntime();
+    if (!runtimeOnly) applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, {}));
   } catch (e) {
     toast(e.message || "Download failed", true);
-    card?.classList.remove("ml-busy");
-    card?.removeAttribute("aria-busy");
-    btn.disabled = false;
   }
+  mlDownloads.delete(feature);
+  await loadLocalMLSection(); // flips the card to a toggle
 }
 
 async function toggleLocalMlEnabled(feature, on) {
