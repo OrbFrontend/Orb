@@ -2,8 +2,7 @@
 
 Used by both launchers after pip fails. This checks usability of the installed
 packages, not their pinned versions, so an existing offline install can run.
-ML packages in requirements-ml.txt and requirements-onnx.txt deliberately do not
-participate.
+ML packages in requirements-onnx.txt deliberately do not participate.
 """
 
 from __future__ import annotations

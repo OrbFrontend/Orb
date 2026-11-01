@@ -1,7 +1,5 @@
 # Opt-in extras for the ONNX features: Spark-TTS voice cloning and speech input.
 #   pip install -r requirements-onnx.txt
-# Kept apart from requirements-ml.txt, whose llama-cpp-python compiles from
-# source: a failed build there must not block these prebuilt wheels.
 #
 # The `onnx` package — another 73 MB — only BUILDS graphs and lives in
 # requirements-dev.txt with scripts/export_spark_speaker_encoder.py.

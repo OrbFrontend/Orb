@@ -172,6 +172,8 @@ function wireSettingsToggles(el) {
   });
 }
 
+// The llama.cpp runtime the first model download fetches along with it.
+const LOCAL_ML_RUNTIME_MB = 150;
 const LOCAL_ML_LABELS = {
   autocomplete: "Input Autocomplete",
   slop_classifier: "AI-Slop Classifier",
@@ -246,7 +248,7 @@ async function loadLocalMLSection() {
       .join("");
     el.innerHTML = `<div class="tool-card" style="opacity:0.5">
       <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
-      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+      <div class="tool-card-desc" style="-webkit-user-select:all;user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements.txt")}</div>
     </div>`;
     return;
   }
@@ -261,7 +263,7 @@ function renderExpressionPlaybackSettings(st) {
   if (!el) return;
   const info = st.features?.emotion_classifier;
   const model = !st.deps_ok
-    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div></div>`
+    ? `<div class="tool-card"><div class="tool-card-desc">Install local model support to enable expressions.</div><div class="tool-card-desc">${esc(st.install_cmd || "pip install -r requirements.txt")}</div></div>`
     : info
       ? localMlCard("emotion_classifier", info)
       : '<div class="tool-card-desc">Expression model unavailable.</div>';
@@ -282,10 +284,18 @@ function renderExpressionPlaybackSettings(st) {
 function localMlCard(f, info) {
   const name = esc(LOCAL_ML_LABELS[f] || f);
   if (!info.present) {
+    const size = info.size_mb + (info.runtime_ok === false ? LOCAL_ML_RUNTIME_MB : 0);
     return `<div class="tool-card">
       <div class="tool-card-header"><span class="tool-card-name">${name}</span>
         <button class="btn btn-sm" data-ml-act="download" data-ml-feature="${escAttr(f)}">Download</button></div>
-      <div class="tool-card-desc">Not downloaded (~${info.size_mb} MB)</div>
+      <div class="tool-card-desc">Not downloaded (~${size} MB)</div>
+    </div>`;
+  }
+  if (info.runtime_ok === false) {
+    return `<div class="tool-card">
+      <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+        <button class="btn btn-sm" data-ml-act="runtime" data-ml-feature="${escAttr(f)}">Download</button></div>
+      <div class="tool-card-desc">Needs the llama.cpp runtime (~${LOCAL_ML_RUNTIME_MB} MB)</div>
     </div>`;
   }
   const desc = LOCAL_ML_DESCS[f] || "";
@@ -312,6 +322,7 @@ function onLocalMLClick(ev) {
   const { mlAct: act, mlFeature: feature } = target.dataset;
   if (act === "stop") return ev.stopPropagation();
   if (act === "download") return downloadLocalMlModel(feature, target);
+  if (act === "runtime") return downloadLocalMlModel(feature, target, { runtimeOnly: true });
 }
 
 function onLocalMLChange(ev) {
@@ -324,13 +335,14 @@ function applyLocalMlResponse(res) {
   if (typeof res.local_ml_enabled === "object") applySettings({ local_ml_enabled: res.local_ml_enabled });
 }
 
-async function downloadLocalMlModel(feature, btn) {
+async function downloadLocalMlModel(feature, btn, { runtimeOnly = false } = {}) {
   const card = btn.closest(".tool-card");
   card?.classList.add("ml-busy");
   card?.setAttribute("aria-busy", "true");
   btn.disabled = true;
   try {
-    applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, {}));
+    if (S.localMlFeatures[feature]?.runtime_ok === false) await api.post("/local-ml/runtime", {});
+    if (!runtimeOnly) applyLocalMlResponse(await api.post(`/local-ml/${feature}/download`, {}));
     await loadLocalMLSection(); // flips the card to a toggle
   } catch (e) {
     toast(e.message || "Download failed", true);

@@ -8,6 +8,7 @@ from backend.analysis.text.markup import classify_axes, narration_only
 from backend.analysis.text.roleplay import AxisStyle, Dialogue, Narration
 from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.workflows import PostCtx
 from backend.workflows.format_consistency import (
     VOICE_REWRITE_LENGTH_RULE,
@@ -631,6 +632,7 @@ def _markup_model(monkeypatch, answers: dict[str, tuple[str, str]]) -> list[str]
 
     monkeypatch.setattr(assets, "present", lambda feature: True)
     monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
+    monkeypatch.setattr(llama_binary, "runtime_ok", lambda: True)
     monkeypatch.setattr(local_ml, "aclassify_markup", fake)
     return seen
 

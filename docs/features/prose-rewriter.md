@@ -58,8 +58,8 @@ beside a model variant.
 
 The first model download also installs Orb's pinned `llama-server` build (about
 150 MB) from the official [llama.cpp releases](https://github.com/ggml-org/llama.cpp).
-Orb stores it in `backend/data/llama-bin/`. The Spark-TTS voice model uses the
-same runtime, so whichever feature you set up first fetches it.
+Orb stores it in `backend/data/llama-bin/`. Every local model uses the same
+runtime, so whichever one you set up first fetches it.
 
 You can provide an existing executable with the `ORB_LLAMA_SERVER` environment
 variable. A configured path must be executable. Set `ORB_LLAMA_CPP_BUILD=latest`

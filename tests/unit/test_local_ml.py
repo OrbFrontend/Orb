@@ -6,6 +6,7 @@ it by that name, but those are second bindings: production reads ``local_models`
 leave the code under test running against the real disk.
 """
 
+import contextlib
 import os
 import sys
 
@@ -13,6 +14,15 @@ import pytest
 
 from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
+
+
+def _per_text(fake):
+    """A batched ``_logits`` stand-in built from a per-text fake."""
+
+    async def logits(handle, texts, n):
+        return [fake(handle, text, n) for text in texts]
+
+    return logits
 
 
 def test_resolve_path_env_override_wins(monkeypatch, tmp_path):
@@ -27,25 +37,16 @@ def test_present_reflects_disk(monkeypatch):
     assert assets.present("autocomplete") is False
 
 
-def test_deps_ok_reports_missing_extra(monkeypatch):
-    # The missing-extra branch is the one with a contract: the reason has to name the requirements file the user is meant to
-    # install. Forced rather than inferred from the environment -- when the extras happen to be present this asserted nothing at
-    # all, and paid a real llama_cpp import (~1s) to do it.
-    def _boom():
-        raise ModuleNotFoundError("No module named 'llama_cpp'")
-
-    monkeypatch.setattr(dependencies, "import_llama", _boom)
-    ok, reason = dependencies.deps_ok()
-    assert ok is False
-    assert "requirements-ml.txt" in reason
-
-
-def test_onnx_features_install_without_llama_cpp(monkeypatch):
+def test_deps_ok_names_the_requirements_file_that_installs_the_missing_extra(monkeypatch):
+    # Forced rather than inferred from the environment: when the extras happen to be present this would assert nothing at all.
     monkeypatch.setitem(sys.modules, "onnxruntime", None)
     ok, reason = dependencies.deps_ok("speech_recognizer")
     assert ok is False
     assert "requirements-onnx.txt" in reason
-    assert dependencies.install_cmd("prose_rewriter").strip('"').endswith(os.sep + "requirements.txt")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+    ok, reason = dependencies.deps_ok("slop_classifier")
+    assert ok is False
+    assert reason.strip('"').endswith(os.sep + "requirements.txt")
 
 
 def test_install_cmd_paths_are_absolute():
@@ -53,7 +54,7 @@ def test_install_cmd_paths_are_absolute():
     # interpreter nor the requirements file may be relative.
     cmd = dependencies.install_cmd()
     req = cmd.split("-r ", 1)[1].strip('"')
-    assert os.path.isabs(req) and req.endswith("requirements-ml.txt")
+    assert os.path.isabs(req) and req.endswith(os.sep + "requirements.txt")
     assert os.path.isabs(cmd.split(" -m ", 1)[0].strip('"'))
 
 
@@ -97,7 +98,7 @@ async def test_aclassify_pov_tense_chunks_reads_each_window(monkeypatch):
         grid[1 * 3 + 1] = 9.0  # "second", "present"
         return grid
 
-    monkeypatch.setattr(local_ml, "_head_logits", logits)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(logits))
     labels = await local_ml.aclassify_pov_tense_chunks("One. Two. Three. Four.")
     assert seen == ["Two. Three. Four.", "One."]
     assert labels == [("second", "present"), ("second", "present")]
@@ -139,7 +140,7 @@ async def test_pov_reads_short_circuit_on_empty_shaping(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("the model must not be reached for empty shaped input")
 
-    monkeypatch.setattr(local_ml, "_head_logits", boom)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(boom))
     assert local_ml.pov_input('"Just talking." "Only dialogue here."') == ""
     assert await local_ml.aclassify_pov_tense_chunks('"Just talking." "Only dialogue here."') == []
     assert await local_ml.aclassify_pov("") == "ambiguous"
@@ -212,7 +213,7 @@ async def test_aclassify_markup_reads_the_shaped_message_off_nine_cells(monkeypa
         grid[1 * 3 + 0] = 9.0  # bare / quoted
         return grid
 
-    monkeypatch.setattr(local_ml, "_head_logits", fake)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(fake))
     text = 'She **really** smiles. "Hi."\n* a bullet'
     assert await local_ml.aclassify_markup(text) == ("bare", "quoted")
     assert calls == [("markup_classifier", local_ml.markup_input(text), 9)]
@@ -222,7 +223,7 @@ async def test_aclassify_markup_never_loads_the_model_for_nothing_to_read(monkey
     def boom(*args, **kwargs):
         raise AssertionError("the model must not be reached for empty shaped input")
 
-    monkeypatch.setattr(local_ml, "_head_logits", boom)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(boom))
     for text in ("", "  \n ", "```\nonly a fence\n```"):
         assert await local_ml.aclassify_markup(text) == ("unknown", "unknown")
 
@@ -260,7 +261,7 @@ async def test_aclassify_subjects_reads_sixty_cells_off_the_narration(monkeypatc
         grid[1 * 3 + 2] = 9.0  # hair: description
         return grid
 
-    monkeypatch.setattr(local_ml, "_head_logits", fake)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(fake))
     tags = await local_ml.aclassify_subjects("Her copper braid gleams.")
     assert max(range(3), key=tags["hair"].__getitem__) == 2
     assert calls == [("subjects_classifier", "Her copper braid gleams.", 60)]
@@ -270,7 +271,7 @@ async def test_aclassify_subjects_never_loads_the_model_for_empty_narration(monk
     def boom(*args, **kwargs):
         raise AssertionError("the model must not be reached for empty narration")
 
-    monkeypatch.setattr(local_ml, "_head_logits", boom)
+    monkeypatch.setattr(local_ml, "_logits", _per_text(boom))
     for text in ("", "  \n "):
         tags = await local_ml.aclassify_subjects(text)
         assert all(p == [1.0, 0.0, 0.0] for p in tags.values())
@@ -290,35 +291,68 @@ def test_subject_repeats_are_one_sigmoid_per_category_in_head_order():
 
 
 def test_subject_pair_ids_cut_each_part_on_its_own_between_cls_and_sep():
-    class FakeLlama:
-        class _model:
-            @staticmethod
-            def token_sep() -> int:
-                return -2
-
-        def __init__(self):
-            self.calls: list[tuple[bytes, bool]] = []
-
-        def token_bos(self) -> int:
-            return -1
-
-        def tokenize(self, text: bytes, add_bos: bool = True) -> list[int]:
-            self.calls.append((text, add_bos))
-            return list(range(len(text)))
-
-    llama = FakeLlama()
-    earlier, draft = "e" * 1500, "d" * 20
-    ids = local_ml.subject_pair_ids(llama, earlier, draft)
     side = local_ml.SUBJECT_PAIR_SIDE_IDS
+    ids = local_ml.subject_pair_ids(-1, -2, list(range(1500)), list(range(20)))
     assert ids == [-1, *range(side), *range(20), -2]
-    assert llama.calls == [(earlier.encode(), False), (draft.encode(), False)]
+
+
+class _FakeServer:
+    """Records what the runtime sends; tokenizes one id per character."""
+
+    def __init__(self):
+        self.tokenized: list[tuple[str, bool]] = []
+        self.sent: list = []
+
+    async def tokenize(self, text, *, parse_special=False, add_special=False):
+        self.tokenized.append((text, add_special))
+        body = [ord(c) for c in text]
+        return [-1, *body, -2] if add_special else body
+
+    async def head_logits(self, inputs, n):
+        self.sent = list(inputs)
+        return [[float(i)] * n for i in range(len(inputs))]
+
+
+class _FakeHost:
+    def __init__(self, server):
+        self.server = server
+        self.profiles: list = []
+
+    @contextlib.asynccontextmanager
+    async def use(self, profile):
+        self.profiles.append(profile)
+        yield self.server
+
+
+async def test_head_inputs_send_short_text_and_cut_the_rest_as_ids(monkeypatch):
+    """A text the child may tokenize goes as text; a long one, or one holding a special-token literal, is cut to n_ctx."""
+    server = _FakeServer()
+    monkeypatch.setattr(local_ml, "_host", lambda handle: _FakeHost(server))
+    long = "x" * 600
+    await local_ml._logits("markup_classifier", ["plain", long, "a [CLS] b"], 9)
+    assert server.sent[0] == "plain"
+    assert server.sent[1] == [-1, *[ord("x")] * 511]
+    assert server.sent[2] == [-1, *map(ord, "a [CLS] b"), -2]
+    assert server.tokenized == [(long, True), ("a [CLS] b", True)]
+
+
+async def test_acompare_subjects_tokenizes_each_part_without_specials(monkeypatch):
+    server = _FakeServer()
+    host = _FakeHost(server)
+    monkeypatch.setattr(local_ml, "_host", lambda handle: host)
+    monkeypatch.setattr(local_ml, "_special_ids", {})
+    repeats = await local_ml.acompare_subjects([("ab", "c"), ("d", "ef")])
+    assert server.sent == [[-1, 97, 98, 99, -2], [-1, 100, 101, 102, -2]]
+    assert [part for part, special in server.tokenized if not special] == ["ab", "c", "d", "ef"]
+    assert [r["eyes"] for r in repeats] == [0.5, local_ml.subject_repeats_from_logits([1.0] * 20)["eyes"]]
+    assert host.profiles[0].model_id == local_ml.SUBJECT_COMPARER
 
 
 async def test_acompare_subjects_never_loads_the_model_for_no_pairs(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("the model must not be reached without a pair to read")
 
-    monkeypatch.setattr(local_ml, "_scorer", boom)
+    monkeypatch.setattr(local_ml, "_host", boom)
     assert await local_ml.acompare_subjects([]) == []
 
 
@@ -332,31 +366,14 @@ async def test_acompare_subjects_never_loads_the_model_for_no_pairs(monkeypatch)
         ("subjects_comparer", 2048),
     ],
 )
-def test_scorer_context_is_per_feature(monkeypatch, feature, n_ctx):
-    # _rank_logits cuts at n_batch, and an encoder needs the whole sequence in one ubatch: all three must equal n_ctx.
-    import sys
-    import types
-
-    seen: dict = {}
-    fake = types.SimpleNamespace(LLAMA_POOLING_TYPE_RANK=4, Llama=lambda **kw: seen.update(kw) or object())
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake)
-    monkeypatch.setattr(local_ml, "resolve_path", lambda f: f"/models/{f}.gguf")
-    monkeypatch.setattr(local_ml, "_llamas", {})
-    monkeypatch.setattr(local_ml, "_load_errors", {})
-    local_ml._load_scorer_blocking(feature)
-    assert (seen["n_ctx"], seen["n_batch"], seen["n_ubatch"]) == (n_ctx, n_ctx, n_ctx)
-    assert seen["embedding"] is True and seen["pooling_type"] == 4
+def test_scorer_context_is_per_feature(feature, n_ctx):
+    # A head reads the first n_ctx ids, and a non-causal encoder needs the whole sequence in one ubatch: every slot gets n_ctx.
+    profile = local_ml._head_profile(feature)
+    assert profile.ctx_size // profile.parallel == n_ctx
+    assert profile.batch_size == profile.ctx_size and profile.ubatch_size == n_ctx
+    assert profile.rank_head is True and profile.gpu_layers == 0
 
 
-def test_the_pair_comparer_loads_the_subject_analyzers_companion_file(monkeypatch):
-    import sys
-    import types
-
-    seen: dict = {}
-    fake = types.SimpleNamespace(LLAMA_POOLING_TYPE_RANK=4, Llama=lambda **kw: seen.update(kw) or object())
-    monkeypatch.setitem(sys.modules, "llama_cpp", fake)
-    monkeypatch.setattr(local_ml, "_llamas", {})
-    monkeypatch.setattr(local_ml, "_load_errors", {})
-    local_ml._load_scorer_blocking(local_ml.SUBJECT_COMPARER)
+def test_the_pair_comparer_loads_the_subject_analyzers_companion_file():
     (companion,) = local_ml.MODELS["subjects_classifier"].extra_files
-    assert seen["model_path"] == local_ml.file_path(companion)
+    assert local_ml._head_profile(local_ml.SUBJECT_COMPARER).model_path == local_ml.file_path(companion)

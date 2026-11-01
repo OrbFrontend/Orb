@@ -6,8 +6,11 @@ them, which is the guard that matters here: these are the two calls that would o
 file loads a model or starts a child process.
 """
 
+import contextlib
+
 import pytest
 
+from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
 from backend.inference.local_models.catalog import MODELS
 from backend.inference.local_models.llama_server import binary as llama_binary
@@ -283,13 +286,12 @@ async def test_status_payload_keys_are_unchanged(client):
     assert set(st) == {"deps_ok", "reason", "install_cmd", "features"}
 
     plain = st["features"]["autocomplete"]
-    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "install_cmd", "runtime"}
+    assert set(plain) == {"present", "enabled", "size_mb", "deps_ok", "reason", "install_cmd", "runtime", "runtime_ok"}
 
     rewriter = st["features"]["prose_rewriter"]
     assert set(rewriter) == {
         *plain,
         "variants",
-        "runtime_ok",  # generic: a fact about the shared binary, not the feature
         "selected",
         "gpu",
         "batch_size",
@@ -317,3 +319,31 @@ async def test_a_failed_runtime_fetch_reports_what_went_wrong(client, monkeypatc
     resp = await client.post_json("/api/local-ml/runtime", json={}, expected_status=500)
 
     assert resp["detail"] == "b10549 does not publish that asset."
+
+
+async def test_a_classifier_delete_stops_its_children_around_the_unlink(client, monkeypatch):
+    """Windows refuses to delete a file a child still maps, and the subject analyzer's comparer maps its companion."""
+    events: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def deletion(feature):
+        events.append(f"stop {feature}")
+        yield
+        events.append("resume")
+
+    monkeypatch.setattr(local_ml, "model_deletion", deletion)
+    monkeypatch.setattr(assets, "delete_model", lambda feature, variant=None: events.append(f"unlink {feature}") or True)
+    await client.request("DELETE", "/api/local-ml/subjects_classifier/model")
+    assert events == ["stop subjects_classifier", "unlink subjects_classifier", "resume"]
+
+
+async def test_switching_a_classifier_off_frees_its_children(client, monkeypatch):
+    released: list[str] = []
+
+    async def release(feature):
+        released.append(feature)
+
+    monkeypatch.setattr(local_ml, "release", release)
+    await client.post_json("/api/local-ml/markup_classifier/enabled", json={"enabled": False})
+    await client.post_json("/api/local-ml/markup_classifier/enabled", json={"enabled": True})
+    assert released == ["markup_classifier"]

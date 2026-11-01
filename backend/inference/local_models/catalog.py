@@ -6,11 +6,10 @@ import os
 from dataclasses import dataclass
 from typing import Literal
 
-#: How a model is executed. ``llama_cpp`` is in-process through the binding;
-#: ``llama_server`` is a supervised child process spoken to over HTTP; ``onnx``
-#: is a cached ONNX Runtime session (see ``local_models/onnx_runtime/``). A
-#: ``Literal`` rather than a bare ``str`` so a typo fails at the definition.
-RuntimeKind = Literal["llama_cpp", "llama_server", "onnx"]
+#: How a model is executed. ``llama_server`` is a supervised child process spoken to over HTTP; ``onnx`` is a cached ONNX
+#: Runtime session (see ``local_models/onnx_runtime/``). A ``Literal`` rather than a bare ``str`` so a typo fails at the
+#: definition.
+RuntimeKind = Literal["llama_server", "onnx"]
 
 
 @dataclass(frozen=True)
@@ -64,7 +63,7 @@ class ModelSpec:
     filename: str  # path *inside the HF repo* -- upstream's layout, not ours
     size_mb: int
     revision: str  # pinned commit sha -- a repo re-point can't swap the weights under us
-    runtime: RuntimeKind = "llama_cpp"
+    runtime: RuntimeKind = "llama_server"
     variants: tuple[ModelVariantSpec, ...] = ()
     local_filename: str = ""  # versioned alias when upstream reuses an older artifact's basename
     extra_files: tuple[ModelFileSpec, ...] = ()  # companions fetched with the main file
@@ -159,9 +158,8 @@ MODELS: dict[str, ModelSpec] = {
             ),
         ),
     ),
-    # Not an in-process model: served by a child llama-server (see local_models/llama_server/, driven by the Prose Rewriter
-    # workflow host). `filename`/`size_mb` name the default variant so the legacy single-file paths keep working; the selector
-    # reads `variants`, and every basename here must also be claimed by prune_stale.
+    # Driven by the Prose Rewriter workflow host. `filename`/`size_mb` name the default variant so the legacy single-file paths
+    # keep working; the selector reads `variants`, and every basename here must also be claimed by prune_stale.
     "prose_rewriter": ModelSpec(
         repo_id=_PROSE_4B_REPO,
         filename="GGUF/prose-rewriter-4b-v2.4-Q8_0.gguf",

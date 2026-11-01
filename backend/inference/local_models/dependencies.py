@@ -10,17 +10,6 @@ from .catalog import MODELS, RuntimeKind
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
-def import_llama():
-    """The ``Llama`` class, imported on demand.
-
-    Public because it is the one deferred import two modules need: this one to
-    answer ``deps_ok``, and ``local_ml`` to actually load a model with it.
-    """
-    from llama_cpp import Llama  # noqa: PLC0415 -- deferred so base Orb needs no ML deps
-
-    return Llama
-
-
 def _shell_quote(path: str) -> str:
     """Quote only when needed -- `C:\\Program Files\\...` breaks an unquoted paste."""
     return f'"{path}"' if " " in path else path
@@ -28,14 +17,13 @@ def _shell_quote(path: str) -> str:
 
 #: The requirements file that installs each runtime's extras. llama_server needs only base requirements.
 _REQUIREMENTS: dict[RuntimeKind, str] = {
-    "llama_cpp": "requirements-ml.txt",
     "llama_server": "requirements.txt",
     "onnx": "requirements-onnx.txt",
 }
 
 
 def _runtime(feature: str | None) -> RuntimeKind:
-    return MODELS[feature].runtime if feature in MODELS else "llama_cpp"
+    return MODELS[feature].runtime if feature in MODELS else "llama_server"
 
 
 def install_cmd(feature: str | None = None) -> str:
@@ -50,14 +38,11 @@ def install_cmd(feature: str | None = None) -> str:
 def deps_ok(feature: str | None = None) -> tuple[bool, str]:
     """Check importable extras without loading models.
 
-    llama_server needs download support; llama_cpp also needs its binding; ONNX runtime needs onnxruntime, not the
-    graph-building onnx package. feature=None checks the llama_cpp extras for the grouped opt-in card.
+    llama_server needs download support; ONNX runtime also needs onnxruntime, not the graph-building onnx package.
+    feature=None checks the llama_server extras for the grouped opt-in card.
     """
-    runtime = _runtime(feature)
     try:
-        if runtime == "llama_cpp":
-            import_llama()
-        if runtime == "onnx":
+        if _runtime(feature) == "onnx":
             import onnxruntime  # noqa: F401, PLC0415 -- deferred; base Orb has no ML extras
         import huggingface_hub  # noqa: F401, PLC0415 -- deferred; only needed for downloads
     except Exception as e:  # ModuleNotFoundError or a broken build

@@ -1,14 +1,13 @@
-"""In-process local-ML inference through llama-cpp-python."""
+"""Local-ML inference through supervised CPU llama-server children."""
 
 from __future__ import annotations
 
 import asyncio
-import atexit
+import contextlib
 import math
 import os
 import re
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
 from ..core.text_segmentation import HARD_LINE_BREAK_RE, remove_quoted_spans, split_sentences, strip_protected_markup
 from .local_models import (
@@ -20,7 +19,6 @@ from .local_models import (
     deps_ok,
     download,
     file_path,
-    import_llama,
     install_cmd,
     model_dir,
     present,
@@ -30,6 +28,7 @@ from .local_models import (
     variant_present,
     variant_spec,
 )
+from .local_models.llama_server import LaunchProfile, LlamaServerClient, ManagedLlamaServerHost
 
 #: Re-exported from :mod:`local_models` for callers that address this module by
 #: name. The workflow toolkit wraps the small capabilities plug-ins need; Local
@@ -66,11 +65,13 @@ __all__ = [
     "install_cmd",
     "markup_from_logits",
     "markup_input",
+    "model_deletion",
     "model_dir",
     "pov_from_logits",
     "pov_input",
     "present",
     "prune_stale",
+    "release",
     "resolve_path",
     "subject_pair_ids",
     "subject_repeats_from_logits",
@@ -128,124 +129,70 @@ _FREQUENCY_PENALTY = 0.1
 _TOP_P = 0.8
 _TOP_K = 5
 
-# Llama is a single, non-reentrant context; serialize every call through a
-# per-feature lock so two features never share one handle's thread of execution.
-_llamas: dict[str, Any] = {}
-_load_errors: dict[str, str] = {}
-_locks: dict[str, asyncio.Lock] = {}
+# One CPU llama-server child per model, started on first use and kept resident, as the in-process handles were.
+_hosts: dict[str, ManagedLlamaServerHost] = {}
+_special_ids: dict[str, tuple[int, int]] = {}
 
 
-@atexit.register
-def _close_llamas() -> None:
-    """Free handles while llama_cpp's globals still exist.
-
-    Left to GC, ``Llama.__del__`` runs after interpreter shutdown has nulled the llama_cpp module globals and dies on
-    ``llama_model_free is None`` -- noisy "Exception ignored in" tracebacks at the tail of every test run.
-    """
-    while _llamas:
-        _, llama = _llamas.popitem()
-        try:
-            llama.close()
-        except Exception:  # nothing left to salvage at exit
-            pass
+def _threads() -> int:
+    return int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4"))
 
 
-def _lock(feature: str) -> asyncio.Lock:
-    return _locks.setdefault(feature, asyncio.Lock())
+def _host(handle: str) -> ManagedLlamaServerHost:
+    if handle not in _hosts:
+        _hosts[handle] = ManagedLlamaServerHost(name=f"local_ml:{handle}", idle_timeout=math.inf)
+    return _hosts[handle]
 
 
-def _load_blocking(feature: str) -> None:
-    if feature in _llamas or feature in _load_errors:
-        return
-    try:
-        Llama = import_llama()
-        _llamas[feature] = Llama(
-            model_path=resolve_path(feature),
-            n_ctx=1024,
-            n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
-            # prefill is compute-bound (gen is bandwidth-bound: more threads don't
-            # help it); measured flat beyond 8 batch threads.
-            n_threads_batch=int(os.environ.get("ORB_AUTOCOMPLETE_BATCH_THREADS", "8")),
-            flash_attn=True,
-            verbose=False,
-        )
-    except Exception as e:  # bad wheel, unknown arch, OOM
-        _load_errors[feature] = f"failed to load {resolve_path(feature)}: {e}"
-
-
-def _complete_blocking(feature: str, prompt: str, n_predict: int, stop: Sequence[str], temperature: float) -> str:
-    _load_blocking(feature)
-    llama = _llamas.get(feature)
-    if llama is None:
-        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
-    out = llama.create_completion(
-        prompt=prompt,
-        max_tokens=n_predict,
-        stop=list(stop),
-        temperature=temperature,
-        top_p=_TOP_P,
-        top_k=_TOP_K,
-        repeat_penalty=_REPEAT_PENALTY,
-        frequency_penalty=_FREQUENCY_PENALTY,
+def _completion_profile(feature: str) -> LaunchProfile:
+    return LaunchProfile(
+        model_id=feature,
+        model_path=resolve_path(feature),
+        alias=feature,
+        gpu_layers=0,
+        ctx_size=1024,
+        parallel=1,
+        http_threads=4,
+        threads=_threads(),
+        # prefill is compute-bound (gen is bandwidth-bound: more threads don't help it); measured flat beyond 8 batch threads.
+        threads_batch=int(os.environ.get("ORB_AUTOCOMPLETE_BATCH_THREADS", "8")),
+        flash_attn=True,
     )
-    return out["choices"][0]["text"]
 
 
 async def acomplete(
     feature: str, prompt: str, n_predict: int = 12, stop: Sequence[str] = ("\n",), temperature: float = 0.25
 ) -> str:
-    """Raw continuation of *prompt* using *feature*'s model (no chat template).
+    """Raw continuation of *prompt* using *feature*'s model (no chat template). Starts the model on first call."""
+    async with _host(feature).use(_completion_profile(feature)) as server:
+        return await server.complete(
+            prompt,
+            n_predict=n_predict,
+            stop=stop,
+            temperature=temperature,
+            top_p=_TOP_P,
+            top_k=_TOP_K,
+            repeat_penalty=_REPEAT_PENALTY,
+            frequency_penalty=_FREQUENCY_PENALTY,
+        )
 
-    Lazy-loads on first call. Serialized by the feature's lock (Llama isn't reentrant) and run off the event loop so the
-    blocking C call never stalls in-flight generation or the SSE keepalive.
-    """
-    async with _lock(feature):
-        return await asyncio.to_thread(_complete_blocking, feature, prompt, n_predict, stop, temperature)
 
-
-# A separate Llama mode from generation: the GGUF carries a classification head,
-# scored with RANK pooling, which leaves llama.cpp a float[n_cls_out] per sequence.
+# The classifier GGUFs carry a classification head, scored with RANK pooling, which leaves llama.cpp a float[n_cls_out] per
+# sequence.
 _SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past 512 tokens
 
-
-def _rank_logits(llama: Any, text: str) -> list[float]:
-    """The class-head logits for *text* off a RANK-pooled *llama*.
-
-    Mirrors `Llama.embed` for one sequence, including its first-n_batch token cut, but reads only n_cls_out floats. `embed`
-    copies n_embd floats out of that n_cls_out buffer; the over-read is heap garbage until the buffer ends a mapped page, and
-    then it segfaults the whole process.
-    """
-    return _rank_logits_ids(llama, llama.tokenize(text.encode("utf-8")))
-
-
-def _rank_logits_ids(llama: Any, tokens: Sequence[int]) -> list[float]:
-    """`_rank_logits` for ids the caller built, cut at n_batch the same way."""
-    import llama_cpp  # noqa: PLC0415 -- deferred like the loaders; ML extras are optional
-
-    tokens = list(tokens)[: llama.n_batch]
-    batch = llama._batch
-    batch.reset()
-    batch.add_sequence(tokens, 0, True)
-    llama._ctx.kv_cache_clear()
-    try:
-        llama._ctx.decode(batch)
-        n_cls_out = llama_cpp.llama_model_n_cls_out(llama._model.model)
-        logits = llama_cpp.llama_get_embeddings_seq(llama._ctx.ctx, 0)[:n_cls_out]
-    finally:
-        batch.reset()
-        llama._ctx.kv_cache_clear()
-        llama.reset()
-    return logits
-
-
-# A head reads the first n_ctx ids. n_batch and n_ubatch match it, because _rank_logits cuts at n_batch and a non-causal encoder
-# needs the whole sequence in one ubatch.
+# A head reads the first n_ctx ids, as training cut them; a non-causal encoder needs the whole sequence in one ubatch.
 _SCORER_CTX = 512
-# The pair comparer is the subject analyzer's companion file, not a feature of its own; this key names its handle and lock.
+# The pair comparer is the subject analyzer's companion file, not a feature of its own; this key names its child.
 SUBJECT_COMPARER = "subjects_comparer"
 _SCORER_CTX_BY_FEATURE: dict[str, int] = {"subjects_classifier": 1024, SUBJECT_COMPARER: 2048}
 # Flash attention where it was parity-checked against the HF model: 8 comparer pairs take ~40% less CPU time with it.
 _SCORER_FLASH_ATTN: frozenset[str] = frozenset({SUBJECT_COMPARER})
+# Slots where one call sends several inputs: four cut a message's slop scoring by a quarter. One elsewhere, where four were
+# measured no faster.
+_SCORER_SLOTS: dict[str, int] = {"slop_classifier": 4, "pov_classifier": 4}
+# Bounds the per-text /tokenize requests one call fans out.
+_TOKENIZE_CONCURRENCY = 8
 
 
 def _scorer_path(feature: str) -> str:
@@ -254,99 +201,111 @@ def _scorer_path(feature: str) -> str:
     return resolve_path(feature)
 
 
-def _load_scorer_blocking(feature: str) -> None:
-    if feature in _llamas or feature in _load_errors:
-        return
-    try:
-        import llama_cpp  # noqa: PLC0415 -- deferred; need the pooling-type constant
-
-        n_ctx = _SCORER_CTX_BY_FEATURE.get(feature, _SCORER_CTX)
-        _llamas[feature] = llama_cpp.Llama(
-            model_path=_scorer_path(feature),
-            embedding=True,
-            pooling_type=llama_cpp.LLAMA_POOLING_TYPE_RANK,
-            n_ctx=n_ctx,
-            n_batch=n_ctx,
-            n_ubatch=n_ctx,
-            n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
-            flash_attn=feature in _SCORER_FLASH_ATTN,
-            verbose=False,
-        )
-    except Exception as e:  # bad wheel, unknown arch, OOM
-        _load_errors[feature] = f"failed to load {_scorer_path(feature)}: {e}"
+def _head_profile(handle: str) -> LaunchProfile:
+    n_ctx = _SCORER_CTX_BY_FEATURE.get(handle, _SCORER_CTX)
+    slots = _SCORER_SLOTS.get(handle, 1)
+    return LaunchProfile(
+        model_id=handle,
+        model_path=_scorer_path(handle),
+        alias=handle,
+        gpu_layers=0,
+        ctx_size=n_ctx * slots,
+        parallel=slots,
+        http_threads=4,
+        batch_size=n_ctx * slots,
+        ubatch_size=n_ctx,
+        threads=_threads(),
+        threads_batch=os.cpu_count() or 4,
+        flash_attn=handle in _SCORER_FLASH_ATTN,
+        rank_head=True,
+    )
 
 
-def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
-    _load_scorer_blocking(feature)
-    llama = _llamas.get(feature)
-    if llama is None:
-        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
-    out: list[float] = []
-    for s in sentences:
-        text = (s or "").strip()[:_SLOP_MAX_CHARS]
-        if not text:
-            out.append(0.0)
-            continue
-        v = _rank_logits(llama, text)
-        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax -> P(slop)
-        m = max(a, b)
-        ea, eb = math.exp(a - m), math.exp(b - m)
-        out.append(eb / (ea + eb))
-    return out
+def _direct(text: str, n_ctx: int) -> bool:
+    """Whether the child may tokenize *text* itself.
+
+    It parses special tokens, which /tokenize is told not to; this vocabulary's control tokens are all ``[..]`` or ``<|..|>``
+    literals. Every token is at least one byte, so a text this short cannot pass n_ctx with its two specials.
+    """
+    return len(text.encode("utf-8")) <= n_ctx - 2 and "[" not in text and "<|" not in text
+
+
+async def _bounded(calls: Sequence[Callable[[], Awaitable[list[int]]]]) -> list[list[int]]:
+    gate = asyncio.Semaphore(_TOKENIZE_CONCURRENCY)
+
+    async def run(call: Callable[[], Awaitable[list[int]]]) -> list[int]:
+        async with gate:
+            return await call()
+
+    return await asyncio.gather(*(run(call) for call in calls))
+
+
+async def _head_inputs(server: LlamaServerClient, texts: Sequence[str], n_ctx: int) -> list[str | list[int]]:
+    inputs: list[str | list[int]] = list(texts)
+    cut = [i for i, text in enumerate(texts) if not _direct(text, n_ctx)]
+    ids = await _bounded([lambda text=texts[i]: server.tokenize(text, add_special=True) for i in cut])
+    for i, seq in zip(cut, ids, strict=True):
+        inputs[i] = seq[:n_ctx]
+    return inputs
+
+
+async def _logits(handle: str, texts: Sequence[str], n: int) -> list[list[float]]:
+    """The first *n* head logits for each text, in input order. Starts the model on first call."""
+    if not texts:
+        return []
+    n_ctx = _SCORER_CTX_BY_FEATURE.get(handle, _SCORER_CTX)
+    async with _host(handle).use(_head_profile(handle)) as server:
+        return await server.head_logits(await _head_inputs(server, texts, n_ctx), n)
 
 
 async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
-    """Per-sentence slop confidence in [0, 1] (class-1 softmax), aligned to input order.
+    """Per-sentence slop confidence in [0, 1] (class-1 softmax), aligned to input order. One request for the whole list."""
+    texts = [(s or "").strip()[:_SLOP_MAX_CHARS] for s in sentences]
+    keep = [i for i, text in enumerate(texts) if text]
+    out = [0.0] * len(texts)
+    for i, v in zip(keep, await _logits(feature, [texts[i] for i in keep], 2), strict=True):
+        a, b = v  # 2 class logits; softmax -> P(slop)
+        m = max(a, b)
+        ea, eb = math.exp(a - m), math.exp(b - m)
+        out[i] = eb / (ea + eb)
+    return out
 
-    Lazy-loads on first call; serialized by the feature's lock (Llama isn't reentrant) and run off the event loop.
-    """
-    async with _lock(feature):
-        return await asyncio.to_thread(_score_blocking, feature, list(sentences))
+
+def _handles(feature: str) -> tuple[str, ...]:
+    return (feature, SUBJECT_COMPARER) if feature == "subjects_classifier" else (feature,)
 
 
-# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head: argmax over the head's logits -> GO_EMOTIONS[i].
+async def release(feature: str) -> None:
+    """Stop *feature*'s children, freeing their memory; the next call starts them again."""
+    for handle in _handles(feature):
+        if handle in _hosts:
+            await _hosts[handle].release()
+
+
+@contextlib.asynccontextmanager
+async def model_deletion(feature: str) -> AsyncIterator[None]:
+    """Keep *feature*'s children stopped through a model file delete, which Windows refuses while a child maps the file."""
+    async with contextlib.AsyncExitStack() as stack:
+        for handle in _handles(feature):
+            await stack.enter_async_context(_host(handle).exclusive_release())
+        yield
+
+
+# Same RANK-pooled head path as the scorer, but a 28-class go-emotions head: argmax over the head's logits -> GO_EMOTIONS[i].
 # The tail slice below is purely an n_ctx=512 guard, NOT a recency heuristic: the model (DistilBERT/go-emotions, trained on
 # short comments) can't be trusted to weight late text, so the caller enforces recency by sending only the last few sentences
 # (frontend sentenceTail); we just cap runaway input.
 _CLASSIFY_MAX_CHARS = 1500
 
 
-def _scorer(feature: str) -> Any:
-    _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
-    llama = _llamas.get(feature)
-    if llama is None:
-        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
-    return llama
-
-
-def _head_logits(feature: str, text: str, n: int) -> list[float]:
-    """The first *n* class logits off feature's RANK-pooled classification head.
-
-    A head with fewer than *n* outputs means the GGUF carries a different head than the caller expects.
-    """
-    return _first_logits(_rank_logits(_scorer(feature), text), n)
-
-
-def _first_logits(v: Sequence[float], n: int) -> list[float]:
-    if len(v) < n:
-        raise RuntimeError(f"classifier returned {len(v)} logits, expected >={n} (wrong head?)")
-    return [float(v[i]) for i in range(n)]
-
-
-def _classify_blocking(feature: str, text: str) -> str:
+async def aclassify(feature: str, text: str) -> str:
+    """Single latest message -> single go-emotions label. Not batched (one message, one mood -- YAGNI)."""
     text = (text or "").strip()[-_CLASSIFY_MAX_CHARS:]  # n_ctx guard; caller owns recency
     if not text:
         return "neutral"
-    logits = _head_logits(feature, text, len(GO_EMOTIONS))
+    (logits,) = await _logits(feature, [text], len(GO_EMOTIONS))
     # No softmax -- only the single top label is wanted, and argmax is invariant to it.
-    return GO_EMOTIONS[max(range(len(logits)), key=logits.__getitem__)]
-
-
-async def aclassify(feature: str, text: str) -> str:
-    """Single latest message -> single go-emotions label. Not batched (one message,
-    one mood -- YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
-    async with _lock(feature):
-        return await asyncio.to_thread(_classify_blocking, feature, text)
+    return GO_EMOTIONS[_argmax(logits)]
 
 
 # The v2 model still needs short windows. Keep narration extraction in callers: empirical dialogue-insertion probes favor it
@@ -416,39 +375,29 @@ def tense_from_logits(logits: Sequence[float]) -> str:
     return _pov_tense_from_logits(logits)[1]
 
 
-def _classify_pov_tense_chunks_blocking(feature: str, text: str) -> list[tuple[str, str]]:
-    """Both grid margins of each window off ONE embed -- the head is a single
-    forward pass, so asking for the tense separately would pay for the model twice."""
-    return [_pov_tense_from_logits(_head_logits(feature, chunk, len(POV_ROWS) * _TENSE_COUNT)) for chunk in pov_chunks(text)]
-
-
-def _classify_pov_blocking(feature: str, text: str) -> str:
-    shaped = pov_input(text)
-    if not shaped:
-        return "ambiguous"
-    return pov_from_logits(_head_logits(feature, shaped, len(POV_ROWS) * _TENSE_COUNT))
-
-
 async def aclassify_pov(text: str) -> str:
     """One message -> one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
 
     Only the span `pov_input` selects is read, not the whole message.
 
     "ambiguous" is a real class the model was trained to emit, not a confidence floor we impose, so the caller treats it as "ask
-    the previous message" rather than as a failure. Lazy-loads; serialized by the feature's lock; off the loop.
+    the previous message" rather than as a failure.
     """
-    async with _lock("pov_classifier"):
-        return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
+    shaped = pov_input(text)
+    if not shaped:
+        return "ambiguous"
+    (logits,) = await _logits("pov_classifier", [shaped], len(POV_ROWS) * _TENSE_COUNT)
+    return pov_from_logits(logits)
 
 
 async def aclassify_pov_tense_chunks(text: str) -> list[tuple[str, str]]:
     """One (POV, tense) pair per `pov_chunks` window, newest first; ``[]`` for a reply with no narration.
 
-    For callers that judge a whole message rather than its final instant. One model call per window, all under one lock
-    acquisition, off the loop.
+    For callers that judge a whole message rather than its final instant. One request for every window; both grid margins of
+    each come off its one forward pass, so asking for the tense separately would pay for the model twice.
     """
-    async with _lock("pov_classifier"):
-        return await asyncio.to_thread(_classify_pov_tense_chunks_blocking, "pov_classifier", text)
+    windows = pov_chunks(text)
+    return [_pov_tense_from_logits(v) for v in await _logits("pov_classifier", windows, len(POV_ROWS) * _TENSE_COUNT)]
 
 
 # Classify markup from the whole message, excluding classify_axes protected runs. Keep quote/emphasis variants; turn genuine
@@ -494,26 +443,21 @@ def markup_from_logits(logits: Sequence[float]) -> tuple[str, str]:
     return _grid_margins(logits, NARRATION_ROWS, DIALOGUE_COLS)
 
 
-def _classify_markup_blocking(feature: str, text: str) -> tuple[str, str]:
-    shaped = markup_input(text)
-    if not shaped.strip():
-        return "unknown", "unknown"  # nothing to read: never load the model for it
-    return markup_from_logits(_head_logits(feature, shaped, _MARKUP_CELLS))
-
-
 async def aclassify_markup(text: str) -> tuple[str, str]:
     """One whole message -> (NARRATION_ROWS label, DIALOGUE_COLS label). One model call.
 
-    The model reads `markup_input(text)`, of which llama.cpp keeps the first 512 tokens, exactly as training cut it. Lazy-loads;
-    serialized by the feature's lock; off the loop.
+    The model reads `markup_input(text)`, of which the first 512 tokens are kept, exactly as training cut it.
     """
-    async with _lock("markup_classifier"):
-        return await asyncio.to_thread(_classify_markup_blocking, "markup_classifier", text)
+    shaped = markup_input(text)
+    if not shaped.strip():
+        return "unknown", "unknown"  # nothing to read: never load the model for it
+    (logits,) = await _logits("markup_classifier", [shaped], _MARKUP_CELLS)
+    return markup_from_logits(logits)
 
 
 # The subjects head is 20 categories x 3 levels, row-major: 20 separate 3-way softmaxes, categories in the trained head's
 # order. A transposed read still returns plausible labels, so tests/unit/test_local_ml.py pins the layout. The caller shapes
-# the narration (dialogue stripped), as training did; llama.cpp keeps its first 1024 ids.
+# the narration (dialogue stripped), as training did; its first 1024 ids are kept.
 SUBJECT_CATEGORIES: tuple[str, ...] = (
     "eyes",
     "hair",
@@ -552,19 +496,12 @@ def subjects_from_logits(logits: Sequence[float]) -> dict[str, list[float]]:
     return out
 
 
-def _classify_subjects_blocking(feature: str, narration: str) -> dict[str, list[float]]:
+async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
+    """One reply's narration -> ``{category: probs}`` for every SUBJECT_CATEGORIES entry. One model call."""
     if not narration.strip():
         return {category: [1.0, 0.0, 0.0] for category in SUBJECT_CATEGORIES}  # nothing to read: never load the model for it
-    return subjects_from_logits(_head_logits(feature, narration, len(SUBJECT_CATEGORIES) * len(SUBJECT_LEVELS)))
-
-
-async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
-    """One reply's narration -> ``{category: probs}`` for every SUBJECT_CATEGORIES entry. One model call.
-
-    Lazy-loads; serialized by the feature's lock; off the loop.
-    """
-    async with _lock("subjects_classifier"):
-        return await asyncio.to_thread(_classify_subjects_blocking, "subjects_classifier", narration)
+    (logits,) = await _logits("subjects_classifier", [narration], len(SUBJECT_CATEGORIES) * len(SUBJECT_LEVELS))
+    return subjects_from_logits(logits)
 
 
 # The subject pair comparer reads one (earlier reply, draft) pair as [CLS] + earlier part + draft part + [SEP], each part
@@ -574,10 +511,9 @@ async def aclassify_subjects(narration: str) -> dict[str, list[float]]:
 SUBJECT_PAIR_SIDE_IDS = 1000
 
 
-def subject_pair_ids(llama: Any, earlier_part: str, draft_part: str) -> list[int]:
-    """The comparer's input ids for two shaped parts (`subjects.subject_pair_parts`)."""
-    side = [llama.tokenize(part.encode("utf-8"), add_bos=False)[:SUBJECT_PAIR_SIDE_IDS] for part in (earlier_part, draft_part)]
-    return [llama.token_bos(), *side[0], *side[1], llama._model.token_sep()]
+def subject_pair_ids(cls: int, sep: int, earlier_ids: Sequence[int], draft_ids: Sequence[int]) -> list[int]:
+    """The comparer's input ids from each shaped part's own special-free ids (`subjects.subject_pair_parts`)."""
+    return [cls, *earlier_ids[:SUBJECT_PAIR_SIDE_IDS], *draft_ids[:SUBJECT_PAIR_SIDE_IDS], sep]
 
 
 def subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
@@ -585,19 +521,20 @@ def subject_repeats_from_logits(logits: Sequence[float]) -> dict[str, float]:
     return {category: 1.0 / (1.0 + math.exp(-x)) for category, x in zip(SUBJECT_CATEGORIES, logits, strict=True)}
 
 
-def _compare_subjects_blocking(feature: str, pairs: Sequence[tuple[str, str]]) -> list[dict[str, float]]:
-    if not pairs:
-        return []  # nothing to read: never load the model for it
-    llama = _scorer(feature)
-    n = len(SUBJECT_CATEGORIES)
-    return [subject_repeats_from_logits(_first_logits(_rank_logits_ids(llama, subject_pair_ids(llama, *p)), n)) for p in pairs]
+async def _pair_logits(pairs: Sequence[tuple[str, str]], n: int) -> list[list[float]]:
+    async with _host(SUBJECT_COMPARER).use(_head_profile(SUBJECT_COMPARER)) as server:
+        if SUBJECT_COMPARER not in _special_ids:
+            cls, sep = await server.tokenize("", add_special=True)
+            _special_ids[SUBJECT_COMPARER] = (cls, sep)
+        cls, sep = _special_ids[SUBJECT_COMPARER]
+        parts = [part for pair in pairs for part in pair]
+        ids = await _bounded([lambda part=part: server.tokenize(part) for part in parts])
+        seqs = [subject_pair_ids(cls, sep, ids[2 * i], ids[2 * i + 1]) for i in range(len(pairs))]
+        return await server.head_logits(seqs, n)
 
 
 async def acompare_subjects(pairs: Sequence[tuple[str, str]]) -> list[dict[str, float]]:
-    """Per (earlier part, draft part), ``{category: repeat probability}`` for every SUBJECT_CATEGORIES entry. One model call
-    per pair, all under one lock acquisition.
-
-    Lazy-loads; serialized by the feature's lock; off the loop.
-    """
-    async with _lock(SUBJECT_COMPARER):
-        return await asyncio.to_thread(_compare_subjects_blocking, SUBJECT_COMPARER, list(pairs))
+    """Per (earlier part, draft part), ``{category: repeat probability}`` for every SUBJECT_CATEGORIES entry. One request."""
+    if not pairs:
+        return []  # nothing to read: never load the model for it
+    return [subject_repeats_from_logits(v) for v in await _pair_logits(list(pairs), len(SUBJECT_CATEGORIES))]

@@ -10,6 +10,7 @@ from backend.analysis.text.markup import classify_axes, narration_only
 from backend.analysis.text.roleplay import Dialogue
 from backend.inference import local_ml
 from backend.inference.local_models import assets, dependencies
+from backend.inference.local_models.llama_server import binary as llama_binary
 from backend.workflows.image_gen import pov
 
 
@@ -160,6 +161,7 @@ async def test_the_markup_classifier_decides_what_the_camera_reads(monkeypatch):
 
     monkeypatch.setattr(assets, "present", lambda feature: True)
     monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (True, ""))
+    monkeypatch.setattr(llama_binary, "runtime_ok", lambda: True)
     monkeypatch.setattr(local_ml, "aclassify_markup", reads_quoted)
 
     assert await pov.resolve(history=_history(("assistant", text))) == (pov.FIRST, "classifier")

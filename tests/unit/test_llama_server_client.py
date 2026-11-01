@@ -165,3 +165,60 @@ async def test_tokenize_defaults_to_not_parsing_specials(monkeypatch):
 
     await server.tokenize("<|task_tts|>", parse_special=True)
     assert sent[1]["parse_special"] is True
+
+
+def _json_client(monkeypatch, sent: list[dict], reply, profile: C.LaunchProfile = _PROFILE) -> C.LlamaServerClient:
+    monkeypatch.setattr(C.binary_module, "supports_flag", lambda _binary, _flag: False)
+    monkeypatch.setattr(C, "_free_port", lambda: 12345)
+    server = C.LlamaServerClient(profile, C.Path("llama-server"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=reply)
+
+    server._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:12345")
+    return server
+
+
+async def test_head_logits_keep_only_the_head_and_never_normalise(monkeypatch):
+    """The child copies a full embedding width out of an n_cls_out buffer: past the head is undefined, and normalising would
+    fold it into the logits."""
+    sent: list[dict] = []
+    reply = [{"index": 1, "embedding": [[3.0, 4.0, 99.0]]}, {"index": 0, "embedding": [[1.0, 2.0, 99.0]]}]
+    server = _json_client(monkeypatch, sent, reply)
+
+    assert await server.head_logits(["text", [1, 2, 3]], 2) == [[1.0, 2.0], [3.0, 4.0]]
+    assert sent[0] == {"content": ["text", [1, 2, 3]], "embd_normalize": -1}
+
+
+async def test_head_logits_refuse_a_head_narrower_than_asked(monkeypatch):
+    server = _json_client(monkeypatch, [], [{"index": 0, "embedding": [[1.0]]}])
+    try:
+        await server.head_logits(["text"], 2)
+    except RuntimeError as exc:
+        assert "wrong head" in str(exc)
+    else:
+        raise AssertionError("a one-logit head must not pass for a two-class one")
+
+
+def test_a_rank_head_profile_launches_with_its_pooling_threads_and_batches():
+    profile = C.LaunchProfile(
+        model_id="head",
+        model_path="/models/head.gguf",
+        alias="head",
+        gpu_layers=0,
+        ctx_size=2048,
+        parallel=4,
+        http_threads=4,
+        ubatch_size=512,
+        batch_size=2048,
+        threads=4,
+        threads_batch=16,
+        flash_attn=False,
+        rank_head=True,
+    )
+    argv = C._argv(profile, C.Path("llama-server"), 1)
+    pairs = {argv[i]: argv[i + 1] for i in range(len(argv) - 1)}
+    assert pairs["--pooling"] == "rank" and "--embeddings" in argv
+    assert (pairs["--ubatch-size"], pairs["--batch-size"]) == ("512", "2048")
+    assert (pairs["--threads"], pairs["--threads-batch"], pairs["--flash-attn"]) == ("4", "16", "off")

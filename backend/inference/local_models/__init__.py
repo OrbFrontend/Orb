@@ -17,11 +17,12 @@ from .assets import (
     variant_spec,
 )
 from .catalog import MODELS, ModelFileSpec, ModelSpec, ModelVariantSpec, RuntimeKind
-from .dependencies import deps_ok, import_llama, install_cmd
+from .dependencies import deps_ok, install_cmd
+from .llama_server import binary as llama_binary
 
 
 def available(feature: str = "autocomplete") -> tuple[bool, str]:
-    """Feature readiness: extras installed AND this feature's model present.
+    """Feature readiness: extras installed, this feature's model present, and its runtime binary installed.
 
     The one function that spans both halves, which is why it lives on the facade rather than in either module.
 
@@ -33,4 +34,6 @@ def available(feature: str = "autocomplete") -> tuple[bool, str]:
         return False, reason
     if not assets.present(feature):
         return False, f"model file not found: {', '.join(assets.missing_files(feature)) or assets.resolve_path(feature)}"
+    if catalog.MODELS[feature].runtime == "llama_server" and not llama_binary.runtime_ok():
+        return False, "llama.cpp runtime not installed"
     return True, ""

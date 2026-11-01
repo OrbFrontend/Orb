@@ -260,7 +260,7 @@ for (const key of conversationKeys) {
 /** Read live Local ML availability (downloaded, enabled, dependencies installed) from S. */
 export function localMlReady(feature) {
   const info = S.localMlFeatures[feature];
-  // `runtime_ok` is absent for in-process features: only a feature that reports one can fail it.
+  // `runtime_ok` is absent for ONNX features: only a feature that reports one can fail it.
   return Boolean(info?.present && info?.enabled && info?.deps_ok && info.runtime_ok !== false);
 }
 

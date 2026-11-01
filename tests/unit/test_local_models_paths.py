@@ -32,7 +32,7 @@ def test_the_install_command_names_this_repos_requirements_file():
     """Same ``_ROOT``, different consumer: the pip line the Settings panel
     shows is pasted into a shell with no cwd in the repo."""
     req = dependencies.install_cmd().split("-r ", 1)[1].strip('"')
-    assert Path(req) == ROOT / "requirements-ml.txt"
+    assert Path(req) == ROOT / "requirements.txt"
     assert os.path.isabs(req)
 
 
