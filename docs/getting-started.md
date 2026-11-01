@@ -15,6 +15,8 @@
     cd Orb
     ```
 
+    Or download the ZIP from GitHub and extract it.
+
 2. Check that Python is available:
 
     ```bash
@@ -28,6 +30,17 @@
 
 The launcher creates `.venv`, installs `requirements.txt`, and starts the server.
 You do not need to activate the environment for normal use.
+
+## Update Orb
+
+Stop Orb, then run:
+
+- Linux and macOS: `./update_unix.sh`
+- Windows: `update_windows.bat`
+
+Updating needs [git](https://git-scm.com/downloads). The first update of a ZIP
+download turns the folder into a git copy of the `main` branch. Your chats and
+settings in `backend/data` are kept.
 
 ## Network access
 
