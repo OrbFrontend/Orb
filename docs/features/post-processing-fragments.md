@@ -114,7 +114,7 @@ as if it had no gate:
 | `transport_failure` | The Judge could not be reached or returned an error |
 | `invalid_answer` | The Judge's answer was missing or unusable |
 
-The authoring form caps a question at 2,000 characters. Card-embedded questions
+The authoring form caps a question at 4,000 characters. Card-embedded questions
 skip that cap, so the byte limits above are checked when the gate runs; an
 oversized question is never truncated.
 

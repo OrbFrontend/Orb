@@ -74,7 +74,7 @@ test("the gate shows for post-processing only and escapes its saved text", () =>
 
   assert.ok(shown("interactive-frag-gate-row"));
   assert.equal($("interactive-frag-gate").value, GATED.post_processing_gate);
-  assert.equal($("interactive-frag-gate").getAttribute("maxlength"), "2000");
+  assert.equal($("interactive-frag-gate").getAttribute("maxlength"), "4000");
   for (const type of ["string", "array", "state", "feedback", "decision"]) {
     retype(type);
     assert.ok(!shown("interactive-frag-gate-row"), type);

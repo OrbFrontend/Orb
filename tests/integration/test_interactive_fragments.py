@@ -170,18 +170,19 @@ _GATED = {
 
 
 async def test_post_processing_gate_is_created_or_defaults_empty(client, db):
-    gated = await client.post("/api/interactive-fragments", json=_GATED)
+    question = "x" * 4000
+    gated = await client.post("/api/interactive-fragments", json={**_GATED, "post_processing_gate": question})
     ungated = await client.post(
         "/api/interactive-fragments", json={**_BASE_PAYLOAD, "id": "plain", "field_type": "post_processing"}
     )
 
-    assert gated.json()["post_processing_gate"] == "Do more than two actions happen?"
+    assert gated.json()["post_processing_gate"] == question
     assert ungated.json()["post_processing_gate"] == ""
 
 
 async def test_post_processing_gate_rejects_explicit_null_and_overlong_text(client, db):
     null = await client.post("/api/interactive-fragments", json={**_GATED, "post_processing_gate": None})
-    long = await client.post("/api/interactive-fragments", json={**_GATED, "post_processing_gate": "x" * 2001})
+    long = await client.post("/api/interactive-fragments", json={**_GATED, "post_processing_gate": "x" * 4001})
 
     assert null.status_code == 422
     assert long.status_code == 422
@@ -190,14 +191,15 @@ async def test_post_processing_gate_rejects_explicit_null_and_overlong_text(clie
 async def test_post_processing_gate_update_preserves_on_omission_or_null_and_clears_on_empty(client, db):
     await client.post("/api/interactive-fragments", json=_GATED)
 
+    question = "x" * 4000
     omitted = await client.put("/api/interactive-fragments/trim", json={"label": "Trim"})
     nulled = await client.put("/api/interactive-fragments/trim", json={"post_processing_gate": None})
-    changed = await client.put("/api/interactive-fragments/trim", json={"post_processing_gate": "Is it long?"})
+    changed = await client.put("/api/interactive-fragments/trim", json={"post_processing_gate": question})
     cleared = await client.put("/api/interactive-fragments/trim", json={"post_processing_gate": ""})
 
     assert omitted.json()["post_processing_gate"] == "Do more than two actions happen?"
     assert nulled.json()["post_processing_gate"] == "Do more than two actions happen?"
-    assert changed.json()["post_processing_gate"] == "Is it long?"
+    assert changed.json()["post_processing_gate"] == question
     assert cleared.json()["post_processing_gate"] == ""
 
 

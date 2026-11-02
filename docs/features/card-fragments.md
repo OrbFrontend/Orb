@@ -32,6 +32,10 @@ The editor uses the same fields and validation as the global fragment editor. An
 ID must match `[a-z0-9][a-z0-9_-]{0,63}`. A card cannot use an ID already used by
 one of your global fragments.
 
+Both editors accept up to 200 characters in labels and injection labels, 10,000
+in descriptions, and 50,000 in each mood prompt field. Post-processing gate
+questions accept up to 4,000 characters.
+
 ## Import and export
 
 Card fragments are stored in V2 card data under `extensions.orb.fragments`. They
