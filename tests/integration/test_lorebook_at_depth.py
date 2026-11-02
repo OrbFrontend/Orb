@@ -3,6 +3,9 @@ system lore and removal of inline comments. Teardown checks prefix stability.
 """
 
 import re
+from unittest import mock
+
+import pytest
 
 # The World Info export shape: entries as an object, `comment` as the
 # title, `order` as priority, `position: 4` = "@ Depth", `disable` = opt-out.
@@ -67,9 +70,14 @@ def _tail_text(call: dict) -> str:
     return content
 
 
-async def test_at_depth_entry_rides_the_tail_with_fresh_dice_each_turn(client, llm_mock):
+@pytest.mark.parametrize("rolls", [(8, 7, 8, 1, 2, 3), (8, 7, 8, 8, 7, 8)], ids=["different-pools", "repeated-pool"])
+async def test_at_depth_entry_rides_the_tail_with_fresh_dice_each_turn(client, llm_mock, monkeypatch, rolls):
     await _import_v20(client)
     cid = await _make_conversation(client)
+
+    # Control fresh draws so a legitimate repeated pool cannot fail the test.
+    dice = mock.Mock(side_effect=rolls)
+    monkeypatch.setattr("backend.core.macros.random.randint", dice)
 
     for turn in ("I attack the ghoul.", "I press the advantage."):
         llm_mock.enqueue_writer("The blade lands.")
@@ -100,10 +108,9 @@ async def test_at_depth_entry_rides_the_tail_with_fresh_dice_each_turn(client, l
         assert "{{roll" not in tail
         pools.append(pool.group(1))
 
-    # Three independent d10 per turn, re-rolled every turn: a seeded (frozen)
-    # resolution would repeat the pool verbatim. 1/1000 chance of a false failure.
-    assert all(1 <= int(n) <= 10 for n in pools[0].split(", "))
-    assert pools[0] != pools[1], f"dice froze across turns: {pools}"
+    # Each turn consumes three fresh d10 draws, even when both pools match.
+    assert dice.call_args_list == [mock.call(1, 10)] * 6
+    assert pools == [", ".join(str(n) for n in rolls[start : start + 3]) for start in (0, 3)]
 
 
 async def test_context_size_accounts_for_the_depth_block(client, llm_mock):
