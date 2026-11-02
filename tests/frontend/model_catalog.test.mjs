@@ -49,11 +49,40 @@ test("model search ignores separators in names and queries", () => {
   );
 });
 
+test("model search matches every term anywhere in the name, regardless of order", () => {
+  const choices = mergeModelChoices([{ id: 4, model_name: "google/gemma-4-31b-it" }], [
+    "google/gemma-3-27b-it",
+    "other/gemma-4-31b-it",
+    "openai/gpt-5-mini",
+  ]);
+
+  for (const query of ["31b gemma google", "31B\tGOOGLE  gem", "31b/gemma-google"]) {
+    assert.deepEqual(
+      filterModelChoices(choices, query).map((item) => item.value),
+      ["google/gemma-4-31b-it"],
+      query,
+    );
+  }
+  assert.deepEqual(filterModelChoices(choices, "gemma mini"), []);
+  assert.deepEqual(
+    filterModelChoices(choices, "31b gemma").map((item) => item.value),
+    ["google/gemma-4-31b-it", "other/gemma-4-31b-it"],
+  );
+});
+
+test("empty model searches keep all choices", () => {
+  const choices = mergeModelChoices([], ["google/gemma-4", "openai/gpt-5-mini"]);
+
+  for (const query of ["", " \t\n ", " /-_ ", null]) {
+    assert.deepEqual(filterModelChoices(choices, query), choices);
+  }
+});
+
 test("model search normalizes compatibility characters", () => {
   const choices = mergeModelChoices([], ["google/Gemma-4"]);
 
   assert.deepEqual(
-    filterModelChoices(choices, "ＧＥＭＭＡ ４").map((item) => item.value),
+    filterModelChoices(choices, "４ ＧＥＭＭＡ").map((item) => item.value),
     ["google/Gemma-4"],
   );
 });

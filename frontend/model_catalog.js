@@ -20,12 +20,11 @@ export function mergeModelChoices(configs, availableModels) {
 }
 
 export function filterModelChoices(choices, query) {
-  const needle = normalizeSearchValue(query).trim();
-  if (!needle) return choices;
-  const compactNeedle = compactSearchValue(needle);
+  const terms = normalizeSearchValue(query).match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (!terms.length) return choices;
   return choices.filter((item) => {
-    const haystack = normalizeSearchValue(item.value);
-    return haystack.includes(needle) || (compactNeedle && compactSearchValue(haystack).includes(compactNeedle));
+    const haystack = compactSearchValue(normalizeSearchValue(item.value));
+    return terms.every((term) => haystack.includes(term));
   });
 }
 
