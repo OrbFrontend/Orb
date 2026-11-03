@@ -97,8 +97,11 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
                 return
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
+            image = {"mime": data.image.mime, "b64": data.image.b64} if data.image else None
             if data.tailoring == "deep":
-                async for event in generate_deep_card(agent_client, model, data.idea, settings=settings, digest=digest):
+                async for event in generate_deep_card(
+                    agent_client, model, data.idea, settings=settings, digest=digest, image=image
+                ):
                     if event["type"] == "progress":
                         yield {"event": "progress", "data": {"label": event["label"]}}
                     elif not abort_token.is_aborted:
@@ -106,7 +109,13 @@ async def api_run_card_generator(data: CardGeneratorRunRequest, request: Request
                 return
             yield {"event": "progress", "data": {"label": "Drafting your character…"}}
             card = await generate_card(
-                agent_client, model, data.idea, settings=settings, reasoning_on=data.reasoning, library_digest=digest
+                agent_client,
+                model,
+                data.idea,
+                settings=settings,
+                reasoning_on=data.reasoning,
+                library_digest=digest,
+                image=image,
             )
             if not abort_token.is_aborted:
                 yield {"event": "done", "data": {"card": card}}

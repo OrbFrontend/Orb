@@ -849,17 +849,25 @@ class CardSourceLoginRequest(BaseModel):
 class CardGeneratorRunRequest(BaseModel):
     """Options for one unsaved character card draft."""
 
-    idea: str = Field(min_length=1, max_length=2000)
+    idea: str = Field(default="", max_length=2000)
+    # A reference image the Agent model sees; the idea may be left empty when one is attached.
+    image: AttachmentIn | None = None
     reasoning: bool = False
     # ``deep`` researches the library before drafting and always thinks.
     tailoring: Literal["off", "summary", "deep"] = "off"
 
     @field_validator("idea")
     @classmethod
-    def nonblank_idea(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Describe a character idea first")
+    def strip_idea(cls, value: str) -> str:
         return value.strip()
+
+    @model_validator(mode="after")
+    def idea_or_image(self) -> CardGeneratorRunRequest:
+        if not self.idea and self.image is None:
+            raise ValueError("Describe a character idea or attach an image first")
+        if self.image is not None and not self.image.mime.startswith("image/"):
+            raise ValueError("The reference must be an image")
+        return self
 
 
 class AutoTagRunRequest(BaseModel):

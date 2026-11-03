@@ -8,8 +8,11 @@ goes into your library.
 1. Open **Character Library → Manager → Card Generator**.
 2. Describe the character. You have 2,000 characters, but a sentence or two is
    enough to start.
-3. Choose how much of your library Orb should use, then press **Generate**.
-4. Read the draft in the character editor. Change anything you like, add an
+3. Optionally add a reference image: pick a file, or paste or drop
+   one onto the panel. You can then leave the idea empty, or say how to use it,
+   such as "a character with this picture's mood".
+4. Choose how much of your library Orb should use, then press **Generate**.
+5. Read the draft in the character editor. Change anything you like, add an
    avatar if you want, and press **Save**.
 
 Nothing is saved when you press **Generate**. **Cancel**, closing the library,
@@ -17,9 +20,17 @@ or leaving Manager stops the request. If the Agent endpoint has a problem, the
 panel shows the error so you can try again.
 
 The draft contains a name, description, personality, scenario, opening message,
-example dialogue, and creator notes. It does not add an avatar, tags, or prompt
-overrides. Once saved, it behaves like any other new card; Auto-tagging can tag
+example dialogue, and creator notes. It does not add tags or prompt overrides.
+It adds an avatar only when you attach a reference image and leave **Use as the
+draft's avatar** on. Once saved, it behaves like any other new card; Auto-tagging can tag
 it later.
+
+## Reference image
+
+The image goes to your Agent model, so that model must accept images. A
+text-only model either returns an error, which the panel shows, or ignores the
+image and writes from the idea alone. Large images are scaled down before they
+are sent.
 
 ## Tailored to me
 

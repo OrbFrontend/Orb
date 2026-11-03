@@ -146,6 +146,34 @@ async def test_deep_tailoring_first_step_failure_is_an_sse_error(client, monkeyp
     assert json.loads(events[-1][1])["sentence"] == "Context too long"
 
 
+IMAGE = {"b64": "iVBORw0KGgo=", "mime": "image/png", "filename": "mood.png"}
+
+
+def _image_url(message):
+    return [part["image_url"]["url"] for part in message["content"] if part["type"] == "image_url"]
+
+
+async def test_a_reference_image_alone_reaches_the_model_as_an_image_part(client, model):
+    events = frames(await client.post("/api/library/card-generator/run", json={"image": IMAGE}))
+    assert [event for event, _ in events] == ["start", "progress", "done"]
+    assert _image_url(model[0]["messages"][1]) == [f"data:image/png;base64,{IMAGE['b64']}"]
+
+
+async def test_deep_tailoring_keeps_the_reference_image_in_every_call(client, llm_mock):
+    llm_mock.enqueue_workflow(_call("query_library", {"findings": "", "purpose": "", "sql": "", "finished": True}))
+    llm_mock.enqueue_workflow(_call("generate_character_card", DRAFT))
+    body = {"idea": "Like this", "image": IMAGE, "tailoring": "deep"}
+    events = frames(await client.post("/api/library/card-generator/run", json=body))
+    assert events[-1][0] == "done"
+    assert [len(_image_url(call["messages"][1])) for call in llm_mock.captured] == [1, 1]
+
+
+async def test_a_non_image_reference_is_rejected_before_generation(client, model):
+    body = {"idea": "A fence", "image": {**IMAGE, "mime": "text/plain"}}
+    assert (await client.post("/api/library/card-generator/run", json=body)).status_code == 422
+    assert model == []
+
+
 @pytest.mark.parametrize("idea", ["", " \n ", "x" * 2001])
 async def test_invalid_idea_rejected_before_generation(client, model, idea):
     assert (await client.post("/api/library/card-generator/run", json={"idea": idea})).status_code == 422

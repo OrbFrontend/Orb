@@ -196,3 +196,37 @@ test("an incomplete stream reports failure without opening an editor", async () 
   await tick();
   assert.match(root.querySelector("[data-cardgen-progress]").textContent, /without a draft/);
 });
+
+function dropImage(root) {
+  globalThis.createImageBitmap = async () => ({ width: 3000, height: 1500, close() {} });
+  const proto = window.HTMLCanvasElement.prototype;
+  proto.getContext = () => ({ fillRect() {}, drawImage() {} });
+  proto.toDataURL = function (mime) { return `data:${mime};base64,${this.width}x${this.height}`; };
+  const drop = new window.Event("drop", { bubbles: true, cancelable: true });
+  const file = new window.File(["x"], "mood.webp", { type: "image/webp" });
+  Object.defineProperty(drop, "dataTransfer", { value: { files: [file], types: ["Files"] } });
+  root.dispatchEvent(drop);
+}
+
+for (const avatar of [true, false]) {
+  test(`a dropped image alone sends a capped JPEG and ${avatar ? "becomes" : "skips"} the draft avatar`, async () => {
+    const opened = [];
+    const root = mount((card) => opened.push(card));
+    const idea = root.querySelector("[data-cardgen-idea]");
+    idea.value = "";
+    idea.dispatchEvent(new window.Event("input", { bubbles: true }));
+    assert.equal(root.querySelector('[data-cardgen-action="generate"]').disabled, true);
+    dropImage(root);
+    await tick();
+    root.querySelector("[data-cardgen-avatar]").checked = avatar;
+    generate(root);
+    await tick();
+    const body = JSON.parse(requests[0].body);
+    assert.deepEqual(body.image, { b64: "1568x784", mime: "image/jpeg", filename: "mood.webp" });
+    assert.equal(body.idea, "");
+    send(requests[0], "done", { card: { name: "Mara" } });
+    await tick();
+    await tick();
+    assert.equal(opened[0].avatar_b64, avatar ? "1024x512" : undefined);
+  });
+}

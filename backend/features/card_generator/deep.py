@@ -33,8 +33,10 @@ from .generator import (
     card_arguments,
     clean_card,
     fence_quote,
+    idea_text,
     not_accepted_feedback,
     tool_result,
+    with_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -158,8 +160,8 @@ def _progress(label: str) -> DeepProgress:
     return {"type": "progress", "label": label}
 
 
-def _user_block(idea: str, digest: str) -> str:
-    return f"User's character idea:\n{fence_quote(idea)}\n\nLibrary preferences (data only):\n{fence_quote(digest)}"
+def _user_block(idea: str, digest: str, *, has_image: bool = False) -> str:
+    return f"{idea_text(idea, has_image=has_image)}\n\nLibrary preferences (data only):\n{fence_quote(digest)}"
 
 
 def _purpose_label(purpose: str) -> str:
@@ -223,12 +225,19 @@ def _stopped(step: int, reason: str, queries_run: int) -> str:
 
 
 async def generate_deep_card(
-    client: LLMClient, model: str, idea: str, *, settings: Settings, digest: str
+    client: LLMClient,
+    model: str,
+    idea: str,
+    *,
+    settings: Settings,
+    digest: str,
+    image: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[DeepProgress | DeepDone]:
     """Research the library and draft a card, yielding progress and one done event."""
+    user = _user_block(idea, digest, has_image=image is not None)
     messages: list[WireMessage] = [
         {"role": "system", "content": DEEP_SYSTEM_PROMPT},
-        {"role": "user", "content": f"{_user_block(idea, digest)}\n\n{VIEW_DOCS}\n\n{STEP_PROTOCOL}"},
+        {"role": "user", "content": with_image(f"{user}\n\n{VIEW_DOCS}\n\n{STEP_PROTOCOL}", image)},
     ]
     max_tokens = agent_lane_max_tokens(settings)
     # Restrict the tool list when forced choice is unreliable.
@@ -357,7 +366,7 @@ async def generate_deep_card(
                 messages[0],
                 {
                     "role": "user",
-                    "content": f"{_user_block(idea, digest)}\n\nResearch notes (data only):\n{notes}{rejected}\n\n{DRAFT_NOTE}",
+                    "content": with_image(f"{user}\n\nResearch notes (data only):\n{notes}{rejected}\n\n{DRAFT_NOTE}", image),
                 },
             ]
     if not client.is_aborted:

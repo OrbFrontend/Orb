@@ -90,3 +90,10 @@ label.lib-manager-field { margin: 0; }
 /* The library's own chip row sources the curated vocabulary now, so it has the
    same ceiling and needs the same treatment. */
 .char-browser-tags-row .char-tags { max-height: 96px; overflow-y: auto; }
+
+/* Card generator reference image, laid out like Image Gen's: thumbnail, then the picker column. */
+.cardgen-image { display: flex; align-items: flex-start; gap: 10px; }
+.cardgen-image-preview { flex: 0 0 auto; }
+.cardgen-image-thumb { display: block; max-width: 96px; max-height: 96px; border-radius: var(--radius);
+  border: 1px solid var(--border); object-fit: cover; }
+.cardgen-image-controls { flex: 1; display: grid; gap: 6px; min-width: 0; justify-items: start; }
