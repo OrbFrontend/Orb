@@ -91,7 +91,7 @@ Approximate memory for batch 4:
 | 4B Q4_K_M | 3.5 GB |
 | 4B Q8_0 | 5.5 GB |
 
-The local process unloads after five minutes without work. Set
+The local process unloads after fifteen minutes without work. Set
 `ORB_PROSE_REWRITER_IDLE` in seconds to change that timeout. Switching the
 workflow off unloads it without waiting for that timeout and stops a load still
 in progress; a rewrite already running finishes first.

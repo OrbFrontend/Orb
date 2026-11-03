@@ -55,7 +55,7 @@ ALIAS = "prose-rewriter"
 
 #: Seconds at zero in-flight before the child is stopped and its VRAM released.
 #: Matters most when the Writer is also local on the same card.
-IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "300"))
+IDLE_TIMEOUT = float(os.environ.get("ORB_PROSE_REWRITER_IDLE", "900"))
 
 # A request or preset may supply the key, but never the value that reaches the child command line. Returning a literal from this
 # closed map is the same allowlist barrier CodeQL recommends for command arguments; range-checking and returning the original
