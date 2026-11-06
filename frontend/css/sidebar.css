@@ -16,11 +16,13 @@
 .theme-select:focus { border-color: var(--accent-dim); outline: none; }
 .sidebar-section { border-bottom: 1px solid var(--border); }
 .sidebar-section-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
+  width: 100%; border: 0; text-align: left; font-family: inherit;
   justify-content: space-between; padding: 10px 16px; background: var(--bg-primary); cursor: pointer; font-size: 11px;
   font-weight: 500; text-transform: uppercase; letter-spacing: .8px; color: var(--text-secondary);
   -webkit-user-select: none; user-select: none; }
 .sidebar-section-header.stuck { box-shadow: 0 1px 0 var(--border); }
 .sidebar-section-header:hover { color: var(--text-primary); }
+.sidebar-section-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sidebar-section-header .arrow { --ui-icon-size: 11px; --ui-icon-stroke: 3; transition: transform .2s;
   display: inline-flex; align-items: center; }
 .sidebar-section-header .arrow.collapsed { transform: rotate(-90deg); }

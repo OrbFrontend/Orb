@@ -3,8 +3,11 @@
 // chunk-boundary splits, and the parser's must-NOT-unescape guarantee (token escaping vs raw probs-JSON are opposite
 // rules -- un-escaping is consumer-side).
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sseEvents, unescapeSSE } from "../../frontend/sse.js";
+
+const textCases = JSON.parse(readFileSync(new URL("../fixtures/sse_text_cases.json", import.meta.url), "utf8"));
 
 // A fake Response.body whose getReader() emits the given string chunks. `split` lets a test deliver a payload one
 // arbitrary byte-slice at a time to prove the parser reassembles across read() boundaries.
@@ -90,7 +93,17 @@ test("a trailing partial frame (no terminator) is dropped", async () => {
   assert.deepEqual(await collect(["event: token\ndata: hi\n\nevent: partial\ndata: x"]), [{ event: "token", data: "hi" }]);
 });
 
-test("unescapeSSE only touches literal \\n sequences", () => {
+test("unescapeSSE decodes line breaks and leaves ordinary text alone", () => {
   assert.equal(unescapeSSE("a\\nb\\nc"), "a\nb\nc");
   assert.equal(unescapeSSE("no escapes"), "no escapes");
+});
+
+test("streamed text round-trips literal escapes, line endings, and frame-like prose", async () => {
+  for (const { text, wire } of textCases) {
+    const frame = `event: token\ndata: ${wire}\n\n`;
+    const events = await collect(Array.from(frame));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].event, "token");
+    assert.equal(unescapeSSE(events[0].data), text);
+  }
 });

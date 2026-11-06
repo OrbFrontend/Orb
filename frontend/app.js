@@ -53,8 +53,9 @@ function initSidebarSections() {
     toggleSection: (header) => {
       header.querySelector(".arrow").classList.toggle("collapsed");
       const body = header.nextElementSibling;
-      body.classList.toggle("collapsed");
-      if (body.classList.contains("collapsed")) {
+      const collapsed = body.classList.toggle("collapsed");
+      header.setAttribute("aria-expanded", String(!collapsed));
+      if (collapsed) {
         const overshoot = scroller.getBoundingClientRect().top - header.getBoundingClientRect().top;
         if (overshoot > 0) scroller.scrollTop -= overshoot;
       }

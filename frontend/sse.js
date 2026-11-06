@@ -1,6 +1,8 @@
 // Shared reader for server-sent event streams.
 import { apiFetch } from "./api.js";
 
+export { unescapeSSE } from "./sse_text.js";
+
 const FRAME_SEP = "\n\n";
 const EVENT_PREFIX = "event: ";
 const DATA_PREFIX = "data: ";
@@ -47,10 +49,6 @@ function parseFrame(frame) {
   }
   if (event === null) return null; // Ignore frames without an event name.
   return { event, data };
-}
-
-export function unescapeSSE(data) {
-  return data.replace(/\\n/g, "\n");
 }
 
 export function streamPost(path, body, signal) {

@@ -105,7 +105,7 @@ def _python_packages(backend: Path) -> set[str]:
     return {
         path.name
         for path in backend.iterdir()
-        if path.is_dir() and any("__pycache__" not in module.parts for module in path.rglob("*.py"))
+        if path.name != "data" and path.is_dir() and any("__pycache__" not in module.parts for module in path.rglob("*.py"))
     }
 
 
@@ -196,7 +196,7 @@ def check(*, root: Path = ROOT, backend: Path | None = None) -> list[str]:
     for module in sorted(_unclassified_top_level_modules(backend)):
         problems.append(f"backend/{module}: unclassified top-level Python module")
     for path in sorted(backend.rglob("*.py")):
-        if "__pycache__" in path.parts:
+        if "__pycache__" in path.parts or path.is_relative_to(backend / "data"):
             continue
         parts = _module_parts(path, root=root)
         package = _package_parts(path, root=root)

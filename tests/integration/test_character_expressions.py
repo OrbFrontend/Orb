@@ -3,8 +3,13 @@
 The GGUF classifier is never present in CI, so classify-emotion 503s and only the
 upload/storage/serve path is exercised end to end (no model needed)."""
 
+import base64
 import io
 import zipfile
+
+import pytest
+
+from backend.database import set_character_expressions
 
 
 def _zip(files: dict[str, bytes]) -> bytes:
@@ -75,3 +80,28 @@ async def test_classify_emotion_503_when_deps_absent(client, monkeypatch):
 
     monkeypatch.setattr(dependencies, "deps_ok", lambda feature=None: (False, "extras not installed"))
     await client.post_checked("/api/local-ml/classify-emotion", json={"text": "I am so happy!"}, expected_status=503)
+
+
+@pytest.mark.parametrize("kind", ["expression", "avatar", "thumbnail", "persona"])
+@pytest.mark.parametrize("mime", ["image/svg+xml", "text/html"])
+async def test_stored_image_content_is_sandboxed_on_navigation_and_revalidation(client, kind, mime):
+    # Legacy/imported bytes may be an active document, even when normally used as an <img>.
+    content = b'<svg xmlns="http://www.w3.org/2000/svg"><script>window.probe=1</script></svg>'
+    avatar = {"avatar_b64": base64.b64encode(content).decode(), "avatar_mime": mime}
+    if kind == "persona":
+        row_id = await client.create("/api/user-personas", json={"name": "Probe", **avatar})
+        path = f"/api/user-personas/{row_id}/avatar"
+    else:
+        row_id = await client.create("/api/characters", json={"name": "Probe", **avatar})
+        if kind == "expression":
+            await set_character_expressions(row_id, {"neutral": (avatar["avatar_b64"], mime)})
+            path = f"/api/characters/{row_id}/expressions/neutral"
+        else:
+            path = f"/api/characters/{row_id}/avatar" + ("/thumb" if kind == "thumbnail" else "")
+
+    response = await client.get_checked(path)
+    assert response.content == content
+    cached = await client.get_checked(path, headers={"if-none-match": response.headers["etag"]}, expected_status=304)
+    for result in (response, cached):
+        assert result.headers["content-security-policy"] == "sandbox; default-src 'none'"
+        assert result.headers["x-content-type-options"] == "nosniff"

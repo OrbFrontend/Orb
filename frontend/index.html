@@ -24,7 +24,7 @@
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="worlds-section" data-wf-action="sidebar:toggleSection">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="worlds-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
             <button class="btn btn-sm" style="flex:1;justify-content:center" data-wf-action="lorebook:create">+ Create</button>
@@ -37,7 +37,7 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Characters <span class="arrow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="true" aria-controls="char-section" data-wf-action="sidebar:toggleSection">Characters <span class="arrow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body" id="char-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
             <button class="btn btn-sm" style="flex:1;justify-content:center" data-wf-action="library:create">+ Create</button>
@@ -49,7 +49,7 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" id="groups-section-toggle">Groups <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="groups-section" id="groups-section-toggle" data-wf-action="groups:toggleSection">Groups <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="groups-section">
           <button type="button" class="btn btn-block btn-sm" id="new-group-btn" style="margin-bottom:8px">+ New group</button>
           <div id="group-search-wrap" style="display:none;margin-bottom:8px">
@@ -59,7 +59,7 @@
         </div>
       </div>
       <div class="sidebar-section doc-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Documents <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="documents-section" data-wf-action="sidebar:toggleSection">Documents <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="documents-section">
           <button class="btn btn-block btn-sm" style="margin-bottom:8px" data-wf-action="document:create">+ New Document</button>
           <div id="documents-search-wrap" style="display:none;margin-bottom:8px">
@@ -69,23 +69,23 @@
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Interactive Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="interactive-frag-section" data-wf-action="sidebar:toggleSection">Interactive Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="interactive-frag-section">
           <div id="interactive-frag-list"></div>
         </div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Mood Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="frag-section" data-wf-action="sidebar:toggleSection">Mood Fragments <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="frag-section">
           <div id="frag-list"></div>
         </div>
       </div>
       <div class="sidebar-section">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection"><span id="endpoints-label">Endpoints</span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="endpoints-section" data-wf-action="sidebar:toggleSection"><span id="endpoints-label">Endpoints</span> <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="endpoints-section"><div id="endpoints-form"></div></div>
       </div>
       <div class="sidebar-section chat-only">
-        <div class="sidebar-section-header" data-wf-action="sidebar:toggleSection">Settings <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <button type="button" class="sidebar-section-header" aria-expanded="false" aria-controls="settings-section" data-wf-action="sidebar:toggleSection">Settings <span class="arrow collapsed"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></span></button>
         <div class="sidebar-section-body collapsed" id="settings-section">
           <div id="settings-form"></div>
         </div>

@@ -143,6 +143,13 @@ def test_python_packages_must_be_classified(tmp_path: Path):
     assert any("backend/mystery/: unclassified Python package" in problem for problem in problems), problems
 
 
+def test_runtime_data_is_not_classified_or_checked_as_application_source(tmp_path: Path):
+    root, backend = _fixture(tmp_path, "data/local_helper", "from backend.api import build_app\n")
+    # User data can include arbitrary scripts, including scripts that do not parse.
+    (backend / "data" / "unparsed.py").write_text("not valid Python !\n", encoding="utf-8")
+    assert _checker().check(root=root, backend=backend) == []
+
+
 def test_top_level_python_modules_must_be_classified(tmp_path: Path):
     root, backend = _fixture(tmp_path, "inference/good", "from backend.core import value\n")
     (backend / "mystery.py").write_text("", encoding="utf-8")

@@ -388,6 +388,12 @@ async def _settle_stream(
 _SETTLING: set[asyncio.Task] = set()
 
 
+def _escape_sse_text(data: str) -> str:
+    # Escape the escape character first: a literal backslash-n must remain
+    # distinguishable from a newline. Keep CR out of the SSE line grammar too.
+    return data.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n")
+
+
 async def sse_stream(
     gen: AsyncIterator[PublicEvent | PublicTurnEvent],
     request: Request,
@@ -461,10 +467,7 @@ async def sse_stream(
                 raise ValueError(f"Invalid public SSE event: {reason}")
             evt_type = event["event"]
             evt_data = event.get("data", "")
-            if isinstance(evt_data, dict):
-                evt_data = json.dumps(evt_data)
-            elif isinstance(evt_data, str):
-                evt_data = evt_data.replace("\n", "\\n")
+            evt_data = json.dumps(evt_data) if isinstance(evt_data, dict) else _escape_sse_text(evt_data)
             yield f"event: {evt_type}\ndata: {evt_data}\n\n"
     except Exception as exc:
         # Headers have already gone out. Generator and encoding failures both
@@ -515,7 +518,7 @@ async def _encode_workflow_event_stream(events: AsyncIterator[PublicEvent]) -> A
                 continue
             name = ev["event"]
             data = ev.get("data", "")
-            data = json.dumps(data, separators=(",", ":")) if isinstance(data, dict) else data.replace("\n", "\\n")
+            data = json.dumps(data, separators=(",", ":")) if isinstance(data, dict) else _escape_sse_text(data)
             yield f"event: {name}\ndata: {data}\n\n"
     except Exception as exc:
         yield f"event: error\ndata: {json.dumps(failure_event(exc)['data'])}\n\n"
@@ -576,26 +579,31 @@ def rows_response(rows: Sequence[Mapping[str, Any]]) -> JSONResponse:
 
 
 _IMAGE_CACHE_CONTROL = "private, max-age=300"
+_INERT_CONTENT_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox; default-src 'none'",
+}
 
 
 def image_not_modified(etag: str, request: Request) -> Response | None:
     """A 304 when the client already holds *etag*, else None."""
     if request.headers.get("if-none-match") != etag:
         return None
-    return Response(status_code=304, headers={"Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag})
+    return Response(status_code=304, headers={**_INERT_CONTENT_HEADERS, "Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag})
 
 
 def cached_image_response(image_bytes: bytes, mime: str | None, request: Request, etag: str | None = None) -> Response:
     """Return a privately cacheable image response with ETag support.
 
     Without *etag* the tag is a hash of the bytes. A caller that can version the image more cheaply passes its own tag, and can
-    check it with :func:`image_not_modified` before loading the bytes at all.
+    check it with :func:`image_not_modified` before loading the bytes at all. Imported bytes and MIME types are untrusted: a
+    direct navigation must not execute HTML or SVG scripts on the app's origin.
     """
     etag = etag or '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
     not_modified = image_not_modified(etag, request)
     if not_modified is not None:
         return not_modified
-    headers = {"Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag}
+    headers = {**_INERT_CONTENT_HEADERS, "Cache-Control": _IMAGE_CACHE_CONTROL, "ETag": etag}
     return Response(content=image_bytes, media_type=mime or "image/png", headers=headers)
 
 
@@ -619,8 +627,7 @@ def attachment_content_response(data_b64: str, mime: str | None, request: Reques
         "Cache-Control": "private, no-cache",
         "ETag": etag,
         "Accept-Ranges": "bytes",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "sandbox; default-src 'none'",
+        **_INERT_CONTENT_HEADERS,
     }
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)

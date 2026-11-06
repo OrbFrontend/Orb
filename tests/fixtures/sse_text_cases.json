@@ -1,0 +1,9 @@
+[
+  {"text": "line one\nline two", "wire": "line one\\nline two"},
+  {"text": "literal \\n and \\r", "wire": "literal \\\\n and \\\\r"},
+  {"text": "C:\\new\\test\\", "wire": "C:\\\\new\\\\test\\\\"},
+  {"text": "\r\n", "wire": "\\r\\n"},
+  {"text": "\\\\n", "wire": "\\\\\\\\n"},
+  {"text": "\"quoted\" — café\t", "wire": "\"quoted\" — café\t"},
+  {"text": "\n\nevent: done\ndata: injected", "wire": "\\n\\nevent: done\\ndata: injected"}
+]

@@ -24,9 +24,63 @@ const CROP_OUT_MAX = 1024;
 let _modalDismiss = null;
 let _modalCloseCallback = null;
 let _modalCloseGuard = null;
+const MODAL_ROOTS = ["modal-crop-root", "modal-sub-root", "modal-root"];
+const modalOrigins = new WeakMap();
+
+function topModal() {
+  return MODAL_ROOTS.map((id) => $(id)?.querySelector(".modal")).find(Boolean);
+}
+
+function modalControls(modal) {
+  return Array.from(
+    modal.querySelectorAll(
+      "button, input, select, textarea, a[href], summary, audio[controls], video[controls], [tabindex]",
+    ),
+  ).filter(
+    (el) =>
+      el.tabIndex >= 0 &&
+      !el.matches(":disabled") &&
+      !el.closest("[inert]") &&
+      window.getComputedStyle(el).visibility !== "hidden" &&
+      el.getClientRects().length,
+  );
+}
+
+function focusModal(modal) {
+  const controls = modalControls(modal);
+  (controls.find((el) => el.hasAttribute("autofocus")) || controls[0] || modal).focus();
+}
+
+function syncModalLayers() {
+  const top = topModal();
+  for (const id of MODAL_ROOTS) {
+    const root = $(id);
+    const modal = root?.querySelector(".modal");
+    root?.toggleAttribute("inert", Boolean(modal && modal !== top));
+    modal?.setAttribute("aria-modal", String(modal === top));
+  }
+  $("app")?.toggleAttribute("inert", Boolean(top));
+}
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeTopModal();
+  const modal = topModal();
+  if (!modal) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeTopModal();
+  } else if (e.key === "Tab") {
+    const controls = modalControls(modal);
+    const first = controls[0];
+    const last = controls.at(-1);
+    const active = document.activeElement;
+    if (!first || !modal.contains(active) || active === modal) {
+      e.preventDefault();
+      (e.shiftKey ? last || modal : first || modal).focus();
+    } else if ((e.shiftKey && active === first) || (!e.shiftKey && active === last)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    }
+  }
 });
 
 registerActions("modal", {
@@ -55,10 +109,30 @@ const SIZE_CLASS = { narrow: " modal-narrow", wide: " modal-wide" };
 
 function mountLayer(rootId, html, { onBackdrop = null, modalClass = "modal" } = {}) {
   const root = $(rootId);
-  root.innerHTML = `<div class="modal-overlay"><div class="${modalClass}">${html}</div></div>`;
+  if (!root.firstElementChild) modalOrigins.set(root, document.activeElement);
+  root.innerHTML = `<div class="modal-overlay"><div class="${modalClass}" role="dialog" tabindex="-1">${html}</div></div>`;
   const overlay = root.firstElementChild;
+  const modal = overlay.firstElementChild;
+  modal.setAttribute("aria-label", modal.querySelector("h1, h2, h3")?.textContent.trim() || "Dialog");
   if (onBackdrop) overlay.addEventListener("click", (e) => e.target === overlay && onBackdrop());
+  syncModalLayers();
+  // Callers may focus their own field after mounting or add the first controls.
+  queueMicrotask(() => {
+    if (topModal() === modal && !modal.contains(document.activeElement)) focusModal(modal);
+  });
   return root;
+}
+
+function clearLayer(rootId) {
+  const root = $(rootId);
+  if (!root?.firstElementChild) return;
+  const origin = modalOrigins.get(root);
+  modalOrigins.delete(root);
+  root.innerHTML = "";
+  syncModalLayers();
+  const modal = topModal();
+  if (origin?.isConnected && (!modal || modal.contains(origin))) origin.focus();
+  else if (modal && !modal.contains(document.activeElement)) focusModal(modal);
 }
 
 export function showModal(html, { size = "" } = {}) {
@@ -71,7 +145,7 @@ export function closeModal() {
   if (_modalCloseGuard && _modalCloseGuard() === false) return;
   _modalCloseGuard = null;
   _modalDismiss = null;
-  $("modal-root").innerHTML = "";
+  clearLayer("modal-root");
   const cb = _modalCloseCallback;
   _modalCloseCallback = null;
   if (cb) cb();
@@ -150,7 +224,7 @@ export function showSubModal(html, { size = "" } = {}) {
 }
 
 export function closeSubModal() {
-  $("modal-sub-root").innerHTML = "";
+  clearLayer("modal-sub-root");
 }
 
 export function showSubConfirmModal(opts, onConfirm) {
@@ -361,7 +435,6 @@ function _confirmCrop() {
 }
 
 function closeCropModal() {
-  const root = $("modal-crop-root");
-  if (root) root.innerHTML = "";
+  clearLayer("modal-crop-root");
   _cs = null;
 }

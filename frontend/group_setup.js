@@ -1,3 +1,4 @@
+import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import { showAvatarPopup } from "./chat_inspector.js";
 import { initDragReorder } from "./drag_reorder.js";
@@ -767,6 +768,7 @@ let _groupsSectionSettled = false;
 function setGroupsSectionCollapsed(collapsed) {
   const header = $("groups-section-toggle");
   if (!header) return;
+  header.setAttribute("aria-expanded", String(!collapsed));
   header.querySelector(".arrow")?.classList.toggle("collapsed", collapsed);
   header.nextElementSibling?.classList.toggle("collapsed", collapsed);
 }
@@ -930,10 +932,11 @@ export function initGroupSetup() {
   $("chat-avatar")?.addEventListener("click", (event) => {
     if (S.groupCast && event.target === event.currentTarget) showAvatarPopup();
   });
-  $("groups-section-toggle")?.addEventListener("click", (event) => {
-    _groupsSectionSettled = true;
-    event.currentTarget.querySelector(".arrow")?.classList.toggle("collapsed");
-    event.currentTarget.nextElementSibling?.classList.toggle("collapsed");
+  registerActions("groups", {
+    toggleSection: (header) => {
+      _groupsSectionSettled = true;
+      setGroupsSectionCollapsed(!header.nextElementSibling.classList.contains("collapsed"));
+    },
   });
   $("new-group-btn")?.addEventListener("click", showGroupCreate);
   $("group-search")?.addEventListener("input", (event) => {

@@ -8,6 +8,7 @@ line so the frontend parser ignores it, and real events must still pass through 
 import asyncio
 import contextlib
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -21,6 +22,16 @@ from backend.inference.errors import llm_call_error
 class _FakeReq:
     async def is_disconnected(self) -> bool:
         return False
+
+
+@pytest.mark.parametrize("case", json.loads((Path(__file__).parents[1] / "fixtures" / "sse_text_cases.json").read_text()))
+@pytest.mark.parametrize("workflow", [False, True])
+async def test_text_encoding_preserves_literal_escapes_and_cannot_inject_frames(case, workflow):
+    async def gen():
+        yield {"event": "token", "data": case["text"]}
+
+    stream = deps._encode_workflow_event_stream(gen()) if workflow else deps.sse_stream(gen(), _FakeReq())
+    assert [frame async for frame in stream] == [f"event: token\ndata: {case['wire']}\n\n"]
 
 
 async def test_keepalive_during_silence_and_events_passthrough(monkeypatch):

@@ -100,3 +100,93 @@ test("a confirm runs the chosen action, then closes", () => {
   assert.deepEqual(ran, ["group"], "Cancel runs nothing");
   assert.equal(base(), "");
 });
+
+// JSDOM has no layout; supply visibility rectangles for the keyboard tests.
+function visibleControls(t) {
+  t.mock.method(HTMLElement.prototype, "getClientRects", function () {
+    return this.closest("[hidden]") || this.matches('input[type="hidden"]') ? [] : [{}];
+  });
+}
+
+function tab(shiftKey = false) {
+  const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+  document.activeElement.dispatchEvent(event);
+  return event;
+}
+
+test("dialogs focus their content, contain Tab, and restore their opener", async (t) => {
+  visibleControls(t);
+  document.body.insertAdjacentHTML("afterbegin", '<div id="app"><button id="opener">Open</button></div>');
+  const opener = document.getElementById("opener");
+  opener.focus();
+  showModal(
+    '<h2>Edit character</h2><input id="name"><button hidden>Hidden</button><button disabled>Busy</button><button id="save">Save</button>',
+  );
+  await Promise.resolve();
+
+  const dialog = document.querySelector('[role="dialog"]');
+  const name = document.getElementById("name");
+  const save = document.getElementById("save");
+  assert.equal(dialog.getAttribute("aria-modal"), "true");
+  assert.equal(dialog.getAttribute("aria-label"), "Edit character");
+  assert.equal(document.activeElement, name);
+  assert.ok(document.getElementById("app").hasAttribute("inert"));
+  assert.ok(tab(true).defaultPrevented);
+  assert.equal(document.activeElement, save);
+  assert.ok(tab().defaultPrevented);
+  assert.equal(document.activeElement, name);
+
+  closeModal();
+  assert.equal(document.activeElement, opener);
+  assert.equal(document.getElementById("app").hasAttribute("inert"), false);
+});
+
+test("nested dialogs keep the lower layer inert and restore its focused control", async (t) => {
+  visibleControls(t);
+  showModal('<h2>Character</h2><button id="edit-fragment">Edit fragment</button>');
+  await Promise.resolve();
+  const opener = document.getElementById("edit-fragment");
+  assert.equal(document.activeElement, opener);
+  showSubModal('<h2>Fragment</h2><input id="fragment">');
+  await Promise.resolve();
+
+  assert.equal(document.activeElement.id, "fragment");
+  assert.ok(document.getElementById("modal-root").hasAttribute("inert"));
+  assert.equal(document.querySelector("#modal-root .modal").getAttribute("aria-modal"), "false");
+  closeTopModal();
+  assert.equal(document.activeElement, opener);
+  assert.equal(document.getElementById("modal-root").hasAttribute("inert"), false);
+  assert.equal(document.querySelector("#modal-root .modal").getAttribute("aria-modal"), "true");
+  closeModal();
+});
+
+test("replacing a dialog preserves its opener and respects caller-selected focus", async (t) => {
+  visibleControls(t);
+  document.body.insertAdjacentHTML("afterbegin", '<button id="opener">Open</button>');
+  const opener = document.getElementById("opener");
+  opener.focus();
+  showModal('<h2>First</h2><input id="first">');
+  await Promise.resolve();
+  showModal('<h2>Second</h2><input id="default"><input id="selected">');
+  const selected = document.getElementById("selected");
+  selected.focus();
+  await Promise.resolve();
+  assert.equal(document.activeElement, selected);
+  closeModal();
+  assert.equal(document.activeElement, opener);
+});
+
+test("a dialog without controls retains keyboard focus until dismissal is allowed", async () => {
+  showModal("<h2>Working</h2>");
+  await Promise.resolve();
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.equal(document.activeElement, dialog);
+  assert.ok(tab().defaultPrevented);
+  assert.equal(document.activeElement, dialog);
+  setModalCloseGuard(() => false);
+  escape();
+  assert.equal(document.activeElement, dialog);
+  setModalCloseGuard(null);
+  escape();
+  assert.equal(base(), "");
+});

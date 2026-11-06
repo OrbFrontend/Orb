@@ -6,13 +6,14 @@ queue -- so chat-mode doc tests use ``enqueue_writer``; only text-mode tests use
 """
 
 import json
+import re
 
 from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION, DOC_CHAT_INSTRUCTION
 from backend.features.documents.continuation import build_generation_messages
 
 
 def _parse_sse(text: str) -> list[dict]:
-    """Parse an SSE body into ``[{event, data}]``, unescaping ``\\n`` and
+    """Parse an SSE body into ``[{event, data}]``, decoding text escapes and
     dropping ``: keepalive`` comment frames (mirrors the wire contract)."""
     events = []
     for block in text.strip().split("\n\n"):
@@ -24,7 +25,12 @@ def _parse_sse(text: str) -> list[dict]:
             if line.startswith("event: "):
                 ev["event"] = line[7:]
             elif line.startswith("data: "):
-                ev["data"] = line[6:].replace("\\n", "\n")
+                data = line[6:]
+                ev["data"] = (
+                    re.sub(r"\\([\\nr])", lambda m: {"n": "\n", "r": "\r", "\\": "\\"}[m[1]], data)
+                    if ev.get("event") == "token"
+                    else data
+                )
         events.append(ev)
     return events
 

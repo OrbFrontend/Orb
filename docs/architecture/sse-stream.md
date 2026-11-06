@@ -34,9 +34,11 @@ data: <payload>
 
 ```
 
-The backend's `sse_stream` wrapper serializes dictionary data as one-line JSON
-and escapes newlines in string data. Keepalive comments prevent an idle
-connection from being dropped.
+The backend's `sse_stream` wrapper serializes dictionary data as one-line JSON.
+String data escapes backslashes as `\\`, carriage returns as `\r`, and newlines
+as `\n`, in that order. `unescapeSSE` decodes those three escapes in one pass,
+so literal escape sequences and line endings survive streaming unchanged.
+Keepalive comments prevent an idle connection from being dropped.
 
 `frontend/sse.js` parses frames and yields `{event, data}`. It does not decide
 what an event means or unescape the payload. `chat_stream.js` dispatches by event

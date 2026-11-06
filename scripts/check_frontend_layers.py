@@ -27,6 +27,7 @@ LAYERS = {
     "errors.js": 0,
     "document_saves.js": 0,
     "sse.js": 0,
+    "sse_text.js": 0,
     "validate.js": 0,
     "scroll_follow.js": 0,
     "text_segmentation.js": 0,

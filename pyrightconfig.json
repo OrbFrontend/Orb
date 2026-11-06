@@ -1,5 +1,6 @@
 {
   "include": ["backend"],
+  "exclude": ["backend/data"],
   "typeCheckingMode": "standard",
   "pythonVersion": "3.11",
   "reportMissingImports": "warning"

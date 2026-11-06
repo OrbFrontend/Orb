@@ -1,4 +1,6 @@
-// HTTP and SSE failures share one shape. Only legacy SSE text is newline-escaped;
+import { unescapeSSE } from "./sse_text.js";
+
+// HTTP and SSE failures share one shape. Only legacy SSE text uses the text codec;
 // JSON payloads must be parsed before any unescaping.
 function firstString(value) {
   if (typeof value === "string") return value.trim();
@@ -14,7 +16,7 @@ function parseFailure(data, escaped = false) {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return { headline: escaped ? raw.replace(/\\n/g, "\n") : raw, sentence: "", kind: "internal" };
+      return { headline: escaped ? unescapeSSE(raw) : raw, sentence: "", kind: "internal" };
     }
   }
   if (parsed && typeof parsed === "object") {

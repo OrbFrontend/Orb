@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { responseError, sseError } from "../../frontend/errors.js";
 
@@ -40,6 +41,11 @@ test("structured SSE failures retain metadata and parse JSON before unescaping",
 test("legacy SSE errors unescape text, while HTTP text stays literal", async () => {
   assert.equal(sseError("first\\nsecond").message, "first\nsecond");
   assert.equal((await responseError(new Response("first\\nsecond", { status: 500 }))).message, "first\\nsecond");
+});
+
+test("legacy SSE errors use the same lossless text codec as token streams", () => {
+  const cases = JSON.parse(readFileSync(new URL("../fixtures/sse_text_cases.json", import.meta.url), "utf8"));
+  for (const { text, wire } of cases) assert.equal(sseError(wire).message, text);
 });
 
 test("structured validation and workflow errors produce readable messages", () => {
