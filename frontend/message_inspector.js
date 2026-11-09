@@ -293,7 +293,7 @@ export function latencyHtml(latency, breakdown = []) {
     meta: latencyTime(latency),
     className: "inspector-latency",
     body: body
-      ? `<div class="latency-breakdown">${body}</div><div class="latency-note">Sum of the steps shown. Combined calls share one timing; Editor fragment times include their gates.</div>`
+      ? `<div class="latency-breakdown">${body}</div>`
       : '<div class="inspect-empty">No timing breakdown was recorded for this reply.</div>',
   });
 }

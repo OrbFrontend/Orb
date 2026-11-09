@@ -72,20 +72,19 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 
 /* ── Latency: readable on narrow panels and in-chat replies ── */
 
-.latency-breakdown { display: grid; gap: 12px; max-width: 480px; }
+.latency-breakdown { display: grid; gap: 6px; max-width: 480px; }
 .latency-group-head, .latency-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: baseline; gap: 12px; padding: 6px 8px; font-size: 11px; line-height: 1.5; }
+  align-items: baseline; gap: 12px; padding: 3px 8px; font-size: 11px; line-height: 1.5; }
 .latency-group-head { font-weight: 600; color: var(--text-secondary); }
 .latency-group-total, .latency-row dd { font-family: var(--font-mono); text-align: right;
   font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-primary); }
 .latency-total-label { font-family: var(--font-ui); font-size: 10px; font-weight: 400; color: var(--text-muted); }
-.latency-rows { margin: 2px 0 0; }
+.latency-rows { margin: 0; }
 .latency-row { color: var(--text-secondary); border-radius: 3px; }
 .latency-row:nth-child(odd) { background: var(--bg-hover); }
 .latency-row dt { min-width: 0; overflow-wrap: anywhere; }
 .latency-row dd { margin: 0; }
 .latency-status { display: block; margin-top: 2px; font-size: 10px; color: var(--text-muted); }
-.latency-note { margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 
 /* ── Reasoning ── */
 
