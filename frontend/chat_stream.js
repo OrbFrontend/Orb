@@ -175,9 +175,8 @@ export function cancelStreamingPaint() {
 
 setCardScriptRepaint(() => {
   if (S.isStreaming && _paintSource !== null && S.pendingRefineDiff && S.editorDraftBaseline != null) {
-    const original = streamingDisplaySource(S.editorDraftBaseline);
-    S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(_paintSource)) };
-    if (S.showEditorDiff && !previewFrozen())
+    S.pendingRefineDiff = streamingRefineDiff(S.editorDraftBaseline, _paintSource);
+    if (S.pendingRefineDiff && S.showEditorDiff && !previewFrozen())
       smoothUpdateBody(S.streamingBodyEl, renderMessageDiffHtml(S.pendingRefineDiff.ops));
   } else if (!S.isStreaming && S.pendingRefineDiff?.msgId) {
     settleRefineDiff(S.messages.find((message) => message.id === S.pendingRefineDiff.msgId));
@@ -319,8 +318,7 @@ export function restoreStreamingView() {
   if (S.streamingContent != null) {
     _paintSource = S.streamingContent;
     if (S.pendingRefineDiff && S.editorDraftBaseline != null) {
-      const original = streamingDisplaySource(S.editorDraftBaseline);
-      S.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(S.streamingContent)) };
+      S.pendingRefineDiff = streamingRefineDiff(S.editorDraftBaseline, S.streamingContent);
     }
     S.streamingBodyEl.innerHTML =
       S.pendingRefineDiff && S.showEditorDiff
@@ -364,14 +362,33 @@ function unsavedReply(content, extra = {}) {
 // The live Editor diff was drawn against whatever the stream showed last,
 // possibly a preview the turn never kept. Redraw it against the saved reply.
 function settleRefineDiff(reply) {
+  // The baseline, not the live diff: a markup-only swap clears the diff, yet the saved reply may still differ in words.
   const baseline = S.editorDraftBaseline;
-  if (!S.pendingRefineDiff || !reply || baseline == null || baseline === reply.content) {
+  if (!reply || baseline == null || baseline === reply.content) {
     S.pendingRefineDiff = null;
     return;
   }
   const source = (content) => messageDisplaySource({ ...reply, content });
   const original = source(baseline);
-  S.pendingRefineDiff = { original, ops: sentenceDiff(original, source(reply.content)), msgId: reply.id };
+  const ops = editorDiff(original, source(reply.content));
+  S.pendingRefineDiff = hasDiffChange(ops) ? { original, ops, msgId: reply.id } : null;
+}
+
+// Format Consistency's markup-only rewrites are not Editor changes: "x" -> "*x*" would show the same words twice.
+function editorDiff(original, text) {
+  return sentenceDiff(original, text, { ignoreMarkup: true });
+}
+
+// A markup-only rewrite diffs as all-equal; render it as a plain reply, not an empty diff.
+function hasDiffChange(ops) {
+  return ops.some((op) => op.type !== "equal");
+}
+
+/** The live diff of the streaming bubble against the Writer's draft, or null when no words changed. */
+function streamingRefineDiff(baseline, text) {
+  const original = streamingDisplaySource(baseline);
+  const ops = editorDiff(original, streamingDisplaySource(text));
+  return hasDiffChange(ops) ? { original, ops } : null;
 }
 
 export async function afterStream(op, { settled = true } = {}) {
@@ -658,8 +675,7 @@ export async function processSSEStream(resp, container, holder, signal, state = 
 
 function swapStreamingDraft(text, onRewrite, options, state = S) {
   if (state.editorDraftBaseline === null) state.editorDraftBaseline = state.streamingContent || "";
-  const original = streamingDisplaySource(state.editorDraftBaseline);
-  state.pendingRefineDiff = { original, ops: sentenceDiff(original, streamingDisplaySource(text)) };
+  state.pendingRefineDiff = streamingRefineDiff(state.editorDraftBaseline, text);
   onRewrite(text, options);
 }
 

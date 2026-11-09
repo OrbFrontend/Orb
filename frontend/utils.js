@@ -223,23 +223,49 @@ function _sentenceDiffTokens(text) {
   return units.length ? units : [text];
 }
 
-function _lcs(a, b) {
+// What Format Consistency adds or strips: single emphasis markers (it leaves **bold** and __bold__ alone) and quote
+// marks. A curly apostrophe inside a word ("it’s") is a letter, not a quote.
+const DIFF_EMPHASIS_RE = /(?<![*_])[*_](?![*_])/g;
+const DIFF_QUOTE_RE = /["＂″“”‘«»‹›「」『』„‚‟❝❞〝〞]|(?<![\p{L}\p{N}])’|’(?![\p{L}\p{N}])/gu;
+// Removing a clause's emphasis closes it with a period: "*She waits* He sighs." -> "She waits. He sighs."
+const DIFF_CLOSING_PERIOD_RE = /(?<=[\p{L}\p{N}])\.(?=[ \t]|$)/gmu;
+
+/** Compare text by its words, so a markup-only change diffs as unchanged. Line breaks still count. */
+function _markupBlindKey(text) {
+  const key = text
+    .replace(DIFF_EMPHASIS_RE, "")
+    .replace(DIFF_QUOTE_RE, "")
+    .replace(DIFF_CLOSING_PERIOD_RE, "")
+    .replace(/[^\S\r\n]+/g, " ")
+    .replace(/^ | $/gm, "");
+  // A unit that is nothing but markup keeps its text: "" must not match every other markup-only unit.
+  return key || text;
+}
+
+const _exactKey = (text) => text;
+
+function _lcs(a, b, keyOf) {
   const m = a.length,
     n = b.length;
+  const ka = a.map(keyOf),
+    kb = b.map(keyOf);
   const band = Math.max(2, Math.ceil(Math.max(m, n) * 0.4));
   const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       dp[i][j] =
-        a[i - 1] === b[j - 1] && Math.abs(i - j) <= band ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        ka[i - 1] === kb[j - 1] && Math.abs(i - j) <= band
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
   const ops = [];
   let i = m,
     j = n;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b[j - 1] && Math.abs(i - j) <= band) {
-      ops.push({ type: "equal", text: a[i - 1] });
+    if (i > 0 && j > 0 && ka[i - 1] === kb[j - 1] && Math.abs(i - j) <= band) {
+      // The new text, so an unchanged sentence shows its current markup.
+      ops.push({ type: "equal", text: b[j - 1] });
       i--;
       j--;
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
@@ -251,6 +277,23 @@ function _lcs(a, b) {
     }
   }
   return ops.reverse();
+}
+
+/** Mark a replaced run as unchanged when only its markup differs; markup can move sentence boundaries. */
+function _equateMarkupOnlyRuns(ops) {
+  const out = [];
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i],
+      next = ops[i + 1];
+    const paired = next && op.type !== "equal" && next.type !== "equal" && op.type !== next.type;
+    if (paired && _markupBlindKey(op.text) === _markupBlindKey(next.text)) {
+      out.push({ type: "equal", text: op.type === "insert" ? op.text : next.text });
+      i++;
+    } else {
+      out.push(op);
+    }
+  }
+  return out;
 }
 
 function _mergeOps(ops) {
@@ -285,9 +328,15 @@ export function sentenceTail(text, n = 3, dropFragment = false) {
     .trim();
 }
 
-export function sentenceDiff(oldText, newText) {
+/**
+ * Diff two texts sentence by sentence. *ignoreMarkup* treats a sentence whose emphasis or quote marks alone changed as
+ * unchanged, shown with its new markup: the Editor diff wants that, a card comparison does not.
+ */
+export function sentenceDiff(oldText, newText, { ignoreMarkup = false } = {}) {
   if (!oldText || !newText) return [{ type: "equal", text: newText || "" }];
-  return _mergeOps(_lcs(_sentenceDiffTokens(oldText), _sentenceDiffTokens(newText)));
+  const keyOf = ignoreMarkup ? _markupBlindKey : _exactKey;
+  const ops = _mergeOps(_lcs(_sentenceDiffTokens(oldText), _sentenceDiffTokens(newText), keyOf));
+  return ignoreMarkup ? _mergeOps(_equateMarkupOnlyRuns(ops)) : ops;
 }
 
 const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›]+›|「[^」]+」|『[^』]+』|„[^“]+“|‚[^‘]+‘/g;
