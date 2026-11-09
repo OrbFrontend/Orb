@@ -99,6 +99,7 @@ export const S = {
   feedbackOpen: true,
   stateChangesOpen: true,
   contextSizeOpen: true,
+  latencyOpen: false,
   inlineInspectorOpen: true, // the in-chat Inspector blocks, shared by every reply
   inlineReasoningOpen: true, // the in-chat Reasoning blocks, apart from the panel's section
   inspectedMsgId: null, // message shown in the Inspector

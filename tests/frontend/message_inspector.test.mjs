@@ -40,6 +40,7 @@ beforeEach(() => {
   S.messages = [{ id: 6, role: "user", content: "Hello" }, reply];
   S.settings.inspector_inline = true;
   S.inlineInspectorOpen = true;
+  S.latencyOpen = false;
   S.inlineReasoningOpen = true;
   S.reasoningOpen = true;
   S.moodFragments = [
@@ -249,4 +250,56 @@ test("the streamed reply's boxes reopen where they were once its stored copy lan
     assert.equal(box("tool_calls").scrollTop, 120);
   });
   chat.remove();
+});
+
+
+test("latency uses the same labeled rows for every phase and distinguishes phase totals", () => {
+  S.latencyOpen = true;
+  const html = inspectorBlockHtml(view({ agent_latency_ms: 2925, latency_breakdown: [
+    { phase: "director", label: "Pacing <script>", fragment_id: "pace", elapsed_ms: 750, status: "completed" },
+    { phase: "lorebook", label: "Selection", elapsed_ms: 125, status: "completed" },
+    { phase: "writer", label: "Writer", elapsed_ms: 1500, status: "completed" },
+    { phase: "editor", label: "Trim", fragment_id: "trim", elapsed_ms: 50, status: "skipped" },
+    { phase: "editor", label: "Polish", fragment_id: "polish", elapsed_ms: 500, status: "failed" },
+  ] }));
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  const section = el.querySelector('[data-inspect-section="latency"]');
+  assert.equal(section.open, true);
+  assert.equal(section.querySelector(".inspector-meta").textContent, "2.93 s");
+  assert.equal(section.querySelector("script"), null);
+  assert.match(section.textContent, /Pacing <script>/);
+  const groups = [...section.querySelectorAll(".latency-group")];
+  assert.deepEqual(groups.map(group => group.querySelector(".latency-group-head").textContent), [
+    "DirectorTotal 750 ms", "LorebookTotal 125 ms", "WriterTotal 1.5 s", "EditorTotal 550 ms",
+  ]);
+  const rows = [...section.querySelectorAll(".latency-row")];
+  assert.deepEqual(rows.map(row => [row.querySelector("dt").textContent, row.querySelector("dd").textContent]), [
+    ["Pacing <script>", "750 ms"], ["Selection", "125 ms"], ["Writer", "1.5 s"],
+    ["TrimSkipped by gate", "50 ms"], ["PolishFailed", "500 ms"],
+  ]);
+});
+
+test("old replies retain an expandable total with an explanation of missing timings", () => {
+  const el = document.createElement("div");
+  el.innerHTML = inspectorBlockHtml(view({ agent_latency_ms: 1200 }));
+  const section = el.querySelector('[data-inspect-section="latency"]');
+  assert.equal(section.open, false);
+  assert.match(section.textContent, /No timing breakdown was recorded/);
+  assert.equal(section.querySelector(".inspector-meta").textContent, "1.2 s");
+});
+
+test("live and saved replies render the same latency breakdown", () => {
+  const slot = streamingBubble();
+  const log = { ...EMPTY_LOG, agent_latency_ms: 800, latency_breakdown: [
+    { phase: "writer", label: "Writer", elapsed_ms: 800, status: "stopped" },
+  ] };
+  Object.assign(S, { isStreaming: true, lastDirectorData: log, lastDecisions: null, lastFeedback: null, lastState: null,
+    reasoningDirector: "", reasoningWriter: "", reasoningEditor: "" });
+  renderLiveInspector();
+  const saved = document.createElement("div");
+  saved.innerHTML = inspectorBlockHtml(view(log));
+  assert.equal(slot.querySelector(".inspector-latency").outerHTML, saved.querySelector(".inspector-latency").outerHTML);
+  S.isStreaming = false;
+  S.streamingBodyEl = null;
 });

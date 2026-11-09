@@ -114,6 +114,11 @@ async def test_a_completed_turn_stages_a_pending_proposal(client, db, llm_mock):
     assert changeset["source_assistant_message_id"] == proposed[0]["data"]["message_id"]
     assert changeset["source_conversation_id"] == "conv-dw-1"
     assert changeset["source_character_label"]
+    reply = [row for row in await dbmod.get_messages("conv-dw-1") if row["role"] == "assistant"][-1]
+    log = await client.get_json(f"/api/conversations/conv-dw-1/messages/{reply['id']}/director-log")
+    update = next(row for row in log["latency_breakdown"] if row["phase"] == "lorebook")
+    assert update["label"] == "Update" and update["status"] == "completed"
+    assert [e["data"] for e in events if e["event"] == "latency"][-1]["latency_breakdown"] == log["latency_breakdown"]
 
 
 async def test_a_pending_proposal_is_not_lore_yet(client, llm_mock):

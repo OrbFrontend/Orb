@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind, MessageRole
 
@@ -547,6 +547,16 @@ class DirectorStateRow(TypedDict):
     macro_choices: dict[str, str]
 
 
+class GenerationTimingRow(TypedDict):
+    """One non-overlapping generation step stored in the Inspector log."""
+
+    phase: str
+    label: str
+    elapsed_ms: int
+    status: str
+    fragment_id: NotRequired[str]
+
+
 class ConversationLogRow(TypedDict):
     """Conversation log with decoded tool_calls, active_moods_after and feedback.
 
@@ -562,6 +572,7 @@ class ConversationLogRow(TypedDict):
     injection_block: str | None
     injection_block_without_moods: str | None
     agent_latency_ms: int | None
+    latency_breakdown: list[GenerationTimingRow]
     created_at: str
     message_id: int | None
     reasoning_director: str | None

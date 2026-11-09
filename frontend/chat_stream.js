@@ -802,6 +802,14 @@ function handleSSEEvent(event, data, msgDiv, onToken, onRewrite, state = S) {
       } catch (_) {}
       break;
     }
+    case "latency": {
+      try {
+        const timing = JSON.parse(data);
+        state.lastDirectorData = { ...(state.lastDirectorData || {}), ...timing };
+        if (isViewing(state)) renderInspector();
+      } catch (_) {}
+      break;
+    }
     case "editor_done": {
       try {
         const d = JSON.parse(data);

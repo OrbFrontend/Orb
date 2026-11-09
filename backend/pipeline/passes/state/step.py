@@ -21,8 +21,10 @@ from ....core import (
 )
 from ....core.llm_types import CompletionMessage
 from ....core.settings import Settings
+from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import UPDATE_STATE_CHOICE, build_state_tool
+from ...timing import timed_events
 from .prompts import AliasedEntry, build_state_request, entry_aliases
 
 logger = logging.getLogger(__name__)
@@ -142,6 +144,7 @@ async def state_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
+    timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning chunks and a ``failure`` per failed call, then the validated result of the update call(s)."""
     result = StateStepResult()
@@ -182,16 +185,23 @@ async def state_step(
 
         resp: CompletionMessage = {}
         try:
-            async for event in base.complete_into(
-                client,
-                resp,
-                label="update_state",
-                trailing=trailing,
-                tool_choice=UPDATE_STATE_CHOICE,
-                kv_tracker=kv_tracker,
-                json_schema=live_schema["function"]["parameters"],
-                **hyperparams,
-                **reasoning_cfg(reasoning_on, reasoning_prefill),
+            async for event in timed_events(
+                base.complete_into(
+                    client,
+                    resp,
+                    label="update_state",
+                    trailing=trailing,
+                    tool_choice=UPDATE_STATE_CHOICE,
+                    kv_tracker=kv_tracker,
+                    json_schema=live_schema["function"]["parameters"],
+                    **hyperparams,
+                    **reasoning_cfg(reasoning_on, reasoning_prefill),
+                ),
+                timing_entries,
+                "editor" if placement == "after_reply" else "director",
+                group[0].label if per_fragment_on else "State updates (combined)",
+                fragment_id=group[0].id if per_fragment_on else "",
+                stopped=lambda: client.is_aborted,
             ):
                 yield event
         except Exception as exc:

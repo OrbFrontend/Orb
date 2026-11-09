@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, get_args, get_type_hints
 
 from ..core.llm_types import ParsedToolCall
-from ..database.models import WorldChangesetRow
+from ..database.models import GenerationTimingRow, WorldChangesetRow
 from ..workflows.contracts import public_event_error
 
 if TYPE_CHECKING:
@@ -78,6 +78,16 @@ class DirectorData(TypedDict):
     agent_latency_ms: int
     extra_fields: dict[str, Any]
     fragment_cooldowns: dict[str, int]
+
+
+class LatencyData(TypedDict):
+    agent_latency_ms: int
+    latency_breakdown: list[GenerationTimingRow]
+
+
+class LatencyEvent(TypedDict):
+    event: Literal["latency"]
+    data: LatencyData
 
 
 class EditorData(TypedDict):
@@ -282,6 +292,7 @@ CoreTurnEvent = (
     | WriterDoneEvent
     | UserMessageEvent
     | DirectorDoneEvent
+    | LatencyEvent
     | EditorDoneEvent
     | FeedbackEvent
     | StateEvent

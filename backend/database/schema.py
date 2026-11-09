@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     -- The injection block with the mood prompts left out, for the Inspector.
     injection_block_without_moods TEXT,
     agent_latency_ms INTEGER,
+    latency_breakdown TEXT,
     created_at TEXT NOT NULL,
     message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     reasoning_director TEXT,

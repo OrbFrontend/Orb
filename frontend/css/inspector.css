@@ -70,6 +70,22 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .inspect-chip.warn { color: var(--dec-warn, #c8a84b); border-color: currentColor; }
 .inspect-chip.danger { color: var(--red); border-color: var(--red); }
 
+/* ── Latency: readable on narrow panels and in-chat replies ── */
+
+.latency-breakdown { display: grid; gap: 6px; max-width: 480px; }
+.latency-group-head, .latency-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline; gap: 12px; padding: 3px 8px; font-size: 11px; line-height: 1.5; }
+.latency-group-head { font-weight: 600; color: var(--text-secondary); }
+.latency-group-total, .latency-row dd { font-family: var(--font-mono); text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-primary); }
+.latency-total-label { font-family: var(--font-ui); font-size: 10px; font-weight: 400; color: var(--text-muted); }
+.latency-rows { margin: 0; }
+.latency-row { color: var(--text-secondary); border-radius: 3px; }
+.latency-row:nth-child(odd) { background: var(--bg-hover); }
+.latency-row dt { min-width: 0; overflow-wrap: anywhere; }
+.latency-row dd { margin: 0; }
+.latency-status { display: block; margin-top: 2px; font-size: 10px; color: var(--text-muted); }
+
 /* ── Reasoning ── */
 
 .reasoning-stepper { display: flex; align-items: flex-start; }
@@ -158,10 +174,9 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .msg-inspect[open] > summary .msg-inspect-chips { display: none; }
 .msg-inspect-chips .inspect-chip { overflow: clip; text-overflow: ellipsis; max-width: 24ch; }
 
-/* Short sections share a row; latency keeps its width; collapsibles take a full row. */
+/* Short sections share a row; collapsible sections take a full row. */
 .msg-inspect-body { display: flex; flex-wrap: wrap; gap: 16px 24px; padding: 4px 12px 10px; }
 .msg-inspect-body > .inspector-block { flex: 1 1 240px; min-width: 0; margin: 0; }
-.msg-inspect-body > .inspector-latency { flex: 0 0 auto; }
 .msg-inspect-body > details.inspector-block { flex-basis: 100%; }
 .msg-reasoning-body { padding: 0 12px 8px; }
 

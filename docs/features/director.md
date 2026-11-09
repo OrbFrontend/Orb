@@ -76,6 +76,15 @@ has a tab for each pass that wrote some; the **Inspector** block under it holds
 moods, agent latency, decisions, feedback, state changes, tool calls and the
 injection block. Empty sections and empty blocks are left out.
 
+**Agent Latency** expands into grouped timings for Director fragments, lorebook
+selection and update proposals, Writer, and Editor steps and fragments. Individual
+fragment mode shows each Director fragment; a combined call shares one timing.
+Editor fragment timings include their gate checks, with skipped, stopped, or
+failed steps labeled. The collapsed section keeps the total visible. The
+breakdown uses the full in-chat panel width, wraps long fragment names, and
+aligns durations on the right. Older replies keep their saved total and explain
+when no breakdown is available.
+
 A collapsed Inspector block keeps a summary line of active moods and decision
 outcomes. Opening or collapsing a block or section applies to every reply and to
 the panel, and is saved; the Reasoning block opens apart from the panel's

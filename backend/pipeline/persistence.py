@@ -17,6 +17,7 @@ from .events import HookEvent, PipelineEvent, PublicTurnEvent, WorldChangeData
 from .failures import STAGE_SAVE, mark_stage
 from .state import TurnState
 from .subject_tags import tag_saved_reply
+from .timing import latency_event
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ def conversation_log_writer(conversation_id: str, log_turn_index: int) -> Result
     """
 
     async def _on_result(res: TurnState, asst_id: int | None) -> None:
+        latency_event(res)
         await db.add_conversation_log(
             conversation_id,
             log_turn_index,
@@ -42,6 +44,7 @@ def conversation_log_writer(conversation_id: str, log_turn_index: int) -> Result
             res.inj_block,
             res.latency,
             message_id=asst_id,
+            latency_breakdown=res.latency_breakdown,
             injection_without_moods=res.inj_block_without_moods,
             reasoning_director=res.reasoning_director,
             reasoning_writer=res.reasoning_writer,

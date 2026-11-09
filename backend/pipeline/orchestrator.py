@@ -30,6 +30,7 @@ from .passes.state import StateContract, StateStepResult, offered_state_ids, sta
 from .passes.writer import strip_speaker_label, writer_stage
 from .sheet_update import sheet_update_stage
 from .state import BranchBaseline, LorebookTurn, PipelineConfig, SheetUpdateTurn, TurnState, WorldProposalTurn
+from .timing import latency_event
 from .workflow_bridge import PostPipelineResult, run_post_pipeline
 from .world_proposal import world_proposal_stage
 
@@ -223,6 +224,9 @@ async def run_pipeline(
     # billed calls produced -- the Director record, decisions, cooldowns, the before-Writer state changes, and the latest
     # authoritative draft. Internal, like ``_result``: consumed by persistence and never sent to the browser.
     yield {"event": "_turn_state", "data": state}
+    if not run_director:
+        # A group speaker starts from the shared Director, not the previous speaker's completed timings.
+        yield latency_event(state)
 
     async for ev in staged(
         STAGE_WRITER,
@@ -486,6 +490,7 @@ async def _after_reply_state_stage(
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
             reasoning_prefill=cfg.editor_reasoning_prefill,
+            timing_entries=state.latency_breakdown,
         ),
     ):
         if ev["type"] == "reasoning":
@@ -497,3 +502,4 @@ async def _after_reply_state_stage(
             apply_state_step_result(state, step_result, contract)
             if step_result.events or step_result.rejections:
                 yield {"event": "state", "data": state_event_payload(state)}
+    yield latency_event(state)

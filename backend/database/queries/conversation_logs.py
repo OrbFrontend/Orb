@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import get_db, select_rows
-from ..models import ConversationLogRow
+from ..models import ConversationLogRow, GenerationTimingRow
 
 
 async def add_conversation_log(
@@ -23,11 +23,12 @@ async def add_conversation_log(
     feedback: dict | None = None,
     state_report: dict | None = None,
     injection_without_moods: str | None = None,
+    latency_breakdown: list[GenerationTimingRow] | None = None,
 ):
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, injection_block_without_moods, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, state_report) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, injection_block_without_moods, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, state_report, latency_breakdown) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cid,
                 turn_index,
@@ -43,6 +44,7 @@ async def add_conversation_log(
                 reasoning_editor,
                 json.dumps(feedback or {}),
                 json.dumps(state_report or {}, ensure_ascii=False),
+                json.dumps(latency_breakdown or [], ensure_ascii=False),
             ),
         )
         await db.commit()
@@ -70,6 +72,11 @@ def _decoded_log(row) -> dict:
     except ValueError:
         report = {}
     d["state_report"] = report if isinstance(report, dict) else {}
+    try:
+        timings = json.loads(d["latency_breakdown"]) if d.get("latency_breakdown") else []
+    except ValueError:
+        timings = []
+    d["latency_breakdown"] = timings if isinstance(timings, list) else []
     raw_decisions = d.pop("message_decision_evaluations", None)
     try:
         decoded = json.loads(raw_decisions) if raw_decisions else {}

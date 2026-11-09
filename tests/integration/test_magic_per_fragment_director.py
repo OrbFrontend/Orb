@@ -84,3 +84,8 @@ async def test_magic_rewrite_drives_the_per_fragment_director(client, llm_mock):
 
     # The user's direction reached every per-fragment director prompt.
     assert _DIRECTION in json.dumps(director_calls, default=str)
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{sibling['id']}/director-log")
+    director_timings = [row for row in log["latency_breakdown"] if row["phase"] == "director"]
+    assert len(director_timings) == len(director_calls)
+    assert {row["fragment_id"] for row in director_timings} >= {"test_pacing", "moods"}
+    assert all(row["status"] == "completed" for row in director_timings)

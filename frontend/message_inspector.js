@@ -27,6 +27,7 @@ const OPEN_STATE_FIELDS = {
   tool_calls: "toolCallsOpen",
   injection_block: "injectionBlockOpen",
   context_size: "contextSizeOpen",
+  latency: "latencyOpen",
   decisions: "decisionsOpen",
   feedback: "feedbackOpen",
   state_changes: "stateChangesOpen",
@@ -104,6 +105,7 @@ function turnView(msgId, data, resting, rest) {
     toolCalls: data?.tool_calls || [],
     injection: shownInjection(data),
     latency: data?.agent_latency_ms || 0,
+    latencyBreakdown: data?.latency_breakdown || [],
     ...rest,
   };
 }
@@ -252,12 +254,47 @@ export function injectionHtml(injection) {
   return injection ? rawSectionHtml("injection_block", "Injection Block", injection) : "";
 }
 
-export function latencyHtml(latency) {
-  if (!latency) return "";
+function latencyTime(ms) {
+  return ms < 1000
+    ? `${ms.toLocaleString()} ms`
+    : `${(ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} s`;
+}
+
+export function latencyHtml(latency, breakdown = []) {
+  const entries = (Array.isArray(breakdown) ? breakdown : []).filter(
+    (entry) => entry && typeof entry.label === "string" && Number.isFinite(entry.elapsed_ms) && entry.elapsed_ms >= 0,
+  );
+  if (!latency && !entries.length) return "";
+  const phases = { director: "Director", lorebook: "Lorebook", writer: "Writer", editor: "Editor" };
+  const groups = new Map();
+  for (const entry of entries) {
+    const phase = phases[entry.phase] || "Other steps";
+    if (!groups.has(phase)) groups.set(phase, []);
+    groups.get(phase).push(entry);
+  }
+  const statusLabels = { failed: "Failed", stopped: "Stopped", skipped: "Skipped by gate" };
+  const body = [...groups]
+    .map(([phase, rows]) => {
+      const total = rows.reduce((sum, entry) => sum + entry.elapsed_ms, 0);
+      const heading = `<div class="latency-group-head"><span>${phase}</span><span class="latency-group-total"><span class="latency-total-label">Total</span> ${latencyTime(total)}</span></div>`;
+      const items = rows
+        .map((entry) => {
+          const status = statusLabels[entry.status];
+          return `<div class="latency-row"><dt>${esc(entry.label)}${status ? `<span class="latency-status">${status}</span>` : ""}</dt><dd>${latencyTime(entry.elapsed_ms)}</dd></div>`;
+        })
+        .join("");
+      return `<div class="latency-group">${heading}<dl class="latency-rows">${items}</dl></div>`;
+    })
+    .join("");
   return sectionHtml({
+    key: "latency",
+    open: isOpen("latency"),
     title: "Agent Latency",
-    meta: `${latency.toLocaleString()} ms`,
+    meta: latencyTime(latency),
     className: "inspector-latency",
+    body: body
+      ? `<div class="latency-breakdown">${body}</div>`
+      : '<div class="inspect-empty">No timing breakdown was recorded for this reply.</div>',
   });
 }
 
@@ -301,10 +338,10 @@ export function reasoningBlockHtml(view) {
 /** A reply's Inspector block, or "" when none of its sections has anything to show. */
 export function inspectorBlockHtml(view) {
   const stored = !view.live;
-  // The panel's order, except latency: it is short, so it shares the first row with the moods.
+  // Keep latency near the top so the breakdown is easy to reach in a reply.
   const sections = [
     moodsHtml(view.moods),
-    latencyHtml(view.latency),
+    latencyHtml(view.latency, view.latencyBreakdown),
     decisionsHtml(view.decisions, { stored }),
     buildFeedbackHtml(view.feedback),
     buildStateHtml(view.state),

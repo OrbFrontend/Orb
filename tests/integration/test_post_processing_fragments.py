@@ -123,6 +123,25 @@ async def test_ordered_fragments_edit_before_feedback_workflow_and_persistence(c
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Hey, friend."
     assert assistant["writer_draft"] == "Hey, friend."
+    snapshot = [e["data"] for e in events if e["event"] == "latency"][-1]
+    rows = snapshot["latency_breakdown"]
+    assert [(r["phase"], r.get("fragment_id")) for r in rows] == [
+        ("director", None),
+        ("writer", None),
+        ("editor", "first_edit"),
+        ("editor", "second_edit"),
+        ("editor", None),
+    ]
+    assert snapshot["agent_latency_ms"] == sum(r["elapsed_ms"] for r in rows)
+    assert all(r["status"] == "completed" and r["elapsed_ms"] >= 0 for r in rows)
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{assistant['id']}/director-log")
+    assert log["latency_breakdown"] == rows
+    assert log["agent_latency_ms"] == snapshot["agent_latency_ms"]
+    # Snapshots published before the Editor must not acquire its later rows.
+    assert [r["phase"] for r in [e["data"] for e in events if e["event"] == "latency"][-2]["latency_breakdown"]] == [
+        "director",
+        "writer",
+    ]
 
 
 async def test_post_processing_is_skipped_when_agent_is_off(client, llm_mock):
@@ -219,6 +238,12 @@ async def test_abort_stops_remaining_fragments_feedback_and_workflows(client, ll
     assert not [event for event in events if event.get("event") == "writer_rewrite"]
     assistant = [message for message in await dbmod.get_messages(cid) if message["role"] == "assistant"][-1]
     assert assistant["content"] == "Original."
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{assistant['id']}/director-log")
+    assert [(r.get("fragment_id"), r["status"]) for r in log["latency_breakdown"]] == [
+        (None, "completed"),
+        (None, "completed"),
+        ("first_abort", "stopped"),
+    ]
 
 
 def test_upgrade_migration_seeds_humanize_dialogue_once():
@@ -425,6 +450,17 @@ async def test_each_group_reply_is_gated_on_its_own_draft(client, llm_mock, monk
     assert [[call["name"] for call in data["tool_calls"]] for data in done] == [["post_processing_gate"]] * 2  # type: ignore[index]
     replies = [message for message in await dbmod.get_messages(conv["id"]) if message["role"] == "assistant"]
     assert [reply["content"] for reply in replies] == ["I found tracks.", "The ward is broken."]
+    speaker_snapshots = []
+    for name, data in _sse_events(response.text):
+        if name == "speaker_start":
+            speaker_snapshots = []
+        elif name == "latency":
+            speaker_snapshots.append(data)
+        elif name == "speaker_done":
+            # The in-chat Inspector must not show the previous speaker's Writer or Editor times.
+            assert all(row["phase"] == "director" for row in speaker_snapshots[0]["latency_breakdown"])
+            assert len([row for row in speaker_snapshots[-1]["latency_breakdown"] if row["phase"] == "writer"]) == 1
     for reply in replies:
         log = await _director_log(client, conv["id"], reply["id"])
         assert [record["reason"] for record in _gate_records(log["tool_calls"])] == ["condition_not_met"]
+        assert next(row for row in log["latency_breakdown"] if row.get("fragment_id") == "trim")["status"] == "skipped"

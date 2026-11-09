@@ -15,9 +15,11 @@ from ....analysis.text.markup import narration_mask
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
+from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, DecisionCancelled, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting.tool_schemas import EDITOR_FIND_REPLACE_CHOICE
 from ...subject_tags import TaggedReply, tag_text
+from ...timing import measure_step
 from ..judge import JudgeConfig
 from .gate import GATE_BUDGET_SECONDS, gate_question, judge_gate
 from .prompts import build_post_processing_prompt, build_subject_fixation_prompt
@@ -153,6 +155,7 @@ async def post_processing_step(
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
+    timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
     """Run one forced exact-edit call per fragment in ``sort_order``.
 
@@ -172,67 +175,76 @@ async def post_processing_step(
         if client.is_aborted:
             break
 
-        if gate_question(fragment):
-            started = time.monotonic()
+        with measure_step(
+            timing_entries,
+            "editor",
+            fragment.get("label") or fragment.get("injection_label") or fragment["id"],
+            fragment_id=fragment["id"],
+            stopped=lambda: client.is_aborted,
+        ) as timing:
+            if gate_question(fragment):
+                started = time.monotonic()
+                try:
+                    record = await judge_gate(
+                        judge_config,
+                        fragment,
+                        effective_msg=effective_msg,
+                        draft=current,
+                        timeout_seconds=judge_allowance,
+                        recent_replies=recent_replies,
+                        abort=client.abort_token,
+                    )
+                except DecisionCancelled:
+                    break
+                finally:
+                    judge_allowance = max(0.0, judge_allowance - (time.monotonic() - started))
+                all_calls.append(record)
+                if client.is_aborted:
+                    break
+                if not record["arguments"]["fired"]:
+                    timing["status"] = "skipped"
+                    logger.info("Post-processing fragment %r skipped by its gate", fragment.get("id", ""))
+                    continue
+
+            resp: CompletionMessage = {}
             try:
-                record = await judge_gate(
-                    judge_config,
-                    fragment,
-                    effective_msg=effective_msg,
-                    draft=current,
-                    timeout_seconds=judge_allowance,
-                    recent_replies=recent_replies,
-                    abort=client.abort_token,
-                )
-            except DecisionCancelled:
-                break
-            finally:
-                judge_allowance = max(0.0, judge_allowance - (time.monotonic() - started))
-            all_calls.append(record)
+                async for event in _find_replace_call(
+                    client,
+                    base,
+                    resp,
+                    current,
+                    build_post_processing_prompt(fragment, draft=current, reasoning_on=reasoning_on),
+                    settings,
+                    writer_user_msg=writer_user_msg,
+                    kv_tracker=kv_tracker,
+                    reasoning_on=reasoning_on,
+                    reasoning_prefill=reasoning_prefill,
+                ):
+                    yield event
+            except Exception as exc:
+                timing["status"] = "failed"
+                logger.exception("Post-processing fragment %r failed; skipping it", fragment.get("id", ""))
+                label = fragment.get("label") or fragment.get("id", "")
+                yield {"type": "failure", "during": "post_processing", "label": label, "error": exc}
+                continue
+            # A stop cuts the call short; its edits may be half-written, so the
+            # draft keeps the earlier fragments' finished edits only.
             if client.is_aborted:
                 break
-            if not record["arguments"]["fired"]:
-                logger.info("Post-processing fragment %r skipped by its gate", fragment.get("id", ""))
-                continue
 
-        resp: CompletionMessage = {}
-        try:
-            async for event in _find_replace_call(
-                client,
-                base,
-                resp,
-                current,
-                build_post_processing_prompt(fragment, draft=current, reasoning_on=reasoning_on),
-                settings,
-                writer_user_msg=writer_user_msg,
-                kv_tracker=kv_tracker,
-                reasoning_on=reasoning_on,
-                reasoning_prefill=reasoning_prefill,
-            ):
-                yield event
-        except Exception as exc:
-            logger.exception("Post-processing fragment %r failed; skipping it", fragment.get("id", ""))
-            label = fragment.get("label") or fragment.get("id", "")
-            yield {"type": "failure", "during": "post_processing", "label": label, "error": exc}
-            continue
-        # A stop cuts the call short; its edits may be half-written, so the
-        # draft keeps the earlier fragments' finished edits only.
-        if client.is_aborted:
-            break
+            parsed = parse_tool_calls(resp)
+            all_calls.extend(parsed)
+            before = current
+            current = _apply_find_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
+            if current != before:
+                yield {"type": "draft_update", "draft": current}
 
-        parsed = parse_tool_calls(resp)
-        all_calls.extend(parsed)
-        before = current
-        current = _apply_find_replace_calls(current, parsed, label=fragment.get("label") or fragment.get("id", ""))
-        if current != before:
-            yield {"type": "draft_update", "draft": current}
-
-        logger.info(
-            "Post-processing fragment %r completed (changed=%s): %s",
-            fragment.get("id", ""),
-            current != before,
-            json.dumps(resp, default=str),
-        )
+            logger.info(
+                "Post-processing fragment %r completed (changed=%s): %s",
+                fragment.get("id", ""),
+                current != before,
+                json.dumps(resp, default=str),
+            )
 
     yield {"type": "done", "result": PostProcessingResult(draft=current, tool_calls=all_calls)}
 
