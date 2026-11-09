@@ -72,16 +72,19 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 
 /* ── Latency: readable on narrow panels and in-chat replies ── */
 
-.latency-breakdown { display: grid; gap: 12px; }
-.latency-group-head, .latency-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.latency-group-head { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
-.latency-group-head > :last-child, .latency-row dd { flex-shrink: 0; font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums; white-space: nowrap; }
-.latency-rows { margin: 4px 0 0; }
-.latency-row { padding: 4px 0 4px 10px; border-left: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.latency-breakdown { display: grid; gap: 12px; max-width: 480px; }
+.latency-group-head, .latency-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline; gap: 12px; padding: 6px 8px; font-size: 11px; line-height: 1.5; }
+.latency-group-head { font-weight: 600; color: var(--text-secondary); }
+.latency-group-total, .latency-row dd { font-family: var(--font-mono); text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-primary); }
+.latency-total-label { font-family: var(--font-ui); font-size: 10px; font-weight: 400; color: var(--text-muted); }
+.latency-rows { margin: 2px 0 0; }
+.latency-row { color: var(--text-secondary); border-radius: 3px; }
+.latency-row:nth-child(odd) { background: var(--bg-hover); }
 .latency-row dt { min-width: 0; overflow-wrap: anywhere; }
-.latency-row dd { margin: 0; color: var(--text-muted); }
-.latency-status { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--text-muted); }
+.latency-row dd { margin: 0; }
+.latency-status { display: block; margin-top: 2px; font-size: 10px; color: var(--text-muted); }
 .latency-note { margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 
 /* ── Reasoning ── */

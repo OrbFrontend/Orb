@@ -253,7 +253,7 @@ test("the streamed reply's boxes reopen where they were once its stored copy lan
 });
 
 
-test("latency expands into grouped timings with wrapped labels and aligned durations", () => {
+test("latency uses the same labeled rows for every phase and distinguishes phase totals", () => {
   S.latencyOpen = true;
   const html = inspectorBlockHtml(view({ agent_latency_ms: 2925, latency_breakdown: [
     { phase: "director", label: "Pacing <script>", fragment_id: "pace", elapsed_ms: 750, status: "completed" },
@@ -269,10 +269,15 @@ test("latency expands into grouped timings with wrapped labels and aligned durat
   assert.equal(section.querySelector(".inspector-meta").textContent, "2.93 s");
   assert.equal(section.querySelector("script"), null);
   assert.match(section.textContent, /Pacing <script>/);
-  assert.deepEqual([...section.querySelectorAll(".latency-row dd")].map(row => row.textContent), ["750 ms", "125 ms", "50 ms", "500 ms"]);
-  assert.match(section.textContent, /Editor550 ms/);
-  assert.match(section.textContent, /Skipped by gate/);
-  assert.match(section.textContent, /Failed/);
+  const groups = [...section.querySelectorAll(".latency-group")];
+  assert.deepEqual(groups.map(group => group.querySelector(".latency-group-head").textContent), [
+    "DirectorTotal 750 ms", "LorebookTotal 125 ms", "WriterTotal 1.5 s", "EditorTotal 550 ms",
+  ]);
+  const rows = [...section.querySelectorAll(".latency-row")];
+  assert.deepEqual(rows.map(row => [row.querySelector("dt").textContent, row.querySelector("dd").textContent]), [
+    ["Pacing <script>", "750 ms"], ["Selection", "125 ms"], ["Writer", "1.5 s"],
+    ["TrimSkipped by gate", "50 ms"], ["PolishFailed", "500 ms"],
+  ]);
 });
 
 test("old replies retain an expandable total with an explanation of missing timings", () => {

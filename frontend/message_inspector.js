@@ -276,8 +276,7 @@ export function latencyHtml(latency, breakdown = []) {
   const body = [...groups]
     .map(([phase, rows]) => {
       const total = rows.reduce((sum, entry) => sum + entry.elapsed_ms, 0);
-      const heading = `<div class="latency-group-head"><span>${phase}</span><span>${latencyTime(total)}</span></div>`;
-      if (rows.length === 1 && rows[0].label === phase && rows[0].status === "completed") return heading;
+      const heading = `<div class="latency-group-head"><span>${phase}</span><span class="latency-group-total"><span class="latency-total-label">Total</span> ${latencyTime(total)}</span></div>`;
       const items = rows
         .map((entry) => {
           const status = statusLabels[entry.status];
