@@ -2,7 +2,7 @@
 
 import pytest
 
-from backend.database import create_lorebook_entry, create_world, update_settings
+from backend.database import create_lorebook_entry, create_world, get_messages, update_settings
 
 
 async def _scene(client, kind):
@@ -68,6 +68,11 @@ async def test_agent_picks_replace_keyword_activation(client, llm_mock, kind, se
     assert "The city lies beyond the volcano." not in tail
     assert "The moon is shattered." in writer["messages"][0]["content"]
     assert "Append a health bar." in tail
+    reply = [row for row in await get_messages(cid) if row["role"] == "assistant"][-1]
+    log = await client.get_json(f"/api/conversations/{cid}/messages/{reply['id']}/director-log")
+    selection_row = next(row for row in log["latency_breakdown"] if row["phase"] == "lorebook")
+    assert selection_row["label"] == "Selection"
+    assert selection_row["status"] == ("failed" if selection == "failed" else "completed")
 
 
 @pytest.mark.parametrize("settings", [{"agentic_lorebook_enabled": 0}, {"agentic_lorebook_enabled": 1, "enable_agent": 0}])

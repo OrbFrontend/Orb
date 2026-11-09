@@ -432,7 +432,7 @@ function currentMoodsHtml() {
   return moodsHtml(moodsOf(data, resting), { showNone: true });
 }
 
-function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateChanges }) {
+function _renderDirectorPanel({ latency, latencyBreakdown, toolCalls, injection, feedback, stateChanges }) {
   withReasoningScroll(() => {
     $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
@@ -443,7 +443,7 @@ function _renderDirectorPanel({ latency, toolCalls, injection, feedback, stateCh
       ${buildStateHtml(stateChanges)}
       ${toolCallsHtml(toolCalls)}
       ${injectionHtml(injection)}
-      ${latencyHtml(latency)}`;
+      ${latencyHtml(latency, latencyBreakdown)}`;
   });
   renderContextSize();
 }
@@ -481,6 +481,7 @@ function _renderInspectorMain() {
     const data = insp || {};
     _renderDirectorPanel({
       latency: data.agent_latency_ms || 0,
+      latencyBreakdown: data.latency_breakdown,
       toolCalls: data.tool_calls || [],
       injection: shownInjection(data),
       feedback: data.feedback,
@@ -512,6 +513,7 @@ function _renderInspectorMain() {
   const ld = S.lastDirectorData || {};
   _renderDirectorPanel({
     latency: ld.agent_latency_ms || 0,
+    latencyBreakdown: ld.latency_breakdown,
     toolCalls: ld.tool_calls || [],
     injection: shownInjection(ld),
     feedback: S.lastFeedback?.values,

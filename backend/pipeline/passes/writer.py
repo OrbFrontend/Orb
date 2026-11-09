@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +23,7 @@ from ...core.settings import Settings
 from ...inference import CachedBase, KVCacheTracker, LLMClient, reasoning_cfg
 from ...prompting import member_macros, tail_carries_identity
 from ..events import CoreTurnEvent
+from ..timing import latency_event, timed_events
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
@@ -176,7 +176,7 @@ async def writer_stage(
 
     Builds ``state.writer_content`` once (replayed verbatim by the editor to extend the writer's KV-cached prefix), runs
     :func:`writer_pass` translating ``content``->``token`` and ``reasoning``->``reasoning`` events, and accumulates the writer's
-    wall time into ``state.latency``.
+    wall time into the Inspector breakdown.
     """
     yield {"event": "step_start", "data": {"step": "writer"}}
     # Probe only the message shape that chooses the transport. The final text cannot affect that choice; images in the frozen
@@ -199,21 +199,26 @@ async def writer_stage(
         prevent_prompt_overrides=bool(settings.get("prevent_prompt_overrides")),
         context_mode=context_mode,
     )
-    writer_t0 = time.monotonic()
     label_buffer = ""
     label_pending = speaker is not None
     # Long names are intentionally supported. Markdown wrappers, a heading,
     # punctuation and a newline fit inside this name-derived gate.
     label_buffer_bound = len(speaker.name) + 32 if speaker is not None else 0
 
-    async for item in writer_pass(
-        cfg.writer_lane.client,
-        cfg.writer_lane.base,
-        settings,
-        state.writer_content,
-        kv_tracker=kv_tracker,
-        reasoning_on=cfg.writer_reasoning_on,
-        reasoning_prefill=cfg.writer_reasoning_prefill,
+    async for item in timed_events(
+        writer_pass(
+            cfg.writer_lane.client,
+            cfg.writer_lane.base,
+            settings,
+            state.writer_content,
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.writer_reasoning_on,
+            reasoning_prefill=cfg.writer_reasoning_prefill,
+        ),
+        state.latency_breakdown,
+        "writer",
+        "Writer",
+        stopped=lambda: cfg.writer_lane.client.is_aborted,
     ):
         if item["type"] == "reasoning":
             yield {"event": "reasoning", "data": {"pass": "writer", "delta": state.add_reasoning("writer", item)}}
@@ -239,5 +244,4 @@ async def writer_stage(
     # Freeze inline macros before any post-writer pass sees the prose. Resolving a raw {{random}} again later could silently
     # change the Editor's input or the pre-rewriter draft retained after editing.
     state.resp_text = resolve_inline(state.resp_text)
-    # agent_latency_ms is the whole turn's wall time; accumulate the writer's span here (director + editor add their own).
-    state.latency += int((time.monotonic() - writer_t0) * 1000)
+    yield latency_event(state)

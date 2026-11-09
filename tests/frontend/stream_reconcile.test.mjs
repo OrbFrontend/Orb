@@ -178,6 +178,7 @@ it("done and error are terminal; group, shared and custom progress cannot confir
     ["draft_update", { draft: "cosmetic preview" }],
     ["writer_rewrite", { refined_text: "authoritative, awaiting persistence" }],
     ["warning", { headline: "Optional work declined" }],
+    ["latency", { agent_latency_ms: 50, latency_breakdown: [] }],
     ["custom_done", {}],
   ]) {
     const response = new Response(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -556,6 +557,25 @@ it("two conversations keep independent buffers, reasoning, drafts, and targeted 
   assert.equal(conversationState('parallel-a').streamingContent, 'A only');
   assert.equal(S.streamingContent, 'B only');
   assert.equal(S.generationStep, 'Writing the reply…');
+  const background = conversationState('parallel-a');
+  background.lastDirectorData = { injection_block: 'A direction', tool_calls: [{ name: 'direct_scene' }] };
+  S.lastDirectorData = { injection_block: 'B direction', tool_calls: [{ name: 'direct_scene' }] };
+  const beforeBackgroundTiming = document.getElementById('inspector-content').innerHTML;
+  send('parallel-a', 'latency', { agent_latency_ms: 100, latency_breakdown: [
+    { phase: 'writer', label: 'Writer', elapsed_ms: 100, status: 'completed' },
+  ] });
+  await waitState(() => background.lastDirectorData.agent_latency_ms === 100);
+  assert.equal(S.lastDirectorData.agent_latency_ms, undefined);
+  assert.equal(document.getElementById('inspector-content').innerHTML, beforeBackgroundTiming);
+  assert.equal(background.lastDirectorData.injection_block, 'A direction');
+  assert.deepEqual(background.lastDirectorData.tool_calls, [{ name: 'direct_scene' }]);
+  send('parallel-b', 'latency', { agent_latency_ms: 200, latency_breakdown: [
+    { phase: 'writer', label: 'Writer', elapsed_ms: 200, status: 'completed' },
+  ] });
+  await waitState(() => S.lastDirectorData.agent_latency_ms === 200);
+  assert.equal(S.lastDirectorData.injection_block, 'B direction');
+  assert.deepEqual(S.lastDirectorData.tool_calls, [{ name: 'direct_scene' }]);
+  assert.equal(background.lastDirectorData.agent_latency_ms, 100);
   assert.equal(conversationState('parallel-a').draft, 'parallel-a draft');
   assert.equal(S.draft, undefined); // drafts live on retained conversation state
   S.activeConvId = 'parallel-a';
@@ -613,4 +633,47 @@ it("a completed card projection repaints the live reply without another token", 
   pending[0]();
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(S.streamingBodyEl.textContent, "visible");
+});
+
+
+it("a latency SSE snapshot repaints the in-chat Inspector without another token", async (t) => {
+  const previous = {
+    convId: S.activeConvId,
+    documentMode: S.documentMode,
+    inline: S.settings.inspector_inline,
+    expression: S.settings.expression_rendering,
+    latencyOpen: S.latencyOpen,
+  };
+  S.activeConvId = "latency-stream-view";
+  S.documentMode = false;
+  S.settings.inspector_inline = true;
+  S.settings.expression_rendering = "classic";
+  S.latencyOpen = true;
+  S.inspectedMsgId = null;
+  S.messages = [structuredClone(USER)];
+  S.lastDirectorData = { injection_block: "Scene direction", tool_calls: [{ name: "direct_scene" }] };
+  stream.setStreaming(true);
+  const container = document.getElementById("chat-messages");
+  const bubble = stream.createStreamingDiv();
+  container.replaceChildren(bubble);
+  t.after(() => {
+    stream.setStreaming(false);
+    S.streamingBodyEl = null;
+    bubble.remove();
+    S.activeConvId = previous.convId;
+    S.documentMode = previous.documentMode;
+    S.settings.inspector_inline = previous.inline;
+    S.settings.expression_rendering = previous.expression;
+    S.latencyOpen = previous.latencyOpen;
+  });
+  const snapshot = { agent_latency_ms: 1234, latency_breakdown: [
+    { phase: "writer", label: "Writer", elapsed_ms: 1234, status: "completed" },
+  ] };
+  await stream.processSSEStream(new Response(`event: latency\ndata: ${JSON.stringify(snapshot)}\n\nevent: done\ndata: {}\n\n`), container, { el: bubble });
+  const section = bubble.querySelector('.msg-inspect-live [data-inspect-section="latency"]');
+  assert.ok(section, "a timing event must paint the live Inspector even without a token");
+  assert.equal(section.querySelector(".inspector-meta").textContent, "1.23 s");
+  assert.match(section.textContent, /Writer/);
+  assert.equal(S.lastDirectorData.injection_block, "Scene direction");
+  assert.deepEqual(S.lastDirectorData.latency_breakdown, snapshot.latency_breakdown);
 });

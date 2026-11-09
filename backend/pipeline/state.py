@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 
 from ..core import ChatMessage, ContentPart, Macros, StateView, joined_delta
 from ..core.llm_types import ParsedToolCall
-from ..database.models import DirectorStateRow
+from ..database.models import DirectorStateRow, GenerationTimingRow
 from ..inference import CachedBase, LLMClient
 from ..prompting.lorebook import compute_agentic_lorebook_block
 from .passes.editor.length_guard import LengthGuard
@@ -77,6 +77,7 @@ class TurnResultData(TypedDict):
     agent_raw: str
     calls: list[ParsedToolCall]
     latency: int
+    latency_breakdown: list[GenerationTimingRow]
     effective_msg: str
     resp_text: str
     writer_draft: str
@@ -105,6 +106,7 @@ _DIRECTOR_SEED_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
+    "latency_breakdown",
     "extra_fields",
     "fragment_cooldowns",
     # Shared exchange decisions are copied to each speaker without advancing cooldowns again.
@@ -149,6 +151,7 @@ class TurnState:
     agent_raw: str = ""
     calls: list[ParsedToolCall] = field(default_factory=list)
     latency: int = 0
+    latency_breakdown: list[GenerationTimingRow] = field(default_factory=list)
     extra_fields: dict = field(default_factory=dict)
     fragment_cooldowns: dict[str, int] = field(default_factory=dict)
     # Persisted decision record, cooldown snapshot, and the guidance each pass receives.
@@ -214,6 +217,7 @@ class TurnState:
             "agent_raw": self.agent_raw,
             "calls": self.calls,
             "latency": self.latency,
+            "latency_breakdown": self.latency_breakdown,
             "effective_msg": self.effective_msg,
             "resp_text": self.resp_text,
             "writer_draft": self.writer_draft,

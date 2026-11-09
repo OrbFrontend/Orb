@@ -39,6 +39,8 @@ async def test_batch_matches_single_reads(client, db):
     assert batch[str(a2)]["injection_block"] == "second block, retried"
     assert [c["text"] for c in batch[str(a2)]["state"]["changes"]] == ["5"]
     assert batch[str(u2)]["mood_data_available"] is False
+    assert batch[str(u2)]["latency_breakdown"] == []
+    assert batch[str(a1)]["latency_breakdown"] == []
 
 
 async def test_batch_leaves_out_foreign_and_unknown_ids(client, db):

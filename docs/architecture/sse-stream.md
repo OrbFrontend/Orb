@@ -85,6 +85,7 @@ pass being skipped.
 | `step_start` | `{step}` | Names the step that is starting: `judge`, `lorebook`, `state`, `writer`, `output_auditor`, `length_guard`, `subject_fixation`, `post_processing`, `feedback`, `world_changes`, or `sheet_updates`. |
 | `reasoning` | `{pass, delta}` | Adds thinking text to a pass's reasoning buffer. |
 | `director_done` | Director data | Updates the inspector. |
+| `latency` | `{agent_latency_ms, latency_breakdown}` | Replaces the Inspector timing snapshot after completed stages. Each row has `phase`, `label`, `elapsed_ms`, `status`, and an optional `fragment_id`. |
 | `token` | Text delta | Appends visible Writer output. |
 | `writer_done` | `{editor_will_run}` | Ends the Writer phase. |
 | `draft_update` | `{draft}` | Optional cosmetic Editor or Prose Rewriter progress update. The browser never keeps it as the reply. |
@@ -103,6 +104,19 @@ the rendered classifier state, question, criteria or the authored output map. Th
 Inspector reads those in full from the reply's director-log route, which keeps a
 16 KiB rendered state off a stream the client cannot skip. `skipped` entries carry
 no outcome at all — a skipped decision resolved to nothing.
+
+Timings measure non-overlapping generation steps with a monotonic clock: Director
+calls, lorebook selection and update proposals, Writer, Editor sub-steps and
+fragments, and state updates. A fragment gate is included in that fragment's
+time, including a gate that skips editing. Failed and stopped steps keep their
+elapsed time. Cancellation and explicit generator closure are reported as stopped,
+and a timing wrapper closes its source before recording the final duration.
+The total is the sum of recorded steps; prompt setup, secondary
+workflows, pre-turn decision judging, and persistence are outside this total.
+Combined fragment calls have one shared timing. Group replies inherit their
+exchange's shared Director timings and add their own subsequent steps. The same
+rows are persisted in `conversation_logs.latency_breakdown` and returned by both
+Inspector log routes. Older or cleaned logs return an empty breakdown.
 
 Each pass shares one reasoning buffer across repeated calls and sub-steps. The
 backend inserts one blank line at each call boundary in both the stream and the

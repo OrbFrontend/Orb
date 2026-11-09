@@ -626,6 +626,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             reasoning_editor=log.get("reasoning_editor") or "",
             feedback=log.get("feedback") or {},
             injection_without_moods=log.get("injection_block_without_moods"),
+            latency_breakdown=log.get("latency_breakdown") or [],
         )
 
     return await get_conversation(new_cid)
@@ -705,6 +706,7 @@ async def _director_log_payloads(cid: str, ids: Sequence[int]) -> dict[int, dict
             # None when it matches injection_block, or for turns logged before it was recorded.
             "injection_block_without_moods": log.get("injection_block_without_moods"),
             "agent_latency_ms": log.get("agent_latency_ms", 0),
+            "latency_breakdown": log.get("latency_breakdown") or [],
             "reasoning_director": log.get("reasoning_director") or "",
             "reasoning_writer": log.get("reasoning_writer") or "",
             "reasoning_editor": log.get("reasoning_editor") or "",

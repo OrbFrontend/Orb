@@ -140,7 +140,13 @@ async def test_checkpoint_duplicates_active_path(client, db):
     a1, _ = await dbmod.add_message(cid, "assistant", "hi there", 1, parent_id=u1)
     await dbmod.set_active_leaf(cid, a1)
     await dbmod.update_director_state(cid, ["tense"], keywords=["k"])
-    await dbmod.add_conversation_log(cid, 0, [], ["tense"], "inj block", 12, message_id=a1, feedback={})
+    timings = [
+        {"phase": "director", "label": "Pacing", "fragment_id": "pace", "elapsed_ms": 7, "status": "completed"},
+        {"phase": "writer", "label": "Writer", "elapsed_ms": 5, "status": "completed"},
+    ]
+    await dbmod.add_conversation_log(
+        cid, 0, [], ["tense"], "inj block", 12, message_id=a1, feedback={}, latency_breakdown=timings
+    )
     # State history on the path: an agent value on the reply, then a user revision.
     await dbmod.add_state_events(
         cid,
@@ -183,6 +189,11 @@ async def test_checkpoint_duplicates_active_path(client, db):
     log = await dbmod.get_director_log_for_message(msgs[1]["id"])
     assert log is not None
     assert log["injection_block"] == "inj block"
+    assert log["latency_breakdown"] == timings
+    assert log["agent_latency_ms"] == 12
+    copied_inspection = await client.get_json(f"/api/conversations/{new_cid}/messages/{msgs[1]['id']}/director-log")
+    assert copied_inspection["latency_breakdown"] == timings
+    assert copied_inspection["agent_latency_ms"] == 12
 
     # Source conversation is untouched.
     assert len(await client.get_json(f"/api/conversations/{cid}/messages")) == 2

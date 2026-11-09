@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from ....analysis import AuditReport, Target, build_targets, format_numbered_report, format_report, run_audit
 from ....analysis.detectors.subject_fixation import HISTORY_WINDOW
 from ....core.settings import Settings
+from ....database.models import GenerationTimingRow
 from ...events import CoreTurnEvent
 from ...failures import STAGE_EDITOR, step_failure_warning
 from ...subject_tags import TaggedReply, branch_tags, subjects_enabled
+from ...timing import latency_event, timed_events
 from ..judge import JudgeConfig
 from .feedback import FeedbackResult, feedback_step
 from .post_processing import PostProcessingResult, post_processing_active, post_processing_step, subject_fixation_step
@@ -156,6 +158,7 @@ async def editor_pass(
     post_processing_fragments: Sequence[Mapping[str, Any]] | None = None,
     judge_config: JudgeConfig | None = None,
     subject_history: Sequence[TaggedReply] | None = None,
+    timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
     """Run the audit/edit loop, the subject fixation edit, post-processing fragments, and feedback.
 
@@ -175,20 +178,30 @@ async def editor_pass(
         yield {"type": "step", "step": "length_guard"}
     done: dict = {"type": "done", "draft": None, "debug": "", "elapsed": 0}
     async for ev in _editor_events(
-        _run_edit_loop(
-            client,
-            base,
-            effective_msg,
-            draft,
-            settings,
-            phrase_bank,
-            audit_enabled,
-            length_guard,
-            writer_user_msg=writer_msg,
-            kv_tracker=kv_tracker,
-            reasoning_on=reasoning_on,
-            reasoning_prefill=reasoning_prefill,
-            audit_context_msgs=audit_context_msgs,
+        timed_events(
+            _run_edit_loop(
+                client,
+                base,
+                effective_msg,
+                draft,
+                settings,
+                phrase_bank,
+                audit_enabled,
+                length_guard,
+                writer_user_msg=writer_msg,
+                kv_tracker=kv_tracker,
+                reasoning_on=reasoning_on,
+                reasoning_prefill=reasoning_prefill,
+                audit_context_msgs=audit_context_msgs,
+            ),
+            timing_entries if audit_enabled or length_guard is not None else None,
+            "editor",
+            "Output Auditor / Length Guard"
+            if audit_enabled and length_guard is not None
+            else "Output Auditor"
+            if audit_enabled
+            else "Length Guard",
+            stopped=lambda: client.is_aborted,
         )
     ):
         if ev["type"] == "done":
@@ -202,16 +215,22 @@ async def editor_pass(
     if subject_history is not None and final_text and not client.is_aborted:
         async for ev in _editor_events(
             _reporting_failures(
-                subject_fixation_step(
-                    client,
-                    base,
-                    final_text,
-                    settings,
-                    subject_history,
-                    writer_user_msg=writer_msg,
-                    kv_tracker=kv_tracker,
-                    reasoning_on=reasoning_on,
-                    reasoning_prefill=reasoning_prefill,
+                timed_events(
+                    subject_fixation_step(
+                        client,
+                        base,
+                        final_text,
+                        settings,
+                        subject_history,
+                        writer_user_msg=writer_msg,
+                        kv_tracker=kv_tracker,
+                        reasoning_on=reasoning_on,
+                        reasoning_prefill=reasoning_prefill,
+                    ),
+                    timing_entries,
+                    "editor",
+                    "Subject fixation",
+                    stopped=lambda: client.is_aborted,
                 ),
                 during="subject_fixation",
                 note="Subject fixation edit failed; keeping the draft",
@@ -238,6 +257,7 @@ async def editor_pass(
                 effective_msg=effective_msg,
                 judge_config=judge_config,
                 recent_replies=_baseline_window(base, audit_context_msgs),
+                timing_entries=timing_entries,
                 kv_tracker=kv_tracker,
                 reasoning_on=reasoning_on,
                 reasoning_prefill=reasoning_prefill,
@@ -256,16 +276,22 @@ async def editor_pass(
         yield {"type": "step", "step": "feedback"}
         async for ev in _editor_events(
             _reporting_failures(
-                feedback_step(
-                    client,
-                    base,
-                    final_text,
-                    settings,
-                    feedback_fragments,
-                    writer_user_msg=writer_msg,
-                    kv_tracker=kv_tracker,
-                    reasoning_on=reasoning_on,
-                    reasoning_prefill=reasoning_prefill,
+                timed_events(
+                    feedback_step(
+                        client,
+                        base,
+                        final_text,
+                        settings,
+                        feedback_fragments,
+                        writer_user_msg=writer_msg,
+                        kv_tracker=kv_tracker,
+                        reasoning_on=reasoning_on,
+                        reasoning_prefill=reasoning_prefill,
+                    ),
+                    timing_entries,
+                    "editor",
+                    "Feedback fragments (combined)",
+                    stopped=lambda: client.is_aborted,
                 ),
                 during="feedback",
                 note="Feedback step failed; the reply keeps no feedback",
@@ -383,6 +409,7 @@ async def editor_stage(
                 feedback_fragments=feedback_fragments if feedback_needed else None,
                 judge_config=judge_config,
                 subject_history=subject_history,
+                timing_entries=state.latency_breakdown,
             ),
             during="editor",
             note="Editor pass failed; keeping the draft it had reached",
@@ -402,7 +429,6 @@ async def editor_stage(
                 state.resp_text = event["draft"]
                 yield {"event": "draft_update", "data": {"draft": event["draft"]}}
             elif event["type"] == "done":
-                state.latency += int(event.get("elapsed", 0) or 0)
                 refined_draft = event["draft"]
                 state.resp_text = announced if refined_draft is None else refined_draft
                 if state.resp_text != announced:
@@ -419,6 +445,7 @@ async def editor_stage(
         # draft it had reached is still the reply, so announce it.
         if state.resp_text != announced:
             yield {"event": "writer_rewrite", "data": {"refined_text": state.resp_text}}
+        yield latency_event(state)
     else:
         logger.info(
             "Editor pass skipped (do_edit=%s, post_processing=%s, feedback=%s, draft=%d chars)",

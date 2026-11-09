@@ -21,12 +21,14 @@ from ....core import (
 )
 from ....core.llm_types import CompletionMessage, ParsedToolCall
 from ....core.settings import Settings
+from ....database.models import GenerationTimingRow
 from ....inference import CachedBase, KVCacheTracker, LLMClient, parse_tool_calls, reasoning_cfg
 from ....prompting import compute_style_injection_block, render_state_block, resolve_mood_fragment_randoms
 from ....prompting.tool_catalog import require_tool
 from ....prompting.tool_schemas import build_direct_scene_tool
 from ...events import CoreTurnEvent, StateData
 from ...failures import STAGE_DIRECTOR, step_failure_warning
+from ...timing import latency_event, timed_events
 from ...tools import DIRECTOR_LOOP_TOOL_NAMES
 from ..state import StateContract, StateStepResult, offered_state_ids, state_step
 from . import cooldown
@@ -217,6 +219,7 @@ async def director_pass(
     decision_guidance: str = "",
     speaker_keys: str = "",
     resting: frozenset[str] = frozenset(),
+    timing_entries: list[GenerationTimingRow] | None = None,
 ) -> AsyncIterator[Mapping[str, Any]]:
     """Yield reasoning deltas and a ``failure`` per failed call, then one done event with DirectorResult.
 
@@ -304,16 +307,23 @@ async def director_pass(
                 trailing = [{"role": "user", "content": content}]
                 resp: CompletionMessage = {}
                 try:
-                    async for event in base.complete_into(
-                        client,
-                        resp,
-                        label="director:direct_scene",
-                        trailing=trailing,
-                        tool_choice=require_tool("direct_scene")["choice"],
-                        kv_tracker=kv_tracker,
-                        json_schema=_step_schema(tool_schema, target, stage) if tool_schema else None,
-                        **hyperparams,
-                        **reasoning_params,
+                    async for event in timed_events(
+                        base.complete_into(
+                            client,
+                            resp,
+                            label="director:direct_scene",
+                            trailing=trailing,
+                            tool_choice=require_tool("direct_scene")["choice"],
+                            kv_tracker=kv_tracker,
+                            json_schema=_step_schema(tool_schema, target, stage) if tool_schema else None,
+                            **hyperparams,
+                            **reasoning_params,
+                        ),
+                        timing_entries,
+                        "director",
+                        (stage.get("label") or stage.get("injection_label") or target) if stage else "Moods",
+                        fragment_id=target,
+                        stopped=lambda: client.is_aborted,
                     ):
                         yield event
                 except Exception as exc:
@@ -378,16 +388,22 @@ async def director_pass(
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
         hyperparams = extract_hyperparams(settings, lane="agent")
         try:
-            async for event in base.complete_into(
-                client,
-                resp,
-                label=f"director:{name}",
-                trailing=trailing,
-                tool_choice=require_tool(name)["choice"],
-                kv_tracker=kv_tracker,
-                json_schema=live_schema["function"]["parameters"] if live_schema else None,
-                **hyperparams,
-                **reasoning_params,
+            async for event in timed_events(
+                base.complete_into(
+                    client,
+                    resp,
+                    label=f"director:{name}",
+                    trailing=trailing,
+                    tool_choice=require_tool(name)["choice"],
+                    kv_tracker=kv_tracker,
+                    json_schema=live_schema["function"]["parameters"] if live_schema else None,
+                    **hyperparams,
+                    **reasoning_params,
+                ),
+                timing_entries,
+                "director",
+                "Scene fragments (combined)" if name == "direct_scene" else name,
+                stopped=lambda: client.is_aborted,
             ):
                 yield event
         except Exception as exc:
@@ -518,6 +534,7 @@ async def director_stage(
             decision_guidance=director_decision_guidance,
             speaker_keys=speaker_keys,
             resting=resting,
+            timing_entries=state.latency_breakdown,
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
@@ -556,16 +573,22 @@ async def director_stage(
     # scene-direction tool is enabled. Runs before director_done so its picks ride state.calls into the inspector/log.
     if lorebook.agentic:
         yield {"event": "step_start", "data": {"step": "lorebook"}}
-        async for event in lorebook_select_step(
-            cfg.agent_lane.client,
-            cfg.agent_lane.base,
-            settings=settings,
-            catalog=lorebook.catalog,
-            user_message=state.user_message,
-            entries=lorebook.entries,
-            kv_tracker=kv_tracker,
-            reasoning_on=cfg.director_reasoning_on,
-            reasoning_prefill=cfg.director_reasoning_prefill,
+        async for event in timed_events(
+            lorebook_select_step(
+                cfg.agent_lane.client,
+                cfg.agent_lane.base,
+                settings=settings,
+                catalog=lorebook.catalog,
+                user_message=state.user_message,
+                entries=lorebook.entries,
+                kv_tracker=kv_tracker,
+                reasoning_on=cfg.director_reasoning_on,
+                reasoning_prefill=cfg.director_reasoning_prefill,
+            ),
+            state.latency_breakdown if lorebook.catalog else None,
+            "lorebook",
+            "Selection",
+            stopped=lambda: cfg.agent_lane.client.is_aborted,
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
@@ -640,6 +663,7 @@ async def director_stage(
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
             reasoning_prefill=cfg.director_reasoning_prefill,
+            timing_entries=state.latency_breakdown,
         ):
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": state.add_reasoning("director", event)}}
@@ -687,6 +711,8 @@ async def director_stage(
             "fragment_cooldowns": state.fragment_cooldowns,
         },
     }
+
+    yield latency_event(state)
 
     # The writer's lorebook block, computed once from the per-turn bundle. In substring mode this reuses the keyword-scanned
     # block already built up front; in agentic mode it contains only the Director's selection. Constants are carried separately

@@ -19,6 +19,7 @@ from .events import CoreTurnEvent
 from .failures import STAGE_AFTER_REPLY, step_failure_warning
 from .passes.world_change import world_change_step
 from .state import PipelineConfig, TurnState, WorldProposalTurn
+from .timing import latency_event, timed_events
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +67,25 @@ async def world_proposal_stage(
     steered = state.user_message.strip() != turn.user_message.strip()
 
     result = None
-    async for ev in world_change_step(
-        cfg.agent_lane.client,
-        cfg.agent_lane.base,
-        settings=settings,
-        entries=entries,
-        worlds=worlds,
-        reply_text=state.resp_text,
-        writer_user_msg=writer_msg,
-        original_user_message=turn.user_message if steered else "",
-        exchange_text=f"{turn.user_message}\n{state.resp_text}",
-        kv_tracker=kv_tracker,
-        reasoning_on=cfg.editor_reasoning_on,
-        reasoning_prefill=cfg.editor_reasoning_prefill,
+    async for ev in timed_events(
+        world_change_step(
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
+            settings=settings,
+            entries=entries,
+            worlds=worlds,
+            reply_text=state.resp_text,
+            writer_user_msg=writer_msg,
+            original_user_message=turn.user_message if steered else "",
+            exchange_text=f"{turn.user_message}\n{state.resp_text}",
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.editor_reasoning_on,
+            reasoning_prefill=cfg.editor_reasoning_prefill,
+        ),
+        state.latency_breakdown,
+        "lorebook",
+        "Update",
+        stopped=lambda: cfg.agent_lane.client.is_aborted,
     ):
         if ev["type"] == "reasoning":
             yield {"event": "reasoning", "data": {"pass": "editor", "delta": state.add_reasoning("editor", ev)}}
@@ -87,6 +94,7 @@ async def world_proposal_stage(
         elif ev["type"] == "done":
             result = ev["result"]
 
+    yield latency_event(state)
     if result is None:
         return
     if result.calls:
