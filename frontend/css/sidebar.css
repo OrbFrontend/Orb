@@ -107,7 +107,8 @@
   border-radius: 10px; color: var(--text-secondary); }
 .char-tag.active { background: var(--accent-glow); border-color: var(--accent-dim); color: var(--accent); }
 #sidebar { position: relative; }
-.avatar-popup { position: fixed; top: 0; left: 0; width: var(--sidebar-width); height: 100%;
+.avatar-popup { position: fixed; top: 0; left: 0; width: calc(var(--sidebar-width) * var(--sidebar-scale, 1));
+  height: 100%;
   background: rgba(0, 0, 0, 0.8); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .avatar-popup-content { position: relative; max-width: 90%; max-height: 90%; background: var(--bg-surface);
   border-radius: var(--radius); padding: 16px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); display: flex;

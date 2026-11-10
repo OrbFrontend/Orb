@@ -38,9 +38,11 @@ details.inspector-block[open] > summary .reasoning-summary-arrow { transform: ro
 
 /* Raw text a turn sent or received: mono across the full width, scrolling past its cap. */
 .inspect-raw { font-family: var(--font-mono); font-size: 11px; line-height: 1.55; color: var(--text-secondary);
-  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; scroll-behavior: auto; }
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: var(--raw-box-height, 200px); overflow-y: auto; scroll-behavior: auto; resize: vertical; }
 .inspect-raw:not(:first-child) { margin-top: 8px; }
-.reasoning-section .inspect-raw { max-height: 140px; }
+.reasoning-section .inspect-raw { max-height: var(--reasoning-box-height, 140px); }
+/* The grip writes an inline height; lift the cap while it drags. ui_sizing.js turns the result into the new cap. */
+:is(.inspect-raw, .state-history)[style*="height"] { max-height: none; }
 .inspect-raw::-webkit-scrollbar { width: 3px; }
 .inspect-raw::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -138,7 +140,7 @@ button.inspect-chip:not(.active):hover { color: var(--text-primary); }
 .state-editor { padding: 6px 0; }
 .state-editor-input { width: 100%; box-sizing: border-box; resize: vertical; }
 .state-history { list-style: none; margin: 8px 0 0; padding: 6px 0 0; border-top: 1px dashed var(--border);
-  max-height: 240px; overflow-y: auto; }
+  max-height: var(--state-history-height, 240px); overflow-y: auto; resize: vertical; }
 .state-history-row { margin-bottom: 6px; }
 .state-history-meta { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
 .state-history-text { font-size: 12px; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }

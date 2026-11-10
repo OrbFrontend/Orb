@@ -30,6 +30,7 @@ import { initTheme, initThemeList, loadSettings, renderToolsPanel } from "./sett
 import "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
+import { initUiSizing, localPx } from "./ui_sizing.js";
 import { $, fromMessageBody, initImageFallbacks } from "./utils.js";
 import { loadWorkflowModules, preloadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
@@ -56,7 +57,7 @@ function initSidebarSections() {
       const collapsed = body.classList.toggle("collapsed");
       header.setAttribute("aria-expanded", String(!collapsed));
       if (collapsed) {
-        const overshoot = scroller.getBoundingClientRect().top - header.getBoundingClientRect().top;
+        const overshoot = localPx(scroller, scroller.getBoundingClientRect().top - header.getBoundingClientRect().top);
         if (overshoot > 0) scroller.scrollTop -= overshoot;
       }
       markStuck();
@@ -120,6 +121,7 @@ document.addEventListener("click", (e) => {
 
 initImageFallbacks();
 initTheme();
+initUiSizing();
 initThemeList();
 initMessageHtmlActions();
 initComposer();

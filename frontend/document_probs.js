@@ -1,4 +1,5 @@
 import { offsetOfPosition, rangeForOffsets, serializeEditor } from "./document_editor.js";
+import { localPx } from "./ui_sizing.js";
 
 function _commonPrefix(a, b) {
   const m = Math.min(a.length, b.length);
@@ -300,14 +301,13 @@ function _position(at) {
   const rect = rangeForOffsets(_page, at.tokStart, at.tokEnd).getBoundingClientRect();
   _popup.style.visibility = "hidden";
   _popup.classList.remove("hidden");
-  const pw = _popup.offsetWidth;
-  const ph = _popup.offsetHeight;
+  const { width: pw, height: ph } = _popup.getBoundingClientRect();
   let top = rect.top - ph - 6;
   if (top < 4) top = rect.bottom + 6;
   let left = rect.left;
   left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
   top = Math.max(4, Math.min(top, window.innerHeight - ph - 4));
-  _popup.style.left = `${left}px`;
-  _popup.style.top = `${top}px`;
+  _popup.style.left = `${localPx(_popup, left)}px`;
+  _popup.style.top = `${localPx(_popup, top)}px`;
   _popup.style.visibility = "";
 }
