@@ -3,6 +3,7 @@ import { replacePlaceholders } from "./identity_macros.js";
 import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
+import { localPx } from "./ui_sizing.js";
 
 export function $(id) {
   return document.getElementById(id);
@@ -81,7 +82,7 @@ export function markChatProgrammaticScroll(ms) {
 function scrollChatTarget(el, align) {
   const ct = $("chat-messages");
   if (!ct || !el) return;
-  const topWithinScroller = el.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+  const topWithinScroller = localPx(ct, el.getBoundingClientRect().top - ct.getBoundingClientRect().top) + ct.scrollTop;
   let targetTop = topWithinScroller;
   if (align === "center") {
     targetTop -= Math.max(0, (ct.clientHeight - el.offsetHeight) / 2);
@@ -100,7 +101,7 @@ export function scrollToBottom(smooth = false, { now = false } = {}) {
     markChatProgrammaticScroll();
     const follow = () => {
       const topWithinScroller =
-        pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+        localPx(ct, pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top) + ct.scrollTop;
       const desiredTop = Math.max(topWithinScroller, topWithinScroller + pinnedTarget.offsetHeight - ct.clientHeight);
       const targetTop = Math.min(Math.max(0, desiredTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
       ct.scrollTo({ top: targetTop, behavior: smooth ? "smooth" : "instant" });

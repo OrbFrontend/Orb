@@ -45,3 +45,14 @@ body { font-family: var(--font-ui); background: var(--bg-deep); color: var(--tex
 #tools-panel.open { width: var(--inspector-width); min-width: var(--inspector-width);
   border-left: 1px solid var(--border); }
 #inspector.no-anim, #tools-panel.no-anim { transition: none; }
+
+/* Sizes the reader set by hand (ui_sizing.js). A scaled region lays out in its own pixels, so its width grows with
+   it and nothing inside reflows. The narrow layout keeps its own overlay widths. */
+@media (min-width: 901px) {
+  #sidebar { zoom: var(--sidebar-scale, 1); }
+  #main, #document-main { zoom: var(--main-scale, 1); }
+  #inspector, #tools-panel { zoom: var(--panel-scale, 1); }
+  #app.ui-edge-hover, #app.ui-edge-hover *, #app.ui-resizing, #app.ui-resizing * { cursor: col-resize !important; }
+  #app.ui-resizing { user-select: none; }
+  #app.ui-resizing :is(#sidebar, #inspector, #tools-panel) { transition: none; }
+}

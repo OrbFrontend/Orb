@@ -54,6 +54,8 @@ LAYERS = {
     "identity_macros.js": 0,
     # Projects untrusted card display scripts off the page's thread; also owns the pure pattern/replacement rules.
     "card_script_worker.js": 0,
+    # Hand-set panel widths, region scales and box heights. A leaf so utils.js can convert on-screen pixels through it.
+    "ui_sizing.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "operations.js": 1,

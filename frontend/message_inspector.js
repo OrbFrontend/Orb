@@ -7,6 +7,7 @@ import { sectionHtml } from "./inspector_section.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { saveSettings } from "./settings_store.js";
 import { interactiveFragmentsView, moodFragmentsView, restingCooldowns, S, subscribe } from "./state.js";
+import { localPx } from "./ui_sizing.js";
 import { convUrl, esc, escAttr } from "./utils.js";
 
 export const REASONING_PASSES = [
@@ -80,7 +81,7 @@ function syncChatSections(toggled, key) {
   renderLiveInspector();
   if (anchorId == null) return;
   const now = chat.querySelector(`.message[data-msg-id="${CSS.escape(anchorId)}"]`);
-  if (now) chat.scrollTop += now.getBoundingClientRect().top - before;
+  if (now) chat.scrollTop += localPx(chat, now.getBoundingClientRect().top - before);
 }
 
 // -- Turn views --

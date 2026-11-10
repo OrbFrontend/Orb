@@ -105,7 +105,7 @@
    (the attachment's scroll margin) still fit in the chat pane beside it. */
 .image-gen-focus{justify-content:center}
 .image-gen-focus>.image-gen-details{display:none}
-.image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh - 200px))}
+.image-gen-focus .workflow-artifact-image{max-height:max(360px,calc(100dvh / var(--main-scale, 1) - 200px))}
 .image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;-webkit-user-select:none;user-select:none;list-style:none}
 .image-gen-details>summary::-webkit-details-marker{display:none}

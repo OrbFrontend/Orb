@@ -17,6 +17,7 @@ import { showConfirmModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { conversationState, effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
+import { localPx } from "./ui_sizing.js";
 import { $, boolFlag, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
 import { startWorkflowJob, stopButtonState } from "./workflow_jobs.js";
 
@@ -280,7 +281,7 @@ function _replaceSwipeKeepingArrow(el, html, delta) {
   const ct = $("chat-messages");
   if (!ct || before == null || after == null || after === before) return;
   markChatProgrammaticScroll(400);
-  ct.scrollBy({ top: after - before, behavior: "instant" });
+  ct.scrollBy({ top: localPx(ct, after - before), behavior: "instant" });
 }
 
 /** Page an artifact group *delta* takes from the one shown. */

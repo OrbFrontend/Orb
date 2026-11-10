@@ -25,6 +25,7 @@ import { sseEvents, streamPost } from "./sse.js";
 import { conversationState, isViewing, S } from "./state.js";
 import { refreshState } from "./state_panel.js";
 import { requestSendPermission } from "./tabLock.js";
+import { localPx } from "./ui_sizing.js";
 import {
   $,
   convUrl,
@@ -247,7 +248,9 @@ async function switchBranch(msgId) {
     // The swiped bubble's top holds its place, or lands at the viewport top when it was scrolled past. Positions
     // come from layout, not rects: the new bubble's entrance animation offsets its rect while it plays.
     const oldTop = oldEl?.offsetTop ?? null;
-    const scrolledPast = oldEl ? Math.max(0, ct.getBoundingClientRect().top - oldEl.getBoundingClientRect().top) : 0;
+    const scrolledPast = oldEl
+      ? Math.max(0, localPx(ct, ct.getBoundingClientRect().top - oldEl.getBoundingClientRect().top))
+      : 0;
     const scrollTop = ct ? ct.scrollTop : 0;
 
     const switched = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
