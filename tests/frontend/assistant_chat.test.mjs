@@ -860,6 +860,16 @@ test("an opened chat opens only from the view the request came from, and a conti
   await handOff("continue_chat", { conversation_id: "chat-b", message_id: 7 });
   assert.equal(continues().length, 1);
   assert.match(S.assistant.items.at(-1).text, /^Started the next reply in the chat/);
+
+  const sends = () => requests.filter((request) => request.url.includes("/conversations/chat-b/send"));
+  $("chat-input").value = "my draft";
+  await handOff("send_as_user", { conversation_id: "chat-b", message_id: 7, content: "Fine." });
+  assert.equal(sends().length, 0, "the last message is the user's, so Send takes no second one");
+  S.messages = [{ id: 6, role: "assistant", content: "Hello.", parent_id: null }];
+  await handOff("send_as_user", { conversation_id: "chat-b", message_id: 6, content: "Fine." });
+  assert.equal(sends().length, 1);
+  assert.equal(sends()[0].body.content, "Fine.");
+  assert.equal($("chat-input").value, "my draft", "the box keeps the user's own draft");
   } finally {
     globalThis.localStorage = saved;
     $("assistant-clear").click();

@@ -19,7 +19,12 @@ import {
 } from "./assistant_view.js";
 import { loadConversations, selectConversation } from "./chat_conversations.js";
 import { showBranchChange } from "./chat_messages.js";
-import { continueCapturedChat, regenerateCapturedReply, rewriteCapturedReply } from "./chat_stream.js";
+import {
+  continueCapturedChat,
+  regenerateCapturedReply,
+  rewriteCapturedReply,
+  sendCapturedMessage,
+} from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
@@ -213,9 +218,11 @@ function launchHandoff(current) {
       ? openCapturedChat(cid, current.context)
       : target.tool === "continue_chat"
         ? continueCapturedChat(cid, msgId, target.speaker_member_id || null)
-        : target.tool === "rewrite_reply"
-          ? rewriteCapturedReply(cid, msgId, target.direction)
-          : regenerateCapturedReply(cid, msgId);
+        : target.tool === "send_as_user"
+          ? sendCapturedMessage(cid, msgId, target.content)
+          : target.tool === "rewrite_reply"
+            ? rewriteCapturedReply(cid, msgId, target.direction)
+            : regenerateCapturedReply(cid, msgId);
   // A slide-over would cover the reply the chat now writes.
   if (status === "" && narrow()) closeUtilityPanel(PANEL);
   current.items.push(handoffOutcome(target, status));

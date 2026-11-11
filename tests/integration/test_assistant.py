@@ -155,7 +155,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # All twenty-six tools and reply, the two media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 37 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
+    assert len(enum) == 38 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
     assert [message["role"] for message in calls[0]["messages"]] == ["system", "user", "assistant", "user"]
     assert SECRET not in json.dumps(calls[-1]["messages"])
 
@@ -321,7 +321,7 @@ async def test_messages_follow_the_kept_branch_while_sql_sees_every_branch_and_n
     data, encoded = await _use(tools, "read_messages")
     assert len(data["messages"]) == MAX_MESSAGES and data["truncated"] is True
     assert data["messages"][-1]["content"] == "final kept line" and "abandoned draft" not in encoded
-    assert set(data["messages"][0]) == {"id", "role", "turn_index", "created_at", "content"}
+    assert set(data["messages"][0]) == {"id", "number", "role", "turn_index", "created_at", "content"}
 
     found, _ = await _use(
         tools, "query_library", sql="SELECT id, conversation_id FROM messages WHERE content = 'abandoned draft'"

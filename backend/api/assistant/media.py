@@ -22,14 +22,14 @@ from fastapi import HTTPException
 from pydantic import Field
 
 from ...core.settings import Settings
-from ...database import get_message_by_id, get_settings, message_workflow_attachment_ids
+from ...database import get_active_path, get_message_by_id, get_settings, message_workflow_attachment_ids
 from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
 from ...inference import AbortToken
 from ...workflows import HookType, WorkflowEventStream, get_subscription, get_workflow, public_event_error
 from ..deps import message_deleting, resource_deleting, start_workflow_job, stop_workflow_jobs
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..workflow_dispatch import run_on_demand
-from .targets import chat_field, quoted, reply_target
+from .targets import chat_field, message_label, quoted, reply_target
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +287,7 @@ async def _result(
             raise ToolFailure(f"The {medium.noun} job was stopped before anything was saved, so nothing was made.")
         raise ToolFailure(f"No {medium.noun} was made: {outcome.error or 'the workflow ended without saving anything.'}")
     what = f"{len(ids)} images" if medium.noun == "image" and len(ids) > 1 else medium.some
-    summary = f"Saved {what} on message {mid} in {quoted(title)}"
+    summary = f"Saved {what} on {message_label(await get_active_path(cid), mid)} in {quoted(title)}"
     if stopped or cut:
         status, summary = "stopped early; kept what was saved", f"{summary} before it was stopped."
     elif outcome.error:

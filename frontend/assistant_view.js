@@ -18,10 +18,11 @@ const MODES = new Set(["chat", "document", "library"]);
 const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff", "opened"]);
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
-const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "open_chat"]);
+const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "send_as_user", "open_chat"]);
 // The most items a proposed list may hold, as the server bounds it.
 const MAX_LIST_ITEMS = 20;
 const MAX_DIRECTION_CHARS = 500;
+const MAX_SEND_CHARS = 4000;
 // A proposed edit's states besides `pending`. Only a pending edit on the card this page holds can be applied; a stored
 // card's pending edits load as historical.
 const PROPOSAL_NOTES = {
@@ -155,7 +156,7 @@ function resource(value) {
 
 /**
  * A `handoff` event's checked target, or null: the chat, and for work in it the message it follows on from, a rewrite's
- * direction, or the group member who speaks next.
+ * direction, the group member who speaks next, or the user's message to send.
  */
 function handoffTarget(value) {
   const tool = text(value?.tool, 64);
@@ -169,6 +170,10 @@ function handoffTarget(value) {
   if (tool === "continue_chat") {
     const member = id(target.speaker_member_id);
     return member ? { ...out, speaker_member_id: member } : out;
+  }
+  if (tool === "send_as_user") {
+    const content = text(target.content, MAX_SEND_CHARS).trim();
+    return content ? { ...out, content } : null;
   }
   if (tool !== "rewrite_reply") return out;
   const direction = text(target.direction, MAX_DIRECTION_CHARS).trim();
@@ -186,7 +191,7 @@ const HANDOFF_NOTES = {
     "Not started: the assistant was stopped before the chat began {what}. Ask again, or use the reply's own button.",
 };
 
-// A continue follows on from the chat's last message, so a newer one there is what moves it.
+// A continue or a send follows on from the chat's last message, so a newer one there is what moves it.
 const CONTINUE_MOVED = "Not started: the chat has a newer message than the one the assistant checked. Ask again.";
 
 // What the transcript says about a chat the assistant was asked to open, by why it did not ("" when it did).
@@ -204,14 +209,14 @@ export function handoffOutcome(handoff, status) {
     const note = OPEN_NOTES[status] ?? OPEN_NOTES.moved;
     return { kind: "outcome", reason: "handoff", text: note.replace("{what}", chat) };
   }
+  const followsLast = handoff.tool === "continue_chat" || handoff.tool === "send_as_user";
   const doing =
     handoff.tool === "continue_chat"
       ? "the next reply"
-      : `${handoff.tool === "rewrite_reply" ? "rewriting" : "regenerating"} message ${handoff.message_id}`;
-  const note =
-    handoff.tool === "continue_chat" && status === "moved"
-      ? CONTINUE_MOVED
-      : (HANDOFF_NOTES[status] ?? HANDOFF_NOTES.busy);
+      : handoff.tool === "send_as_user"
+        ? "sending your message"
+        : `${handoff.tool === "rewrite_reply" ? "rewriting" : "regenerating"} message ${handoff.message_id}`;
+  const note = followsLast && status === "moved" ? CONTINUE_MOVED : (HANDOFF_NOTES[status] ?? HANDOFF_NOTES.busy);
   return { kind: "outcome", reason: "handoff", text: note.replace("{what}", doing) };
 }
 

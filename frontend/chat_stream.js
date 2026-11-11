@@ -1024,7 +1024,7 @@ export async function sendMessage() {
   if (!S.activeConvId || !canStartGeneration()) return;
 
   const inp = $("chat-input");
-  let content = inp.value.trim();
+  const content = inp.value.trim();
 
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role === "user" && lastMsg.id) {
@@ -1040,7 +1040,6 @@ export async function sendMessage() {
 
   if (!content) return;
 
-  content = resolvePlaceholders(content);
   inp.value = "";
   inp.style.height = "auto";
   conversationState(S.activeConvId).draft = "";
@@ -1050,6 +1049,11 @@ export async function sendMessage() {
   S.attachments.length = 0;
   $("attachment-preview").innerHTML = "";
   refreshCastRailIntent();
+  await postUserMessage(content, attachments);
+}
+
+function postUserMessage(text, attachments) {
+  const content = resolvePlaceholders(text);
   const userMsg = {
     role: "user",
     content,
@@ -1061,7 +1065,7 @@ export async function sendMessage() {
     user_attachments: attachments,
   };
 
-  await runStreamRequest(
+  return runStreamRequest(
     convUrl(S.activeConvId, "send"),
     { content, attachments, ...turnPayload() },
     {
@@ -1140,6 +1144,20 @@ export function continueCapturedChat(convId, lastMsgId, memberId = null) {
         )
       : runStreamRequest(convUrl(convId, "speak"), { speaker_member_id: memberId });
   started.catch((e) => console.error("Continue failed:", e));
+  return "";
+}
+
+/**
+ * Send *content* as the user's message in chat *convId*, captured by the assistant, as the composer's Send does but leaving
+ * the box and its attachments alone. It starts only while that chat is open and *lastMsgId* is still its last message, a
+ * reply. Returns why nothing started, or "" once it has.
+ */
+export function sendCapturedMessage(convId, lastMsgId, content) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const last = S.messages.at(-1);
+  if (last?.id !== lastMsgId || last.role === "user") return "moved";
+  if (!canStartGeneration()) return "busy";
+  postUserMessage(content, []).catch((e) => console.error("Send failed:", e));
   return "";
 }
 

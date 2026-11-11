@@ -4,6 +4,7 @@ and the view the request was sent from."""
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal, get_args
 
 from pydantic import Field
@@ -39,6 +40,12 @@ def quoted(text: object) -> str:
     """Authored text as a short JSON-quoted label, so a name reads as data inside a sentence."""
     value = str(text or "")
     return json.dumps(value[:_LABEL_CHARS] + ("…" if len(value) > _LABEL_CHARS else ""), ensure_ascii=False)
+
+
+def message_label(path: Sequence[Mapping[str, Any]], message_id: int) -> str:
+    """A message as the chat window numbers it: ``#N`` counted from 1 along the kept branch *path*."""
+    index = next((i for i, row in enumerate(path) if row["id"] == message_id), None)
+    return f"message #{index + 1}" if index is not None else "a message off the kept branch"
 
 
 def not_blank(value: str | list[str]) -> str | list[str]:

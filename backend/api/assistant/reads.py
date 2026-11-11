@@ -53,6 +53,7 @@ from .targets import (
     chat_field,
     chat_in_view,
     clip,
+    message_label,
     quoted,
 )
 from .toggles import switch_summary
@@ -385,7 +386,8 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "read",
         _MessagesArgs,
         f"Read messages on a chat's kept branch, at most {MAX_MESSAGES}: the latest, those before before_message_id, or "
-        "those containing query. With message_id, read one message whole.",
+        "those containing query. With message_id, read one message whole. A message's number is the #N the chat window "
+        "shows; name messages to the user by it, never by id.",
     )
     async def read_messages(args: _MessagesArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=False)
@@ -407,12 +409,14 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             window = path[:index]
         needle = args.query.strip().casefold()
         candidates = [row for row in window if needle in (row["content"] or "").casefold()] if needle else window
+        numbers = {row["id"]: index + 1 for index, row in enumerate(path)}
         rows: list[dict[str, Any]] = []
         size = 0
         for message in reversed(candidates[-args.count :]):
             speaker = speakers.get(message.get("speaker_member_id") or "")
             row = {
                 "id": message["id"],
+                "number": numbers[message["id"]],
                 "role": message["role"],
                 **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
                 "turn_index": message["turn_index"],
@@ -445,7 +449,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                 f"Found {len(candidates)} messages on the kept branch containing {json.dumps(args.query)}; read {len(rows)}."
             )
         elif args.before_message_id:
-            summary = f"Read {len(rows)} messages before message {args.before_message_id} on the kept branch."
+            summary = f"Read {len(rows)} messages before {message_label(path, args.before_message_id)}."
         else:
             summary = f"Read the last {len(rows)} of {len(path)} messages on the kept branch."
         return ToolOutput(data, summary, ids)
@@ -458,16 +462,19 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         if message is None or message["conversation_id"] != conv["id"]:
             raise ToolFailure(f"That chat has no message {args.message_id}. read_messages without message_id shows the ids.")
         speaker = speakers.get(message.get("speaker_member_id") or "")
+        number = next((index + 1 for index, row in enumerate(path) if row["id"] == message["id"]), None)
         head = {
             "conversation_id": conv["id"],
             "id": message["id"],
+            **({"number": number} if number else {}),
             "role": message["role"],
             **({"speaker": clip(speaker, _QUERY_CHARS)} if speaker else {}),
-            "on_kept_branch": any(row["id"] == message["id"] for row in path),
+            "on_kept_branch": number is not None,
         }
         data = _text_page(message["content"] or "", args.text_offset, head, "content")
         ids = {"conversation_id": conv["id"], "message_ids": [message["id"]]}
-        return ToolOutput(data, f"Read message {message['id']} from character {args.text_offset}.", ids)
+        label = message_label(path, message["id"])
+        return ToolOutput(data, f"Read {label} from character {args.text_offset}.", ids)
 
     @tools.add("read", _ListArgs, "List worlds (lorebooks) by name.")
     async def list_worlds(args: _ListArgs) -> ToolOutput:

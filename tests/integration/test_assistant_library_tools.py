@@ -18,8 +18,12 @@ async def test_messages_page_back_and_search_the_kept_branch_only(library):
     tools = await _tools(mode="chat", conversation_id=library["chat"])
     latest, _ = await _use(tools, "read_messages")
     assert latest["truncated"] is True and latest["earlier_from"] == latest["messages"][0]["id"]
-    earlier, _ = await _use(tools, "read_messages", before_message_id=latest["earlier_from"])
+    output = await tools["read_messages"].run(tools["read_messages"].arguments(before_message_id=latest["earlier_from"]))
+    earlier = output.data
     assert [row["content"] for row in earlier["messages"]] == [f"kept line {index}" for index in range(6)]
+    # The summary is shown to the user, who sees each message's #N in the chat window, never its id.
+    assert [row["number"] for row in earlier["messages"]] == [1, 2, 3, 4, 5, 6]
+    assert output.summary == "Read 6 messages before message #7."
     assert earlier["truncated"] is False and earlier["earlier_from"] is None
 
     found, encoded = await _use(tools, "read_messages", query="LINE 1")
@@ -114,15 +118,20 @@ async def test_a_started_chat_comes_from_the_route_writer_and_set_chat_writes_it
             await set_chat.run(set_chat.arguments(conversation_id=cid, **bad))
 
 
-async def test_continue_hands_off_only_an_unanswered_message_or_a_named_group_member(client, library):
+async def test_continue_answers_only_an_unanswered_message_or_a_named_member_and_send_follows_only_a_reply(client, library):
     chat = library["chat"]
     tools = await _tools(mode="chat", conversation_id=chat)
     cont = tools["continue_chat"]
     with pytest.raises(ToolFailure, match="already a reply"):
         await cont.run(cont.arguments())
+    send = tools["send_as_user"]
+    sent = await send.run(send.arguments(content="And then?"))
+    assert sent.handoff == {"conversation_id": chat, "message_id": library["kept"], "content": "And then?"}
     asked, _ = await add_message(chat, "user", "And then?", 99, parent_id=library["kept"], advance_leaf=True)
     handed = await cont.run(cont.arguments())
     assert handed.handoff == {"conversation_id": chat, "message_id": asked}
+    with pytest.raises(ToolFailure, match="still unanswered"):
+        await send.run(send.arguments(content="Well?"))
     with pytest.raises(ToolFailure, match="only for a group"):
         await cont.run(cont.arguments(speaker_member_id="someone"))
 

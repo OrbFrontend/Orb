@@ -40,7 +40,18 @@ from ..conversation_copy import checkpoint_conversation, checkpoint_title
 from ..conversation_start import DEFAULT_TITLE, start_solo_chat
 from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission
 from ..schemas import CharacterCardCreate, ConversationUpdate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
-from .targets import ID_CHARS, cast_of, chat_field, chat_id, chat_in_view, clip, not_blank, quoted, reply_target
+from .targets import (
+    ID_CHARS,
+    cast_of,
+    chat_field,
+    chat_id,
+    chat_in_view,
+    clip,
+    message_label,
+    not_blank,
+    quoted,
+    reply_target,
+)
 
 _NAME_CHARS = 200
 _LORE_CONTENT_CHARS = 4000
@@ -51,6 +62,7 @@ _SHORT_TEXT_CHARS = 2000
 _TAG_CHARS = 60
 _TAGS = 20
 _DIRECTION_CHARS = 500
+_SEND_CHARS = 4000
 _LISTED_WORLDS = 30
 
 
@@ -153,6 +165,17 @@ class _Continue(ToolArguments):
         description="In a group chat: who speaks next, as a member_id from get_context's cast or a member's name. "
         "Empty in a solo chat.",
     )
+
+
+class _SendAsUser(ToolArguments):
+    content: str = Field(
+        min_length=1,
+        max_length=_SEND_CHARS,
+        description="The user's message as they would type it, in their persona's voice.",
+    )
+    conversation_id: str = chat_field()
+
+    _blank = field_validator("content")(not_blank)
 
 
 class _Regenerate(ToolArguments):
@@ -373,29 +396,33 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         async with admitted(cid) as conv:
             message = await owned_message(cid, args.message_id)
             ids = {"conversation_id": cid, "message_id": message["id"]}
-            if any(row["id"] == message["id"] for row in await get_active_path(cid)):
+            path = await get_active_path(cid)
+            if any(row["id"] == message["id"] for row in path):
                 data = {"switched": False, **ids, "note": "That message is already on the branch the chat shows."}
-                return ToolOutput(data, f"Message {message['id']} is already on the kept branch; nothing changed.", ids)
+                label = message_label(path, message["id"])
+                return ToolOutput(data, f"{label.capitalize()} is already on the kept branch; nothing changed.", ids)
             # The branch route's own selection: the newest line of replies below that message.
             if not await switch_to_branch(cid, message["id"]):
                 raise ToolFailure(f"That chat has no message {args.message_id}.")
             current = await get_conversation(cid)
+            label = message_label(await get_active_path(cid), message["id"])
         leaf = current.get("active_leaf_id") if current else None
         data = {"switched": True, **ids, "active_leaf_id": leaf}
         return ToolOutput(
             data,
-            f"Switched {quoted(conv['title'])} to the branch with message {message['id']}.",
+            f"Switched {quoted(conv['title'])} to the branch with {label}.",
             ids,
             committed=({"kind": "branch", "conversation_id": cid},),
             ends_run=True,
         )
 
-    def handed(conv: ConversationRow, message: Mapping[str, Any], doing: str, extra: Mapping[str, Any]) -> ToolOutput:
+    async def handed(conv: ConversationRow, message: Mapping[str, Any], doing: str, extra: Mapping[str, Any]) -> ToolOutput:
         target = {"conversation_id": conv["id"], "message_id": message["id"], **extra}
         data = {"handed_off": True, **target}
+        label = message_label(await get_active_path(conv["id"]), message["id"])
         return ToolOutput(
             data,
-            f"Handed {doing} message {message['id']} in {quoted(conv['title'])} to the chat.",
+            f"Handed {doing} {label} in {quoted(conv['title'])} to the chat.",
             {"conversation_id": conv["id"], "message_id": message["id"]},
             handoff=target,
         )
@@ -410,7 +437,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "regenerated", idle=True)
         if message["parent_id"] is None:
             raise ToolFailure(f"Message {message['id']} is the chat's opening greeting, which is not regenerated.")
-        return handed(conv, message, "regenerating", {})
+        return await handed(conv, message, "regenerating", {})
 
     @tools.add(
         "handoff",
@@ -420,7 +447,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     )
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
-        return handed(conv, message, "rewriting", {"direction": args.direction})
+        return await handed(conv, message, "rewriting", {"direction": args.direction})
 
     @tools.add(
         "write",
@@ -515,7 +542,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
         "handoff",
         _Continue,
         "Have the chat write the next reply, as Send with an empty box does: an answer to the user's unanswered last "
-        "message, or in a group chat a turn by the member named.",
+        "message, or in a group chat a turn by the member named. A solo chat's character never replies twice in a row.",
     )
     async def continue_chat(args: _Continue) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True)
@@ -549,8 +576,9 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                     f"{json.dumps(cast, ensure_ascii=False)}"
                 )
             raise ToolFailure(
-                "The last message is already a reply, so there is nothing to continue: the user writes next. "
-                "regenerate_reply makes a new version of that reply instead, if that is what the user wants."
+                "The last message is already a reply, and a solo chat's character never replies twice in a row: the "
+                "user writes next. send_as_user writes and sends the user's message, if they asked for that; "
+                "regenerate_reply makes a new version of the reply."
             )
         target = {
             "conversation_id": cid,
@@ -564,6 +592,34 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             f"Handed the next reply{who} in {quoted(conv['title'])} to the chat.",
             {"conversation_id": cid, "message_id": last["id"]},
             handoff=target,
+        )
+
+    @tools.add(
+        "handoff",
+        _SendAsUser,
+        "Write the user's next message and send it, as typing in the box and pressing Send does: it is posted as the "
+        "user's, and the chat answers it. Only when the user asks for their side to be written.",
+    )
+    async def send_as_user(args: _SendAsUser) -> ToolOutput:
+        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        cid = conv["id"]
+        if conversation_busy(cid):
+            raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
+        path = await get_active_path(cid)
+        if not path:
+            raise ToolFailure("That chat has no messages yet; the user sends the first one from the box.")
+        last = path[-1]
+        if last["role"] == "user":
+            raise ToolFailure(
+                f"The user's last message, {message_label(path, last['id'])}, is still unanswered, so Send takes no "
+                "second one. continue_chat has it answered."
+            )
+        target = {"conversation_id": cid, "message_id": last["id"]}
+        return ToolOutput(
+            {"handed_off": True, **target},
+            f"Handed the user's message in {quoted(conv['title'])} to the chat to send.",
+            target,
+            handoff={**target, "content": args.content},
         )
 
     return tools

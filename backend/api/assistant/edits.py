@@ -10,7 +10,15 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, StringConstraints, create_model
 
 from ...core.macros import resolve_inline
-from ...database import get_character_card, get_lorebook_entry, get_message_by_id, get_user_persona, get_world, greeting_rerolls
+from ...database import (
+    get_active_path,
+    get_character_card,
+    get_lorebook_entry,
+    get_message_by_id,
+    get_user_persona,
+    get_world,
+    greeting_rerolls,
+)
 from ...features.assistant import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from ..deps import conversation_busy
 from .proposals import FIELD_LABELS, PROPOSAL_TTL_SECS, Proposal, is_open, revise, store
@@ -22,6 +30,7 @@ from .targets import (
     character_in_view,
     chat_field,
     chat_in_view,
+    message_label,
     quoted,
 )
 
@@ -394,7 +403,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
             raise ToolFailure(_GREETING_REROLLS.format(id=message["id"]))
         reread = "read_messages with message_id reads that message whole, one page per text_offset."
         target = {"kind": "message", "conversation_id": cid, "message_id": message["id"]}
-        label = f"message {message['id']} in {quoted(conv['title'])}"
+        label = f"{message_label(await get_active_path(cid), message['id'])} in {quoted(conv['title'])}"
         return propose(target, label, "content", message["content"] or "", args, reread, required="A message")
 
     return tools

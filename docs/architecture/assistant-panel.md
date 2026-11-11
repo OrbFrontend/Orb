@@ -172,7 +172,7 @@ and a callable. The prompt marks each class.
 | read | `get_context`, `list_characters`, `get_character`, `query_library`, `read_messages`, `list_worlds`, `list_lorebook_entries`, `list_active_lore`, `list_personas`, `read_document`, `read_state`, `get_settings_summary` | Runs at once; changes nothing. |
 | write | `set_pipeline_toggle`, `set_lorebook_entry`, `set_world`, `set_length_guard`, `add_banned_phrase`, `create_lorebook_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
 | confirm | `edit_character`, `edit_lorebook_entry`, `edit_persona`, `edit_message` | Stores a proposal and carries on; the user's Apply commits it after the run. |
-| handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
+| handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
 Reads project explicit allowlists, never whole rows: no avatars, extensions,
 prompt overrides, workflow state, endpoints, models or credentials. The
@@ -184,7 +184,9 @@ long text with a `…[+N chars]` marker. Naming one field, message, entry or
 persona reads it whole, 4,000 characters a page. `read_messages` reads the
 latest messages on the kept branch, those before `before_message_id` (each page
 names the next one as `earlier_from`), or those containing `query`; it never
-searches a branch the user left. `list_active_lore` lists the entries in effect
+searches a branch the user left. Each message carries its `number`, the `#N`
+the chat window shows, and every summary naming a message uses it rather than
+the id. `list_active_lore` lists the entries in effect
 for a chat, overlays resolved as the prompt resolves them; nothing records which
 of them a given reply drew on. `get_character` reads the alternate greetings
 only whole, since an edit replaces the list whole; a list too long to send is
@@ -289,12 +291,16 @@ Apply; the browser's refresh shows the new text.
 kept branch and the chat is idle. `continue_chat` checks that the chat is idle
 and names its last message: an unanswered user message is answered, and in a
 group a member named by `speaker_member_id` (a member id from `get_context`'s
-cast, or a name only one member has) takes a turn; a solo chat whose last message is a reply has nothing to continue. Each
-ends the run with `handoff`. Once the assistant's stream has settled, and never
-after its Stop, the browser starts the chat's own Regenerate, Magic Rewrite,
-continue or speak with the captured chat, message and direction or speaker. It
-starts only while that chat is the one open and its target unmoved: the reply
-still on its branch, or the last message still the one checked. Otherwise the
+cast, or a name only one member has) takes a turn; a solo chat whose last message is a reply has nothing to continue,
+since its character never replies twice in a row. `send_as_user` takes the
+user's next message, written by the model, and checks that the chat is idle
+and its last message is a reply. Each ends the run with `handoff`. Once the
+assistant's stream has settled, and never after its Stop, the browser starts
+the chat's own Regenerate, Magic Rewrite, continue, speak or Send with the
+captured chat, message and direction, speaker or text; that Send leaves the
+box and its attachments alone. It starts only while that chat is the one open
+and its target unmoved: the reply still on its branch, or the last message
+still the one checked. Otherwise the
 transcript says why and nothing switches. From then the chat's stream owns Stop
 and the reply.
 
