@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -31,121 +32,36 @@ def parse_gemma_tool_calls(content: str) -> list[dict]:
 
 
 _NAME = re.compile(r"[A-Za-z_][\w.-]*")
+# One token of the native grammar as JSON: a closed string, a key (a name before its colon), a literal, punctuation, or space.
+_TOKEN = re.compile(
+    r'<\|"\|>(.*?)<\|"\|>|([A-Za-z_][\w.-]*)(?=\s*:)|(-?\d[\d.eE+-]*|true|false|null)|([{}\[\]:,])|\s+', re.DOTALL
+)
 
 
-def parse_gemma_call_strict(text: str) -> dict | None:
-    """The one complete native call that *text* is, with only whitespace around it, or ``None``.
+def gemma_call_json(text: str) -> tuple[str, str] | None:
+    """The one complete native call that *text* is, as ``(name, arguments as JSON text)``, or ``None``.
 
-    Unlike :func:`parse_gemma_tool_calls`, which reads what it can, the body must follow the grammar whole: every segment is
-    ``key:value`` with a key named once, and every value is a closed quoted string, a number, ``true``, ``false``, ``null``, or a
-    bracketed array or object of the same. A call cut off mid-way, an unquoted word, text after a closing quote or a segment
-    without a colon is refused rather than read as a shorter call.
+    Unlike :func:`parse_gemma_tool_calls`, which reads what it can, every character must translate: a value is a closed string,
+    a number, ``true``, ``false``, ``null``, or an array or object of the same. The caller's JSON decoding then refuses what is
+    still malformed, such as a call cut off mid-way, a segment without a colon, or a repeated key.
     """
     text = text.strip()
     if not (text.startswith(OPEN) and text.endswith(CLOSE)):
         return None
     span = text[len(OPEN) : -len(CLOSE)].strip()
-    if OPEN in span or CLOSE in span or not span.startswith("call:"):
+    name, brace, body = span.removeprefix("call:").partition("{")
+    if not span.startswith("call:") or not brace or OPEN in span or CLOSE in span or not _NAME.fullmatch(name.strip()):
         return None
-    brace = span.find("{")
-    name = span[len("call:") : brace].strip() if brace != -1 else ""
-    if not _NAME.fullmatch(name):
-        return None
-    reader = _StrictReader(span, brace)
-    try:
-        arguments = reader.object()
-        reader.space()
-    except _Malformed:
-        return None
-    return {"name": name, "arguments": arguments} if reader.at_end() else None
-
-
-class _Malformed(Exception):
-    """The text breaks the strict call grammar."""
-
-
-_LITERAL = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null")
-
-
-class _StrictReader:
-    """A reader that consumes the native grammar exactly, refusing anything it cannot account for character by character."""
-
-    def __init__(self, text: str, start: int):
-        self.text = text
-        self.i = start
-
-    def at_end(self) -> bool:
-        return self.i == len(self.text)
-
-    def space(self) -> None:
-        while self.i < len(self.text) and self.text[self.i].isspace():
-            self.i += 1
-
-    def expect(self, char: str) -> None:
-        if not self.text.startswith(char, self.i):
-            raise _Malformed
-        self.i += len(char)
-
-    def object(self) -> dict[str, Any]:
-        self.expect("{")
-        out: dict[str, Any] = {}
-        self.space()
-        if self.text.startswith("}", self.i):
-            self.i += 1
-            return out
-        while True:
-            self.space()
-            key = _NAME.match(self.text, self.i)
-            if key is None or key.group() in out:
-                raise _Malformed
-            self.i = key.end()
-            self.space()
-            self.expect(":")
-            out[key.group()] = self.value()
-            self.space()
-            if self.text.startswith(",", self.i):
-                self.i += 1
-                continue
-            self.expect("}")
-            return out
-
-    def array(self) -> list[Any]:
-        self.expect("[")
-        out: list[Any] = []
-        self.space()
-        if self.text.startswith("]", self.i):
-            self.i += 1
-            return out
-        while True:
-            out.append(self.value())
-            self.space()
-            if self.text.startswith(",", self.i):
-                self.i += 1
-                continue
-            self.expect("]")
-            return out
-
-    def value(self) -> Any:
-        self.space()
-        if self.text.startswith(QUOTE, self.i):
-            start = self.i + len(QUOTE)
-            end = self.text.find(QUOTE, start)
-            if end == -1:
-                raise _Malformed
-            self.i = end + len(QUOTE)
-            return self.text[start:end]
-        if self.text.startswith("{", self.i):
-            return self.object()
-        if self.text.startswith("[", self.i):
-            return self.array()
-        literal = _LITERAL.match(self.text, self.i)
-        if literal is None:
-            raise _Malformed
-        self.i = literal.end()
-        word = literal.group()
-        if word in ("true", "false", "null"):
-            return {"true": True, "false": False, "null": None}[word]
-        return float(word) if any(mark in word for mark in ".eE") else int(word)
+    parts: list[str] = []
+    body, pos = brace + body, 0
+    while pos < len(body):
+        token = _TOKEN.match(body, pos)
+        if token is None:
+            return None
+        string, key, literal, mark = token.groups()
+        parts.append(json.dumps(string) if string is not None else json.dumps(key) if key else literal or mark or "")
+        pos = token.end()
+    return name.strip(), "".join(parts)
 
 
 def _parse_call(span: str) -> dict | None:

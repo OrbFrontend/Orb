@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Mapping, Sequence
@@ -34,12 +35,10 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
-    DoneEvent,
     HistoryItem,
     ToolArguments,
     ToolFailure,
     ToolOutput,
-    ToolStartEvent,
     ViewContext,
 )
 from .prompt import history_messages, request_message, step_tool, system_prompt, tool_schema
@@ -61,6 +60,10 @@ _PROGRESS_LABEL_CHARS = 200
 
 class _Limit(Exception):
     """A run budget is spent."""
+
+
+class _Stopped(Exception):
+    """The run's Stop or a dropped connection landed."""
 
 
 async def settled(operation: Awaitable[_T]) -> _T:
@@ -86,23 +89,23 @@ async def settled(operation: Awaitable[_T]) -> _T:
 
 
 async def _labels(operation: asyncio.Future[Any], progress: asyncio.Queue[str]) -> AsyncGenerator[str, None]:
-    """Each label *progress* receives while *operation* runs; one that arrives after it has finished is stale and dropped."""
-    while not operation.done():
-        getter = asyncio.ensure_future(progress.get())
-        try:
-            await asyncio.wait({operation, getter}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            if not getter.done():
+    """Each label *progress* receives while *operation* runs; one that arrives after it has finished is stale and dropped.
+
+    Closed early, it cancels *operation* and waits for it to end; a write wrapped in :func:`settled` ends whole.
+    """
+    try:
+        while not operation.done():
+            getter = asyncio.ensure_future(progress.get())
+            try:
+                await asyncio.wait({operation, getter}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
                 getter.cancel()
-        if getter.done() and not getter.cancelled():
-            yield getter.result()
-
-
-async def _finish(operation: asyncio.Future[Any]) -> None:
-    """Cancel *operation* if it is still running and wait for it to end; a write wrapped in :func:`settled` ends whole."""
-    if not operation.done():
-        operation.cancel()
-        await asyncio.wait({operation})
+            if getter.done() and not getter.cancelled():
+                yield getter.result()
+    finally:
+        if not operation.done():
+            operation.cancel()
+            await asyncio.wait({operation})
 
 
 def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
@@ -124,10 +127,6 @@ def _repeated(output: ToolOutput) -> str:
     )
 
 
-def _done(reason: Any, message: str = "") -> DoneEvent:
-    return {"type": "done", "reason": reason, "message": message}
-
-
 def _encode(data: Mapping[str, Any], summary: str = "") -> str:
     content = json.dumps(data, ensure_ascii=False)
     if len(content) <= MAX_RESULT_CHARS:
@@ -144,13 +143,6 @@ def _encode(data: Mapping[str, Any], summary: str = "") -> str:
     )
 
 
-def _done_with(reason: Any, message: str, committed: Sequence[str]) -> DoneEvent:
-    """A ``done`` that names the confirmed changes, so an early end still reports the work already committed."""
-    if committed:
-        message = f"{message} Already done: {'; '.join(committed)}".strip()
-    return _done(reason, message)
-
-
 def _several_calls(response: Mapping[str, Any]) -> bool:
     """Whether an unusable reply held more than one call: the one fault a retry can name, so the model can mend it."""
     return len(response.get("tool_calls") or parse_tool_calls(response)) > 1
@@ -163,7 +155,7 @@ def _one_at_a_time(forced: str) -> str:
     )
 
 
-def _step_choice(arguments: Mapping[str, Any], names: Sequence[str]) -> tuple[str, str] | None:
+def _step_choice(arguments: Mapping[str, Any], names: Mapping[str, Any]) -> tuple[str, str] | None:
     """The step's ``(tool, message)``, or ``None`` when it is not exactly that pair of usable strings."""
     tool, message = arguments.get("tool"), arguments.get("message")
     if set(arguments) != {"tool", "message"} or not isinstance(tool, str) or not isinstance(message, str):
@@ -208,7 +200,8 @@ async def run_assistant(
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
     The transcript only grows: an unusable reply is retried against the same prefix, told to make one call when it made several,
-    and every replayed call has its own id and one matching result. Old result bodies give way to their summaries when the working context passes its budget.
+    and every replayed call has its own id and one matching result. Old result bodies give way to their summaries when the
+    working context passes its budget.
 
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
     same change is not made twice in one request, and an early ``done`` names the changes already committed. A confirm tool's
@@ -217,7 +210,6 @@ async def run_assistant(
     progress puts its labels; each one becomes a ``progress`` event while that tool runs.
     """
     by_name = {tool.name: tool for tool in tools}
-    names = list(by_name)
     step = step_tool(tools)
     schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
     # Restrict the tool list when forced choice is unreliable.
@@ -238,8 +230,10 @@ async def run_assistant(
     run: list[WireMessage] = []
     # Positions in ``run`` of the results that still carry their full body, oldest first, with what replaces each.
     full_results: list[tuple[int, str, str]] = []
-    model_calls = 0
-    executions = 0
+    model_calls = executions = 0
+    # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
+    committed: list[str] = []
+    made: dict[str, ToolOutput] = {}
 
     def fit() -> bool:
         """Bring the working context under its budget; the newest result and the latest request are never dropped."""
@@ -253,14 +247,23 @@ async def run_assistant(
                 return False
         return True
 
-    async def ask(forced: str) -> tuple[CompletionMessage, dict[str, Any]] | None:
-        """One forced call and its arguments, retried once when the reply is cut off or unusable; ``None`` once stopped."""
+    def done(reason: str, message: str = "") -> AssistantEvent:
+        """The terminal event; an early end names the confirmed changes, so it still reports the work already committed."""
+        if committed and reason != "reply":
+            message = f"{message} Already done: {'; '.join(committed)}".strip()
+        return {"type": "done", "reason": reason, "message": message}
+
+    def result(call_id: str, name: str, summary: str, output: ToolOutput | None = None) -> AssistantEvent:
+        ids = dict(output.ids) if output else {}
+        return {"type": "tool_result", "call_id": call_id, "tool": name, "ok": bool(output), "summary": summary, "ids": ids}
+
+    async def ask(forced: str) -> tuple[CompletionMessage, dict[str, Any]]:
+        """One forced call and its arguments, retried once when the reply is cut off or unusable."""
         nonlocal model_calls
-        problem = ""
-        note = ""
+        problem = note = ""
         for attempt in range(2):
             if client.is_aborted:
-                return None
+                raise _Stopped
             if model_calls >= MAX_MODEL_CALLS:
                 raise _Limit
             model_calls += 1
@@ -280,7 +283,7 @@ async def run_assistant(
                 one_call=True,
             )
             if client.is_aborted:
-                return None
+                raise _Stopped
             note = ""
             # A reply cut at the budget can decode to arguments that look complete while missing their tail.
             if response.get("finish_reason") == "length":
@@ -289,7 +292,7 @@ async def run_assistant(
                 # Only arguments that arrived as one whole object: a salvaged or degraded ``{}`` would run as another call,
                 # its optional fields filled with defaults that name a different target.
                 arguments = strict_tool_arguments(response, forced)
-                if arguments is not None and (forced != STEP_TOOL_NAME or _step_choice(arguments, names)):
+                if arguments is not None and (forced != STEP_TOOL_NAME or _step_choice(arguments, by_name)):
                     return response, arguments
                 if arguments is None and _several_calls(response):
                     problem, note = _SEVERAL, _one_at_a_time(forced)
@@ -298,30 +301,18 @@ async def run_assistant(
             logger.warning("Assistant: %s reply unusable on attempt %d: %s", forced, attempt + 1, problem)
         raise AssistantUnavailable(f"{problem} The assistant stopped after one retry.")
 
-    step_number = 0
-    # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
-    committed: list[str] = []
-    made: dict[str, ToolOutput] = {}
     try:
-        while True:
+        for step_number in itertools.count(1):
             yield {"type": "progress", "label": "Thinking…"}
-            asked = await ask(STEP_TOOL_NAME)
-            if asked is None:
-                yield _done_with("stopped", "", committed)
-                return
-            response, chosen = asked
-            choice = _step_choice(chosen, names)
-            if choice is None:
-                raise AssistantUnavailable(_UNREADABLE)
-            name, message = choice
+            response, chosen = await ask(STEP_TOOL_NAME)
+            name, message = _step_choice(chosen, by_name) or (REPLY, "")
             if name == REPLY:
                 yield {"type": "assistant_message", "text": message, "final": True}
-                yield _done("reply")
+                yield done("reply")
                 return
             # Once the tool runs are spent the model still gets this one step, to answer from what it has.
             if executions >= MAX_TOOL_EXECUTIONS:
                 raise _Limit
-            step_number += 1
             tool = by_name[name]
             call_id = f"step{step_number}"
             run.append(assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id))
@@ -331,26 +322,19 @@ async def run_assistant(
             if tool.takes_arguments:
                 run.append(tool_result(call_id, f"Call {name} with its arguments now."))
                 yield {"type": "progress", "label": f"Preparing {name}…"}
-                asked = await ask(name)
-                if asked is None:
-                    yield _done_with("stopped", "", committed)
-                    return
-                response, arguments = asked
+                response, arguments = await ask(name)
                 call_id = f"call{step_number}"
                 run.append(assistant_tool_call(response, name, arguments, call_id))
             checked = _validated(tool, arguments)
             write = tool.behavior == "write"
             # An idempotent write names an explicit state, so repeating it is harmless and may be what the user asked for.
-            key = (
-                f"{name}:{checked.model_dump_json()}" if write and not tool.idempotent and not isinstance(checked, str) else ""
-            )
-            start: ToolStartEvent = {"type": "tool_start", "call_id": call_id, "tool": name}
+            key = "" if isinstance(checked, str) or not write or tool.idempotent else f"{name}:{checked.model_dump_json()}"
+            start: AssistantEvent = {"type": "tool_start", "call_id": call_id, "tool": name}
             admitted = write and not isinstance(checked, str) and key not in made
             if admitted:
                 # A Stop that arrived since the arguments came back admits no write.
                 if client.is_aborted:
-                    yield _done_with("stopped", "", committed)
-                    return
+                    raise _Stopped
                 start["write"] = True
                 if tool.target is not None:
                     start["target"] = dict(tool.target(checked))
@@ -358,10 +342,10 @@ async def run_assistant(
             # The stream sent ``tool_start`` while this generator waited, and a Stop or a disconnect may have landed then. Check
             # again with no await between the check and the write's start, so a write can only start before the Stop.
             if admitted and client.is_aborted:
-                yield {"type": "tool_result", "call_id": call_id, "tool": name, "ok": False, "summary": _NOT_RUN, "ids": {}}
-                yield _done_with("stopped", "", committed)
-                return
+                yield result(call_id, name, _NOT_RUN)
+                raise _Stopped
             output: ToolOutput | None = None
+            failure = ""
             if isinstance(checked, str):
                 failure = f"{checked} {_CORRECT}"
             elif key in made:
@@ -377,81 +361,56 @@ async def run_assistant(
                         while not progress.empty():
                             progress.get_nowait()
                         task = asyncio.ensure_future(running)
-                        try:
-                            async with contextlib.aclosing(_labels(task, progress)) as labels:
-                                async for label in labels:
-                                    yield {"type": "progress", "label": label[:_PROGRESS_LABEL_CHARS]}
-                        finally:
-                            await _finish(task)
+                        async with contextlib.aclosing(_labels(task, progress)) as labels:
+                            async for label in labels:
+                                yield {"type": "progress", "label": label[:_PROGRESS_LABEL_CHARS]}
                         output = task.result()
-                    failure = ""
                 except ToolFailure as exc:
                     failure = str(exc)
+            last = f"\n\n{_LAST_RUN}" if executions >= MAX_TOOL_EXECUTIONS else ""
             if output is None:
-                last = f"\n\n{_LAST_RUN}" if executions >= MAX_TOOL_EXECUTIONS else ""
                 run.append(tool_result(call_id, f"{_encode({'error': failure})}{last}"))
-                yield {"type": "tool_result", "call_id": call_id, "tool": name, "ok": False, "summary": failure, "ids": {}}
+                yield result(call_id, name, failure)
             else:
-                ids = dict(output.ids)
-                if write:
-                    if key:
-                        made[key] = output
-                    if output.committed:
-                        # Only a change counts as done; a write that found its state already set ("was already on") did not.
-                        committed.append(output.summary)
-                        yield {
-                            "type": "mutation",
-                            "call_id": call_id,
-                            "tool": name,
-                            "resources": [dict(resource) for resource in output.committed],
-                        }
-                compact = json.dumps(
-                    {
-                        "summary": output.summary,
-                        "ids": ids,
-                        "note": "Full result dropped to save space; it already happened."
-                        if write
-                        else "Full result dropped to save space; run the tool again.",
-                    },
-                    ensure_ascii=False,
-                )
-                last = f"\n\n{_LAST_RUN}" if executions >= MAX_TOOL_EXECUTIONS else ""
-                run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
-                full_results.append((len(run) - 1, call_id, compact))
-                yield {
-                    "type": "tool_result",
-                    "call_id": call_id,
-                    "tool": name,
-                    "ok": True,
+                if key:
+                    made[key] = output
+                if write and output.committed:
+                    # Only a change counts as done; a write that found its state already set ("was already on") did not.
+                    committed.append(output.summary)
+                    resources = [dict(resource) for resource in output.committed]
+                    yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": resources}
+                dropped = "it already happened." if write else "run the tool again."
+                compact = {
                     "summary": output.summary,
-                    "ids": ids,
+                    "ids": dict(output.ids),
+                    "note": f"Full result dropped to save space; {dropped}",
                 }
+                run.append(tool_result(call_id, f"{_encode(output.data, output.summary)}{last}"))
+                full_results.append((len(run) - 1, call_id, json.dumps(compact, ensure_ascii=False)))
+                yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
                     # Nothing was written. The user's Apply commits it, outside this run, which ends here.
                     yield {"type": "confirm", "call_id": call_id, "tool": name, "proposal": dict(output.proposal)}
-                    yield _done_with("awaiting_apply", _AWAITING, committed)
+                    yield done("awaiting_apply", _AWAITING)
                     return
                 if tool.behavior == "handoff" and output.handoff is not None:
                     # Nothing ran here. The browser starts the work in the chat's own stream, once this one has settled, and
                     # never after a Stop.
                     if client.is_aborted:
-                        yield _done_with("stopped", "", committed)
-                        return
+                        raise _Stopped
                     yield {"type": "handoff", "call_id": call_id, "tool": name, "handoff": dict(output.handoff)}
-                    yield _done_with("handoff", _HANDED_OFF, committed)
+                    yield done("handoff", _HANDED_OFF)
                     return
                 if write and output.ends_run:
                     # Every change this request made, since the model gives no answer after this one.
                     yield {"type": "assistant_message", "text": f"{' '.join(committed)} {_CONTEXT_CHANGED}", "final": True}
-                    yield _done("reply")
+                    yield done("reply")
                     return
             if not fit():
-                yield _done_with(
-                    "limit",
-                    "This request gathered more than the assistant can hold at once. Ask for less at a time.",
-                    committed,
-                )
+                yield done("limit", "This request gathered more than the assistant can hold at once. Ask for less at a time.")
                 return
+    except _Stopped:
+        yield done("stopped")
     except _Limit:
         spent = f"{MAX_TOOL_EXECUTIONS} tool runs" if executions >= MAX_TOOL_EXECUTIONS else f"{MAX_MODEL_CALLS} model calls"
-        yield _done_with("limit", f"The assistant reached its limit of {spent} for one request.", committed)
+        yield done("limit", f"The assistant reached its limit of {spent} for one request.")

@@ -157,7 +157,7 @@ from .queries.messages import (
     get_workflow_attachments_for_message,
     get_workflow_message_state,
     greeting_rerolls,
-    save_edited_message,
+    save_message_edit,
     set_active_leaf,
     set_workflow_message_state,
     switch_to_branch,

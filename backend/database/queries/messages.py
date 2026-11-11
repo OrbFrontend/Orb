@@ -385,56 +385,42 @@ async def get_workflow_attachments_for_message(message_id: int) -> list[Workflow
     return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
 
 
-async def update_message_content(
-    msg_id: int, content: str, *, expected: str | None = None, conversation_id: str | None = None
-) -> bool:
-    """Update the content of an existing message; ``False`` when a guarded update finds no such message in the chat.
-
-    With *expected*, the stored content is compared and replaced in one transaction, raising ``StaleWrite`` if it changed since
-    the caller read it.
-    """
+async def update_message_content(msg_id: int, content: str) -> None:
+    """Update the content of an existing message."""
     async with get_db() as db:
-        if expected is not None:
-            owner = {"conversation_id": conversation_id} if conversation_id is not None else None
-            if not await check_expected(db, "messages", msg_id, {"content": expected}, owner=owner):
-                return False
         await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
         await db.commit()
-        return True
 
 
-async def save_edited_message(
-    msg_id: int,
-    content: str,
-    *,
-    drop_template: bool,
-    clear_draft: bool,
-    expected: str | None = None,
-    conversation_id: str | None = None,
-) -> bool:
+async def save_message_edit(original: Mapping[str, Any], content: str, *, expected: str | None = None) -> bool:
     """Replace a message's content as a manual edit does, with every invariant of that edit in the same transaction.
 
-    *drop_template* removes an unfrozen greeting's stashed macro template, *clear_draft* the retained pre-rewriter draft, and
-    every pending world-change proposal derived from the message goes stale. With *expected* the stored content is compared
-    first (``StaleWrite`` when it changed) and ``False`` means no such message (in *conversation_id*, when given). Nothing is
-    written unless all of it is.
+    *content* is final: the caller resolves inline macros first, so what it previewed is what is saved. With *expected* the
+    stored content must still be that text (``StaleWrite`` otherwise), and ``False`` means the message is no longer in its chat.
+    Nothing is written unless all of it is.
     """
+    msg_id, assistant = original["id"], original["role"] == "assistant"
     async with get_db() as db:
         if expected is not None:
-            owner = {"conversation_id": conversation_id} if conversation_id is not None else None
+            owner = {"conversation_id": original["conversation_id"]}
             if not await check_expected(db, "messages", msg_id, {"content": expected}, owner=owner):
                 return False
         else:
             await db.execute("BEGIN IMMEDIATE")
         try:
             await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
-            if drop_template:
+            # Editing an unfrozen greeting drops its stashed template -- otherwise the next fetch would re-roll from it and
+            # clobber the manual edit.
+            if assistant and original["parent_id"] is None:
                 await db.execute(
                     "UPDATE messages SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.macros') WHERE id = ?",
                     (msg_id,),
                 )
-            if clear_draft:
+            # Same clobber, one surface over: the on-demand prose rewriter prefers the retained pre-rewriter draft over the
+            # saved content, so a rewrite after an edit would quietly restore the pre-edit prose.
+            if assistant:
                 await db.execute("UPDATE messages SET writer_draft = NULL WHERE id = ?", (msg_id,))
+            # An unreviewed world-change proposal derived from this exact text loses its evidence and must be re-evaluated.
             await mark_changesets_stale_on(db, [msg_id])
             await db.commit()
         except BaseException:

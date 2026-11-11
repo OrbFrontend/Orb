@@ -110,44 +110,38 @@ function paintLog() {
   toEnd();
 }
 
+// How each kind of committed resource is read again, keyed so that each is read once per refresh.
+const chatMessages = (r) => [
+  `chat:${r.conversation_id}`,
+  () => S.activeConvId === r.conversation_id && refreshConversationMessages(null, r.conversation_id),
+];
+const REFRESHERS = {
+  lorebook_entry: (r) => [`world:${r.world_id}`, () => refreshWorld(r.world_id)],
+  world: (r) => (r.world_id ? [`world:${r.world_id}`, () => refreshWorld(r.world_id)] : ["worlds", loadWorlds]),
+  character: () => ["characters", loadCharacters],
+  persona: () => ["personas", loadPersonas],
+  conversation: () => ["conversations", loadConversations],
+  // A media job's artifacts arrive with the chat's messages, read again through the chat's own loader.
+  message: chatMessages,
+  media: chatMessages,
+  chat_worlds: (r) => [`chat_worlds:${r.conversation_id}`, () => refreshChatWorlds(r.conversation_id)],
+  branch: (r) => [`branch:${r.conversation_id}`, () => showBranchChange(r.conversation_id)],
+};
+
 /**
  * Read again what a run or an Apply changed, by id, through the loaders that own each resource. Nothing here moves focus or
  * opens anything: lists refresh in place, and a chat repaints only while it is the one in view, each loader checking the
  * view token again once its fetch returns.
  */
 async function refreshResources(changed) {
-  const worlds = new Set();
+  const jobs = new Map();
   const keys = new Set();
-  const chats = new Set();
-  const chatWorlds = new Set();
-  const branches = new Set();
-  let characters = false;
-  let personas = false;
-  let worldList = false;
-  let conversations = false;
   for (const item of changed) {
-    if (item.kind === "lorebook_entry") worlds.add(item.world_id);
-    else if (item.kind === "settings") for (const key of item.keys) keys.add(key);
-    // A media job's artifacts arrive with the chat's messages, read again through the chat's own loader.
-    else if (item.kind === "message" || item.kind === "media") chats.add(item.conversation_id);
-    else if (item.kind === "character") characters = true;
-    else if (item.kind === "persona") personas = true;
-    else if (item.kind === "world" && item.world_id) worlds.add(item.world_id);
-    else if (item.kind === "world") worldList = true;
-    else if (item.kind === "conversation") conversations = true;
-    else if (item.kind === "chat_worlds") chatWorlds.add(item.conversation_id);
-    else if (item.kind === "branch") branches.add(item.conversation_id);
+    if (item.kind === "settings") for (const key of item.keys) keys.add(key);
+    else jobs.set(...REFRESHERS[item.kind](item));
   }
-  const jobs = [...worlds].map((worldId) => refreshWorld(worldId));
-  if (worldList) jobs.push(loadWorlds());
-  if (keys.size) jobs.push(refreshSettings([...keys]));
-  if (characters) jobs.push(loadCharacters());
-  if (personas) jobs.push(loadPersonas());
-  if (conversations) jobs.push(loadConversations());
-  for (const cid of chats) if (S.activeConvId === cid) jobs.push(refreshConversationMessages(null, cid));
-  for (const cid of chatWorlds) jobs.push(refreshChatWorlds(cid));
-  for (const cid of branches) jobs.push(showBranchChange(cid));
-  await Promise.allSettled(jobs);
+  if (keys.size) jobs.set("settings", () => refreshSettings([...keys]));
+  await Promise.allSettled([...jobs.values()].map(async (job) => job()));
 }
 
 /**

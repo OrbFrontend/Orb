@@ -15,14 +15,7 @@ from ...features.assistant import AssistantUnavailable, HistoryItem, ViewContext
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
-from ..assistant_edits import (
-    Origin,
-    apply_proposal,
-    approval_note,
-    claim_continuation,
-    continuable,
-    release_continuation,
-)
+from ..assistant_edits import Origin, apply_proposal, approval_note, continuable
 from ..assistant_media import MediaRun
 from ..assistant_tools import build_tools
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
@@ -43,17 +36,13 @@ def _refuse(detail: str) -> HTTPException:
     return HTTPException(status_code=422, detail=detail)
 
 
-async def _character_name(character_id: str) -> str:
+async def _character_name(character_id: str, *, required: bool = True) -> str | None:
+    """The card's name; a missing card is a 404 when the browser named it, and ``None`` for a solo chat's own, since deleting a
+    card keeps the chats that used it."""
     card = await get_character_card(character_id)
-    if card is None:
+    if card is None and required:
         raise HTTPException(status_code=404, detail="Character not found")
-    return str(card.get("name") or "")
-
-
-async def _chat_character(character_id: str | None) -> tuple[str | None, str]:
-    """A solo chat's own character, or none when its card was deleted: deleting a card keeps the chats that used it."""
-    card = await get_character_card(character_id) if character_id else None
-    return (character_id, str(card.get("name") or "")) if card is not None else (None, "")
+    return None if card is None else str(card.get("name") or "")
 
 
 async def resolve_view(context: AssistantViewContext) -> ViewContext:
@@ -73,7 +62,7 @@ async def resolve_view(context: AssistantViewContext) -> ViewContext:
         if not context.character_id:
             return ViewContext("library")
         return ViewContext(
-            "library", character_id=context.character_id, character_name=await _character_name(context.character_id)
+            "library", character_id=context.character_id, character_name=await _character_name(context.character_id) or ""
         )
     if not context.conversation_id:
         raise _refuse("A chat view names its chat")
@@ -81,7 +70,7 @@ async def resolve_view(context: AssistantViewContext) -> ViewContext:
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     group = conv.get("kind") == "group"
-    character_id = context.character_id
+    character_id, character_name = context.character_id, None
     if group:
         # No character is inferred for a group: only one the request names, and only from its cast.
         if character_id and character_id not in {member.card_id for member in (await resolve_cast(conv)).members}:
@@ -89,17 +78,17 @@ async def resolve_view(context: AssistantViewContext) -> ViewContext:
     elif character_id and character_id != conv.get("character_card_id"):
         raise _refuse("That character is not this chat's character")
     if character_id:
-        # An id the browser sent must name a card; a chat's own may be left from a deleted one.
         character_name = await _character_name(character_id)
-    else:
-        character_id, character_name = (None, "") if group else await _chat_character(conv.get("character_card_id"))
+    elif not group and (own := conv.get("character_card_id")):
+        character_name = await _character_name(own, required=False)
+        character_id = own if character_name is not None else None
     return ViewContext(
         "chat",
         conversation_id=conv["id"],
         conversation_title=conv["title"],
         group=group,
         character_id=character_id,
-        character_name=character_name,
+        character_name=character_name or "",
     )
 
 
@@ -137,10 +126,11 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
         # Inside the stream, so a run refused admission (another tab's run holds the key) or a client gone before it starts
         # spends nothing. A run that ends before doing anything gives the continuation back; one that made or proposed a
         # change, handed off, or reached its own ending keeps it spent.
-        claimed = proposal is not None and claim_continuation(proposal)
-        if proposal is not None and not claimed:
-            yield {"event": "error", "data": "That request has already been continued once."}
-            return
+        if proposal is not None:
+            if proposal.continued:
+                yield {"event": "error", "data": "That request has already been continued once."}
+                return
+            proposal.continued = True
         acted = ended = False
         try:
             yield {"event": "start", "data": {}}
@@ -166,8 +156,8 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
             logger.warning("Assistant run %s failed: %s", scrub_log(operation_id), exc)
             yield {"event": "error", "data": str(exc)}
         finally:
-            if claimed and proposal is not None and not (acted or ended):
-                release_continuation(proposal)
+            if proposal is not None and not (acted or ended):
+                proposal.continued = False
 
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=ASSISTANT_STREAM_KEY), media_type="text/event-stream"

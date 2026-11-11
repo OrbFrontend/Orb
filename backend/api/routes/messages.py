@@ -27,6 +27,7 @@ from ...database import (
     mark_changesets_stale_for_messages,
     mark_orphaned_changesets_stale,
     reroll_unfrozen_greetings,
+    save_message_edit,
     switch_to_branch,
     update_message_content,
 )
@@ -57,7 +58,6 @@ from ..deps import (
     rows_response,
     stream_idle_lock,
 )
-from ..edits import save_message_edit
 from ..schemas import AutocompleteInput, EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage, SpeakRequest
 
 router = APIRouter()

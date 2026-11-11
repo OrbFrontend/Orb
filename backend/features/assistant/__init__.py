@@ -15,6 +15,7 @@ from .contracts import (
     ToolArguments,
     ToolFailure,
     ToolOutput,
+    ToolSet,
     ViewContext,
 )
 from .loop import run_assistant, settled

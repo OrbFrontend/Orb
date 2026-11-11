@@ -17,35 +17,10 @@ const NO_RESULT = "No result was received.";
 export const UNKNOWN_OUTCOME = "Outcome unknown; check the target.";
 const COMMITTED_UNANSWERED = "Done; its result was not received.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
-const RESOURCE_KINDS = new Set([
-  "lorebook_entry",
-  "settings",
-  "character",
-  "persona",
-  "message",
-  "world",
-  "conversation",
-  "chat_worlds",
-  "branch",
-  "media",
-]);
 const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply"]);
 const MAX_DIRECTION_CHARS = 500;
-// A proposal's states. Only `pending` and `unconfirmed` (an Apply that was never answered) can be applied, and only while
-// the proposal is the one this page is holding; a stored card is always one of the inert states.
-const PROPOSAL_STATES = new Set([
-  "pending",
-  "applying",
-  "unconfirmed",
-  "applied",
-  "cancelled",
-  "superseded",
-  "stale",
-  "missing",
-  "expired",
-  "historical",
-  "unknown",
-]);
+// A proposal's states besides `pending`. Only `pending` and `unconfirmed` (an Apply that was never answered) can be applied,
+// and only while the proposal is the one this page is holding; a stored card is always one of the inert states.
 const PROPOSAL_NOTES = {
   applying: "Applying…",
   unconfirmed: "Apply was not confirmed. Retry it, or check the target.",
@@ -59,6 +34,7 @@ const PROPOSAL_NOTES = {
   unknown: "Apply outcome unknown; check the target.",
 };
 // What survives a reload: anything still open becomes historical, and an Apply in flight becomes an unknown outcome.
+const PROPOSAL_STATES = new Set(["pending", ...Object.keys(PROPOSAL_NOTES)]);
 const STORED_STATE = { pending: "historical", superseded: "historical", applying: "unknown", unconfirmed: "unknown" };
 const ASK_AGAIN = new Set(["stale", "missing", "expired", "historical", "superseded"]);
 
@@ -136,43 +112,38 @@ function unanswered(item) {
   return item.write === true ? UNKNOWN_OUTCOME : NO_RESULT;
 }
 
-/**
- * A resource the server named, rebuilt from the ids its kind carries. Anything else is dropped. A create's target names only
- * its kind, since the id is the server's to assign; whatever that list shows is read again.
- */
+// The ids each resource kind carries, each with its check and whether it is required. A create's target names only its kind,
+// since the id is the server's to assign; whatever that list shows is read again.
+const MESSAGE_IDS = { conversation_id: [id, true], message_id: [rowId, true] };
+const RESOURCE_IDS = {
+  lorebook_entry: { world_id: [id, true], entry_id: [rowId, false] },
+  character: { character_id: [id, false] },
+  world: { world_id: [id, false] },
+  conversation: { conversation_id: [id, false] },
+  persona: { persona_id: [rowId, false] },
+  chat_worlds: { conversation_id: [id, true], world_id: [id, true] },
+  branch: { conversation_id: [id, true] },
+  message: MESSAGE_IDS,
+  media: MESSAGE_IDS,
+};
+
+/** A resource the server named, rebuilt from the ids its kind carries. Anything else is dropped. */
 function resource(value) {
-  if (!value || typeof value !== "object" || !RESOURCE_KINDS.has(value.kind)) return null;
-  if (value.kind === "lorebook_entry") {
-    const world = id(value.world_id);
-    if (!world) return null;
-    const entry = rowId(value.entry_id) ? { entry_id: value.entry_id } : {};
-    return { kind: "lorebook_entry", world_id: world, ...entry };
+  if (!value || typeof value !== "object") return null;
+  if (value.kind === "settings") {
+    const keys = Array.isArray(value.keys)
+      ? value.keys.filter((key) => typeof key === "string" && key.length <= 64)
+      : [];
+    return keys.length ? { kind: "settings", keys: keys.slice(0, 16) } : null;
   }
-  const optional = { character: "character_id", world: "world_id", conversation: "conversation_id" }[value.kind];
-  if (optional) {
-    const named = id(value[optional]);
-    return named ? { kind: value.kind, [optional]: named } : { kind: value.kind };
+  if (!Object.hasOwn(RESOURCE_IDS, value.kind)) return null;
+  const out = { kind: value.kind };
+  for (const [key, [check, required]] of Object.entries(RESOURCE_IDS[value.kind])) {
+    const valid = check(value[key]);
+    if (valid) out[key] = valid;
+    else if (required) return null;
   }
-  if (value.kind === "persona") {
-    const persona = rowId(value.persona_id);
-    return persona ? { kind: "persona", persona_id: persona } : { kind: "persona" };
-  }
-  if (value.kind === "chat_worlds") {
-    const chat = id(value.conversation_id);
-    const world = id(value.world_id);
-    return chat && world ? { kind: "chat_worlds", conversation_id: chat, world_id: world } : null;
-  }
-  if (value.kind === "branch") {
-    const chat = id(value.conversation_id);
-    return chat ? { kind: "branch", conversation_id: chat } : null;
-  }
-  if (value.kind === "message" || value.kind === "media") {
-    const chat = id(value.conversation_id);
-    const message = rowId(value.message_id);
-    return chat && message ? { kind: value.kind, conversation_id: chat, message_id: message } : null;
-  }
-  const keys = Array.isArray(value.keys) ? value.keys.filter((key) => typeof key === "string" && key.length <= 64) : [];
-  return keys.length ? { kind: "settings", keys: keys.slice(0, 16) } : null;
+  return out;
 }
 
 /** A `handoff` event's checked target, or null: which reply in which chat, and a rewrite's direction. */
@@ -284,16 +255,7 @@ export function wireContext(context) {
   return out;
 }
 
-function sameView(a, b) {
-  return (
-    !!a &&
-    !!b &&
-    a.mode === b.mode &&
-    a.conversation_id === b.conversation_id &&
-    a.character_id === b.character_id &&
-    a.document_id === b.document_id
-  );
-}
+const sameView = (a, b) => !!a && !!b && JSON.stringify(wireContext(a)) === JSON.stringify(wireContext(b));
 
 /** Enter sends; Shift+Enter is a newline, and an Enter that commits an IME composition is neither. */
 export function isSendKey(e) {

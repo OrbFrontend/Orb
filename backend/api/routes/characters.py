@@ -35,6 +35,8 @@ from ...database import (
     set_card_source_auth,
     set_character_expressions,
     set_public_profile,
+    sync_conversations_for_card,
+    update_character_card,
     upgrade_card_fragment_types,
 )
 from ...features.cards import THUMB_EDGE, avatar_thumbnail, draft_card_profile
@@ -44,7 +46,6 @@ from ...features.cards import parsing as tavern_cards
 from ...features.lorebook import lorebook_to_book, normalise_lorebook_entry, project_lorebook_view
 from ...inference import agent_lane_from_settings, client_from_settings
 from ..deps import cached_image_response, idle_chats_guard, image_not_modified, profile_draft_failures, rows_response
-from ..edits import save_card_update
 from ..schemas import (
     CardSourceLoginRequest,
     CharacterCardCreate,
@@ -252,10 +253,11 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
         if data.persona_lock_id is not None and not await get_user_persona(data.persona_lock_id):
             raise HTTPException(status_code=400, detail="Persona not found")
         update_data["persona_lock_id"] = data.persona_lock_id
-    old_name = old_card.get("name") if old_card and "name" in update_data else None
-    result = await save_card_update(card_id, update_data, old_name=old_name)
+    result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Character card not found")
+    old_name = old_card.get("name") if old_card and "name" in update_data else None
+    await sync_conversations_for_card(card_id, result, old_name=old_name)
     return result
 
 

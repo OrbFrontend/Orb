@@ -245,9 +245,6 @@ async def _make(view: ViewContext, run: MediaRun, medium: _Medium, args: _MediaA
     cid, mid = conv["id"], message["id"]
     if not (message["content"] or "").strip():
         raise ToolFailure(f"Message {mid} has no text to make {medium.noun} of.")
-    workflow = get_workflow(medium.workflow_id)
-    if workflow is None or get_subscription(medium.workflow_id, HookType.ON_DEMAND) is None:
-        raise ToolFailure(f"The {medium.noun} workflow is not installed, so nothing was made.")
     # Read now: a toggle earlier in this request may have changed what the request's own snapshot says.
     settings = await get_settings()
     if medium.workflow_id == gpu_swap_host.IMAGE_GEN and await gpu_swap_host.swap_skipped_while_disabled(settings):

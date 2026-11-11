@@ -17,7 +17,7 @@ from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, text_complet
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
 from .errors import EndpointConfigError, LLMCallError, llm_call_error
-from .gemma_tool_format import parse_gemma_call_strict, parse_gemma_tool_calls
+from .gemma_tool_format import gemma_call_json, parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
 
@@ -1336,23 +1336,17 @@ def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _strict_object(value: Any) -> dict[str, Any] | None:
-    """*value* as a JSON object only when it is one already or a string that decodes, whole, to one with no repeated key."""
+def _strict_object(value: Any, *, unwrap: bool = False) -> dict[str, Any] | None:
+    """*value* as a JSON object only when it is one already or a string that decodes, whole, to one with no repeated key.
+
+    *unwrap* also takes one as a list's only item: some servers wrap a single forced call in one.
+    """
     if isinstance(value, str):
         try:
             value = json.loads(value, object_pairs_hook=_unique_pairs)
         except (json.JSONDecodeError, _DuplicateKey):
             return None
-    return _sanitize_args(value) if isinstance(value, dict) else None
-
-
-def _strict_call(text: str) -> dict[str, Any] | None:
-    """One whole call object, bare or as the only item of a list: some servers wrap a single forced call in one."""
-    try:
-        value = json.loads(text, object_pairs_hook=_unique_pairs)
-    except (json.JSONDecodeError, _DuplicateKey):
-        return None
-    if isinstance(value, list) and len(value) == 1:
+    if unwrap and isinstance(value, list) and len(value) == 1:
         value = value[0]
     return _sanitize_args(value) if isinstance(value, dict) else None
 
@@ -1378,14 +1372,14 @@ def strict_tool_arguments(message: Mapping[str, Any], name: str) -> dict[str, An
     content = (message.get("content") or "").strip()
     # A complete call in another wrapper: one Gemma native call, one Hermes block, or one whole object in a code fence, with
     # nothing else around it. None is salvage: a cut-off or partial call, a second call, or prose beside one is refused.
-    native = parse_gemma_call_strict(content)
+    native = gemma_call_json(content)
     if native is not None:
-        return _sanitize_args(native["arguments"]) if native["name"] == name else None
+        return _strict_object(native[1]) if native[0] == name else None
     tagged = _HERMES_BLOCK.fullmatch(content)
     if tagged is not None and "<tool_call>" in tagged.group(1):
         return None
     wrapped = _JSON_FENCE.fullmatch(content) or tagged
-    call = _strict_call(wrapped.group(1).strip() if wrapped else content)
+    call = _strict_object(wrapped.group(1).strip() if wrapped else content, unwrap=True)
     if call is not None and call.get("name") == name and "arguments" in call:
         return _strict_object(call["arguments"])
     return None

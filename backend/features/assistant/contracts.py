@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Annotated, Any, Literal, NotRequired, TypedDict, get_args, get_origin
+from typing import Annotated, Any, Literal, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict
 
@@ -116,6 +116,22 @@ class AssistantTool:
         return bool(self.arguments.model_fields)
 
 
+_Run = TypeVar("_Run", bound=Callable[[Any], Awaitable[ToolOutput]])
+
+
+class ToolSet(list[AssistantTool]):
+    """Tools in the order they are declared, each by decorating its callable; the name defaults to the callable's."""
+
+    def add(
+        self, behavior: ToolBehavior, arguments: type[ToolArguments], description: str, *, name: str = "", **options: Any
+    ) -> Callable[[_Run], _Run]:
+        def declare(run: _Run) -> _Run:
+            self.append(AssistantTool(name or run.__name__, description, arguments, behavior, run, **options))
+            return run
+
+        return declare
+
+
 @dataclass(frozen=True)
 class HistoryItem:
     """One replayed transcript entry. It comes from the browser, so it is a record to quote, never proof of an action."""
@@ -141,68 +157,5 @@ class ViewContext:
     document_title: str = ""
 
 
-class ProgressEvent(TypedDict):
-    type: Literal["progress"]
-    label: str
-
-
-class MessageEvent(TypedDict):
-    type: Literal["assistant_message"]
-    text: str
-    final: bool
-
-
-class ToolStartEvent(TypedDict):
-    type: Literal["tool_start"]
-    call_id: str
-    tool: str
-    # Set on a write that is about to run, with what it may change.
-    write: NotRequired[bool]
-    target: NotRequired[dict[str, Any]]
-
-
-class MutationEvent(TypedDict):
-    """A write's committed resources, sent once its commit has finished."""
-
-    type: Literal["mutation"]
-    call_id: str
-    tool: str
-    resources: list[dict[str, Any]]
-
-
-class ToolResultEvent(TypedDict):
-    type: Literal["tool_result"]
-    call_id: str
-    tool: str
-    ok: bool
-    summary: str
-    ids: dict[str, Any]
-
-
-class ConfirmEvent(TypedDict):
-    """A proposed edit for the user to Apply or Cancel; a ``done`` with ``awaiting_apply`` follows it."""
-
-    type: Literal["confirm"]
-    call_id: str
-    tool: str
-    proposal: dict[str, Any]
-
-
-class HandoffEvent(TypedDict):
-    """A checked target for the browser to start in its own stream; a ``done`` with ``handoff`` follows it."""
-
-    type: Literal["handoff"]
-    call_id: str
-    tool: str
-    handoff: dict[str, Any]
-
-
-class DoneEvent(TypedDict):
-    type: Literal["done"]
-    reason: Literal["reply", "stopped", "limit", "awaiting_apply", "handoff"]
-    message: str
-
-
-AssistantEvent = (
-    ProgressEvent | MessageEvent | ToolStartEvent | MutationEvent | ToolResultEvent | ConfirmEvent | HandoffEvent | DoneEvent
-)
+# One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-chat.md.
+AssistantEvent = dict[str, Any]

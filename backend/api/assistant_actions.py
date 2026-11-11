@@ -10,9 +10,9 @@ the chat's stream once this run has settled.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any
 
 from pydantic import Field, StringConstraints, field_validator
 
@@ -30,13 +30,11 @@ from ..database import (
     switch_to_branch,
 )
 from ..database.models import ConversationRow, MessageRow
-from ..features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
-from .assistant_edits import ID_CHARS, ReadRecord, chat_id, clip, not_blank, quoted, reply_target
+from ..features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from .assistant_edits import CHARACTER_FIELDS, ID_CHARS, ReadRecord, chat_id, clip, not_blank, quoted, reply_target
 from .conversation_copy import checkpoint_conversation, checkpoint_title
 from .deps import ChatUnavailable, idle_chat_admission
 from .schemas import CharacterCardCreate, UserPersonaCreate, WorldCreate
-
-_Args = TypeVar("_Args", bound=ToolArguments)
 
 _NAME_CHARS = 200
 _LONG_TEXT_CHARS = 4000
@@ -44,6 +42,7 @@ _SHORT_TEXT_CHARS = 2000
 _TAG_CHARS = 60
 _TAGS = 20
 _DIRECTION_CHARS = 500
+_ADDITIVE = " It always adds a new one, even when one already has that name; it never edits one."
 _LISTED_WORLDS = 30
 
 
@@ -104,12 +103,10 @@ class _Branch(ToolArguments):
 
 class _Regenerate(ToolArguments):
     conversation_id: str = _chat_field()
-    message_id: int = Field(ge=1, description="The reply to regenerate, from read_messages.")
+    message_id: int = Field(ge=1, description="The reply, from read_messages.")
 
 
-class _Rewrite(ToolArguments):
-    conversation_id: str = _chat_field()
-    message_id: int = Field(ge=1, description="The reply to rewrite, from read_messages.")
+class _Rewrite(_Regenerate):
     direction: str = Field(min_length=1, max_length=_DIRECTION_CHARS, description="How to rewrite it, in the user's words.")
 
     _blank = field_validator("direction")(not_blank)
@@ -120,6 +117,8 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
 
     A create notes in *record* each text it stored exactly as sent: this run wrote it, so it has seen it whole.
     """
+
+    tools = ToolSet()
 
     @asynccontextmanager
     async def admitted(cid: str) -> AsyncIterator[ConversationRow]:
@@ -137,25 +136,23 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
                 "That chat is generating right now, so nothing was changed. Ask again once it has finished."
             ) from None
 
+    @tools.add(
+        "write",
+        _CharacterCreate,
+        "Create a character card from authored text." + _ADDITIVE,
+        name="create_character",
+        target=lambda args: {"kind": "character"},
+    )
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no
         # extensions, and no expression pack fetched from a URL.
-        card = CharacterCardCreate(
-            name=args.name,
-            description=args.description,
-            personality=args.personality,
-            scenario=args.scenario,
-            first_mes=args.first_mes,
-            mes_example=args.mes_example,
-            creator_notes=args.creator_notes,
-            tags=list(args.tags),
-        ).model_dump()
+        card = CharacterCardCreate(**args.model_dump()).model_dump()
         card.pop("character_book", None)
         card["id"] = str(uuid.uuid4())
         card["source_format"] = "manual"
         created = await create_character_card(card)
         card_id = str(card["id"])
-        for name in ("description", "personality", "scenario", "first_mes", "mes_example", "creator_notes"):
+        for name in CHARACTER_FIELDS:
             record.shown("character", card_id, name, str(created.get(name) or ""), getattr(args, name))
         data = {
             "created": True,
@@ -169,6 +166,13 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
             committed=({"kind": "character", "character_id": card_id},),
         )
 
+    @tools.add(
+        "write",
+        _WorldCreate,
+        "Create an empty world (lorebook); it is not global and no chat uses it yet." + _ADDITIVE,
+        name="create_world",
+        target=lambda args: {"kind": "world"},
+    )
     async def add_world(args: _WorldCreate) -> ToolOutput:
         # Never global and never attached: either is a separate choice the user makes.
         world = await create_world(WorldCreate(name=args.name, is_global=False).model_dump())
@@ -184,6 +188,13 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
             committed=({"kind": "world", "world_id": world["id"]},),
         )
 
+    @tools.add(
+        "write",
+        _PersonaCreate,
+        "Create a persona, someone the user plays; it does not become the active one." + _ADDITIVE,
+        name="create_persona",
+        target=lambda args: {"kind": "persona"},
+    )
     async def add_persona(args: _PersonaCreate) -> ToolOutput:
         persona = await create_user_persona(UserPersonaCreate(name=args.name, description=args.description).model_dump())
         record.shown("persona", persona["id"], "name", persona["name"] or "", args.name)
@@ -200,10 +211,20 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
             committed=({"kind": "persona", "persona_id": persona["id"]},),
         )
 
+    @tools.add(
+        "write",
+        _ChatWorld,
+        "Use a world in one chat, or stop using it there. Give the state the user asked for, never a flip. "
+        "It changes nothing else about the chat and reports whether the world is global.",
+        target=lambda args: {
+            "kind": "chat_worlds",
+            "conversation_id": args.conversation_id or view.conversation_id,
+            "world_id": args.world_id,
+        },
+        idempotent=True,
+    )
     async def set_chat_world(args: _ChatWorld) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
-        if await get_world(args.world_id) is None:
-            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
         async with admitted(cid) as conv:
             world = await get_world(args.world_id)
             if world is None:
@@ -237,6 +258,12 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         committed = ({"kind": "chat_worlds", "conversation_id": cid, "world_id": world["id"]},) if attached != before else ()
         return ToolOutput(data, summary, {"conversation_id": cid, "world_id": world["id"]}, committed=committed)
 
+    @tools.add(
+        "write",
+        _Checkpoint,
+        "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.",
+        target=lambda args: {"kind": "conversation"},
+    )
     async def checkpoint_chat(args: _Checkpoint) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
@@ -263,6 +290,15 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
             raise ToolFailure(f"That chat has no message {message_id}. read_messages or query_library shows the ids.")
         return message
 
+    @tools.add(
+        "write",
+        _Branch,
+        "Show the branch containing one message in a chat, as the branch arrows do. The request ends once it has "
+        "switched, since the chat then reads differently.",
+        name="switch_branch",
+        target=lambda args: {"kind": "branch", "conversation_id": args.conversation_id or view.conversation_id},
+        idempotent=True,
+    )
     async def select_branch(args: _Branch) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
@@ -300,94 +336,26 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
             handoff=target,
         )
 
+    @tools.add(
+        "handoff",
+        _Regenerate,
+        "Have the chat regenerate one reply on its kept branch, as its Regenerate button does: a new version beside "
+        "the old one.",
+    )
     async def regenerate_reply(args: _Regenerate) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "regenerated", idle=True)
         if message["parent_id"] is None:
             raise ToolFailure(f"Message {message['id']} is the chat's opening greeting, which is not regenerated.")
         return handed(conv, message, "regenerating", {})
 
+    @tools.add(
+        "handoff",
+        _Rewrite,
+        "Have the chat rewrite one reply on its kept branch in a direction, as Magic Rewrite does: a new version "
+        "beside the old one.",
+    )
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
         return handed(conv, message, "rewriting", {"direction": args.direction})
 
-    def write(
-        name: str,
-        description: str,
-        arguments: type[_Args],
-        run: Callable[[_Args], Awaitable[ToolOutput]],
-        target: Callable[[_Args], Mapping[str, Any]],
-        *,
-        idempotent: bool = False,
-    ) -> AssistantTool:
-        return AssistantTool(name, description, arguments, "write", run, target=target, idempotent=idempotent)
-
-    def handoff(name: str, description: str, arguments: type[_Args], run: Callable[[_Args], Awaitable[ToolOutput]]):
-        return AssistantTool(name, description, arguments, "handoff", run)
-
-    additive = " It always adds a new one, even when one already has that name; it never edits one."
-    return [
-        write(
-            "create_character",
-            "Create a character card from authored text." + additive,
-            _CharacterCreate,
-            add_character,
-            lambda args: {"kind": "character"},
-        ),
-        write(
-            "create_world",
-            "Create an empty world (lorebook); it is not global and no chat uses it yet." + additive,
-            _WorldCreate,
-            add_world,
-            lambda args: {"kind": "world"},
-        ),
-        write(
-            "create_persona",
-            "Create a persona, someone the user plays; it does not become the active one." + additive,
-            _PersonaCreate,
-            add_persona,
-            lambda args: {"kind": "persona"},
-        ),
-        write(
-            "set_chat_world",
-            "Use a world in one chat, or stop using it there. Give the state the user asked for, never a flip. "
-            "It changes nothing else about the chat and reports whether the world is global.",
-            _ChatWorld,
-            set_chat_world,
-            lambda args: {
-                "kind": "chat_worlds",
-                "conversation_id": args.conversation_id or view.conversation_id,
-                "world_id": args.world_id,
-            },
-            idempotent=True,
-        ),
-        write(
-            "checkpoint_chat",
-            "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.",
-            _Checkpoint,
-            checkpoint_chat,
-            lambda args: {"kind": "conversation"},
-        ),
-        write(
-            "switch_branch",
-            "Show the branch containing one message in a chat, as the branch arrows do. The request ends once it has "
-            "switched, since the chat then reads differently.",
-            _Branch,
-            select_branch,
-            lambda args: {"kind": "branch", "conversation_id": args.conversation_id or view.conversation_id},
-            idempotent=True,
-        ),
-        handoff(
-            "regenerate_reply",
-            "Have the chat regenerate one reply on its kept branch, as its Regenerate button does: a new version beside "
-            "the old one.",
-            _Regenerate,
-            regenerate_reply,
-        ),
-        handoff(
-            "rewrite_reply",
-            "Have the chat rewrite one reply on its kept branch in a direction, as Magic Rewrite does: a new version "
-            "beside the old one.",
-            _Rewrite,
-            rewrite_reply,
-        ),
-    ]
+    return tools

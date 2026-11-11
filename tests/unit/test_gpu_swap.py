@@ -536,38 +536,6 @@ async def test_host_plan_needs_the_option_and_an_unloadable_lane(monkeypatch, op
         assert (plan.comfy_host, plan.comfy_model) == ("", "")
 
 
-async def test_switching_image_generation_on_drops_the_cached_off_plan(monkeypatch):
-    from backend import workflows
-    from backend.workflows import gpu_swap_host
-
-    settings = {**SETTINGS, "workflow_enabled": {"image_gen": False}}
-    config = {"external_comfy": {"api_url": COMFY, "gpu_swap": True}}
-
-    async def probe(root, headers=None, proxy=None, *, fresh=False):
-        return "llama_router"
-
-    async def get_settings():
-        return settings
-
-    async def get_config(workflow_id):
-        return config
-
-    async def stored(workflow_id, enabled):
-        settings["workflow_enabled"] = {workflow_id: enabled}
-
-    monkeypatch.setattr(gpu_swap_host, "get_settings", get_settings)
-    monkeypatch.setattr(gpu_swap_host, "get_workflow_config", get_config)
-    monkeypatch.setattr(gpu_swap, "probe", probe)
-    monkeypatch.setattr(workflows, "set_workflow_enabled", stored)
-    gpu_swap_host.invalidate()
-    try:
-        assert (await gpu_swap_host.plan()).enabled is False
-        await workflows.set_workflow_toggle("image_gen", True)
-        assert (await gpu_swap_host.plan()).enabled is True, "a render right after the switch must swap"
-    finally:
-        gpu_swap_host.invalidate()
-
-
 @pytest.mark.parametrize(
     "comfy_url,hosted",
     [

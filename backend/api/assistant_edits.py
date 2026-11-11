@@ -15,12 +15,12 @@ import re
 import secrets
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, NoReturn, TypeVar
+from typing import Any, Literal, NoReturn, get_args
 
 from fastapi import HTTPException
-from pydantic import Field
+from pydantic import Field, create_model
 
 from ..core.macros import resolve_inline
 from ..database import (
@@ -34,6 +34,7 @@ from ..database import (
     get_world,
     greeting_rerolls,
     resolve_cast,
+    save_message_edit,
     sync_conversations_for_card,
     update_character_card,
     update_lorebook_entry,
@@ -46,13 +47,11 @@ from ..features.assistant import (
     ToolArguments,
     ToolFailure,
     ToolOutput,
+    ToolSet,
     ViewContext,
     settled,
 )
 from .deps import ChatUnavailable, conversation_busy, idle_chat_admission, resource_deleting
-from .edits import save_message_edit
-
-_Args = TypeVar("_Args", bound=ToolArguments)
 
 MAX_PROPOSALS = 32
 PROPOSAL_TTL_SECS = 15 * 60
@@ -71,7 +70,9 @@ _CLIP_MARK = re.compile(r"…\[\+\d+ chars\]")
 _MIN_CLIP_CHARS = 200
 
 _ProposalKind = Literal["character", "lorebook_entry", "persona", "message"]
-_CharacterField = Literal["description", "personality", "scenario", "first_mes", "mes_example", "creator_notes"]
+# The authored card text a reader may see and an edit may change. Prompt overrides, extensions, avatars and workflow state stay out.
+CharacterField = Literal["description", "personality", "scenario", "first_mes", "mes_example", "creator_notes"]
+CHARACTER_FIELDS: tuple[CharacterField, ...] = get_args(CharacterField)
 _FIELD_LABELS = {
     "description": "Description",
     "personality": "Personality",
@@ -267,28 +268,12 @@ def _evict() -> bool:
     return True
 
 
-def _expired() -> NoReturn:
-    raise HTTPException(
-        status_code=410,
-        detail={"code": "expired", "message": "This proposal has expired or is unknown to the server. Ask again."},
-    )
-
-
 def get_proposal(proposal_id: str) -> _Proposal:
     _clean()
     proposal = _proposals.get(proposal_id)
     if proposal is None:
-        _expired()
+        _refuse(410, "expired", "This proposal has expired or is unknown to the server. Ask again.")
     return proposal
-
-
-def _occurrences(text: str, needle: str) -> int:
-    """How often *needle* occurs in *text*, overlapping matches counted: each is a place the edit could mean."""
-    count, start = 0, text.find(needle)
-    while start != -1 and count < 2:
-        count += 1
-        start = text.find(needle, start + 1)
-    return count
 
 
 def _edited(before: str, args: Any, reread: str, *, read_whole: bool) -> str:
@@ -321,10 +306,11 @@ def _edited(before: str, args: Any, reread: str, *, read_whole: bool) -> str:
         return args.text
     if not args.find:
         raise ToolFailure("find_replace needs the exact text to find, and find was empty. Nothing was proposed.")
-    count = _occurrences(before, args.find)
-    if not count:
+    # Overlapping matches count: each is a place the edit could mean.
+    first = before.find(args.find)
+    if first == -1:
         raise ToolFailure(f"The find text does not occur in that field. {reread} Then copy the text exactly.")
-    if count > 1:
+    if before.find(args.find, first + 1) != -1:
         raise ToolFailure("The find text occurs more than once. Include more of the text around it so it matches once.")
     return before.replace(args.find, args.text, 1)
 
@@ -368,62 +354,50 @@ def _propose(
     )
 
 
-def _mode_field() -> Any:
-    return Field(description=_MODES)
-
-
-def _text_field() -> Any:
-    return Field(
-        max_length=_EDIT_CHARS,
-        description="replace_all: the field's complete new text. find_replace: what replaces `find`; empty deletes it.",
+def _edit_args(name: str, **target: Any) -> type[ToolArguments]:
+    """An edit tool's arguments: what it targets, then how the text changes."""
+    return create_model(
+        name,
+        __base__=ToolArguments,
+        **target,
+        mode=(Literal["replace_all", "find_replace"], Field(description=_MODES)),
+        text=(
+            str,
+            Field(
+                max_length=_EDIT_CHARS,
+                description="replace_all: the field's complete new text. find_replace: what replaces `find`; empty deletes it.",
+            ),
+        ),
+        find=(str, Field(default="", max_length=_EDIT_CHARS, description="find_replace only: exact text from the field.")),
     )
 
 
-def _find_field() -> Any:
-    return Field(default="", max_length=_EDIT_CHARS, description="find_replace only: exact text from the field.")
+_CHAT = (str, Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view."))
+_CharacterEdit = _edit_args(
+    "_CharacterEdit",
+    character_id=(
+        str,
+        Field(default="", max_length=ID_CHARS, description="The character's id; empty means the character in view."),
+    ),
+    field=(CharacterField, Field(description="The card field to edit.")),
+)
+_EntryEdit = _edit_args(
+    "_EntryEdit",
+    world_id=(str, Field(min_length=1, max_length=ID_CHARS, description="The entry's world, from list_worlds.")),
+    entry_id=(int, Field(ge=1, description="The entry's id, from list_lorebook_entries.")),
+    field=(Literal["name", "content"], Field(description="The entry field to edit.")),
+)
+_PersonaEdit = _edit_args(
+    "_PersonaEdit",
+    persona_id=(int, Field(ge=1, description="The persona's id, from list_personas.")),
+    field=(Literal["name", "description"], Field(description="The persona field to edit.")),
+)
+_MessageEdit = _edit_args(
+    "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message's id, from read_messages."))
+)
 
 
-class _CharacterEdit(ToolArguments):
-    character_id: str = Field(
-        default="", max_length=ID_CHARS, description="The character's id; empty means the character in view."
-    )
-    field: _CharacterField = Field(description="The card field to edit.")
-    mode: Literal["replace_all", "find_replace"] = _mode_field()
-    text: str = _text_field()
-    find: str = _find_field()
-
-
-class _EntryEdit(ToolArguments):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The entry's world, from list_worlds.")
-    entry_id: int = Field(ge=1, description="The entry's id, from list_lorebook_entries.")
-    field: Literal["name", "content"] = Field(description="The entry field to edit.")
-    mode: Literal["replace_all", "find_replace"] = _mode_field()
-    text: str = _text_field()
-    find: str = _find_field()
-
-
-class _PersonaEdit(ToolArguments):
-    persona_id: int = Field(ge=1, description="The persona's id, from list_personas.")
-    field: Literal["name", "description"] = Field(description="The persona field to edit.")
-    mode: Literal["replace_all", "find_replace"] = _mode_field()
-    text: str = _text_field()
-    find: str = _find_field()
-
-
-class _MessageEdit(ToolArguments):
-    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
-    message_id: int = Field(ge=1, description="The message's id, from read_messages.")
-    mode: Literal["replace_all", "find_replace"] = _mode_field()
-    text: str = _text_field()
-    find: str = _find_field()
-
-
-def _require_text(value: str, what: str) -> str:
-    if not value.strip():
-        raise ToolFailure(f"{what} cannot be left empty. Nothing was proposed.")
-    return value
-
-
+_REVIEWED = " It changes nothing itself: the user sees the exact before and after, then applies or cancels it."
 _GREETING_REROLLS = (
     "Message {id} is this chat's opening greeting, and it still holds random macros such as {{{{roll}}}} that roll again each "
     "time the chat is shown, until the user sends a first message. Its text changes on every view, so no preview of it could "
@@ -436,51 +410,81 @@ def build_edit_tools(view: ViewContext, origin: Origin, record: ReadRecord) -> l
     """The four edit tools, bound to the request's view, to the request each proposal will remember, and to what this run's
     reads have shown whole."""
 
-    async def edit_character(args: _CharacterEdit) -> ToolOutput:
+    tools = ToolSet()
+
+    def propose(
+        target: dict[str, Any],
+        resource: object,
+        label: str,
+        name: str,
+        before: str,
+        args: Any,
+        reread: str,
+        *,
+        required: str = "",
+    ) -> ToolOutput:
+        """Store the edit *args* make to field *name* of *target*; *required* names a field that may not be left empty."""
+        kind = target["kind"]
+        after = _edited(before, args, reread, read_whole=record.whole(kind, resource, name, before))
+        if kind == "message":
+            # Inline macros resolve once, here, as the edit route resolves them on save: Apply commits this exact text, so a
+            # random macro cannot roll a second time and save something the preview did not show.
+            after = resolve_inline(after)
+        if required and not after.strip():
+            raise ToolFailure(f"{required} cannot be left empty. Nothing was proposed.")
+        return _propose(kind, target, label, name, before, after, origin)
+
+    @tools.add(
+        "confirm",
+        _CharacterEdit,
+        "Propose an edit to one of a character's text fields: description, personality, scenario, first_mes (first "
+        "message), mes_example (example messages) or creator_notes." + _REVIEWED,
+    )
+    async def edit_character(args: Any) -> ToolOutput:
         card_id = await character_in_view(args.character_id, view)
         card = await get_character_card(card_id)
         if card is None:
             raise ToolFailure(f"No character has the id {card_id}.")
-        before = str(card.get(args.field) or "")
         reread = f'get_character with fields ["{args.field}"] reads it whole, one page per text_offset.'
         target = {"kind": "character", "character_id": card_id}
-        label = f"character {quoted(card.get('name'))}"
-        after = _edited(before, args, reread, read_whole=record.whole("character", card_id, args.field, before))
-        return _propose("character", target, label, args.field, before, after, origin)
+        before = str(card.get(args.field) or "")
+        return propose(target, card_id, f"character {quoted(card.get('name'))}", args.field, before, args, reread)
 
-    async def edit_lorebook_entry(args: _EntryEdit) -> ToolOutput:
+    @tools.add("confirm", _EntryEdit, "Propose an edit to a lore entry's name or content." + _REVIEWED)
+    async def edit_lorebook_entry(args: Any) -> ToolOutput:
         world = await get_world(args.world_id)
         if world is None:
             raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
         entry = await get_lorebook_entry(args.entry_id)
         if entry is None or entry["world_id"] != world["id"]:
             raise ToolFailure(f"That world has no entry {args.entry_id}. list_lorebook_entries shows its entries.")
-        before = str(entry[args.field] or "")
         reread = (
             "list_lorebook_entries with entry_id reads the entry whole: its name, and its content one page per text_offset."
         )
-        after = _edited(before, args, reread, read_whole=record.whole("lorebook_entry", entry["id"], args.field, before))
-        if args.field == "name":
-            _require_text(after, "An entry's name")
         target = {"kind": "lorebook_entry", "world_id": world["id"], "entry_id": entry["id"]}
         label = f"lore entry {quoted(entry['name'])} in {quoted(world['name'])}"
-        return _propose("lorebook_entry", target, label, args.field, before, after, origin)
+        required = "An entry's name" if args.field == "name" else ""
+        return propose(target, entry["id"], label, args.field, str(entry[args.field] or ""), args, reread, required=required)
 
-    async def edit_persona(args: _PersonaEdit) -> ToolOutput:
+    @tools.add("confirm", _PersonaEdit, "Propose an edit to a persona's name or description." + _REVIEWED)
+    async def edit_persona(args: Any) -> ToolOutput:
         persona = await get_user_persona(args.persona_id)
         if persona is None:
             raise ToolFailure(f"No persona has the id {args.persona_id}. list_personas shows the ids.")
-        before = str(persona[args.field] or "")
         reread = (
             "list_personas with persona_id reads the persona whole: its name, and its description one page per text_offset."
         )
-        after = _edited(before, args, reread, read_whole=record.whole("persona", persona["id"], args.field, before))
-        if args.field == "name":
-            _require_text(after, "A persona's name")
         target = {"kind": "persona", "persona_id": persona["id"]}
-        return _propose("persona", target, f"persona {quoted(persona['name'])}", args.field, before, after, origin)
+        label, before = f"persona {quoted(persona['name'])}", str(persona[args.field] or "")
+        required = "A persona's name" if args.field == "name" else ""
+        return propose(target, persona["id"], label, args.field, before, args, reread, required=required)
 
-    async def edit_message(args: _MessageEdit) -> ToolOutput:
+    @tools.add(
+        "confirm",
+        _MessageEdit,
+        "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview." + _REVIEWED,
+    )
+    async def edit_message(args: Any) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True)
         cid = conv["id"]
         if conversation_busy(cid):
@@ -490,42 +494,12 @@ def build_edit_tools(view: ViewContext, origin: Origin, record: ReadRecord) -> l
             raise ToolFailure(f"That chat has no message {args.message_id}. read_messages shows the ids.")
         if await greeting_rerolls(cid, message["id"]):
             raise ToolFailure(_GREETING_REROLLS.format(id=message["id"]))
-        before = message["content"] or ""
         reread = "read_messages with message_id reads that message whole, one page per text_offset."
-        # Inline macros resolve once, here, as the edit route resolves them on save: Apply commits this exact text, so a random
-        # macro cannot roll a second time and save something the preview did not show.
-        edited = _edited(before, args, reread, read_whole=record.whole("message", message["id"], "content", before))
-        after = _require_text(resolve_inline(edited), "A message")
         target = {"kind": "message", "conversation_id": cid, "message_id": message["id"]}
         label = f"message {message['id']} in {quoted(conv['title'])}"
-        return _propose("message", target, label, "content", before, after, origin)
+        return propose(target, message["id"], label, "content", message["content"] or "", args, reread, required="A message")
 
-    def tool(name: str, description: str, arguments: type[_Args], run: Callable[[_Args], Awaitable[ToolOutput]]):
-        return AssistantTool(name, description, arguments, "confirm", run)
-
-    suffix = " It changes nothing itself: the user sees the exact before and after, then applies or cancels it."
-    return [
-        tool(
-            "edit_character",
-            "Propose an edit to one of a character's text fields: description, personality, scenario, first_mes (first "
-            "message), mes_example (example messages) or creator_notes." + suffix,
-            _CharacterEdit,
-            edit_character,
-        ),
-        tool(
-            "edit_lorebook_entry",
-            "Propose an edit to a lore entry's name or content." + suffix,
-            _EntryEdit,
-            edit_lorebook_entry,
-        ),
-        tool("edit_persona", "Propose an edit to a persona's name or description." + suffix, _PersonaEdit, edit_persona),
-        tool(
-            "edit_message",
-            "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview." + suffix,
-            _MessageEdit,
-            edit_message,
-        ),
-    ]
+    return tools
 
 
 class _Missing(Exception):
@@ -534,11 +508,6 @@ class _Missing(Exception):
 
 def _refuse(status: int, code: str, message: str, **extra: Any) -> NoReturn:
     raise HTTPException(status_code=status, detail={"code": code, "message": message, **extra})
-
-
-def _holds(stored: Mapping[str, Any], values: Mapping[str, str]) -> bool:
-    """Whether every field in *values* is stored as it, a NULL column reading as empty text as the guarded write reads it."""
-    return all((stored.get(name) or "") == (value or "") for name, value in values.items())
 
 
 async def _already_applied(proposal: _Proposal) -> bool:
@@ -551,7 +520,8 @@ async def _already_applied(proposal: _Proposal) -> bool:
         stored = entry if entry is not None and entry["world_id"] == target["world_id"] else None
     else:
         stored = await get_user_persona(target["persona_id"])
-    return stored is not None and _holds(stored, proposal.after)
+    # A NULL column reads as empty text, as the guarded write reads it.
+    return stored is not None and all((stored.get(name) or "") == value for name, value in proposal.after.items())
 
 
 async def _write_message(proposal: _Proposal) -> bool:
@@ -592,7 +562,7 @@ async def _write(proposal: _Proposal) -> bool:
     """Compare the expected values and write the approved ones in one transaction, through each target's own write path.
 
     Returns once that transaction has committed, ``False`` when a message already held the approved text and nothing was
-    written. A target's later steps are :func:`_follow_up`'s.
+    written.
     """
     target, before, after = proposal.target, dict(proposal.before), dict(proposal.after)
     if proposal.kind == "message":
@@ -613,29 +583,14 @@ async def _write(proposal: _Proposal) -> bool:
     return True
 
 
-async def _follow_up(proposal: _Proposal) -> None:
-    """What a committed edit's own route does after its write; safe to repeat, and repeated by a retry until it succeeds."""
-    if proposal.kind == "character":
-        card_id = proposal.target["character_id"]
-        card = await get_character_card(card_id)
-        if card is not None:
-            await sync_conversations_for_card(card_id, card)
-
-
 async def _commit(proposal: _Proposal) -> dict[str, Any]:
     """Write the proposal and record how it ended, so a repeated Apply answers the same without writing again."""
     if not proposal.committed:
         try:
             proposal.matched = not await _write(proposal)
         except StaleWrite as exc:
-            proposal.refusal = (
-                409,
-                {
-                    "code": "stale",
-                    "message": "That text changed after the preview, so nothing was applied. Ask again for a fresh preview.",
-                    "fields": list(exc.fields),
-                },
-            )
+            message = "That text changed after the preview, so nothing was applied. Ask again for a fresh preview."
+            proposal.refusal = (409, {"code": "stale", "message": message, "fields": list(exc.fields)})
         except _Missing:
             proposal.refusal = (404, {"code": "missing", "message": "What this proposal edits no longer exists."})
         if proposal.refusal is not None:
@@ -644,12 +599,15 @@ async def _commit(proposal: _Proposal) -> dict[str, Any]:
         # answer is kept for a whole expiry period from now.
         proposal.committed = True
         proposal.expires = _clock() + PROPOSAL_TTL_SECS
-    await _follow_up(proposal)
-    summary = (
-        f"Nothing was written: {proposal.label} already held the approved text."
-        if proposal.matched
-        else f"Applied the edit to {proposal.label}."
-    )
+    if proposal.kind == "character":
+        # What the card route does after its write; safe to repeat, and repeated by a retry until it succeeds.
+        card = await get_character_card(proposal.target["character_id"])
+        if card is not None:
+            await sync_conversations_for_card(proposal.target["character_id"], card)
+    if proposal.matched:
+        summary = f"Nothing was written: {proposal.label} already held the approved text."
+    else:
+        summary = f"Applied the edit to {proposal.label}."
     proposal.result = {
         "ok": True,
         "proposal_id": proposal.id,
@@ -674,26 +632,13 @@ async def apply_proposal(proposal_id: str) -> dict[str, Any]:
 
 
 def continuable(proposal_id: str) -> _Proposal:
-    """The applied proposal whose request may still be continued once; claim it with :func:`claim_continuation`."""
+    """The applied proposal whose request may still be continued once; its run sets ``continued`` once admitted."""
     proposal = get_proposal(proposal_id)
     if proposal.result is None:
         _refuse(409, "not_applied", "That edit has not been applied, so there is nothing to continue.")
     if proposal.continued:
         _refuse(409, "continued", "That request has already been continued once.")
     return proposal
-
-
-def claim_continuation(proposal: _Proposal) -> bool:
-    """Take the one continuation, once its run has been admitted; ``False`` when another run took it first."""
-    if proposal.continued:
-        return False
-    proposal.continued = True
-    return True
-
-
-def release_continuation(proposal: _Proposal) -> None:
-    """Give back a continuation whose run ended before doing anything, so it may run again."""
-    proposal.continued = False
 
 
 def approval_note(proposal: _Proposal) -> str:

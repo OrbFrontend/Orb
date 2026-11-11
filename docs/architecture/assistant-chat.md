@@ -20,7 +20,7 @@ refreshes what changed.
 | `backend/api/assistant_actions.py` | The remaining creates, chat actions and handoffs |
 | `backend/api/assistant_media.py` | The media tools |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
-| `backend/api/edits.py`, `conversation_copy.py` | Message, card and checkpoint writes shared with their original routes |
+| `backend/api/conversation_copy.py`, `database.save_message_edit` | The checkpoint copy and the message edit, shared with their original routes |
 | `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop` and `/apply`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling and markup; no DOM lookups or requests |
 | `frontend/assistant_chat.js` (layer 5) | The dock, its run, Stop, Apply, handoffs and refreshes |
