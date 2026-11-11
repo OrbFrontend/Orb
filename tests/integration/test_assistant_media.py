@@ -7,7 +7,7 @@ from backend.api import deps
 from backend.database import get_message_by_id, message_workflow_attachment_ids, set_workflow_enabled
 from backend.workflows import WorkflowEventStream
 from backend.workflows.attachment_cache import insert_workflow_attachment
-from tests.integration.test_assistant import RUN, _call, _script, _step, build_library, frames
+from tests.integration.test_assistant import RUN, _call, _reply, _script, build_library, frames
 from tests.integration.workflows._fixtures import (  # noqa: F401
     _restore_registry,
     make_workflow,
@@ -98,17 +98,15 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
         await set_workflow_enabled("tts", False)
         _script(
             monkeypatch,
-            _step("generate_image"),
             _call("generate_image", {"message_id": kept}),
-            _step("generate_speech"),
             _call("generate_speech", {"message_id": kept}),
-            _step("reply", "Done."),
+            _reply("Done."),
         )
         events = frames(await client.post_checked(RUN, json=_body(chat)))
 
         # With every workflow switched off, the refusal names the master switch and the workflow's own.
         await client.put_checked("/api/settings", json={"workflows_globally_enabled": False})
-        _script(monkeypatch, _step("generate_speech"), _call("generate_speech", {"message_id": kept}), _step("reply", "No."))
+        _script(monkeypatch, _call("generate_speech", {"message_id": kept}), _reply("No."))
         [both] = _results(frames(await client.post_checked(RUN.replace("op-1", "op-2"), json=_body(chat))))
 
     assert seen[0] == ({"action": "generate", "message_id": kept}, library["card"])
@@ -140,10 +138,10 @@ async def test_a_failed_hook_is_a_tool_error_and_a_workflow_without_an_on_demand
 
     with register_for_test(_media("image_gen")), register_for_test(_media("tts", speech)):
         names = []
-        script = [_step("generate_speech"), _call("generate_speech", {"message_id": kept}), _step("reply", "It failed.")]
+        script = [_call("generate_speech", {"message_id": kept}), _reply("It failed.")]
 
         async def complete(self, **kwargs):
-            names.extend(kwargs["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"])
+            names.extend(tool["function"]["name"] for tool in kwargs["tools"])
             yield script.pop(0)
 
         monkeypatch.setattr("backend.inference.LLMClient.complete", complete)
@@ -160,7 +158,7 @@ async def test_assistant_stop_cancels_its_own_render_alone_and_chat_stop_leaves_
     started, withdrawn = asyncio.Event(), []
     elsewhere = deps.start_workflow_job(chat, asyncio.Event().wait(), job="the-image-button", message_id=kept)
     with register_for_test(_blocking_image(started, withdrawn)):
-        _script(monkeypatch, _step("generate_image"), _call("generate_image", {"message_id": kept}))
+        _script(monkeypatch, _call("generate_image", {"message_id": kept}))
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
         await asyncio.wait_for(started.wait(), 5)
         try:
@@ -188,9 +186,8 @@ async def test_deleting_the_message_mid_render_settles_the_job_and_the_tool_repo
     with register_for_test(_blocking_image(started, withdrawn)):
         _script(
             monkeypatch,
-            _step("generate_image"),
             _call("generate_image", {"message_id": kept}),
-            _step("reply", "It was deleted."),
+            _reply("It was deleted."),
         )
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
         await asyncio.wait_for(started.wait(), 5)
@@ -208,7 +205,7 @@ async def test_a_stopped_render_never_claims_an_image_another_render_saved(clien
     chat, kept = library["chat"], library["kept"]
     started, withdrawn = asyncio.Event(), []
     with register_for_test(_blocking_image(started, withdrawn)):
-        _script(monkeypatch, _step("generate_image"), _call("generate_image", {"message_id": kept}))
+        _script(monkeypatch, _call("generate_image", {"message_id": kept}))
         run = asyncio.create_task(client.post(RUN, json=_body(chat)))
         await asyncio.wait_for(started.wait(), 5)
         # The user's own render from the image button saves on the same message while the assistant's is still queued.

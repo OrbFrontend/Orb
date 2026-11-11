@@ -7,7 +7,7 @@ from backend.api import deps
 from backend.database import add_message, get_settings
 from backend.features.assistant import ToolFailure
 from backend.features.cards import expressions
-from tests.integration.test_assistant import RUN, _body, _call, _script, _step, _tools, build_library, frames
+from tests.integration.test_assistant import RUN, _body, _call, _reply, _script, _tools, build_library, frames
 
 
 @pytest.fixture
@@ -135,7 +135,7 @@ async def test_switch_branch_selects_an_inactive_branch_of_its_own_chat_then_end
     events = await _run(
         client,
         monkeypatch,
-        [_step("switch_branch", "Switching."), _call("switch_branch", {"message_id": abandoned}), _step("reply", "never")],
+        [_call("switch_branch", {"message_id": abandoned}), _reply("never")],
         _body("Go back to the abandoned draft.", mode="chat", conversation_id=chat),
     )
     assert dict(events)["mutation"]["resources"] == [{"kind": "branch", "conversation_id": chat}]
@@ -164,9 +164,8 @@ async def test_a_handoff_names_a_reply_on_the_kept_branch_and_ends_the_run_witho
         client,
         monkeypatch,
         [
-            _step("rewrite_reply", "Asking the chat to rewrite it."),
             _call("rewrite_reply", {"message_id": library["kept"], "direction": "Make it colder."}),
-            _step("reply", "never"),
+            _reply("never"),
         ],
         _body("Rewrite the last reply colder.", mode="chat", conversation_id=chat),
     )

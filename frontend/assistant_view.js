@@ -519,17 +519,26 @@ function listEntryHtml(entry) {
   );
 }
 
+// A preview's texts never change once received, and diffing them is the costly part of drawing a card.
+const diffCache = new WeakMap();
+
+function entryDiffHtml(entry) {
+  if (entry.before === undefined) return "";
+  const hit = diffCache.get(entry);
+  if (hit && hit.before === entry.before && hit.after === entry.after) return hit.html;
+  const html = entry.list
+    ? listEntryHtml(entry)
+    : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
+      splitHtml(entry) +
+      `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
+  diffCache.set(entry, { before: entry.before, after: entry.after, html });
+  return html;
+}
+
 function entryHtml(entry) {
   const unit = entry.list ? "items" : "characters";
   const size = `${entry.beforeChars.toLocaleString("en-US")} → ${entry.afterChars.toLocaleString("en-US")} ${unit}`;
-  const diff =
-    entry.before === undefined
-      ? ""
-      : entry.list
-        ? listEntryHtml(entry)
-        : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
-          splitHtml(entry) +
-          `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
+  const diff = entryDiffHtml(entry);
   const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
   return (
     `<div class="asst-edit asst-edit-${entry.status}">` +
@@ -599,55 +608,96 @@ const SUGGESTIONS = {
   ],
 };
 
-function emptyHtml(view) {
+function emptyEntries(view) {
   const offered = SUGGESTIONS[view] || SUGGESTIONS.library;
-  return (
-    '<div class="asst-empty">Ask about your characters, chats, worlds, personas, documents or settings.</div>' +
-    '<div class="asst-suggestions" role="group" aria-label="Suggested requests">' +
-    offered
-      .map(
-        (text) =>
-          `<button type="button" class="asst-suggestion" data-wf-action="assistant:suggest" data-text="${escAttr(text)}">${esc(text)}</button>`,
-      )
-      .join("") +
-    "</div>"
-  );
+  const buttons = offered
+    .map(
+      (text) =>
+        `<button type="button" class="asst-suggestion" data-wf-action="assistant:suggest" data-text="${escAttr(text)}">${esc(text)}</button>`,
+    )
+    .join("");
+  return [
+    {
+      key: "empty",
+      html: '<div class="asst-empty">Ask about your characters, chats, worlds, personas, documents or settings.</div>',
+    },
+    {
+      key: "suggestions",
+      html: `<div class="asst-suggestions" role="group" aria-label="Suggested requests">${buttons}</div>`,
+    },
+  ];
+}
+
+// Each entry keeps one key for as long as it is in the transcript, so a repaint rebuilds only the rows that changed.
+const rowKeys = new WeakMap();
+let nextRowKey = 0;
+
+function rowKey(item) {
+  let key = rowKeys.get(item);
+  if (key === undefined) {
+    key = `r${nextRowKey++}`;
+    rowKeys.set(item, key);
+  }
+  return key;
+}
+
+// A reply's text never changes once added, and rendering prose is the costly part of a repaint.
+const proseCache = new WeakMap();
+
+function proseHtml(item, renderProse) {
+  const hit = proseCache.get(item);
+  if (hit && hit.render === renderProse && hit.text === item.text) return hit.html;
+  const html = renderProse(item.text);
+  proseCache.set(item, { render: renderProse, text: item.text, html });
+  return html;
 }
 
 /**
- * The log's markup. User text, labels, tool lines, outcomes and proposed edits are escaped; only an assistant reply goes
- * through *renderProse*, inside `.msg-body`, where no element can name an action. Apply and Cancel are drawn only on
- * *active*, the one card this page holds, and are disabled while *busy*. An empty log suggests requests for *suggestFor*
- * (`chat`, `character`, `document` or `library`).
+ * The log's rows as `[{ key, html }]`, each one element. User text, labels, tool lines, outcomes and proposed edits are
+ * escaped; only an assistant reply goes through *renderProse*, inside `.msg-body`, where no element can name an action.
+ * Apply and Cancel are drawn only on *active*, the one card this page holds, and are disabled while *busy*. An empty log
+ * suggests requests for *suggestFor* (`chat`, `character`, `document` or `library`).
  */
-export function transcriptHtml(items, renderProse, { active = null, busy = false, suggestFor = "library" } = {}) {
-  if (!items.length) return emptyHtml(suggestFor);
+export function transcriptEntries(items, renderProse, { active = null, busy = false, suggestFor = "library" } = {}) {
+  if (!items.length) return emptyEntries(suggestFor);
   let view = null;
-  const parts = [];
+  const rows = [];
   items.forEach((item, index) => {
+    const key = rowKey(item);
+    const add = (html) => rows.push({ key, html });
     if (item.kind === "user") {
       if (!sameView(view, item.context)) {
-        parts.push(`<div class="asst-sep" role="separator">${esc(item.context.label || item.context.mode)}</div>`);
+        rows.push({
+          key: `${key}v`,
+          html: `<div class="asst-sep" role="separator">${esc(item.context.label || item.context.mode)}</div>`,
+        });
       }
       view = item.context;
-      parts.push(`<div class="asst-msg asst-user">${esc(item.text)}</div>`);
+      add(`<div class="asst-msg asst-user">${esc(item.text)}</div>`);
     } else if (item.kind === "assistant") {
-      parts.push(`<div class="asst-msg asst-reply"><div class="msg-body">${renderProse(item.text)}</div></div>`);
+      add(`<div class="asst-msg asst-reply"><div class="msg-body">${proseHtml(item, renderProse)}</div></div>`);
     } else if (item.kind === "tool") {
       const state = item.running ? " asst-tool-running" : item.ok ? "" : " asst-tool-failed";
       const note = item.note ? `<div class="asst-tool-note">${esc(item.note)}</div>` : "";
       const result = item.running ? "Working…" : item.text;
-      parts.push(
+      add(
         `<div class="asst-tool${state}">${note}<div class="asst-tool-line"><span class="asst-tool-name">${esc(item.tool)}</span>` +
           `<span class="asst-tool-text">${esc(result)}</span></div></div>`,
       );
     } else if (item.kind === "proposals") {
-      parts.push(cardHtml(item, index, { active, busy }));
+      add(cardHtml(item, index, { active, busy }));
     } else if (item.kind === "outcome" && item.reason === "opened") {
-      parts.push(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
+      add(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {
-      parts.push(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);
+      add(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);
     }
   });
-  return parts.join("");
+  return rows;
+}
+
+/** The log's rows as one string of markup. */
+export function transcriptHtml(items, renderProse, options) {
+  return transcriptEntries(items, renderProse, options)
+    .map((row) => row.html)
+    .join("");
 }

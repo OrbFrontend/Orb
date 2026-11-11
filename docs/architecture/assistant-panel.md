@@ -56,26 +56,32 @@ The browser registers the run in `S.operations` with wire-style target keys
 
 ## The model protocol
 
-Each step is two forced calls on the Agent lane, with its model and
-`max_tokens` and reasoning off:
+Calls go to the Agent lane, with its model and `max_tokens` and reasoning
+off. A run picks one of two protocols when it starts and keeps it:
 
-1. `assistant_step` with `{tool, message}`. `tool` is an enum of the run's
-   tools plus `reply`; `message` is a short note to the user, or with `reply`
-   the final answer.
-2. For a tool that takes arguments, that tool's own flat schema. A
-   zero-argument tool skips this call.
+- **Single call**, where the endpoint sends native tool schemas and honours
+  forced tool choice. Each step is one call with `tool_choice: required` over
+  every tool's schema plus a `reply` tool, whose `message` is the final answer.
+  The model names the tool and its arguments together; a zero-argument tool is
+  called with `{}`.
+- **Two calls**, everywhere else: structured output and text completion send no
+  schemas to choose among, and an endpoint that ignores forced choice may
+  ignore `required` too. Each step is two forced calls:
+  1. `assistant_step` with `{tool, message}`. `tool` is an enum of the run's
+     tools plus `reply`; `message` is a short note to the user, or with `reply`
+     the final answer.
+  2. For a tool that takes arguments, that tool's own flat schema. A
+     zero-argument tool skips this call.
+
+  On an endpoint that does not honour forced tool choice, each call is sent
+  only the schema it forces.
 
 The tool runs and its bounded result is appended. Every replayed call has its
-own id and exactly one result, including the step call before the argument
-call. On an endpoint that does not honour forced tool choice, each call is sent
-only the schema it forces.
-
-`run_assistant(single_call=True)` is a second protocol, used today only by the
-benchmark (`scripts/bench/assistant_bench.py`): each step is one call with
-`tool_choice: required` over every tool's schema plus a `reply` tool, so the
-model names the tool and its arguments together, and a zero-argument tool is
-called with `{}`. It needs an endpoint that sends native tool schemas;
-structured-output and text-completion modes send none.
+own id and exactly one result, including a step call before its argument call.
+`run_assistant(single_call=...)` forces either protocol; the benchmark
+(`scripts/bench/assistant_bench.py`) uses it to compare them. On Gemma 4 31B
+with native tools, single call took 2.5 model calls a request against 4.2 and
+9.1 s median against 13.3 s, and chose and filled tools more accurately.
 
 Arguments are read strictly: only a whole JSON object as the one call in
 `tool_calls`, or one whole call in content (bare, as the only item of a list,
@@ -203,7 +209,10 @@ proposed in the run is made on that proposal's pending text, not the stored
 text, and updates it in place: `before` stays the stored text, `after`
 accumulates, and the id is unchanged. Its result says the edit stacked, and that
 reads still show the stored text until the user applies. An edit that would
-return the field to its stored text is refused. The prompt tells the model never
+return the field to its stored text is refused, and so is an edit identical to
+one the run already proposed: a replacement that contains its own `find` would
+otherwise apply twice, and a small model would repeat it until the run's budget
+ran out. The prompt tells the model never
 to run a step that depends on an edit it proposed; the loop does not enforce it.
 
 ### The proposal store

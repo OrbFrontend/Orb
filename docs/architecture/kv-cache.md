@@ -229,10 +229,13 @@ rarely and in bulk, a quarter of the context budget at a time:
   that moved with every request re-read the whole history each time: on Gemma 4,
   6,200 tokens and 2.0 s a request against 300 tokens and 0.6 s.
 
-Every call forces one tool, yet an endpoint that honours forced choice is sent
-every schema on every call: the tool blob renders ahead of the messages on a
-native tool endpoint, so sending only the forced schema would change it between
-the step call and the argument call and re-read the whole request each time.
+A native tool endpoint takes the single-call protocol, where every call is
+offered every schema anyway. Elsewhere every call forces one tool, yet an
+endpoint that honours forced choice is still sent every schema on every call:
+the tool blob renders ahead of the messages on a native tool endpoint, so
+sending only the forced schema would change it between the step call and the
+argument call and re-read the whole request each time. A run keeps its protocol
+to the end, so its system prompt and tool blob never change mid-run.
 Each schema's description is a pointer to the system prompt's tool list, which
 keeps the blob small. An endpoint that ignores forced tool choice is sent only
 the forced schema, so its tool blob changes between calls; text completion and

@@ -143,6 +143,14 @@ def _repeated(output: ToolOutput) -> str:
     )
 
 
+def _reproposed(output: ToolOutput) -> str:
+    """The refusal for an edit this request already proposed: sent again it would apply twice, or loop until the budget ends."""
+    return (
+        f"Nothing ran. This request already proposed exactly this edit ({output.summary}). It is still proposed and waits "
+        "for the user's Apply; do not propose it again."
+    )
+
+
 def _encode(data: Mapping[str, Any], summary: str = "") -> str:
     content = json.dumps(data, ensure_ascii=False)
     if len(content) <= MAX_RESULT_CHARS:
@@ -227,7 +235,7 @@ async def run_assistant(
     request: str,
     view: ViewContext,
     progress: asyncio.Queue[str] | None = None,
-    single_call: bool = False,
+    single_call: bool | None = None,
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -236,28 +244,32 @@ async def run_assistant(
     working context passes its budget.
 
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
-    same change is not made twice in one request, and an early ``done`` names the changes already committed. A confirm tool's
-    proposal becomes a ``confirm`` event and the run carries on. *progress* is where a tool that reports progress puts its labels; each one
-    becomes a ``progress`` event while that tool runs.
+    same change is not made twice in one request, nor the same edit proposed twice, and an early ``done`` names the changes
+    already committed. A confirm tool's proposal becomes a ``confirm`` event and the run carries on. *progress* is where a
+    tool that reports progress puts its labels; each one becomes a ``progress`` event while that tool runs.
 
     *single_call* makes each step one call over every tool's schema plus ``reply``, in place of a step call followed by an
-    argument call. It needs an endpoint that sends native tool schemas and honours ``tool_choice: required``; the assistant
-    benchmark (scripts/bench/assistant_bench.py) measures it against the default.
+    argument call. Left ``None``, the run takes it wherever the endpoint sends native tool schemas and honours forced tool
+    choice, and two calls a step elsewhere; the assistant benchmark (scripts/bench/assistant_bench.py) measures both.
     """
     by_name = {tool.name: tool for tool in tools}
+    latest = request_message(request, view)
+    # Restrict the tool list when forced choice is unreliable.
+    shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(False))
+    if single_call is None:
+        # Decided once for the run, so every call in it shares one tool blob. Structured output and text completion send no
+        # schemas to choose among, and an endpoint that ignores forced choice may ignore ``required`` too.
+        single_call = shared_tools and client.sends_tool_schemas([latest], model)
     step = step_tool(tools)
     if single_call:
         schemas = [reply_tool(), *(tool_schema(tool) for tool in tools)]
     else:
         schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
-    # Restrict the tool list when forced choice is unreliable.
-    shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(False))
     # The same call path and samplers as the pipeline's agent passes: the lane's own hyperparameters, its max_tokens included,
     # with the system prompt and the replayed history as the cached prefix every call of the run shares.
     samplers = extract_hyperparams(settings, lane="agent")
 
     system: ChatMessage = {"role": "system", "content": system_prompt(tools, single_call=single_call)}
-    latest = request_message(request, view)
     if _chars([latest]) > CONTEXT_BUDGET_CHARS:
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
     # An earlier request that got no answer is replayed as a quoted record, never as part of this one: it is what authorises a
@@ -402,8 +414,10 @@ async def run_assistant(
                 run.append(assistant_tool_call(response, name, arguments, call_id))
             checked = _validated(tool, arguments)
             write = tool.behavior == "write"
-            # An idempotent write names an explicit state, so repeating it is harmless and may be what the user asked for.
-            key = "" if isinstance(checked, str) or not write or tool.idempotent else f"{name}:{checked.model_dump_json()}"
+            # An idempotent write names an explicit state, so repeating it is harmless and may be what the user asked for. An
+            # identical edit proposed again would stack onto the first, or be refused as a no-op over and over.
+            guarded = (write and not tool.idempotent) or tool.behavior == "confirm"
+            key = f"{name}:{checked.model_dump_json()}" if guarded and not isinstance(checked, str) else ""
             admitted = write and not isinstance(checked, str) and key not in made
             # A Stop that arrived since the arguments came back admits no write.
             if admitted and client.is_aborted:
@@ -419,7 +433,7 @@ async def run_assistant(
             if isinstance(checked, str):
                 failure = f"{checked} {_CORRECT}"
             elif key in made:
-                failure = _repeated(made[key])
+                failure = _repeated(made[key]) if write else _reproposed(made[key])
             else:
                 executions += 1
                 try:

@@ -39,6 +39,10 @@ def _step(tool, message="Looking."):
     return _call("assistant_step", {"tool": tool, "message": message})
 
 
+def _reply(message):
+    return _call("reply", {"message": message})
+
+
 def _body(text="What is here?", **context):
     return {"items": [{"kind": "user", "text": text}], "context": {"mode": "library", **context}}
 
@@ -105,6 +109,8 @@ async def _use(tools, name, **arguments):
 
 
 async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, library, monkeypatch):
+    # An endpoint that sends no tool schemas (structured output, text completion) takes the two-call protocol.
+    monkeypatch.setattr(LLMClient, "sends_tool_schemas", lambda self, messages, model, **kwargs: False)
     script = [_step("get_context"), _step("read_messages"), _call("read_messages", {"count": 2}), _step("reply", "Two lines.")]
     calls = []
 
@@ -150,7 +156,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert SECRET not in json.dumps(calls[-1]["messages"])
 
 
-async def test_single_call_names_the_tool_and_its_arguments_in_one_call(client, library, monkeypatch):
+async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments_in_one_call(client, library, monkeypatch):
     script = [_call("read_messages", {"count": 2}), _call("reply", {"message": "Two lines."})]
     calls = []
 
@@ -170,7 +176,6 @@ async def test_single_call_names_the_tool_and_its_arguments_in_one_call(client, 
             history=[],
             request="What are the last two lines?",
             view=view,
-            single_call=True,
         )
     ]
     results = [event for event in events if event["type"] == "tool_result"]
@@ -394,7 +399,7 @@ async def test_a_chat_outliving_its_card_and_a_long_title_keep_the_assistant_usa
         await resolve_view(AssistantViewContext(mode="chat", conversation_id=library["chat"], character_id=library["card"]))
     assert missing.value.status_code == 404
 
-    _script(monkeypatch, _step("reply", "Still here."))
+    _script(monkeypatch, _reply("Still here."))
     body = _body(mode="chat", conversation_id=library["chat"])
     body["items"][:0] = [{"kind": "user", "text": "Earlier", "view": "Chat: " + "t" * 400}]
     assert frames(await client.post_checked(RUN, json=body))[-1] == ("done", {"reason": "reply", "message": ""})
@@ -404,9 +409,8 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     arguments = {"world_id": library["world"], "name": "Tide tax", "content": "Doubled in storms.", "keywords": ["storm"]}
     _script(
         monkeypatch,
-        _step("create_lorebook_entry", "Adding it."),
         _call("create_lorebook_entry", arguments),
-        _step("reply", "Added."),
+        _reply("Added."),
     )
     events = frames(await client.post_checked(RUN, json=_body("Add lore that the tide tax doubles in storms.")))
     entries = await get_lorebook_entries(library["world"])
@@ -438,6 +442,29 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     assert len(await get_lorebook_entries(library["world"])) == 2
 
 
+async def test_a_change_runs_once_and_an_edit_is_proposed_once_per_request(client, library, db, monkeypatch):
+    lore = {"world_id": library["world"], "name": "Ferry", "content": "Runs at dawn."}
+    edit = {"message_id": library["kept"], "mode": "find_replace", "find": "kept", "text": "well kept"}
+    _script(
+        monkeypatch,
+        _call("create_lorebook_entry", lore),
+        _call("create_lorebook_entry", lore),
+        _call("edit_message", edit),
+        _call("edit_message", edit),
+        _reply("Done."),
+    )
+    body = _body("Add the ferry lore and fix the line.", mode="chat", conversation_id=library["chat"])
+    events = frames(await client.post_checked(RUN, json=body))
+    results = [data for event, data in events if event == "tool_result"]
+    assert [result["ok"] for result in results] == [True, False, True, False]
+    assert "already made exactly this change once" in results[1]["summary"]
+    assert "already proposed exactly this edit" in results[3]["summary"]
+    assert [entry["name"] for entry in await get_lorebook_entries(library["world"])].count("Ferry") == 1
+    [confirm] = [data["proposal"] for event, data in events if event == "confirm"]
+    assert confirm["fields"][0]["after"] == "final well kept line", "applied once, not stacked onto itself"
+    assert events[-1] == ("done", {"reason": "reply", "message": ""})
+
+
 async def test_stop_during_a_lore_commit_waits_for_it_and_still_reports_its_id(client, library, monkeypatch):
     from backend.api.assistant import actions
 
@@ -451,7 +478,7 @@ async def test_stop_during_a_lore_commit_waits_for_it_and_still_reports_its_id(c
 
     monkeypatch.setattr(actions, "create_lorebook_entry", slow_create)
     arguments = {"world_id": library["world"], "name": "Ferry", "content": "Runs at dawn."}
-    _script(monkeypatch, _step("create_lorebook_entry"), _call("create_lorebook_entry", arguments), _step("reply", "x"))
+    _script(monkeypatch, _call("create_lorebook_entry", arguments), _reply("x"))
     run = asyncio.create_task(client.post(RUN, json=_body("Add lore about the ferry.")))
     await asyncio.wait_for(writing.wait(), 5)
     stop = asyncio.create_task(client.post_json("/api/assistant/stop?operation_id=op-1"))
@@ -543,7 +570,7 @@ async def test_a_proposal_writes_nothing_and_apply_commits_the_macro_resolved_pr
     await db.execute("UPDATE messages SET writer_draft = 'pre-rewrite draft' WHERE id = ?", (kept,))
     await db.commit()
     arguments = {"message_id": kept, "mode": "find_replace", "find": "final", "text": "rolled {{roll::1d1000000}}"}
-    _script(monkeypatch, _step("edit_message", "Proposing it."), _call("edit_message", arguments), _step("reply", "x"))
+    _script(monkeypatch, _call("edit_message", arguments), _reply("x"))
     events = frames(await client.post_checked(RUN, json=_body("Fix that line.", mode="chat", conversation_id=library["chat"])))
     # The run carries on past a proposal, to its own reply.
     assert [event for event, _ in events][-4:] == ["confirm", "progress", "assistant_message", "done"]
@@ -889,13 +916,10 @@ async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skip
     persona = await client.create("/api/user-personas", json={"name": "Wren", "description": "A ferry pilot."})
     edit = {"field": "description", "mode": "find_replace"}
     script = [
-        _step("edit_character"),
         _call("edit_character", {**edit, "find": "theif", "text": "thief"}),
-        _step("edit_character"),
         _call("edit_character", {**edit, "find": "lier", "text": "liar"}),
-        _step("edit_persona"),
         _call("edit_persona", {"persona_id": persona, "field": "description", "mode": "replace_all", "text": "A pilot."}),
-        _step("reply", "Proposed three fixes."),
+        _reply("Proposed three fixes."),
     ]
     calls = []
 
@@ -911,7 +935,7 @@ async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skip
     assert len(confirms) == 3 and confirms[0]["proposal_id"] == confirms[1]["proposal_id"] != confirms[2]["proposal_id"]
     assert confirms[1]["fields"][0]["before"] == "A harbour fence, a theif and a lier."
     assert confirms[1]["fields"][0]["after"] == "A harbour fence, a thief and a liar."
-    stacked = json.loads(calls[4]["messages"][-1]["content"])
+    stacked = json.loads(calls[2]["messages"][-1]["content"])
     assert stacked["before_chars"] == stacked["after_chars"] == 36 and "on top of the edit" in stacked["note"]
     assert "(14 → 8 characters)" in [data for event, data in events if event == "tool_result"][-1]["summary"]
     assert events[-1] == ("done", {"reason": "reply", "message": ""})

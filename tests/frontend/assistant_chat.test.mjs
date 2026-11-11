@@ -886,3 +886,26 @@ test("a Stop between the handoff's done and the run's settlement starts nothing,
   assert.match(S.assistant.items.at(-1).text, /^Not started: the assistant was stopped before the chat began regenerating/);
   $("assistant-clear").click();
 });
+
+test("a stream event rebuilds only the rows it changed, so a disclosure the reader opened stays open", async () => {
+  S.conversations = [{ id: "chat-k", title: "Harbour", kind: "solo" }];
+  S.activeConvId = "chat-k";
+  const run = await ask("Look around.");
+  run.used = true;
+  emit(run, "assistant_message", { text: "Checking.\n\n<details><summary>More</summary>Hidden.</details>", final: true });
+  await settled();
+  const reply = document.querySelector("#assistant-log .asst-reply");
+  const disclosure = reply.querySelector("details");
+  if (disclosure) disclosure.open = true;
+  emit(run, "tool_start", { call_id: "k1", tool: "get_context" });
+  emit(run, "tool_result", { call_id: "k1", ok: true, summary: "Read the chat." });
+  emit(run, "done", { reason: "reply", message: "" });
+  run.writer.close();
+  await settled();
+  assert.equal(document.querySelector("#assistant-log .asst-reply"), reply, "the reply's row was kept, not rebuilt");
+  if (disclosure) assert.equal(disclosure.open, true);
+  assert.match($("assistant-log").textContent, /Read the chat\./);
+  $("assistant-clear").click();
+  assert.ok(document.querySelector('#assistant-log [data-wf-action="assistant:suggest"]'), "a cleared log suggests again");
+  S.activeConvId = null;
+});

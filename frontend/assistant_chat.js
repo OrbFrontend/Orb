@@ -13,7 +13,7 @@ import {
   runItems,
   serializeTranscript,
   settleRun,
-  transcriptHtml,
+  transcriptEntries,
   trimTranscript,
   wireContext,
 } from "./assistant_view.js";
@@ -21,6 +21,7 @@ import { loadConversations, selectConversation } from "./chat_conversations.js";
 import { showBranchChange } from "./chat_messages.js";
 import { continueCapturedChat, regenerateCapturedReply, rewriteCapturedReply } from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
+import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
 import { loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
@@ -130,11 +131,11 @@ function paintLog() {
   const busy = Boolean(activeOperation());
   const view = shownView();
   suggestedFor = S.assistant.items.length ? null : view;
-  log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, {
-    active: S.assistant.batch,
-    busy,
-    suggestFor: view,
-  });
+  // Keyed, so a stream event rebuilds only the rows it changed and a disclosure the reader opened stays open.
+  reconcileChildren(
+    log,
+    transcriptEntries(S.assistant.items, renderMessageHtml, { active: S.assistant.batch, busy, suggestFor: view }),
+  );
   toEnd();
 }
 
@@ -257,9 +258,12 @@ async function refreshSettings(keys) {
 function paintLaunchers(busy) {
   const app = $("app");
   const pending = S.assistant.batch ? pendingIds(S.assistant.batch).length : 0;
-  app.toggleAttribute("data-asst-running", busy);
-  app.toggleAttribute("data-asst-pending", pending > 0);
-  if (pending) app.style.setProperty("--asst-pending", String(pending));
+  // Written only when changed: these sit on the root, where a style change reaches the whole page.
+  if (app.hasAttribute("data-asst-running") !== busy) app.toggleAttribute("data-asst-running", busy);
+  if (app.hasAttribute("data-asst-pending") !== pending > 0) app.toggleAttribute("data-asst-pending", pending > 0);
+  const count = pending ? String(pending) : "";
+  if (app.style.getPropertyValue("--asst-pending") === count) return;
+  if (count) app.style.setProperty("--asst-pending", count);
   else app.style.removeProperty("--asst-pending");
 }
 

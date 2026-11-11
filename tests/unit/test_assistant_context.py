@@ -40,7 +40,7 @@ async def _run(client, history, request="And now?", result_chars=0):
     events = [
         event
         async for event in run_assistant(
-            client, "m", settings=Settings({}), tools=tools, history=history, request=request, view=VIEW
+            client, "m", settings=Settings({}), tools=tools, history=history, request=request, view=VIEW, single_call=False
         )
     ]
     return events[-1]
