@@ -96,7 +96,7 @@ their words. DeepSeek's drafts carry almost no held-out slop to cut.
 | [cache/](cache/) | Bench 1: frozen histories, Orb and TauriTavern drivers, block runner, scorer, report and figure |
 | [driven/](driven/) | Bench 2: corpus, settings snapshot, runner, Jev question and preflight, scorer, judge-noise re-ask, hand-label sheet |
 | [slop/](slop/) | Bench 3: scorer over Bench 2's runs |
-| [assistant_bench.py](assistant_bench.py) | The panel assistant on a hosted model: two-call against single-call protocol, tool choice, arguments, calls and time over 30 seeded requests ([results](assistant_results/REPORT.md)) |
+| [assistant_bench.py](assistant_bench.py) | The panel assistant on a hosted model: two-call against single-call protocol, tool choice, arguments, calls and time over 42 seeded requests ([results](assistant_results/REPORT.md)) |
 
 ## Reproducing
 

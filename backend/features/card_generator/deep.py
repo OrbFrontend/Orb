@@ -68,7 +68,8 @@ VIEW_DOCS = "\n".join(
         "- conversations.character_card_id joins characters.id (NULL for group chats); "
         "conversations.persona_id joins user_personas.id and is the persona the user plays there.",
         "- Use aliases when joining views and LIMIT row-producing queries. Use substr on long text fields.",
-        "- characters.tags and characters.alternate_greetings are JSON arrays; expand them with json_each, e.g. "
+        "- characters.tags, characters.alternate_greetings and lorebook_entries.keywords are JSON arrays; expand them with "
+        "json_each, e.g. "
         "SELECT tag.value, count(*) FROM characters AS ch, json_each(ch.tags) AS tag GROUP BY tag.value.",
         "- Timestamps are ISO 8601 text, so they sort and compare as strings.",
     ]

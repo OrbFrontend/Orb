@@ -3,7 +3,6 @@
  "model": "google/gemma-4-31b-it",
  "arms": [
   "two-default",
-  "two-native",
   "single-native"
  ],
  "repeats": 5,
@@ -18,6 +17,9 @@
   "read_chat_world",
   "read_personality",
   "read_group",
+  "read_earlier",
+  "read_active_lore",
+  "read_state",
   "write_director_off",
   "write_workflows_off",
   "write_world",
@@ -26,9 +28,16 @@
   "write_character",
   "write_chat_world",
   "write_checkpoint",
+  "write_entry_off",
+  "write_start_chat",
+  "write_rename",
+  "write_length",
+  "write_phrase",
+  "write_world_global",
   "edit_entry_name",
   "edit_persona",
   "edit_scenario",
+  "edit_tags",
   "edit_word",
   "edit_typos",
   "edit_three_names",
@@ -37,9 +46,11 @@
   "media_image",
   "media_speech",
   "handoff_regenerate",
-  "handoff_rewrite"
+  "handoff_rewrite",
+  "handoff_open",
+  "handoff_continue"
  ],
- "commit": "0788671b20f9396cd0b036109e9a6a9dc03088fa",
+ "commit": "0faa3591488912d0e9b33e26e879ac3afe5ed005",
  "dirty": true,
- "started": "2026-11-11T09:16:10+00:00"
+ "started": "2026-11-11T14:17:11+00:00"
 }

@@ -18,6 +18,9 @@ _LABEL_CHARS = 120
 # stay out.
 CharacterField = Literal["description", "personality", "scenario", "first_mes", "mes_example", "creator_notes"]
 CHARACTER_FIELDS: tuple[CharacterField, ...] = get_args(CharacterField)
+# A card's list fields, which a read shows and an edit proposes whole.
+CharacterListField = Literal["tags", "alternate_greetings"]
+CHARACTER_LIST_FIELDS: tuple[CharacterListField, ...] = get_args(CharacterListField)
 
 
 def clip(value: object, cap: int) -> str:
@@ -63,10 +66,15 @@ async def chat_in_view(conversation_id: str, view: ViewContext, *, changes: bool
 
 
 async def cast_of(conv: ConversationRow) -> list[dict[str, Any]]:
-    """A chat's cast as a tool shows it: each member's name and character id, and whether it is muted."""
+    """A chat's cast as a tool shows it: each member's name, character id and, in a group, member id; and whether it is muted."""
     cast = await resolve_cast(conv)
     return [
-        {"name": member.name, "character_id": member.card_id, **({"muted": True} if member.muted else {})}
+        {
+            "name": member.name,
+            "character_id": member.card_id,
+            **({"member_id": member.member_id} if cast.grouped else {}),
+            **({"muted": True} if member.muted else {}),
+        }
         for member in cast.members
     ]
 

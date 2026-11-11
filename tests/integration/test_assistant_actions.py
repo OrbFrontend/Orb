@@ -102,6 +102,7 @@ async def test_set_chat_world_sets_an_explicit_state_keeps_other_choices_and_rep
         ("set_chat_world", lambda lib: {"world_id": lib["world"], "attached": True}),
         ("checkpoint_chat", lambda lib: {}),
         ("switch_branch", lambda lib: {"message_id": lib["kept"]}),
+        ("set_chat", lambda lib: {"title": "Renamed"}),
     ],
 )
 async def test_a_chat_action_refuses_a_busy_or_deleting_chat_and_changes_nothing(client, library, db, name, arguments):

@@ -12,6 +12,7 @@ from .edits import build_edit_tools
 from .media import MediaRun, build_media_tools
 from .proposals import apply_proposals
 from .reads import build_read_tools
+from .setters import build_setter_tools
 from .toggles import build_toggle_tools
 
 __all__ = ["MediaRun", "apply_proposals", "build_tools"]
@@ -25,6 +26,7 @@ def build_tools(settings: Settings, view: ViewContext, *, media: MediaRun | None
     return [
         *build_read_tools(settings, view),
         *build_toggle_tools(),
+        *build_setter_tools(),
         *build_edit_tools(view),
         *build_action_tools(view),
         *build_media_tools(view, media),

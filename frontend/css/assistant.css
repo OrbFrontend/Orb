@@ -81,3 +81,6 @@
 .asst-proposal:not(.asst-proposal-live) { border-color: var(--border); }
 .asst-proposal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .asst-outcome-applied { color: var(--accent); }
+.asst-diff-list { margin: 0; padding-left: 16px; }
+.asst-diff-list li { margin-bottom: 2px; }
+ol.asst-diff-text { margin: 0; padding-left: 20px; white-space: normal; }

@@ -7,6 +7,7 @@ const {
   applyStreamEvent,
   applyVerdicts,
   diffHtml,
+  handoffOutcome,
   isSendKey,
   parseTranscript,
   pendingIds,
@@ -300,4 +301,38 @@ test("a handoff names one reply and its run ends as a handoff", () => {
   ]);
   assert.deepEqual(run.handoff, { tool: "rewrite_reply", conversation_id: "c1", message_id: 7, direction: "Colder." });
   assert.equal(run.terminal, "handoff");
+});
+
+test("a continue names the message it follows and any speaker, and an opened chat reads as a view change", () => {
+  const run = newRun();
+  feed(run, [["handoff", { tool: "continue_chat", handoff: { conversation_id: "c1", message_id: 9, speaker_member_id: "m2" } }]]);
+  assert.deepEqual(run.handoff, { tool: "continue_chat", conversation_id: "c1", message_id: 9, speaker_member_id: "m2" });
+  feed(run, [["handoff", { tool: "open_chat", handoff: { conversation_id: "c2", title: "<Quay>", message_id: 3 } }]]);
+  assert.deepEqual(run.handoff, { tool: "open_chat", conversation_id: "c2", title: "<Quay>" });
+
+  const opened = handoffOutcome(run.handoff, "");
+  assert.equal(opened.reason, "opened");
+  const html = transcriptHtml([opened], String);
+  assert.match(html, /class="asst-sep"/);
+  assert.ok(html.includes("&lt;Quay&gt;") && !html.includes("<Quay>"));
+  assert.deepEqual(parseTranscript(serializeTranscript([opened])), [opened], "it is kept as an outcome");
+  assert.match(handoffOutcome(run.handoff, "document").text, /^Not opened: Document mode is on/);
+});
+
+test("a list field's edit shows the items it removes and adds, escaped, and its counts outlive a reload", () => {
+  const run = newRun([{ kind: "user", text: "Retag her.", context: chat }]);
+  const fields = [{ field: "tags", label: "Tags", before: ["Noir", "<old>"], after: ["Noir", "Docks"] }];
+  feed(run, [
+    ["confirm", { tool: "edit_character", proposal: { proposal_id: "p-tags", label: "character Mara", fields } }],
+    ["done", { reason: "reply", message: "" }],
+  ]);
+  settleRun(run);
+  const html = transcriptHtml(run.items, String, { active: run.card });
+  assert.match(html, /<del class="asst-del">&lt;old&gt;<\/del>/);
+  assert.match(html, /<ins class="asst-ins">Docks<\/ins>/);
+  assert.match(html, /1 unchanged\./);
+  assert.match(html, /2 → 2 items/);
+  const reloaded = parseTranscript(serializeTranscript(run.items));
+  assert.match(transcriptHtml(reloaded, String), /2 → 2 items/);
+  assert.equal(JSON.stringify(reloaded).includes("Docks"), false, "a stored card keeps no list items");
 });

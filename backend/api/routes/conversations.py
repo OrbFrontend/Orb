@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import has_inline_macros, resolve_inline, scrub_log
+from ...core import resolve_inline, scrub_log
 from ...database import (
     PROPOSAL_STATUSES,
     REVIEW_STATUSES,
@@ -18,7 +18,6 @@ from ...database import (
     apply_sheet_proposal,
     convert_to_group,
     copy_state_events,
-    create_conversation,
     create_group_conversation,
     decision_evaluations_of,
     delete_conversation,
@@ -42,7 +41,6 @@ from ...database import (
     get_world,
     group_family_ids,
     group_root_of,
-    insert_alternate_greeting_swipes,
     list_conversations,
     mark_orphaned_changesets_stale,
     reject_sheet_proposal,
@@ -50,7 +48,6 @@ from ...database import (
     resolve_cast,
     set_active_leaf,
     set_conversation_world,
-    set_workflow_message_state,
     snapshot_state_to_message,
     sync_group_members,
     touch_conversation,
@@ -70,6 +67,7 @@ from ...prompting import (
 )
 from ...workflows.contracts import PublicEvent
 from ..conversation_copy import checkpoint_conversation, checkpoint_title, copy_member_map
+from ..conversation_start import start_solo_chat
 from ..deps import (
     CleanupStreamingResponse,
     deleting_resources,
@@ -140,54 +138,19 @@ async def api_create_conversation(data: ConversationCreate):
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    char_name = data.character_name
-    char_scenario = data.character_scenario
-    first_mes = data.first_mes
-    post_hist = data.post_history_instructions
-    card_id = data.character_card_id
-    title = data.title
-
-    # If a character card is specified, pull fields from it
-    if card_id:
-        card = await get_character_card(card_id)
+    card = None
+    if data.character_card_id:
+        card = await get_character_card(data.character_card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Character card not found")
-        char_name = card.get("name", "")
-        char_scenario = card.get("scenario", "")
-        first_mes = card.get("first_mes", "")
-        post_hist = card.get("post_history_instructions", "")
-        if title == "New Conversation":
-            title = char_name
-
-    conv = await create_conversation(
-        cid=cid,
-        title=title,
-        char_name=char_name,
-        char_scenario=char_scenario,
-        post_history_instructions=post_hist,
-        character_card_id=card_id,
+    return await start_solo_chat(
+        data.title,
+        card,
+        char_name=data.character_name,
+        char_scenario=data.character_scenario,
+        first_mes=data.first_mes,
+        post_history_instructions=data.post_history_instructions,
     )
-
-    # If there's a first message, auto-add it as the first assistant turn. Content is stored macro-resolved; the raw template
-    # rides the per-message "macros" slot so the greeting can re-roll freely until the first user message freezes it (see
-    # reroll_unfrozen_greetings).
-    if first_mes.strip():
-        raw_greeting = first_mes.strip()
-        msg_id, _ = await add_message(cid, "assistant", resolve_inline(raw_greeting), 0, attachments=None)
-        await set_active_leaf(cid, msg_id)
-        if has_inline_macros(raw_greeting):
-            await set_workflow_message_state(msg_id, "macros", {"template": raw_greeting})
-
-        # If we have a character card with alternate greetings, create swipe versions
-        if card_id:
-            card = await get_character_card(card_id)
-            if card:
-                alternate_greetings = card.get("alternate_greetings", [])
-                count = await insert_alternate_greeting_swipes(cid, alternate_greetings)
-                if count:
-                    logger.info(f"Created {count} alternate greeting swipes for conversation {cid}")
-
-    return conv
 
 
 @router.get("/api/conversations/{cid}/members")

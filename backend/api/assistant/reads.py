@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -12,6 +12,7 @@ from ...core import extract_hyperparams
 from ...core.settings import Settings
 from ...database import (
     LIBRARY_VIEWS,
+    get_active_lorebook_entries,
     get_active_path,
     get_character_card,
     get_document,
@@ -40,8 +41,19 @@ from ...features.assistant import (
     ToolSet,
     ViewContext,
 )
+from ...features.fragment_state import StateWriteError, state_panel
+from ...features.lorebook import select_effective_entries
 from ...pipeline import estimate_context_size
-from .targets import CHARACTER_FIELDS, ID_CHARS, CharacterField, cast_of, character_in_view, chat_in_view, clip
+from .targets import (
+    CHARACTER_FIELDS,
+    ID_CHARS,
+    CharacterField,
+    cast_of,
+    character_in_view,
+    chat_in_view,
+    clip,
+    quoted,
+)
 from .toggles import switch_summary
 
 MAX_MESSAGES = 20
@@ -49,6 +61,7 @@ _MAX_LIST_ROWS = 30
 _DEFAULT_LIST_ROWS = 20
 _MESSAGE_CHARS = 1200
 _FIELD_CHARS = 700
+_STATE_ENTRY_CHARS = 600
 _DESCRIPTION_CHARS = 2400
 _PREVIEW_CHARS = 300
 _DOCUMENT_CHARS = 5000
@@ -66,7 +79,8 @@ _VIEW_NOTES = (
     "Read-only SQLite views; one SELECT with a LIMIT per query: "
     + "; ".join(f"{view}({', '.join(columns)})" for view, columns in LIBRARY_VIEWS.items())
     + ". messages.role is 'user' or 'assistant'. messages holds every branch: a chat's kept branch is the parent_id chain "
-    "from conversations.active_leaf_id. tags and alternate_greetings are JSON arrays (json_each). Select id and "
+    "from conversations.active_leaf_id. tags, alternate_greetings and keywords are JSON arrays (json_each). "
+    "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
     "conversation_id with message findings; substr long text."
 )
 _TEXT_OFFSET = "When reading one text whole: the character position to start from, the last page's next_offset."
@@ -86,10 +100,11 @@ class _CharacterArgs(ToolArguments):
     character_id: str = Field(
         default="", max_length=ID_CHARS, description="The character's id; empty means the character in view."
     )
-    fields: list[CharacterField] = Field(
+    fields: list[Literal[CharacterField, "name", "tags", "alternate_greetings"]] = Field(
         default_factory=list,
-        max_length=len(CHARACTER_FIELDS),
-        description="Text fields to read; empty reads all of them, shortened to fit. Name one to read it whole, in pages.",
+        max_length=len(CHARACTER_FIELDS) + 3,
+        description="Text fields to read; empty reads all of them, shortened to fit. Name one to read it whole, in pages. "
+        "name and tags come with every read. alternate_greetings, named alone, reads every alternate greeting whole.",
     )
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
 
@@ -101,8 +116,22 @@ class _SqlArgs(ToolArguments):
 class _MessagesArgs(ToolArguments):
     conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
     count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description=f"Latest messages, at most {MAX_MESSAGES}.")
+    before_message_id: int = Field(
+        default=0, ge=0, description="Read the messages before this one on the kept branch: the last page's earlier_from."
+    )
+    query: str = Field(
+        default="", max_length=_QUERY_CHARS, description="Only messages on the kept branch containing this text, any case."
+    )
     message_id: int = Field(default=0, ge=0, description="One message to read whole, in pages, instead of the latest ones.")
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
+
+
+class _ChatListArgs(_ListArgs):
+    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
+
+
+class _StateArgs(ToolArguments):
+    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
 
 
 class _EntriesArgs(_ListArgs):
@@ -269,15 +298,14 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         card = await get_character_card(card_id)
         if card is None:
             raise ToolFailure(f"No character has the id {card_id}.")
-        chosen = list(dict.fromkeys(args.fields)) or list(CHARACTER_FIELDS)
+        if "alternate_greetings" in args.fields:
+            return greetings(card, args)
+        # The name and tags head every read, so naming only them reads no text field.
+        named = [name for name in dict.fromkeys(args.fields) if name not in ("name", "tags")]
+        chosen = named if args.fields else list(CHARACTER_FIELDS)
         texts = {name: str(card.get(name) or "") for name in chosen}
         if args.text_offset and len(chosen) != 1:
             raise ToolFailure("text_offset pages through one field: name exactly one in fields.")
-        # Each field's share before measuring; named fields split the whole result between them.
-        if args.fields:
-            caps = dict.fromkeys(chosen, _RESULT_BUDGET // len(chosen))
-        else:
-            caps = {name: _DESCRIPTION_CHARS if name == "description" else _FIELD_CHARS for name in chosen}
         meta = {
             "id": card.get("id"),
             "name": clip(card.get("name"), _QUERY_CHARS),
@@ -286,6 +314,13 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             "alternate_greeting_count": len(card.get("alternate_greetings") or []),
             "field_chars": {name: len(text) for name, text in texts.items()},
         }
+        if not chosen:
+            return ToolOutput(meta, f"Read the name and tags of character {meta['name']}.", {"character_id": card_id})
+        # Each field's share before measuring; named fields split the whole result between them.
+        if args.fields:
+            caps = dict.fromkeys(chosen, _RESULT_BUDGET // len(chosen))
+        else:
+            caps = {name: _DESCRIPTION_CHARS if name == "description" else _FIELD_CHARS for name in chosen}
 
         if len(chosen) == 1 and args.fields:
             # One field named: read whole, a page at a time, never clipped.
@@ -311,6 +346,21 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             data = build()
         return ToolOutput(data, f"Read character {meta['name']}.", {"character_id": card_id})
 
+    def greetings(card: Mapping[str, Any], args: _CharacterArgs) -> ToolOutput:
+        """Every alternate greeting whole, since an edit replaces the list whole; one too long to send is refused, not cut."""
+        if len(args.fields) != 1 or args.text_offset:
+            raise ToolFailure("alternate_greetings is read on its own and whole: name it alone, with no text_offset.")
+        items = [str(item) for item in card.get("alternate_greetings") or []]
+        data = {"id": card.get("id"), "name": clip(card.get("name"), _QUERY_CHARS), "alternate_greetings": items}
+        if _size(data) > _RESULT_BUDGET:
+            raise ToolFailure(
+                f"Its {len(items)} alternate greetings are too long to read whole here, so they cannot be edited here either. "
+                "The character editor shows them."
+            )
+        return ToolOutput(
+            data, f"Read {len(items)} alternate greetings of character {data['name']}.", {"character_id": card["id"]}
+        )
+
     @tools.add("read", _SqlArgs, f"Search the library with SQL. {_VIEW_NOTES}")
     async def query_library(args: _SqlArgs) -> ToolOutput:
         result = await run_library_query(args.sql, **_SQL_CAPS)
@@ -335,19 +385,32 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
     @tools.add(
         "read",
         _MessagesArgs,
-        f"Read the latest messages on a chat's kept branch, at most {MAX_MESSAGES}, or one message whole by message_id.",
+        f"Read messages on a chat's kept branch, at most {MAX_MESSAGES}: the latest, those before before_message_id, or "
+        "those containing query. With message_id, read one message whole.",
     )
     async def read_messages(args: _MessagesArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=False)
         path = await get_active_path(conv["id"])
         speakers = await get_speaker_names(conv["id"]) if conv.get("kind") == "group" else {}
         if args.message_id:
+            if args.before_message_id or args.query:
+                raise ToolFailure("message_id reads one message: leave before_message_id and query empty.")
             return await read_message(conv, path, speakers, args)
         if args.text_offset:
             raise ToolFailure("text_offset pages through one message: name its message_id.")
+        window = path
+        if args.before_message_id:
+            index = next((i for i, row in enumerate(path) if row["id"] == args.before_message_id), None)
+            if index is None:
+                raise ToolFailure(
+                    f"Message {args.before_message_id} is not on the chat's kept branch. Use an id read_messages returned."
+                )
+            window = path[:index]
+        needle = args.query.strip().casefold()
+        candidates = [row for row in window if needle in (row["content"] or "").casefold()] if needle else window
         rows: list[dict[str, Any]] = []
         size = 0
-        for message in reversed(path[-args.count :]):
+        for message in reversed(candidates[-args.count :]):
             speaker = speakers.get(message.get("speaker_member_id") or "")
             row = {
                 "id": message["id"],
@@ -362,17 +425,31 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                 break
             rows.append(row)
         rows.reverse()
-        data = {
+        earlier = len(candidates) - len(rows)
+        data: dict[str, Any] = {
             "conversation_id": conv["id"],
             "title": clip(conv["title"], _QUERY_CHARS),
             "messages": rows,
             "path_length": len(path),
-            "truncated": len(rows) < len(path),
+            "truncated": earlier > 0,
+            # Where the next page back starts: pass it as before_message_id.
+            "earlier_from": rows[0]["id"] if earlier > 0 and rows else None,
         }
-        if any(len(message["content"] or "") > _MESSAGE_CHARS for message in path[len(path) - len(rows) :]):
+        if needle:
+            data["matches"] = len(candidates)
+        shown = {row["id"] for row in rows}
+        if any(len(message["content"] or "") > _MESSAGE_CHARS for message in candidates if message["id"] in shown):
             data["note"] = "A message ending with …[+N chars] was shortened; read it whole with its message_id."
         ids = {"conversation_id": conv["id"], "message_ids": [row["id"] for row in rows]}
-        return ToolOutput(data, f"Read the last {len(rows)} of {len(path)} messages on the kept branch.", ids)
+        if needle:
+            summary = (
+                f"Found {len(candidates)} messages on the kept branch containing {json.dumps(args.query)}; read {len(rows)}."
+            )
+        elif args.before_message_id:
+            summary = f"Read {len(rows)} messages before message {args.before_message_id} on the kept branch."
+        else:
+            summary = f"Read the last {len(rows)} of {len(path)} messages on the kept branch."
+        return ToolOutput(data, summary, ids)
 
     async def read_message(
         conv: ConversationRow, path: Sequence[Mapping[str, Any]], speakers: Mapping[str, str], args: _MessagesArgs
@@ -450,6 +527,42 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             f"entries in {world_head['name']}",
         )
 
+    @tools.add(
+        "read",
+        _ChatListArgs,
+        "List the worlds a chat uses and the lore entries in effect there: their enabled entries, with their text. It cannot "
+        "say which entries a given reply drew on; nothing records that.",
+    )
+    async def list_active_lore(args: _ChatListArgs) -> ToolOutput:
+        conv = await chat_in_view(args.conversation_id, view, changes=False)
+        world_ids = await get_effective_world_ids(conv["id"])
+        # What the prompt draws from: dynamic replacements and suppressions resolved, as the chat's own lore view shows it.
+        entries = select_effective_entries(await get_active_lorebook_entries(world_ids))
+        items = [
+            (
+                {
+                    "id": entry["id"],
+                    "world": {"id": entry["world_id"], "name": clip(entry.get("world_name"), _QUERY_CHARS)},
+                    "name": clip(entry["name"], _QUERY_CHARS),
+                    "keywords": [clip(keyword, 60) for keyword in (entry["keywords"] or [])[:12]],
+                    "constant": bool(entry["constant"]),
+                    "content": clip(entry["content"], _FIELD_CHARS),
+                },
+                entry["content"] or "",
+            )
+            for entry in entries
+            if _matches(args.query, entry["name"], entry["content"], *(entry["keywords"] or []))
+        ]
+        note = "Content ending with …[+N chars] was shortened; list_lorebook_entries with its world_id and entry_id reads it whole."
+        names = {world["id"]: world["name"] for world in await get_worlds()}
+        listed = {
+            "conversation_id": conv["id"],
+            "worlds_in_effect": [{"id": world_id, "name": clip(names.get(world_id), _QUERY_CHARS)} for world_id in world_ids],
+            "note_matching": "A keyword entry is offered when its keywords come up in the chat; a constant one always is.",
+            **_noting(items, "content", args, note),
+        }
+        return _listed(listed, f"lore entries in effect for {quoted(conv['title'])}")
+
     @tools.add("read", _PersonaArgs, "List the user's personas, or read one's description whole.")
     async def list_personas(args: _PersonaArgs) -> ToolOutput:
         active = settings.get("active_persona_id")
@@ -504,6 +617,49 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         data = _text_page(content, args.offset, head, "content", length=_DOCUMENT_CHARS, offset_key="offset")
         summary = f"Read {len(data['content'])} of {len(content)} saved characters of {data['title']}."
         return ToolOutput(data, summary, {"document_id": document["id"]})
+
+    @tools.add(
+        "read",
+        _StateArgs,
+        "Read a chat's scene state: what each state fragment holds on the kept branch, as the Inspector's State tab shows it.",
+    )
+    async def read_state(args: _StateArgs) -> ToolOutput:
+        conv = await chat_in_view(args.conversation_id, view, changes=False)
+        try:
+            panel = await state_panel(conv["id"])
+        except StateWriteError as exc:
+            raise ToolFailure(str(exc)) from None
+        cap = _STATE_ENTRY_CHARS
+
+        def build() -> dict[str, Any]:
+            return {
+                "conversation_id": conv["id"],
+                "has_state": panel["has_state"],
+                "fragments": [
+                    {
+                        "fragment_id": fragment["fragment_id"],
+                        "label": clip(fragment["label"], _QUERY_CHARS),
+                        "mode": fragment["mode"],
+                        "enabled": fragment["enabled"],
+                        **({} if fragment["configured"] else {"note": "Its fragment was removed; this is saved state."}),
+                        "entries": [
+                            {"text": clip(entry["text"], cap), "turn_index": entry["turn_index"]}
+                            for entry in fragment["entries"]
+                        ],
+                    }
+                    for fragment in panel["fragments"]
+                ],
+            }
+
+        data = build()
+        while _size(data) > _RESULT_BUDGET and cap > 40:
+            cap //= 2
+            data = build()
+        if _size(data) > _RESULT_BUDGET:
+            raise ToolFailure("That chat's state is too large to read at once; the Inspector's State tab shows it.")
+        entries = sum(len(fragment["entries"]) for fragment in data["fragments"])
+        summary = f"Read {len(data['fragments'])} state fragments ({entries} entries) of {quoted(conv['title'])}."
+        return ToolOutput(data, summary, {"conversation_id": conv["id"]})
 
     @tools.add("read", NoArguments, "Pipeline switches and sampler values. No endpoints, models or credentials.")
     async def get_settings_summary(_args: NoArguments) -> ToolOutput:

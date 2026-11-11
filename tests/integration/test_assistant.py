@@ -145,7 +145,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # All twenty-six tools and reply, the two media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 27 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
+    assert len(enum) == 37 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
     assert [message["role"] for message in calls[0]["messages"]] == ["system", "user", "assistant", "user"]
     assert SECRET not in json.dumps(calls[-1]["messages"])
 
@@ -270,7 +270,8 @@ async def test_character_and_settings_projections_leave_out_everything_not_allow
     assert set(summary["samplers"]) == {"writer", "agent"} and "temperature" in summary["samplers"]["writer"]
     # The SQL views are allowlists too: no credential column, and nothing from the endpoints table.
     columns = {column for view in LIBRARY_VIEWS.values() for column in view}
-    assert not {column for column in columns if any(word in column for word in ("key", "token", "secret", "auth", "pass"))}
+    secretive = {"key", "token", "secret", "auth", "password", "pass"}
+    assert not {column for column in columns if secretive & set(column.split("_"))}
     for view in LIBRARY_VIEWS:
         _, encoded = await _use(tools, "query_library", sql=f"SELECT * FROM {view} LIMIT 50")
         assert SECRET not in encoded
@@ -670,7 +671,7 @@ async def test_proposals_check_their_text_and_an_unknown_or_expired_one_is_inert
     await client.put_checked(f"/api/characters/{library['card']}", json={"description": "aa then aa"})
     with pytest.raises(ToolFailure, match="more than once"):
         await edit.run(edit.arguments(field="description", mode="find_replace", find="aa", text="b"))
-    for bad in ({"text": "x" * 8001}, {"field": "system_prompt"}, {"field": "name"}, {"mode": "append"}):
+    for bad in ({"text": "x" * 8001}, {"field": "system_prompt"}, {"field": "creator"}, {"mode": "append"}):
         with pytest.raises(ValidationError):
             edit.arguments.model_validate({"field": "description", "mode": "replace_all", "text": "x", **bad})
 

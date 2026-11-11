@@ -1,5 +1,5 @@
-"""The assistant's actions: new lore entries, characters, worlds and personas, a chat's worlds, checkpoints, branch
-selection, and handoffs of a reply to the chat's own stream.
+"""The assistant's actions: new lore entries, characters, worlds, personas and chats, a chat's worlds, title and persona,
+checkpoints, branch selection, and handoffs to the chat's own stream or to the browser.
 
 Creates are additive and go through each resource's own schema and writer, with server-generated ids. Chat mutations take the
 chat's lane through :func:`~backend.api.deps.idle_chat_admission`, read their target again once admitted, and hold the lane only
@@ -23,20 +23,24 @@ from ...database import (
     create_user_persona,
     create_world,
     get_active_path,
+    get_character_card,
     get_conversation,
     get_effective_world_ids,
     get_message_by_id,
+    get_user_persona,
     get_world,
     get_worlds,
     set_conversation_world,
     switch_to_branch,
+    update_conversation,
 )
 from ...database.models import ConversationRow, MessageRow
 from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from ..conversation_copy import checkpoint_conversation, checkpoint_title
-from ..deps import ChatUnavailable, idle_chat_admission
-from ..schemas import CharacterCardCreate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
-from .targets import ID_CHARS, chat_id, clip, not_blank, quoted, reply_target
+from ..conversation_start import DEFAULT_TITLE, start_solo_chat
+from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission
+from ..schemas import CharacterCardCreate, ConversationUpdate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
+from .targets import ID_CHARS, cast_of, chat_id, chat_in_view, clip, not_blank, quoted, reply_target
 
 _NAME_CHARS = 200
 _LORE_CONTENT_CHARS = 4000
@@ -121,6 +125,36 @@ class _Checkpoint(ToolArguments):
 class _Branch(ToolArguments):
     conversation_id: str = _chat_field()
     message_id: int = Field(ge=1, description="A message on the branch to show, from query_library or read_messages.")
+
+
+class _StartChat(ToolArguments):
+    character_id: str = Field(min_length=1, max_length=ID_CHARS, description="The character, from list_characters.")
+    title: str = Field(default="", max_length=_NAME_CHARS, description="The chat's title; empty names it after the character.")
+
+
+class _OpenChat(ToolArguments):
+    conversation_id: str = Field(min_length=1, max_length=ID_CHARS, description="The chat to open.")
+
+
+class _SetChat(ToolArguments):
+    conversation_id: str = _chat_field()
+    title: str = Field(default="", max_length=_NAME_CHARS, description="A new title; empty leaves the title as it is.")
+    persona_lock_id: int = Field(
+        default=0, ge=0, description="Play as this persona in this chat, from list_personas; 0 leaves the lock as it is."
+    )
+    clear_persona_lock: bool = Field(
+        default=False, description="true to stop locking a persona to this chat, so the active persona is used again."
+    )
+
+
+class _Continue(ToolArguments):
+    conversation_id: str = _chat_field()
+    speaker_member_id: str = Field(
+        default="",
+        max_length=ID_CHARS,
+        description="In a group chat: who speaks next, as a member_id from get_context's cast or a member's name. "
+        "Empty in a solo chat.",
+    )
 
 
 class _Regenerate(ToolArguments):
@@ -395,5 +429,160 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def rewrite_reply(args: _Rewrite) -> ToolOutput:
         conv, message = await reply_target(args.conversation_id, args.message_id, view, "rewritten", idle=True)
         return handed(conv, message, "rewriting", {"direction": args.direction})
+
+    @tools.add(
+        "write",
+        _StartChat,
+        "Start a new chat with a character, with its greeting as the first reply, as the New Chat button does. It opens "
+        "nothing; open_chat opens it if the user asks.",
+    )
+    async def start_chat(args: _StartChat) -> ToolOutput:
+        card = await get_character_card(args.character_id)
+        if card is None:
+            raise ToolFailure(f"No character has the id {args.character_id}. list_characters shows the ids.")
+        conv = await start_solo_chat(args.title.strip() or DEFAULT_TITLE, card)
+        data = {
+            "created": True,
+            "conversation": {"id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)},
+            "character": {"id": args.character_id, "name": clip(card.get("name"), _NAME_CHARS)},
+            "note": "It is in the chat list. Nothing was opened; the view is unchanged.",
+        }
+        return ToolOutput(
+            data,
+            f"Started chat {quoted(conv['title'])} with {quoted(card.get('name'))}.",
+            {"conversation_id": conv["id"], "character_id": args.character_id},
+            committed=({"kind": "conversation", "conversation_id": conv["id"]},),
+        )
+
+    @tools.add(
+        "handoff",
+        _OpenChat,
+        "Open a chat in the main view once this request ends, as picking it in the chat list does. Use it only when the "
+        "user's request asks to open or go to a chat.",
+    )
+    async def open_chat(args: _OpenChat) -> ToolOutput:
+        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        target = {"conversation_id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)}
+        data = {
+            "handed_off": True,
+            **target,
+            "note": "Nothing is open yet. Once this request ends the browser opens this chat in the main view.",
+        }
+        return ToolOutput(
+            data,
+            f"Handed opening chat {quoted(conv['title'])} to the browser.",
+            {"conversation_id": conv["id"]},
+            handoff=target,
+        )
+
+    @tools.add(
+        "write",
+        _SetChat,
+        "Rename a chat, or choose the persona the user plays in it. Give the state the user asked for; a field left empty "
+        "stays as it is.",
+        idempotent=True,
+    )
+    async def set_chat(args: _SetChat) -> ToolOutput:
+        if args.persona_lock_id and args.clear_persona_lock:
+            raise ToolFailure("Either lock a persona or clear the lock, not both. Nothing was changed.")
+        if not (args.title.strip() or args.persona_lock_id or args.clear_persona_lock):
+            raise ToolFailure("Name a title, a persona_lock_id, or clear_persona_lock; nothing was asked to change.")
+        persona = await get_user_persona(args.persona_lock_id) if args.persona_lock_id else None
+        if args.persona_lock_id and persona is None:
+            raise ToolFailure(f"No persona has the id {args.persona_lock_id}. list_personas shows the ids.")
+        cid = chat_id(args.conversation_id, view)
+        async with admitted(cid) as conv:
+            wanted = ConversationUpdate(
+                **({"title": args.title.strip()} if args.title.strip() else {}),
+                **({"persona_lock_id": args.persona_lock_id} if args.persona_lock_id else {}),
+                **({"persona_lock_id": None} if args.clear_persona_lock else {}),
+            ).model_dump(exclude_unset=True)
+            # Only what differs is written: a title or lock already in that state stays as stored.
+            changes = {key: value for key, value in wanted.items() if conv.get(key) != value}
+            current = await update_conversation(cid, changes) if changes else conv
+        if current is None:
+            raise ToolFailure(f"No chat has the id {cid}.")
+        lock = current.get("persona_lock_id")
+        data = {
+            "conversation_id": cid,
+            "title": clip(current["title"], _NAME_CHARS),
+            "persona_lock_id": lock,
+            "changed": sorted(changes),
+        }
+        if lock is None:
+            data["note"] = "No persona is locked to this chat: it uses the character's lock, if any, or the active persona."
+        if not changes:
+            return ToolOutput(data, f"{quoted(current['title'])} already had that; nothing changed.", {"conversation_id": cid})
+        said = []
+        if "title" in changes:
+            said.append(f"renamed it {quoted(current['title'])}")
+        if "persona_lock_id" in changes:
+            said.append(f"locked persona {quoted(persona['name'])} to it" if persona else "cleared its persona lock")
+        return ToolOutput(
+            data,
+            f"Chat {quoted(conv['title'])}: {' and '.join(said)}.",
+            {"conversation_id": cid},
+            committed=({"kind": "conversation", "conversation_id": cid},),
+        )
+
+    @tools.add(
+        "handoff",
+        _Continue,
+        "Have the chat write the next reply, as Send with an empty box does: an answer to the user's unanswered last "
+        "message, or in a group chat a turn by the member named.",
+    )
+    async def continue_chat(args: _Continue) -> ToolOutput:
+        conv = await chat_in_view(args.conversation_id, view, changes=True)
+        cid = conv["id"]
+        if conversation_busy(cid):
+            raise ToolFailure("That chat is generating right now. Ask again once it has finished.")
+        path = await get_active_path(cid)
+        last = path[-1] if path else None
+        group = conv.get("kind") == "group"
+        cast = await cast_of(conv)
+        speaker = args.speaker_member_id.strip()
+        if speaker and not group:
+            raise ToolFailure("speaker_member_id is only for a group chat; leave it empty here.")
+        if speaker:
+            # A member id, or a name only one member has: what the user said is usually the name.
+            named = [item for item in cast if str(item["name"]).casefold() == speaker.casefold()]
+            member = next((item for item in cast if item.get("member_id") == speaker), None) or (
+                named[0] if len(named) == 1 else None
+            )
+            if member is None:
+                raise ToolFailure(f"That group has no member {speaker}. Its cast: {json.dumps(cast, ensure_ascii=False)}")
+            speaker = str(member["member_id"])
+            if member.get("muted"):
+                raise ToolFailure(f"{quoted(member['name'])} is muted in this scene and does not speak.")
+        if last is None:
+            raise ToolFailure("That chat has no messages yet; the user writes the first one.")
+        if last["role"] == "assistant" and not speaker:
+            if group:
+                raise ToolFailure(
+                    "The last message is already a reply. Name the member who speaks next as speaker_member_id: "
+                    f"{json.dumps(cast, ensure_ascii=False)}"
+                )
+            raise ToolFailure(
+                "The last message is already a reply, so there is nothing to continue: the user writes next. "
+                "regenerate_reply makes a new version of that reply instead, if that is what the user wants."
+            )
+        target = {
+            "conversation_id": cid,
+            "message_id": last["id"],
+            **({"speaker_member_id": speaker} if speaker else {}),
+        }
+        data = {
+            "handed_off": True,
+            **target,
+            "note": "Nothing is generated yet. Once this request ends the chat writes the next reply, if that chat is still "
+            "open and its last message is still this one.",
+        }
+        who = f" by {quoted(next(m['name'] for m in cast if m.get('member_id') == speaker))}" if speaker else ""
+        return ToolOutput(
+            data,
+            f"Handed the next reply{who} in {quoted(conv['title'])} to the chat.",
+            {"conversation_id": cid, "message_id": last["id"]},
+            handoff=target,
+        )
 
     return tools

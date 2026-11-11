@@ -60,9 +60,9 @@ _PROPOSALS = (
     "Several edits to one field build on each other in one proposal."
 )
 _HANDOFFS = (
-    "\n- A tool marked [hands off] starts work in a chat's own stream once this request ends, and this request ends with it. "
-    "Use one only when the user's latest request asks for it. The chat writes the reply afterwards, so say that you started "
-    "it, never that it is done or what it says."
+    "\n- A tool marked [hands off] starts work once this request ends, and this request ends with it: a reply in the chat's "
+    "own stream, or for open_chat the chat opening in the main view. Use one only when the user's latest request asks for "
+    "it. The work happens afterwards, so say that you started it, never that it is done or what a reply says."
 )
 _MEDIA = (
     "\n- A tool that makes media for a reply ({names}) works on one saved reply in a chat, named by its message_id from "

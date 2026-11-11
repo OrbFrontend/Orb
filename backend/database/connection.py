@@ -140,6 +140,16 @@ class StaleWrite(Exception):
         super().__init__(f"Changed since read: {', '.join(self.fields)}")
 
 
+def _same(stored: Any, value: Any) -> bool:
+    """A column against what the caller read: text as text, NULL as empty, and a list against the JSON array stored."""
+    if isinstance(value, list):
+        try:
+            return json.loads(stored or "[]") == value
+        except ValueError:
+            return False
+    return (stored or "") == (value or "")
+
+
 async def check_expected(
     db: aiosqlite.Connection, table: str, row_id: Any, expected: Mapping[str, Any], *, owner: Mapping[str, Any] | None = None
 ) -> bool:
@@ -163,7 +173,7 @@ async def check_expected(
         if not rows:
             await db.execute("ROLLBACK")
             return False
-        changed = [key for key, value in expected.items() if (rows[0][key] or "") != (value or "")]
+        changed = [key for key, value in expected.items() if not _same(rows[0][key], value)]
     except BaseException:
         await db.execute("ROLLBACK")
         raise

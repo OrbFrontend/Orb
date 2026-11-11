@@ -17,9 +17,9 @@ import {
   trimTranscript,
   wireContext,
 } from "./assistant_view.js";
-import { loadConversations } from "./chat_conversations.js";
+import { loadConversations, selectConversation } from "./chat_conversations.js";
 import { showBranchChange } from "./chat_messages.js";
-import { regenerateCapturedReply, rewriteCapturedReply } from "./chat_stream.js";
+import { continueCapturedChat, regenerateCapturedReply, rewriteCapturedReply } from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
 import { sseError } from "./errors.js";
 import { loadCharacters } from "./library_sidebar.js";
@@ -184,17 +184,32 @@ function refreshEverything() {
 }
 
 /**
- * Ask the chat to start the reply a settled run handed off, through the chat's own helpers and checks. It starts only in
- * the chat the run named, while that chat is open and the reply still on its branch; otherwise the transcript says why and
- * nothing switches. Once started, the chat's stream owns Stop and the reply.
+ * Open chat *cid* as the chat list does, only while the reader is still on the view the request was sent from: a run that
+ * ends after they moved on never pulls them back. Returns why it did not open, or "" once it is opening.
+ */
+function openCapturedChat(cid, context) {
+  if (S.documentMode) return "document";
+  if (JSON.stringify(wireContext(captureContext())) !== JSON.stringify(wireContext(context))) return "moved";
+  selectConversation(cid).catch((error) => console.error("Failed to open the chat:", error));
+  return "";
+}
+
+/**
+ * Start what a settled run handed off. A reply goes through the chat's own helpers and checks, only in the chat the run
+ * named while it is open and its target unmoved; once started, the chat's stream owns Stop and the reply. A chat to open
+ * opens only from the view the request was sent from. Otherwise the transcript says why, and nothing starts or switches.
  */
 function launchHandoff(current) {
   const target = current.handoff;
   const { conversation_id: cid, message_id: msgId } = target;
   const status =
-    target.tool === "rewrite_reply"
-      ? rewriteCapturedReply(cid, msgId, target.direction)
-      : regenerateCapturedReply(cid, msgId);
+    target.tool === "open_chat"
+      ? openCapturedChat(cid, current.context)
+      : target.tool === "continue_chat"
+        ? continueCapturedChat(cid, msgId, target.speaker_member_id || null)
+        : target.tool === "rewrite_reply"
+          ? rewriteCapturedReply(cid, msgId, target.direction)
+          : regenerateCapturedReply(cid, msgId);
   // A slide-over would cover the reply the chat now writes.
   if (status === "" && narrow()) closeUtilityPanel(PANEL);
   current.items.push(handoffOutcome(target, status));

@@ -43,6 +43,8 @@ FIELD_LABELS = {
     "creator_notes": "Creator notes",
     "name": "Name",
     "content": "Content",
+    "tags": "Tags",
+    "alternate_greetings": "Alternate greetings",
 }
 
 
@@ -54,9 +56,9 @@ class Proposal:
     target: Mapping[str, Any]
     label: str
     name: str
-    # The stored text the preview compares against, and the text Apply writes.
-    before: str
-    after: str
+    # The stored text the preview compares against, and the text Apply writes; a list field's whole list.
+    before: str | list[str]
+    after: str | list[str]
     # When the store forgets it: its last change plus the expiry, and once applied, that Apply plus the expiry.
     expires: float
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -90,7 +92,9 @@ def get_proposal(proposal_id: str) -> Proposal | None:
     return _proposals.get(proposal_id)
 
 
-def store(kind: ProposalKind, target: Mapping[str, Any], label: str, name: str, before: str, after: str) -> Proposal:
+def store(
+    kind: ProposalKind, target: Mapping[str, Any], label: str, name: str, before: str | list[str], after: str | list[str]
+) -> Proposal:
     """Hold a new proposal to change field *name* of *target* from *before* to *after*, forgetting the oldest if full."""
     _clean()
     while len(_proposals) >= MAX_PROPOSALS and _evict():
@@ -108,7 +112,7 @@ def is_open(proposal: Proposal) -> bool:
     return _proposals.get(proposal.id) is proposal and proposal.result is None
 
 
-def revise(proposal: Proposal, after: str) -> None:
+def revise(proposal: Proposal, after: str | list[str]) -> None:
     """Replace what *proposal* writes, and keep it for a whole expiry period from now."""
     proposal.after, proposal.expires = after, _clock() + PROPOSAL_TTL_SECS
 
@@ -134,6 +138,7 @@ async def _write_message(proposal: Proposal) -> None:
             original = await get_message_by_id(proposal.target["message_id"])
             if await get_conversation(cid) is None or original is None or original["conversation_id"] != cid:
                 raise _Refused("missing", _MISSING)
+            assert isinstance(proposal.after, str) and isinstance(proposal.before, str)
             if not await save_message_edit(original, proposal.after, expected=proposal.before):
                 raise _Refused("missing", _MISSING)
     except ChatUnavailable as exc:

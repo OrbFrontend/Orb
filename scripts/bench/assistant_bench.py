@@ -127,7 +127,7 @@ async def seed_library(path: Path) -> dict[str, Any]:
 
     import backend.database.connection as db_connection
     from backend.api.assistant.toggles import switch_summary
-    from backend.database import add_message, get_settings, init_db
+    from backend.database import add_message, get_conversation, get_settings, init_db, resolve_cast
     from backend.main import app
 
     db_connection.DB_PATH = str(path)
@@ -202,6 +202,35 @@ async def seed_library(path: Path) -> dict[str, Any]:
     for index, (role, text) in enumerate(lines):
         parent, _ = await add_message(chat, role, text, index, parent_id=parent, advance_leaf=True)
         ids.append(parent)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://bench") as client:
+        crossing = (await client.post("/api/conversations", json={"character_card_id": kestrel})).json()["id"]
+        # One inventory entry on the solo chat's kept branch, as the State tab would add it.
+        (await client.put("/api/interactive-fragments/inventory", json={"enabled": True})).raise_for_status()
+        added = await client.post(
+            f"/api/conversations/{chat}/state", json={"fragment_id": "inventory", "op": "add", "text": "Mara: a brass compass"}
+        )
+        added.raise_for_status()
+
+    # A chat longer than one page of read_messages, whose one fact sits near its start.
+    async with get_db() as db:
+        await db.execute("DELETE FROM messages WHERE conversation_id = ?", (crossing,))
+        await db.commit()
+    parent = None
+    for index in range(30):
+        if index == 1:
+            text = '"The fare is three silver crowns, paid before we cast off," Kestrel says, holding out her palm.'
+        elif index % 2:
+            text = f"Kestrel trims the sail and watches the swell. ({index})"
+        else:
+            text = f"I watch the dark water slide past the hull. ({index})"
+        role = "user" if index % 2 == 0 else "assistant"
+        parent, _ = await add_message(crossing, role, text, index, parent_id=parent, advance_leaf=True)
+
+    # The group has spoken once, so its next turn needs a speaker.
+    members = (await resolve_cast(await get_conversation(group))).members
+    ivo_member = next(member.member_id for member in members if member.card_id == ivo)
+    await add_message(group, "assistant", "Mara eyes the clerk across the table.", 0, advance_leaf=True)
     summary = switch_summary(await get_settings())
     return {
         "mara": mara,
@@ -210,7 +239,9 @@ async def seed_library(path: Path) -> dict[str, Any]:
         "kestrel_text": kestrel_text,
         "kestrel_last": kestrel_last,
         "chat": chat,
+        "crossing": crossing,
         "group": group,
+        "ivo_member": ivo_member,
         "harbour": harbour,
         "inland": inland,
         "wren": wren,
@@ -369,6 +400,58 @@ async def _checkpointed(out: Outcome) -> bool:
     return any("before the deal" in str(title).casefold() for title in titles)
 
 
+async def _lighthouse_off(out: Outcome) -> bool:
+    from backend.database import get_lorebook_entries
+
+    entries = {entry["name"]: entry for entry in await get_lorebook_entries(out.seed["harbour"])}
+    return not entries["Lighthouse"]["enabled"] and bool(entries["Tide tax"]["enabled"])
+
+
+async def _ivo_chat(out: Outcome) -> bool:
+    from backend.database.connection import get_db
+
+    query = "SELECT COUNT(*) FROM conversations WHERE character_card_id = ? AND kind = 'solo'"
+    async with get_db() as db, db.execute(query, (out.seed["ivo"],)) as cursor:
+        return (await cursor.fetchone())[0] == 1
+
+
+async def _renamed(out: Outcome) -> bool:
+    from backend.database import get_conversation
+
+    conv = await get_conversation(out.seed["chat"])
+    return conv is not None and conv["title"].strip().casefold() == "ledger night"
+
+
+async def _length_150(out: Outcome) -> bool:
+    return await _setting("length_guard_max_words") == 150
+
+
+async def _phrase_banned(out: Outcome) -> bool:
+    from backend.database import get_phrase_bank_rows
+
+    wanted = "a shiver ran down her spine"
+    return any(wanted in str(variant).casefold() for row in await get_phrase_bank_rows() for variant in row["variants"])
+
+
+async def _inland_global(out: Outcome) -> bool:
+    from backend.database import get_world
+
+    world = await get_world(out.seed["inland"])
+    return world is not None and bool(world["is_global"])
+
+
+async def _opened_chat(out: Outcome) -> bool:
+    return any(handoff.get("conversation_id") == out.seed["chat"] for handoff in out.handoffs("open_chat"))
+
+
+async def _ivo_speaks(out: Outcome) -> bool:
+    return any(handoff.get("speaker_member_id") == out.seed["ivo_member"] for handoff in out.handoffs("continue_chat"))
+
+
+def _tagged(before: Any, after: Any, out: Outcome) -> bool:
+    return sorted(after) == ["Harbour", "Noir"]
+
+
 def _media(tool: str) -> Check:
     async def check(out: Outcome) -> bool:
         return any(result["ids"].get("message_id") == out.seed["last_reply"] for result in out.ran(tool))
@@ -429,7 +512,7 @@ class Request:
 
 
 def requests() -> list[Request]:
-    """Thirty fixed requests; a view's id value names a seed key."""
+    """Forty-two fixed requests; a view's id value names a seed key."""
     chat = {"mode": "chat", "conversation_id": "chat"}
     group = {"mode": "chat", "conversation_id": "group"}
     library = {"mode": "library"}
@@ -493,11 +576,35 @@ def requests() -> list[Request]:
             "read",
             chat,
             "Which world does this chat use?",
-            {"get_context", "query_library"},
+            {"get_context", "query_library", "list_active_lore"},
             _says("Harbour"),
         ),
         r("read_personality", "read", chat, "What is Mara's personality?", {"get_character"}, _says("patient")),
         r("read_group", "read", group, "Who is in this group chat?", {"get_context", "query_library"}, _says("Mara", "Ivo")),
+        r(
+            "read_earlier",
+            "read",
+            {"mode": "chat", "conversation_id": "crossing"},
+            "Near the start of this chat, what fare did Kestrel name?",
+            {"read_messages", "query_library"},
+            _says("three silver"),
+        ),
+        r(
+            "read_active_lore",
+            "read",
+            chat,
+            "Which lore entries are in effect in this chat?",
+            {"list_active_lore", "get_context"},
+            _says("Tide tax", "Lighthouse"),
+        ),
+        r(
+            "read_state",
+            "read",
+            chat,
+            "What does this chat's inventory state hold?",
+            {"read_state"},
+            _all(_ran("read_state"), _says("compass")),
+        ),
         # Small writes
         r(
             "write_director_off",
@@ -563,6 +670,47 @@ def requests() -> list[Request]:
             {"checkpoint_chat"},
             _db(_checkpointed),
         ),
+        r(
+            "write_entry_off",
+            "write",
+            library,
+            "Turn off the Lighthouse lore entry in the Harbour world.",
+            {"list_worlds", "query_library", "list_lorebook_entries"},
+            _db(_lighthouse_off),
+        ),
+        r(
+            "write_start_chat",
+            "write",
+            library,
+            "Start a new chat with Ivo.",
+            {"list_characters", "query_library", "start_chat"},
+            _db(_ivo_chat),
+        ),
+        r("write_rename", "write", chat, "Rename this chat to Ledger night.", {"set_chat"}, _db(_renamed)),
+        r(
+            "write_length",
+            "write",
+            library,
+            "Limit replies to 150 words.",
+            {"set_length_guard", "get_settings_summary"},
+            _db(_length_150),
+        ),
+        r(
+            "write_phrase",
+            "write",
+            library,
+            'Add "a shiver ran down her spine" to the phrase bank.',
+            {"add_banned_phrase"},
+            _db(_phrase_banned),
+        ),
+        r(
+            "write_world_global",
+            "write",
+            library,
+            "Make the Inland world global.",
+            {"list_worlds", "query_library", "set_world"},
+            _db(_inland_global),
+        ),
         # One edit
         r(
             "edit_entry_name",
@@ -587,6 +735,14 @@ def requests() -> list[Request]:
             "Set Mara's scenario to: A rain-soaked night at the fish market.",
             {"edit_character", "get_character"},
             _proposed("character", "scenario", lambda b, a, o: a.strip() == "A rain-soaked night at the fish market."),
+        ),
+        r(
+            "edit_tags",
+            "edit",
+            chat,
+            "Add the tag Harbour to Mara's card.",
+            {"get_character", "edit_character"},
+            _proposed("character", "tags", _tagged),
         ),
         r(
             "edit_word",
@@ -662,6 +818,22 @@ def requests() -> list[Request]:
             "Rewrite the last reply to be shorter.",
             {"read_messages", "rewrite_reply", "edit_message"},
             _either(_handed("rewrite_reply"), _proposed("message", "content", _shorter_reply)),
+        ),
+        r(
+            "handoff_open",
+            "handoff",
+            library,
+            "Open my chat Mara at the quay.",
+            {"query_library", "list_characters", "open_chat"},
+            _opened_chat,
+        ),
+        r(
+            "handoff_continue",
+            "handoff",
+            group,
+            "Let Ivo take the next turn in this group.",
+            {"get_context", "continue_chat"},
+            _ivo_speaks,
         ),
     ]
 

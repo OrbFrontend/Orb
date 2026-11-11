@@ -12,10 +12,13 @@ const MAX_PROPOSALS = 12;
 // Unchanged text shown on each side of a change; the whole new text stays one click away.
 const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
-const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff"]);
+// `opened` is a chat the assistant opened, drawn as the view change it is.
+const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff", "opened"]);
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
-const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply"]);
+const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "open_chat"]);
+// The most items a proposed list may hold, as the server bounds it.
+const MAX_LIST_ITEMS = 20;
 const MAX_DIRECTION_CHARS = 500;
 // A proposed edit's states besides `pending`. Only a pending edit on the card this page holds can be applied; a stored
 // card's pending edits load as historical.
@@ -70,6 +73,7 @@ function storedProposal(value) {
     afterChars: count(value.afterChars),
     status,
   };
+  if (value.list === true) entry.list = true;
   const target = resource(value.target);
   if (target) entry.target = target;
   return entry;
@@ -147,14 +151,23 @@ function resource(value) {
   return out;
 }
 
-/** A `handoff` event's checked target, or null: which reply in which chat, and a rewrite's direction. */
+/**
+ * A `handoff` event's checked target, or null: the chat, and for work in it the message it follows on from, a rewrite's
+ * direction, or the group member who speaks next.
+ */
 function handoffTarget(value) {
   const tool = text(value?.tool, 64);
   const target = value?.handoff;
   const chat = id(target?.conversation_id);
+  if (!HANDOFF_TOOLS.has(tool) || !chat) return null;
+  if (tool === "open_chat") return { tool, conversation_id: chat, title: text(target.title, MAX_LABEL_CHARS) };
   const message = rowId(target?.message_id);
-  if (!HANDOFF_TOOLS.has(tool) || !chat || !message) return null;
+  if (!message) return null;
   const out = { tool, conversation_id: chat, message_id: message };
+  if (tool === "continue_chat") {
+    const member = id(target.speaker_member_id);
+    return member ? { ...out, speaker_member_id: member } : out;
+  }
   if (tool !== "rewrite_reply") return out;
   const direction = text(target.direction, MAX_DIRECTION_CHARS).trim();
   return direction ? { ...out, direction } : null;
@@ -171,11 +184,33 @@ const HANDOFF_NOTES = {
     "Not started: the assistant was stopped before the chat began {what}. Ask again, or use the reply's own button.",
 };
 
-/** The outcome entry for a handoff the chat was asked to start; *status* is the chat's answer, "" once it started. */
+// A continue follows on from the chat's last message, so a newer one there is what moves it.
+const CONTINUE_MOVED = "Not started: the chat has a newer message than the one the assistant checked. Ask again.";
+
+// What the transcript says about a chat the assistant was asked to open, by why it did not ("" when it did).
+const OPEN_NOTES = {
+  document: "Not opened: Document mode is on. Switch to Chat mode and pick {what} in the chat list.",
+  moved: "Not opened: the view changed while the assistant worked. Pick {what} in the chat list.",
+  stopped: "Not opened: the assistant was stopped first. Pick {what} in the chat list.",
+};
+
+/** The outcome entry for a handoff the browser was asked to start; *status* is its answer, "" once it started. */
 export function handoffOutcome(handoff, status) {
-  const doing = handoff.tool === "rewrite_reply" ? "rewriting" : "regenerating";
-  const note = HANDOFF_NOTES[status] ?? HANDOFF_NOTES.busy;
-  return { kind: "outcome", reason: "handoff", text: note.replace("{what}", `${doing} message ${handoff.message_id}`) };
+  if (handoff.tool === "open_chat") {
+    const chat = handoff.title ? `“${handoff.title}”` : "the chat";
+    if (status === "") return { kind: "outcome", reason: "opened", text: `Opened ${chat}` };
+    const note = OPEN_NOTES[status] ?? OPEN_NOTES.moved;
+    return { kind: "outcome", reason: "handoff", text: note.replace("{what}", chat) };
+  }
+  const doing =
+    handoff.tool === "continue_chat"
+      ? "the next reply"
+      : `${handoff.tool === "rewrite_reply" ? "rewriting" : "regenerating"} message ${handoff.message_id}`;
+  const note =
+    handoff.tool === "continue_chat" && status === "moved"
+      ? CONTINUE_MOVED
+      : (HANDOFF_NOTES[status] ?? HANDOFF_NOTES.busy);
+  return { kind: "outcome", reason: "handoff", text: note.replace("{what}", doing) };
 }
 
 /** Validate resources a server response named, for the caller to read again. */
@@ -272,8 +307,11 @@ function payload(data) {
 function proposalEntry(tool, value) {
   const proposalId = id(value?.proposal_id);
   const field = Array.isArray(value?.fields) ? value.fields[0] : null;
-  if (!proposalId || typeof field?.before !== "string" || typeof field?.after !== "string") return null;
-  return {
+  const items = (list) =>
+    Array.isArray(list) && list.length <= MAX_LIST_ITEMS && list.every((item) => typeof item === "string");
+  const listed = items(field?.before) && items(field?.after);
+  if (!proposalId || !(listed || (typeof field?.before === "string" && typeof field?.after === "string"))) return null;
+  const entry = {
     proposalId,
     tool: text(tool, 64) || "edit",
     label: text(value.label, MAX_LABEL_CHARS),
@@ -285,6 +323,8 @@ function proposalEntry(tool, value) {
     target: resource(value.target),
     status: "pending",
   };
+  if (listed) entry.list = true;
+  return entry;
 }
 
 /**
@@ -453,14 +493,39 @@ function splitHtml(entry) {
   );
 }
 
+/** A list field's change: the items it removes and adds, and how many it keeps. */
+function listDiffHtml(before, after) {
+  const removed = before.filter((item) => !after.includes(item));
+  const added = after.filter((item) => !before.includes(item));
+  const kept = after.length - added.length;
+  const rows = [
+    ...removed.map((item) => `<li><del class="asst-del">${esc(item)}</del></li>`),
+    ...added.map((item) => `<li><ins class="asst-ins">${esc(item)}</ins></li>`),
+  ];
+  const reordered = !rows.length && before.join("\n") !== after.join("\n");
+  const rest = reordered ? "Same items in a new order." : kept ? `${kept} unchanged.` : "";
+  return `${rows.length ? `<ul class="asst-diff-list">${rows.join("")}</ul>` : ""}${rest ? `<div class="asst-gap">${rest}</div>` : ""}`;
+}
+
+function listEntryHtml(entry) {
+  const full = entry.after.map((item) => `<li>${esc(item)}</li>`).join("");
+  return (
+    `<div class="asst-diff">${listDiffHtml(entry.before, entry.after)}</div>` +
+    `<details class="asst-diff-full"><summary>Full new list</summary><ol class="asst-diff-text">${full}</ol></details>`
+  );
+}
+
 function entryHtml(entry) {
-  const size = `${entry.beforeChars.toLocaleString("en-US")} → ${entry.afterChars.toLocaleString("en-US")} characters`;
+  const unit = entry.list ? "items" : "characters";
+  const size = `${entry.beforeChars.toLocaleString("en-US")} → ${entry.afterChars.toLocaleString("en-US")} ${unit}`;
   const diff =
     entry.before === undefined
       ? ""
-      : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
-        splitHtml(entry) +
-        `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
+      : entry.list
+        ? listEntryHtml(entry)
+        : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
+          splitHtml(entry) +
+          `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
   const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
   return (
     `<div class="asst-edit asst-edit-${entry.status}">` +
@@ -574,6 +639,8 @@ export function transcriptHtml(items, renderProse, { active = null, busy = false
       );
     } else if (item.kind === "proposals") {
       parts.push(cardHtml(item, index, { active, busy }));
+    } else if (item.kind === "outcome" && item.reason === "opened") {
+      parts.push(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {
       parts.push(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);
     }

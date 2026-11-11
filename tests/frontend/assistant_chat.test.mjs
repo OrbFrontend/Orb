@@ -821,6 +821,51 @@ test("on the narrow layout a handoff that starts closes the panel over the chat,
   }
 });
 
+test("an opened chat opens only from the view the request came from, and a continue starts the chat's own", async () => {
+  S.conversations = [
+    { id: "chat-a", title: "Harbour", kind: "solo" },
+    { id: "chat-b", title: "Campfire", kind: "solo" },
+  ];
+  const handOff = async (tool, handoff, moveTo = null) => {
+    const run = await ask("Do it.");
+    run.used = true;
+    if (moveTo) S.activeConvId = moveTo;
+    emit(run, "handoff", { call_id: "call1", tool, handoff });
+    emit(run, "done", { reason: "handoff", message: "Handed off." });
+    run.writer.close();
+    await settled();
+  };
+
+  const saved = globalThis.localStorage;
+  globalThis.localStorage = keepingStorage();
+  try {
+  // The reader moved to another chat meanwhile: nothing pulls them back.
+  S.activeConvId = "chat-a";
+  await handOff("open_chat", { conversation_id: "chat-b", title: "Campfire" }, "chat-a-elsewhere");
+  assert.equal(S.activeConvId, "chat-a-elsewhere");
+  assert.match(S.assistant.items.at(-1).text, /^Not opened: the view changed/);
+  S.activeConvId = "chat-a";
+  await handOff("open_chat", { conversation_id: "chat-b", title: "Campfire" });
+  assert.equal(S.activeConvId, "chat-b");
+  assert.equal(S.assistant.items.at(-1).reason, "opened");
+
+  S.messages = [
+    { id: 6, role: "assistant", content: "Hello.", parent_id: null },
+    { id: 7, role: "user", content: "And then?", parent_id: 6 },
+  ];
+  const continues = () => requests.filter((request) => request.url.includes("/conversations/chat-b/continue"));
+  await handOff("continue_chat", { conversation_id: "chat-b", message_id: 6 });
+  assert.equal(continues().length, 0, "the chat has a newer last message than the one checked");
+  assert.match(S.assistant.items.at(-1).text, /^Not started: the chat has a newer message/);
+  await handOff("continue_chat", { conversation_id: "chat-b", message_id: 7 });
+  assert.equal(continues().length, 1);
+  assert.match(S.assistant.items.at(-1).text, /^Started the next reply in the chat/);
+  } finally {
+    globalThis.localStorage = saved;
+    $("assistant-clear").click();
+  }
+});
+
 test("a Stop between the handoff's done and the run's settlement starts nothing, and says so", async () => {
   S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
   S.activeConvId = "chat-a";

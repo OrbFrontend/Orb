@@ -1120,6 +1120,29 @@ export function regenerateCapturedReply(convId, msgId) {
   return "";
 }
 
+/**
+ * Write the next reply in chat *convId* after message *lastMsgId*, both captured by a caller outside the composer (the
+ * assistant), with the composer's own busy and tab checks: the answer to an unanswered user message, or in a group a turn by
+ * member *memberId*. It starts only while that chat is open and *lastMsgId* is still its last message. Starts the chat's
+ * ordinary stream, which owns Stop and settlement from then on, and does not wait for it. Returns why nothing started, or ""
+ * once it has.
+ */
+export function continueCapturedChat(convId, lastMsgId, memberId = null) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const last = S.messages.at(-1);
+  if (last?.id !== lastMsgId || (last.role !== "user" && !memberId)) return "moved";
+  if (!canStartGeneration()) return "busy";
+  const started =
+    last.role === "user"
+      ? runStreamRequest(
+          convUrl(convId, "continue"),
+          memberId ? { ...turnPayload(), speaker_member_id: memberId } : turnPayload(),
+        )
+      : runStreamRequest(convUrl(convId, "speak"), { speaker_member_id: memberId });
+  started.catch((e) => console.error("Continue failed:", e));
+  return "";
+}
+
 async function superRegenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), {
