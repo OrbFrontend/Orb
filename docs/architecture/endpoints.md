@@ -80,6 +80,14 @@ names the field as invalid drops it for one retry and for the rest of the
 session. Providers' accepted sets move, so this is learned from the response
 rather than held as a per-provider list.
 
+An endpoint that always reasons refuses a request that turns reasoning off:
+OpenRouter answers "Reasoning is mandatory for this endpoint and cannot be
+disabled" to a disabling `reasoning` object, and takes the `thinking` and
+template-kwarg off switches beside it. Orb then drops that object from every
+reasoning-off call to the same URL and model for the session, and the call
+runs, reasoning. A reasoning-on call keeps its `reasoning` object, and the
+effort level in it.
+
 A 401 or 403 can trigger one alternate native/Bearer auth attempt for a Messages
 route or an ambiguous route. An explicit OpenAI resource only retries when the
 response names the native `x-api-key` header. This retry is independently

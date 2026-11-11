@@ -46,6 +46,7 @@ class AbortToken:
 
 
 _T = TypeVar("_T")
+_M = TypeVar("_M", bound=Mapping[str, Any])
 
 
 async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncGenerator[_T, None]:
@@ -83,13 +84,22 @@ async def until_aborted(events: AsyncIterator[_T], token: AbortToken) -> AsyncGe
                 await aclose()
 
 
-def reasoning_cfg(on: bool, prefill: str = "") -> dict:
-    """Return per-call reasoning parameters for model."""
+def reasoning_cfg(on: bool, prefill: str = "", *, preserve: bool = False) -> dict:
+    """Return per-call reasoning parameters for model.
+
+    *preserve* asks a template that drops reasoning before the latest user message to keep it on earlier tool-call turns, so a
+    conversation that replays its reasoning renders the same bytes from one request to the next.
+    """
     return (
         {
             "reasoning": {"enabled": True},
-            "chat_template_kwargs": {"enable_thinking": True, "thinking": True},
-            "thinking": {"type": "enabled"},
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "thinking": True,
+                **({"preserve_thinking": True, "clear_thinking": False} if preserve else {}),
+            },
+            # Z.ai's API reads clear_thinking here rather than in the template's kwargs.
+            "thinking": {"type": "enabled", **({"clear_thinking": False} if preserve else {})},
             **({"reasoning_prefill": prefill} if prefill else {}),
         }
         if on
@@ -122,6 +132,13 @@ def replay_reasoning(response: Mapping[str, Any]) -> ReasoningReplay:
     """
     fields = {field: response[field] for field in endpoint_profiles.REASONING_REPLAY_FIELDS if response.get(field)}
     return cast(ReasoningReplay, fields)
+
+
+def without_reasoning(message: _M) -> _M:
+    """*message* without the reasoning :func:`replay_reasoning` copied onto it, for a request that sends no reasoning back."""
+    if not any(field in message for field in endpoint_profiles.REASONING_REPLAY_FIELDS):
+        return message
+    return cast(_M, {key: value for key, value in message.items() if key not in endpoint_profiles.REASONING_REPLAY_FIELDS})
 
 
 def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
@@ -953,6 +970,7 @@ class LLMClient:
         reasoning: bool,
         fmt: rf.ReasoningFormat | None,
         template_thinking: bool,
+        preserve: bool = False,
     ) -> str:
         """:meth:`render_prompt` without the GPU lease, for the text transport's own call inside its lease."""
         close_thought = template_thinking and not reasoning and not prefill
@@ -964,6 +982,8 @@ class LLMClient:
         ctk: dict[str, Any] | None = None
         if not prefill:
             ctk = {"enable_thinking": reasoning, "thinking": reasoning}
+            if preserve and reasoning:
+                ctk.update(preserve_thinking=True, clear_thinking=False)
             # Text mode's only seam for the per-model effort level: the chat transport's apply_reasoning_effort writes a request
             # body this transport never sends. Reasoning-off calls are skipped for the same reason apply_reasoning_effort skips
             # them. Read off self rather than taken as an argument so the doc-mode auditor's re-render (which reuses this
@@ -1009,11 +1029,19 @@ class LLMClient:
         template_thinking = bool(params.pop("template_thinking", False))
         server_root = self.server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
+        sent_kwargs = params.get("chat_template_kwargs")
+        preserve = isinstance(sent_kwargs, Mapping) and bool(sent_kwargs.get("preserve_thinking"))
         fmt = await self._reasoning_format(server_root, model=model)
         # Let the chat template control tag-pair reasoning; prefills own their trailing assistant turn.
         try:
             prompt = await self._render_prompt(
-                messages, model=model, prefill=prefill, reasoning=reasoning_on, fmt=fmt, template_thinking=template_thinking
+                messages,
+                model=model,
+                prefill=prefill,
+                reasoning=reasoning_on,
+                fmt=fmt,
+                template_thinking=template_thinking,
+                preserve=preserve,
             )
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)

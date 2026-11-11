@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import itertools
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from ...inference import (
     reasoning_cfg,
     strict_tool_arguments,
     tool_result,
+    without_reasoning,
 )
 from .contracts import (
     CONTEXT_BUDGET_CHARS,
@@ -37,6 +39,7 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
+    Continuation,
     HistoryItem,
     ToolArguments,
     ToolFailure,
@@ -54,6 +57,7 @@ _LAST_RUN = f"That was the last tool run for this request. Choose {REPLY} now an
 _NOT_RUN = "Not run: the request was stopped before this change started. Nothing was changed."
 _HANDED_OFF = "Handed to the chat, which starts the work there if it is still open."
 _CONTEXT_CHANGED = "This request ends here, since what it would read next has changed; ask again to go on from there."
+_DELIVERED = "Shown to the user."
 
 _T = TypeVar("_T")
 _PROGRESS_LABEL_CHARS = 200
@@ -122,7 +126,7 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
     return total
 
 
-def _replay_window(replay: Sequence[ChatMessage], room: int) -> list[ChatMessage]:
+def _replay_window(replay: Sequence[WireMessage], room: int) -> list[WireMessage]:
     """The newest part of *replay* that fits *room* characters, starting at a request.
 
     The start moves a whole ``CONTEXT_SLACK_CHARS`` at a time, measured from the transcript's own start, so one request and
@@ -241,6 +245,10 @@ async def run_assistant(
     view: ViewContext,
     progress: asyncio.Queue[str] | None = None,
     single_call: bool | None = None,
+    resume: Continuation | None = None,
+    unchanged: bool = False,
+    keep: Callable[[Continuation], None] | None = None,
+    reasoning: bool = False,
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -258,11 +266,20 @@ async def run_assistant(
     *single_call* makes each step one call over every tool's schema plus ``reply``, in place of a step call followed by an
     argument call. Left ``None``, the run takes it wherever the endpoint sends native tool schemas and honours forced tool
     choice, and two calls a step elsewhere; the assistant benchmark (scripts/bench/assistant_bench.py) measures both.
+
+    *resume* is the previous run's :class:`Continuation`. Made under this run's system prompt, tools and model, and with room
+    left for a run, it takes the place of *history*, and the request says whether anything was committed since (*unchanged*).
+    A run that ends with a reply and proposed no edit hands its own to *keep*.
+
+    *reasoning* turns thinking on for every call of the run. Its reasoning replays under the names it streamed, and the template
+    is asked to keep it on earlier turns, so a follow-up renders what this run read. A run with thinking off sends no reasoning
+    back, a resumed one's included.
     """
     by_name = {tool.name: tool for tool in tools}
     latest = request_message(request, view)
     # Restrict the tool list when forced choice is unreliable.
-    shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(False))
+    thinking = reasoning_cfg(reasoning, preserve=True)
+    shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, thinking)
     if single_call is None:
         # Decided once for the run, so every call in it shares one tool blob. Structured output and text completion send no
         # schemas to choose among, and an endpoint that ignores forced choice may ignore ``required`` too.
@@ -277,14 +294,29 @@ async def run_assistant(
     samplers = extract_hyperparams(settings, lane="agent")
 
     system: ChatMessage = {"role": "system", "content": system_prompt(tools, single_call=single_call)}
+    fingerprint = hashlib.sha256(
+        # The endpoint as well as the model: reasoning signed or encrypted by one provider is not valid on another.
+        json.dumps(
+            [system["content"], schemas, model, getattr(client, "base_url", "")], sort_keys=True, ensure_ascii=False
+        ).encode()
+    ).hexdigest()
+    replay: list[WireMessage] = []
+    resumed = False
+    if resume is not None and resume.fingerprint == fingerprint:
+        # The previous run's own messages, its results whole: the server's cache holds through them and nothing is read again.
+        followed = request_message(request, view, follow_up=unchanged)
+        if _chars([*resume.messages, followed]) <= CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS:
+            latest, resumed = followed, True
+            replay = [*resume.messages] if reasoning else [without_reasoning(message) for message in resume.messages]
     if _chars([latest]) > CONTEXT_BUDGET_CHARS:
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
-    # An earlier request that got no answer is replayed as a quoted record, never as part of this one: it is what authorises a
-    # write, and an interrupted write must not run again. History therefore never ends with a user turn.
-    replay = history_messages(history)
-    if replay and replay[-1]["role"] == "user":
-        replay.pop()
-    replay = _replay_window(replay, CONTEXT_BUDGET_CHARS - _chars([latest]))
+    if not resumed:
+        # An earlier request that got no answer is replayed as a quoted record, never as part of this one: it is what authorises
+        # a write, and an interrupted write must not run again. History therefore never ends with a user turn.
+        replay = [*history_messages(history)]
+        if replay and replay[-1]["role"] == "user":
+            replay.pop()
+        replay = _replay_window(replay, CONTEXT_BUDGET_CHARS - _chars([latest]))
     run: list[WireMessage] = []
     # Positions in ``run`` of the results that still carry their full body, oldest first, with what replaces each.
     full_results: list[tuple[int, str, str]] = []
@@ -293,6 +325,7 @@ async def run_assistant(
     committed: list[str] = []
     made: dict[str, ToolOutput] = {}
     last_call, same_calls = "", 0
+    proposed = False
 
     def fit() -> bool:
         """Bring the working context under its budget; the newest result and the latest request are never dropped.
@@ -359,7 +392,7 @@ async def run_assistant(
                 # An endpoint that answers a forced choice as ``auto`` may otherwise reply with several calls at once.
                 single_tool_call=True,
                 **samplers,
-                **reasoning_cfg(False),
+                **thinking,
             ):
                 if event["type"] == "done":
                     response = event.get("message") or {}
@@ -399,6 +432,15 @@ async def run_assistant(
                 name, message = _step_choice(chosen, by_name) or (REPLY, "")
                 arguments = {}
             if name == REPLY:
+                if keep is not None and not proposed:
+                    # A proposal is settled by Apply or Cancel after the run, so a context that names one would go stale.
+                    reply_id = f"call{step_number}" if single_call else f"step{step_number}"
+                    called = (
+                        assistant_tool_call(response, REPLY, arguments, reply_id)
+                        if single_call
+                        else assistant_tool_call(response, STEP_TOOL_NAME, {"tool": REPLY, "message": message}, reply_id)
+                    )
+                    keep(Continuation((*replay, latest, *run, called, tool_result(reply_id, _DELIVERED)), fingerprint))
                 yield {"type": "assistant_message", "text": message, "final": True}
                 yield done("reply")
                 return
@@ -489,6 +531,7 @@ async def run_assistant(
                 full_results.append((len(run) - 1, call_id, json.dumps(compact, ensure_ascii=False)))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
+                    proposed = True
                     # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
                     yield {"type": "confirm", "call_id": call_id, "tool": name, "proposal": dict(output.proposal)}
                 if tool.behavior == "handoff" and output.handoff is not None:

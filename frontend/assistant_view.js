@@ -7,6 +7,7 @@ const MAX_ITEMS = 100;
 const TRIMMED_ITEMS = 80;
 const MAX_LABEL_CHARS = 200;
 const MAX_NOTE_CHARS = 500;
+const MAX_RESUME_CHARS = 64;
 const MAX_IDS_CHARS = 2000;
 // A run proposes at most one edit per tool run, so one card holds every edit a run can propose.
 const MAX_PROPOSALS = 12;
@@ -376,6 +377,7 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     if (target) run.handoff = target;
   } else if (event === "done") {
     run.terminal = OUTCOMES.has(d.reason) ? d.reason : "reply";
+    if (typeof d.resume === "string" && d.resume.length <= MAX_RESUME_CHARS) run.resume = d.resume;
     if (run.terminal === "limit")
       run.items.push({ kind: "outcome", reason: "limit", text: text(d.message, MAX_ITEM_CHARS) });
     else if (run.terminal === "stopped")

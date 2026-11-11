@@ -403,6 +403,11 @@ _TOOL_CHOICE_AUTO_ONLY: set[tuple[str, str]] = set()
 # under us, and a static list rots into wrongly clamping a level the provider has since added.
 _REASONING_EFFORT_UNSUPPORTED: set[tuple[str, str]] = set()
 
+# Pairs whose endpoint always reasons and refuses a request that turns reasoning off. OpenRouter answers "Reasoning is mandatory
+# for this endpoint and cannot be disabled" to a disabling ``reasoning`` object while taking the other dialects' off switches, so
+# a reasoning-off call sheds that object and runs, reasoning. A reasoning-on call keeps it, and with it ``reasoning.effort``.
+_REASONING_MANDATORY: set[tuple[str, str]] = set()
+
 # Replay fields each pair refused on an assistant message this session. Some providers stream reasoning and then reject it on
 # the way back (Groq refuses both ``reasoning_content`` and ``reasoning``), so the refusal is learned instead of listed.
 # Dropping the field on every later call keeps the rendered prefix the same from call to call.
@@ -473,6 +478,18 @@ def _is_reasoning_effort_rejected(status: int, text: str) -> bool:
     if status != 400 or "reasoning_effort" not in low:
         return False
     return any(marker in low for marker in ("invalid", "unsupported", "not supported", "not allowed", "valid values"))
+
+
+def _disables_reasoning(body: Mapping[str, Any]) -> bool:
+    """Whether the body's ``reasoning`` object turns reasoning off."""
+    reasoning = body.get("reasoning")
+    return isinstance(reasoning, Mapping) and (reasoning.get("enabled") is False or reasoning.get("effort") == "none")
+
+
+def _is_reasoning_mandatory(status: int, text: str) -> bool:
+    """Return True when the body says reasoning cannot be turned off here."""
+    low = text.lower()
+    return status == 400 and "reasoning" in low and ("cannot be disabled" in low or "mandatory" in low)
 
 
 def _drop_replay_fields(body: dict, fields: set[str]) -> list[str]:
@@ -586,6 +603,10 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
         effort = body.pop("reasoning_effort")
         actions.append(f"reasoning_effort {effort!r} dropped (session-learned unsupported)")
 
+    if (endpoint_url, model) in _REASONING_MANDATORY and _disables_reasoning(body):
+        body.pop("reasoning")
+        actions.append("reasoning-off object dropped (session-learned: this endpoint always reasons)")
+
     refused = _REASONING_REPLAY_UNSUPPORTED.get((endpoint_url, model))
     if refused:
         dropped = _drop_replay_fields(body, refused)
@@ -637,6 +658,10 @@ def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, t
         _REASONING_EFFORT_UNSUPPORTED.add((endpoint_url, model))
         effort = body.pop("reasoning_effort")
         return f"Model {model} rejected reasoning_effort={effort!r}; retrying without it."
+    if _disables_reasoning(body) and _is_reasoning_mandatory(status, text):
+        _REASONING_MANDATORY.add((endpoint_url, model))
+        body.pop("reasoning")
+        return f"Model {model} always reasons and refused a reasoning-off request; retrying without that switch."
     refused = _refused_replay_fields(body, status, text)
     if refused:
         _REASONING_REPLAY_UNSUPPORTED.setdefault((endpoint_url, model), set()).update(refused)

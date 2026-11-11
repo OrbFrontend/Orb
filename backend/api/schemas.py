@@ -973,6 +973,9 @@ class AssistantRunRequest(BaseModel):
 
     items: list[AssistantTranscriptItem] = Field(min_length=1, max_length=MAX_REPLAY_ITEMS)
     context: AssistantViewContext
+    # The token the previous reply's ``done`` carried: that run's context, held by the server, then stands in for the replay.
+    resume: str = Field(default="", max_length=64)
+    reasoning: bool = False
 
     @model_validator(mode="after")
     def ends_with_a_request(self) -> AssistantRunRequest:

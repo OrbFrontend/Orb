@@ -10,12 +10,12 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...core import scrub_log
-from ...database import get_character_card, get_conversation, get_document, get_settings, resolve_cast
-from ...features.assistant import AssistantUnavailable, HistoryItem, ViewContext, run_assistant
+from ...database import data_version, get_character_card, get_conversation, get_document, get_settings, resolve_cast
+from ...features.assistant import AssistantUnavailable, Continuation, HistoryItem, ViewContext, run_assistant
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
-from ..assistant import MediaRun, apply_proposals, build_tools
+from ..assistant import MediaRun, apply_proposals, build_tools, keep_follow_up, take_follow_up
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
 from ..schemas import AssistantApplyRequest, AssistantRunRequest, AssistantViewContext
 
@@ -105,6 +105,11 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         try:
             yield {"event": "start", "data": {}}
+            # Taken once the run is admitted, so a request another run refused leaves the follow-up to the tab it belongs to.
+            started = await data_version()
+            resume, unchanged = take_follow_up(data.resume, started)
+            kept: list[Continuation] = []
+            wrote = False
             client = client_from_settings(settings, abort_token=abort_token)
             agent_client, model = agent_lane_from_settings(settings, writer_client=client, abort_token=abort_token)
             async for event in run_assistant(
@@ -116,8 +121,17 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 request=latest.text.strip(),
                 view=view,
                 progress=progress,
+                resume=resume,
+                unchanged=unchanged,
+                keep=kept.append,
+                reasoning=data.reasoning,
             ):
                 payload = {key: value for key, value in event.items() if key != "type"}
+                # A commit of the run's own leaves its results current; any other one during the run leaves them in doubt.
+                wrote = wrote or event["type"] == "mutation"
+                if event["type"] == "done" and kept:
+                    settled_at = await data_version()
+                    payload["resume"] = keep_follow_up(kept[-1], settled_at if wrote or started == settled_at else None)
                 yield cast(PublicEvent, {"event": event["type"], "data": payload})
         except AssistantUnavailable as exc:
             logger.warning("Assistant run %s failed: %s", scrub_log(operation_id), exc)

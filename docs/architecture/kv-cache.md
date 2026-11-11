@@ -216,8 +216,12 @@ catalog, and it shares nothing with a chat's prefix.
 Within a run each call extends the last. From one request to the next the
 system prompt and the replayed history repeat, and the request and its run do
 not, so the `CachedBase` prefix ends after the history and the 1 h anchor sits
-there. Two things rewrite text the model has already read, and both are made
-rarely and in bulk, a quarter of the context budget at a time:
+there. A follow-up to a reply extends that reply's own context instead (see
+[Follow-ups](assistant-panel.md#follow-ups)): the previous request, its run and
+its reply call stay byte for byte, the anchor moves to their end, and the
+model need not read again what its results already show. Two things rewrite
+text the model has already read, and both are made rarely and in bulk, a
+quarter of the context budget at a time:
 
 - When a run passes the budget, the oldest full tool results are replaced by
   their summaries until the context is a quarter under it. The calls after that
@@ -330,6 +334,16 @@ In chat mode the server renders the template, so differing
 prompt cache restores each side on hybrid-attention models such as Qwen3.8, but
 not on sliding-window models such as Gemma 4. Keep the setting uniform when
 cross-pass reuse matters on chat endpoints.
+
+Templates such as Gemma 4's and Qwen3.8's render an assistant turn's reasoning
+only after the latest user message unless `preserve_thinking` is set, and GLM's
+unless `clear_thinking` is false. Without them a replayed turn loses its
+reasoning once a newer request follows, and the prefix changes at that turn.
+llama.cpp sets both by default (`--reasoning-preserve`); most other servers do
+not. The assistant's thinking runs send both, and the request's own value wins
+over the server's default. On Gemma 4 31B a thinking follow-up re-read 235–306
+tokens with them and 462–1,071 without. Toggling Think still moves the first
+bytes, as above.
 
 ## Providers that cache only where asked
 

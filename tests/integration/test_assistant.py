@@ -11,7 +11,7 @@ from backend.api.assistant import build_tools
 from backend.api.assistant.reads import MAX_MESSAGES
 from backend.api.routes.assistant import ASSISTANT_STREAM_KEY, resolve_view
 from backend.api.schemas import AssistantViewContext
-from backend.database import LIBRARY_VIEWS, add_message, get_lorebook_entries, get_settings
+from backend.database import LIBRARY_VIEWS, add_message, close_wal_anchor, get_lorebook_entries, get_settings, open_wal_anchor
 from backend.features.assistant import MAX_RESULT_CHARS, ToolFailure, run_assistant
 from backend.inference import LLMClient
 from backend.workflows import prose_rewriter_host
@@ -21,12 +21,16 @@ RUN = "/api/assistant/run?operation_id=op-1"
 _REAL_COMPLETE = LLMClient.complete
 
 
-def frames(response):
+def frames(response, *, resume=False):
+    """The stream's events; a reply's follow-up token, random per run, only when *resume* asks for it."""
     result = []
     for frame in response.text.split("\n\n"):
         if frame.startswith("event: "):
             event, data = frame.split("\ndata: ", 1)
-            result.append((event[7:], json.loads(data) if data.startswith("{") else data))
+            payload = json.loads(data) if data.startswith("{") else data
+            if event == "event: done" and not resume:
+                payload.pop("resume", None)
+            result.append((event[7:], payload))
     return result
 
 
@@ -993,3 +997,42 @@ async def test_edits_to_one_field_stack_into_one_proposal_and_a_batch_apply_skip
     await _propose(tools, "edit_character", **edit, find="liar", text="cheat")
     with pytest.raises(ToolFailure, match="undoing the edit already proposed"):
         await _propose(tools, "edit_character", **edit, find="cheat", text="liar")
+
+
+async def test_a_follow_up_extends_the_reply_it_names_and_says_whether_anything_was_committed_since(
+    client, library, db, monkeypatch
+):
+    calls, script = [], []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs["messages"])
+        yield script.pop(0)
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+
+    async def ask(text, resume=""):
+        script[:] = [_call("read_messages", {"count": 2}), _reply("Two lines.")]
+        calls.clear()
+        body = _body(text, mode="chat", conversation_id=library["chat"])
+        body["items"][:0] = [{"kind": "user", "text": "Earlier?"}, {"kind": "assistant", "text": "Earlier."}]
+        events = frames(await client.post_checked(RUN, json={**body, "resume": resume}), resume=True)
+        return events[-1][1].get("resume", ""), [list(messages) for messages in calls]
+
+    await open_wal_anchor()
+    try:
+        token, first = await ask("What is said?")
+        token, second = await ask("And then?", token)
+        # The previous reply's last request, its tool result whole, then that reply: nothing is read again.
+        assert second[0][: len(first[-1])] == first[-1] and second[0][len(first[-1])]["role"] == "assistant"
+        quiet = second[0][-1]["content"]
+
+        await db.execute("UPDATE character_cards SET description = 'Changed.' WHERE id = ?", (library["card"],))
+        await db.commit()
+        token, third = await ask("And then?", token)
+        assert third[0][: len(second[-1])] == second[-1] and third[0][-1]["content"] != quiet
+
+        # A token that is not the latest one replays the browser's transcript instead.
+        _, stale = await ask("And then?", "f" * 32)
+        assert [message["role"] for message in stale[0]] == ["system", "user", "assistant", "user"]
+    finally:
+        await close_wal_anchor()

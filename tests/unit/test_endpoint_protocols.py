@@ -29,6 +29,7 @@ _LEARNED = (
     ep._TOOL_CHOICE_AUTO_ONLY,
     ep._TOOL_CHOICE_UNSUPPORTED,
     ep._REASONING_EFFORT_UNSUPPORTED,
+    ep._REASONING_MANDATORY,
     ep._REASONING_REPLAY_UNSUPPORTED,
     ep._CACHE_MARKERS_REFUSED,
     ep._BODY_FIELDS_REFUSED,
@@ -187,6 +188,23 @@ def test_rejected_reasoning_effort_is_learned_and_dropped_for_the_session():
     off = {"model": model, **reasoning_cfg(False)}
     ep.prepare_request_body(url, model, off)
     assert "reasoning_effort" not in off
+
+
+def test_an_endpoint_that_always_reasons_takes_reasoning_off_calls_without_the_switch_it_refuses():
+    url, model = "https://openrouter.ai/api/v1", "z-ai/glm"
+    rejection = '{"error":{"message":"Reasoning is mandatory for this endpoint and cannot be disabled.","code":400}}'
+    off = {"model": model, **reasoning_cfg(False)}
+    assert ep.recover_from_error(url, model, off, 400, rejection) is not None
+    assert "reasoning" not in off and off["thinking"] == {"type": "disabled"}
+    later = {"model": model, **reasoning_cfg(False)}
+    ep.prepare_request_body(url, model, later)
+    assert "reasoning" not in later
+    # A reasoning-on call keeps its switch, and the effort it carries.
+    on = {"model": model, **reasoning_cfg(True), "reasoning": {"enabled": True, "effort": "high"}}
+    ep.prepare_request_body(url, model, on)
+    assert on["reasoning"] == {"enabled": True, "effort": "high"}
+    # Another refusal that names reasoning, on a call that leaves it on, is not this one.
+    assert not ep.recover_from_error(url, "other", {"model": "other", **reasoning_cfg(True)}, 400, rejection)
 
 
 def test_generic_400_does_not_cost_a_working_reasoning_effort():

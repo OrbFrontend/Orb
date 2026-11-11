@@ -8,6 +8,7 @@ from .connection import (
     checkpoint_wal,
     close_wal_anchor,
     current_db_path,
+    data_version,
     get_db,
     immediate_tx,
     open_wal_anchor,

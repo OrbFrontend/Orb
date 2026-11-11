@@ -11,6 +11,7 @@ from .contracts import (
     AssistantEvent,
     AssistantTool,
     AssistantUnavailable,
+    Continuation,
     HistoryItem,
     NoArguments,
     ToolArguments,

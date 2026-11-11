@@ -35,7 +35,7 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 
 ```text
 POST /api/assistant/run?operation_id=<id>
-  { items: [... , {kind: "user", text}], context: {mode, conversation_id?, character_id?, document_id?} }
+  { items: [... , {kind: "user", text}], context: {mode, conversation_id?, character_id?, document_id?}, resume? }
 ```
 
 `items` is the browser's transcript, at most 100 entries of at most 8,000
@@ -56,8 +56,13 @@ The browser registers the run in `S.operations` with wire-style target keys
 
 ## The model protocol
 
-Calls go to the Agent lane, with its model and `max_tokens` and reasoning
-off. A run picks one of two protocols when it starts and keeps it:
+Calls go to the Agent lane, with its model and `max_tokens`. Reasoning is off
+unless the request sets `reasoning`, which the panel's Think box sends; then
+every call of the run thinks, its reasoning replays under the names it streamed
+(see [Reasoning can create another lane](kv-cache.md#reasoning-can-create-another-lane)), and the call asks the template to
+`preserve_thinking`, so earlier turns keep their reasoning in the rendered
+prompt rather than losing it once a newer user message follows. A run picks
+one of two protocols when it starts and keeps it:
 
 - **Single call**, where the endpoint sends native tool schemas and honours
   forced tool choice. Each step is one call with `tool_choice: required` over
@@ -126,6 +131,30 @@ its start, so consecutive requests replay the same opening (see
 A request that cannot fit at all is refused. Each
 result is at most 6,000 characters as encoded; tools bound their own output, and
 an oversized one becomes an error result rather than a cut value.
+
+### Follow-ups
+
+A run that ends with a reply and proposed no edit is held by the server, whole:
+its working context as the reply was made, that reply's call, and a result
+closing it. Its `done` carries a `resume` token, and the browser sends that
+token with the next request. The server holds one, and every run takes it,
+matched or not, so a request from another tab or after Clear replays its own
+transcript. When the token matches, the held context was made under the same
+system prompt, tools, model and endpoint, and it leaves a quarter of the budget for the
+run, it stands in for the replayed history: the model sees its earlier results
+whole and the server's cache holds through them. After an hour the transcript
+replays instead. A follow-up with thinking off sends none of the held
+reasoning back; with thinking on, it sends all of it. Reasoning never enters
+the browser's transcript, so a replay carries none.
+
+The request then says whether anything was committed since. `PRAGMA
+data_version` on the idle WAL anchor changes with every other connection's
+commit, and every write opens its own, so the version when the run settled
+against the version when the next one starts says whether the data moved. A
+commit by the run itself leaves its results current; any other commit during
+the run counts as a change. With nothing committed, the earlier results still
+hold and the model reads again only what they do not cover; otherwise it reads
+again whatever it relies on.
 
 Browser history is untrusted. Tool and outcome entries replay as quoted
 records on the assistant's side, never as `tool` messages. A user entry with no
@@ -323,7 +352,7 @@ render.
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
 | `confirm` | `{call_id, tool, proposal}` | A proposal's preview; a later one with the same `proposal_id` replaces it. |
 | `handoff` | `{call_id, tool, handoff}` | The checked chat target to start. |
-| `done` | `{reason, message}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. |
+| `done` | `{reason, message, resume?}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. `resume` names the held context of a reply (see [Follow-ups](#follow-ups)). |
 | `error` | Failure | Terminal: an unusable model reply, a request that cannot fit, or a provider failure. |
 
 EOF without `done` or `error` is a lost connection, never an answer.
@@ -349,12 +378,14 @@ from attributes on `#app`, so a control rendered later shows them too.
 
 The transcript lives in `localStorage` under `orb-assistant-transcript`, at most
 100 entries (past that the oldest 20 go together, so the replayed history keeps
-its start), and whether the panel is open under `orb-assistant-open`, which is
-restored at load on the wide layout only. Loading validates every entry from its
+its start), whether the panel is open under `orb-assistant-open`, which is
+restored at load on the wide layout only, and the Think box under
+`orb-assistant-think`. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text, answers,
 tool summaries and ids, and each proposed edit's labels, lengths and state,
-never raw results, progress, live operations or proposal texts and ids. A tool
+never raw results, progress, live operations, proposal texts and ids or the
+follow-up token, which lives in memory and is dropped by Clear. A tool
 still waiting when the page closes, or when the run ends, reads "No result was
 received; check before asking again."
 
@@ -373,8 +404,8 @@ historical. A card with an edit not applied offers Ask again, which puts the
 request back in the input.
 
 The composer is one box: the input grows with its text, the view label the
-next request is about sits under it, and the corner button sends, or stops
-while a run goes. An empty transcript offers a few requests suited to the view;
+next request is about sits under it beside the Think box, and the corner
+button sends, or stops while a run goes. Think applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
 and replays the view label with each request. Clear is disabled while work runs.

@@ -37,6 +37,7 @@ import { $, toast } from "./utils.js";
 
 const LS_TRANSCRIPT = "orb-assistant-transcript";
 const LS_OPEN = "orb-assistant-open";
+const LS_THINK = "orb-assistant-think";
 const PANEL = "assistant-panel";
 // The layout where panels slide over the page and an on-screen keyboard may rise with focus.
 const NARROW = "(max-width: 900px)";
@@ -346,6 +347,7 @@ async function stream(body, context, request) {
     failure = error?.message || "The assistant failed.";
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
+    S.assistant.resume = current.resume || "";
     if (current.card) S.assistant.batch = current.card;
     persist();
     paint();
@@ -383,7 +385,11 @@ async function send() {
   trimTranscript(items);
   input.value = "";
   fitInput();
-  await stream({ items: runItems(items), context: wireContext(context) }, context, text);
+  // The previous reply's context, held by the server: sent once, since this run takes it either way.
+  const resume = S.assistant.resume;
+  S.assistant.resume = "";
+  const reasoning = $("assistant-think").checked;
+  await stream({ items: runItems(items), context: wireContext(context), resume, reasoning }, context, text);
 }
 
 /**
@@ -460,6 +466,7 @@ function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
   S.assistant.batch = null;
+  S.assistant.resume = "";
   persist();
   paint();
 }
@@ -484,7 +491,9 @@ export function initAssistant() {
     askAgain: (el) => askAgain(Number(el.dataset.index)),
     suggest: (el) => fillInput(el.dataset.text || ""),
     focusInput: () => $("assistant-input").focus(),
+    think: () => store(LS_THINK, $("assistant-think").checked ? "1" : "0"),
   });
+  $("assistant-think").checked = stored(LS_THINK) === "1";
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
     if (log.clientHeight) following = log.scrollHeight - log.clientHeight - log.scrollTop <= FOLLOW_SLACK_PX;

@@ -118,9 +118,10 @@ export const S = {
 
   hasMultipleTabs: false, // another app tab is open
 
-  // The assistant: its transcript entries, whether its panel is open, and the card of proposed edits this page can still
-  // Apply (an entry of `items`, never one loaded from storage). assistant_chat.js writes it.
-  assistant: { items: [], open: false, batch: null },
+  // The assistant: its transcript entries, whether its panel is open, the card of proposed edits this page can still Apply
+  // (an entry of `items`, never one loaded from storage), and the token that resumes the last reply's context on the server,
+  // never stored. assistant_chat.js writes it.
+  assistant: { items: [], open: false, batch: null, resume: "" },
 
   workflowInspectorCardRenderers: [], // Inspector cards by workflow
   workflowToolsPanelRenderers: [], // Tools-panel cards by workflow

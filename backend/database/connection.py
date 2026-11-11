@@ -27,6 +27,7 @@ def current_db_path() -> str:
 # The anchor holds no cursor or transaction, allowing VACUUM and online backup.
 _wal_anchor: aiosqlite.Connection | None = None
 _wal_anchor_path: str | None = None
+_anchor_opens = 0
 
 
 async def open_wal_anchor() -> None:
@@ -34,7 +35,7 @@ async def open_wal_anchor() -> None:
 
     Idempotent for the same path; close the old anchor before switching paths.
     """
-    global _wal_anchor, _wal_anchor_path
+    global _wal_anchor, _wal_anchor_path, _anchor_opens
     async with wal_anchor_lock():
         path = DB_PATH
         if _wal_anchor is not None:
@@ -57,6 +58,7 @@ async def open_wal_anchor() -> None:
             raise
         _wal_anchor = db
         _wal_anchor_path = path
+        _anchor_opens += 1
 
 
 async def close_wal_anchor() -> None:
@@ -75,6 +77,20 @@ async def _close_anchor() -> None:
     db, _wal_anchor, _wal_anchor_path = _wal_anchor, None, None
     if db is not None:
         await db.close()
+
+
+async def data_version() -> str | None:
+    """A token that changes whenever another connection commits, or ``None`` without an anchor.
+
+    Every write opens its own connection, so the idle anchor sees each commit. A reopened anchor counts afresh; its open number
+    is part of the token.
+    """
+    async with wal_anchor_lock():
+        if _wal_anchor is None:
+            return None
+        async with _wal_anchor.execute("PRAGMA data_version") as cur:
+            row = await cur.fetchone()
+        return f"{_anchor_opens}:{row[0] if row else ''}"
 
 
 def checkpoint_wal(db_path: str | None = None, timeout_ms: int = 5000) -> bool:

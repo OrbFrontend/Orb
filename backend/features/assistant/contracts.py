@@ -9,6 +9,8 @@ from typing import Annotated, Any, Literal, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict
 
+from ...core import WireMessage
+
 # Budgets for one run. Model calls include retries.
 MAX_TOOL_EXECUTIONS = 12
 MAX_MODEL_CALLS = 30
@@ -159,6 +161,17 @@ class ViewContext:
     character_name: str = ""
     document_id: str | None = None
     document_title: str = ""
+
+
+@dataclass(frozen=True)
+class Continuation:
+    """A run's working context as its reply was made, kept by the server so the next request extends it byte for byte.
+
+    *fingerprint* names the system prompt, tool blob, model and endpoint it was made under; any other set cannot extend it.
+    """
+
+    messages: tuple[WireMessage, ...]
+    fingerprint: str
 
 
 # One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.

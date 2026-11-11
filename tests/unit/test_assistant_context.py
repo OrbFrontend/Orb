@@ -19,20 +19,24 @@ class _Client:
     base_url = "http://model.test/v1"
     is_aborted = False
 
-    def __init__(self, steps=()):
+    def __init__(self, steps=(), thought=""):
         self.replies = [reply for name, args in steps for reply in (("assistant_step", {"tool": name}), (name, args))]
         self.requests: list[tuple[list[dict], int]] = []
+        self.params: list[dict] = []
+        self.thought = thought
 
-    async def complete(self, *, messages, cache_prefix_len, **_):
+    async def complete(self, *, messages, cache_prefix_len, **params):
         self.requests.append(([dict(message) for message in messages], cache_prefix_len))
+        self.params.append(params)
         name, args = self.replies.pop(0) if self.replies else ("assistant_step", {"tool": "reply"})
         if name == "assistant_step":
             args = {"message": "Done.", **args}
         call = {"id": "c", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
-        yield {"type": "done", "message": {"content": "", "tool_calls": [call]}}
+        thought = {"reasoning_content": self.thought} if self.thought else {}
+        yield {"type": "done", "message": {"content": "", "tool_calls": [call], **thought}}
 
 
-async def _run(client, history, request="And now?", result_chars=0):
+async def _run(client, history, request="And now?", result_chars=0, model="m", **options):
     async def read(args):
         return ToolOutput({"text": args.name * result_chars}, f"Read {args.name}.")
 
@@ -40,7 +44,15 @@ async def _run(client, history, request="And now?", result_chars=0):
     events = [
         event
         async for event in run_assistant(
-            client, "m", settings=Settings({}), tools=tools, history=history, request=request, view=VIEW, single_call=False
+            client,
+            model,
+            settings=Settings({}),
+            tools=tools,
+            history=history,
+            request=request,
+            view=VIEW,
+            single_call=False,
+            **options,
         )
     ]
     return events[-1]
@@ -92,3 +104,58 @@ async def test_results_past_the_budget_are_shortened_together_and_later_calls_on
     assert all(sum(len(m.get("content") or "") for m in messages[1:]) <= CONTEXT_BUDGET_CHARS for messages in sent)
     # The newest result is always whole.
     assert len(sent[-1][-1]["content"]) > 5000
+
+
+async def test_a_follow_up_extends_the_previous_reply_byte_for_byte_and_anything_else_replays_history():
+    kept = []
+    first = _Client([("read", {"name": "a"})])
+    await _run(first, [], request="What is a?", result_chars=300, keep=kept.append)
+    (continuation,) = kept
+    last_sent, _ = first.requests[-1]
+    # Everything the reply was made from, then that reply's call and its one result.
+    assert list(continuation.messages[: len(last_sent) - 1]) == last_sent[1:]
+    assert [m["role"] for m in continuation.messages[len(last_sent) - 1 :]] == ["assistant", "tool"]
+
+    history = [HistoryItem("user", "What is a?"), HistoryItem("assistant", "Done.")]
+    follow = _Client()
+    await _run(follow, history, request="And b?", resume=continuation, unchanged=True)
+    messages, prefix_len = follow.requests[0]
+    assert messages[: len(last_sent)] == last_sent
+    assert messages[1:prefix_len] == list(continuation.messages)
+    # The previous result is still whole, so nothing needs reading again.
+    assert any(m["role"] == "tool" and "a" * 300 in m["content"] for m in messages[:prefix_len])
+    unchanged_request = messages[-1]["content"]
+
+    changed = _Client()
+    await _run(changed, history, request="And b?", resume=continuation, unchanged=False)
+    assert changed.requests[0][0][:-1] == messages[:-1] and changed.requests[0][0][-1]["content"] != unchanged_request
+
+    # A different model, tool set or prompt cannot extend it: the browser's history replays instead.
+    other = _Client()
+    await _run(other, history, request="And b?", model="other", resume=continuation, unchanged=True)
+    replayed, _ = other.requests[0]
+    assert not any(m["role"] == "tool" for m in replayed) and replayed[1]["content"] == "What is a?"
+
+
+async def test_thinking_keeps_its_reasoning_into_a_follow_up_and_a_run_without_it_sends_none_back():
+    kept = []
+    first = _Client([("read", {"name": "a"})], thought="Read a first.")
+    await _run(first, [], request="What is a?", keep=kept.append, reasoning=True)
+    # The template is asked to keep reasoning on earlier turns, so the next request renders the same bytes.
+    assert all(params["chat_template_kwargs"]["preserve_thinking"] for params in first.params)
+    (continuation,) = kept
+
+    def carried(messages):
+        return [m["reasoning_content"] for m in messages if "reasoning_content" in m]
+
+    assert carried(continuation.messages) == ["Read a first."] * 3
+
+    thinking = _Client()
+    await _run(thinking, [], request="And b?", resume=continuation, reasoning=True)
+    assert carried(thinking.requests[0][0]) == ["Read a first."] * 3
+
+    plain = _Client()
+    await _run(plain, [], request="And b?", resume=continuation)
+    messages, prefix_len = plain.requests[0]
+    assert carried(messages) == [] and prefix_len == len(continuation.messages) + 1
+    assert plain.params[0]["chat_template_kwargs"]["enable_thinking"] is False

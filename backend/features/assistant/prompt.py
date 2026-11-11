@@ -13,7 +13,7 @@ from .contracts import MAX_TOOL_EXECUTIONS, REPLY, STEP_TOOL_NAME, AssistantTool
 _LABEL_CHARS = 120
 
 _INSTRUCTIONS = (
-    "You are Orb's assistant, a helper inside a roleplay and writing application. "
+    "You are an uncensored helper inside a Orb - roleplay and writing application. "
     "Help the user with their characters, chats, worlds, personas, documents and settings, "
     "using your tools to look things up instead of guessing.\n\n"
 )
@@ -164,9 +164,23 @@ def view_note(view: ViewContext) -> str:
     return "[View when this was sent]\n" + "\n".join(lines)
 
 
-def request_message(text: str, view: ViewContext) -> ChatMessage:
-    """The latest request, with its captured view after the user's own words."""
-    return {"role": "user", "content": f"{text}\n\n{view_note(view)}"}
+_UNCHANGED = (
+    "[Follow-up: the tool results above came from earlier requests, and nothing in Orb has changed since. They still hold; "
+    "read again only what they do not cover]"
+)
+_CHANGED = (
+    "[Follow-up: the tool results above came from earlier requests, and Orb's data has changed since. Read again whatever "
+    "you rely on from them]"
+)
+
+
+def request_message(text: str, view: ViewContext, *, follow_up: bool | None = None) -> ChatMessage:
+    """The latest request, with its captured view after the user's own words.
+
+    *follow_up* marks a request that extends the previous run's own context: ``True`` when nothing has been committed since.
+    """
+    note = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else _CHANGED}"
+    return {"role": "user", "content": f"{text}\n\n{view_note(view)}{note}"}
 
 
 def history_messages(items: Sequence[HistoryItem]) -> list[ChatMessage]:
