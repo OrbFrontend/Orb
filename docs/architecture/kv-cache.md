@@ -208,7 +208,7 @@ review extends the compose request byte for byte.
 
 ### Keep the assistant off the turn's prefix
 
-The [panel assistant](assistant-chat.md) has a prefix of its own on the Agent
+The [panel assistant](assistant-panel.md) has a prefix of its own on the Agent
 lane: its system prompt, which lists its tools and stays stable for a tool set,
 then replayed history and the request. Its tools never enter the turn's tool
 catalog. Within a run each call extends the last, except where the context

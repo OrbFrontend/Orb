@@ -118,8 +118,8 @@ export const S = {
 
   hasMultipleTabs: false, // another app tab is open
 
-  // The panel assistant: its transcript entries, whether the dock is expanded, and the card of proposed edits this page can
-  // still Apply (an entry of `items`, never one loaded from storage). assistant_chat.js writes it.
+  // The assistant: its transcript entries, whether its panel is open, and the card of proposed edits this page can still
+  // Apply (an entry of `items`, never one loaded from storage). assistant_chat.js writes it.
   assistant: { items: [], open: false, batch: null },
 
   workflowInspectorCardRenderers: [], // Inspector cards by workflow

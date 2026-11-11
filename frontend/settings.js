@@ -429,9 +429,9 @@ export const AUDIT_TYPE_DEFS = [
 
 function toggleToolsPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
-    closeUtilityPanel("tools-panel", "tools-panel-btn");
+    closeUtilityPanel("tools-panel");
   } else {
-    openUtilityPanel("tools-panel", "tools-panel-btn", renderToolsPanel);
+    openUtilityPanel("tools-panel", renderToolsPanel);
   }
 }
 

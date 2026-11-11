@@ -48,11 +48,11 @@
 .doc-title-edit:hover { color: var(--text-primary); }
 #doc-mobile-sidebar-toggle { --ui-icon-size: 18px; display: none; background: none; border: none;
   color: var(--text-primary); font-size: 20px; cursor: pointer; padding: 0 4px; }
-#doc-workflow-mobile-btn { --ui-icon-size: 18px; display: none; width: var(--mobile-header-button-size);
+#doc-workflow-mobile-btn, #doc-assistant-mobile-btn { --ui-icon-size: 18px; display: none; width: var(--mobile-header-button-size);
   height: var(--mobile-header-button-size); padding: 0; align-items: center; justify-content: center;
   border-radius: var(--radius); background: var(--bg-elevated); border: 1px solid var(--border);
   color: var(--text-secondary); font-size: 20px; line-height: 1; cursor: pointer; flex-shrink: 0; }
-#doc-workflow-mobile-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+#doc-workflow-mobile-btn:hover, #doc-assistant-mobile-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 #doc-editor-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
   padding: 28px 20px; background: var(--bg-deep); }
 #doc-page { width: 100%; max-width: 760px; flex: 1 0 auto; padding: 56px 68px; background: var(--bg-elevated);
@@ -114,8 +114,8 @@
   #doc-page { padding: 28px 20px; border-radius: 0; }
   #doc-header { padding: 10px 14px; }
   #doc-footer { padding: 8px 12px; }
-  #doc-workflow-btn { display: none; }
-  #doc-workflow-mobile-btn { display: inline-flex; }
+  #doc-workflow-btn, #doc-assistant-btn { display: none; }
+  #doc-workflow-mobile-btn, #doc-assistant-mobile-btn { display: inline-flex; }
   #doc-save-state { display: none; }
   #doc-footer { gap: 8px; flex-wrap: nowrap; }
   .doc-footer-info { gap: 8px; min-width: 0; }

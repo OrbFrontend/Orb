@@ -22,10 +22,9 @@ function docAuditEnabled() {
 
 function toggleDocWorkflowPanel() {
   if (isUtilityPanelOpen("tools-panel")) {
-    closeUtilityPanel("tools-panel", "tools-panel-btn");
-    closeUtilityPanel("tools-panel", "doc-workflow-btn");
+    closeUtilityPanel("tools-panel");
   } else {
-    openUtilityPanel("tools-panel", "doc-workflow-btn", renderDocAuditPane);
+    openUtilityPanel("tools-panel", renderDocAuditPane);
   }
 }
 

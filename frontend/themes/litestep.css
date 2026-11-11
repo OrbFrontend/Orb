@@ -12,10 +12,10 @@
 *, *::before, *::after { border-radius: 0 !important; }
 body { background: linear-gradient(180deg, #566b83 0%, #435a76 40%, #374f6c 100%) !important;
   background-attachment: fixed !important; }
-#sidebar, #inspector, #tools-panel { background: #d4d0c8 !important;
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: #d4d0c8 !important;
   box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #808080 !important; }
 #sidebar { border-right: 1px solid #404040 !important; }
-#inspector.open, #tools-panel.open { border-left: 1px solid #404040 !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 1px solid #404040 !important; }
 .sidebar-header, #chat-header { background: linear-gradient(90deg, #33507a 0%, #45658f 100%) !important;
   border-bottom: 1px solid #22344e !important; }
 .sidebar-header h1 { color: #ffffff !important; font-size: 16px !important; font-weight: normal !important;

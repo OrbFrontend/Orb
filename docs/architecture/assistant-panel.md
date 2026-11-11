@@ -1,10 +1,10 @@
-# Panel Assistant
+# Assistant Panel
 
-The assistant is a small chat docked at the foot of the open Tools panel or
-Inspector. It answers questions about the library and carries out changes the
-user asks for, through a fixed set of tools on the Agent lane. It runs outside
-the turn pipeline: it never joins a chat's turn, its prompt, or its KV-cache
-prefix.
+The assistant is a chat in a right panel of its own, beside the chat, the
+document editor or the lorebook drawer. It answers questions about the library
+and carries out changes the user asks for, through a fixed set of tools on the
+Agent lane. It runs outside the turn pipeline: it never joins a chat's turn, its
+prompt, or its KV-cache prefix.
 
 This page describes the contract the code keeps: how a request is run, what
 each kind of tool may do, how writes and proposed edits settle, and how the
@@ -24,7 +24,7 @@ browser stores and refreshes what changed.
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
 | `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop` and `/apply`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
-| `frontend/assistant_chat.js` (layer 5) | The dock, its run, Stop, Apply, handoffs and refreshes |
+| `frontend/assistant_chat.js` (layer 5) | The panel, its run, Stop, Apply, handoffs and refreshes |
 
 Tools are built per run, bound to the view captured at Send. The assistant's
 tools are not in `prompting/tool_catalog.py` and never reach a turn.
@@ -271,19 +271,39 @@ EOF without `done` or `error` is a lost connection, never an answer.
 
 ## The browser
 
+`#assistant-panel` is the third utility panel in `panels.js`, beside Tools and
+the Inspector, and opening any one of them closes the others. Five controls
+toggle it through the one `assistant:toggle` action: the chat header's
+Assistant button, its twin in the document header, the document header's
+narrow-layout icon, the narrow layout's header actions menu, and the lorebook
+drawer's header. The panel stays open across chat, document and library views.
+It has its own width (`--assistant-width`, 440px) and its own `ui_sizing.js`
+region, so dragging or scaling it leaves the Inspector alone. On the narrow
+layout it is a slide-over like the other panels: a tap beside it or Back closes
+it, and so does a handoff that starts, since the chat writes its reply under the
+panel. Opening it focuses the input on the wide layout only, where no keyboard
+rises.
+
+A run and its card outlive a closed panel. Every control that opens it marks a
+run in progress and counts the edits waiting for Apply; the marks are painted
+from attributes on `#app`, so a control rendered later shows them too.
+
 The transcript lives in `localStorage` under `orb-assistant-transcript`, at most
-100 entries, and the dock's expansion under `orb-assistant-open`. Loading
-validates every entry from its known fields; malformed JSON is an empty
-transcript, and a full or blocked store leaves the dock working from memory.
-What is stored is user text, answers, tool summaries and ids, and each proposed
-edit's labels, lengths and state, never raw results, progress, live operations
-or proposal texts and ids. A tool still waiting when the page closes, or when
-the run ends, reads "No result was received; check before asking again."
+100 entries, and whether the panel is open under `orb-assistant-open`, which is
+restored at load on the wide layout only. Loading validates every entry from its
+known fields; malformed JSON is an empty transcript, and a full or blocked store
+leaves the assistant working from memory. What is stored is user text, answers,
+tool summaries and ids, and each proposed edit's labels, lengths and state,
+never raw results, progress, live operations or proposal texts and ids. A tool
+still waiting when the page closes, or when the run ends, reads "No result was
+received; check before asking again."
 
 The edits a run proposed become one card at the end of the run, however it
 ended: proposing wrote nothing, so showing them is safe. The card groups the
 edits by what they change, shows each field's diff and lengths, and has one
-Apply and one Cancel. Apply sends the ids still pending and marks each edit with
+Apply and one Cancel. A diff is shown whole, its unchanged text shortened to the
+context around each change; in a panel wide enough it is two columns, the text
+now and the text proposed. Apply sends the ids still pending and marks each edit with
 its verdict; a `busy` edit stays pending, so Apply stays and sends only those,
 and a partly stale card says which were skipped. An Apply that ends without
 verdicts leaves the card pending with a note to try again. Only the card of the
@@ -291,8 +311,9 @@ latest run can be applied: a new request closes it, and a reloaded card is
 historical. A card with an edit not applied offers Ask again, which puts the
 request back in the input.
 
-Each request captures its view at Send; changing view affects the next request,
-not a running one. The transcript shows a separator where the view changes,
+An empty transcript offers a few requests suited to the view; picking one fills
+the input and sends nothing. Each request captures its view at Send; changing
+view affects the next request, not a running one. The transcript shows a separator where the view changes,
 and replays the view label with each request. Clear is disabled while work runs.
 Send uses `tabLock.js`'s send permission. Assistant prose renders through the
 message renderer inside `.msg-body`, where no element can name an action;

@@ -108,11 +108,13 @@
       </div>
       <div class="chat-actions">
         <button class="btn btn-sm" id="user-profile-btn" data-wf-action="personas:open" title="User profile" aria-label="User profile">👤</button>
+        <button class="btn btn-sm asst-launch" id="assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-controls="assistant-panel">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></button>
         <button class="btn btn-sm" id="tools-panel-btn" data-wf-action="settings:toggleToolsPanel" title="Agentic Tools & Workflows">🛠️ Workflow</button>
         <button class="btn btn-sm" id="inspector-toggle" data-chat-action="inspector" title="Inspector" aria-label="Inspector">🔍 Inspector</button>
-        <button id="mobile-chat-actions-toggle" data-wf-action="mobile:toggleHeaderActions" title="Quick actions" aria-label="Quick actions"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
+        <button id="mobile-chat-actions-toggle" data-wf-action="mobile:toggleHeaderActions" title="Quick actions" aria-label="Quick actions"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg><span class="asst-launch-mark" aria-hidden="true"></span></button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" data-wf-action="personas:open">👤 User</div>
+          <div class="burger-menu-item asst-launch" data-wf-action="assistant:toggle">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></div>
           <div class="burger-menu-item" data-wf-action="settings:toggleToolsPanel">🛠️ Workflow</div>
           <div class="burger-menu-item" data-chat-action="group-config" hidden>👥 Scene setup</div>
           <div class="burger-menu-item" data-chat-action="inspector">🔍 Inspector</div>
@@ -165,7 +167,9 @@
         <span id="doc-token-count">~0 tokens</span>
         <span id="doc-save-state" class="doc-save-state"></span>
       </div>
+      <button class="btn btn-sm asst-launch" id="doc-assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-controls="assistant-panel">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></button>
       <button class="btn btn-sm" id="doc-workflow-btn" title="Output Auditor &amp; Phrase Bank">🛠️ Workflow</button>
+      <button class="asst-launch" id="doc-assistant-mobile-btn" data-wf-action="assistant:toggle" title="Assistant" aria-label="Assistant" aria-controls="assistant-panel"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg><span class="asst-launch-mark" aria-hidden="true"></span></button>
       <button id="doc-workflow-mobile-btn" title="Output Auditor &amp; Phrase Bank" aria-label="Workflow"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></button>
     </div>
     <details id="doc-help">
@@ -249,21 +253,19 @@ Write a haiku about the sea.&lt;|im_end|&gt;
     </div>
     <div id="inspector-pane-state" class="hidden"><div id="state-panel-content"></div></div>
   </div></div>
-  <section id="assistant-dock" class="asst-dock" aria-label="Assistant" hidden>
+  <section id="assistant-panel" aria-label="Assistant"><div class="asst-inner">
     <div class="asst-head">
-      <button type="button" class="asst-toggle" id="assistant-toggle" data-wf-action="assistant:toggle" aria-expanded="false" aria-controls="assistant-body">Assistant</button>
+      <span class="inspector-title asst-title">Assistant</span>
       <span class="asst-scope" id="assistant-scope"></span>
       <button type="button" class="btn btn-sm asst-clear" id="assistant-clear" data-wf-action="assistant:clear" title="Clear this conversation with the assistant" aria-label="Clear the assistant conversation">Clear</button>
     </div>
-    <div class="asst-body" id="assistant-body" hidden>
-      <div class="asst-log" id="assistant-log" role="log" aria-label="Assistant conversation"></div>
-      <div class="asst-status" id="assistant-status" role="status"></div>
-      <div class="asst-compose">
-        <textarea id="assistant-input" rows="2" placeholder="Ask about your library…" aria-label="Message to the assistant"></textarea>
-        <button type="button" class="btn btn-sm" id="assistant-send" data-wf-action="assistant:send" aria-label="Send to the assistant">Send</button>
-      </div>
+    <div class="asst-log" id="assistant-log" role="log" aria-label="Assistant conversation"></div>
+    <div class="asst-status" id="assistant-status" role="status"></div>
+    <div class="asst-compose">
+      <textarea id="assistant-input" rows="3" placeholder="Ask about your library…" aria-label="Message to the assistant"></textarea>
+      <button type="button" class="btn btn-sm" id="assistant-send" data-wf-action="assistant:send" aria-label="Send to the assistant">Send</button>
     </div>
-  </section>
+  </div></section>
   <div id="avatar-popup" class="avatar-popup hidden" data-wf-action="inspector:avatarBackdrop">
     <div class="avatar-popup-content">
       <img id="avatar-popup-image" src="" alt="Character avatar">

@@ -31,5 +31,6 @@ def _no_downloaded_models(request, monkeypatch, _empty_models_dir):
     if request.node.get_closest_marker("real_model_dir"):
         return
     monkeypatch.setattr(assets, "model_dir", lambda: _empty_models_dir)
-    # The autocomplete GGUF has an env override that bypasses model_dir entirely.
+    # The GGUF env overrides (assets._ENV_OVERRIDES) bypass model_dir entirely.
     monkeypatch.delenv("ORB_AUTOCOMPLETE_MODEL", raising=False)
+    monkeypatch.delenv("ORB_SLOP_MODEL", raising=False)

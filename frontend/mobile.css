@@ -1,6 +1,7 @@
 
 :root { --mobile-header-button-size: 34px; --mobile-actions-menu-min-width: 170px;
-  --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px); --mobile-overlay-z: 80;
+  --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px);
+  --mobile-assistant-width: min(92vw, 440px); --mobile-overlay-z: 80;
   --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-menu-z: 115; --mobile-overlay-color: rgba(0, 0, 0, .45);
   --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);
   --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45); --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
@@ -32,18 +33,19 @@ html { height: 100%; }
   #app.mobile-sidebar-open #sidebar { transform: translateX(0); }
   #app::before { content: ""; position: fixed; inset: 0; background: var(--mobile-overlay-color); opacity: 0;
     pointer-events: none; transition: opacity var(--mobile-slide-duration); z-index: var(--mobile-overlay-z); }
-  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before { opacity: 1; pointer-events: auto;
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open, .mobile-assistant-open)::before { opacity: 1; pointer-events: auto;
   }
-  #tools-panel, #inspector {
+  #tools-panel, #inspector, #assistant-panel {
     position: fixed; right: 0; top: 0; bottom: 0; width: var(--mobile-panel-width); min-width: 0;
     z-index: var(--mobile-panel-z); transform: translateX(100%); transition: transform var(--mobile-slide-duration);
     box-shadow: var(--mobile-panel-shadow-right); pointer-events: none;
   }
-  #tools-panel.open, #inspector.open {
+  #tools-panel.open, #inspector.open, #assistant-panel.open {
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
-  .inspector-inner, .tools-inner, .asst-dock { width: 100%; }
-  #user-profile-btn, #tools-panel-btn, #inspector-toggle { display: none; }
+  #assistant-panel, #assistant-panel.open { width: var(--mobile-assistant-width); }
+  .inspector-inner, .tools-inner, .asst-inner { width: 100%; }
+  #user-profile-btn, #assistant-btn, #tools-panel-btn, #inspector-toggle { display: none; }
   #mobile-chat-actions-toggle { display: inline-flex; }
   #main { width: 100%; }
   .char-item-actions { opacity: 1; }

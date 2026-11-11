@@ -39,9 +39,9 @@ body {
     !important;
   background-attachment: fixed !important;
 }
-#sidebar, #inspector, #tools-panel { background: var(--bg-primary) !important; }
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: var(--bg-primary) !important; }
 #sidebar { border-right: 2px solid var(--ink) !important; }
-#inspector.open, #tools-panel.open { border-left: 2px solid var(--ink) !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 2px solid var(--ink) !important; }
 .sidebar-header, #chat-header, #doc-header { background: var(--band) !important;
   border-bottom: 2px solid var(--ink) !important; }
 #chat-header .chat-title, #doc-header .doc-title { color: var(--ink) !important; }
@@ -51,8 +51,8 @@ body {
 @media (min-width: 901px) {
   #app { padding: 12px; }
   #sidebar { margin-right: 12px; }
-  #inspector.open, #tools-panel.open { margin-left: 12px; }
-  #sidebar, #inspector.open, #tools-panel.open {
+  #inspector.open, #tools-panel.open, #assistant-panel.open { margin-left: 12px; }
+  #sidebar, #inspector.open, #tools-panel.open, #assistant-panel.open {
     border: 2px solid var(--ink) !important; border-radius: 16px !important; box-shadow: var(--shadow-card) !important;
   }
   #chat-header, #doc-header, #chat-input-area, #doc-footer { border: 2px solid var(--ink) !important;

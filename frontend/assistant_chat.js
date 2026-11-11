@@ -1,5 +1,5 @@
-// The right-panel assistant: one dock that follows whichever utility panel is open, one transcript kept in this
-// browser, one run at a time owned through S.operations, and Apply for the edits its latest run proposed.
+// The assistant's own right panel: one transcript kept in this browser for every view, one run at a time owned through
+// S.operations, and Apply for the edits its latest run proposed. A run and its card outlive a closed panel.
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import {
@@ -26,6 +26,7 @@ import { loadCharacters } from "./library_sidebar.js";
 import { loadWorlds, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
+import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
 import { renderToolsPanel } from "./settings.js";
 import { loadPersonas } from "./settings_personas.js";
 import { reloadSettingKeys } from "./settings_store.js";
@@ -35,6 +36,9 @@ import { $, toast } from "./utils.js";
 
 const LS_TRANSCRIPT = "orb-assistant-transcript";
 const LS_OPEN = "orb-assistant-open";
+const PANEL = "assistant-panel";
+// The layout where panels slide over the page and an on-screen keyboard may rise with focus.
+const NARROW = "(max-width: 900px)";
 const FOLLOW_SLACK_PX = 24;
 const LABEL_TITLE_CHARS = 120;
 // The events after which the stored transcript changes in a way worth keeping; progress and notes are not among them.
@@ -57,6 +61,8 @@ let run = null;
 let following = true;
 // A Tools panel repaint held back while the reader is typing in it.
 let toolsRepaintHeld = false;
+
+const narrow = () => Boolean(window.matchMedia?.(NARROW).matches);
 
 function activeOperation() {
   return [...S.operations.values()].find((op) => op.kind === "assistant" || op.kind === APPLY_KIND) || null;
@@ -105,6 +111,12 @@ function captureContext() {
   return { ...none, mode: "library", label: "Library" };
 }
 
+/** The kind of view the empty log suggests requests for. */
+function shownView() {
+  const context = captureContext();
+  return context.character_id ? "character" : context.mode;
+}
+
 function toEnd() {
   const log = $("assistant-log");
   if (log && following) log.scrollTop = log.scrollHeight;
@@ -114,7 +126,11 @@ function paintLog() {
   const log = $("assistant-log");
   if (!log) return;
   const busy = Boolean(activeOperation());
-  log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, { active: S.assistant.batch, busy });
+  log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, {
+    active: S.assistant.batch,
+    busy,
+    suggestFor: shownView(),
+  });
   toEnd();
 }
 
@@ -179,6 +195,8 @@ function launchHandoff(current) {
     target.tool === "rewrite_reply"
       ? rewriteCapturedReply(cid, msgId, target.direction)
       : regenerateCapturedReply(cid, msgId);
+  // A slide-over would cover the reply the chat now writes.
+  if (status === "" && narrow()) closeUtilityPanel(PANEL);
   current.items.push(handoffOutcome(target, status));
   trimTranscript(current.items);
 }
@@ -216,9 +234,20 @@ async function refreshSettings(keys) {
   repaintToolsPanel();
 }
 
+/** Mark every button that opens the panel, through the root, so a button rendered later is marked too. */
+function paintLaunchers(busy) {
+  const app = $("app");
+  const pending = S.assistant.batch ? pendingIds(S.assistant.batch).length : 0;
+  app.toggleAttribute("data-asst-running", busy);
+  app.toggleAttribute("data-asst-pending", pending > 0);
+  if (pending) app.style.setProperty("--asst-pending", String(pending));
+  else app.style.removeProperty("--asst-pending");
+}
+
 function paintControls() {
   const operation = activeOperation();
   const busy = Boolean(operation);
+  paintLaunchers(busy);
   const applying = operation?.kind === APPLY_KIND;
   const stopping = Boolean(operation?.stream?.stopping);
   const send = $("assistant-send");
@@ -237,6 +266,8 @@ function paintControls() {
   const scope = $("assistant-scope");
   scope.textContent = context.label;
   scope.title = busy ? `Working on: ${context.label}` : `Your next message is about: ${context.label}`;
+  // The suggestions follow the view, which can change without a notice.
+  if (!S.assistant.items.length) paintLog();
 }
 
 function paint() {
@@ -244,38 +275,20 @@ function paint() {
   paintControls();
 }
 
-function setOpen(open) {
-  S.assistant.open = open;
-  store(LS_OPEN, open ? "1" : "0");
-  $("assistant-body").hidden = !open;
-  $("assistant-dock").classList.toggle("asst-open", open);
-  $("assistant-toggle").setAttribute("aria-expanded", String(open));
-  if (open) toEnd();
+/** The panel has just opened: show the newest entry and the view the next request is about. */
+function revealPanel() {
+  toEnd();
+  paintControls();
 }
 
-/** Put the dock at the foot of the open panel, or hide it when there is none. Moving it stops nothing. */
-function placeDock() {
-  const dock = $("assistant-dock");
-  const tools = $("tools-panel");
-  const inspector = $("inspector");
-  // Document mode has no Inspector, even if its panel was left open behind the editor.
-  const inspectorShown = inspector.classList.contains("open") && !$("app").classList.contains("document-mode");
-  const host = tools.classList.contains("open") ? tools : inspectorShown ? inspector : null;
-  if (!host) {
-    dock.hidden = true;
+function togglePanel() {
+  if (isUtilityPanelOpen(PANEL)) {
+    closeUtilityPanel(PANEL);
     return;
   }
-  const shown = !dock.hidden && dock.parentElement === host;
-  if (dock.parentElement !== host) {
-    const log = $("assistant-log");
-    const top = log.scrollTop;
-    host.appendChild(dock);
-    log.scrollTop = top;
-  }
-  dock.hidden = false;
-  // A log that was hidden or moved measured nothing meanwhile; put it back where the reader left it.
-  if (!shown) toEnd();
-  paintControls();
+  openUtilityPanel(PANEL, revealPanel);
+  // On the narrow layout focus would raise the keyboard over the panel just opened.
+  if (!narrow()) $("assistant-input").focus();
 }
 
 /** A new request closes the held card: its edits still pending can no longer be applied. */
@@ -397,6 +410,13 @@ function cancel() {
   paint();
 }
 
+/** Put a suggested request in the input, for the reader to edit or send. Nothing is sent. */
+function suggest(text) {
+  const input = $("assistant-input");
+  input.value = text;
+  input.focus();
+}
+
 /** Put a card's request back in the input, for the reader to send again for a fresh preview. Nothing is sent. */
 function askAgain(index) {
   const item = S.assistant.items[index];
@@ -415,12 +435,12 @@ function clear() {
 }
 
 export function initAssistant() {
-  const dock = $("assistant-dock");
-  if (!dock) return;
+  const panel = $(PANEL);
+  if (!panel) return;
   S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
   S.assistant.batch = null;
   registerActions("assistant", {
-    toggle: () => setOpen(!S.assistant.open),
+    toggle: () => togglePanel(),
     clear: () => clear(),
     send: () => {
       const operation = activeOperation();
@@ -432,6 +452,7 @@ export function initAssistant() {
     apply: () => apply(),
     cancel: () => cancel(),
     askAgain: (el) => askAgain(Number(el.dataset.index)),
+    suggest: (el) => suggest(el.dataset.text || ""),
   });
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
@@ -445,18 +466,18 @@ export function initAssistant() {
     e.preventDefault();
     send();
   });
-  // The view can change without a notice; refresh the label when the reader turns to the dock.
-  dock.addEventListener("focusin", paintControls);
-  dock.addEventListener("pointerenter", paintControls);
+  // The view can change without a notice; refresh the label when the reader turns to the panel.
+  panel.addEventListener("focusin", paintControls);
+  panel.addEventListener("pointerenter", paintControls);
   subscribe("operations", paintControls);
   subscribe("conversations", paintControls);
   subscribe("documents", paintControls);
-
-  const panels = new MutationObserver(placeDock);
-  for (const el of [$("tools-panel"), $("inspector"), $("app")]) {
-    panels.observe(el, { attributes: true, attributeFilter: ["class"] });
-  }
-  setOpen(stored(LS_OPEN) === "1");
+  // Opening Tools or the Inspector closes the panel, as do mobile Back and a tap beside it; each lands here.
+  watchUtilityPanel(PANEL, (open) => {
+    S.assistant.open = open;
+    store(LS_OPEN, open ? "1" : "0");
+  });
   paint();
-  placeDock();
+  // A slide-over restored at load would cover the page the reader came back to.
+  if (stored(LS_OPEN) === "1" && !narrow()) openUtilityPanel(PANEL, revealPanel);
 }

@@ -411,24 +411,46 @@ function clipped(value, { head, tail }) {
   return `${head ? esc(value.slice(0, head)) : ""}<span class="asst-gap">…</span>${tail ? esc(value.slice(-tail)) : ""}`;
 }
 
+function diffOps(before, after) {
+  return before && after
+    ? sentenceDiff(before, after)
+    : [...(before ? [{ type: "delete", text: before }] : []), ...(after ? [{ type: "insert", text: after }] : [])];
+}
+
+// Unchanged text is shortened to its nearest context: only its tail before the first change, only its head after the last.
+function opHtml(op, index, ops) {
+  if (op.type === "insert") return `<ins class="asst-ins">${esc(op.text)}</ins>`;
+  if (op.type === "delete") return `<del class="asst-del">${esc(op.text)}</del>`;
+  const head = index === ops.length - 1 ? DIFF_CONTEXT : index === 0 ? 0 : DIFF_CONTEXT;
+  const tail = index === 0 ? DIFF_CONTEXT : index === ops.length - 1 ? 0 : DIFF_CONTEXT;
+  return clipped(op.text, { head, tail });
+}
+
 /**
  * One field's change as escaped markup: removed and added text marked, unchanged text around a change shortened to its
  * nearest context. The texts are the server's exact before and after.
  */
 export function diffHtml(before, after) {
-  const ops =
-    before && after
-      ? sentenceDiff(before, after)
-      : [...(before ? [{ type: "delete", text: before }] : []), ...(after ? [{ type: "insert", text: after }] : [])];
-  return ops
-    .map((op, index) => {
-      if (op.type === "insert") return `<ins class="asst-ins">${esc(op.text)}</ins>`;
-      if (op.type === "delete") return `<del class="asst-del">${esc(op.text)}</del>`;
-      const head = index === ops.length - 1 ? DIFF_CONTEXT : index === 0 ? 0 : DIFF_CONTEXT;
-      const tail = index === 0 ? DIFF_CONTEXT : index === ops.length - 1 ? 0 : DIFF_CONTEXT;
-      return clipped(op.text, { head, tail });
-    })
-    .join("");
+  const ops = diffOps(before, after);
+  return ops.map((op, index) => opHtml(op, index, ops)).join("");
+}
+
+/** The same change as two columns: what the field holds now with its removals, and what it will hold with its additions. */
+export function splitDiffHtml(before, after) {
+  const ops = diffOps(before, after);
+  const side = (drop) => ops.map((op, index) => (op.type === drop ? "" : opHtml(op, index, ops))).join("");
+  return { before: side("insert"), after: side("delete") };
+}
+
+// The stylesheet shows this in place of the inline diff once the panel is wide enough for two columns.
+function splitHtml(entry) {
+  const split = splitDiffHtml(entry.before, entry.after);
+  return (
+    '<div class="asst-diff-split" aria-hidden="true">' +
+    `<div class="asst-diff-side"><div class="asst-diff-side-label">Now</div><div class="asst-diff">${split.before}</div></div>` +
+    `<div class="asst-diff-side"><div class="asst-diff-side-label">Proposed</div><div class="asst-diff">${split.after}</div></div>` +
+    "</div>"
+  );
 }
 
 function entryHtml(entry) {
@@ -436,7 +458,8 @@ function entryHtml(entry) {
   const diff =
     entry.before === undefined
       ? ""
-      : `<div class="asst-diff">${diffHtml(entry.before, entry.after)}</div>` +
+      : `<div class="asst-diff asst-diff-inline">${diffHtml(entry.before, entry.after)}</div>` +
+        splitHtml(entry) +
         `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
   const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
   return (
@@ -481,16 +504,55 @@ function cardHtml(card, index, { active, busy }) {
   );
 }
 
-const EMPTY =
-  '<div class="asst-empty">Ask about your characters, chats, worlds, personas, documents or settings.</div>';
+// Requests the tools can carry out from each kind of view, offered while the transcript is empty.
+const SUGGESTIONS = {
+  chat: [
+    "Summarise what has happened in this chat.",
+    "Which worlds does this chat use?",
+    "Rewrite the last reply to be shorter.",
+    "Save a checkpoint of this chat.",
+  ],
+  character: [
+    "Summarise this character.",
+    "Tighten this character's description.",
+    "Write a persona that would make a good foil for this character.",
+  ],
+  document: [
+    "Summarise this document.",
+    "Which of my characters appear in this document?",
+    "What is switched on in the pipeline?",
+  ],
+  library: [
+    "Which characters have no scenario?",
+    "Create a world called Ashfall with an entry for its capital.",
+    "List my personas.",
+    "What is switched on in the pipeline?",
+  ],
+};
+
+function emptyHtml(view) {
+  const offered = SUGGESTIONS[view] || SUGGESTIONS.library;
+  return (
+    '<div class="asst-empty">Ask about your characters, chats, worlds, personas, documents or settings.</div>' +
+    '<div class="asst-suggestions" role="group" aria-label="Suggested requests">' +
+    offered
+      .map(
+        (text) =>
+          `<button type="button" class="asst-suggestion" data-wf-action="assistant:suggest" data-text="${escAttr(text)}">${esc(text)}</button>`,
+      )
+      .join("") +
+    "</div>"
+  );
+}
 
 /**
  * The log's markup. User text, labels, tool lines, outcomes and proposed edits are escaped; only an assistant reply goes
  * through *renderProse*, inside `.msg-body`, where no element can name an action. Apply and Cancel are drawn only on
- * *active*, the one card this page holds, and are disabled while *busy*.
+ * *active*, the one card this page holds, and are disabled while *busy*. An empty log suggests requests for *suggestFor*
+ * (`chat`, `character`, `document` or `library`).
  */
-export function transcriptHtml(items, renderProse, { active = null, busy = false } = {}) {
-  if (!items.length) return EMPTY;
+export function transcriptHtml(items, renderProse, { active = null, busy = false, suggestFor = "library" } = {}) {
+  if (!items.length) return emptyHtml(suggestFor);
   let view = null;
   const parts = [];
   items.forEach((item, index) => {

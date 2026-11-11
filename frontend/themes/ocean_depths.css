@@ -31,11 +31,11 @@ body {
       rgba(61,220,132,0.14) 100%) !important;
   background-attachment: local !important; background-repeat: no-repeat !important;
 }
-#sidebar, #inspector, #tools-panel { background: rgba(6,32,42,0.55) !important;
+#sidebar, #inspector, #tools-panel, #assistant-panel { background: rgba(6,32,42,0.55) !important;
   backdrop-filter: blur(14px) saturate(140%) !important; -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
   border-color: rgba(67,214,228,0.16) !important; }
 #sidebar { border-right: 1px solid rgba(67,214,228,0.16) !important; }
-#inspector.open, #tools-panel.open { border-left: 1px solid rgba(67,214,228,0.16) !important; }
+#inspector.open, #tools-panel.open, #assistant-panel.open { border-left: 1px solid rgba(67,214,228,0.16) !important; }
 .sidebar-header, #chat-header { background: transparent !important;
   border-bottom: 1px solid rgba(67,214,228,0.14) !important; }
 .sidebar-header h1 { color: #6ff5a4 !important; text-shadow: 0 0 10px rgba(61,220,132,0.35) !important; }

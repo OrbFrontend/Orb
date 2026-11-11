@@ -156,5 +156,5 @@ class ViewContext:
     document_title: str = ""
 
 
-# One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-chat.md.
+# One stream event: ``{"type": ..., **payload}``, as listed under Events in docs/architecture/assistant-panel.md.
 AssistantEvent = dict[str, Any]

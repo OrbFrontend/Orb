@@ -481,6 +481,7 @@ function renderLorebookDrawer() {
   drawer.innerHTML = `
     <div class="lb-header">
       <span class="lb-header-title">Lorebook</span>
+      <button type="button" class="btn btn-sm asst-launch lb-assistant-btn" id="lb-assistant-btn" data-wf-action="assistant:toggle" title="Assistant" aria-controls="assistant-panel">🤖 Assistant<span class="asst-launch-mark" aria-hidden="true"></span></button>
       <button class="btn btn-sm btn-square lb-close-btn" data-wf-action="lorebook:close" title="Close" aria-label="Close lorebook">${CLOSE_ICON}</button>
     </div>
     <div class="lb-body">

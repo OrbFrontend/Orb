@@ -185,7 +185,7 @@ attachments can still be viewed.
 The frontend mirrors the same predicate and hides disabled workflow controls.
 Existing attachment renderers remain available by design. The trigger route's
 dispatch lives in `backend/api/workflow_dispatch.py`; the
-[panel assistant's](assistant-chat.md#media) media tools share it, gate included.
+[panel assistant's](assistant-panel.md#media) media tools share it, gate included.
 
 ## Hook contexts
 

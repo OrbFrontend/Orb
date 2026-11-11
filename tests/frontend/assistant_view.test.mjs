@@ -13,6 +13,7 @@ const {
   runItems,
   serializeTranscript,
   settleRun,
+  splitDiffHtml,
   transcriptHtml,
 } = await import("../../frontend/assistant_view.js");
 
@@ -137,6 +138,25 @@ test("only an assistant reply is rendered as markup, and a separator marks each 
   assert.ok(html.includes("Document: &lt;Notes&gt;"));
   assert.ok(html.includes('<div class="msg-body"><b>**Done**</b></div>'));
   assert.match(transcriptHtml([], String), /asst-empty/);
+});
+
+test("an empty log suggests requests for the view in front of the reader, as escaped inert text", () => {
+  const suggested = (html) => [...html.matchAll(/data-text="([^"]*)"/g)].map((match) => match[1]);
+  const chatHtml = transcriptHtml([], String, { suggestFor: "chat" });
+  assert.ok(suggested(chatHtml).length > 0);
+  assert.equal(chatHtml.split('data-wf-action="assistant:suggest"').length - 1, suggested(chatHtml).length);
+  assert.notDeepEqual(suggested(chatHtml), suggested(transcriptHtml([], String, { suggestFor: "document" })));
+  assert.deepEqual(suggested(transcriptHtml([], String, { suggestFor: "unknown" })), suggested(transcriptHtml([], String)));
+  assert.equal(transcriptHtml([{ kind: "assistant", text: "Hi" }], String).includes("asst-suggest"), false);
+});
+
+test("a wide diff puts what the field holds now beside what it will hold, each with only its own changes", () => {
+  const split = splitDiffHtml("Keep this. Drop that. Keep the end.", "Keep this. Add this. Keep the end.");
+  assert.ok(split.before.includes("<del") && !split.before.includes("<ins"));
+  assert.ok(split.after.includes("<ins") && !split.after.includes("<del"));
+  for (const side of [split.before, split.after]) assert.ok(side.includes("Keep this.") && side.includes("Keep the end."));
+  // A field that is new or emptied has one side only.
+  assert.deepEqual(splitDiffHtml("", "<b>new</b>"), { before: "", after: '<ins class="asst-ins">&lt;b&gt;new&lt;/b&gt;</ins>' });
 });
 
 test("Enter sends, but not with Shift and not while an IME composition is being committed", () => {
