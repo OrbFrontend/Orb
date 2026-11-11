@@ -256,6 +256,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
   <section id="assistant-panel" aria-label="Assistant"><div class="asst-inner">
     <div class="asst-head">
       <span class="inspector-title asst-title">Assistant</span>
+      <label class="asst-think" data-wf-action="assistant:think" data-wf-on="change" title="Let the model think before each step: slower, but steadier on harder requests"><span class="tog"><input type="checkbox" id="assistant-think"><span class="tog-slider"></span></span>Think</label>
       <button type="button" class="btn btn-xs asst-clear" id="assistant-clear" data-wf-action="assistant:clear" title="Clear this conversation with the assistant" aria-label="Clear the assistant conversation">Clear</button>
     </div>
     <div class="asst-log" id="assistant-log" role="log" aria-label="Assistant conversation"></div>
@@ -264,7 +265,6 @@ Write a haiku about the sea.&lt;|im_end|&gt;
       <textarea id="assistant-input" rows="1" placeholder="Ask about your library…" aria-label="Message to the assistant"></textarea>
       <div class="asst-compose-foot">
         <span class="asst-scope" id="assistant-scope"></span>
-        <label class="asst-think" data-wf-action="assistant:think" data-wf-on="change" title="Let the model think before each step: slower, but steadier on harder requests"><input type="checkbox" id="assistant-think">Think</label>
         <button type="button" class="asst-send" id="assistant-send" data-wf-action="assistant:send" data-state="send" title="Send (Enter)" aria-label="Send to the assistant"><svg class="ui-icon asst-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg><svg class="ui-icon asst-stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
       </div>
     </div>

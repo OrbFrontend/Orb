@@ -1,7 +1,7 @@
 /* The assistant's own right panel: a fixed head, the log in all the height left, and the composer at the foot. */
 .asst-inner { display: flex; flex-direction: column; gap: 8px; height: 100%; width: var(--inspector-width);
   padding: 16px 16px 12px; }
-.asst-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.asst-head { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
 .asst-title { margin-bottom: 0; }
 /* A size container: the full new text takes a share of the log's height, and a wide log shows diffs in columns. */
 .asst-log { flex: 1 1 0; min-height: 0; overflow-y: auto; container-type: size; display: flex; flex-direction: column;
@@ -62,9 +62,8 @@
 .asst-compose-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .asst-scope { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
   color: var(--text-muted); cursor: default; }
-.asst-think { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: auto; font-size: 11px;
-  color: var(--text-muted); cursor: pointer; user-select: none; }
-.asst-think input { margin: 0; }
+.asst-think { display: flex; align-items: center; gap: 6px; margin: 0 4px 0 auto; text-transform: none;
+  letter-spacing: normal; color: var(--text-muted); cursor: pointer; user-select: none; }
 .asst-think:has(input:checked) { color: var(--accent); }
 .asst-send { --ui-icon-size: 16px; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
   margin-left: auto; padding: 0; border-radius: min(50%, calc(var(--radius) * 2)); background: var(--accent-dim);
