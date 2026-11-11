@@ -575,7 +575,7 @@ const SUGGESTIONS = {
     "Summarise what has happened in this chat.",
     "Which worlds does this chat use?",
     "Rewrite the last reply to be shorter.",
-    "Save a checkpoint of this chat.",
+    "Tighten entries for the active lorebook.",
   ],
   character: [
     "Summarise this character.",
