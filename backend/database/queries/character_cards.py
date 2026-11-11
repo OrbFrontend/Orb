@@ -28,7 +28,15 @@ from ...core import (
     upgrade_legacy_fragment,
 )
 from ...core.card_scripts import card_render_options, is_display_script
-from ..connection import build_set_clause, get_db, get_workflow_slot, immediate_tx, select_rows, set_workflow_slot
+from ..connection import (
+    build_set_clause,
+    check_expected,
+    get_db,
+    get_workflow_slot,
+    immediate_tx,
+    select_rows,
+    set_workflow_slot,
+)
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 from .worlds import bump_revision, insert_entry, insert_world
 
@@ -380,8 +388,17 @@ async def reroll_unfrozen_greetings(cid: str) -> None:
             await db.commit()
 
 
-async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:
+async def update_character_card(
+    card_id: str, data: dict, *, expected: Mapping[str, Any] | None = None
+) -> CharacterCardRow | None:
+    """Update the card's allowlisted fields; ``None`` when there is no such card.
+
+    With *expected*, the fields it names are compared and the update written in one transaction, and
+    :class:`~backend.database.connection.StaleWrite` is raised if any changed since the caller read them.
+    """
     async with get_db() as db:
+        if expected is not None and not await check_expected(db, "character_cards", card_id, expected):
+            return None
         allowed = [
             "name",
             "description",

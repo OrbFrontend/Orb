@@ -42,7 +42,7 @@ html { height: 100%; }
   #tools-panel.open, #inspector.open {
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
-  .inspector-inner, .tools-inner { width: 100%; }
+  .inspector-inner, .tools-inner, .asst-dock { width: 100%; }
   #user-profile-btn, #tools-panel-btn, #inspector-toggle { display: none; }
   #mobile-chat-actions-toggle { display: inline-flex; }
   #main { width: 100%; }

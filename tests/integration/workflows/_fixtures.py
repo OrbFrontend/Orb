@@ -102,6 +102,7 @@ def make_workflow(
     on_demand=None,
     regenerate=None,
     reroll_gen=None,
+    query=None,
     tools: list[ToolSpec] | None = None,
     config_defaults: dict | None = None,
     config_schema: dict | None = None,
@@ -128,6 +129,7 @@ def make_workflow(
         (on_demand, HookType.ON_DEMAND),
         (regenerate, HookType.REGENERATE),
         (reroll_gen, HookType.REROLL_GEN),
+        (query, HookType.QUERY),
     ):
         if fn is not None:
             pending.append((hook_type, fn, priority))

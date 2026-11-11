@@ -34,11 +34,14 @@ export async function loadSettingsRow() {
   });
 }
 
-/** Apply *patch* now and save it. A failed save restores the keys it changed and rejects. */
-export async function saveSettings(patch) {
+/**
+ * Apply *patch* now and save it. A failed save restores the keys it changed and rejects. *wire* is what is sent when it
+ * differs from what is shown: a whole map shown locally, with only its changed key sent so the server keeps the others.
+ */
+export async function saveSettings(patch, wire = patch) {
   const saving = enqueue(async () => {
     try {
-      const row = await api.put("/settings", patch);
+      const row = await api.put("/settings", wire);
       unsaved.delete(patch);
       acceptRow(row);
     } catch (e) {
@@ -62,8 +65,8 @@ export async function saveSettings(patch) {
 }
 
 /** saveSettings with a toast for a failure; *repaint* runs now and again if the save restores the old value. */
-export async function persistSettings(patch, repaint = () => {}) {
-  const saving = saveSettings(patch);
+export async function persistSettings(patch, repaint = () => {}, wire = patch) {
+  const saving = saveSettings(patch, wire);
   repaint();
   try {
     await saving;
@@ -81,4 +84,20 @@ export function applySettings(patch) {
   }
   S.settings = { ...S.settings, ...patch };
   notify("settings", patch);
+}
+
+/**
+ * Read *keys* again from the server, in turn with this tab's saves: a save still in flight answers first, so the older row
+ * it replaces can never override it, and a save queued after keeps its local value until it answers.
+ */
+export async function reloadSettingKeys(keys) {
+  return enqueue(async () => {
+    const row = await api.get("/settings");
+    const patch = Object.fromEntries(keys.filter((key) => key in row).map((key) => [key, row[key]]));
+    if (!Object.keys(patch).length) return;
+    for (const key of Object.keys(patch)) delete localEdits[key];
+    savedRow = { ...savedRow, ...patch };
+    S.settings = Object.assign({}, S.settings, patch, ...unsaved);
+    notify("settings", patch);
+  });
 }

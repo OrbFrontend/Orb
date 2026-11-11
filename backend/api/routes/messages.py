@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ...core.macros import Macros, card_description, resolve_inline
 from ...core.settings import Settings
 from ...database import (
-    clear_writer_draft,
     delete_message_with_descendants,
     get_changesets_for_messages,
     get_character_card,
@@ -28,7 +27,6 @@ from ...database import (
     mark_changesets_stale_for_messages,
     mark_orphaned_changesets_stale,
     reroll_unfrozen_greetings,
-    set_workflow_message_state,
     switch_to_branch,
     update_message_content,
 )
@@ -59,6 +57,7 @@ from ..deps import (
     rows_response,
     stream_idle_lock,
 )
+from ..edits import save_message_edit
 from ..schemas import AutocompleteInput, EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage, SpeakRequest
 
 router = APIRouter()
@@ -146,20 +145,7 @@ async def api_edit_message(
 
         # Plain edits bypass the pipeline's persist boundary, so inline macros
         # ({{roll}}/{{random}}) typed into an edit fire once here.
-        await update_message_content(msg_id, resolve_inline(data.content))
-        # Editing an unfrozen greeting drops its stashed template -- otherwise
-        # the next fetch would re-roll from it and clobber the manual edit.
-        if original["role"] == "assistant" and original["parent_id"] is None:
-            await set_workflow_message_state(msg_id, "macros", None)
-        # Same clobber, one surface over: the retained pre-rewriter draft describes the text this edit just replaced, and the
-        # on-demand prose rewriter prefers it over the saved content -- so a rewrite after an edit would quietly restore the
-        # pre-edit prose. Dropping it makes the rewriter fall back to what the user actually wrote, which is what they mean by
-        # "rewrite this message".
-        if original["role"] == "assistant":
-            await clear_writer_draft(msg_id)
-        # An unreviewed world-change proposal was derived from this exact text. Editing either source message invalidates that
-        # evidence, so the proposal goes stale and must be re-evaluated rather than applied.
-        await mark_changesets_stale_for_messages([msg_id])
+        await save_message_edit(original, resolve_inline(data.content))
         return {"ok": True}
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -130,6 +130,47 @@ async def immediate_tx():
         except BaseException:
             await db.execute("ROLLBACK")
             raise
+
+
+class StaleWrite(Exception):
+    """A guarded update found fields that changed after its caller read them; nothing was written."""
+
+    def __init__(self, fields: Iterable[str]):
+        self.fields = tuple(fields)
+        super().__init__(f"Changed since read: {', '.join(self.fields)}")
+
+
+async def check_expected(
+    db: aiosqlite.Connection, table: str, row_id: Any, expected: Mapping[str, Any], *, owner: Mapping[str, Any] | None = None
+) -> bool:
+    """Open a write transaction on *db* and hold the row to *expected*; ``False`` when no row has this id (and *owner*).
+
+    The caller's update follows on the same connection, inside this transaction, so no other writer can land between the
+    comparison and the write. A NULL column compares equal to an empty string. On a mismatch the transaction is rolled back and
+    :class:`StaleWrite` names the changed fields.
+    """
+    owner = dict(owner or {})
+    columns = ", ".join(dict.fromkeys(expected))
+    where = " AND ".join(["id = ?", *(f"{column} = ?" for column in owner)])
+    await db.execute("BEGIN IMMEDIATE")
+    try:
+        rows = list(
+            await db.execute_fetchall(
+                f"SELECT {columns} FROM {table} WHERE {where}",  # nosec B608 -- table and columns are code constants
+                (row_id, *owner.values()),
+            )
+        )
+        if not rows:
+            await db.execute("ROLLBACK")
+            return False
+        changed = [key for key, value in expected.items() if (rows[0][key] or "") != (value or "")]
+    except BaseException:
+        await db.execute("ROLLBACK")
+        raise
+    if changed:
+        await db.execute("ROLLBACK")
+        raise StaleWrite(changed)
+    return True
 
 
 def build_set_clause(

@@ -78,6 +78,14 @@ async def conversation_attachment_ids(cid: str, ids: Sequence[int]) -> set[int]:
     return {int(row["id"]) for row in rows}
 
 
+async def message_workflow_attachment_ids(message_id: int, workflow_id: str) -> list[int]:
+    """The ids of one workflow's attachments on a message, oldest first, without reading their bytes."""
+    rows = await select_rows(
+        "SELECT id FROM workflow_attachments WHERE message_id = ? AND workflow_id = ? ORDER BY id", (message_id, workflow_id)
+    )
+    return [int(row["id"]) for row in rows]
+
+
 async def get_workflow_attachment_meta(att_id: int) -> WorkflowAttachmentMeta | None:
     """One row without its bytes, for a reader that may never need them."""
     rows = await select_rows(

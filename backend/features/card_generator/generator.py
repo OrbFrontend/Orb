@@ -8,15 +8,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from ...core import (
-    AssistantToolMessage,
-    ContentPart,
-    WireMessage,
-    agent_lane_cut_off,
-    agent_lane_max_tokens,
-    build_multimodal_content,
-)
-from ...core.llm_types import ToolResultMessage
+from ...core import ContentPart, WireMessage, agent_lane_cut_off, agent_lane_max_tokens, build_multimodal_content
 from ...core.settings import Settings
 from ...core.text_segmentation import sentence_boundary_ends
 from ...database import (
@@ -26,7 +18,15 @@ from ...database import (
     get_vocabulary,
     list_character_cards,
 )
-from ...inference import LLMClient, forced_turn, normalize, parse_tool_calls, replay_reasoning
+from ...inference import (
+    LLMClient,
+    assistant_tool_call,
+    fence_quote,
+    forced_turn,
+    normalize,
+    parse_tool_calls,
+    tool_result,
+)
 
 CARD_FLOOR = (
     "Create an original, playable roleplay character faithful to the user's idea. "
@@ -122,12 +122,6 @@ def clean_card(args: Mapping[str, Any]) -> dict[str, Any]:
     return card
 
 
-def fence_quote(text: str) -> str:
-    # Reference text must not be able to close its own fence.
-    escaped = text.strip().replace('"""', '\\"\\"\\"')
-    return f'"""\n{escaped}\n"""'
-
-
 def idea_text(idea: str, *, has_image: bool) -> str:
     blocks = [f"User's character idea:\n{fence_quote(idea)}"] if idea else []
     if has_image:
@@ -137,30 +131,6 @@ def idea_text(idea: str, *, has_image: bool) -> str:
 
 def with_image(text: str, image: Mapping[str, Any] | None) -> str | list[ContentPart]:
     return build_multimodal_content(text, [image] if image else None)
-
-
-def assistant_tool_call(
-    response: Mapping[str, Any], name: str, arguments: Mapping[str, Any], call_id: str
-) -> AssistantToolMessage:
-    # Structured forced calls all come back as ``call_0``; the id is assigned
-    # here so every replayed call answers to exactly one result.
-    message: AssistantToolMessage = {
-        "role": "assistant",
-        "content": response.get("content") or "",
-        "tool_calls": [
-            {
-                "id": call_id,
-                "type": "function",
-                "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
-            }
-        ],
-        **replay_reasoning(response),
-    }
-    return message
-
-
-def tool_result(call_id: str, content: str) -> ToolResultMessage:
-    return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
 def card_arguments(response: Mapping[str, Any], settings: Settings) -> Mapping[str, Any]:

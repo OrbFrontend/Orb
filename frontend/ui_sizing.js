@@ -30,6 +30,7 @@ const BOXES = [
   { selector: ".reasoning-section .inspect-raw", cssVar: "--reasoning-box-height", key: "reasoning" },
   { selector: ".inspect-raw", cssVar: "--raw-box-height", key: "raw" },
   { selector: ".state-history", cssVar: "--state-history-height", key: "stateHistory" },
+  { selector: ".asst-log", cssVar: "--assistant-log-height", key: "assistantLog" },
 ];
 const BOX_SELECTOR = BOXES.map((b) => b.selector).join(", ");
 

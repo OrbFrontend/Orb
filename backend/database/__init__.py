@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from .bootstrap import init_db, reset_to_defaults
-from .connection import checkpoint_wal, close_wal_anchor, current_db_path, get_db, immediate_tx, open_wal_anchor
+from .connection import (
+    StaleWrite,
+    checkpoint_wal,
+    close_wal_anchor,
+    current_db_path,
+    get_db,
+    immediate_tx,
+    open_wal_anchor,
+)
 from .queries.access import clear_access_password, get_access_password, set_access_password
 from .queries.character_cards import (
     card_embedded_fragments,
@@ -110,7 +118,7 @@ from .queries.library_dedupe import (
     remove_dismissals,
     resolve_duplicate_cards,
 )
-from .queries.library_sql import run_library_query
+from .queries.library_sql import LIBRARY_VIEWS, run_library_query
 from .queries.library_tags import (
     VocabularyConflict,
     apply_auto_tags,
@@ -148,6 +156,8 @@ from .queries.messages import (
     get_user_attachments_for_message,
     get_workflow_attachments_for_message,
     get_workflow_message_state,
+    greeting_rerolls,
+    save_edited_message,
     set_active_leaf,
     set_workflow_message_state,
     switch_to_branch,
@@ -173,6 +183,7 @@ from .queries.settings import (
     get_settings,
     get_workflow_config,
     set_card_source_auth,
+    set_enabled_tool,
     set_local_ml_config,
     set_local_ml_enabled,
     set_workflow_config,
@@ -209,6 +220,7 @@ from .queries.workflow_attachments import (
     get_workflow_attachment_bytes,
     get_workflow_attachment_meta,
     insert_workflow_attachment_row,
+    message_workflow_attachment_ids,
 )
 from .queries.worlds import (
     OverlayStateConflict,

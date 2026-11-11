@@ -1087,9 +1087,37 @@ async function regenerateFromUser(userMsgId) {
 
 async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
-  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
+  await startRegenerate(msgId);
+}
+
+function startRegenerate(msgId) {
+  return runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
     cutoffMsgId: msgId,
   });
+}
+
+/**
+ * Why a reply another surface captured earlier cannot be regenerated or rewritten here now: its chat is no longer the one
+ * open, or the reply is no longer on the branch it shows. Empty when it can.
+ */
+function capturedReplyBlocked(convId, msgId) {
+  if (S.documentMode || !convId || S.activeConvId !== convId) return "not_open";
+  const target = S.messages.find((m) => m.id === msgId);
+  return target?.role === "assistant" ? "" : "moved";
+}
+
+/**
+ * Regenerate reply *msgId* of chat *convId*, both captured by a caller outside the message toolbar (the assistant), with the
+ * toolbar's own busy and tab checks. Starts the chat's ordinary stream, which owns Stop and settlement from then on, and does
+ * not wait for it. Returns why nothing started, or "" once it has.
+ */
+export function regenerateCapturedReply(convId, msgId) {
+  const blocked = capturedReplyBlocked(convId, msgId);
+  if (blocked) return blocked;
+  if (!S.messages.find((m) => m.id === msgId)?.parent_id) return "moved";
+  if (!canStartGeneration()) return "busy";
+  startRegenerate(msgId).catch((e) => console.error("Regenerate failed:", e));
+  return "";
 }
 
 async function superRegenerate(msgId) {
@@ -1142,13 +1170,29 @@ async function submitMagicRewrite(msgId) {
   if (!direction) return;
   if (!S.activeConvId || !canStartGeneration()) return;
   S.magicInputMsgId = null;
-  await runStreamRequest(
+  await startMagicRewrite(msgId, direction);
+}
+
+function startMagicRewrite(msgId, direction) {
+  return runStreamRequest(
     convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
     { direction },
     {
       cutoffMsgId: msgId,
     },
   );
+}
+
+/** Magic Rewrite of reply *msgId* of chat *convId* in *direction*, all captured earlier; as `regenerateCapturedReply`. */
+export function rewriteCapturedReply(convId, msgId, direction) {
+  const blocked = capturedReplyBlocked(convId, msgId);
+  if (blocked) return blocked;
+  if (!direction?.trim()) return "moved";
+  if (!canStartGeneration()) return "busy";
+  // The reply's own direction box, if it is open, would otherwise stay open over the rewrite it asked for.
+  if (S.magicInputMsgId === msgId) S.magicInputMsgId = null;
+  startMagicRewrite(msgId, direction.trim()).catch((e) => console.error("Magic Rewrite failed:", e));
+  return "";
 }
 
 async function saveQueuedEdits(convId = S.activeConvId) {

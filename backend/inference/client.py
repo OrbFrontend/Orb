@@ -17,7 +17,7 @@ from . import anthropic, endpoint_profiles, gpu_swap, prompt_cache, text_complet
 from . import reasoning_format as rf
 from .chat_stream import ChatStream, consume_openai
 from .errors import EndpointConfigError, LLMCallError, llm_call_error
-from .gemma_tool_format import parse_gemma_tool_calls
+from .gemma_tool_format import parse_gemma_call_strict, parse_gemma_tool_calls
 from .retry import RetryPolicy
 from .schema import strictify_schema
 
@@ -528,6 +528,7 @@ class LLMClient:
         # How many leading messages every call on this base shares; the cache
         # breakpoint that carries reuse across passes and turns sits there.
         cache_prefix_len = params.pop("cache_prefix_len", None)
+        single_tool_call = bool(params.pop("single_tool_call", False))
         affinity = prompt_cache.affinity_headers(model, messages)
 
         def _plan() -> tuple[dict, str | None, bool]:
@@ -561,6 +562,10 @@ class LLMClient:
             body = {"model": model, "messages": messages, "stream": True, **extra}
             if call_tools:
                 body["tools"] = call_tools
+                # OpenAI's field, valid only beside ``tools``. The Messages translation is an allowlist and drops it, and an
+                # OpenAI-compatible server that refuses it by name is walked past it by ``recover_refused_field``.
+                if single_tool_call:
+                    body["parallel_tool_calls"] = False
             if call_choice:
                 body["tool_choice"] = call_choice
             # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
@@ -1316,6 +1321,74 @@ def _make_tool_call(name: str, arguments: Any) -> ParsedToolCall:
         )
         arguments = {}
     return {"name": name, "arguments": _sanitize_args(arguments)}
+
+
+class _DuplicateKey(ValueError):
+    """A JSON object named one key twice, so which value was meant is unknown."""
+
+
+def _unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _DuplicateKey(key)
+        out[key] = value
+    return out
+
+
+def _strict_object(value: Any) -> dict[str, Any] | None:
+    """*value* as a JSON object only when it is one already or a string that decodes, whole, to one with no repeated key."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value, object_pairs_hook=_unique_pairs)
+        except (json.JSONDecodeError, _DuplicateKey):
+            return None
+    return _sanitize_args(value) if isinstance(value, dict) else None
+
+
+def _strict_call(text: str) -> dict[str, Any] | None:
+    """One whole call object, bare or as the only item of a list: some servers wrap a single forced call in one."""
+    try:
+        value = json.loads(text, object_pairs_hook=_unique_pairs)
+    except (json.JSONDecodeError, _DuplicateKey):
+        return None
+    if isinstance(value, list) and len(value) == 1:
+        value = value[0]
+    return _sanitize_args(value) if isinstance(value, dict) else None
+
+
+_JSON_FENCE = re.compile(r"```(?:json)?[ \t]*\n(.*?)\n?[ \t]*```", re.DOTALL | re.IGNORECASE)
+_HERMES_BLOCK = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+
+
+def strict_tool_arguments(message: Mapping[str, Any], name: str) -> dict[str, Any] | None:
+    """The arguments of the one call to *name*, or ``None`` unless they arrived as one complete JSON object.
+
+    :func:`parse_tool_calls` reads best-effort: it salvages an object from a wrapper and degrades arguments it cannot read to
+    ``{}``, which a caller filling optional defaults would then run as a different call. A caller that acts on the arguments
+    uses this instead. A ``tool_calls`` array must hold exactly that one call: a reply with several asked for more than the
+    forced call, and taking one of them would silently drop the rest. Content without a ``tool_calls`` array counts only as
+    one whole call: JSON bare, in Hermes tags or in a code fence, alone or as a list's only item, or one complete Gemma
+    native call.
+    """
+    tool_calls = message.get("tool_calls")
+    if tool_calls:
+        function = (tool_calls[0].get("function") or {}) if len(tool_calls) == 1 else {}
+        return _strict_object(function.get("arguments")) if function.get("name") == name else None
+    content = (message.get("content") or "").strip()
+    # A complete call in another wrapper: one Gemma native call, one Hermes block, or one whole object in a code fence, with
+    # nothing else around it. None is salvage: a cut-off or partial call, a second call, or prose beside one is refused.
+    native = parse_gemma_call_strict(content)
+    if native is not None:
+        return _sanitize_args(native["arguments"]) if native["name"] == name else None
+    tagged = _HERMES_BLOCK.fullmatch(content)
+    if tagged is not None and "<tool_call>" in tagged.group(1):
+        return None
+    wrapped = _JSON_FENCE.fullmatch(content) or tagged
+    call = _strict_call(wrapped.group(1).strip() if wrapped else content)
+    if call is not None and call.get("name") == name and "arguments" in call:
+        return _strict_object(call["arguments"])
+    return None
 
 
 def parse_tool_calls(message: Mapping[str, Any]) -> list[ParsedToolCall]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..database import set_workflow_enabled
 from . import gpu_swap_host, prose_rewriter_host
 from .contracts import (
     EV_ATTACH_ARTIFACT,
@@ -72,3 +73,16 @@ register_plugins(__name__, Path(__file__).parent)
 subscribe(prose_rewriter_host.FEATURE, HookType.POST_PIPELINE, prose_rewriter_host.post_pipeline, priority=-10)
 
 finalize_registry()
+
+
+async def set_workflow_toggle(workflow_id: str, enabled: bool) -> None:
+    """Store one workflow's on/off flag, then run the runtime callback its toggle owns.
+
+    The rewriter's model can hold gigabytes of VRAM: switching it off frees that now rather than after the idle timeout, and
+    switching it on warms it. Every writer of a workflow toggle goes through here so none of them skips that. The GPU swap plan
+    is off while Image Generation is, so its cached plan is dropped: a render right after switching it on must swap.
+    """
+    await set_workflow_enabled(workflow_id, enabled)
+    gpu_swap_host.invalidate()
+    if workflow_id == prose_rewriter_host.FEATURE:
+        await prose_rewriter_host.on_enabled(enabled)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import build_set_clause, get_db, select_rows
+from ..connection import build_set_clause, check_expected, get_db, select_rows
 from ..models import UserPersonaRow
 
 _PERSONA_SELECT = "SELECT id, name, description, avatar_color, avatar_mime, created_at, updated_at FROM user_personas"
@@ -76,8 +77,17 @@ async def create_user_persona(data: dict) -> UserPersonaRow:
         return result
 
 
-async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | None:
+async def update_user_persona(
+    persona_id: int, data: dict, *, expected: Mapping[str, Any] | None = None
+) -> UserPersonaRow | None:
+    """Update the persona's allowlisted fields; ``None`` when there is no such persona.
+
+    With *expected*, the named fields are compared and the update written in one transaction, raising ``StaleWrite`` if any
+    changed since the caller read them.
+    """
     async with get_db() as db:
+        if expected is not None and not await check_expected(db, "user_personas", persona_id, expected):
+            return None
         allowed = ["name", "description", "avatar_color", "avatar_b64", "avatar_mime"]
         sets, vals = build_set_clause(allowed, data)
         if sets:

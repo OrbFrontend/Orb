@@ -83,6 +83,8 @@ LAYERS = {
     # The one writer of S.settings: saves, local applies, and the "settings" notice each change sends.
     "settings_store.js": 1,
     "library_dedupe_view.js": 1,
+    # The assistant transcript as data: storage validation, replay, stream events and markup, with no DOM lookups.
+    "assistant_view.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,
@@ -135,6 +137,7 @@ LAYERS = {
     "state_panel.js": 5,
     "mobile.js": 5,
     "group_setup.js": 5,
+    "assistant_chat.js": 5,
     # L6 shell / plugin facade.
     "app.js": 6,
     "workflow_api.js": 6,

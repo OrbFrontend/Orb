@@ -31,6 +31,39 @@ _VIEWS: dict[str, str] = {
         SELECT id, name, description, created_at, updated_at
         FROM main.user_personas""",
 }
+# The columns each view exposes, in SELECT order, for callers that describe the projection to a model.
+LIBRARY_VIEWS: dict[str, tuple[str, ...]] = {
+    "conversations": (
+        "id",
+        "title",
+        "character_card_id",
+        "character_name",
+        "persona_id",
+        "kind",
+        "created_at",
+        "updated_at",
+        "last_accessed_at",
+        "active_leaf_id",
+    ),
+    "messages": ("id", "conversation_id", "role", "content", "parent_id", "turn_index", "created_at"),
+    "characters": (
+        "id",
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "tags",
+        "alternate_greetings",
+        "creator",
+        "source_format",
+        "created_at",
+        "updated_at",
+    ),
+    "user_personas": ("id", "name", "description", "created_at", "updated_at"),
+}
 _TABLE_FUNCTIONS = frozenset({"json_each", "json_tree"})
 _REFUSED_FUNCTIONS = frozenset({"load_extension"})
 _MAX_LENGTH = 1_000_000

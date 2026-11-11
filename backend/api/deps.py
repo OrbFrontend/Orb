@@ -14,7 +14,7 @@ import re
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -69,6 +69,11 @@ _deleting_messages: set[int] = set()
 
 def resource_deleting(key: str) -> bool:
     return key in _deleting_resources
+
+
+def message_deleting(message_id: int) -> bool:
+    """Whether a message delete has stopped, or is stopping, the media rendering for this message."""
+    return message_id in _deleting_messages
 
 
 @contextmanager
@@ -224,6 +229,12 @@ async def conversation_stream_lock(cid: str):
         yield
 
 
+def conversation_busy(cid: str) -> bool:
+    """Whether a stream runs in this chat or a mutation holds its lane right now; a snapshot, not a reservation."""
+    lane = _conversation_stream_locks.get(cid)
+    return cid in _active_streams or (lane is not None and lane.locked())
+
+
 @asynccontextmanager
 async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
     """Hold the stream lock until request cleanup."""
@@ -236,6 +247,31 @@ async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
         yield True
     finally:
         lock.release()
+
+
+class ChatUnavailable(Exception):
+    """A short chat mutation was not admitted: the chat is being deleted, or a stream or another mutation holds its lane."""
+
+    def __init__(self, reason: Literal["deleting", "busy"]):
+        self.reason = reason
+        super().__init__(reason)
+
+
+@asynccontextmanager
+async def idle_chat_admission(cid: str) -> AsyncGenerator[None, None]:
+    """Admit one short mutation of chat *cid* and hold its lane through the body, or raise :class:`ChatUnavailable`.
+
+    For a caller outside the chat routes, which the deletion fence on those paths does not cover. The deletion check and taking
+    the lane have no await between them, so a delete that starts later waits for this mutation, and one already under way is
+    never raced. Refused rather than queued: the caller says so and its user may try again. The lane is never held across a
+    model call.
+    """
+    if cid in _deleting_resources:
+        raise ChatUnavailable("deleting")
+    async with stream_idle_lock(cid) as idle:
+        if not idle:
+            raise ChatUnavailable("busy")
+        yield
 
 
 @dataclass(slots=True)

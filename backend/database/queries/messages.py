@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
 from ...core.domain_types import MessageRole
-from ..connection import get_db, get_workflow_slot, select_rows, set_workflow_slot
+from ..connection import check_expected, get_db, get_workflow_slot, select_rows, set_workflow_slot
 from ..models import MessageListing, MessageRow, MessageWithAttachments, UserAttachmentRow, WorkflowAttachmentRowBase
 from .conversations import get_conversation
 from .director_state import update_director_state
 from .fragment_state import insert_state_events
 from .workflow_attachments import EVICTED_MARKER
+from .worlds import mark_changesets_stale_on
 
 
 class _WorkflowAttachmentPersister(Protocol):
@@ -384,11 +385,73 @@ async def get_workflow_attachments_for_message(message_id: int) -> list[Workflow
     return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
 
 
-async def update_message_content(msg_id: int, content: str) -> None:
-    """Update the content of an existing message."""
+async def update_message_content(
+    msg_id: int, content: str, *, expected: str | None = None, conversation_id: str | None = None
+) -> bool:
+    """Update the content of an existing message; ``False`` when a guarded update finds no such message in the chat.
+
+    With *expected*, the stored content is compared and replaced in one transaction, raising ``StaleWrite`` if it changed since
+    the caller read it.
+    """
     async with get_db() as db:
+        if expected is not None:
+            owner = {"conversation_id": conversation_id} if conversation_id is not None else None
+            if not await check_expected(db, "messages", msg_id, {"content": expected}, owner=owner):
+                return False
         await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
         await db.commit()
+        return True
+
+
+async def save_edited_message(
+    msg_id: int,
+    content: str,
+    *,
+    drop_template: bool,
+    clear_draft: bool,
+    expected: str | None = None,
+    conversation_id: str | None = None,
+) -> bool:
+    """Replace a message's content as a manual edit does, with every invariant of that edit in the same transaction.
+
+    *drop_template* removes an unfrozen greeting's stashed macro template, *clear_draft* the retained pre-rewriter draft, and
+    every pending world-change proposal derived from the message goes stale. With *expected* the stored content is compared
+    first (``StaleWrite`` when it changed) and ``False`` means no such message (in *conversation_id*, when given). Nothing is
+    written unless all of it is.
+    """
+    async with get_db() as db:
+        if expected is not None:
+            owner = {"conversation_id": conversation_id} if conversation_id is not None else None
+            if not await check_expected(db, "messages", msg_id, {"content": expected}, owner=owner):
+                return False
+        else:
+            await db.execute("BEGIN IMMEDIATE")
+        try:
+            await db.execute("UPDATE messages SET content = ? WHERE id = ?", (content, msg_id))
+            if drop_template:
+                await db.execute(
+                    "UPDATE messages SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.macros') WHERE id = ?",
+                    (msg_id,),
+                )
+            if clear_draft:
+                await db.execute("UPDATE messages SET writer_draft = NULL WHERE id = ?", (msg_id,))
+            await mark_changesets_stale_on(db, [msg_id])
+            await db.commit()
+        except BaseException:
+            await db.execute("ROLLBACK")
+            raise
+        return True
+
+
+async def greeting_rerolls(cid: str, msg_id: int) -> bool:
+    """Whether *msg_id* is a greeting that still re-rolls its macros on every fetch: see ``reroll_unfrozen_greetings``."""
+    rows = await select_rows(
+        "SELECT 1 FROM messages WHERE id = ? AND conversation_id = ? AND parent_id IS NULL "
+        "  AND json_extract(workflow_state, '$.macros.template') IS NOT NULL "
+        "  AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user')",
+        (msg_id, cid, cid),
+    )
+    return bool(rows)
 
 
 async def clear_writer_draft(msg_id: int) -> None:

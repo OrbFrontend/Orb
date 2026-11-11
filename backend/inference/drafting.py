@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ..core import ChatMessage
-from ..core.llm_types import CompletionMessage
-from .client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..core import AssistantToolMessage, ChatMessage
+from ..core.llm_types import CompletionMessage, ToolResultMessage
+from .client import LLMClient, parse_tool_calls, reasoning_cfg, replay_reasoning
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -23,6 +24,36 @@ class ReplyCutOff(RuntimeError):
 def normalize(text: str) -> str:
     """Collapse a parsed field to a single line."""
     return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def fence_quote(text: str) -> str:
+    # Reference text must not be able to close its own fence.
+    escaped = text.strip().replace('"""', '\\"\\"\\"')
+    return f'"""\n{escaped}\n"""'
+
+
+def assistant_tool_call(
+    response: Mapping[str, Any], name: str, arguments: Mapping[str, Any], call_id: str
+) -> AssistantToolMessage:
+    # Structured forced calls all come back as ``call_0``; the id is assigned
+    # here so every replayed call answers to exactly one result.
+    message: AssistantToolMessage = {
+        "role": "assistant",
+        "content": response.get("content") or "",
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
+            }
+        ],
+        **replay_reasoning(response),
+    }
+    return message
+
+
+def tool_result(call_id: str, content: str) -> ToolResultMessage:
+    return {"role": "tool", "tool_call_id": call_id, "content": content}
 
 
 async def forced_draft(
@@ -52,8 +83,13 @@ async def forced_turn(
     forced: str,
     max_tokens: int,
     reasoning_on: bool,
+    one_call: bool = False,
 ) -> CompletionMessage:
-    """Make one forced tool call and return its complete response."""
+    """Make one forced tool call and return its complete response.
+
+    *one_call* also asks for no parallel tool calls where the request carries native tools: an endpoint that answers the forced
+    choice as ``auto`` may otherwise reply with several calls at once.
+    """
     response: CompletionMessage = {}
     async for event in client.complete(
         messages=messages,
@@ -62,6 +98,7 @@ async def forced_turn(
         tool_choice={"type": "function", "function": {"name": forced}},
         temperature=0.2,
         max_tokens=max_tokens,
+        **({"single_tool_call": True} if one_call else {}),
         **reasoning_cfg(reasoning_on),
     ):
         if event["type"] == "done":

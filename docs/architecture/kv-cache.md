@@ -206,6 +206,24 @@ and the chat's earlier picture when prompter reference is on -- ride in the comp
 tail and never in the prefix, so the selector and compose calls share it and each
 review extends the compose request byte for byte.
 
+### Keep the assistant off the turn's prefix
+
+The [panel assistant](assistant-chat.md) has a prefix of its own on the Agent
+lane: its system prompt, which lists its tools and stays stable for a tool set,
+then replayed history and the request. Its tools never enter the turn's tool
+catalog. Within a run each call extends the last, except where the context
+budget rewrites what came before: an old tool result replaced by its summary
+re-reads from that result, and once no full result is left to shorten, dropping
+the oldest replayed history rewrites the prefix right after the system prompt.
+Every call forces one tool, yet an endpoint that honours forced choice is sent
+every schema on every call: the tool blob renders ahead of the messages on a
+native tool endpoint, so sending only the forced schema would change it between
+the step call and the argument call and re-read the whole request each time.
+Each schema's description is a pointer to the system prompt's tool list, which
+keeps the blob small. An endpoint that ignores forced tool choice is sent only
+the forced schema, so its tool blob changes between calls; text completion and
+structured output send no tool blob at all.
+
 ## One turn, briefly
 
 For a user message such as `I draw my sword`:

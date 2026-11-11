@@ -8,9 +8,10 @@ import re
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
+from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_VIEW_LABEL_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -934,3 +935,59 @@ class PresetExportRequest(BaseModel):
     domains: list[str]
     strip_keys: bool = True
     label: str = ""
+
+
+class AssistantViewContext(BaseModel):
+    """The view an assistant request was sent from. The server checks each id and how they relate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["chat", "document", "library"]
+    conversation_id: str | None = Field(default=None, min_length=1, max_length=64)
+    character_id: str | None = Field(default=None, min_length=1, max_length=64)
+    document_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class AssistantTranscriptItem(BaseModel):
+    """One entry of the browser's transcript. Everything but the last user entry is replayed as an unverified record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["user", "assistant", "tool", "outcome"]
+    text: str = Field(max_length=MAX_ITEM_CHARS)
+    tool: str = Field(default="", max_length=64)
+    # A user entry's own label for the view it was sent from. It is display text quoted back as a record, so a long one is
+    # shortened rather than refused: refusing it would refuse every later request that replays it.
+    view: str = ""
+
+    @field_validator("view", mode="before")
+    @classmethod
+    def _clip_view(cls, value: object) -> object:
+        return value[:MAX_VIEW_LABEL_CHARS] if isinstance(value, str) else value
+
+
+class AssistantRunRequest(BaseModel):
+    """One assistant request: the bounded transcript, ending with the new user entry, and the view captured at Send."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AssistantTranscriptItem] = Field(min_length=1, max_length=MAX_REPLAY_ITEMS)
+    context: AssistantViewContext
+    # Continue the request behind an applied proposal: its request and view come from the server's proposal, so every item
+    # here is history and ``context`` is not used.
+    continue_proposal_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def ends_with_a_request(self) -> AssistantRunRequest:
+        latest = self.items[-1]
+        if self.continue_proposal_id is None and (latest.kind != "user" or not latest.text.strip()):
+            raise ValueError("The transcript must end with the user's request")
+        return self
+
+
+class AssistantApplyRequest(BaseModel):
+    """Apply names a server-held proposal and nothing else: its target and text are the server's, never the client's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1, max_length=64)

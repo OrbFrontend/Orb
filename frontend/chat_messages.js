@@ -16,7 +16,7 @@ import {
   syncSendButton,
   turnPayload,
 } from "./chat_stream.js";
-import { replayAttachmentInvalidations } from "./chat_workflow.js";
+import { refreshConversationMessages, replayAttachmentInvalidations } from "./chat_workflow.js";
 import { responseError, sseError } from "./errors.js";
 import { fitMessageCards } from "./message_fit.js";
 import { renderMessageHtml } from "./message_html.js";
@@ -272,16 +272,44 @@ async function switchBranch(msgId) {
 
     // Inspector-only state. It never feeds the message list, so it trails the
     // paint instead of holding it behind another round trip.
-    S.lastDirectorData = null;
-    S.lastFeedback = null;
-    S.lastState = null;
-    const directorState = await api.get(convUrl(S.activeConvId, "director"));
-    if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
-    S.directorState = directorState;
-    await inspectMessage(msgId);
-    await refreshState();
+    await refreshBranchInspector(seq, cid, token, msgId);
   } catch (e) {
     toast(e.message, true);
+  }
+}
+
+/** The Inspector's state for the branch chat *cid* now shows, while switch *seq* is still the newest and the view its own. */
+async function refreshBranchInspector(seq, cid, token, inspectId) {
+  S.lastDirectorData = null;
+  S.lastFeedback = null;
+  S.lastState = null;
+  const directorState = await api.get(convUrl(cid, "director"));
+  if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
+  S.directorState = directorState;
+  if (inspectId != null) await inspectMessage(inspectId);
+  else clearInspectedMessage();
+  await refreshState();
+}
+
+/**
+ * Show the branch chat *cid* is on after something outside the chat switched it, while that chat is still in view. The
+ * message list repaints through the shared refresh, which waits while a message is being edited; a chat not in view paints
+ * nothing. The Inspector, as after the arrows, shows a message the chat now shows: the one it had if that is still on the
+ * branch, else the branch's last reply.
+ */
+export async function showBranchChange(cid) {
+  if (S.activeConvId !== cid) return;
+  const seq = ++_branchSwitchSeq;
+  const token = S.conversationViewToken;
+  try {
+    if (!(await refreshConversationMessages(null, cid, { announce: false }))) return;
+    if (seq !== _branchSwitchSeq || S.activeConvId !== cid || S.conversationViewToken !== token) return;
+    const inspected = S.inspectedMsgId;
+    const shown = inspected != null && S.messages.some((m) => m.id === inspected);
+    const lastReply = S.messages.findLast((m) => m.role === "assistant" && m.id)?.id ?? null;
+    await refreshBranchInspector(seq, cid, token, inspected == null ? null : shown ? inspected : lastReply);
+  } catch (e) {
+    console.error("Failed to show the switched branch:", e);
   }
 }
 

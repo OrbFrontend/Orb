@@ -244,6 +244,21 @@ async def test_structured_endpoint_omits_tools_on_every_pass():
         assert "tool_choice" not in body, choice
 
 
+async def test_one_tool_call_is_asked_for_only_beside_native_tools():
+    # OpenAI's field qualifies ``tools``: sent beside them, never on a structured call that withholds them, never raw.
+    local = LLMClient("http://localhost:5000/v1")
+    body, _ = await _run(local, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice=FORCED, single_tool_call=True)
+    assert body["parallel_tool_calls"] is False and "single_tool_call" not in body
+    # A server that refuses it by name sheds it like any other optional field.
+    refusal = "Unrecognized request argument supplied: parallel_tool_calls"
+    assert ep_mod._refused_body_field(body, 400, refusal) == "parallel_tool_calls"
+    body, _ = await _run(local, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice=FORCED)
+    assert "parallel_tool_calls" not in body
+    structured = LLMClient("https://nano-gpt.com/api/v1")
+    body, _ = await _run(structured, _content_lines(ARGS_JSON), tools=[DIRECT_SCENE], tool_choice=FORCED, single_tool_call=True)
+    assert "tools" not in body and "parallel_tool_calls" not in body
+
+
 async def test_unlisted_endpoint_still_sends_tools():
     # The omission is scoped to endpoints that take structured output; everyone else keeps ordinary tool calling.
     client = LLMClient("http://localhost:5000/v1")

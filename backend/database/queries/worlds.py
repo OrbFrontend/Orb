@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from ..connection import build_set_clause, get_db, immediate_tx, select_rows
+from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import ActiveLorebookEntryRow, LorebookEntryRow, WorldChangesetRow, WorldRow
 
 # The layer/action vocabulary, mirrored by the CHECK constraints in schema.py. Upgraded databases get these columns via ALTER,
@@ -280,8 +280,18 @@ async def import_lorebook_entries(world_id: str, items: Sequence[Mapping[str, An
         return [r for r in rows if r is not None]
 
 
-async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow | None:
+async def update_lorebook_entry(
+    entry_id: int, data: dict, *, expected: Mapping[str, Any] | None = None, world_id: str | None = None
+) -> LorebookEntryRow | None:
+    """Update the entry's allowlisted fields; ``None`` when there is no such entry (in *world_id*, when given).
+
+    With *expected*, the named fields are compared and the update written in one transaction, raising ``StaleWrite`` if any
+    changed since the caller read them. The entry and World revisions advance as for any other edit.
+    """
     async with get_db() as db:
+        owner = {"world_id": world_id} if world_id is not None else None
+        if expected is not None and not await check_expected(db, "lorebook_entries", entry_id, expected, owner=owner):
+            return None
         existing = await _fetch_entry(db, entry_id)
         if existing is None:
             return None
@@ -593,15 +603,23 @@ async def mark_changesets_stale_for_messages(message_ids: Sequence[int]) -> int:
     """
     if not message_ids:
         return 0
-    placeholders = ", ".join("?" * len(message_ids))
     async with get_db() as db:
-        cur = await db.execute(
-            f"UPDATE world_changesets SET status = 'stale', decided_at = ? WHERE status = 'pending'"  # nosec B608 -- values parameterised, count only
-            f" AND (source_assistant_message_id IN ({placeholders}) OR source_user_message_id IN ({placeholders}))",
-            (_now(), *message_ids, *message_ids),
-        )
+        count = await mark_changesets_stale_on(db, message_ids)
         await db.commit()
-        return cur.rowcount
+        return count
+
+
+async def mark_changesets_stale_on(db, message_ids: Sequence[int]) -> int:
+    """:func:`mark_changesets_stale_for_messages` on an open connection, inside the caller's transaction."""
+    if not message_ids:
+        return 0
+    placeholders = ", ".join("?" * len(message_ids))
+    cur = await db.execute(
+        f"UPDATE world_changesets SET status = 'stale', decided_at = ? WHERE status = 'pending'"  # nosec B608 -- values parameterised, count only
+        f" AND (source_assistant_message_id IN ({placeholders}) OR source_user_message_id IN ({placeholders}))",
+        (_now(), *message_ids, *message_ids),
+    )
+    return cur.rowcount
 
 
 class RevisionConflict(RuntimeError):
