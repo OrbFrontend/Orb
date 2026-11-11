@@ -27,6 +27,7 @@ from ...inference import (
 )
 from .contracts import (
     CONTEXT_BUDGET_CHARS,
+    CONTEXT_SLACK_CHARS,
     MAX_MODEL_CALLS,
     MAX_RESULT_CHARS,
     MAX_TOOL_EXECUTIONS,
@@ -114,6 +115,22 @@ def _chars(messages: Sequence[Mapping[str, Any]]) -> int:
         total += len(content) if isinstance(content, str) else 0
         total += sum(len(call["function"]["arguments"]) for call in message.get("tool_calls") or ())
     return total
+
+
+def _replay_window(replay: Sequence[ChatMessage], room: int) -> list[ChatMessage]:
+    """The newest part of *replay* that fits *room* characters, starting at a request.
+
+    The start moves a whole ``CONTEXT_SLACK_CHARS`` at a time, measured from the transcript's own start, so one request and
+    the next replay the same opening and the server's prefix cache holds through it. A start that moved with every request
+    would re-read the whole history each time.
+    """
+    drop = max(0, -(-(_chars(replay) - room) // CONTEXT_SLACK_CHARS)) * CONTEXT_SLACK_CHARS
+    passed = 0
+    for index, message in enumerate(replay):
+        if message["role"] == "user" and passed >= drop:
+            return list(replay[index:])
+        passed += _chars([message])
+    return []
 
 
 def _repeated(output: ToolOutput) -> str:
@@ -236,7 +253,7 @@ async def run_assistant(
     # Restrict the tool list when forced choice is unreliable.
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(False))
     # The same call path and samplers as the pipeline's agent passes: the lane's own hyperparameters, its max_tokens included,
-    # with the system prompt as the cached prefix every call of the run shares.
+    # with the system prompt and the replayed history as the cached prefix every call of the run shares.
     samplers = extract_hyperparams(settings, lane="agent")
 
     system: ChatMessage = {"role": "system", "content": system_prompt(tools, single_call=single_call)}
@@ -248,8 +265,7 @@ async def run_assistant(
     replay = history_messages(history)
     if replay and replay[-1]["role"] == "user":
         replay.pop()
-    while replay and (replay[0]["role"] != "user" or _chars([*replay, latest]) > CONTEXT_BUDGET_CHARS):
-        replay.pop(0)
+    replay = _replay_window(replay, CONTEXT_BUDGET_CHARS - _chars([latest]))
     run: list[WireMessage] = []
     # Positions in ``run`` of the results that still carry their full body, oldest first, with what replaces each.
     full_results: list[tuple[int, str, str]] = []
@@ -259,16 +275,25 @@ async def run_assistant(
     made: dict[str, ToolOutput] = {}
 
     def fit() -> bool:
-        """Bring the working context under its budget; the newest result and the latest request are never dropped."""
-        while _chars([*replay, latest, *run]) > CONTEXT_BUDGET_CHARS:
-            if len(full_results) > 1:
-                index, call_id, compact = full_results.pop(0)
-                run[index] = tool_result(call_id, compact)
-            elif replay:
-                del replay[: 2 if len(replay) > 1 else 1]
-            else:
-                return False
-        return True
+        """Bring the working context under its budget; the newest result and the latest request are never dropped.
+
+        Every change here rewrites text the model has read, and the server re-reads the request from that point. So one pass
+        frees ``CONTEXT_SLACK_CHARS`` more than it must, and the calls after it only add to the end until the budget is
+        passed again. Results go first, since they sit after the history.
+        """
+
+        def size() -> int:
+            return _chars([*replay, latest, *run])
+
+        if size() <= CONTEXT_BUDGET_CHARS:
+            return True
+        low = CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS
+        while size() > low and len(full_results) > 1:
+            index, call_id, compact = full_results.pop(0)
+            run[index] = tool_result(call_id, compact)
+        if size() > CONTEXT_BUDGET_CHARS:
+            replay[:] = _replay_window(replay, low - _chars([latest, *run]))
+        return size() <= CONTEXT_BUDGET_CHARS
 
     def done(reason: str, message: str = "") -> AssistantEvent:
         """The terminal event; an early end names the confirmed changes, so it still reports the work already committed."""
@@ -293,21 +318,23 @@ async def run_assistant(
             if model_calls >= MAX_MODEL_CALLS:
                 raise _Limit
             model_calls += 1
-            messages: list[Mapping[str, Any]] = [system, *replay, latest, *run]
+            trailing: list[Mapping[str, Any]] = [latest, *run]
             if note:
                 # The retry says what was wrong on the message it answers, the request or a tool result: no call from the
                 # refused reply is replayed, so every call still has its one result and the prefix before it is unchanged.
-                messages[-1] = {**messages[-1], "content": f"{messages[-1]['content']}\n\n{note}"}
+                trailing[-1] = {**trailing[-1], "content": f"{trailing[-1]['content']}\n\n{note}"}
             offered = (
                 schemas
                 if forced is None or shared_tools
                 else [step if forced == STEP_TOOL_NAME else tool_schema(by_name[forced])]
             )
             response: CompletionMessage = {}
-            async for event in CachedBase(prefix=(system,), tools=tuple(offered), model=model).complete(
+            # The base ends after the replayed history: a provider that caches only at marked positions then finds the
+            # previous request's history under this one's, where the latest request and its run never repeat.
+            async for event in CachedBase(prefix=(system, *replay), tools=tuple(offered), model=model).complete(
                 client,
                 label=f"assistant:{forced or 'step'}",
-                trailing=messages[1:],
+                trailing=trailing,
                 tool_choice={"type": "function", "function": {"name": forced}} if forced else "required",
                 # An endpoint that answers a forced choice as ``auto`` may otherwise reply with several calls at once.
                 single_tool_call=True,

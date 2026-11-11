@@ -18,6 +18,9 @@ MAX_ITEM_CHARS = 8000
 # A user entry's view label, as the browser wrote it.
 MAX_VIEW_LABEL_CHARS = 200
 CONTEXT_BUDGET_CHARS = 20_000
+# How far the working context is brought under its budget once it passes it, and the step the replayed history's start
+# moves in: each rewrite of what the model already read re-reads everything after it, so they are made rarely and in bulk.
+CONTEXT_SLACK_CHARS = CONTEXT_BUDGET_CHARS // 4
 MAX_RESULT_CHARS = 6000
 
 STEP_TOOL_NAME = "assistant_step"

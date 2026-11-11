@@ -106,7 +106,12 @@ its view note after the user's own words.
 Replay and run together are held to 20,000 characters, excluding the system
 prompt. When they pass it, the oldest full tool results are replaced by their
 summaries and ids, then the oldest history goes; the newest result and the
-request are never dropped. A request that cannot fit at all is refused. Each
+request are never dropped. Each of these rewrites text the model has read, so
+it frees 5,000 characters more than it must and the next calls only append; a
+history too long to replay is cut at a request, in 5,000-character steps from
+its start, so consecutive requests replay the same opening (see
+[Keep the assistant off the turn's prefix](kv-cache.md#keep-the-assistant-off-the-turns-prefix)).
+A request that cannot fit at all is refused. Each
 result is at most 6,000 characters as encoded; tools bound their own output, and
 an oversized one becomes an error result rather than a cut value.
 
@@ -325,7 +330,8 @@ run in progress and counts the edits waiting for Apply; the marks are painted
 from attributes on `#app`, so a control rendered later shows them too.
 
 The transcript lives in `localStorage` under `orb-assistant-transcript`, at most
-100 entries, and whether the panel is open under `orb-assistant-open`, which is
+100 entries (past that the oldest 20 go together, so the replayed history keeps
+its start), and whether the panel is open under `orb-assistant-open`, which is
 restored at load on the wide layout only. Loading validates every entry from its
 known fields; malformed JSON is an empty transcript, and a full or blocked store
 leaves the assistant working from memory. What is stored is user text, answers,

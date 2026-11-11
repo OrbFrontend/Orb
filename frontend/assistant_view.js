@@ -4,6 +4,7 @@ import { esc, escAttr, sentenceDiff } from "./utils.js";
 
 export const MAX_ITEM_CHARS = 8000;
 const MAX_ITEMS = 100;
+const TRIMMED_ITEMS = 80;
 const MAX_LABEL_CHARS = 200;
 const MAX_NOTE_CHARS = 500;
 const MAX_IDS_CHARS = 2000;
@@ -243,9 +244,12 @@ export function serializeTranscript(items) {
   return JSON.stringify(items.map(storedItem).filter(Boolean).slice(-MAX_ITEMS));
 }
 
-/** Drop the oldest entries past the cap, in place. */
+/**
+ * Drop the oldest entries past the cap, in place, a block at a time: the server replays the transcript from its start, and
+ * a start that moved with every new entry would make the model read the whole history again on every request.
+ */
 export function trimTranscript(items) {
-  if (items.length > MAX_ITEMS) items.splice(0, items.length - MAX_ITEMS);
+  if (items.length > MAX_ITEMS) items.splice(0, items.length - TRIMMED_ITEMS);
 }
 
 const PROPOSAL_RECORDS = {
@@ -573,9 +577,9 @@ function cardHtml(card, index, { active, busy }) {
 const SUGGESTIONS = {
   chat: [
     "Summarise what has happened in this chat.",
-    "Which worlds does this chat use?",
-    "Rewrite the last reply to be shorter.",
     "Tighten entries for the active lorebook.",
+    "Rewrite the last reply to be shorter.",
+    "Save a checkpoint of this chat.",
   ],
   character: [
     "Summarise this character.",
