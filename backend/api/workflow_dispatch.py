@@ -1,8 +1,7 @@
 """On-demand workflow dispatch for one conversation, shared by the trigger route and the assistant's media tools.
 
-Both callers reach a workflow through its registered ``ON_DEMAND`` subscription, under the same locks and with the same
-context, so a hook cannot tell them apart. The one difference is enablement: the public route refuses a disabled workflow, and
-the assistant, acting on an explicit request, may run it anyway. Neither caller imports a plug-in.
+Both callers reach a workflow through its registered ``ON_DEMAND`` subscription, under the same enablement gate, locks and
+context, so a hook cannot tell them apart. Neither caller imports a plug-in.
 """
 
 from __future__ import annotations
@@ -88,22 +87,22 @@ def hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str) 
         raise HTTPException(status_code=500, detail=defect) from None
 
 
-async def run_on_demand(cid: str, workflow_id: str, body: dict, *, require_enabled: bool = True) -> Any:
+async def run_on_demand(cid: str, workflow_id: str, body: dict) -> Any:
     """Run *workflow_id*'s on-demand hook against conversation *cid* and return what it returns.
 
     A ``WorkflowEventStream`` it returns is lazy: its hook prepared it under the locks, which are released by the time it is
-    returned, and the caller consumes it. *require_enabled* is the public route's gate; the assistant passes ``False`` to run
-    a workflow the user has switched off, keeping every other check.
+    returned, and the caller consumes it.
     """
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     settings_snapshot = await get_settings()
-    sub = get_subscription(workflow_id, HookType.ON_DEMAND)
-    detail = f"Workflow {workflow_id!r} has no on_demand handler"
-    if require_enabled:
-        sub = gate_workflow_sub(sub, workflow_id, settings_snapshot, action="on-demand trigger", detail=detail)
-    elif sub is None:
-        raise HTTPException(status_code=404, detail=detail)
+    sub = gate_workflow_sub(
+        get_subscription(workflow_id, HookType.ON_DEMAND),
+        workflow_id,
+        settings_snapshot,
+        action="on-demand trigger",
+        detail=f"Workflow {workflow_id!r} has no on_demand handler",
+    )
     # Serialize against the pre/post hook iteration of an in-flight pipeline and against any other /trigger for the same (cid,
     # workflow_id), so the prior workflow_state read the hook depends on cannot be clobbered between read and write by a
     # concurrent caller.

@@ -1,5 +1,5 @@
-"""The assistant's remaining actions: new characters, worlds and personas, a chat's worlds, checkpoints, branch selection, and
-handoffs of a reply to the chat's own stream.
+"""The assistant's actions: new lore entries, characters, worlds and personas, a chat's worlds, checkpoints, branch
+selection, and handoffs of a reply to the chat's own stream.
 
 Creates are additive and go through each resource's own schema and writer, with server-generated ids. Chat mutations take the
 chat's lane through :func:`~backend.api.deps.idle_chat_admission`, read their target again once admitted, and hold the lane only
@@ -9,6 +9,7 @@ the chat's stream once this run has settled.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
@@ -16,8 +17,9 @@ from typing import Annotated, Any
 
 from pydantic import Field, StringConstraints, field_validator
 
-from ..database import (
+from ...database import (
     create_character_card,
+    create_lorebook_entry,
     create_user_persona,
     create_world,
     get_active_path,
@@ -29,14 +31,17 @@ from ..database import (
     set_conversation_world,
     switch_to_branch,
 )
-from ..database.models import ConversationRow, MessageRow
-from ..features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
-from .assistant_edits import CHARACTER_FIELDS, ID_CHARS, ReadRecord, chat_id, clip, not_blank, quoted, reply_target
-from .conversation_copy import checkpoint_conversation, checkpoint_title
-from .deps import ChatUnavailable, idle_chat_admission
-from .schemas import CharacterCardCreate, UserPersonaCreate, WorldCreate
+from ...database.models import ConversationRow, MessageRow
+from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from ..conversation_copy import checkpoint_conversation, checkpoint_title
+from ..deps import ChatUnavailable, idle_chat_admission
+from ..schemas import CharacterCardCreate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
+from .targets import ID_CHARS, chat_id, clip, not_blank, quoted, reply_target
 
 _NAME_CHARS = 200
+_LORE_CONTENT_CHARS = 4000
+_LORE_KEYWORD_CHARS = 100
+_LORE_KEYWORDS = 20
 _LONG_TEXT_CHARS = 4000
 _SHORT_TEXT_CHARS = 2000
 _TAG_CHARS = 60
@@ -55,6 +60,23 @@ def _chat_field() -> Any:
 
 
 _Tag = Annotated[str, StringConstraints(min_length=1, max_length=_TAG_CHARS)]
+_Keyword = Annotated[str, StringConstraints(min_length=1, max_length=_LORE_KEYWORD_CHARS)]
+
+
+class _LoreEntryArgs(ToolArguments):
+    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world (lorebook) to add the entry to.")
+    name: str = Field(min_length=1, max_length=_NAME_CHARS, description="The entry's title.")
+    content: str = Field(
+        min_length=1, max_length=_LORE_CONTENT_CHARS, description=f"The lore itself, at most {_LORE_CONTENT_CHARS} characters."
+    )
+    keywords: list[_Keyword] = Field(
+        default_factory=list,
+        max_length=_LORE_KEYWORDS,
+        description="Words that bring the entry into a chat when they come up.",
+    )
+    constant: bool = Field(default=False, description="Include the entry in every chat that uses the world, keywords or not.")
+
+    _blank = field_validator("name", "content", "keywords")(not_blank)
 
 
 class _CharacterCreate(ToolArguments):
@@ -112,11 +134,8 @@ class _Rewrite(_Regenerate):
     _blank = field_validator("direction")(not_blank)
 
 
-def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantTool]:
-    """This milestone's creates, chat actions and handoffs, bound to the view the request was sent from.
-
-    A create notes in *record* each text it stored exactly as sent: this run wrote it, so it has seen it whole.
-    """
+def build_action_tools(view: ViewContext) -> list[AssistantTool]:
+    """The creates, chat actions and handoffs, bound to the view the request was sent from."""
 
     tools = ToolSet()
 
@@ -138,10 +157,42 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
 
     @tools.add(
         "write",
+        _LoreEntryArgs,
+        "Add a new entry to a world (lorebook). It always adds one, even when an entry already has that name; "
+        "it never edits an entry.",
+        name="create_lorebook_entry",
+    )
+    async def add_lorebook_entry(args: _LoreEntryArgs) -> ToolOutput:
+        world = await get_world(args.world_id)
+        if world is None:
+            raise ToolFailure(f"No world has the id {args.world_id}. list_worlds shows the ids.")
+        # The entry route's own schema and writer: an authored entry with its defaults, and a world revision bump.
+        fields = LorebookEntryCreate(name=args.name, content=args.content, keywords=list(args.keywords), constant=args.constant)
+        entry = await create_lorebook_entry(world["id"], fields.model_dump())
+        world_name = clip(world["name"], _NAME_CHARS)
+        data = {
+            "created": True,
+            "world": {"id": world["id"], "name": world_name},
+            "entry": {
+                "id": entry["id"],
+                "name": clip(entry["name"], _NAME_CHARS),
+                "keywords": entry["keywords"] or [],
+                "constant": bool(entry["constant"]),
+                "enabled": bool(entry["enabled"]),
+            },
+        }
+        return ToolOutput(
+            data,
+            f"Created lore entry {json.dumps(data['entry']['name'], ensure_ascii=False)} in {world_name}.",
+            {"world_id": world["id"], "entry_id": entry["id"]},
+            committed=({"kind": "lorebook_entry", "world_id": world["id"], "entry_id": entry["id"]},),
+        )
+
+    @tools.add(
+        "write",
         _CharacterCreate,
         "Create a character card from authored text." + _ADDITIVE,
         name="create_character",
-        target=lambda args: {"kind": "character"},
     )
     async def add_character(args: _CharacterCreate) -> ToolOutput:
         # The creation route's own schema and writer, without the parts of that route that import: no embedded book, no
@@ -152,8 +203,6 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         card["source_format"] = "manual"
         created = await create_character_card(card)
         card_id = str(card["id"])
-        for name in CHARACTER_FIELDS:
-            record.shown("character", card_id, name, str(created.get(name) or ""), getattr(args, name))
         data = {
             "created": True,
             "character": {"id": card_id, "name": clip(created.get("name"), _NAME_CHARS)},
@@ -171,7 +220,6 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         _WorldCreate,
         "Create an empty world (lorebook); it is not global and no chat uses it yet." + _ADDITIVE,
         name="create_world",
-        target=lambda args: {"kind": "world"},
     )
     async def add_world(args: _WorldCreate) -> ToolOutput:
         # Never global and never attached: either is a separate choice the user makes.
@@ -193,12 +241,9 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         _PersonaCreate,
         "Create a persona, someone the user plays; it does not become the active one." + _ADDITIVE,
         name="create_persona",
-        target=lambda args: {"kind": "persona"},
     )
     async def add_persona(args: _PersonaCreate) -> ToolOutput:
         persona = await create_user_persona(UserPersonaCreate(name=args.name, description=args.description).model_dump())
-        record.shown("persona", persona["id"], "name", persona["name"] or "", args.name)
-        record.shown("persona", persona["id"], "description", persona["description"] or "", args.description)
         data = {
             "created": True,
             "persona": {"id": persona["id"], "name": clip(persona["name"], _NAME_CHARS)},
@@ -216,11 +261,6 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         _ChatWorld,
         "Use a world in one chat, or stop using it there. Give the state the user asked for, never a flip. "
         "It changes nothing else about the chat and reports whether the world is global.",
-        target=lambda args: {
-            "kind": "chat_worlds",
-            "conversation_id": args.conversation_id or view.conversation_id,
-            "world_id": args.world_id,
-        },
         idempotent=True,
     )
     async def set_chat_world(args: _ChatWorld) -> ToolOutput:
@@ -262,7 +302,6 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         "write",
         _Checkpoint,
         "Copy a chat's kept branch into a new, separate chat. The chat in view is not switched.",
-        target=lambda args: {"kind": "conversation"},
     )
     async def checkpoint_chat(args: _Checkpoint) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
@@ -296,7 +335,6 @@ def build_action_tools(view: ViewContext, record: ReadRecord) -> list[AssistantT
         "Show the branch containing one message in a chat, as the branch arrows do. The request ends once it has "
         "switched, since the chat then reads differently.",
         name="switch_branch",
-        target=lambda args: {"kind": "branch", "conversation_id": args.conversation_id or view.conversation_id},
         idempotent=True,
     )
     async def select_branch(args: _Branch) -> ToolOutput:

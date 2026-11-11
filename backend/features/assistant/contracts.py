@@ -23,9 +23,10 @@ MAX_RESULT_CHARS = 6000
 STEP_TOOL_NAME = "assistant_step"
 REPLY = "reply"
 
-# ``read`` runs at once and ``write`` commits at once. ``confirm`` writes nothing: it stores a proposal, and the run ends to wait
-# for the user's Apply, which commits outside the run. ``handoff`` writes nothing either: it checks a target and names it, the
-# run ends, and the browser starts the work in that target's own stream, which owns it from then on.
+# ``read`` runs at once and ``write`` commits at once. ``confirm`` writes nothing: it stores a proposal and the run carries on;
+# the user reviews every proposal once the run ends, and their Apply commits outside the run. ``handoff`` writes nothing either:
+# it checks a target and names it, the run ends, and the browser starts the work in that target's own stream, which owns it
+# from then on.
 ToolBehavior = Literal["read", "write", "confirm", "handoff"]
 
 _JSON_TYPES: dict[Any, str] = {str: "string", int: "integer", bool: "boolean"}
@@ -73,7 +74,8 @@ class ToolOutput:
     ids: Mapping[str, Any] = field(default_factory=dict)
     # For a write: the resources it committed, each ``{"kind": ..., <ids>}``. Returned only after the commit.
     committed: tuple[Mapping[str, Any], ...] = ()
-    # For a confirm tool: the preview the browser shows with Apply and Cancel, naming the proposal that Apply commits.
+    # For a confirm tool: the preview the browser shows with Apply and Cancel, naming the proposal that Apply commits. A later
+    # preview with the same proposal id replaces the earlier one.
     proposal: Mapping[str, Any] | None = None
     # For a handoff tool: the checked target the browser passes to its own stream, ``{conversation_id, message_id, ...}``.
     handoff: Mapping[str, Any] | None = None
@@ -88,9 +90,6 @@ class AssistantTool:
     arguments: type[ToolArguments]
     behavior: ToolBehavior
     run: Callable[[Any], Awaitable[ToolOutput]]
-    # For a write: what its validated arguments may change, in the shape of a committed resource without the ids a commit
-    # assigns. A browser that never learns the outcome reconciles this.
-    target: Callable[[Any], Mapping[str, Any]] | None = None
     # A write that sets an explicit state, so running it again changes nothing: exempt from the rule that a change runs once.
     idempotent: bool = False
     # A tool that may run for minutes and reports progress labels to the run's progress queue while it does.

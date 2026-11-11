@@ -7,40 +7,35 @@ const MAX_ITEMS = 100;
 const MAX_LABEL_CHARS = 200;
 const MAX_NOTE_CHARS = 500;
 const MAX_IDS_CHARS = 2000;
-const MAX_FIELDS = 8;
+// A run proposes at most one edit per tool run, so one card holds every edit a run can propose.
+const MAX_PROPOSALS = 12;
 // Unchanged text shown on each side of a change; the whole new text stays one click away.
 const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
 const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied", "handoff"]);
-const NO_RESULT = "No result was received.";
-// A write that started and was never answered may or may not have committed; nothing resends it.
-export const UNKNOWN_OUTCOME = "Outcome unknown; check the target.";
-const COMMITTED_UNANSWERED = "Done; its result was not received.";
+const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
 const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply"]);
 const MAX_DIRECTION_CHARS = 500;
-// A proposal's states besides `pending`. Only `pending` and `unconfirmed` (an Apply that was never answered) can be applied,
-// and only while the proposal is the one this page is holding; a stored card is always one of the inert states.
+// A proposed edit's states besides `pending`. Only a pending edit on the card this page holds can be applied; a stored
+// card's pending edits load as historical.
 const PROPOSAL_NOTES = {
-  applying: "Applying…",
-  unconfirmed: "Apply was not confirmed. Retry it, or check the target.",
   applied: "Applied.",
   cancelled: "Cancelled; nothing was changed.",
-  superseded: "Not applied: a newer request replaced it.",
   stale: "Not applied: the text changed after this preview.",
   missing: "Not applied: what it edits no longer exists.",
   expired: "Not applied: this proposal expired.",
-  historical: "From an earlier visit; it can no longer be applied.",
-  unknown: "Apply outcome unknown; check the target.",
+  historical: "Not applied, and no longer open to Apply.",
 };
-// What survives a reload: anything still open becomes historical, and an Apply in flight becomes an unknown outcome.
 const PROPOSAL_STATES = new Set(["pending", ...Object.keys(PROPOSAL_NOTES)]);
-const STORED_STATE = { pending: "historical", superseded: "historical", applying: "unknown", unconfirmed: "unknown" };
-const ASK_AGAIN = new Set(["stale", "missing", "expired", "historical", "superseded"]);
+// The verdicts Apply answers that settle an edit; `busy` leaves it pending, to try again.
+const VERDICTS = new Set(["applied", "stale", "missing", "expired"]);
+const ASK_AGAIN = new Set(["stale", "missing", "expired", "historical"]);
 
 const text = (value, cap) => (typeof value === "string" ? value.slice(0, cap) : "");
 const id = (value) => (typeof value === "string" && value && value.length <= 64 ? value : null);
 const rowId = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
+const count = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 
 function storedContext(value) {
   if (!value || typeof value !== "object" || !MODES.has(value.mode)) return null;
@@ -62,6 +57,24 @@ function storedIds(value) {
   }
 }
 
+// One proposed edit as stored: its labels, lengths and state, never its texts or id, so it can never be applied again.
+function storedProposal(value) {
+  const tool = text(value?.tool, 64);
+  const status = value?.status === "pending" ? "historical" : value?.status;
+  if (!tool || !PROPOSAL_STATES.has(status)) return null;
+  const entry = {
+    tool,
+    label: text(value.label, MAX_LABEL_CHARS),
+    field: text(value.field, 64),
+    beforeChars: count(value.beforeChars),
+    afterChars: count(value.afterChars),
+    status,
+  };
+  const target = resource(value.target);
+  if (target) entry.target = target;
+  return entry;
+}
+
 // One entry rebuilt from its known fields only: anything else a stored or forged entry carries is dropped, so loading a
 // transcript can never bring back live state such as a running tool or a control that acts.
 function storedItem(value) {
@@ -76,44 +89,32 @@ function storedItem(value) {
     const tool = text(value.tool, 64);
     if (!tool) return null;
     const running = value.running === true;
-    const result = running ? unanswered(value) : body;
-    const item = { kind: "tool", tool, text: result, ok: running ? !!value.committed?.length : value.ok === true };
+    const item = { kind: "tool", tool, text: running ? NO_RESULT : body, ok: !running && value.ok === true };
     const note = text(value.note, MAX_NOTE_CHARS);
     const ids = storedIds(value.ids);
-    const target = resource(value.target);
     if (note) item.note = note;
     if (ids) item.ids = ids;
-    // An unknown outcome keeps what it may have changed, so a later request can be told to check it rather than redo it.
-    if (result === UNKNOWN_OUTCOME || value.unknown === true) item.unknown = true;
-    if (target && item.unknown) item.target = target;
     return item;
   }
-  if (value.kind === "proposal") {
-    const tool = text(value.tool, 64);
-    const status = STORED_STATE[value.status] || value.status;
-    if (!tool || !PROPOSAL_STATES.has(status)) return null;
-    const item = { kind: "proposal", tool, label: text(value.label, MAX_LABEL_CHARS), status };
-    const fields = Array.isArray(value.fields) ? value.fields : [];
-    item.fields = fields.slice(0, MAX_FIELDS).map((field) => ({ label: text(field?.label, 64) }));
+  if (value.kind === "proposals") {
+    const proposals = (Array.isArray(value.proposals) ? value.proposals : [])
+      .slice(0, MAX_PROPOSALS)
+      .map(storedProposal)
+      .filter(Boolean);
+    if (!proposals.length) return null;
+    const card = { kind: "proposals", proposals };
     const request = text(value.request, MAX_ITEM_CHARS);
-    const target = resource(value.target);
-    if (request) item.request = request;
-    if (target) item.target = target;
-    return item;
+    const note = text(value.note, MAX_NOTE_CHARS);
+    if (request) card.request = request;
+    if (note) card.note = note;
+    return card;
   }
   if (value.kind === "outcome" && OUTCOMES.has(value.reason))
     return { kind: "outcome", reason: value.reason, text: body };
   return null;
 }
 
-// What a tool still waiting for its result says once the run is over: a read got nothing, a write may have committed.
-function unanswered(item) {
-  if (item.committed?.length) return COMMITTED_UNANSWERED;
-  return item.write === true ? UNKNOWN_OUTCOME : NO_RESULT;
-}
-
-// The ids each resource kind carries, each with its check and whether it is required. A create's target names only its kind,
-// since the id is the server's to assign; whatever that list shows is read again.
+// The ids each resource kind carries, each with its check and whether it is required.
 const MESSAGE_IDS = { conversation_id: [id, true], message_id: [rowId, true] };
 const RESOURCE_IDS = {
   lorebook_entry: { world_id: [id, true], entry_id: [rowId, false] },
@@ -178,7 +179,7 @@ export function handoffOutcome(handoff, status) {
 }
 
 /** Validate resources a server response named, for the caller to read again. */
-export function resources(values) {
+function resources(values) {
   return (Array.isArray(values) ? values : []).map(resource).filter(Boolean);
 }
 
@@ -214,17 +215,15 @@ export function trimTranscript(items) {
 
 const PROPOSAL_RECORDS = {
   pending: "proposed, not applied",
-  applying: "proposed; Apply outcome unknown, check the target",
-  unconfirmed: "proposed; Apply outcome unknown, check the target",
-  unknown: "proposed; Apply outcome unknown, check the target",
   applied: "applied by the user",
   cancelled: "cancelled by the user; nothing changed",
-  superseded: "proposed, never applied",
   historical: "proposed, never applied",
   stale: "not applied: the text changed first",
   missing: "not applied: the target was gone",
   expired: "not applied: the proposal expired",
 };
+
+const edited = (entry) => `${entry.field ? `${entry.field.toLowerCase()} of ` : ""}${entry.label}`;
 
 /** The entries a run replays to the server. Tool and outcome entries go as text records; the server quotes them. */
 export function runItems(items) {
@@ -232,17 +231,15 @@ export function runItems(items) {
   for (const item of items.slice(-MAX_ITEMS)) {
     if (item.kind === "user") out.push({ kind: "user", text: item.text, view: item.context.label });
     else if (item.kind === "assistant") out.push({ kind: "assistant", text: item.text });
-    else if (item.kind === "tool" && !item.running) {
-      // An unknown outcome is not a failure: "failed" would invite doing it again.
-      const state = item.unknown
-        ? "outcome unknown, may have happened; check before redoing"
-        : item.ok
-          ? "ok"
-          : "failed";
-      const target = item.unknown && item.target ? ` Target: ${JSON.stringify(item.target)}` : "";
-      out.push({ kind: "tool", tool: item.tool, text: `${state}: ${item.text}${target}` });
-    } else if (item.kind === "proposal")
-      out.push({ kind: "tool", tool: item.tool, text: `${PROPOSAL_RECORDS[item.status]}: edit to ${item.label}` });
+    else if (item.kind === "tool" && !item.running)
+      out.push({ kind: "tool", tool: item.tool, text: `${item.ok ? "ok" : "failed"}: ${item.text}` });
+    else if (item.kind === "proposals")
+      for (const entry of item.proposals)
+        out.push({
+          kind: "tool",
+          tool: entry.tool,
+          text: `${PROPOSAL_RECORDS[entry.status]}: edit to the ${edited(entry)}`,
+        });
     else if (item.kind === "outcome") out.push({ kind: "outcome", text: `${item.reason}: ${item.text}` });
   }
   return out.map((item) => ({ ...item, text: item.text.slice(0, MAX_ITEM_CHARS) }));
@@ -271,40 +268,35 @@ function payload(data) {
   }
 }
 
-/** A `confirm` event's preview as a live proposal entry, or null. Field texts are kept whole: they are what Apply commits. */
-function proposalItem(tool, value, run) {
+/** A `confirm` event's preview as a live card entry, or null. Its texts are kept whole: they are what Apply commits. */
+function proposalEntry(tool, value) {
   const proposalId = id(value?.proposal_id);
-  const fields = (Array.isArray(value?.fields) ? value.fields : [])
-    .slice(0, MAX_FIELDS)
-    .flatMap((field) =>
-      typeof field?.before === "string" && typeof field?.after === "string"
-        ? [{ label: text(field.label, 64) || text(field.field, 64), before: field.before, after: field.after }]
-        : [],
-    );
-  if (!proposalId || !fields.length) return null;
+  const field = Array.isArray(value?.fields) ? value.fields[0] : null;
+  if (!proposalId || typeof field?.before !== "string" || typeof field?.after !== "string") return null;
   return {
-    kind: "proposal",
-    tool: text(tool, 64) || "edit",
     proposalId,
+    tool: text(tool, 64) || "edit",
     label: text(value.label, MAX_LABEL_CHARS),
-    fields,
+    field: text(field.label, 64) || text(field.field, 64),
+    before: field.before,
+    after: field.after,
+    beforeChars: field.before.length,
+    afterChars: field.after.length,
     target: resource(value.target),
-    request: text(run.request, MAX_ITEM_CHARS),
-    context: run.context || null,
     status: "pending",
   };
 }
 
 /**
- * Apply one stream event to *run* (`{ items, note, status, terminal, writes?, request?, context? }`). `terminal` is set
- * only by `done` or `error`: a stream that simply ends leaves it null, which `settleRun` reports as interrupted, never as an
- * answer. `writes` collects this run's write entries, so settlement knows what to reconcile, `proposal` the edit it
- * proposed, and `handoff` the reply it asks the chat to generate once it has settled. Returns the resources a `mutation` committed, for the caller to read again, and otherwise an empty list.
+ * Apply one stream event to *run* (`{ items, note, status, terminal, request? }`). `terminal` is set only by `done` or
+ * `error`: a stream that simply ends leaves it null, which `settleRun` reports as interrupted, never as an answer.
+ * `proposals` collects the edits the run proposed, a later preview of one replacing its entry; `failed` notes a tool
+ * result that came back failed; `handoff` is the reply the run asks the chat to generate once it has settled. Returns the
+ * resources a `mutation` committed, for the caller to read again, and otherwise an empty list.
  */
 export function applyStreamEvent(run, event, data, errorMessage) {
   const d = payload(data);
   let committed = [];
-  run.writes ||= [];
   if (event === "progress") {
     run.status = text(d.label, MAX_LABEL_CHARS);
   } else if (event === "assistant_message") {
@@ -315,21 +307,10 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     const item = { kind: "tool", tool: text(d.tool, 64) || "tool", text: "", ok: false, running: true };
     if (typeof d.call_id === "string") item.callId = d.call_id;
     if (run.note) item.note = run.note;
-    if (d.write === true) {
-      item.write = true;
-      item.target = resource(d.target);
-      run.writes.push(item);
-    }
     run.note = "";
     run.items.push(item);
   } else if (event === "mutation") {
-    const item = run.writes.findLast((entry) => entry.callId === d.call_id);
-    if (item) {
-      item.committed = resources(d.resources);
-      // Kept even if the result itself never arrives: what was committed outlives the run.
-      item.ids ||= storedIds({ committed: item.committed });
-      committed = item.committed;
-    }
+    committed = resources(d.resources);
   } else if (event === "tool_result") {
     const item = run.items.findLast((entry) => entry.kind === "tool" && entry.running && entry.callId === d.call_id);
     if (item) {
@@ -339,17 +320,18 @@ export function applyStreamEvent(run, event, data, errorMessage) {
       const ids = storedIds(d.ids);
       if (ids && Object.keys(ids).length) item.ids = ids;
     }
+    if (d.ok !== true) run.failed = true;
   } else if (event === "confirm") {
-    const item = proposalItem(d.tool, d.proposal, run);
-    if (item) {
-      run.items.push(item);
-      run.proposal = item;
-    }
+    const entry = proposalEntry(d.tool, d.proposal);
+    run.proposals ||= [];
+    const index = entry ? run.proposals.findIndex((item) => item.proposalId === entry.proposalId) : -1;
+    if (index >= 0) run.proposals[index] = entry;
+    else if (entry && run.proposals.length < MAX_PROPOSALS) run.proposals.push(entry);
   } else if (event === "handoff") {
     const target = handoffTarget(d);
     if (target) run.handoff = target;
   } else if (event === "done") {
-    run.terminal = OUTCOMES.has(d.reason) || d.reason === "awaiting_apply" ? d.reason : "reply";
+    run.terminal = OUTCOMES.has(d.reason) ? d.reason : "reply";
     if (run.terminal === "limit")
       run.items.push({ kind: "outcome", reason: "limit", text: text(d.message, MAX_ITEM_CHARS) });
     else if (run.terminal === "stopped")
@@ -367,16 +349,15 @@ export function applyStreamEvent(run, event, data, errorMessage) {
 }
 
 /**
- * Close *run* once its stream is over: tools still waiting get no result, and a run without a verdict gets one. A write
- * still waiting is marked as committed when its `mutation` came, and as an unknown outcome when it did not.
+ * Close *run* once its stream is over: tools still waiting get no result, a run without a verdict gets one, and the edits
+ * it proposed become one card at its end, however it ended (`run.card`): proposing wrote nothing, so showing them is safe.
  */
 export function settleRun(run, { stopped = false, failure = "" } = {}) {
   for (const item of run.items) {
     if (item.kind !== "tool" || !item.running) continue;
     delete item.running;
-    item.ok = !!item.committed?.length;
-    item.text = unanswered(item);
-    if (item.text === UNKNOWN_OUTCOME) item.unknown = true;
+    item.ok = false;
+    item.text = NO_RESULT;
   }
   if (!run.terminal) {
     const outcome = stopped
@@ -387,48 +368,42 @@ export function settleRun(run, { stopped = false, failure = "" } = {}) {
     run.items.push(outcome);
     run.terminal = outcome.reason;
   }
+  if (run.proposals?.length) {
+    run.card = { kind: "proposals", proposals: run.proposals, request: text(run.request, MAX_ITEM_CHARS) };
+    run.items.push(run.card);
+  }
   run.status = "";
   trimTranscript(run.items);
 }
 
-/**
- * What *run* may have changed and the browser should read again: every resource its writes committed, the target of each
- * write whose outcome never arrived, and the message of every media job, which may have saved an artifact as it was stopped
- * or failed. Deduplicated, in the order they were written.
- */
-export function affectedResources(run) {
-  const seen = new Map();
-  for (const item of run.writes || []) {
-    const found = item.committed?.length
-      ? item.committed
-      : item.target && (item.text === UNKNOWN_OUTCOME || item.target.kind === "media")
-        ? [item.target]
-        : [];
-    for (const entry of found) seen.set(JSON.stringify(entry), entry);
-  }
-  return [...seen.values()];
+/** The ids of *card*'s edits still waiting for Apply. */
+export function pendingIds(card) {
+  return card.proposals.filter((entry) => entry.status === "pending").map((entry) => entry.proposalId);
 }
 
 /**
- * The proposal state an Apply failure leaves, from the server's refusal; anything unexplained is unconfirmed. *previous* is
- * the card's state before this Apply: after an Apply that was never answered, "expired" or "stale" may only mean the first
- * one committed (the server lost its record, or now holds the approved text), so the outcome is unknown, never "not applied".
+ * Record Apply's *results* (`[{proposal_id, verdict, ...}]`) on *card*'s pending edits. `busy` leaves an edit pending with
+ * its note; an unknown verdict leaves it as it was. Returns what the applied ones changed and their summaries.
  */
-export function applyRefusal(error, previous = "pending") {
-  let detail = null;
-  try {
-    detail = JSON.parse(error?.body || "null")?.detail;
-  } catch {}
-  const code = detail && typeof detail === "object" ? detail.code : null;
-  const message = typeof detail?.message === "string" ? detail.message.slice(0, MAX_NOTE_CHARS) : "";
-  const retried = previous === "unconfirmed" || previous === "applying";
-  if (retried && (error?.status === 410 || (error?.status === 409 && code === "stale")))
-    return { status: "unknown", note: "" };
-  if (error?.status === 409 && code === "busy") return { status: "pending", note: message };
-  if (error?.status === 409 && code === "stale") return { status: "stale", note: "" };
-  if (error?.status === 404) return { status: "missing", note: "" };
-  if (error?.status === 410) return { status: "expired", note: "" };
-  return { status: "unconfirmed", note: "" };
+export function applyVerdicts(card, results) {
+  const out = { resources: [], summaries: [] };
+  const skipped = [];
+  for (const result of Array.isArray(results) ? results : []) {
+    const entry = card.proposals.find((item) => item.status === "pending" && item.proposalId === result?.proposal_id);
+    if (!entry) continue;
+    delete entry.note;
+    if (result.verdict === "busy") entry.note = text(result.message, MAX_NOTE_CHARS) || "Busy; try again shortly.";
+    else if (VERDICTS.has(result.verdict)) entry.status = result.verdict;
+    if (entry.status === "applied") {
+      out.resources.push(...resources(result.resources));
+      out.summaries.push(text(result.summary, MAX_NOTE_CHARS) || `Applied the edit to the ${edited(entry)}.`);
+    } else if (entry.status !== "pending") skipped.push(edited(entry));
+  }
+  card.note =
+    skipped.length && out.summaries.length
+      ? `Applied ${out.summaries.length}; skipped ${skipped.length}: ${skipped.join("; ")}.`.slice(0, MAX_NOTE_CHARS)
+      : "";
+  return out;
 }
 
 function clipped(value, { head, tail }) {
@@ -456,33 +431,51 @@ export function diffHtml(before, after) {
     .join("");
 }
 
-function proposalHtml(item, index, { active, busy }) {
-  const live = item === active && (item.status === "pending" || item.status === "unconfirmed");
-  const fields = (item.fields || [])
-    .map((field) =>
-      field.before === undefined
-        ? `<div class="asst-diff-label">${esc(field.label)}</div>`
-        : `<div class="asst-diff-label">${esc(field.label)}</div>` +
-          `<div class="asst-diff">${diffHtml(field.before, field.after)}</div>` +
-          `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(field.after)}</div></details>`,
+function entryHtml(entry) {
+  const size = `${entry.beforeChars.toLocaleString("en-US")} → ${entry.afterChars.toLocaleString("en-US")} characters`;
+  const diff =
+    entry.before === undefined
+      ? ""
+      : `<div class="asst-diff">${diffHtml(entry.before, entry.after)}</div>` +
+        `<details class="asst-diff-full"><summary>Full new text</summary><div class="asst-diff-text">${esc(entry.after)}</div></details>`;
+  const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
+  return (
+    `<div class="asst-edit asst-edit-${entry.status}">` +
+    `<div class="asst-diff-label">${esc(entry.field || "Text")} <span class="asst-diff-size">${size}</span></div>${diff}` +
+    (note ? `<div class="asst-proposal-note">${esc(note)}</div>` : "") +
+    "</div>"
+  );
+}
+
+function cardHtml(card, index, { active, busy }) {
+  const groups = new Map();
+  for (const entry of card.proposals) {
+    if (!PROPOSAL_STATES.has(entry.status)) continue;
+    const key = JSON.stringify([entry.label, entry.target]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(entry);
+  }
+  const body = [...groups.values()]
+    .map(
+      (entries) =>
+        `<div class="asst-proposal-target">${esc(entries[0].label || "an item")}</div>${entries.map(entryHtml).join("")}`,
     )
     .join("");
-  const note = item.note || PROPOSAL_NOTES[item.status] || "";
-  const attr = `data-proposal-id="${escAttr(item.proposalId || "")}"`;
+  const pending = card.proposals.some((entry) => entry.status === "pending");
   const disabled = busy ? " disabled" : "";
   let controls = "";
-  if (live) {
-    const apply = item.status === "unconfirmed" ? "Retry Apply" : "Apply";
+  if (card === active && pending) {
     controls =
-      `<button type="button" class="btn btn-accent btn-sm" data-wf-action="assistant:apply" ${attr}${disabled}>${apply}</button>` +
-      `<button type="button" class="btn btn-sm" data-wf-action="assistant:cancel" ${attr}${disabled}>Cancel</button>`;
-  } else if (ASK_AGAIN.has(item.status) && item.request) {
-    controls = `<button type="button" class="btn btn-sm" data-wf-action="assistant:askAgain" data-index="${index}">Ask again</button>`;
+      `<button type="button" class="btn btn-accent btn-sm" data-wf-action="assistant:apply"${disabled}>Apply</button>` +
+      `<button type="button" class="btn btn-sm" data-wf-action="assistant:cancel"${disabled}>Cancel</button>`;
+  } else if (card.request && card.proposals.some((entry) => ASK_AGAIN.has(entry.status))) {
+    controls = `<button type="button" class="btn btn-sm" data-wf-action="assistant:askAgain" data-index="${escAttr(String(index))}">Ask again</button>`;
   }
+  const total = card.proposals.length;
   return (
-    `<div class="asst-proposal asst-proposal-${item.status}" role="group" aria-label="Proposed edit">` +
-    `<div class="asst-proposal-head">Proposed edit to ${esc(item.label || "an item")}</div>${fields}` +
-    (note ? `<div class="asst-proposal-note">${esc(note)}</div>` : "") +
+    `<div class="asst-proposal${pending && card === active ? " asst-proposal-live" : ""}" role="group" aria-label="Proposed edits">` +
+    `<div class="asst-proposal-head">${total === 1 ? "Proposed edit" : `${total} proposed edits`}</div>${body}` +
+    (card.note ? `<div class="asst-proposal-note">${esc(card.note)}</div>` : "") +
     (controls ? `<div class="asst-proposal-actions">${controls}</div>` : "") +
     "</div>"
   );
@@ -494,7 +487,7 @@ const EMPTY =
 /**
  * The log's markup. User text, labels, tool lines, outcomes and proposed edits are escaped; only an assistant reply goes
  * through *renderProse*, inside `.msg-body`, where no element can name an action. Apply and Cancel are drawn only on
- * *active*, the one proposal this page holds, and are disabled while *busy*.
+ * *active*, the one card this page holds, and are disabled while *busy*.
  */
 export function transcriptHtml(items, renderProse, { active = null, busy = false } = {}) {
   if (!items.length) return EMPTY;
@@ -517,8 +510,8 @@ export function transcriptHtml(items, renderProse, { active = null, busy = false
         `<div class="asst-tool${state}">${note}<div class="asst-tool-line"><span class="asst-tool-name">${esc(item.tool)}</span>` +
           `<span class="asst-tool-text">${esc(result)}</span></div></div>`,
       );
-    } else if (item.kind === "proposal" && PROPOSAL_STATES.has(item.status)) {
-      parts.push(proposalHtml(item, index, { active, busy }));
+    } else if (item.kind === "proposals") {
+      parts.push(cardHtml(item, index, { active, busy }));
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {
       parts.push(`<div class="asst-outcome asst-outcome-${item.reason}">${esc(item.text)}</div>`);
     }

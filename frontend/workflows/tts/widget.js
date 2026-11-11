@@ -5,7 +5,6 @@ import {
   clearWorkflowPhase,
   convUrl,
   deleteWorkflowAttachment,
-  effectiveWorkflowEnabled,
   getActiveConvId,
   getMessages,
   messageSegments,
@@ -507,12 +506,6 @@ export function attachmentRenderer(ctx) {
       : "";
   const canEdit = canMutate();
   const mutationDisabled = canEdit ? "" : " disabled";
-  // A clip still plays while Text-to-Speech is switched off, but making speech again runs the workflow, which refuses then.
-  const remakeDisabled = !canEdit
-    ? " disabled"
-    : effectiveWorkflowEnabled(WORKFLOW_ID)
-      ? ""
-      : ' disabled title="Switch Text-to-Speech on to make speech again"';
   const item = `type="button" role="menuitem" class="wf-claim-item tts-menu-item"`;
   const stepButtons =
     total > 1
@@ -521,7 +514,7 @@ export function attachmentRenderer(ctx) {
       : "";
   const evicted = Boolean(att.evicted);
   const restore = evicted
-    ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${remakeDisabled}>Restore speech</button>`
+    ? `<button ${item} data-wf-action="tts:rehydrate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Restore speech</button>`
     : "";
   const icon = state?.playing && !state.paused ? "pause" : "play";
   const caret = stopButtonState(msg?.id ? workflowActionJob(msg.id, att.id) : null, "Speech options", "Speech options");
@@ -532,7 +525,7 @@ export function attachmentRenderer(ctx) {
     <button type="button" class="tts-chip-caret${caret.cls}"${caret.attrs} aria-haspopup="menu" aria-expanded="false" data-wf-action="tts:menu" data-msg-id="${msg?.id || ""}" data-att="${att.id}">${ICON_CARET}</button>
     <template class="tts-menu-items">
       ${restore}
-      <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${remakeDisabled}>Regenerate speech</button>
+      <button ${item} data-wf-action="tts:regenerate" data-msg-id="${msg?.id || ""}" data-att="${att.id}"${mutationDisabled}>Regenerate speech</button>
       ${stepButtons}
       <button ${item} data-wf-action="tts:download" data-att="${att.id}"${evicted ? " disabled" : ""}>Download audio</button>
       <button type="button" role="menuitem" class="wf-claim-item tts-menu-item danger" data-wf-action="tts:delete" data-msg-id="${msgId}" data-root-id="${root.id}"${mutationDisabled}>Delete speech</button>

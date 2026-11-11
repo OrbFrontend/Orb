@@ -199,13 +199,7 @@ function _renderExtraButtons(msg) {
   if (!S.workflowMessageButtonRenderers.length) return "";
   let html = "";
   for (const { workflowId, render } of S.workflowMessageButtonRenderers) {
-    // A disabled workflow draws nothing, except where its saved artifacts live in the toolbar: they stay reachable.
-    const owns = (msg.workflow_attachments || []).some((a) => a.workflow_id === workflowId);
-    if (
-      !effectiveWorkflowEnabled(workflowId) &&
-      !(owns && S.workflowAttachmentPlacements[workflowId]?.placement === "actions")
-    )
-      continue;
+    if (!effectiveWorkflowEnabled(workflowId)) continue;
     try {
       const piece = render(msg);
       if (typeof piece === "string" && piece) html += piece;

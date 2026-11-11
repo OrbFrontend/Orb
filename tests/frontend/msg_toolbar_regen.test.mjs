@@ -73,36 +73,3 @@ it("row markup reads nothing but its own message", () => {
     assert.equal(alone, inContext, `row ${m.id} renders differently once its neighbours are gone`);
   }
 });
-
-// A switched-off workflow draws no message button, except one whose saved artifacts live in the toolbar (speech): those
-// stay reachable while it is off, so a clip saved then still has its player.
-it("a disabled workflow's button renders only for a message holding its toolbar-placed artifacts", () => {
-  const saved = { ...REPLY, workflow_attachments: [{ id: 9, workflow_id: "speak" }] };
-  const plain = { ...REPLY, id: 43 };
-  const prior = {
-    renderers: state.S.workflowMessageButtonRenderers,
-    placements: state.S.workflowAttachmentPlacements,
-    settings: state.S.settings,
-  };
-  state.S.workflowMessageButtonRenderers = [
-    { workflowId: "speak", render: (m) => `<i data-speak="${m.id}"></i>` },
-    { workflowId: "paint", render: (m) => `<i data-paint="${m.id}"></i>` },
-  ];
-  state.S.workflowAttachmentPlacements = { speak: { placement: "actions" }, paint: { placement: "artifact" } };
-  try {
-    state.S.settings = { workflow_enabled: { speak: false, paint: false } };
-    const paintSaved = { ...saved, workflow_attachments: [{ id: 10, workflow_id: "paint" }] };
-    assert.match(toolbarFor(saved, [saved]), /data-speak="42"/);
-    assert.ok(!/data-speak/.test(toolbarFor(plain, [plain])), "no create button while it is off");
-    assert.ok(!/data-paint/.test(toolbarFor(paintSaved, [paintSaved])), "an artifact-placed workflow stays hidden");
-    state.S.settings = { workflow_enabled: { speak: true, paint: true }, workflows_globally_enabled: 0 };
-    assert.match(toolbarFor(saved, [saved]), /data-speak="42"/, "the master switch off is the same as its own");
-    state.S.settings = { workflow_enabled: { speak: true, paint: true } };
-    assert.match(toolbarFor(plain, [plain]), /data-speak="43"/);
-    assert.match(toolbarFor(plain, [plain]), /data-paint="43"/);
-  } finally {
-    state.S.workflowMessageButtonRenderers = prior.renderers;
-    state.S.workflowAttachmentPlacements = prior.placements;
-    state.S.settings = prior.settings;
-  }
-});

@@ -1,14 +1,11 @@
-"""The assistant's media tools against scripted workflow backends: dispatch, the GPU refusal, Stop and deletion."""
+"""The assistant's media tools against scripted workflow backends: dispatch, the enablement refusal, Stop and deletion."""
 
 import asyncio
 import contextlib
 
-import pytest
-
 from backend.api import deps
-from backend.database import get_message_by_id, get_settings, message_workflow_attachment_ids, set_workflow_enabled
-from backend.inference.gpu_swap import LlmTarget
-from backend.workflows import WorkflowEventStream, gpu_swap_host, set_workflow_config
+from backend.database import get_message_by_id, message_workflow_attachment_ids, set_workflow_enabled
+from backend.workflows import WorkflowEventStream
 from backend.workflows.attachment_cache import insert_workflow_attachment
 from tests.integration.test_assistant import RUN, _call, _script, _step, build_library, frames
 from tests.integration.workflows._fixtures import (  # noqa: F401
@@ -36,7 +33,7 @@ async def _save(message_id, workflow_id="image_gen"):
     return new_id
 
 
-def _media(workflow_id, on_demand=None, query=None):
+def _media(workflow_id, on_demand=None):
     """A scripted artifact workflow under a real workflow's id, standing in for its renderer."""
 
     async def regenerate(ctx, body):
@@ -52,7 +49,6 @@ def _media(workflow_id, on_demand=None, query=None):
         on_demand=on_demand,
         regenerate=regenerate,
         reroll_gen=reroll_gen,
-        query=query,
         produces_artifacts=True,
     )
 
@@ -75,9 +71,7 @@ def _blocking_image(started, withdrawn):
     return _media("image_gen", on_demand)
 
 
-async def test_a_disabled_workflow_runs_for_the_assistant_inside_a_job_while_its_public_route_stays_gated(
-    client, db, monkeypatch
-):
+async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_naming_its_switch(client, db, monkeypatch):
     library = await build_library(client, db)
     chat, kept = library["chat"], library["kept"]
     seen = []
@@ -97,15 +91,11 @@ async def test_a_disabled_workflow_runs_for_the_assistant_inside_a_job_while_its
         return WorkflowEventStream(events=events())
 
     async def speech(ctx, body):
+        seen.append("speech")
         return {"attachment_id": await _save(body["message_id"], "tts")}
 
     with register_for_test(_media("image_gen", on_demand)), register_for_test(_media("tts", speech)):
-        await set_workflow_enabled("image_gen", False)
         await set_workflow_enabled("tts", False)
-        trigger = f"/api/conversations/{chat}/workflows/image_gen/trigger"
-        assert (await client.post(trigger, json={"action": "generate", "message_id": kept})).status_code == 404
-        assert seen == [], "the public route is gated exactly as before"
-
         _script(
             monkeypatch,
             _step("generate_image"),
@@ -116,115 +106,52 @@ async def test_a_disabled_workflow_runs_for_the_assistant_inside_a_job_while_its
         )
         events = frames(await client.post_checked(RUN, json=_body(chat)))
 
+        # With every workflow switched off, the refusal names the master switch and the workflow's own.
+        await client.put_checked("/api/settings", json={"workflows_globally_enabled": False})
+        _script(monkeypatch, _step("generate_speech"), _call("generate_speech", {"message_id": kept}), _step("reply", "No."))
+        [both] = _results(frames(await client.post_checked(RUN.replace("op-1", "op-2"), json=_body(chat))))
+
     assert seen[0] == ({"action": "generate", "message_id": kept}, library["card"])
     assert seen[1] == [("assistant:op-1", kept)]
+    assert "speech" not in seen, "the switched-off workflow never reached its hook"
     saved = await message_workflow_attachment_ids(kept, "image_gen")
     assert len(saved) == 1
     assert ("progress", {"label": "Rendering in ComfyUI..."}) in events
-    result, spoken = _results(events)
+    result, refused = _results(events)
     assert result["ok"] is True and result["ids"]["attachment_ids"] == saved
-    assert spoken["ok"] is True and spoken["ids"]["attachment_ids"] == await message_workflow_attachment_ids(kept, "tts")
+    assert refused["ok"] is False and "`workflow:tts`" in refused["summary"] and "set_pipeline_toggle" in refused["summary"]
+    assert "`workflows`" not in refused["summary"]
+    assert "`workflows`" in both["summary"] and "`workflow:tts`" in both["summary"]
     mutation = next(data for event, data in events if event == "mutation")
     assert mutation["resources"] == [
         {"kind": "media", "conversation_id": chat, "message_id": kept, "attachment_ids": saved, "workflow_id": "image_gen"}
     ]
     assert events[-1] == ("done", {"reason": "reply", "message": ""})
     assert not deps._workflow_jobs.get(chat), "the job settled with the stream"
-    assert (await get_settings())["workflow_enabled"]["image_gen"] is False, "no toggle was changed"
+    assert await message_workflow_attachment_ids(kept, "tts") == []
 
 
-def _lane(monkeypatch, kind="llama_router", root="http://llm:8080"):
-    """The chat model's lane, on a server of *kind*, as the GPU swap plan would probe it."""
-
-    async def probe_lanes(settings, *, fresh=False):
-        return [("writer", LlmTarget(root=root, model="chat-model", kind=kind))]
-
-    monkeypatch.setattr(gpu_swap_host, "probe_lanes", probe_lanes)
-
-
-async def test_gpu_swap_while_disabled_is_refused_and_missing_setup_is_a_tool_error(client, db, monkeypatch):
+async def test_a_failed_hook_is_a_tool_error_and_a_workflow_without_an_on_demand_hook_offers_no_tool(client, db, monkeypatch):
     library = await build_library(client, db)
     chat, kept = library["chat"], library["kept"]
-    calls = []
-    _lane(monkeypatch)
-
-    async def image(ctx, body):
-        calls.append("image")
-        return WorkflowEventStream(events=iter_nothing())
-
-    async def iter_nothing():
-        return
-        yield
 
     async def speech(ctx, body):
-        calls.append("speech")
         return {"error": "synthesis failed"}
 
-    with (
-        register_for_test(_media("image_gen", image)),
-        register_for_test(_media("tts", speech)),
-    ):
-        await set_workflow_enabled("image_gen", False)
-        await set_workflow_config("image_gen", {"external_comfy": {"api_url": "http://comfy.invalid", "gpu_swap": True}})
-        _script(
-            monkeypatch,
-            _step("generate_image"),
-            _call("generate_image", {"message_id": kept}),
-            _step("generate_speech"),
-            _call("generate_speech", {"message_id": kept}),
-            _step("reply", "Neither worked."),
-        )
-        events = frames(await client.post_checked(RUN, json=_body(chat)))
-    refused, failed = _results(events)
-    assert refused["ok"] is False and "GPU" in refused["summary"] and "no setting was changed" in refused["summary"]
-    assert failed["ok"] is False and failed["summary"] == "No speech was made: synthesis failed"
-    assert calls == ["speech"], "the refused render never reached its hook"
-    assert (await get_settings())["workflow_enabled"]["image_gen"] is False
-    assert not [event for event, _ in events if event == "mutation"]
-
-    # A workflow with no on-demand hook offers no tool at all.
-    with register_for_test(_media("tts")):
+    with register_for_test(_media("image_gen")), register_for_test(_media("tts", speech)):
         names = []
+        script = [_step("generate_speech"), _call("generate_speech", {"message_id": kept}), _step("reply", "It failed.")]
 
         async def complete(self, **kwargs):
             names.extend(kwargs["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"])
-            yield _step("reply", "Ok.")
+            yield script.pop(0)
 
         monkeypatch.setattr("backend.inference.LLMClient.complete", complete)
-        await client.post_checked(RUN.replace("op-1", "op-2"), json=_body(chat))
-    assert "generate_speech" not in names and "generate_image" in names
-
-
-@pytest.mark.parametrize(
-    "default_source,lane,comfy_url",
-    [
-        # The next render runs in the cloud, which takes no GPU lease.
-        ("cloud", ("llama_router", "http://llm:8080"), "http://comfy.invalid"),
-        # No lane Orb could unload: the plan is off with Image Generation on too.
-        ("external_comfy", ("llama_single", "http://llm:8080"), "http://comfy.invalid"),
-        # ComfyUI runs behind the lane's own llama-swap, which evicts the chat model itself.
-        ("external_comfy", ("llama_swap", "http://llm:8080"), "http://llm:8080/upstream/comfy"),
-    ],
-)
-async def test_gpu_swap_while_disabled_refuses_only_a_render_that_would_have_swapped(
-    client, db, monkeypatch, default_source, lane, comfy_url
-):
-    library = await build_library(client, db)
-    chat, kept = library["chat"], library["kept"]
-    _lane(monkeypatch, *lane)
-
-    async def image(ctx, body):
-        return {"attachment_id": await _save(body["message_id"])}
-
-    async def query(ctx, body):
-        return {"default_source": default_source} if body.get("action") == "styles" else {}
-
-    with register_for_test(_media("image_gen", image, query)):
-        await set_workflow_enabled("image_gen", False)
-        await set_workflow_config("image_gen", {"external_comfy": {"api_url": comfy_url, "gpu_swap": True}})
-        _script(monkeypatch, _step("generate_image"), _call("generate_image", {"message_id": kept}), _step("reply", "Ok."))
-        [result] = _results(frames(await client.post_checked(RUN, json=_body(chat))))
-    assert result["ok"] is True and result["ids"]["attachment_ids"] == await message_workflow_attachment_ids(kept, "image_gen")
+        events = frames(await client.post_checked(RUN, json=_body(chat)))
+    [failed] = _results(events)
+    assert failed["ok"] is False and failed["summary"] == "No speech was made: synthesis failed"
+    assert not [event for event, _ in events if event == "mutation"]
+    assert "generate_image" not in names and "generate_speech" in names
 
 
 async def test_assistant_stop_cancels_its_own_render_alone_and_chat_stop_leaves_it(client, db, monkeypatch):

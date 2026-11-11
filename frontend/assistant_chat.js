@@ -1,16 +1,15 @@
 // The right-panel assistant: one dock that follows whichever utility panel is open, one transcript kept in this
-// browser, one run at a time owned through S.operations, and Apply for the one edit it has proposed.
+// browser, one run at a time owned through S.operations, and Apply for the edits its latest run proposed.
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import {
-  affectedResources,
-  applyRefusal,
   applyStreamEvent,
+  applyVerdicts,
   handoffOutcome,
   isSendKey,
   MAX_ITEM_CHARS,
   parseTranscript,
-  resources,
+  pendingIds,
   runItems,
   serializeTranscript,
   settleRun,
@@ -38,10 +37,19 @@ const LS_TRANSCRIPT = "orb-assistant-transcript";
 const LS_OPEN = "orb-assistant-open";
 const FOLLOW_SLACK_PX = 24;
 const LABEL_TITLE_CHARS = 120;
-// The events after which the stored transcript changes in a way worth keeping; progress and notes are not among them. A
-// write's `tool_start` is kept too, so a reload in the middle of it shows an unknown outcome instead of nothing.
-const PERSISTED_EVENTS = new Set(["tool_result", "mutation", "confirm", "handoff", "done", "error"]);
+// The events after which the stored transcript changes in a way worth keeping; progress and notes are not among them.
+const PERSISTED_EVENTS = new Set(["tool_start", "tool_result", "handoff", "done", "error"]);
 const APPLY_KIND = "assistant-apply";
+// Every settings key a pipeline toggle can write, read again after a run whose changes may not all have been reported.
+const SWITCH_KEYS = [
+  "enable_agent",
+  "enabled_tools",
+  "director_individual_fragments",
+  "length_guard_enabled",
+  "agentic_lorebook_enabled",
+  "workflows_globally_enabled",
+  "workflow_enabled",
+];
 
 // The run this tab is streaming, with the view it captured at Send. The view on screen may have moved on since.
 let run = null;
@@ -106,7 +114,7 @@ function paintLog() {
   const log = $("assistant-log");
   if (!log) return;
   const busy = Boolean(activeOperation());
-  log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, { active: S.assistant.proposal, busy });
+  log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, { active: S.assistant.batch, busy });
   toEnd();
 }
 
@@ -145,6 +153,21 @@ async function refreshResources(changed) {
 }
 
 /**
+ * Read again everything cheap a run could have changed, for a run that ended early or had a tool fail: what it did may not
+ * all have been reported. Nothing is sent again; the reader checks what they see.
+ */
+function refreshEverything() {
+  return refreshResources([
+    { kind: "world" },
+    { kind: "character" },
+    { kind: "persona" },
+    { kind: "conversation" },
+    ...(S.activeConvId ? [{ kind: "message", conversation_id: S.activeConvId }] : []),
+    { kind: "settings", keys: SWITCH_KEYS },
+  ]);
+}
+
+/**
  * Ask the chat to start the reply a settled run handed off, through the chat's own helpers and checks. It starts only in
  * the chat the run named, while that chat is open and the reply still on its branch; otherwise the transcript says why and
  * nothing switches. Once started, the chat's stream owns Stop and the reply.
@@ -158,26 +181,6 @@ function launchHandoff(current) {
       : regenerateCapturedReply(cid, msgId);
   current.items.push(handoffOutcome(target, status));
   trimTranscript(current.items);
-}
-
-/**
- * Keep *media* to the run's media jobs still running: one starts with its tool, as `media` work in its chat, and ends with
- * its result, or once the run has settled (*event* `settled`).
- */
-function trackMedia(media, current, record, event) {
-  if (event === "tool_start") {
-    const item = current.items.at(-1);
-    if (item?.kind === "tool" && item.running && item.target?.kind === "media") {
-      const op = begin("media", { conversationId: item.target.conversation_id, messageId: item.target.message_id });
-      op.stop = () => record.stop();
-      media.set(item, op);
-    }
-  }
-  for (const [item, op] of media) {
-    if (event !== "settled" && item.running) continue;
-    finish(op);
-    media.delete(item);
-  }
 }
 
 /** Repaint the Tools panel, unless the reader is typing in it: then once focus leaves it. */
@@ -275,25 +278,21 @@ function placeDock() {
   paintControls();
 }
 
-/** A new request ends the held proposal's Apply: it becomes inert, or an unknown outcome if its Apply was never answered. */
-function releaseProposal() {
-  const held = S.assistant.proposal;
-  S.assistant.proposal = null;
-  if (held?.status === "pending") held.status = "superseded";
-  else if (held?.status === "unconfirmed") held.status = "unknown";
+/** A new request closes the held card: its edits still pending can no longer be applied. */
+function releaseCard() {
+  for (const entry of S.assistant.batch?.proposals || []) if (entry.status === "pending") entry.status = "historical";
+  S.assistant.batch = null;
 }
 
 /**
  * Stream one run over *body* and settle it. *context* is the view it is about and *request* the user's words, which a
- * proposal it makes remembers for Ask again.
+ * card of proposed edits remembers for Ask again.
  */
 async function stream(body, context, request) {
   const items = S.assistant.items;
-  const current = { items, context, request, note: "", status: "", terminal: null, writes: [] };
+  const current = { items, context, request, note: "", status: "", terminal: null };
   run = current;
   const record = beginStream("assistant", wireContext(context), "/assistant/stop");
-  // A media job this run is rendering, as media work in its chat, so that chat's delete dialog names it. Its Stop is the run's.
-  const media = new Map();
   persist();
   paint();
   let failure = "";
@@ -301,23 +300,20 @@ async function stream(body, context, request) {
     for await (const { event, data } of streamEvents(record, "/assistant/run", body, "Assistant")) {
       const failed = event === "error" ? sseError(data, "The assistant failed.").message : "";
       const committed = applyStreamEvent(current, event, data, failed);
-      trackMedia(media, current, record, event);
-      if (event === "confirm" && current.proposal) S.assistant.proposal = current.proposal;
       // Committed now, so shown now; the stream carries on meanwhile.
       if (committed.length) refreshResources(committed);
-      const startedWrite = event === "tool_start" && current.items.at(-1)?.write;
       const answered = event === "assistant_message" && current.items.at(-1)?.kind === "assistant";
-      if (PERSISTED_EVENTS.has(event) || startedWrite || answered) persist();
+      if (PERSISTED_EVENTS.has(event) || answered) persist();
       paint();
     }
   } catch (error) {
     failure = error?.message || "The assistant failed.";
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
+    if (current.card) S.assistant.batch = current.card;
     persist();
     paint();
     await settle(record);
-    trackMedia(media, current, record, "settled");
     if (run === current) run = null;
     // Only after the assistant's own stream has settled, and never after a Stop, which the transcript then says.
     if (current.terminal === "handoff" && current.handoff) {
@@ -327,15 +323,9 @@ async function stream(body, context, request) {
       persist();
     }
     paint();
-    // Only once the server has settled: what it committed is then final, including a write whose result never came.
-    // Nothing is sent again; the reader checks the target.
-    if (current.terminal !== "reply" && current.terminal !== "handoff")
-      await refreshResources(affectedResources(current));
-    else {
-      // A media job that ended short may have saved as it ended without saying so, and the run can still answer after it.
-      const unsaid = current.writes.filter((item) => item.target?.kind === "media" && !item.committed?.length);
-      if (unsaid.length) await refreshResources(affectedResources({ writes: unsaid }));
-    }
+    // Only once the server has settled, so whatever it committed is final: a write whose result never came, or a media job
+    // that failed after saving.
+    if ((current.terminal !== "reply" && current.terminal !== "handoff") || current.failed) await refreshEverything();
   }
 }
 
@@ -351,7 +341,7 @@ async function send() {
   if (!requestSendPermission()) return;
   // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
   const context = captureContext();
-  releaseProposal();
+  releaseCard();
   const items = S.assistant.items;
   items.push({ kind: "user", text, context });
   trimTranscript(items);
@@ -360,66 +350,57 @@ async function send() {
 }
 
 /**
- * Commit the held proposal by its id alone. A refusal leaves it inert, except a busy chat, which may be tried again; an
- * Apply that was never answered keeps its id for a retry and reads its target again. Only a confirmed commit continues the
- * request, once, in the view it was sent from.
+ * Apply the held card's pending edits by their ids alone, each answered with its own verdict. A busy chat leaves its edit
+ * pending to try again, as does an Apply that ends without verdicts, which also reads their targets again.
  */
-async function apply(proposalId) {
-  const item = S.assistant.proposal;
-  if (!item || item.proposalId !== proposalId || activeOperation()) return;
-  if (item.status !== "pending" && item.status !== "unconfirmed") return;
+async function apply() {
+  const card = S.assistant.batch;
+  const ids = card ? pendingIds(card) : [];
+  if (!ids.length || activeOperation()) return;
   if (!requestSendPermission()) return;
+  const pending = card.proposals.filter((entry) => entry.status === "pending");
   // A chat edit is chat work while it commits: the chat's delete dialog names it, and the server makes a delete wait for it.
-  const chat = item.target?.kind === "message" ? { conversationId: item.target.conversation_id } : {};
-  const op = begin(APPLY_KIND, { ...chat, proposalId });
-  const previous = item.status;
-  item.status = "applying";
-  delete item.note;
-  persist();
+  const chats = new Set(
+    pending.flatMap((entry) => (entry.target?.kind === "message" ? [entry.target.conversation_id] : [])),
+  );
+  const ops = chats.size
+    ? [...chats].map((conversationId) => begin(APPLY_KIND, { conversationId }))
+    : [begin(APPLY_KIND, {})];
+  delete card.note;
   paint();
-  let result = null;
+  let applied = null;
   try {
-    result = await api.post("/assistant/apply", { proposal_id: proposalId });
-    item.status = "applied";
-  } catch (error) {
-    const refusal = applyRefusal(error, previous);
-    item.status = refusal.status;
-    if (refusal.note) item.note = refusal.note;
+    applied = applyVerdicts(card, (await api.post("/assistant/apply", { proposal_ids: ids }))?.results);
+  } catch {
+    card.note = "Apply did not finish. Try again; an edit already applied is not applied twice.";
   } finally {
-    finish(op);
+    for (const op of ops) finish(op);
   }
-  if (item.status !== "pending" && item.status !== "unconfirmed") S.assistant.proposal = null;
-  if (result) {
-    S.assistant.items.push({ kind: "outcome", reason: "applied", text: String(result.summary || "Applied.") });
+  if (!pendingIds(card).length) S.assistant.batch = null;
+  if (applied?.summaries.length) {
+    S.assistant.items.push({ kind: "outcome", reason: "applied", text: applied.summaries.join(" ") });
     trimTranscript(S.assistant.items);
   }
   persist();
   paint();
-  if (result) await refreshResources(resources(result.resources));
-  else if ((item.status === "unconfirmed" || item.status === "unknown") && item.target)
-    await refreshResources([item.target]);
-  if (!result || !item.context || activeOperation()) return;
-  const body = {
-    items: runItems(S.assistant.items),
-    context: wireContext(item.context),
-    continue_proposal_id: proposalId,
-  };
-  await stream(body, item.context, item.request || "");
+  await refreshResources(
+    applied ? applied.resources : pending.flatMap((entry) => (entry.target ? [entry.target] : [])),
+  );
 }
 
-function cancel(proposalId) {
-  const item = S.assistant.proposal;
-  if (!item || item.proposalId !== proposalId || activeOperation()) return;
-  item.status = "cancelled";
-  S.assistant.proposal = null;
+function cancel() {
+  const card = S.assistant.batch;
+  if (!card || activeOperation()) return;
+  for (const entry of card.proposals) if (entry.status === "pending") entry.status = "cancelled";
+  S.assistant.batch = null;
   persist();
   paint();
 }
 
-/** Put a proposal's request back in the input, for the reader to send again for a fresh preview. Nothing is sent. */
+/** Put a card's request back in the input, for the reader to send again for a fresh preview. Nothing is sent. */
 function askAgain(index) {
   const item = S.assistant.items[index];
-  if (item?.kind !== "proposal" || !item.request) return;
+  if (item?.kind !== "proposals" || !item.request) return;
   const input = $("assistant-input");
   input.value = item.request;
   input.focus();
@@ -428,7 +409,7 @@ function askAgain(index) {
 function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
-  S.assistant.proposal = null;
+  S.assistant.batch = null;
   persist();
   paint();
 }
@@ -437,7 +418,7 @@ export function initAssistant() {
   const dock = $("assistant-dock");
   if (!dock) return;
   S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
-  S.assistant.proposal = null;
+  S.assistant.batch = null;
   registerActions("assistant", {
     toggle: () => setOpen(!S.assistant.open),
     clear: () => clear(),
@@ -448,8 +429,8 @@ export function initAssistant() {
       operation.stop();
       paintControls();
     },
-    apply: (el) => apply(el.dataset.proposalId),
-    cancel: (el) => cancel(el.dataset.proposalId),
+    apply: () => apply(),
+    cancel: () => cancel(),
     askAgain: (el) => askAgain(Number(el.dataset.index)),
   });
   const log = $("assistant-log");

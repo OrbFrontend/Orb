@@ -13,10 +13,9 @@ from ..core.settings import Settings
 from ..database import get_settings
 from ..inference import EndpointConfigError, LLMClient, agent_client_from_settings, client_from_settings, gpu_swap
 from ..inference import separate_agent_lane_configured as _separate_agent_lane_configured
-from .contracts import HookType, QueryCtx, readonly_view
 from .enablement import effective_workflow_enabled
 from .errors import WorkflowUnavailableError
-from .registry import get_subscription, get_workflow_config
+from .registry import get_workflow_config
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +94,11 @@ def _hosted_comfy(comfy_url: str, targets: list[gpu_swap.LlmTarget]) -> tuple[st
     return "", ""
 
 
-async def _build(*, gated: bool = True) -> gpu_swap.SwapPlan:
-    """The plan from the saved option and the lanes; *gated* turns it off while the image workflow is switched off."""
+async def _build() -> gpu_swap.SwapPlan:
     settings = await get_settings()
     config = await get_workflow_config(IMAGE_GEN)
     external = _comfy(config)
-    if external.get("gpu_swap") is not True or (gated and not effective_workflow_enabled(IMAGE_GEN, settings)):
+    if external.get("gpu_swap") is not True or not effective_workflow_enabled(IMAGE_GEN, settings):
         return gpu_swap.DISABLED
     targets: list[gpu_swap.LlmTarget] = []
     for _, target in await probe_lanes(settings):
@@ -118,42 +116,6 @@ async def _build(*, gated: bool = True) -> gpu_swap.SwapPlan:
         comfy_host=comfy_host,
         comfy_model=comfy_model,
     )
-
-
-async def _renders_on_comfy(settings: Settings) -> bool:
-    """Whether the image workflow's next on-demand render, in its default style, runs on ComfyUI.
-
-    The plug-in answers through its own query hook, as it does for its settings card; nothing here reads its styles. No answer
-    reads as yes, so a doubt refuses rather than loads ComfyUI beside the chat model.
-    """
-    sub = get_subscription(IMAGE_GEN, HookType.QUERY)
-    if sub is None:
-        return True
-    try:
-        answer = await sub.callable(QueryCtx(settings=readonly_view(settings)), {"action": "styles"})
-    except Exception as exc:
-        logger.debug("gpu swap: the image workflow did not say where it renders (%r)", exc)
-        return True
-    return not isinstance(answer, Mapping) or answer.get("default_source") in (None, "external_comfy")
-
-
-async def swap_skipped_while_disabled(settings: Settings) -> bool:
-    """Whether a render now would skip a GPU swap that would happen if the image workflow were on.
-
-    The plan is off whenever the workflow is (see :func:`_build`), so a ComfyUI render run while it is switched off would load
-    ComfyUI's model beside the chat model's instead of swapping. That needs the option, a lane Orb would unload for it, and a
-    render on ComfyUI: a cloud render takes no lease, and a llama-swap that hosts ComfyUI evicts its own models without Orb. A
-    caller that may render a disabled workflow refuses only then.
-    """
-    if (
-        effective_workflow_enabled(IMAGE_GEN, settings)
-        or _comfy(await get_workflow_config(IMAGE_GEN)).get("gpu_swap") is not True
-    ):
-        return False
-    if not await _renders_on_comfy(settings):
-        return False
-    plan = await _build(gated=False)
-    return plan.enabled and any(not plan.hosts_comfy(target.root) for target in plan.llm_targets)
 
 
 async def plan() -> gpu_swap.SwapPlan:

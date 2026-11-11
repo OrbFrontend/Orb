@@ -15,9 +15,7 @@ from ...features.assistant import AssistantUnavailable, HistoryItem, ViewContext
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
-from ..assistant_edits import Origin, apply_proposal, approval_note, continuable
-from ..assistant_media import MediaRun
-from ..assistant_tools import build_tools
+from ..assistant import MediaRun, apply_proposals, build_tools
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
 from ..schemas import AssistantApplyRequest, AssistantRunRequest, AssistantViewContext
 
@@ -94,28 +92,10 @@ async def resolve_view(context: AssistantViewContext) -> ViewContext:
 
 @router.post("/api/assistant/run")
 async def api_run_assistant(data: AssistantRunRequest, request: Request, operation_id: str = _OPERATION_ID):
-    """Stream one assistant request. The run is registered under *operation_id*, which its Stop must name.
-
-    With ``continue_proposal_id`` it continues, once, the request behind a proposal the user applied: in that proposal's view,
-    which is checked again, with the server's record of the approval.
-    """
+    """Stream one assistant request. The run is registered under *operation_id*, which its Stop must name."""
     settings = await get_settings()
-    proposal = None
-    approvals: tuple[str, ...] = ()
-    if data.continue_proposal_id is not None:
-        # Checked here so a refusal is an ordinary HTTP error; claimed only once the stream is admitted, below.
-        proposal = continuable(data.continue_proposal_id)
-        context = AssistantViewContext.model_validate(dict(proposal.origin.context))
-        view = await resolve_view(context)
-        text, earlier = proposal.origin.request, data.items
-        # Every approval this request has had, so a second continuation still knows of the first edit.
-        approvals = (*proposal.origin.approvals, approval_note(proposal))
-    else:
-        context = data.context
-        view = await resolve_view(context)
-        *earlier, latest = data.items
-        text = latest.text.strip()
-    origin = Origin(text, context.model_dump(exclude_none=True), approvals)
+    view = await resolve_view(data.context)
+    *earlier, latest = data.items
     abort_token = AbortToken()
     history = [HistoryItem(item.kind, item.text, item.tool, item.view) for item in earlier]
     # A media tool's render runs as a workflow job filed under this run, which the run's Stop cancels and waits for alone.
@@ -123,15 +103,6 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait)
 
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
-        # Inside the stream, so a run refused admission (another tab's run holds the key) or a client gone before it starts
-        # spends nothing. A run that ends before doing anything gives the continuation back; one that made or proposed a
-        # change, handed off, or reached its own ending keeps it spent.
-        if proposal is not None:
-            if proposal.continued:
-                yield {"event": "error", "data": "That request has already been continued once."}
-                return
-            proposal.continued = True
-        acted = ended = False
         try:
             yield {"event": "start", "data": {}}
             client = client_from_settings(settings, abort_token=abort_token)
@@ -140,24 +111,17 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 agent_client,
                 model,
                 settings=settings,
-                tools=build_tools(settings, view, origin, media=media),
+                tools=build_tools(settings, view, media=media),
                 history=history,
-                request=text,
+                request=latest.text.strip(),
                 view=view,
-                approved=" ".join(approvals),
                 progress=progress,
             ):
-                kind = event["type"]
-                acted = acted or kind in ("mutation", "confirm", "handoff") or (kind == "tool_start" and "write" in event)
-                ended = ended or kind == "done"
                 payload = {key: value for key, value in event.items() if key != "type"}
-                yield cast(PublicEvent, {"event": kind, "data": payload})
+                yield cast(PublicEvent, {"event": event["type"], "data": payload})
         except AssistantUnavailable as exc:
             logger.warning("Assistant run %s failed: %s", scrub_log(operation_id), exc)
             yield {"event": "error", "data": str(exc)}
-        finally:
-            if proposal is not None and not (acted or ended):
-                proposal.continued = False
 
     return CleanupStreamingResponse(
         sse_stream(_gen(), request, abort_token=abort_token, cid=ASSISTANT_STREAM_KEY), media_type="text/event-stream"
@@ -171,10 +135,11 @@ async def api_stop_assistant(operation_id: str = _OPERATION_ID):
 
 
 @router.post("/api/assistant/apply")
-async def api_apply_assistant_edit(data: AssistantApplyRequest):
-    """Commit the proposal *proposal_id* names, once.
+async def api_apply_assistant_edits(data: AssistantApplyRequest):
+    """Commit the proposals *proposal_ids* name, each once, and answer one verdict for each, in order.
 
-    404: its target is gone. 409: the text changed after the preview (``stale``), or its chat is generating (``busy``).
-    410: the proposal expired or the server restarted. A repeated Apply returns the first one's result.
+    ``applied``; ``stale``, its text changed after the preview; ``missing``, its target is gone; ``busy``, its chat is
+    generating or being deleted, the one verdict worth retrying; ``expired``, unknown to the server or forgotten since. A
+    repeated Apply returns the first one's answer.
     """
-    return await apply_proposal(data.proposal_id)
+    return {"results": await apply_proposals(data.proposal_ids)}

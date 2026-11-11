@@ -6,6 +6,7 @@ from .contracts import (
     MAX_ITEM_CHARS,
     MAX_REPLAY_ITEMS,
     MAX_RESULT_CHARS,
+    MAX_TOOL_EXECUTIONS,
     MAX_VIEW_LABEL_CHARS,
     AssistantEvent,
     AssistantTool,

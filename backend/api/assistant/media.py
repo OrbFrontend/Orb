@@ -1,7 +1,6 @@
 """The assistant's media tools: an image or speech for one saved reply, made by its workflow's own on-demand hook.
 
-A tool runs the hook through the shared dispatch the trigger route uses, minus the route's enablement gate, as one workflow job
-filed under its run (so the assistant's Stop cancels that job alone) and under the message it renders (so deleting the message
+A tool runs the hook through the shared dispatch the trigger route uses, as one workflow job filed under its run (so the assistant's Stop cancels that job alone) and under the message it renders (so deleting the message
 or its chat finds and settles it). A lazy event stream the hook returns is consumed inside that same job until it settles. A
 result names the attachments that job reported saving; a job that started and saved nothing is not a success.
 
@@ -22,22 +21,15 @@ from typing import Any
 from fastapi import HTTPException
 from pydantic import Field
 
-from ..database import get_message_by_id, get_settings, message_workflow_attachment_ids
-from ..features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
-from ..inference import AbortToken
-from ..workflows import (
-    HookType,
-    WorkflowEventStream,
-    get_subscription,
-    get_workflow,
-    gpu_swap_host,
-    public_event_error,
-)
-from ..workflows.enablement import effective_workflow_enabled
-from .assistant_edits import ID_CHARS, quoted, reply_target
-from .deps import message_deleting, resource_deleting, start_workflow_job, stop_workflow_jobs
-from .errors import API_PASSTHROUGH_ERRORS, http_failure
-from .workflow_dispatch import run_on_demand
+from ...core.settings import Settings
+from ...database import get_message_by_id, get_settings, message_workflow_attachment_ids
+from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ViewContext
+from ...inference import AbortToken
+from ...workflows import HookType, WorkflowEventStream, get_subscription, get_workflow, public_event_error
+from ..deps import message_deleting, resource_deleting, start_workflow_job, stop_workflow_jobs
+from ..errors import API_PASSTHROUGH_ERRORS, http_failure
+from ..workflow_dispatch import run_on_demand
+from .targets import ID_CHARS, quoted, reply_target
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +62,6 @@ class _Medium:
     verb: str
     starting: str
     description: str
-    # What the result adds while the workflow is switched off: the saved artifact shows either way, but remaking it needs it on.
-    while_off: str = ""
 
 
 _MEDIA = (
@@ -96,14 +86,7 @@ _MEDIA = (
         "Synthesizing speech…",
         "Make speech audio of one saved reply in a chat with the Text-to-Speech workflow, in the speaking character's voice, "
         "and save it on that message.",
-        while_off="Text-to-Speech is switched off: the message's player plays this clip, and remaking it needs the workflow on.",
     ),
-)
-
-_DISABLED_GPU = (
-    "Image Generation is switched off, and its ComfyUI setup asks to swap the GPU with the chat model, which happens only while "
-    "the workflow is on. Rendering now would load ComfyUI beside the chat model, so nothing was started and no setting was "
-    "changed. Tell the user; they can turn Image Generation on (or ask you to), or turn off GPU swap in its setup."
 )
 
 
@@ -177,11 +160,9 @@ async def _consume(stream: WorkflowEventStream, medium: _Medium, outcome: _Outco
 
 
 async def _produce(cid: str, medium: _Medium, mid: int, outcome: _Outcome, report: Callable[[str], None]) -> None:
-    """The job: the hook through the shared dispatch, without the route's enablement gate, and its stream if it returns one."""
+    """The job: the hook through the shared dispatch, and its stream if it returns one."""
     try:
-        result = await run_on_demand(
-            cid, medium.workflow_id, {"action": medium.action, "message_id": mid}, require_enabled=False
-        )
+        result = await run_on_demand(cid, medium.workflow_id, {"action": medium.action, "message_id": mid})
         if isinstance(result, WorkflowEventStream):
             await _consume(result, medium, outcome, report)
             return
@@ -215,11 +196,6 @@ def build_media_tools(view: ViewContext, run: MediaRun | None) -> list[Assistant
             _MediaArgs,
             "write",
             make,
-            target=lambda args: {
-                "kind": "media",
-                "conversation_id": args.conversation_id or view.conversation_id,
-                "message_id": args.message_id,
-            },
             reports_progress=True,
         )
 
@@ -228,6 +204,19 @@ def build_media_tools(view: ViewContext, run: MediaRun | None) -> list[Assistant
         for medium in _MEDIA
         if get_workflow(medium.workflow_id) is not None and get_subscription(medium.workflow_id, HookType.ON_DEMAND)
     ]
+
+
+def _switched_off(workflow_id: str, settings: Settings) -> list[str]:
+    """Each switch that keeps *workflow_id* from running, named with its toggle; empty when it may run."""
+    off = []
+    if not settings.get("workflows_globally_enabled", 1):
+        off.append("Secondary workflows (toggle `workflows`) are")
+    stored = settings.get("workflow_enabled")
+    if not (stored if isinstance(stored, dict) else {}).get(workflow_id, True):
+        workflow = get_workflow(workflow_id)
+        name = workflow.display_name if workflow is not None else workflow_id
+        off.append(f"The {name} workflow (toggle `workflow:{workflow_id}`) is")
+    return off
 
 
 async def _waited(task: asyncio.Task[Any], abort: AbortToken) -> bool:
@@ -245,11 +234,14 @@ async def _make(view: ViewContext, run: MediaRun, medium: _Medium, args: _MediaA
     cid, mid = conv["id"], message["id"]
     if not (message["content"] or "").strip():
         raise ToolFailure(f"Message {mid} has no text to make {medium.noun} of.")
-    # Read now: a toggle earlier in this request may have changed what the request's own snapshot says.
-    settings = await get_settings()
-    if medium.workflow_id == gpu_swap_host.IMAGE_GEN and await gpu_swap_host.swap_skipped_while_disabled(settings):
-        raise ToolFailure(_DISABLED_GPU)
-    off = medium.while_off if not effective_workflow_enabled(medium.workflow_id, settings) else ""
+    # Read now: a toggle earlier in this request may have changed what the request's own snapshot says. The dispatch gates
+    # too, but answers a bare 404; this names the switch.
+    off = _switched_off(medium.workflow_id, await get_settings())
+    if off:
+        raise ToolFailure(
+            f"{' and '.join(off)} switched off, so nothing was made. Tell the user; you can turn it on with "
+            "set_pipeline_toggle if they ask."
+        )
 
     before = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
     outcome = _Outcome()
@@ -264,11 +256,11 @@ async def _make(view: ViewContext, run: MediaRun, medium: _Medium, args: _MediaA
         if not (await stop_workflow_jobs(cid, job=run.job))["settled"]:
             # Its result is not known until it has ended, and the browser reads the message again only once this run has.
             await asyncio.wait({task})
-    return await _result((cid, conv["title"], mid), medium, before, outcome, stopped=stopped, cut=task.cancelled(), off=off)
+    return await _result((cid, conv["title"], mid), medium, before, outcome, stopped=stopped, cut=task.cancelled())
 
 
 async def _result(
-    where: tuple[str, str, int], medium: _Medium, before: set[int], outcome: _Outcome, *, stopped: bool, cut: bool, off: str
+    where: tuple[str, str, int], medium: _Medium, before: set[int], outcome: _Outcome, *, stopped: bool, cut: bool
 ) -> ToolOutput:
     """The tool's answer from what its own job reported: an attachment it saved is success, and a started job alone is not.
 
@@ -310,7 +302,7 @@ async def _result(
         "message_id": mid,
         "attachment_ids": ids,
         "status": status,
-        "note": f"It is on the message in the chat; nothing else changed. {off}".strip(),
+        "note": "It is on the message in the chat; nothing else changed.",
     }
     ids_out = {"conversation_id": cid, "message_id": mid, "attachment_ids": ids}
     return ToolOutput(

@@ -247,6 +247,10 @@ async def _read_error_body(resp: httpx.Response, url: str) -> str:
     return err_text
 
 
+# Trailing whitespace on a cut-off structured reply that marks it as padding rather than an honest truncation.
+_PADDING_RUNAWAY_CHARS = 256
+
+
 class LLMClient:
     def __init__(
         self,
@@ -492,9 +496,23 @@ class LLMClient:
             return True  # full delay elapsed, no abort
 
     def _audit_structured_reply(self, model: str, content: str, finish_reason: str | None) -> bool:
-        """Record that a structured reply did not honor its requested schema."""
-        if not content or finish_reason == "length" or self.abort_token.is_aborted:
+        """Record that a structured reply did not honor its requested schema, or could not finish under it."""
+        if not content or self.abort_token.is_aborted:
             return False
+        if finish_reason == "length":
+            # A plain cut-off proves nothing. One that spent its tail on whitespace does: the grammar wanted a key the model
+            # would not write (strict mode makes every optional field required), whitespace was the only other legal token,
+            # and the model padded to its budget. Observed on NanoGPT's Gemma 4 route on most calls with optional fields.
+            if len(content) - len(content.rstrip()) < _PADDING_RUNAWAY_CHARS:
+                return False
+            endpoint_profiles.note_structured_output_ignored(self.base_url, model)
+            logger.warning(
+                "LLM structured output: %s padded a strict json_schema reply with whitespace to its token limit; "
+                "demoting to tools+tool_choice for the rest of the session: %s",
+                model,
+                _preview(content),
+            )
+            return True
         try:
             decoded = json.loads(content)
         except json.JSONDecodeError:

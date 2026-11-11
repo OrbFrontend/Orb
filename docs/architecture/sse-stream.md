@@ -351,8 +351,8 @@ their origin chat and wait while a message is being edited.
 
 The [panel assistant](assistant-chat.md) runs through the same wrapper and
 settlement under the reserved key `assistant:run`, one run server-wide, with its
-own event set and `done` reasons. Its targets use wire-style keys, so only its
-chat edits and media jobs appear in a chat's delete dialog.
+own event set and `done` reasons. Its targets use wire-style keys, so only an
+Apply of its chat edits appears in a chat's delete dialog.
 
 Conversation, group and document deletion closes admission, stops registered work,
 waits for it to settle and holds the turn lanes through the delete; a timeout

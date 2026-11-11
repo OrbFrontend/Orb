@@ -61,10 +61,12 @@
 .asst-diff del { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--red); }
 .asst-gap { color: var(--text-muted); }
 .asst-diff-full summary { cursor: pointer; font-size: 11px; color: var(--text-muted); }
+.asst-proposal-target { font-size: 12px; color: var(--text-secondary); }
+.asst-diff-size { text-transform: none; letter-spacing: 0; }
+.asst-edit { display: flex; flex-direction: column; gap: 4px; }
 .asst-proposal-note { font-size: 11px; color: var(--text-muted); }
-.asst-proposal:is(.asst-proposal-stale, .asst-proposal-missing, .asst-proposal-unknown, .asst-proposal-unconfirmed)
-  .asst-proposal-note { color: var(--red); }
-.asst-proposal:not(.asst-proposal-pending, .asst-proposal-unconfirmed, .asst-proposal-applying) { border-color: var(--border); }
+.asst-edit:is(.asst-edit-stale, .asst-edit-missing) .asst-proposal-note { color: var(--red); }
+.asst-proposal:not(.asst-proposal-live) { border-color: var(--border); }
 .asst-proposal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .asst-outcome-applied { color: var(--accent); }
 /* A short window keeps the input reachable: the log gives up its height before the compose row scrolls away. */

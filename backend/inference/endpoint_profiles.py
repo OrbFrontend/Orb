@@ -328,7 +328,8 @@ def note_structured_output_ignored(endpoint_url: str, model: str) -> None:
     """Record that *model* ignored a strict ``response_format`` schema.
 
     Callers must only report a reply that *proves* the constraint was absent -- a completed, non-empty answer that is not the
-    JSON the schema demanded. A truncated or empty reply proves nothing (same standard as
+    JSON the schema demanded, or one cut off after padding its tail with whitespace, which a model does when the strict
+    grammar demands a key it will not write. Any other truncated reply, or an empty one, proves nothing (same standard as
     :func:`note_forced_tool_choice_ignored`), and demoting on one would cost the endpoint its best-caching call shape over a
     flaky turn.
     """

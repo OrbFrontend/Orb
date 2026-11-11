@@ -5,13 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
-from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_VIEW_LABEL_CHARS
+from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_TOOL_EXECUTIONS, MAX_VIEW_LABEL_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -973,21 +973,19 @@ class AssistantRunRequest(BaseModel):
 
     items: list[AssistantTranscriptItem] = Field(min_length=1, max_length=MAX_REPLAY_ITEMS)
     context: AssistantViewContext
-    # Continue the request behind an applied proposal: its request and view come from the server's proposal, so every item
-    # here is history and ``context`` is not used.
-    continue_proposal_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def ends_with_a_request(self) -> AssistantRunRequest:
         latest = self.items[-1]
-        if self.continue_proposal_id is None and (latest.kind != "user" or not latest.text.strip()):
+        if latest.kind != "user" or not latest.text.strip():
             raise ValueError("The transcript must end with the user's request")
         return self
 
 
 class AssistantApplyRequest(BaseModel):
-    """Apply names a server-held proposal and nothing else: its target and text are the server's, never the client's."""
+    """Apply names server-held proposals and nothing else: their targets and texts are the server's, never the client's."""
 
     model_config = ConfigDict(extra="forbid")
 
-    proposal_id: str = Field(min_length=1, max_length=64)
+    # One run proposes at most one edit per tool run.
+    proposal_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(min_length=1, max_length=MAX_TOOL_EXECUTIONS)

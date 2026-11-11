@@ -12,13 +12,13 @@ from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from ...core import ChatMessage, WireMessage, agent_lane_cut_off, agent_lane_max_tokens
+from ...core import ChatMessage, WireMessage, agent_lane_cut_off, extract_hyperparams
 from ...core.llm_types import CompletionMessage
 from ...core.settings import Settings
 from ...inference import (
+    CachedBase,
     LLMClient,
     assistant_tool_call,
-    forced_turn,
     honors_forced_tool_choice,
     parse_tool_calls,
     reasoning_cfg,
@@ -41,7 +41,7 @@ from .contracts import (
     ToolOutput,
     ViewContext,
 )
-from .prompt import history_messages, request_message, step_tool, system_prompt, tool_schema
+from .prompt import history_messages, reply_tool, request_message, step_tool, system_prompt, tool_schema
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,6 @@ _SEVERAL = "The model's reply made several calls at once, where one was asked fo
 _CORRECT = "Nothing ran. Choose the tool again and correct its arguments."
 _LAST_RUN = f"That was the last tool run for this request. Choose {REPLY} now and answer from what you have."
 _NOT_RUN = "Not run: the request was stopped before this change started. Nothing was changed."
-_AWAITING = "Review the proposed change, then Apply or Cancel it."
 _HANDED_OFF = "Handed to the chat, which starts the work there if it is still open."
 _CONTEXT_CHANGED = "This request ends here, since what it would read next has changed; ask again to go on from there."
 
@@ -148,11 +147,27 @@ def _several_calls(response: Mapping[str, Any]) -> bool:
     return len(response.get("tool_calls") or parse_tool_calls(response)) > 1
 
 
-def _one_at_a_time(forced: str) -> str:
+def _one_at_a_time(forced: str | None) -> str:
     return (
-        f"[Nothing ran: the previous reply made several calls at once. Make exactly one call now, to {forced}; "
+        f"[Nothing ran: the previous reply made several calls at once. Make exactly one call now{f', to {forced}' if forced else ''}; "
         "anything more waits for its result and comes one call at a time.]"
     )
+
+
+def _any_call(response: Mapping[str, Any], names: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """The single-call protocol's ``(tool, arguments)``: one whole call to a listed tool, or to ``reply`` with its answer."""
+    calls = parse_tool_calls(response)
+    name = calls[0].get("name") if len(calls) == 1 else None
+    if not isinstance(name, str) or (name not in names and name != REPLY):
+        return None
+    arguments = strict_tool_arguments(response, name)
+    if arguments is None:
+        return None
+    if name == REPLY:
+        message = arguments.get("message")
+        if set(arguments) != {"message"} or not isinstance(message, str) or not message.strip():
+            return None
+    return name, arguments
 
 
 def _step_choice(arguments: Mapping[str, Any], names: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -194,8 +209,8 @@ async def run_assistant(
     history: Sequence[HistoryItem],
     request: str,
     view: ViewContext,
-    approved: str = "",
     progress: asyncio.Queue[str] | None = None,
+    single_call: bool = False,
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -205,19 +220,27 @@ async def run_assistant(
 
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
     same change is not made twice in one request, and an early ``done`` names the changes already committed. A confirm tool's
-    proposal ends the run with ``awaiting_apply``. *approved* is the caller's own record of an edit the user applied, for a run
-    that continues the request it came from; it is never taken from replayed history. *progress* is where a tool that reports
-    progress puts its labels; each one becomes a ``progress`` event while that tool runs.
+    proposal becomes a ``confirm`` event and the run carries on. *progress* is where a tool that reports progress puts its labels; each one
+    becomes a ``progress`` event while that tool runs.
+
+    *single_call* makes each step one call over every tool's schema plus ``reply``, in place of a step call followed by an
+    argument call. It needs an endpoint that sends native tool schemas and honours ``tool_choice: required``; the assistant
+    benchmark (scripts/bench/assistant_bench.py) measures it against the default.
     """
     by_name = {tool.name: tool for tool in tools}
     step = step_tool(tools)
-    schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
+    if single_call:
+        schemas = [reply_tool(), *(tool_schema(tool) for tool in tools)]
+    else:
+        schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
     # Restrict the tool list when forced choice is unreliable.
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, reasoning_cfg(False))
-    max_tokens = agent_lane_max_tokens(settings)
+    # The same call path and samplers as the pipeline's agent passes: the lane's own hyperparameters, its max_tokens included,
+    # with the system prompt as the cached prefix every call of the run shares.
+    samplers = extract_hyperparams(settings, lane="agent")
 
-    system: ChatMessage = {"role": "system", "content": system_prompt(tools)}
-    latest = request_message(request, view, approved)
+    system: ChatMessage = {"role": "system", "content": system_prompt(tools, single_call=single_call)}
+    latest = request_message(request, view)
     if _chars([latest]) > CONTEXT_BUDGET_CHARS:
         raise AssistantUnavailable("That request is too long for the assistant. Shorten it and send it again.")
     # An earlier request that got no answer is replayed as a quoted record, never as part of this one: it is what authorises a
@@ -257,8 +280,11 @@ async def run_assistant(
         ids = dict(output.ids) if output else {}
         return {"type": "tool_result", "call_id": call_id, "tool": name, "ok": bool(output), "summary": summary, "ids": ids}
 
-    async def ask(forced: str) -> tuple[CompletionMessage, dict[str, Any]]:
-        """One forced call and its arguments, retried once when the reply is cut off or unusable."""
+    async def ask(forced: str | None) -> tuple[CompletionMessage, str, dict[str, Any]]:
+        """One forced call, its tool and its arguments, retried once when the reply is cut off or unusable.
+
+        *forced* ``None`` is the single-call protocol's step: one call to any tool, or to ``reply``.
+        """
         nonlocal model_calls
         problem = note = ""
         for attempt in range(2):
@@ -272,16 +298,24 @@ async def run_assistant(
                 # The retry says what was wrong on the message it answers, the request or a tool result: no call from the
                 # refused reply is replayed, so every call still has its one result and the prefix before it is unchanged.
                 messages[-1] = {**messages[-1], "content": f"{messages[-1]['content']}\n\n{note}"}
-            response = await forced_turn(
-                client,
-                model,
-                messages=messages,
-                tools=schemas if shared_tools else [step if forced == STEP_TOOL_NAME else tool_schema(by_name[forced])],
-                forced=forced,
-                max_tokens=max_tokens,
-                reasoning_on=False,
-                one_call=True,
+            offered = (
+                schemas
+                if forced is None or shared_tools
+                else [step if forced == STEP_TOOL_NAME else tool_schema(by_name[forced])]
             )
+            response: CompletionMessage = {}
+            async for event in CachedBase(prefix=(system,), tools=tuple(offered), model=model).complete(
+                client,
+                label=f"assistant:{forced or 'step'}",
+                trailing=messages[1:],
+                tool_choice={"type": "function", "function": {"name": forced}} if forced else "required",
+                # An endpoint that answers a forced choice as ``auto`` may otherwise reply with several calls at once.
+                single_tool_call=True,
+                **samplers,
+                **reasoning_cfg(False),
+            ):
+                if event["type"] == "done":
+                    response = event.get("message") or {}
             if client.is_aborted:
                 raise _Stopped
             note = ""
@@ -291,21 +325,32 @@ async def run_assistant(
             else:
                 # Only arguments that arrived as one whole object: a salvaged or degraded ``{}`` would run as another call,
                 # its optional fields filled with defaults that name a different target.
-                arguments = strict_tool_arguments(response, forced)
-                if arguments is not None and (forced != STEP_TOOL_NAME or _step_choice(arguments, by_name)):
-                    return response, arguments
+                if forced is None:
+                    picked = _any_call(response, by_name)
+                    if picked is not None:
+                        return response, *picked
+                    arguments = None
+                else:
+                    arguments = strict_tool_arguments(response, forced)
+                    if arguments is not None and (forced != STEP_TOOL_NAME or _step_choice(arguments, by_name)):
+                        return response, forced, arguments
                 if arguments is None and _several_calls(response):
                     problem, note = _SEVERAL, _one_at_a_time(forced)
                 else:
                     problem = _UNREADABLE
-            logger.warning("Assistant: %s reply unusable on attempt %d: %s", forced, attempt + 1, problem)
+            logger.warning("Assistant: %s reply unusable on attempt %d: %s", forced or "step", attempt + 1, problem)
         raise AssistantUnavailable(f"{problem} The assistant stopped after one retry.")
 
     try:
         for step_number in itertools.count(1):
             yield {"type": "progress", "label": "Thinking…"}
-            response, chosen = await ask(STEP_TOOL_NAME)
-            name, message = _step_choice(chosen, by_name) or (REPLY, "")
+            if single_call:
+                response, name, arguments = await ask(None)
+                message = str(arguments.get("message") or "").strip() if name == REPLY else ""
+            else:
+                response, _, chosen = await ask(STEP_TOOL_NAME)
+                name, message = _step_choice(chosen, by_name) or (REPLY, "")
+                arguments = {}
             if name == REPLY:
                 yield {"type": "assistant_message", "text": message, "final": True}
                 yield done("reply")
@@ -314,31 +359,29 @@ async def run_assistant(
             if executions >= MAX_TOOL_EXECUTIONS:
                 raise _Limit
             tool = by_name[name]
-            call_id = f"step{step_number}"
-            run.append(assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id))
-            if message:
-                yield {"type": "assistant_message", "text": message, "final": False}
-            arguments: dict[str, Any] = {}
-            if tool.takes_arguments:
+            if single_call:
+                call_id = f"call{step_number}"
+                run.append(assistant_tool_call(response, name, arguments, call_id))
+            else:
+                call_id = f"step{step_number}"
+                run.append(assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id))
+                if message:
+                    yield {"type": "assistant_message", "text": message, "final": False}
+            if tool.takes_arguments and not single_call:
                 run.append(tool_result(call_id, f"Call {name} with its arguments now."))
                 yield {"type": "progress", "label": f"Preparing {name}…"}
-                response, arguments = await ask(name)
+                response, _, arguments = await ask(name)
                 call_id = f"call{step_number}"
                 run.append(assistant_tool_call(response, name, arguments, call_id))
             checked = _validated(tool, arguments)
             write = tool.behavior == "write"
             # An idempotent write names an explicit state, so repeating it is harmless and may be what the user asked for.
             key = "" if isinstance(checked, str) or not write or tool.idempotent else f"{name}:{checked.model_dump_json()}"
-            start: AssistantEvent = {"type": "tool_start", "call_id": call_id, "tool": name}
             admitted = write and not isinstance(checked, str) and key not in made
-            if admitted:
-                # A Stop that arrived since the arguments came back admits no write.
-                if client.is_aborted:
-                    raise _Stopped
-                start["write"] = True
-                if tool.target is not None:
-                    start["target"] = dict(tool.target(checked))
-            yield start
+            # A Stop that arrived since the arguments came back admits no write.
+            if admitted and client.is_aborted:
+                raise _Stopped
+            yield {"type": "tool_start", "call_id": call_id, "tool": name}
             # The stream sent ``tool_start`` while this generator waited, and a Stop or a disconnect may have landed then. Check
             # again with no await between the check and the write's start, so a write can only start before the Stop.
             if admitted and client.is_aborted:
@@ -379,7 +422,10 @@ async def run_assistant(
                     committed.append(output.summary)
                     resources = [dict(resource) for resource in output.committed]
                     yield {"type": "mutation", "call_id": call_id, "tool": name, "resources": resources}
-                dropped = "it already happened." if write else "run the tool again."
+                dropped = {
+                    "write": "it already happened.",
+                    "confirm": "the edit is still proposed; do not propose it again.",
+                }.get(tool.behavior, "run the tool again.")
                 compact = {
                     "summary": output.summary,
                     "ids": dict(output.ids),
@@ -389,10 +435,8 @@ async def run_assistant(
                 full_results.append((len(run) - 1, call_id, json.dumps(compact, ensure_ascii=False)))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
-                    # Nothing was written. The user's Apply commits it, outside this run, which ends here.
+                    # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
                     yield {"type": "confirm", "call_id": call_id, "tool": name, "proposal": dict(output.proposal)}
-                    yield done("awaiting_apply", _AWAITING)
-                    return
                 if tool.behavior == "handoff" and output.handoff is not None:
                     # Nothing ran here. The browser starts the work in the chat's own stream, once this one has settled, and
                     # never after a Stop.

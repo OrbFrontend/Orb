@@ -183,21 +183,9 @@ routes remain available so a disabled workflow can be configured and existing
 attachments can still be viewed.
 
 The frontend mirrors the same predicate and hides disabled workflow controls.
-Existing attachment renderers remain available by design. A workflow whose
-attachments render in the message toolbar (`placement: "actions"`, as speech
-does) keeps its message-button renderer for a message that already holds its
-attachments, so they stay reachable; that renderer disables any control that
-would run the workflow again.
-
-The trigger route's dispatch lives in `backend/api/workflow_dispatch.py`. The
-[panel assistant's](assistant-chat.md#media) media tools call it without the
-enablement gate, for an explicit request, and keep every other check, lock and
-job rule. They refuse an image while Image Gen is off only when the render would
-have swapped the GPU had it been on, since the swap plan is off with the
-workflow: GPU swap is asked for, a lane runs on a server Orb unloads other than
-a llama-swap hosting ComfyUI, and the default style renders on ComfyUI, as the
-image workflow's `styles` query reports. A cloud render is never refused.
-Switching a workflow, or all of them, on or off drops the cached plan.
+Existing attachment renderers remain available by design. The trigger route's
+dispatch lives in `backend/api/workflow_dispatch.py`; the
+[panel assistant's](assistant-chat.md#media) media tools share it, gate included.
 
 ## Hook contexts
 

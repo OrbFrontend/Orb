@@ -41,7 +41,7 @@ beforeEach(() => {
     // The server's view after a write: a toggled key, plus a key nothing asked for.
     if (request.url.endsWith("/api/settings"))
       return Response.json({ enabled_tools: { editor_apply_patch: false }, user_name: "from the server" });
-    if (request.url.endsWith("/api/worlds")) return Response.json([]);
+    if (request.url.endsWith("/api/worlds") || request.url.endsWith("/api/user-personas")) return Response.json([]);
     // The chat list as this page already has it: a refresh in place changes nothing a test relies on.
     if (request.url.endsWith("/api/conversations")) return Response.json(S.conversations);
     if (request.url.endsWith("/api/assistant/apply")) return new Promise((resolve) => (request.answer = resolve));
@@ -137,7 +137,7 @@ test("a request keeps the view captured at Send, and Stop names that operation a
     S.assistant.items.map((item) => item.kind),
     ["user", "tool", "outcome"],
   );
-  assert.equal(S.assistant.items[1].text, "No result was received.");
+  assert.equal(S.assistant.items[1].text, "No result was received; check before asking again.");
   assert.equal($("assistant-clear").disabled, false);
   assert.equal($("assistant-scope").textContent, "Group chat: Campfire", "the next request is about the view now open");
 
@@ -178,7 +178,7 @@ test("another open tab blocks Send, and an IME Enter is not a Send", async () =>
   assert.equal(input.value, "composed text");
 });
 
-test("a committed change is read again by id, and an unanswered write is reconciled once and never resent", async () => {
+test("a committed change is read again by id, and a run cut short reads everything again once and resends nothing", async () => {
   S.conversations = [{ id: "chat-long", title: "t".repeat(400), kind: "solo" }];
   S.activeConvId = "chat-long";
   S.settings = { ...S.settings, user_name: "local" };
@@ -188,7 +188,7 @@ test("a committed change is read again by id, and an unanswered write is reconci
   assert.ok(run.body.items.at(-1).view.length < 200);
 
   const keys = { kind: "settings", keys: ["enabled_tools"] };
-  emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle", write: true, target: keys });
+  emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle" });
   emit(run, "mutation", { call_id: "call1", tool: "set_pipeline_toggle", resources: [keys] });
   await settled();
   assert.ok(requests.some((request) => request.url.endsWith("/api/settings")), "the toggle's keys are read again");
@@ -197,20 +197,16 @@ test("a committed change is read again by id, and an unanswered write is reconci
   emit(run, "tool_result", { call_id: "call1", tool: "set_pipeline_toggle", ok: true, summary: "Turned Editor off.", ids: {} });
 
   // The lore write starts, and the connection ends before anything says whether it committed.
-  emit(run, "tool_start", {
-    call_id: "call2",
-    tool: "create_lorebook_entry",
-    write: true,
-    target: { kind: "lorebook_entry", world_id: "w1" },
-  });
+  emit(run, "tool_start", { call_id: "call2", tool: "create_lorebook_entry" });
   await settled();
-  const worldReads = () => requests.filter((request) => request.url.endsWith("/api/worlds")).length;
-  assert.equal(worldReads(), 0);
+  const reads = (path) => requests.filter((request) => request.url.endsWith(path)).length;
+  assert.equal(reads("/api/worlds"), 0);
   run.writer.close();
   await settled();
   const lore = S.assistant.items.findLast((item) => item.tool === "create_lorebook_entry");
-  assert.equal(lore.text, "Outcome unknown; check the target.");
-  assert.equal(worldReads(), 1, "its world is read again once the run has settled");
+  assert.equal(lore.text, "No result was received; check before asking again.");
+  for (const path of ["/api/worlds", "/api/characters", "/api/user-personas", "/api/conversations", "/chat-long/messages"])
+    assert.equal(reads(path), 1, `${path} is read again once the run has settled`);
   assert.equal(requests.filter((request) => request.url.includes("/assistant/run")).length, 1, "nothing is resent");
   assert.equal(S.operations.size, 0);
 });
@@ -221,22 +217,25 @@ function keepingStorage() {
   return { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)), kept };
 }
 
-const proposal = (id, target) => ({
+const message = (id) => ({ kind: "message", conversation_id: "chat-a", message_id: id });
+const confirmed = (id, target = message(7), label = "message 7 in <Harbour>") => ({
   call_id: "call1",
   tool: "edit_message",
   proposal: {
     proposal_id: id,
-    label: "message 7 in <Harbour>",
+    label,
     target,
     fields: [{ field: "content", label: "Content", before: "Old <b>line</b>.", after: "New <b>line</b>." }],
   },
 });
 
-async function propose(id, target = { kind: "message", conversation_id: "chat-a", message_id: 7 }) {
-  const run = await ask("Fix message 7.");
+/** A run that proposes *previews* (proposal ids, or whole `confirm` payloads) and replies. */
+async function propose(...previews) {
+  const run = await ask("Fix the messages.");
   run.used = true;
-  emit(run, "confirm", proposal(id, target));
-  emit(run, "done", { reason: "awaiting_apply", message: "" });
+  for (const preview of previews) emit(run, "confirm", typeof preview === "string" ? confirmed(preview) : preview);
+  emit(run, "assistant_message", { text: "Proposed.", final: true });
+  emit(run, "done", { reason: "reply", message: "" });
   run.writer.close();
   await settled();
   return run;
@@ -244,7 +243,7 @@ async function propose(id, target = { kind: "message", conversation_id: "chat-a"
 
 const applyButton = () => document.querySelector('#assistant-log [data-wf-action="assistant:apply"]');
 
-test("a reload during a write stores an unknown outcome, and the next request carries it only as a record", async () => {
+test("a reload mid-tool stores it as unanswered, and the next request carries it only as a record", async () => {
   $("assistant-clear").click();
   const saved = globalThis.localStorage;
   globalThis.localStorage = keepingStorage();
@@ -253,16 +252,15 @@ test("a reload during a write stores an unknown outcome, and the next request ca
     S.activeConvId = "chat-a";
     const run = await ask("Add lore entry Ferry");
     run.used = true;
-    const target = { kind: "lorebook_entry", world_id: "w1" };
-    emit(run, "tool_start", { call_id: "call1", tool: "create_lorebook_entry", write: true, target });
+    emit(run, "tool_start", { call_id: "call1", tool: "create_lorebook_entry" });
     await settled();
-    // The page closes here: what it stored already says the write's outcome is unknown.
+    // The page closes here: what it stored already says the tool got no result.
     const { parseTranscript, runItems } = await import("../../frontend/assistant_view.js");
     const reloaded = parseTranscript(globalThis.localStorage.kept.get("orb-assistant-transcript"));
-    assert.equal(reloaded.at(-1).text, "Outcome unknown; check the target.");
+    assert.equal(reloaded.at(-1).text, "No result was received; check before asking again.");
     const replay = runItems([...reloaded, { kind: "user", text: "Which worlds do I have?", context: reloaded[0].context }]);
     assert.deepEqual(replay.at(-1), { kind: "user", text: "Which worlds do I have?", view: "Chat: Harbour" });
-    assert.match(replay.at(-2).text, /^outcome unknown/);
+    assert.match(replay.at(-2).text, /^failed: No result was received; check before asking again\.$/);
     run.writer.close();
     await settled();
   } finally {
@@ -271,38 +269,52 @@ test("a reload during a write stores an unknown outcome, and the next request ca
   }
 });
 
-test("Apply sends the proposal id alone, commits once, then continues the request once in its own view", async () => {
+test("Apply sends the card's ids alone, settles each edit by its verdict, and sends only a busy one again", async () => {
   S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
   S.activeConvId = "chat-a";
-  await propose("p-apply");
-  assert.ok(applyButton(), "the held proposal can be applied");
+  await propose("p1", confirmed("p2", message(8), "message 8"), confirmed("p3", { kind: "persona", persona_id: 3 }, "persona Wren"));
+  assert.ok(applyButton(), "the held card can be applied");
+  assert.equal(document.querySelectorAll('#assistant-log [data-wf-action="assistant:apply"]').length, 1, "one Apply");
   assert.equal($("assistant-log").querySelector(".asst-diff b"), null, "the diff is escaped text");
   applyButton().click();
   await settled();
-  const applies = requests.filter((request) => request.url.endsWith("/api/assistant/apply"));
+  let applies = requests.filter((request) => request.url.endsWith("/api/assistant/apply"));
   assert.equal(applies.length, 1);
-  assert.deepEqual(applies[0].body, { proposal_id: "p-apply" });
-  assert.equal(applyButton(), null, "no second Apply while the first is in flight");
-  const op = [...S.operations.values()].find((item) => item.kind === "assistant-apply");
-  assert.equal(op.target.conversationId, "chat-a", "a chat edit in flight is chat work its delete dialog names");
+  assert.deepEqual(applies[0].body, { proposal_ids: ["p1", "p2", "p3"] });
+  assert.equal(applyButton().disabled, true, "no second Apply while the first is in flight");
+  const ops = [...S.operations.values()].filter((item) => item.kind === "assistant-apply");
+  assert.deepEqual(ops.map((op) => op.target.conversationId), ["chat-a"], "chat edits in flight are chat work");
   applies[0].answer(
-    Response.json({ ok: true, summary: "Applied.", resources: [{ kind: "message", conversation_id: "chat-a", message_id: 7 }] }),
+    Response.json({
+      results: [
+        { proposal_id: "p1", verdict: "applied", summary: "Applied the edit to message 7.", resources: [message(7)] },
+        { proposal_id: "p2", verdict: "busy", message: "That chat is generating right now." },
+        { proposal_id: "p3", verdict: "stale", message: "Changed." },
+      ],
+    }),
   );
   await settled();
   assert.ok(requests.some((request) => request.url.endsWith("/api/conversations/chat-a/messages")), "the chat in view is read again");
-  const continued = requests.filter((request) => request.url.includes("/assistant/run")).at(-1);
-  assert.equal(continued.body.continue_proposal_id, "p-apply");
-  assert.deepEqual(continued.body.context, { mode: "chat", conversation_id: "chat-a" });
-  continued.used = true;
-  emit(continued, "done", { reason: "reply", message: "" });
-  continued.writer.close();
+  const card = S.assistant.items.find((item) => item.kind === "proposals");
+  assert.deepEqual(card.proposals.map((entry) => entry.status), ["applied", "pending", "stale"]);
+  assert.equal(S.assistant.items.at(-1).text, "Applied the edit to message 7.");
+  assert.match($("assistant-log").innerHTML, /That chat is generating right now\./);
+  assert.match($("assistant-log").innerHTML, /Applied 1; skipped 1: content of persona Wren\./);
+
+  // The busy one is still pending, so Apply stays and sends it alone.
+  applyButton().click();
   await settled();
-  assert.equal(S.assistant.items.find((item) => item.kind === "proposal").status, "applied");
-  assert.equal(requests.filter((request) => request.url.endsWith("/api/assistant/apply")).length, 1);
+  applies = requests.filter((request) => request.url.endsWith("/api/assistant/apply"));
+  assert.deepEqual(applies[1].body, { proposal_ids: ["p2"] });
+  applies[1].answer(Response.json({ results: [{ proposal_id: "p2", verdict: "applied", resources: [message(8)] }] }));
+  await settled();
+  assert.equal(card.proposals[1].status, "applied");
+  assert.equal(applyButton(), null, "nothing is left to apply");
+  assert.equal(requests.filter((request) => request.url.includes("/assistant/run")).length, 1, "nothing continues by itself");
   $("assistant-clear").click();
 });
 
-test("a view change during Apply repaints nothing there, and a new request or a stale answer leaves the card inert", async () => {
+test("a view change during Apply repaints nothing there, and a new request or Cancel closes the card", async () => {
   S.conversations = [
     { id: "chat-a", title: "Harbour", kind: "solo" },
     { id: "chat-b", title: "Campfire", kind: "solo" },
@@ -313,28 +325,36 @@ test("a view change during Apply repaints nothing there, and a new request or a 
   await settled();
   S.activeConvId = "chat-b";
   const apply = requests.find((request) => request.url.endsWith("/api/assistant/apply"));
-  const body = JSON.stringify({ detail: { code: "stale", message: "Changed." } });
-  apply.answer(new Response(body, { status: 409 }));
+  apply.answer(Response.json({ results: [{ proposal_id: "p-view", verdict: "stale", message: "Changed." }] }));
   await settled();
   assert.equal(requests.filter((request) => request.url.includes("/messages")).length, 0, "the chat now in view is untouched");
-  const card = S.assistant.items.find((item) => item.kind === "proposal");
-  assert.equal(card.status, "stale");
-  assert.equal(requests.filter((request) => request.url.includes("/assistant/run")).length, 1, "no continuation after a refusal");
+  const card = S.assistant.items.find((item) => item.kind === "proposals");
+  assert.equal(card.proposals[0].status, "stale");
   // Ask again puts the request back for the reader to send; nothing is sent by itself.
   document.querySelector('[data-wf-action="assistant:askAgain"]').click();
-  assert.equal($("assistant-input").value, "Fix message 7.");
+  assert.equal($("assistant-input").value, "Fix the messages.");
   $("assistant-input").value = "";
 
-  // A new request ends the Apply of a proposal still held.
+  // A new request closes a card still held.
   S.activeConvId = "chat-a";
   await propose("p-old");
   const next = await ask("Something else.");
   next.used = true;
-  assert.equal(S.assistant.items.findLast((item) => item.kind === "proposal").status, "superseded");
+  assert.equal(S.assistant.items.findLast((item) => item.kind === "proposals").proposals[0].status, "historical");
   assert.equal(applyButton(), null);
   emit(next, "done", { reason: "reply", message: "" });
   next.writer.close();
   await settled();
+
+  // Cancel settles every pending edit on the card and sends nothing.
+  await propose("p-cancel", confirmed("p-cancel-2", message(8)));
+  const before = requests.length;
+  document.querySelector('#assistant-log [data-wf-action="assistant:cancel"]').click();
+  assert.deepEqual(
+    S.assistant.items.findLast((item) => item.kind === "proposals").proposals.map((entry) => entry.status),
+    ["cancelled", "cancelled"],
+  );
+  assert.equal(requests.length, before);
   $("assistant-clear").click();
 });
 
@@ -347,7 +367,7 @@ test("a settings refresh waits while the reader types in the Tools panel, then r
   const run = await ask("Turn the Director on.");
   run.used = true;
   const keys = { kind: "settings", keys: ["enabled_tools"] };
-  emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle", write: true, target: keys });
+  emit(run, "tool_start", { call_id: "call1", tool: "set_pipeline_toggle" });
   emit(run, "mutation", { call_id: "call1", tool: "set_pipeline_toggle", resources: [keys] });
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(requests.some((request) => request.url.endsWith("/api/settings")), "the refresh itself has run");
@@ -370,30 +390,31 @@ test("a settings refresh waits while the reader types in the Tools panel, then r
   $("assistant-clear").click();
 });
 
-test("a retried Apply that finds its proposal expired is an unknown outcome to check, never 'not applied'", async () => {
+test("an Apply that ends without verdicts leaves the card pending to try again, and reads its targets again", async () => {
   S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
   S.activeConvId = "chat-a";
   await propose("p-retry");
   applyButton().click();
   await settled();
   const first = requests.find((request) => request.url.endsWith("/api/assistant/apply"));
+  const before = requests.length;
   first.answer(new Response("upstream gone", { status: 502 }));
   await settled();
-  const card = S.assistant.items.find((item) => item.kind === "proposal");
-  assert.equal(card.status, "unconfirmed");
-  applyButton().click();
-  await settled();
-  const retry = requests.filter((request) => request.url.endsWith("/api/assistant/apply")).at(-1);
-  assert.notEqual(retry, first);
-  const before = requests.length;
-  retry.answer(new Response(JSON.stringify({ detail: { code: "expired", message: "Gone." } }), { status: 410 }));
-  await settled();
-  assert.equal(card.status, "unknown");
-  assert.match($("assistant-log").innerHTML, /outcome unknown; check the target/);
+  const card = S.assistant.items.find((item) => item.kind === "proposals");
+  assert.equal(card.proposals[0].status, "pending");
+  assert.match($("assistant-log").innerHTML, /Apply did not finish\. Try again/);
   assert.ok(
     requests.slice(before).some((request) => request.url.endsWith("/api/conversations/chat-a/messages")),
     "its target is read again",
   );
+  applyButton().click();
+  await settled();
+  const retry = requests.filter((request) => request.url.endsWith("/api/assistant/apply")).at(-1);
+  assert.notEqual(retry, first);
+  assert.deepEqual(retry.body, { proposal_ids: ["p-retry"] });
+  retry.answer(Response.json({ results: [{ proposal_id: "p-retry", verdict: "applied", repeated: true, resources: [] }] }));
+  await settled();
+  assert.equal(card.proposals[0].status, "applied");
   assert.equal(requests.filter((request) => request.url.includes("/assistant/run")).length, 1, "and nothing continues");
   $("assistant-clear").click();
 });
@@ -543,13 +564,13 @@ test("a chat action refreshes only the chat it changed, and only while that chat
   const run = await ask("Use the Harbour world in Campfire, then show the old branch here.");
   run.used = true;
   const reads = (path) => requests.filter((request) => request.url.endsWith(path)).length;
-  emit(run, "tool_start", { call_id: "call1", tool: "set_chat_world", write: true });
+  emit(run, "tool_start", { call_id: "call1", tool: "set_chat_world" });
   emit(run, "mutation", {
     call_id: "call1",
     tool: "set_chat_world",
     resources: [{ kind: "chat_worlds", conversation_id: "chat-b", world_id: "w1" }],
   });
-  emit(run, "tool_start", { call_id: "call2", tool: "checkpoint_chat", write: true, target: { kind: "conversation" } });
+  emit(run, "tool_start", { call_id: "call2", tool: "checkpoint_chat" });
   emit(run, "mutation", {
     call_id: "call2",
     tool: "checkpoint_chat",
@@ -559,13 +580,13 @@ test("a chat action refreshes only the chat it changed, and only while that chat
   assert.equal(reads("/api/conversations/chat-b/worlds"), 0, "a chat not in view paints nothing");
   assert.equal(reads("/api/conversations"), 1, "the chat list is read again, in place");
   assert.equal(S.activeConvId, "chat-a", "and nothing opens the new chat");
-  emit(run, "tool_start", { call_id: "call3", tool: "set_chat_world", write: true });
+  emit(run, "tool_start", { call_id: "call3", tool: "set_chat_world" });
   emit(run, "mutation", {
     call_id: "call3",
     tool: "set_chat_world",
     resources: [{ kind: "chat_worlds", conversation_id: "chat-a", world_id: "w1" }],
   });
-  emit(run, "tool_start", { call_id: "call4", tool: "switch_branch", write: true });
+  emit(run, "tool_start", { call_id: "call4", tool: "switch_branch" });
   emit(run, "mutation", { call_id: "call4", tool: "switch_branch", resources: [{ kind: "branch", conversation_id: "chat-a" }] });
   await settled();
   assert.equal(reads("/api/conversations/chat-a/worlds"), 1, "the chat in view shows its new worlds");
@@ -577,58 +598,63 @@ test("a chat action refreshes only the chat it changed, and only while that chat
   $("assistant-clear").click();
 });
 
-test("a media job is media work in its chat while it runs, and its message is read again after a result or a Stop", async () => {
+test("a media job's message is read again once it commits, and everything after a failed result or a Stop", async () => {
   S.conversations = [
     { id: "chat-a", title: "Harbour", kind: "solo" },
     { id: "chat-b", title: "Campfire", kind: "solo" },
   ];
   S.activeConvId = "chat-a";
-  const reads = () => requests.filter((request) => request.url.endsWith("/api/conversations/chat-a/messages")).length;
-  const media = () => [...S.operations.values()].filter((op) => op.kind === "media");
+  const reads = (path = "/api/conversations/chat-a/messages") => requests.filter((request) => request.url.endsWith(path)).length;
   const target = { kind: "media", conversation_id: "chat-a", message_id: 7 };
   let run = await ask("Make an image of the last reply.");
   run.used = true;
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_image", write: true, target });
+  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
   emit(run, "progress", { label: "Rendering in ComfyUI..." });
   await settled();
-  assert.deepEqual(
-    media().map((op) => op.target),
-    [{ conversationId: "chat-a", messageId: 7 }],
-    "the chat's delete dialog names it",
-  );
   assert.equal($("assistant-status").textContent, "Rendering in ComfyUI...", "progress shows in the dock");
   emit(run, "mutation", { call_id: "call1", tool: "generate_image", resources: [{ ...target, attachment_ids: [3] }] });
   emit(run, "tool_result", { call_id: "call1", tool: "generate_image", ok: true, summary: "Saved an image.", ids: {} });
   await settled();
-  assert.equal(media().length, 0);
   assert.equal(reads(), 1, "the chat in view shows the saved image");
   emit(run, "done", { reason: "reply", message: "" });
   run.writer.close();
   await settled();
+  assert.equal(reads(), 1, "a run that answered with every result ok reads nothing more");
   assert.ok(!JSON.stringify(S.assistant.items).includes("Rendering"), "progress is not kept in the transcript");
 
-  // Stopped: once the run has settled, the message is read again, since the job may have saved something as it ended.
+  // A failed result, then an ordinary answer: the job may have saved as it failed, so everything is read again.
+  const worlds = reads("/api/worlds");
   run = await ask("Now speech for it.");
   run.used = true;
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_speech", write: true, target });
+  emit(run, "tool_start", { call_id: "call1", tool: "generate_speech" });
+  emit(run, "tool_result", { call_id: "call1", tool: "generate_speech", ok: false, summary: "May have been saved.", ids: {} });
+  emit(run, "assistant_message", { text: "Check the message.", final: true });
+  emit(run, "done", { reason: "reply", message: "" });
+  run.writer.close();
+  await settled();
+  assert.equal(reads(), 2);
+  assert.equal(reads("/api/worlds"), worlds + 1);
+
+  // Stopped: once the run has settled, everything is read again.
+  run = await ask("Once more.");
+  run.used = true;
+  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
   await settled();
   $("assistant-send").click();
-  emit(run, "tool_result", { call_id: "call1", tool: "generate_speech", ok: false, summary: "Stopped.", ids: {} });
   emit(run, "done", { reason: "stopped", message: "" });
   run.writer.close();
   await settled();
-  assert.equal(reads(), 2);
+  assert.equal(reads(), 3);
   assert.equal(S.operations.size, 0);
 
   // A chat no longer in view is not repainted.
-  run = await ask("Once more.");
+  run = await ask("And again.");
   run.used = true;
   S.activeConvId = "chat-b";
-  emit(run, "tool_start", { call_id: "call1", tool: "generate_image", write: true, target });
+  emit(run, "tool_start", { call_id: "call1", tool: "generate_image" });
   run.writer.close();
   await settled();
-  assert.equal(reads(), 2);
-  assert.equal(S.operations.size, 0);
+  assert.equal(reads(), 3);
   S.activeConvId = "chat-a";
   $("assistant-clear").click();
 });
