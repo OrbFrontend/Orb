@@ -16,7 +16,14 @@ import { closeModal, setModalDismiss, showConfirmModal, showModal } from "./moda
 import { begin, beginStream, finish, ownsView, runningFor, settle, streamEvents } from "./operations.js";
 import { updateUserBtn } from "./settings_personas.js";
 import { unescapeSSE } from "./sse.js";
-import { charactersView, conversationState, releaseConversationState, S, upgradeLegacyFragment } from "./state.js";
+import {
+  charactersView,
+  conversationState,
+  notify,
+  releaseConversationState,
+  S,
+  upgradeLegacyFragment,
+} from "./state.js";
 import { refreshState } from "./state_panel.js";
 import {
   $,
@@ -107,6 +114,7 @@ export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  notify("conversations");
   S.groupCast = null;
   S.pinnedSpeakerId = null;
   S.consumedSpeakerId = null;
@@ -206,6 +214,7 @@ export async function selectConversation(id) {
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   S.activeConvId = id;
+  notify("conversations");
   if (previousId !== id) releaseConversationState(previousId);
   S.conversationLoading = true;
   try {
@@ -312,6 +321,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
         if (S.activeConvId === id) {
           const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
           S.activeConvId = null;
+          notify("conversations");
           S.messages = [];
           $("chat-input").disabled = true;
           $("send-btn").disabled = true;

@@ -61,6 +61,8 @@ let run = null;
 let following = true;
 // A Tools panel repaint held back while the reader is typing in it.
 let toolsRepaintHeld = false;
+// The view the empty log's suggestions were drawn for, null once the log holds entries.
+let suggestedFor = null;
 
 const narrow = () => Boolean(window.matchMedia?.(NARROW).matches);
 
@@ -126,10 +128,12 @@ function paintLog() {
   const log = $("assistant-log");
   if (!log) return;
   const busy = Boolean(activeOperation());
+  const view = shownView();
+  suggestedFor = S.assistant.items.length ? null : view;
   log.innerHTML = transcriptHtml(S.assistant.items, renderMessageHtml, {
     active: S.assistant.batch,
     busy,
-    suggestFor: shownView(),
+    suggestFor: view,
   });
   toEnd();
 }
@@ -280,8 +284,9 @@ function paintControls() {
   const scope = $("assistant-scope");
   scope.textContent = context.label;
   scope.title = busy ? `Working on: ${context.label}` : `Your next message is about: ${context.label}`;
-  // The suggestions follow the view, which can change without a notice.
-  if (!S.assistant.items.length) paintLog();
+  // The suggestions follow the view, which can change without a notice. Only a changed view redraws them: pressing one
+  // focuses it, and redrawing then would replace the button before its click lands.
+  if (!S.assistant.items.length && shownView() !== suggestedFor) paintLog();
 }
 
 function paint() {
