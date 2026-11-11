@@ -81,14 +81,17 @@ class _LoreEntryArgs(ToolArguments):
 class _CharacterCreate(ToolArguments):
     """Authored text only: no image, avatar, extension, embedded book, import source or URL can be named."""
 
-    name: str = Field(min_length=1, max_length=_NAME_CHARS, description="The character's name.")
+    name: str = Field(
+        min_length=1,
+        max_length=_NAME_CHARS,
+    )
     description: str = _text(_LONG_TEXT_CHARS, "Who the character is.")
     personality: str = _text(_SHORT_TEXT_CHARS, "Their personality.")
     scenario: str = _text(_SHORT_TEXT_CHARS, "The situation a chat with them starts in.")
     first_mes: str = _text(_LONG_TEXT_CHARS, "Their first message in a new chat.")
     mes_example: str = _text(_LONG_TEXT_CHARS, "Example messages showing how they talk.")
     creator_notes: str = _text(_SHORT_TEXT_CHARS, "Notes about the card for the user.")
-    tags: list[_Tag] = Field(default_factory=list, max_length=_TAGS, description="Library tags.")
+    tags: list[_Tag] = Field(default_factory=list, max_length=_TAGS)
 
     _blank = field_validator("name", "tags")(not_blank)
 
@@ -128,7 +131,7 @@ class _StartChat(ToolArguments):
 
 
 class _OpenChat(ToolArguments):
-    conversation_id: str = Field(min_length=1, max_length=ID_CHARS, description="The chat to open.")
+    conversation_id: str = Field(min_length=1, max_length=ID_CHARS)
 
 
 class _SetChat(ToolArguments):

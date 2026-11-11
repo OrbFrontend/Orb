@@ -166,13 +166,14 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
 
     monkeypatch.setattr(LLMClient, "complete", complete)
     view = await resolve_view(AssistantViewContext(mode="chat", conversation_id=library["chat"]))
+    tools = build_tools(await get_settings(), view)
     events = [
         event
         async for event in run_assistant(
             LLMClient("http://127.0.0.1:9/v1"),
             "m",
             settings=await get_settings(),
-            tools=build_tools(await get_settings(), view),
+            tools=tools,
             history=[],
             request="What are the last two lines?",
             view=view,
@@ -188,8 +189,37 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
     names = [tool["function"]["name"] for tool in calls[0]["tools"]]
     assert calls[0]["tool_choice"] == "required" and names[0] == "reply" and "get_context" in names
     assert "assistant_step" not in names and "assistant_step" not in calls[0]["messages"][0]["content"]
+    # Each tool is described once, on the schema the call carries; the system prompt lists none.
+    described = {tool["function"]["name"]: tool["function"]["description"] for tool in calls[0]["tools"]}
+    system = calls[0]["messages"][0]["content"]
+    assert all(tool.description in described[tool.name] and tool.description not in system for tool in tools)
     replayed = calls[1]["messages"][-2]["tool_calls"][0]["function"]
     assert replayed["name"] == "read_messages" and json.loads(replayed["arguments"]) == {"count": 2}
+
+
+async def test_a_model_that_repeats_one_call_is_stopped_before_the_third_runs(client, library, monkeypatch):
+    calls = []
+
+    async def complete(self, **kwargs):
+        calls.append(kwargs)
+        yield _call("read_messages", {"count": 2})
+
+    monkeypatch.setattr(LLMClient, "complete", complete)
+    view = await resolve_view(AssistantViewContext(mode="chat", conversation_id=library["chat"]))
+    events = [
+        event
+        async for event in run_assistant(
+            LLMClient("http://127.0.0.1:9/v1"),
+            "m",
+            settings=await get_settings(),
+            tools=build_tools(await get_settings(), view),
+            history=[],
+            request="What are the last two lines?",
+            view=view,
+        )
+    ]
+    assert len(calls) == 3 and len([event for event in events if event["type"] == "tool_result"]) == 2
+    assert events[-1]["type"] == "done" and events[-1]["reason"] == "limit"
 
 
 async def test_stop_names_its_operation_so_a_stale_stop_ends_nothing(client, monkeypatch):
@@ -269,9 +299,9 @@ async def test_character_and_settings_projections_leave_out_everything_not_allow
     await client.put_checked("/api/settings", json={"enable_agent": False, "length_guard_enabled": True})
     summary, encoded = await _use(await _tools(mode="library"), "get_settings_summary")
     assert SECRET not in encoded and "endpoint" not in encoded and "model" not in encoded
-    assert summary["switches"]["main_workflows_enabled"] is False
-    assert summary["switches"]["length_guard"]["enabled"] == {"stored": True, "effective": False}
-    assert summary["switches"]["tools"]["direct_scene"] == {"stored": True, "effective": False}
+    assert summary["switches"]["agent"] is False
+    assert summary["switches"]["length_guard"] == {"stored": True, "effective": False}
+    assert summary["switches"]["director"] == {"stored": True, "effective": False}
     assert set(summary["samplers"]) == {"writer", "agent"} and "temperature" in summary["samplers"]["writer"]
     # The SQL views are allowlists too: no credential column, and nothing from the endpoints table.
     columns = {column for view in LIBRARY_VIEWS.values() for column in view}
@@ -698,6 +728,16 @@ async def test_proposals_check_their_text_and_an_unknown_or_expired_one_is_inert
     await client.put_checked(f"/api/characters/{library['card']}", json={"description": "aa then aa"})
     with pytest.raises(ToolFailure, match="more than once"):
         await edit.run(edit.arguments(field="description", mode="find_replace", find="aa", text="b"))
+    every = (await edit.run(edit.arguments(field="description", mode="replace_every", find="aa", text="b"))).proposal
+    assert every is not None and every["fields"][0]["after"] == "b then b"
+    # A find copied from a result as its JSON shows it matches the text it was copied from.
+    await client.put_checked(f"/api/characters/{library['card']}", json={"personality": 'Dry.\n\nSays "no" often.'})
+    copied = {"mode": "find_replace", "find": '\\n\\nSays \\"no\\" often.', "text": ""}
+    escaped = (await edit.run(edit.arguments(field="personality", **copied))).proposal
+    assert escaped is not None and escaped["fields"][0]["after"] == "Dry."
+    # A list edit carries no text.
+    tagged = (await edit.run(edit.arguments(field="tags", mode="add_items", items=["Harbour"]))).proposal
+    assert tagged is not None and "Harbour" in tagged["fields"][0]["after"]
     for bad in ({"text": "x" * 8001}, {"field": "system_prompt"}, {"field": "creator"}, {"mode": "append"}):
         with pytest.raises(ValidationError):
             edit.arguments.model_validate({"field": "description", "mode": "replace_all", "text": "x", **bad})

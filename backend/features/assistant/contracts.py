@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict
 # Budgets for one run. Model calls include retries.
 MAX_TOOL_EXECUTIONS = 12
 MAX_MODEL_CALLS = 30
+# The same tool with the same arguments, back to back: the model is not taking in the results.
+MAX_SAME_CALLS = 3
 # Bounds on what a browser may replay and on the working context built from it.
 MAX_REPLAY_ITEMS = 100
 MAX_ITEM_CHARS = 8000

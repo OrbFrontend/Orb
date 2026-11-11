@@ -84,7 +84,7 @@ _VIEW_NOTES = (
     "lorebook_entries spans every world; a disabled or archived entry is not in effect. Select id and "
     "conversation_id with message findings; substr long text."
 )
-_TEXT_OFFSET = "When reading one text whole: the character position to start from, the last page's next_offset."
+_TEXT_OFFSET = "To read on in a whole text: the last page's next_offset."
 # The longest page of one text a read returns.
 FULL_FIELD_CHARS = 4000
 
@@ -98,7 +98,7 @@ class _ListArgs(ToolArguments):
 
 
 class _CharacterArgs(ToolArguments):
-    character_id: str = Field(default="", max_length=ID_CHARS, description="Empty: the character in view.")
+    character_id: str = Field(default="", max_length=ID_CHARS)
     fields: list[Literal[CharacterField, "name", "tags", "alternate_greetings"]] = Field(
         default_factory=list,
         max_length=len(CHARACTER_FIELDS) + 3,

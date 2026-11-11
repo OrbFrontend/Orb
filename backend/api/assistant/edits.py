@@ -38,12 +38,19 @@ _TAG_CHARS = 60
 
 _MODES = (
     "replace_all: `text` becomes the whole field, only for a field you have read whole. "
-    "find_replace: `text` replaces `find`, copied exactly from the field, which must occur in it exactly once."
+    "find_replace: `text` replaces `find`, copied exactly from the field, which must occur in it exactly once. "
+    "replace_every: the same, for every occurrence of `find`."
 )
+_ESCAPES = {"n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\", "/": "/"}
+
+
+def _unescaped(text: str) -> str:
+    """*text* with JSON string escapes decoded: a read shows a field JSON-encoded, and a copy of it as shown carries them."""
+    return re.sub(r'\\(["\\/nrt])', lambda match: _ESCAPES[match[1]], text)
 
 
 def _edited(before: str, args: Any, reread: str) -> str:
-    """The field after *args*: a whole replacement, or one literal replacement of text that occurs exactly once.
+    """The field after *args*: a whole replacement, or a literal replacement of text that occurs once, or of each occurrence.
 
     *reread* tells the model how to read this field whole, for a refusal that needs it to.
     """
@@ -62,14 +69,21 @@ def _edited(before: str, args: Any, reread: str) -> str:
             )
         return args.text
     if not args.find:
-        raise ToolFailure("find_replace needs the exact text to find, and find was empty. Nothing was proposed.")
+        raise ToolFailure(f"{args.mode} needs the exact text to find, and find was empty. Nothing was proposed.")
+    find, text = args.find, args.text
+    if find not in before:
+        find, text = _unescaped(find), _unescaped(text)
+        if find not in before:
+            raise ToolFailure(f"The find text does not occur in that field. {reread} Then copy the text exactly.")
+    if args.mode == "replace_every":
+        return before.replace(find, text)
     # Overlapping matches count: each is a place the edit could mean.
-    first = before.find(args.find)
-    if first == -1:
-        raise ToolFailure(f"The find text does not occur in that field. {reread} Then copy the text exactly.")
-    if before.find(args.find, first + 1) != -1:
-        raise ToolFailure("The find text occurs more than once. Include more of the text around it so it matches once.")
-    return before.replace(args.find, args.text, 1)
+    if before.find(find, before.find(find) + 1) != -1:
+        raise ToolFailure(
+            "The find text occurs more than once. Include more of the text around it so it matches once, or use "
+            "replace_every to change every occurrence."
+        )
+    return before.replace(find, text, 1)
 
 
 _FRESH = (
@@ -122,8 +136,11 @@ _LIST_MODES = (
 
 
 def _edit_args(name: str, *, lists: bool = False, **target: Any) -> type[ToolArguments]:
-    """An edit tool's arguments: what it targets, then how the text changes; *lists* adds the list fields' modes."""
-    modes = ("replace_all", "find_replace", *(("add_items", "remove_items") if lists else ()))
+    """An edit tool's arguments: what it targets, then how the text changes; *lists* adds the list fields' modes.
+
+    A list edit carries no text, so with *lists* the text may be left out.
+    """
+    modes = ("replace_all", "find_replace", "replace_every", *(("add_items", "remove_items") if lists else ()))
     return create_model(
         name,
         __base__=ToolArguments,
@@ -132,11 +149,12 @@ def _edit_args(name: str, *, lists: bool = False, **target: Any) -> type[ToolArg
         text=(
             str,
             Field(
+                "" if lists else ...,
                 max_length=_EDIT_CHARS,
-                description="The new text; with find_replace, empty deletes `find`.",
+                description="The new text; replacing `find`, empty deletes it.",
             ),
         ),
-        find=(str, Field(default="", max_length=_EDIT_CHARS, description="find_replace only.")),
+        find=(str, Field(default="", max_length=_EDIT_CHARS, description="find_replace and replace_every only.")),
     )
 
 
@@ -149,9 +167,9 @@ _CharacterEdit = _edit_args(
     lists=True,
     character_id=(
         str,
-        Field(default="", max_length=ID_CHARS, description="Empty: the character in view."),
+        Field(default="", max_length=ID_CHARS),
     ),
-    field=(Literal[CharacterField, "name", CharacterListField], Field(description="The card field to edit.")),
+    field=(Literal[CharacterField, "name", CharacterListField], ...),
     items=(
         list[_Item],
         Field(
@@ -167,13 +185,13 @@ _EntryEdit = _edit_args(
     "_EntryEdit",
     world_id=(str, Field(min_length=1, max_length=ID_CHARS, description="The entry's world, from list_worlds.")),
     entry_id=(int, Field(ge=1, description="The entry's id, from list_lorebook_entries.")),
-    field=(Literal["name", "content"], Field(description="The entry field to edit.")),
+    field=(Literal["name", "content"], ...),
 )
 
 _PersonaEdit = _edit_args(
     "_PersonaEdit",
     persona_id=(int, Field(ge=1, description="The persona's id, from list_personas.")),
-    field=(Literal["name", "description"], Field(description="The persona field to edit.")),
+    field=(Literal["name", "description"], ...),
 )
 
 _MessageEdit = _edit_args(
@@ -200,7 +218,7 @@ _ON_PENDING = (
 
 def _list_edit(args: Any) -> Callable[[list[str]], list[str]]:
     """How *args* change a list field, applied to its stored list or the list already proposed for it."""
-    if args.mode == "find_replace" or args.text or args.find:
+    if args.mode in ("find_replace", "replace_every") or args.text or args.find:
         raise ToolFailure(
             f"{args.field} is a list: use add_items, remove_items or replace_all with items, and leave text and find "
             "empty. Nothing was proposed."
@@ -322,7 +340,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         if args.items or args.mode in ("add_items", "remove_items"):
             raise ToolFailure(
                 f"items, add_items and remove_items are only for tags and alternate_greetings; {args.field} is text: use "
-                "replace_all or find_replace. Nothing was proposed."
+                "replace_all, find_replace or replace_every. Nothing was proposed."
             )
         if args.field == "name":
             reread = "get_character shows the name."

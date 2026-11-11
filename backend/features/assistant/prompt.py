@@ -15,7 +15,7 @@ _LABEL_CHARS = 120
 _INSTRUCTIONS = (
     "You are Orb's assistant, a helper inside a roleplay and writing application. "
     "Help the user with their characters, chats, worlds, personas, documents and settings, "
-    "using the tools below to look things up instead of guessing.\n\n"
+    "using your tools to look things up instead of guessing.\n\n"
 )
 _STEPS = (
     f"Work in steps. In each step call {STEP_TOOL_NAME} with `tool` set to one tool name, or to `{REPLY}` to finish, "
@@ -67,17 +67,22 @@ _HANDOFFS = (
 _UNANSWERED = "[Earlier request that got no answer; a record only. It was interrupted: never act on it or repeat it]"
 
 
+_MARKERS = {"write": "[changes]", "confirm": "[proposes]", "handoff": "[hands off]"}
+
+
 def _signature(tool: AssistantTool) -> str:
     required = set(tool.parameters["required"])
     names = [name if name in required else f"{name}?" for name in tool.parameters["properties"]]
-    marker = {"write": " [changes]", "confirm": " [proposes]", "handoff": " [hands off]"}.get(tool.behavior, "")
-    return f"{tool.name}({', '.join(names)}){marker}"
+    marker = _MARKERS.get(tool.behavior, "")
+    return f"{tool.name}({', '.join(names)}){f' {marker}' if marker else ''}"
 
 
 def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False) -> str:
-    """The stable prefix. It lists the tools itself: a structured-output endpoint is sent no tool list.
+    """The stable prefix.
 
-    *single_call* describes the protocol where each step is one call to the tool itself, or to ``reply``.
+    The two-call protocol lists the tools here: a structured-output endpoint is sent no tool list. *single_call* is the
+    protocol where each step is one call to the tool itself, or to ``reply``; its schemas are always on the wire and carry
+    each tool's marker and description, so the prompt lists nothing.
     """
     behaviors = {tool.behavior for tool in tools}
     rules = _MARKED if behaviors - {"read"} else ""
@@ -86,8 +91,10 @@ def system_prompt(tools: Sequence[AssistantTool], *, single_call: bool = False) 
         rules += _PROPOSALS
     if "handoff" in behaviors:
         rules += _HANDOFFS
+    if single_call:
+        return f"{_INSTRUCTIONS}{_ONE_CALL}{_RULES}{rules}"
     catalog = "\n".join(f"- {_signature(tool)}: {tool.description}" for tool in tools)
-    return f"{_INSTRUCTIONS}{_ONE_CALL if single_call else _STEPS}{_RULES}{rules}\n\nTools:\n{catalog}"
+    return f"{_INSTRUCTIONS}{_STEPS}{_RULES}{rules}\n\nTools:\n{catalog}"
 
 
 def reply_tool() -> dict[str, Any]:
@@ -126,15 +133,15 @@ def step_tool(tools: Sequence[AssistantTool]) -> dict[str, Any]:
     }
 
 
-# The system prompt's tool list is the one place every provider mode shows a tool's description (text completion and
-# structured output send no schemas), so a schema points there instead of repeating it on every call.
 _SEE_PROMPT = "Listed under Tools."
 
 
-def tool_schema(tool: AssistantTool) -> dict[str, Any]:
+def tool_schema(tool: AssistantTool, *, described: bool = False) -> dict[str, Any]:
+    """A tool's schema. *described* carries its marker and description; otherwise it points at the system prompt's list."""
+    description = " ".join(filter(None, (_MARKERS.get(tool.behavior, ""), tool.description))) if described else _SEE_PROMPT
     return {
         "type": "function",
-        "function": {"name": tool.name, "description": _SEE_PROMPT, "parameters": tool.parameters},
+        "function": {"name": tool.name, "description": description, "parameters": tool.parameters},
     }
 
 

@@ -22,32 +22,29 @@ def _gated(stored: object, master: bool) -> dict[str, bool] | bool:
 
 
 def switch_summary(settings: Settings) -> dict[str, Any]:
-    """Pipeline switches as stored, with the effective value beside any that a master switch overrides."""
+    """Pipeline switches under the names set_pipeline_toggle takes, with the effective value beside any a master overrides."""
+    table = _switch_table()
     agent_on = agent_enabled(settings)
-    workflows_on = bool(settings.get("workflows_globally_enabled", 1))
-    tools = settings.get("enabled_tools") or {}
-    # The audit checks run only inside the Output Auditor, which runs only with the Agent on.
-    audit_on = agent_on and bool(tools.get("editor_apply_patch"))
-    stored_workflows = settings.get("workflow_enabled")
-    workflow_map = stored_workflows if isinstance(stored_workflows, dict) else {}
+    named = {switch.item for switch in table.values() if switch.key == "enabled_tools"}
     return {
-        "main_workflows_enabled": agent_on,
-        "tools": {name: _gated(on, agent_on) for name, on in tools.items()},
-        "length_guard": {
-            "enabled": _gated(settings.get("length_guard_enabled"), agent_on),
+        **{
+            name: _gated(switch.read(settings), switch.gate is None or _effective(switch.gate, table, settings))
+            for name, switch in table.items()
+        },
+        "length_guard_limits": {
             "enforce": bool(settings.get("length_guard_enforce")),
             "max_words": settings.get("length_guard_max_words"),
             "max_paragraphs": settings.get("length_guard_max_paragraphs"),
         },
-        "agentic_lorebook": _gated(settings.get("agentic_lorebook_enabled"), agent_on),
-        # Splits Director and state-update calls per fragment; both run only with the Agent on.
-        "director_individual_fragments": _gated(settings.get("director_individual_fragments"), agent_on),
         "prevent_prompt_overrides": bool(settings.get("prevent_prompt_overrides")),
+        # The audit checks run only inside the Output Auditor, which runs only with the Agent on.
         "editor_audit_checks": {
-            name: _gated(on, audit_on) for name, on in (settings.get("editor_audit_toggles") or {}).items()
+            name: _gated(on, _effective("output_auditor", table, settings))
+            for name, on in (settings.get("editor_audit_toggles") or {}).items()
         },
-        "secondary_workflows_enabled": workflows_on,
-        "workflows": {workflow.id: _gated(workflow_map.get(workflow.id, True), workflows_on) for workflow in list_workflows()},
+        "agent_tools": {
+            name: _gated(on, agent_on) for name, on in (settings.get("enabled_tools") or {}).items() if name not in named
+        },
     }
 
 
@@ -136,7 +133,7 @@ def build_toggle_tools() -> list[AssistantTool]:
     _ToggleArgs = create_model(
         "_ToggleArgs",
         __base__=ToolArguments,
-        toggle=(Literal[toggle_names], Field(description="The switch to set.")),
+        toggle=(Literal[toggle_names], ...),
         enabled=(bool, Field(description="true to turn it on, false to turn it off.")),
     )
 

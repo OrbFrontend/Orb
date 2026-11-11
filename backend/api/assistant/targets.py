@@ -26,7 +26,7 @@ CHARACTER_LIST_FIELDS: tuple[CharacterListField, ...] = get_args(CharacterListFi
 
 
 def chat_field() -> Any:
-    return Field(default="", max_length=ID_CHARS, description="Empty: the chat in view.")
+    return Field(default="", max_length=ID_CHARS)
 
 
 def clip(value: object, cap: int) -> str:

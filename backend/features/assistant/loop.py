@@ -30,6 +30,7 @@ from .contracts import (
     CONTEXT_SLACK_CHARS,
     MAX_MODEL_CALLS,
     MAX_RESULT_CHARS,
+    MAX_SAME_CALLS,
     MAX_TOOL_EXECUTIONS,
     REPLY,
     STEP_TOOL_NAME,
@@ -60,6 +61,10 @@ _PROGRESS_LABEL_CHARS = 200
 
 class _Limit(Exception):
     """A run budget is spent."""
+
+
+class _Repeating(Exception):
+    """The model made the same call again and again."""
 
 
 class _Stopped(Exception):
@@ -243,6 +248,8 @@ async def run_assistant(
     and every replayed call has its own id and one matching result. Old result bodies give way to their summaries when the
     working context passes its budget.
 
+    The same call made ``MAX_SAME_CALLS`` times in a row ends the run before the last of them executes.
+
     A write never runs on a retried or refused reply. Once it starts it settles whole, a ``mutation`` follows its commit, the
     same change is not made twice in one request, nor the same edit proposed twice, and an early ``done`` names the changes
     already committed. A confirm tool's proposal becomes a ``confirm`` event and the run carries on. *progress* is where a
@@ -262,7 +269,7 @@ async def run_assistant(
         single_call = shared_tools and client.sends_tool_schemas([latest], model)
     step = step_tool(tools)
     if single_call:
-        schemas = [reply_tool(), *(tool_schema(tool) for tool in tools)]
+        schemas = [reply_tool(), *(tool_schema(tool, described=True) for tool in tools)]
     else:
         schemas = [step, *(tool_schema(tool) for tool in tools if tool.takes_arguments)]
     # The same call path and samplers as the pipeline's agent passes: the lane's own hyperparameters, its max_tokens included,
@@ -285,6 +292,7 @@ async def run_assistant(
     # What this run's writes committed: one line each for an early ``done``, and each exact call so it is never made twice.
     committed: list[str] = []
     made: dict[str, ToolOutput] = {}
+    last_call, same_calls = "", 0
 
     def fit() -> bool:
         """Bring the working context under its budget; the newest result and the latest request are never dropped.
@@ -412,6 +420,11 @@ async def run_assistant(
                 response, _, arguments = await ask(name)
                 call_id = f"call{step_number}"
                 run.append(assistant_tool_call(response, name, arguments, call_id))
+            this_call = f"{name}:{json.dumps(arguments, sort_keys=True)}"
+            same_calls = same_calls + 1 if this_call == last_call else 1
+            last_call = this_call
+            if same_calls >= MAX_SAME_CALLS:
+                raise _Repeating
             checked = _validated(tool, arguments)
             write = tool.behavior == "write"
             # An idempotent write names an explicit state, so repeating it is harmless and may be what the user asked for. An
@@ -496,6 +509,11 @@ async def run_assistant(
                 return
     except _Stopped:
         yield done("stopped")
+    except _Repeating:
+        yield done(
+            "limit",
+            f"The model made the same {last_call.split(':', 1)[0]} call {MAX_SAME_CALLS} times in a row, so it was stopped.",
+        )
     except _Limit:
         spent = f"{MAX_TOOL_EXECUTIONS} tool runs" if executions >= MAX_TOOL_EXECUTIONS else f"{MAX_MODEL_CALLS} model calls"
         yield done("limit", f"The assistant reached its limit of {spent} for one request.")

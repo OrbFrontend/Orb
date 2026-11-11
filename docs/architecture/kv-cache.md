@@ -243,7 +243,7 @@ structured output send no tool blob at all.
 
 ### Give the assistant's lane a slot
 
-The assistant's prefix is about 8,500 tokens of system prompt and tool schemas,
+The assistant's prefix is about 6,500 tokens of system prompt and tool schemas,
 and it opens differently from a chat's from the first token. A llama.cpp server
 with one slot holds one of the two: each assistant request evicts the chat, and
 the chat's next turn evicts the assistant. llama.cpp's host-memory prompt cache

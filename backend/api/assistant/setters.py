@@ -241,9 +241,10 @@ def build_setter_tools() -> list[AssistantTool]:
         if changes:
             # The settings route's own writer: these columns only, so a concurrent change to any other key is untouched.
             await update_settings(changes)
-        guard = switch_summary(await get_settings())["length_guard"]
-        data = {"length_guard": guard, "changed": sorted(changes)}
-        if guard["enabled"] is not True:
+        switches = switch_summary(await get_settings())
+        guard = switches["length_guard_limits"]
+        data = {"length_guard": switches["length_guard"], "limits": guard, "changed": sorted(changes)}
+        if switches["length_guard"] is not True:
             data["note"] = "The Length Guard is not in effect, so these limits apply only once it is on."
         limits = f"{guard['max_words']} words, {guard['max_paragraphs']} paragraphs"
         if not changes:
@@ -276,7 +277,7 @@ def build_setter_tools() -> list[AssistantTool]:
             return ToolOutput(data, f"The phrase bank already has {json.dumps(already[0], ensure_ascii=False)}; nothing added.")
         group_id = await add_phrase_group(variants)
         switches = switch_summary(await get_settings())
-        auditor = switches["tools"].get("editor_apply_patch")
+        auditor = switches["output_auditor"]
         check = switches["editor_audit_checks"].get("banned_phrases")
         data = {"added": True, "group_id": group_id, "variants": variants}
         if auditor is not True or check is False:

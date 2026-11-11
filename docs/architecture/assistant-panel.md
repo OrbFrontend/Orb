@@ -80,8 +80,8 @@ The tool runs and its bounded result is appended. Every replayed call has its
 own id and exactly one result, including a step call before its argument call.
 `run_assistant(single_call=...)` forces either protocol; the benchmark
 (`scripts/bench/assistant_bench.py`) uses it to compare them. On Gemma 4 31B
-with native tools, single call took 2.5 model calls a request against 4.2 and
-9.1 s median against 13.3 s, and chose and filled tools more accurately.
+with native tools, single call took 2.5 model calls a request against 4.0 and
+8.4 s median against 13.5 s, and chose and filled tools more accurately.
 
 Arguments are read strictly: only a whole JSON object as the one call in
 `tool_calls`, or one whole call in content (bare, as the only item of a list,
@@ -99,15 +99,21 @@ correction, and a strict-schema `null` for an optional field is the only
 normalization.
 
 A run allows 12 tool executions and 30 model calls, retries included. When the
-executions are spent the model gets one more step to reply.
+executions are spent the model gets one more step to reply. The same tool
+called with the same arguments three times in a row ends the run with `limit`
+before the third executes: the model is not taking in the results.
 
 ### Working context
 
-The system prompt is stable for a given tool set and lists the tools itself,
-since a text-completion or structured-output endpoint is sent no tool list. It
-is the one place a tool's description appears: each schema's own description
-only points there. Replayed history comes next, then the latest request with
-its view note after the user's own words.
+The system prompt is stable for a given tool set and protocol, and each tool
+is described in exactly one place. Under two calls the system prompt lists the
+tools, with their signatures, markers (`[changes]`, `[proposes]`,
+`[hands off]`) and descriptions, since a text-completion or structured-output
+endpoint is sent no tool list; each schema's own description only points
+there. Under single call the schemas are always on the wire, so each schema
+carries its tool's marker and description and the system prompt lists nothing.
+Replayed history comes next, then the latest request with its view note after
+the user's own words.
 
 Replay and run together are held to 20,000 characters, excluding the system
 prompt. When they pass it, the oldest full tool results are replaced by their
@@ -187,12 +193,16 @@ writes only its own key, and workflow toggles go through `set_workflow_toggle`,
 the route's own path with its runtime callbacks. `editor` maps to the Output
 Auditor (on) or the Output Auditor and Length Guard (off). The result reports
 stored and effective state, and a master switch that blocks it is reported, not
-changed.
+changed. `get_settings_summary` reports every switch under the name
+`set_pipeline_toggle` takes for it.
 
 ## Reviewed edits
 
 An edit tool reads and validates its target and writes nothing. Text edits are
-`replace_all` or `find_replace`, where `find` must occur exactly once. Refused:
+`replace_all`, `find_replace`, where `find` must occur exactly once, or
+`replace_every`, which replaces each occurrence. A `find` that matches only
+once its JSON string escapes are decoded is taken as that text, since a read
+shows a field JSON-encoded. Refused:
 text carrying a read's clip marker, a no-op edit, and `replace_all` on a field
 longer than 8,000 characters, which takes `find_replace` instead. The result and
 the card both give the field's length before and after, so a large unintended

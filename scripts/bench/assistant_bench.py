@@ -346,7 +346,7 @@ async def _director_off(out: Outcome) -> bool:
     from backend.api.assistant.toggles import switch_summary
     from backend.database import get_settings
 
-    value = switch_summary(await get_settings())["tools"]["direct_scene"]
+    value = switch_summary(await get_settings())["director"]
     return not (value.get("stored") if isinstance(value, Mapping) else value)
 
 
