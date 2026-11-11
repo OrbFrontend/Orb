@@ -32,16 +32,16 @@ body { background: linear-gradient(180deg, #2e3844 0%, #26303c 40%, #202a35 100%
 .btn:hover { background: #44443f !important; }
 .btn:active { background: #323230 !important; border-color: #181818 #5a5a56 #5a5a56 #181818 !important;
   box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4) !important; }
-.btn-accent, .btn-active, #send-btn { background: linear-gradient(180deg, #e08a2a 0%, #c46e16 100%) !important;
+.btn-accent, .btn-active, #send-btn, .asst-send { background: linear-gradient(180deg, #e08a2a 0%, #c46e16 100%) !important;
   border: 1px solid !important; border-color: #f0b060 #6a3e0c #6a3e0c #f0b060 !important; color: #1e1102 !important;
   font-weight: normal; text-shadow: none !important; box-shadow: 1px 1px 0 #101010 !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover {
   background: linear-gradient(180deg, #ea9636 0%, #d07a20 100%) !important; }
-.btn-accent:active, .btn-active:active, #send-btn:active { border-color: #6a3e0c #f0b060 #f0b060 #6a3e0c !important; }
-.btn-danger, #stop-btn { background: linear-gradient(180deg, #b04434 0%, #922a1c 100%) !important;
+.btn-accent:active, .btn-active:active, #send-btn:active, .asst-send:active { border-color: #6a3e0c #f0b060 #f0b060 #6a3e0c !important; }
+.btn-danger, #stop-btn, .asst-send.asst-stop { background: linear-gradient(180deg, #b04434 0%, #922a1c 100%) !important;
   border: 1px solid !important; border-color: #d07868 #56180e #56180e #d07868 !important; color: #ffffff !important;
   box-shadow: 1px 1px 0 #101010 !important; }
-.btn-danger:hover, #stop-btn:hover { background: linear-gradient(180deg, #bc5040 0%, #a03628 100%) !important; }
+.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: linear-gradient(180deg, #bc5040 0%, #a03628 100%) !important; }
 #burger-btn { background: #3a3a38 !important; border: 1px solid !important;
   border-color: #5a5a56 #181818 #181818 #5a5a56 !important; color: #e4e2dc !important; }
 #burger-btn:hover { background: #44443f !important; }
@@ -49,6 +49,8 @@ body { background: linear-gradient(180deg, #2e3844 0%, #26303c 40%, #202a35 100%
   box-shadow: 0 -1px 0 #101010 !important; }
 #chat-input-area textarea, #chat-input-area input { background: #1c1c1a !important; border: 1px solid !important;
   border-color: #181818 #5a5a56 #5a5a56 #181818 !important; color: #e4e2dc !important; }
+.asst-compose { background: #1c1c1a !important; border: 1px solid !important;
+  border-color: #181818 #5a5a56 #5a5a56 #181818 !important; }
 input[type="text"], input[type="number"], input[type="password"], textarea, select { background: #1c1c1a !important;
   border: 1px solid !important; border-color: #181818 #5a5a56 #5a5a56 #181818 !important; color: #e4e2dc !important; }
 .image-gen-edit[readonly] { background: transparent !important; border-color: transparent !important;

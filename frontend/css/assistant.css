@@ -1,15 +1,11 @@
-/* The assistant's own right panel: a fixed head, the log in all the height left, and the compose row at the foot. */
-:root { --assistant-width: 440px; }
-.asst-inner { display: flex; flex-direction: column; gap: 6px; height: 100%; width: var(--assistant-width);
-  padding: 12px 16px; }
-.asst-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
-.asst-title { flex-shrink: 0; margin-bottom: 0; }
-.asst-scope { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; color: var(--text-secondary); }
-.asst-clear { flex-shrink: 0; padding: 2px 8px; font-size: 11px; }
+/* The assistant's own right panel: a fixed head, the log in all the height left, and the composer at the foot. */
+.asst-inner { display: flex; flex-direction: column; gap: 8px; height: 100%; width: var(--inspector-width);
+  padding: 16px 16px 12px; }
+.asst-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.asst-title { margin-bottom: 0; }
 /* A size container: the full new text takes a share of the log's height, and a wide log shows diffs in columns. */
 .asst-log { flex: 1 1 0; min-height: 0; overflow-y: auto; container-type: size; display: flex; flex-direction: column;
-  gap: 6px; padding-right: 2px; font-size: 12px; line-height: 1.5; scroll-behavior: auto; }
+  gap: 10px; padding-right: 2px; font-size: 13px; line-height: 1.55; scroll-behavior: auto; }
 .asst-log > * { flex-shrink: 0; }
 /* What a closed panel still says on every button that opens it: a run going, and edits waiting for Apply. */
 #app { counter-reset: asst-pending var(--asst-pending, 0); }
@@ -24,21 +20,23 @@
 #app[data-asst-running] .asst-launch-mark { animation: asst-pulse 1.2s ease-in-out infinite; }
 @keyframes asst-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { #app[data-asst-running] .asst-launch-mark { animation: none; } }
-.asst-empty { color: var(--text-muted); }
-.asst-suggestions { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.asst-suggestion { padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px;
-  text-align: left; color: var(--text-secondary); background: var(--bg-surface); }
+.asst-empty { font-size: 12px; color: var(--text-muted); }
+.asst-suggestions { display: flex; flex-direction: column; gap: 6px; }
+.asst-suggestion { padding: 8px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
+  font-size: 12px; line-height: 1.4; text-align: left; color: var(--text-secondary); background: var(--bg-surface);
+  transition: border-color .15s, color .15s; }
 .asst-suggestion:hover, .asst-suggestion:focus-visible { border-color: var(--accent-dim); color: var(--text-primary); }
 .asst-sep { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11px; color: var(--text-muted);
   overflow-wrap: anywhere; }
 .asst-sep::before, .asst-sep::after { content: ""; flex: 1; min-width: 8px; height: 1px; background: var(--border); }
-.asst-msg { padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius); overflow-wrap: anywhere; }
-.asst-user { align-self: flex-end; max-width: 92%; white-space: pre-wrap; background: var(--accent-glow);
-  border-color: var(--accent-dim); color: var(--text-primary); unicode-bidi: plaintext; }
-.asst-reply { background: var(--bg-surface); color: var(--text-primary); }
+/* The reader's turns sit in bubbles at the right; the assistant's answers read as plain text across the panel. */
+.asst-msg { overflow-wrap: anywhere; }
+.asst-user { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: calc(var(--radius) * 2);
+  white-space: pre-wrap; background: var(--bg-elevated); color: var(--text-primary); unicode-bidi: plaintext; }
+.asst-reply { padding: 0 2px; color: var(--text-primary); }
 .asst-reply .msg-body { min-width: 0; overflow-x: auto; }
-.asst-reply .msg-body p { margin-bottom: .5em; }
-.asst-reply .msg-body p:last-child { margin-bottom: 0; }
+.asst-reply .msg-body :is(p, ul, ol) { margin-bottom: .5em; }
+.asst-reply .msg-body > :last-child { margin-bottom: 0; }
 .asst-reply .msg-body :is(ul, ol) { padding-left: 18px; }
 .asst-tool { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .asst-tool-note { color: var(--text-muted); font-style: italic; }
@@ -49,11 +47,33 @@
 .asst-tool-failed :is(.asst-tool-name, .asst-tool-text) { color: var(--red); }
 .asst-outcome { font-size: 11px; color: var(--text-muted); overflow-wrap: anywhere; }
 .asst-outcome-error { color: var(--red); }
-.asst-status { min-height: 14px; font-size: 11px; color: var(--accent); }
-.asst-compose { display: flex; gap: 6px; align-items: flex-end; }
-.asst-compose textarea { flex: 1 1 auto; min-width: 0; min-height: 60px; max-height: 30vh; font-size: 12px; }
-.asst-compose .btn { flex-shrink: 0; }
-.asst-stop { border-color: var(--red); color: var(--red); }
+.asst-status { flex: 0 0 auto; min-height: 14px; margin-bottom: -4px; padding: 0 4px; font-size: 11px;
+  color: var(--accent); }
+/* One framed box for the text and its controls: the input grows with its text, Send sits in the corner and turns
+   into Stop while a run goes. The box is the field, so a theme frames it, never the bare input inside. */
+.asst-compose { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 8px 12px;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) * 2); background: var(--bg-surface);
+  cursor: text; transition: border-color .15s, box-shadow .15s; }
+.asst-compose:hover { border-color: var(--border-light); }
+.asst-compose:focus-within { border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow); }
+.asst-compose textarea, .asst-compose textarea:is(:hover, :focus) { display: block; min-height: 0; max-height: 30vh;
+  padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important;
+  box-shadow: none !important; resize: none; overflow-y: auto; font-size: 13px; line-height: 1.5; }
+.asst-compose-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.asst-scope { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px;
+  color: var(--text-muted); cursor: default; }
+.asst-send { --ui-icon-size: 16px; flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px;
+  margin-left: auto; padding: 0; border-radius: min(50%, calc(var(--radius) * 2)); background: var(--accent-dim);
+  color: #fff; transition: background .15s, opacity .15s; }
+.asst-send:hover { background: var(--accent); }
+.asst-send:disabled { opacity: .5; cursor: default; }
+.asst-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asst-compose:has(textarea:placeholder-shown) .asst-send[data-state="send"] { opacity: .4; }
+.asst-stop-icon { --ui-icon-size: 14px; display: none; }
+.asst-send.asst-stop { background: var(--red); }
+.asst-send.asst-stop:hover { filter: brightness(1.15); }
+.asst-send.asst-stop .asst-send-icon { display: none; }
+.asst-send.asst-stop .asst-stop-icon { display: block; }
 /* A proposed edit: escaped before/after text, with Apply and Cancel outside any model-rendered markup. */
 .asst-proposal { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--accent-dim);
   border-radius: var(--radius); background: var(--bg-surface); font-size: 12px; overflow-wrap: anywhere; }

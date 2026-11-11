@@ -313,8 +313,8 @@ toggle it through the one `assistant:toggle` action: the chat header's
 Assistant button, its twin in the document header, the document header's
 narrow-layout icon, the narrow layout's header actions menu, and the lorebook
 drawer's header. The panel stays open across chat, document and library views.
-It has its own width (`--assistant-width`, 440px) and its own `ui_sizing.js`
-region, so dragging or scaling it leaves the Inspector alone. On the narrow
+It shares the Inspector's width (`--inspector-width`) and `ui_sizing.js`
+region, so dragging or scaling any right panel sizes all three. On the narrow
 layout it is a slide-over like the other panels: a tap beside it or Back closes
 it, and so does a handoff that starts, since the chat writes its reply under the
 panel. Opening it focuses the input on the wide layout only, where no keyboard
@@ -348,8 +348,10 @@ latest run can be applied: a new request closes it, and a reloaded card is
 historical. A card with an edit not applied offers Ask again, which puts the
 request back in the input.
 
-An empty transcript offers a few requests suited to the view; picking one fills
-the input and sends nothing. Each request captures its view at Send; changing
+The composer is one box: the input grows with its text, the view label the
+next request is about sits under it, and the corner button sends, or stops
+while a run goes. An empty transcript offers a few requests suited to the view;
+picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
 and replays the view label with each request. Clear is disabled while work runs.
 Send uses `tabLock.js`'s send permission. Assistant prose renders through the

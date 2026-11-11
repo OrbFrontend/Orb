@@ -1,7 +1,6 @@
 
 :root { --mobile-header-button-size: 34px; --mobile-actions-menu-min-width: 170px;
-  --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px);
-  --mobile-assistant-width: min(92vw, 440px); --mobile-overlay-z: 80;
+  --mobile-sidebar-width: min(82vw, 320px); --mobile-panel-width: min(88vw, 340px); --mobile-overlay-z: 80;
   --mobile-sidebar-z: 90; --mobile-panel-z: 95; --mobile-menu-z: 115; --mobile-overlay-color: rgba(0, 0, 0, .45);
   --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);
   --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45); --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
@@ -43,7 +42,6 @@ html { height: 100%; }
   #tools-panel.open, #inspector.open, #assistant-panel.open {
     width: var(--mobile-panel-width); min-width: 0; transform: translateX(0); pointer-events: auto;
   }
-  #assistant-panel, #assistant-panel.open { width: var(--mobile-assistant-width); }
   .inspector-inner, .tools-inner, .asst-inner { width: 100%; }
   #user-profile-btn, #assistant-btn, #tools-panel-btn, #inspector-toggle { display: none; }
   #mobile-chat-actions-toggle { display: inline-flex; }

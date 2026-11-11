@@ -18,15 +18,9 @@ const REGIONS = {
   sidebar: { selector: "#sidebar", scaleVar: "--sidebar-scale", widthVar: "--sidebar-width", edge: "right" },
   main: { selector: "#main, #document-main", scaleVar: "--main-scale" },
   panel: {
-    selector: "#inspector, #tools-panel",
+    selector: "#inspector, #tools-panel, #assistant-panel",
     scaleVar: "--panel-scale",
     widthVar: "--inspector-width",
-    edge: "left",
-  },
-  assistant: {
-    selector: "#assistant-panel",
-    scaleVar: "--assistant-scale",
-    widthVar: "--assistant-width",
     edge: "left",
   },
 };

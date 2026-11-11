@@ -41,27 +41,3 @@ test("stored sizing survives corruption", () => {
     box: { reasoning: 400 },
   });
 });
-
-test("the assistant panel keeps a width and scale of its own, apart from the Inspector's", async () => {
-  const { JSDOM } = await import("jsdom");
-  const dom = new JSDOM("<!doctype html><body></body>");
-  const saved = { document: globalThis.document, window: globalThis.window, localStorage: globalThis.localStorage };
-  globalThis.document = dom.window.document;
-  globalThis.window = { innerWidth: 2000 };
-  globalThis.localStorage = {
-    getItem: () => '{"width":{"assistant":520,"panel":300},"scale":{"assistant":1.2},"box":{"assistantLog":400}}',
-    setItem() {},
-  };
-  try {
-    const { initUiSizing } = await import("../../frontend/ui_sizing.js");
-    initUiSizing();
-    const root = document.documentElement.style;
-    assert.equal(root.getPropertyValue("--assistant-width"), "520px");
-    assert.equal(root.getPropertyValue("--assistant-scale"), "1.2");
-    assert.equal(root.getPropertyValue("--inspector-width"), "300px");
-    assert.equal(root.getPropertyValue("--panel-scale"), "", "the Inspector's scale is untouched");
-    assert.equal(root.getPropertyValue("--assistant-log-height"), "", "the log has no height of its own");
-  } finally {
-    Object.assign(globalThis, saved);
-  }
-});

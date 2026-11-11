@@ -42,18 +42,18 @@ body { background: #67c5ea url("/static/themes/assets/frutiger-aero-landscape.jp
 }
 .btn:active { background: linear-gradient(180deg, #d3ecf9 0%, #e4f4fc 50%, #ffffff 100%) !important;
   box-shadow: inset 0 1px 3px rgba(40,110,160,0.25) !important; }
-.btn-accent, .btn-active, #send-btn {
+.btn-accent, .btn-active, #send-btn, .asst-send {
   background: linear-gradient(180deg, #6fc9f2 0%, #2ba2da 47%, #1786c4 50%, #43b2e8 100%) !important;
   border: 1px solid #1377ad !important; color: #ffffff !important; text-shadow: 0 -1px 0 rgba(0,40,70,0.35) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 3px rgba(20,90,140,0.35) !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover {
   background: linear-gradient(180deg, #82d2f6 0%, #36ace3 47%, #1d92d2 50%, #54bdf0 100%) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 2px 4px rgba(20,90,140,0.35) !important; }
-.btn-danger, #stop-btn {
+.btn-danger, #stop-btn, .asst-send.asst-stop {
   background: linear-gradient(180deg, #f6a08c 0%, #e0573f 47%, #c84528 50%, #ec7257 100%) !important;
   border: 1px solid #b53d22 !important; color: #fff !important; text-shadow: 0 -1px 0 rgba(60,10,0,0.3) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 1px 3px rgba(150,50,30,0.3) !important; }
-.btn-danger:hover, #stop-btn:hover {
+.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover {
   background: linear-gradient(180deg, #f8af9d 0%, #e8624a 47%, #d24c2e 50%, #f17e64 100%) !important; }
 #burger-btn { background: linear-gradient(180deg, #ffffff 0%, #e9f5fd 50%, #d6edf9 100%) !important;
   border: 1px solid #8fc3e3 !important; color: #2a6a91 !important;

@@ -267,11 +267,10 @@ function paintControls() {
   const stopping = Boolean(operation?.stream?.stopping);
   const send = $("assistant-send");
   if (!send) return;
-  send.textContent = applying ? "Applying…" : busy ? (stopping ? "Stopping…" : "Stop") : "Send";
-  send.setAttribute(
-    "aria-label",
-    applying ? "Applying the edit" : busy ? "Stop the assistant" : "Send to the assistant",
-  );
+  send.dataset.state = applying ? "applying" : busy ? (stopping ? "stopping" : "stop") : "send";
+  const label = applying ? "Applying the edit" : busy ? "Stop the assistant" : "Send to the assistant";
+  send.setAttribute("aria-label", label);
+  send.title = applying ? label : busy ? "Stop" : "Send (Enter)";
   send.disabled = stopping || applying;
   send.classList.toggle("asst-stop", busy && !applying);
   // Clearing mid-run would drop the entries the run is still writing to.
@@ -374,6 +373,7 @@ async function send() {
   items.push({ kind: "user", text, context });
   trimTranscript(items);
   input.value = "";
+  fitInput();
   await stream({ items: runItems(items), context: wireContext(context) }, context, text);
 }
 
@@ -425,10 +425,18 @@ function cancel() {
   paint();
 }
 
-/** Put a suggested request in the input, for the reader to edit or send. Nothing is sent. */
-function suggest(text) {
+/** Grow the input with its text, up to the cap its stylesheet sets. */
+function fitInput() {
+  const input = $("assistant-input");
+  input.style.height = "auto";
+  input.style.height = `${input.scrollHeight}px`;
+}
+
+/** Put a request in the input, for the reader to edit or send. Nothing is sent. */
+function fillInput(text) {
   const input = $("assistant-input");
   input.value = text;
+  fitInput();
   input.focus();
 }
 
@@ -436,9 +444,7 @@ function suggest(text) {
 function askAgain(index) {
   const item = S.assistant.items[index];
   if (item?.kind !== "proposals" || !item.request) return;
-  const input = $("assistant-input");
-  input.value = item.request;
-  input.focus();
+  fillInput(item.request);
 }
 
 function clear() {
@@ -467,7 +473,8 @@ export function initAssistant() {
     apply: () => apply(),
     cancel: () => cancel(),
     askAgain: (el) => askAgain(Number(el.dataset.index)),
-    suggest: (el) => suggest(el.dataset.text || ""),
+    suggest: (el) => fillInput(el.dataset.text || ""),
+    focusInput: () => $("assistant-input").focus(),
   });
   const log = $("assistant-log");
   log.addEventListener("scroll", () => {
@@ -481,6 +488,7 @@ export function initAssistant() {
     e.preventDefault();
     send();
   });
+  input.addEventListener("input", fitInput);
   // The view can change without a notice; refresh the label when the reader turns to the panel.
   panel.addEventListener("focusin", paintControls);
   panel.addEventListener("pointerenter", paintControls);

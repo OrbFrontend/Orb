@@ -167,7 +167,7 @@ test("a request keeps the view captured at Send, and Stop names that operation a
 
   // While it runs: Clear is off, the button is Stop, and a second Send starts nothing.
   assert.equal($("assistant-clear").disabled, true);
-  assert.equal($("assistant-send").textContent, "Stop");
+  assert.equal($("assistant-send").dataset.state, "stop");
   S.activeConvId = "chat-b";
   emit(run, "tool_start", { call_id: "step1", tool: "get_context" });
   await settled();

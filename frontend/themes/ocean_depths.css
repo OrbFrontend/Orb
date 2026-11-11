@@ -47,10 +47,10 @@ body {
   transition: background .15s ease, border-color .15s ease, color .15s ease !important; }
 .btn:hover { background: rgba(20,76,94,0.75) !important; border-color: rgba(67,214,228,0.55) !important; }
 .btn:active { background: rgba(10,46,58,0.75) !important; }
-.btn-accent, .btn-active, #send-btn { background: linear-gradient(180deg, #2ec96a 0%, #189a4e 100%) !important;
+.btn-accent, .btn-active, #send-btn, .asst-send { background: linear-gradient(180deg, #2ec96a 0%, #189a4e 100%) !important;
   border: 1px solid #35d67c !important; color: #032414 !important; text-shadow: none !important;
   box-shadow: 0 0 10px rgba(61,220,132,0.22) !important; }
-.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+.btn-accent:hover, .btn-active:hover, #send-btn:hover, .asst-send:hover {
   background: linear-gradient(180deg, #3adc78 0%, #1fae5b 100%) !important; border-color: #57eb96 !important;
   box-shadow: 0 0 16px rgba(61,220,132,0.4) !important; }
 
@@ -59,9 +59,9 @@ body {
   @keyframes od-lure { 50% { filter: brightness(1.15) drop-shadow(0 0 7px rgba(61,220,132,0.5)); } }
 }
 
-.btn-danger, #stop-btn { background: linear-gradient(180deg, #e8604f 0%, #c8413c 100%) !important;
+.btn-danger, #stop-btn, .asst-send.asst-stop { background: linear-gradient(180deg, #e8604f 0%, #c8413c 100%) !important;
   border: 1px solid #f4776a !important; color: #fff0ec !important; box-shadow: none !important; }
-.btn-danger:hover, #stop-btn:hover { background: linear-gradient(180deg, #f26e5c 0%, #d64c45 100%) !important;
+.btn-danger:hover, #stop-btn:hover, .asst-send.asst-stop:hover { background: linear-gradient(180deg, #f26e5c 0%, #d64c45 100%) !important;
   box-shadow: 0 0 14px rgba(244,87,77,0.35) !important; }
 #burger-btn { background: rgba(14,58,72,0.6) !important; border: 1px solid rgba(67,214,228,0.24) !important;
   color: #56c8dc !important; box-shadow: none !important; }

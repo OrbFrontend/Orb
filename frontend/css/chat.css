@@ -245,13 +245,11 @@
 .msg-image-embed > summary::-webkit-details-marker { display: none; }
 .msg-image-embed[open] .reasoning-summary-arrow { transform: rotate(90deg); }
 .msg-image-link { display: block; margin-top: 6px; cursor: zoom-in; }
-#app { --right-panel-width: var(--inspector-width); }
-#app:has(#assistant-panel.open) { --right-panel-width: var(--assistant-width); }
 .msg-image {
   display: block; width: auto;
   max-width: min(
     100%,
-    calc(100vw - var(--sidebar-width) - var(--right-panel-width) - 88px)
+    calc(100vw - var(--sidebar-width) - var(--inspector-width) - 88px)
   );
   height: auto; border-radius: var(--radius);
 }
