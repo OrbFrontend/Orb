@@ -50,6 +50,7 @@ from .targets import (
     CharacterField,
     cast_of,
     character_in_view,
+    chat_field,
     chat_in_view,
     clip,
     quoted,
@@ -97,9 +98,7 @@ class _ListArgs(ToolArguments):
 
 
 class _CharacterArgs(ToolArguments):
-    character_id: str = Field(
-        default="", max_length=ID_CHARS, description="The character's id; empty means the character in view."
-    )
+    character_id: str = Field(default="", max_length=ID_CHARS, description="Empty: the character in view.")
     fields: list[Literal[CharacterField, "name", "tags", "alternate_greetings"]] = Field(
         default_factory=list,
         max_length=len(CHARACTER_FIELDS) + 3,
@@ -110,11 +109,11 @@ class _CharacterArgs(ToolArguments):
 
 
 class _SqlArgs(ToolArguments):
-    sql: str = Field(min_length=1, max_length=_SQL_CHARS, description="One SELECT over the documented views.")
+    sql: str = Field(min_length=1, max_length=_SQL_CHARS)
 
 
 class _MessagesArgs(ToolArguments):
-    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
+    conversation_id: str = chat_field()
     count: int = Field(default=MAX_MESSAGES, ge=1, le=MAX_MESSAGES, description=f"Latest messages, at most {MAX_MESSAGES}.")
     before_message_id: int = Field(
         default=0, ge=0, description="Read the messages before this one on the kept branch: the last page's earlier_from."
@@ -127,11 +126,11 @@ class _MessagesArgs(ToolArguments):
 
 
 class _ChatListArgs(_ListArgs):
-    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
+    conversation_id: str = chat_field()
 
 
 class _StateArgs(ToolArguments):
-    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
+    conversation_id: str = chat_field()
 
 
 class _EntriesArgs(_ListArgs):

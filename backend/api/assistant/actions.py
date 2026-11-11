@@ -40,7 +40,7 @@ from ..conversation_copy import checkpoint_conversation, checkpoint_title
 from ..conversation_start import DEFAULT_TITLE, start_solo_chat
 from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission
 from ..schemas import CharacterCardCreate, ConversationUpdate, LorebookEntryCreate, UserPersonaCreate, WorldCreate
-from .targets import ID_CHARS, cast_of, chat_id, chat_in_view, clip, not_blank, quoted, reply_target
+from .targets import ID_CHARS, cast_of, chat_field, chat_id, chat_in_view, clip, not_blank, quoted, reply_target
 
 _NAME_CHARS = 200
 _LORE_CONTENT_CHARS = 4000
@@ -51,16 +51,11 @@ _SHORT_TEXT_CHARS = 2000
 _TAG_CHARS = 60
 _TAGS = 20
 _DIRECTION_CHARS = 500
-_ADDITIVE = " It always adds a new one, even when one already has that name; it never edits one."
 _LISTED_WORLDS = 30
 
 
 def _text(cap: int, description: str) -> Any:
     return Field(default="", max_length=cap, description=f"{description} At most {cap} characters.")
-
-
-def _chat_field() -> Any:
-    return Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
 
 
 _Tag = Annotated[str, StringConstraints(min_length=1, max_length=_TAG_CHARS)]
@@ -112,18 +107,18 @@ class _PersonaCreate(ToolArguments):
 
 
 class _ChatWorld(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world, from list_worlds.")
     attached: bool = Field(description="true to use the world in this chat, false to stop using it here.")
 
 
 class _Checkpoint(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     title: str = Field(default="", max_length=_NAME_CHARS, description="The checkpoint's title; empty names it after the chat.")
 
 
 class _Branch(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     message_id: int = Field(ge=1, description="A message on the branch to show, from query_library or read_messages.")
 
 
@@ -137,7 +132,7 @@ class _OpenChat(ToolArguments):
 
 
 class _SetChat(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     title: str = Field(default="", max_length=_NAME_CHARS, description="A new title; empty leaves the title as it is.")
     persona_lock_id: int = Field(
         default=0, ge=0, description="Play as this persona in this chat, from list_personas; 0 leaves the lock as it is."
@@ -148,7 +143,7 @@ class _SetChat(ToolArguments):
 
 
 class _Continue(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     speaker_member_id: str = Field(
         default="",
         max_length=ID_CHARS,
@@ -158,7 +153,7 @@ class _Continue(ToolArguments):
 
 
 class _Regenerate(ToolArguments):
-    conversation_id: str = _chat_field()
+    conversation_id: str = chat_field()
     message_id: int = Field(ge=1, description="The reply, from read_messages.")
 
 
@@ -192,8 +187,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _LoreEntryArgs,
-        "Add a new entry to a world (lorebook). It always adds one, even when an entry already has that name; "
-        "it never edits an entry.",
+        "Add a new entry to a world (lorebook).",
         name="create_lorebook_entry",
     )
     async def add_lorebook_entry(args: _LoreEntryArgs) -> ToolOutput:
@@ -225,7 +219,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _CharacterCreate,
-        "Create a character card from authored text." + _ADDITIVE,
+        "Create a character card from authored text.",
         name="create_character",
     )
     async def add_character(args: _CharacterCreate) -> ToolOutput:
@@ -252,7 +246,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _WorldCreate,
-        "Create an empty world (lorebook); it is not global and no chat uses it yet." + _ADDITIVE,
+        "Create an empty world (lorebook); it is not global and no chat uses it yet.",
         name="create_world",
     )
     async def add_world(args: _WorldCreate) -> ToolOutput:
@@ -273,7 +267,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _PersonaCreate,
-        "Create a persona, someone the user plays; it does not become the active one." + _ADDITIVE,
+        "Create a persona, someone the user plays; it does not become the active one.",
         name="create_persona",
     )
     async def add_persona(args: _PersonaCreate) -> ToolOutput:
@@ -293,7 +287,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _ChatWorld,
-        "Use a world in one chat, or stop using it there. Give the state the user asked for, never a flip. "
+        "Use a world in one chat, or stop using it there. "
         "It changes nothing else about the chat and reports whether the world is global.",
         idempotent=True,
     )
@@ -395,12 +389,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
 
     def handed(conv: ConversationRow, message: Mapping[str, Any], doing: str, extra: Mapping[str, Any]) -> ToolOutput:
         target = {"conversation_id": conv["id"], "message_id": message["id"], **extra}
-        data = {
-            "handed_off": True,
-            **target,
-            "note": "Nothing is generated yet. Once this request ends the chat starts it, if that chat is still open, as a "
-            "new version beside the old one; the chat writes and saves the reply.",
-        }
+        data = {"handed_off": True, **target}
         return ToolOutput(
             data,
             f"Handed {doing} message {message['id']} in {quoted(conv['title'])} to the chat.",
@@ -457,17 +446,12 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "handoff",
         _OpenChat,
-        "Open a chat in the main view once this request ends, as picking it in the chat list does. Use it only when the "
-        "user's request asks to open or go to a chat.",
+        "Open a chat in the main view once this request ends, as picking it in the chat list does.",
     )
     async def open_chat(args: _OpenChat) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True)
         target = {"conversation_id": conv["id"], "title": clip(conv["title"], _NAME_CHARS)}
-        data = {
-            "handed_off": True,
-            **target,
-            "note": "Nothing is open yet. Once this request ends the browser opens this chat in the main view.",
-        }
+        data = {"handed_off": True, **target}
         return ToolOutput(
             data,
             f"Handed opening chat {quoted(conv['title'])} to the browser.",
@@ -478,8 +462,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "write",
         _SetChat,
-        "Rename a chat, or choose the persona the user plays in it. Give the state the user asked for; a field left empty "
-        "stays as it is.",
+        "Rename a chat, or choose the persona the user plays in it.",
         idempotent=True,
     )
     async def set_chat(args: _SetChat) -> ToolOutput:
@@ -571,12 +554,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
             "message_id": last["id"],
             **({"speaker_member_id": speaker} if speaker else {}),
         }
-        data = {
-            "handed_off": True,
-            **target,
-            "note": "Nothing is generated yet. Once this request ends the chat writes the next reply, if that chat is still "
-            "open and its last message is still this one.",
-        }
+        data = {"handed_off": True, **target}
         who = f" by {quoted(next(m['name'] for m in cast if m.get('member_id') == speaker))}" if speaker else ""
         return ToolOutput(
             data,

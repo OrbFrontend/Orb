@@ -259,8 +259,7 @@ still on its branch, or the last message still the one checked. Otherwise the
 transcript says why and nothing switches. From then the chat's stream owns Stop
 and the reply.
 
-`open_chat` is the one handoff that navigates. Its description limits it to a
-request that asks to open a chat. The browser opens the chat as the chat list
+`open_chat` is the one handoff that navigates. The browser opens the chat as the chat list
 does, only while the reader is still on the view the request was sent from and
 not in Document mode, so a run that ends after they moved on never pulls them
 back. The transcript draws the opened chat as a view separator.

@@ -118,7 +118,7 @@ def _effective(name: str, table: Mapping[str, _Switch], settings: Settings) -> b
 
 def _toggle_description(table: Mapping[str, _Switch]) -> str:
     return (
-        "Turn one pipeline switch on or off: the state the user asked for, never a flip. "
+        "Turn one pipeline switch on or off. "
         f"Switches: editor, {', '.join(table)}. "
         "editor is the Editor pass: off turns off output_auditor and length_guard, on turns on output_auditor only. "
         "agent is the master of the Director, Output Auditor, Length Guard, Agentic Lorebook, state updates, feedback and "

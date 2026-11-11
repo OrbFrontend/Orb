@@ -29,7 +29,7 @@ from ...workflows import HookType, WorkflowEventStream, get_subscription, get_wo
 from ..deps import message_deleting, resource_deleting, start_workflow_job, stop_workflow_jobs
 from ..errors import API_PASSTHROUGH_ERRORS, http_failure
 from ..workflow_dispatch import run_on_demand
-from .targets import ID_CHARS, quoted, reply_target
+from .targets import chat_field, quoted, reply_target
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ _MEDIA = (
 
 
 class _MediaArgs(ToolArguments):
-    conversation_id: str = Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view.")
+    conversation_id: str = chat_field()
     message_id: int = Field(ge=1, description="The saved reply to make it of, from read_messages.")
 
 

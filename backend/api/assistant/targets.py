@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from typing import Any, Literal, get_args
 
+from pydantic import Field
+
 from ...database import get_active_path, get_conversation, get_message_by_id, resolve_cast
 from ...database.models import ConversationRow, MessageRow
 from ...features.assistant import ToolFailure, ViewContext
@@ -21,6 +23,10 @@ CHARACTER_FIELDS: tuple[CharacterField, ...] = get_args(CharacterField)
 # A card's list fields, which a read shows and an edit proposes whole.
 CharacterListField = Literal["tags", "alternate_greetings"]
 CHARACTER_LIST_FIELDS: tuple[CharacterListField, ...] = get_args(CharacterListField)
+
+
+def chat_field() -> Any:
+    return Field(default="", max_length=ID_CHARS, description="Empty: the chat in view.")
 
 
 def clip(value: object, cap: int) -> str:

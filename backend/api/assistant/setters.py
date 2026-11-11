@@ -124,8 +124,8 @@ def build_setter_tools() -> list[AssistantTool]:
     @tools.add(
         "write",
         _EntrySet,
-        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords. Give the state the "
-        "user asked for; a field left unchanged stays as it is. Turning an entry off is how to undo one added by mistake.",
+        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords. "
+        "Turning an entry off is how to undo one added by mistake.",
         idempotent=True,
     )
     async def set_lorebook_entry(args: _EntrySet) -> ToolOutput:
@@ -176,8 +176,7 @@ def build_setter_tools() -> list[AssistantTool]:
     @tools.add(
         "write",
         _WorldSet,
-        "Rename a world (lorebook), make it global or not, or turn Dynamic Worlds on or off for it. Give the state the user "
-        "asked for; a field left unchanged stays as it is.",
+        "Rename a world (lorebook), make it global or not, or turn Dynamic Worlds on or off for it.",
         idempotent=True,
     )
     async def set_world(args: _WorldSet) -> ToolOutput:

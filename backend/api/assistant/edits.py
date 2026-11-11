@@ -20,6 +20,7 @@ from .targets import (
     CharacterField,
     CharacterListField,
     character_in_view,
+    chat_field,
     chat_in_view,
     quoted,
 )
@@ -132,14 +133,14 @@ def _edit_args(name: str, *, lists: bool = False, **target: Any) -> type[ToolArg
             str,
             Field(
                 max_length=_EDIT_CHARS,
-                description="replace_all: the field's complete new text. find_replace: what replaces `find`; empty deletes it.",
+                description="The new text; with find_replace, empty deletes `find`.",
             ),
         ),
-        find=(str, Field(default="", max_length=_EDIT_CHARS, description="find_replace only: exact text from the field.")),
+        find=(str, Field(default="", max_length=_EDIT_CHARS, description="find_replace only.")),
     )
 
 
-_CHAT = (str, Field(default="", max_length=ID_CHARS, description="The chat's id; empty means the chat in view."))
+_CHAT = (str, chat_field())
 
 _Item = Annotated[str, StringConstraints(min_length=1, max_length=_EDIT_CHARS)]
 
@@ -148,7 +149,7 @@ _CharacterEdit = _edit_args(
     lists=True,
     character_id=(
         str,
-        Field(default="", max_length=ID_CHARS, description="The character's id; empty means the character in view."),
+        Field(default="", max_length=ID_CHARS, description="Empty: the character in view."),
     ),
     field=(Literal[CharacterField, "name", CharacterListField], Field(description="The card field to edit.")),
     items=(
@@ -178,8 +179,6 @@ _PersonaEdit = _edit_args(
 _MessageEdit = _edit_args(
     "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message's id, from read_messages."))
 )
-
-_REVIEWED = " It changes nothing itself: the user sees the exact before and after, then applies or cancels it."
 
 _GREETING_REROLLS = (
     "Message {id} is this chat's opening greeting, and it still holds random macros such as {{{{roll}}}} that roll again each "
@@ -301,8 +300,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         "confirm",
         _CharacterEdit,
         "Propose an edit to a character: its name, a text field (description, personality, scenario, first_mes (first "
-        "message), mes_example (example messages), creator_notes), or a list field (tags, alternate_greetings), which "
-        "takes its complete new list as items." + _REVIEWED,
+        "message), mes_example (example messages), creator_notes), or a list field (tags, alternate_greetings).",
     )
     async def edit_character(args: Any) -> ToolOutput:
         card_id = await character_in_view(args.character_id, view)
@@ -332,7 +330,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         reread = f'get_character with fields ["{args.field}"] reads it whole, one page per text_offset.'
         return propose(target, label, args.field, str(card.get(args.field) or ""), args, reread)
 
-    @tools.add("confirm", _EntryEdit, "Propose an edit to a lore entry's name or content." + _REVIEWED)
+    @tools.add("confirm", _EntryEdit, "Propose an edit to a lore entry's name or content.")
     async def edit_lorebook_entry(args: Any) -> ToolOutput:
         world = await get_world(args.world_id)
         if world is None:
@@ -348,7 +346,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         required = "An entry's name" if args.field == "name" else ""
         return propose(target, label, args.field, str(entry[args.field] or ""), args, reread, required=required)
 
-    @tools.add("confirm", _PersonaEdit, "Propose an edit to a persona's name or description." + _REVIEWED)
+    @tools.add("confirm", _PersonaEdit, "Propose an edit to a persona's name or description.")
     async def edit_persona(args: Any) -> ToolOutput:
         persona = await get_user_persona(args.persona_id)
         if persona is None:
@@ -364,7 +362,7 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
     @tools.add(
         "confirm",
         _MessageEdit,
-        "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview." + _REVIEWED,
+        "Propose an edit to one chat message's text. Inline macros such as {{roll}} resolve in the preview.",
     )
     async def edit_message(args: Any) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=True)
