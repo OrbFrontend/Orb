@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from ...core import DECISION_COLUMNS, STATE_COLUMNS
-from ..connection import build_set_clause, get_db, immediate_tx, select_rows
+from ..connection import build_set_clause, check_expected, get_db, immediate_tx, select_rows
 from ..models import InteractiveFragmentRow
 
 _EDITOR_LANE_FIELD_TYPES = frozenset(("feedback", "post_processing"))
@@ -97,8 +97,17 @@ async def create_interactive_fragment(data: dict) -> InteractiveFragmentRow | No
         return await get_interactive_fragment(payload["id"])
 
 
-async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragmentRow | None:
+async def update_interactive_fragment(
+    fid: str, data: dict, *, expected: Mapping[str, Any] | None = None
+) -> InteractiveFragmentRow | None:
+    """Update the fragment's authoring columns; ``None`` when there is no such fragment.
+
+    With *expected*, the named columns are compared and the update written in one transaction, raising ``StaleWrite`` if any
+    changed since the caller read them; a decision JSON column compares in its decoded shape.
+    """
     async with get_db() as db:
+        if expected is not None and not await check_expected(db, "interactive_fragments", fid, expected):
+            return None
         sets, vals = build_set_clause([*_BASE_WRITE_COLUMNS, *DECISION_COLUMNS], _encoded_decision_values(data))
         if sets:
             vals.append(fid)
@@ -106,6 +115,9 @@ async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragme
                 f"UPDATE interactive_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- cols from a hardcoded allowlist, values parameterised
                 vals,
             )
+            await db.commit()
+        elif expected is not None:
+            # Ends the transaction the comparison opened.
             await db.commit()
         return await get_interactive_fragment(fid)
 

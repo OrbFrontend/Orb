@@ -203,6 +203,37 @@ def _parse(row: Mapping[str, Any]) -> tuple[DecisionDefinition | None, list[str]
     ), []
 
 
+def outcome_keys_of(row: Mapping[str, Any]) -> tuple[str, ...]:
+    """A stored decision's outcome keys: ``true`` and ``false``, its option names, or its level indexes from ``0``."""
+    criteria = _json(row.get("decision_criteria"))
+    return _outcome_keys(_text(row, "decision_type"), tuple(criteria) if isinstance(criteria, list) else criteria)
+
+
+# Each outcome's two authored texts: what it means, which the Judge reads, and what the story does, which the passes get.
+OUTCOME_COLUMNS: Mapping[str, str] = {"meaning": "decision_criteria", "guidance": "decision_outputs"}
+
+
+def outcome_text(row: Mapping[str, Any], part: str, key: str) -> str | None:
+    """Outcome *key*'s *part* (``meaning`` or ``guidance``) as stored; ``None`` when the decision has no such outcome."""
+    if key not in outcome_keys_of(row):
+        return None
+    value = _json(row.get(OUTCOME_COLUMNS[part]))
+    if isinstance(value, list):
+        value = value[int(key)]
+    elif isinstance(value, Mapping):
+        value = value.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def with_outcome_text(row: Mapping[str, Any], part: str, key: str, text: str) -> dict[str, Any]:
+    """The one decision column that changes when outcome *key*'s *part* becomes *text*, every other outcome kept in order."""
+    column = OUTCOME_COLUMNS[part]
+    value = _json(row.get(column))
+    if isinstance(value, list):
+        return {column: [text if str(index) == key else item for index, item in enumerate(value)]}
+    return {column: {**(dict(value) if isinstance(value, Mapping) else {}), key: text}}
+
+
 def decision_definition_errors(row: Mapping[str, Any]) -> list[str]:
     return _parse(row)[1]
 

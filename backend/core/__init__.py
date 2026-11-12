@@ -14,11 +14,15 @@ from .decisions import (
     MAX_CHOICE_OPTIONS,
     MAX_SCORE_LEVELS,
     MIN_SCORE_LEVELS,
+    OUTCOME_COLUMNS,
     OUTCOME_KEYS,
     DecisionDefinition,
     decision_definition_errors,
     is_decision_row,
+    outcome_keys_of,
+    outcome_text,
     parse_decision_definition,
+    with_outcome_text,
 )
 from .domain_types import CastMember, GroupContextMode, TurnCast
 from .fragment_state import (

@@ -154,7 +154,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the two media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 49 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
+    assert len(enum) == 61 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
     assert [message["role"] for message in calls[0]["messages"]] == ["system", "user", "assistant", "user"]
     assert SECRET not in json.dumps(calls[-1]["messages"])
 

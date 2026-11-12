@@ -13,13 +13,24 @@ from ...database import (
     get_active_path,
     get_character_card,
     get_conversation,
+    get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
+    get_mood_fragment,
     get_user_persona,
     get_world,
     resolve_cast,
 )
-from ...database.models import CharacterCardRow, ConversationRow, LorebookEntryRow, MessageRow, UserPersonaRow, WorldRow
+from ...database.models import (
+    CharacterCardRow,
+    ConversationRow,
+    InteractiveFragmentRow,
+    LorebookEntryRow,
+    MessageRow,
+    MoodFragmentRow,
+    UserPersonaRow,
+    WorldRow,
+)
 from ...features.assistant import ToolFailure, ViewContext
 from ..deps import conversation_busy, resource_deleting
 
@@ -49,6 +60,10 @@ def world_field() -> Any:
 
 def entry_field() -> Any:
     return Field(default=0, ge=0, description="0: the entry selected in the lorebook. Ids: list_lore_entries.")
+
+
+def fragment_field() -> Any:
+    return Field(min_length=1, max_length=ID_CHARS, description="The fragment's id, from list_fragments.")
 
 
 def open_in_view(conv: ConversationRow, view: ViewContext) -> None:
@@ -151,6 +166,20 @@ async def persona_of(persona_id: int) -> UserPersonaRow:
     if persona is None:
         raise ToolFailure(f"No persona has the id {persona_id}. list_personas shows the ids.")
     return persona
+
+
+async def mood_fragment_of(fragment_id: str) -> MoodFragmentRow:
+    fragment = await get_mood_fragment(fragment_id)
+    if fragment is None:
+        raise ToolFailure(f"No mood fragment has the id {fragment_id}. list_fragments shows the ids.")
+    return fragment
+
+
+async def interactive_fragment_of(fragment_id: str) -> InteractiveFragmentRow:
+    fragment = await get_interactive_fragment(fragment_id)
+    if fragment is None:
+        raise ToolFailure(f"No interactive fragment has the id {fragment_id}. list_fragments shows the ids.")
+    return fragment
 
 
 async def cast_of(conv: ConversationRow) -> list[dict[str, Any]]:

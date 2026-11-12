@@ -19,16 +19,20 @@ from typing import Any, Literal
 
 from fastapi import HTTPException
 
+from ...core import OUTCOME_COLUMNS, outcome_text, with_outcome_text
 from ...core.macros import resolve_inline
 from ...database import (
     StaleWrite,
     delete_character_card,
+    delete_interactive_fragment,
+    delete_mood_fragment,
     delete_phrase_group,
     delete_user_persona,
     delete_world,
     get_character_card,
     get_conversation,
     get_document,
+    get_interactive_fragment,
     get_lorebook_entry,
     get_message_by_id,
     get_settings,
@@ -37,7 +41,9 @@ from ...database import (
     save_message_edit,
     sync_conversations_for_card,
     update_character_card,
+    update_interactive_fragment,
     update_lorebook_entry,
+    update_mood_fragment,
     update_settings,
     update_user_persona,
 )
@@ -45,6 +51,7 @@ from ...features import lorebook
 from ...features.assistant import settled
 from ..deletions import delete_chat, delete_document_settled, delete_message_subtree
 from ..deps import ChatUnavailable, conversation_busy, idle_chat_admission, idle_chats_guard
+from .fragments import INTERACTIVE_TEXT_COLUMNS, OUTCOME_PARTS, REQUIRED_TEXT, TEXT_CAPS, fragment_text_problem
 from .targets import clip
 
 MAX_PROPOSALS = 32
@@ -53,7 +60,18 @@ PROPOSAL_TTL_SECS = 15 * 60
 _PENDING_TEXT_CHARS = 1500
 _PENDING_NOTE_CHARS = 6000
 
-ProposalKind = Literal["character", "lorebook_entry", "persona", "message", "world", "conversation", "document", "phrase_group"]
+ProposalKind = Literal[
+    "character",
+    "lorebook_entry",
+    "persona",
+    "message",
+    "world",
+    "conversation",
+    "document",
+    "phrase_group",
+    "mood_fragment",
+    "interactive_fragment",
+]
 ProposalAction = Literal["edit", "delete"]
 FIELD_LABELS = {
     "description": "Description",
@@ -66,6 +84,15 @@ FIELD_LABELS = {
     "content": "Content",
     "tags": "Tags",
     "alternate_greetings": "Alternate greetings",
+    "label": "Label",
+    "prompt_text": "Prompt text",
+    "negative_prompt": "Negative prompt",
+    "injection_label": "Injection label",
+    "gate_question": "Gate question",
+    "question": "Question",
+    "situation": "Situation",
+    "outcome_meaning": "Outcome meaning",
+    "outcome_guidance": "Outcome guidance",
     "delete": "Delete",
 }
 
@@ -260,14 +287,39 @@ async def _write_message(proposal: Proposal, expected: str, text: str) -> None:
         raise _Refused("busy", _BUSY) from None
 
 
+async def _write_interactive(proposal: Proposal, expected: str, value: str) -> object:
+    """An interactive fragment's text, compared and written in one transaction; an outcome's text inside its decision column."""
+    fid, part = proposal.target["fragment_id"], OUTCOME_PARTS.get(proposal.name)
+    if part is None:
+        column = INTERACTIVE_TEXT_COLUMNS[proposal.name]
+        return await update_interactive_fragment(fid, {column: value}, expected={column: expected})
+    row = await get_interactive_fragment(fid)
+    if row is None:
+        return None
+    key = proposal.target["outcome"]
+    if outcome_text(row, part, key) != expected:
+        raise StaleWrite([proposal.name])
+    column = OUTCOME_COLUMNS[part]
+    # The whole column as read is the comparison: a change to any outcome, or to the type, since the read is stale.
+    held = {column: row[column], "field_type": row["field_type"], "decision_type": row["decision_type"]}
+    return await update_interactive_fragment(fid, with_outcome_text(row, part, key, value), expected=held)
+
+
 async def _write(proposal: Proposal, expected: str | list[str], value: str | list[str]) -> None:
     """Compare *expected* and write *value* in one transaction, through each target's own write path."""
     if proposal.kind == "message":
         assert isinstance(expected, str) and isinstance(value, str)
         return await _write_message(proposal, expected, value)
     target, before, after = proposal.target, {proposal.name: expected}, {proposal.name: value}
-    if proposal.kind == "character":
-        written: object = await update_character_card(target["character_id"], after, expected=before)
+    if proposal.kind == "interactive_fragment":
+        assert isinstance(expected, str) and isinstance(value, str)
+        if await _write_interactive(proposal, expected, value) is None:
+            raise _Refused("missing", _MISSING)
+        return None
+    if proposal.kind == "mood_fragment":
+        written: object = await update_mood_fragment(target["fragment_id"], after, expected=before)
+    elif proposal.kind == "character":
+        written = await update_character_card(target["character_id"], after, expected=before)
     elif proposal.kind == "lorebook_entry":
         written = await update_lorebook_entry(target["entry_id"], after, expected=before, world_id=target["world_id"])
     else:
@@ -345,6 +397,14 @@ async def _delete_phrase_group(target: Mapping[str, Any], _options: Mapping[str,
     return await delete_phrase_group(target["group_id"])
 
 
+async def _delete_mood_fragment(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+    return await delete_mood_fragment(target["fragment_id"])
+
+
+async def _delete_interactive_fragment(target: Mapping[str, Any], _options: Mapping[str, Any]) -> bool:
+    return await delete_interactive_fragment(target["fragment_id"])
+
+
 _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], Awaitable[bool]]] = {
     "character": _delete_character,
     "lorebook_entry": _delete_entry,
@@ -354,6 +414,8 @@ _DELETERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, Any]], Awaitable[
     "world": _delete_world,
     "persona": _delete_persona,
     "phrase_group": _delete_phrase_group,
+    "mood_fragment": _delete_mood_fragment,
+    "interactive_fragment": _delete_interactive_fragment,
 }
 
 
@@ -457,6 +519,22 @@ async def undo_proposals(proposal_ids: Sequence[str]) -> list[dict[str, Any]]:
     return verdicts
 
 
+_FRAGMENT_KINDS = frozenset(("mood_fragment", "interactive_fragment"))
+
+
+async def _fragment_problem(proposal: Proposal, text: str) -> str:
+    """Why the user's *text* cannot become the fragment text *proposal* edits, as the edit tool would refuse it; or nothing."""
+    if proposal.kind == "mood_fragment":
+        cap = TEXT_CAPS[proposal.name]
+        return f"That is {len(text):,} characters; it may be at most {cap:,}." if len(text) > cap else ""
+    if proposal.kind != "interactive_fragment":
+        return ""
+    row = await get_interactive_fragment(proposal.target["fragment_id"])
+    if row is None:
+        return _MISSING
+    return fragment_text_problem(row, proposal.name, str(proposal.target.get("outcome") or ""), text)
+
+
 async def revise_proposal(proposal_id: str, text: str) -> dict[str, Any]:
     """Make *text*, the user's own, what the pending edit *proposal_id* writes; answers its new preview.
 
@@ -472,8 +550,13 @@ async def revise_proposal(proposal_id: str, text: str) -> dict[str, Any]:
             return {"proposal_id": proposal_id, "verdict": "refused", "message": "Only a text edit can be revised."}
         # A message's macros resolve here, as when it was proposed, so Apply commits the text this preview shows.
         after = resolve_inline(text) if proposal.kind == "message" else text
-        if (proposal.name == "name" or proposal.kind == "message") and not after.strip():
+        fragment_required = proposal.kind in _FRAGMENT_KINDS and proposal.name in REQUIRED_TEXT
+        required = proposal.name == "name" or proposal.kind == "message" or fragment_required
+        if required and not after.strip():
             return {"proposal_id": proposal_id, "verdict": "refused", "message": "That cannot be left empty."}
+        problem = await _fragment_problem(proposal, after)
+        if problem:
+            return {"proposal_id": proposal_id, "verdict": "refused", "message": problem}
         if after == proposal.before:
             return {
                 "proposal_id": proposal_id,

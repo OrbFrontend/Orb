@@ -157,10 +157,10 @@ class StaleWrite(Exception):
 
 
 def _same(stored: Any, value: Any) -> bool:
-    """A column against what the caller read: text as text, NULL as empty, and a list against the JSON array stored."""
-    if isinstance(value, list):
+    """A column against what the caller read: text as text, NULL as empty, and a list or mapping against the JSON stored."""
+    if isinstance(value, (list, Mapping)):
         try:
-            return json.loads(stored or "[]") == value
+            return json.loads(stored or ("[]" if isinstance(value, list) else "{}")) == value
         except ValueError:
             return False
     return (stored or "") == (value or "")

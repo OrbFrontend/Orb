@@ -33,6 +33,7 @@ import { refreshConversationMessages } from "./chat_workflow.js";
 import { forgetDocument } from "./document.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
+import { loadInteractiveFragments, loadMoodFragments } from "./library_fragments.js";
 import { loadCharacters } from "./library_sidebar.js";
 import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
@@ -184,6 +185,9 @@ const REFRESHERS = {
         ]
       : ["characters", loadCharacters],
   persona: () => ["personas", loadPersonas],
+  mood_fragment: () => ["mood_fragments", loadMoodFragments],
+  // Its loader also reads the open chat's state again, which a state fragment's change can alter.
+  interactive_fragment: () => ["interactive_fragments", loadInteractiveFragments],
   conversation: (r) =>
     r.deleted
       ? [`chat-gone:${r.conversation_id}`, () => forgetConversation(r.conversation_id)]
@@ -223,6 +227,8 @@ function refreshEverything() {
     { kind: "world" },
     { kind: "character" },
     { kind: "persona" },
+    { kind: "mood_fragment" },
+    { kind: "interactive_fragment" },
     { kind: "conversation" },
     ...(S.activeConvId ? [{ kind: "message", conversation_id: S.activeConvId }] : []),
     { kind: "settings", keys: SWITCH_KEYS },

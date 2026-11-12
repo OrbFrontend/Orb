@@ -6,17 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from ...core import (
-    DECISION_COLUMNS,
-    DECISION_FIELD_TYPE,
-    DEFAULT_DECISION_INJECT,
-    DEFAULT_STATE_INJECT,
-    DEFAULT_STATE_MODE,
-    DEFAULT_STATE_UPDATE,
-    RESERVED_FRAGMENT_IDS,
-    STATE_COLUMNS,
-    STATE_FIELD_TYPE,
-)
+from ...core import DECISION_COLUMNS, RESERVED_FRAGMENT_IDS
 from ...database import (
     InteractiveFragmentReorderLaneMismatch,
     create_interactive_fragment,
@@ -31,7 +21,7 @@ from ...database import (
     update_interactive_fragment,
     update_mood_fragment,
 )
-from ...pipeline.passes.judge import definition_problems
+from ..fragments import DecisionProblems, checked_interactive_write
 from ..schemas import (
     InteractiveFragmentCreate,
     InteractiveFragmentReorder,
@@ -43,62 +33,11 @@ from ..schemas import (
 router = APIRouter()
 
 
-def _checked_decision_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
-    """Validate the merged decision definition and clear its fields on type changes."""
-    merged = {**(existing or {}), **payload}
-    if merged.get("field_type") != DECISION_FIELD_TYPE:
-        # A partial update that omits field_type leaves the existing type alone.
-        if "field_type" in payload:
-            payload.update({column: None for column in DECISION_COLUMNS})
-        return payload
-    problems = definition_problems(merged)
-    if problems:
-        raise HTTPException(status_code=422, detail="; ".join(problems))
-    # Stored explicitly, like a state fragment's settings, so the row says where it goes.
-    if not merged.get("decision_inject"):
-        payload["decision_inject"] = DEFAULT_DECISION_INJECT
-    return payload
-
-
-_STATE_DEFAULTS = {"state_mode": DEFAULT_STATE_MODE, "state_update": DEFAULT_STATE_UPDATE, "state_inject": DEFAULT_STATE_INJECT}
-
-
-def _checked_state_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
-    """Keep state settings on state fragments only, filling defaults for a new one.
-
-    A type change away from state clears them. Changing a state fragment's mode
-    rewrites nothing: its saved entries keep their ids and fold the same way.
-    """
-    field_type = payload.get("field_type", (existing or {}).get("field_type"))
-    if field_type != STATE_FIELD_TYPE:
-        if "field_type" in payload:
-            payload.update({column: None for column in STATE_COLUMNS})
-        else:
-            for column in STATE_COLUMNS:
-                payload.pop(column, None)
-        return payload
-    for column, default in _STATE_DEFAULTS.items():
-        if payload.get(column) is None and not (existing or {}).get(column):
-            payload[column] = default
-        elif payload.get(column) is None:
-            payload.pop(column, None)
-    return payload
-
-
-def _checked_gate_write(payload: dict, existing: dict[str, Any] | None = None) -> dict:
-    """Keep a Judge gate on post-processing fragments only.
-
-    A type change away from post-processing clears it, and a partial write to another type discards an incoming one.
-    """
-    field_type = payload.get("field_type", (existing or {}).get("field_type"))
-    if field_type != "post_processing":
-        if "field_type" in payload:
-            payload["post_processing_gate"] = ""
-            payload["post_processing_gate_replies"] = 0
-        else:
-            payload.pop("post_processing_gate", None)
-            payload.pop("post_processing_gate_replies", None)
-    return payload
+def _checked(payload: dict, existing: dict[str, Any] | None = None) -> dict:
+    try:
+        return checked_interactive_write(payload, existing)
+    except DecisionProblems as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 # Mood Fragments --
@@ -147,9 +86,7 @@ async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
     existing = await get_interactive_fragment(data.id)
     if existing:
         raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")
-    result = await create_interactive_fragment(
-        _checked_gate_write(_checked_state_write(_checked_decision_write(data.model_dump())))
-    )
+    result = await create_interactive_fragment(_checked(data.model_dump()))
     if not result:
         raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
@@ -176,8 +113,7 @@ async def api_update_interactive_fragment(fid: str, data: InteractiveFragmentUpd
     payload = {
         key: value for key, value in data.model_dump(exclude_unset=True).items() if value is not None or key in DECISION_COLUMNS
     }
-    row = dict(existing)
-    payload = _checked_gate_write(_checked_state_write(_checked_decision_write(payload, row), row), row)
+    payload = _checked(payload, dict(existing))
     result = await update_interactive_fragment(fid, payload)
     if not result:
         raise HTTPException(status_code=404, detail="Interactive fragment not found")

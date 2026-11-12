@@ -17,13 +17,15 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/` | The facade, contracts, the model loop and its prompt. It receives tool callables and imports no API, pipeline, workflow or peer feature code. |
 | `backend/api/assistant/` | The tools over the existing readers and writers, and Apply. `__init__.py` holds `build_tools`, which assembles every tool for one run. |
 | `backend/api/assistant/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
-| `backend/api/assistant/reads.py` | The fourteen read tools, their projections and paging |
+| `backend/api/assistant/reads.py` | The sixteen read tools, their projections and paging |
 | `backend/api/assistant/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
 | `backend/api/assistant/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
-| `backend/api/assistant/edits.py`, `deletes.py`, `proposals.py` | The four edit tools; the eight delete tools; the proposal store, Apply, Undo and Revise |
+| `backend/api/assistant/fragments.py` | The fragment creates and setters, and the names, projections and checks the fragment reads, edits and deletes share |
+| `backend/api/assistant/edits.py`, `deletes.py`, `proposals.py` | The six edit tools; the ten delete tools; the proposal store, Apply, Undo and Revise |
 | `backend/api/assistant/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools |
 | `backend/api/conversation_start.py` | The solo-chat writer the conversation route and `start_chat` share |
 | `backend/api/deletions.py` | The chat, message and document deletes their routes and Apply share, with their fences |
+| `backend/api/fragments/` | The interactive fragment write rules the fragment routes and the assistant share: type-scoped settings, defaults, the decision check, stages and where Required applies |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
 | `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
@@ -192,9 +194,9 @@ throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
-| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_persona`, `delete_banned_phrase`, `delete_document` | Stores a proposal and carries on; the user's Apply commits it after the run. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases`, `list_fragments`, `read_fragment` | Runs at once; changes nothing. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_mood_fragment`, `create_interactive_fragment`, `create_decision_fragment`, `set_mood_fragment`, `set_interactive_fragment`, `set_decision_fragment`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
+| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `edit_mood_fragment`, `edit_interactive_fragment`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_persona`, `delete_banned_phrase`, `delete_document`, `delete_mood_fragment`, `delete_interactive_fragment` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
 Reads project explicit allowlists, never whole rows: no avatars, extensions,
@@ -215,6 +217,18 @@ for a chat, overlays resolved as the prompt resolves them; nothing records which
 of them a given reply drew on. `read_character` reads the alternate greetings
 only whole, since an edit replaces the list whole; a list too long to send is
 refused rather than cut.
+
+`list_fragments` lists mood fragments by label, then interactive fragments
+stage by stage (judge, director, state, editor), each with its `position`, the
+order it runs in within its stage. Field types go by the editor's names:
+`single` and `list` are stored as `string` and `array`, and a `yes_no` decision
+is stored as `noul`. A listing or a create says when a switch keeps fragments
+from taking effect: the Director for moods and scene fields, the Agent for
+state, feedback and post-processing, a Judge endpoint for decisions.
+`read_fragment` reads one fragment with its texts fitted to one result, and a
+decision's question, situation and outcomes, each outcome by its key (`true`
+and `false`, an option's name, or a level from `0`); naming one text in `field`
+reads it whole, in pages.
 
 ### Writes
 
@@ -239,7 +253,23 @@ and never switches the guard; `set_lore_entry` sets secondary keywords together
 with the entry's Selective flag, as the drawer does, so they always count or are
 cleared together; `add_banned_phrase` adds a literal group and does
 not add a phrase the bank already holds, and both results say when the switch
-that applies them is off. Chat mutations take
+that applies them is off.
+
+A fragment create derives its id from the label, numbered past any id taken
+and, for an interactive fragment, past the reserved ids, and puts an
+interactive fragment last in its stage. `create_decision_fragment` takes a
+decision's outcomes as parallel lists: option names for a choice, then each
+outcome's meaning and guidance, with guidance copied from the meanings when
+left out, as the editor does. Interactive fragment writes go through
+`checked_interactive_write` in `backend/api/fragments/`, as the routes do, so a
+decision that would not run is refused with its problems, and state and gate
+settings stay on their own types. `set_interactive_fragment` changes a type, but
+never to or from a decision, whose definition another type would drop; it
+clears Required where the new settings make it mean nothing, and refuses
+Required on where it means nothing. `position` moves a fragment within its
+stage, keeping the stage's own priority slots and making them distinct.
+`set_decision_fragment` sets the resolution, threshold, minimum confidence and
+inject, clearing or defaulting the threshold as the resolution needs. Chat mutations take
 the chat's lane through `idle_chat_admission`, which refuses a chat being
 deleted or generating, read their target again once admitted, and hold the lane
 only for their own database work. `switch_branch` ends the run once it has
@@ -264,6 +294,15 @@ text carrying a read's clip marker, a no-op edit, and `replace_all` on a field
 longer than 8,000 characters, which takes `find_replace` instead. The result and
 the card both give the field's length before and after, so a large unintended
 deletion shows at a glance.
+
+A fragment's texts are edited the same way. An interactive fragment's field
+must belong to its type: a decision has no description, only post-processing has
+a gate question. A decision's outcome text is named by its `outcome` key. Apply
+compares that outcome's text with the preview's, then writes its decision column
+with that one outcome changed, in one transaction with a comparison of the column
+and the decision's type as Apply read them: another outcome edited since the
+preview is kept, and this outcome edited since is `stale`. A decision text that would add a problem to
+the definition is refused when it is proposed and when the user revises it.
 
 A card's `tags` and `alternate_greetings` are list fields: an edit adds
 `items` (`add_items`), removes them (`remove_items`) or makes them the whole new
@@ -312,7 +351,9 @@ through the lorebook feature so a Dynamic World records it, a character through
 the card's guarded delete. A chat or message delete is `busy` while that chat is
 generating, where the chat list's own delete would stop the reply first. A
 persona delete also clears the active persona when it named that one, as the
-persona list does.
+persona list does. Deleting a state fragment leaves the facts chats saved for it
+in the Inspector's State tab, as the fragment list's own delete does, and its
+preview says so.
 
 ### The proposal store
 
@@ -521,8 +562,8 @@ proposal diffs, user text and tool lines are escaped.
 Committed resources are read again by id through the loaders that own them,
 as each `mutation` arrives and after an Apply: worlds and entries, the settings
 keys a toggle wrote (through the settings store's queue), characters, personas,
-the chat list, a chat's worlds, a branch change, and a message or media job's
-chat. A deleted chat, document, world or character is let go of as the app's
+the chat list, a chat's worlds, a branch change, the mood and interactive fragment lists (the
+latter with the open chat's state), and a message or media job's chat. A deleted chat, document, world or character is let go of as the app's
 own delete does, through helpers its module exports (`forgetConversation`,
 `forgetDocument`, `forgetWorld`): the chat view empties, the editor clears or the
 drawer closes when it is the one open, and an entry deleted while selected in the
@@ -531,5 +572,5 @@ unchanged; nothing opens a chat or moves focus. A lore entry open in the drawer
 takes a change made elsewhere field by field. When a run ends any way other than
 `reply` or `handoff`, or any tool result in it came back failed, the browser
 reads again everything cheap once the run has settled: worlds, characters,
-personas, the chat list, the open chat's messages, and every switch key a toggle
+personas, both fragment lists, the chat list, the open chat's messages, and every switch key a toggle
 can write. Nothing is sent again.

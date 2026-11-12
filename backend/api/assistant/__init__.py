@@ -13,6 +13,7 @@ from .actions import build_action_tools
 from .deletes import build_delete_tools
 from .edits import build_edit_tools
 from .follow_up import keep_follow_up, take_follow_up
+from .fragments import build_fragment_tools
 from .media import MediaRun, build_media_tools
 from .proposals import Proposal, apply_proposals, open_proposals, pending_note, revise_proposal, undo_proposals
 from .reads import build_read_tools
@@ -45,6 +46,7 @@ def build_tools(
         *build_read_tools(settings, view),
         *build_toggle_tools(),
         *build_setter_tools(view),
+        *build_fragment_tools(),
         *build_edit_tools(view, held),
         *build_delete_tools(view, held),
         *build_action_tools(view),

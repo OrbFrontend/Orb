@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 from pydantic import Field
@@ -17,7 +17,9 @@ from ...database import (
     get_document,
     get_documents,
     get_effective_world_ids,
+    get_interactive_fragments,
     get_lorebook_entries,
+    get_mood_fragments,
     get_phrase_bank_rows,
     get_settings,
     get_speaker_names,
@@ -40,6 +42,17 @@ from ...features.assistant import (
 from ...features.fragment_state import StateWriteError, state_panel
 from ...features.lorebook import select_effective_entries
 from ...pipeline import estimate_context_size
+from ..fragments import stage_of
+from .fragments import (
+    MOOD_TEXT_FIELDS,
+    check_field_applies,
+    effect_note,
+    fragment_rows,
+    fragment_text,
+    interactive_projection,
+    mood_projection,
+    ordered_stage,
+)
 from .targets import (
     CHARACTER_FIELDS,
     ID_CHARS,
@@ -51,8 +64,11 @@ from .targets import (
     chat_in_view,
     clip,
     entry_of,
+    fragment_field,
+    interactive_fragment_of,
     message_label,
     message_of,
+    mood_fragment_of,
     persona_of,
     quoted,
     world_field,
@@ -147,6 +163,33 @@ class _EntriesArgs(_ListArgs):
 class _PersonaArgs(_ListArgs):
     persona_id: int = Field(
         default=0, ge=0, description="One persona whose description to read whole, in pages, instead of a list."
+    )
+    text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
+
+
+class _FragmentListArgs(_ListArgs):
+    kind: Literal["all", "mood", "interactive"] = Field(default="all", description="Which fragments to list.")
+
+
+class _FragmentArgs(ToolArguments):
+    kind: Literal["mood", "interactive"]
+    fragment_id: str = fragment_field()
+    field: Literal[
+        "",
+        "description",
+        "prompt_text",
+        "negative_prompt",
+        "gate_question",
+        "question",
+        "situation",
+        "outcome_meaning",
+        "outcome_guidance",
+    ] = Field(
+        default="",
+        description="One text to read whole, in pages; empty reads the whole fragment with long texts shortened to fit.",
+    )
+    outcome: str = Field(
+        default="", max_length=ID_CHARS, description="With outcome_meaning or outcome_guidance: which outcome."
     )
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
 
@@ -703,4 +746,84 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         ]
         return _listed(_page(rows, args), "phrase groups")
 
+    @tools.add(
+        "read",
+        _FragmentListArgs,
+        "List the fragments that steer each turn: mood fragments the Director turns on, and interactive fragments by stage "
+        "(judge, director, state, editor) in the order they run.",
+    )
+    async def list_fragments(args: _FragmentListArgs) -> ToolOutput:
+        moods, interactive = await get_mood_fragments(), await get_interactive_fragments()
+        rows = [
+            row
+            for row in fragment_rows(moods, interactive, args.kind, _PREVIEW_CHARS)
+            if _matches(args.query, row["id"], row["label"], row.get("description"), row.get("decision", {}).get("question"))
+        ]
+        listed = _page(rows, args)
+        if "…[+" in json.dumps(listed["rows"], ensure_ascii=False):
+            listed["note"] = "Text ending with …[+N chars] was shortened; read_fragment reads it whole."
+        current = await get_settings()
+        shown = {"mood" if row["kind"] == "mood" else row["stage"] for row in listed["rows"]}
+        notes = [await effect_note(_STAGE_TYPES.get(name, name), current) for name in sorted(shown)]
+        if any(notes):
+            listed["note_switches"] = " ".join(dict.fromkeys(note for note in notes if note))
+        return _listed(listed, "fragments")
+
+    @tools.add(
+        "read",
+        _FragmentArgs,
+        "Read one fragment: every setting and text, a decision's question, situation and outcomes; or name one text in "
+        "field to read it whole.",
+    )
+    async def read_fragment(args: _FragmentArgs) -> ToolOutput:
+        if args.text_offset and not args.field:
+            raise ToolFailure("text_offset pages through one text: name it in field.")
+        ids = {"fragment_id": args.fragment_id}
+        if args.kind == "mood":
+            mood = await mood_fragment_of(args.fragment_id)
+            if args.outcome:
+                raise ToolFailure("A mood fragment has no outcomes; leave outcome empty.")
+            if args.field and args.field not in MOOD_TEXT_FIELDS:
+                raise ToolFailure(f"A mood fragment's texts are {', '.join(MOOD_TEXT_FIELDS[1:])}.")
+            if args.field:
+                head = {"kind": "mood", "id": mood["id"], "label": clip(mood["label"], _WHOLE_NAME_CHARS), "field": args.field}
+                data = _text_page(str(mood[args.field] or ""), args.text_offset, head, "text")
+                return ToolOutput(data, f"Read the {args.field} of mood fragment {quoted(mood['label'])}.", ids)
+            data = _fitted(lambda cap: mood_projection(mood, cap))
+            return ToolOutput(data, f"Read mood fragment {quoted(mood['label'])}.", ids)
+        fragment = await interactive_fragment_of(args.fragment_id)
+        label = f"interactive fragment {quoted(fragment['label'])}"
+        if args.field:
+            check_field_applies(fragment, args.field, args.outcome)
+            head = {
+                "kind": "interactive",
+                "id": fragment["id"],
+                "label": clip(fragment["label"], _WHOLE_NAME_CHARS),
+                "field": args.field,
+                **({"outcome": args.outcome} if args.outcome else {}),
+            }
+            data = _text_page(fragment_text(fragment, args.field, args.outcome) or "", args.text_offset, head, "text")
+            return ToolOutput(data, f"Read the {args.field.replace('_', ' ')} of {label}.", ids)
+        if args.outcome:
+            raise ToolFailure("outcome goes with field outcome_meaning or outcome_guidance.")
+        stage = ordered_stage(await get_interactive_fragments(), stage_of(fragment["field_type"]))
+        position = next((index + 1 for index, row in enumerate(stage) if row["id"] == fragment["id"]), 0)
+        data = _fitted(lambda cap: interactive_projection(fragment, position, cap))
+        return ToolOutput(data, f"Read {label}.", ids)
+
     return tools
+
+
+# A field type standing for each stage, for the notes on what keeps a stage from running.
+_STAGE_TYPES = {"judge": "decision", "director": "string", "state": "state", "editor": "feedback"}
+
+
+def _fitted(build: Callable[[int], dict[str, Any]]) -> dict[str, Any]:
+    """The projection *build* makes with its texts clipped as little as fits one result, noting where it clipped."""
+    for cap in (_DESCRIPTION_CHARS, 1200, 600, 300, 120):
+        data = build(cap)
+        if _size(data) <= _RESULT_BUDGET:
+            break
+    if "…[+" in json.dumps(data, ensure_ascii=False):
+        data["note"] = "Text ending with …[+N chars] was shortened; name it in field to read it whole."
+    return data

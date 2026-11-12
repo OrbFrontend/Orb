@@ -433,6 +433,31 @@ async def _phrase_banned(out: Outcome) -> bool:
     return any(wanted in str(variant).casefold() for row in await get_phrase_bank_rows() for variant in row["variants"])
 
 
+async def _mood_terse(out: Outcome) -> bool:
+    from backend.database import get_mood_fragments
+
+    moods = [row for row in await get_mood_fragments() if row["label"].strip().casefold() == "terse"]
+    return len(moods) == 1 and bool(moods[0]["enabled"]) and bool(moods[0]["prompt_text"].strip())
+
+
+async def _tense_off(out: Outcome) -> bool:
+    from backend.database import get_mood_fragments
+
+    moods = {row["label"]: row for row in await get_mood_fragments()}
+    return not moods["Tense"]["enabled"] and bool(moods["Talkative"]["enabled"])
+
+
+async def _weather_decision(out: Outcome) -> bool:
+    from backend.core import parse_decision_definition
+    from backend.database import get_interactive_fragments
+
+    return any(
+        row["decision_type"] == "noul" and parse_decision_definition(row) is not None
+        for row in await get_interactive_fragments()
+        if "weather" in str(row["decision_instructions"] or "").casefold()
+    )
+
+
 async def _inland_global(out: Outcome) -> bool:
     from backend.database import get_world
 
@@ -711,7 +736,39 @@ def requests() -> list[Request]:
             {"list_worlds", "query_library", "set_world"},
             _db(_inland_global),
         ),
+        r(
+            "write_mood",
+            "write",
+            library,
+            "Make a new mood fragment - Terse.",
+            {"create_mood_fragment", "list_fragments"},
+            _db(_mood_terse),
+        ),
+        r(
+            "write_mood_off",
+            "write",
+            library,
+            "Turn off the Tense mood.",
+            {"list_fragments", "read_fragment", "set_mood_fragment"},
+            _db(_tense_off),
+        ),
+        r(
+            "write_decision",
+            "write",
+            library,
+            "Add a yes/no decision fragment that asks whether the weather turns bad.",
+            {"create_decision_fragment", "list_fragments"},
+            _db(_weather_decision),
+        ),
         # One edit
+        r(
+            "edit_mood",
+            "edit",
+            library,
+            "Make the Tense mood's prompt text also ask for short sentences.",
+            {"list_fragments", "read_fragment"},
+            _proposed("mood_fragment", "prompt_text", lambda b, a, o: "short" in a.casefold() and len(a) > len(b)),
+        ),
         r(
             "edit_entry_name",
             "edit",

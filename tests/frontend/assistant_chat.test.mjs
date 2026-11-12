@@ -42,6 +42,7 @@ beforeEach(() => {
     if (request.url.endsWith("/api/settings"))
       return Response.json({ enabled_tools: { editor_apply_patch: false }, user_name: "from the server" });
     if (request.url.endsWith("/api/worlds") || request.url.endsWith("/api/user-personas")) return Response.json([]);
+    if (request.url.endsWith("/api/fragments") || request.url.endsWith("/api/interactive-fragments")) return Response.json([]);
     // The chat list as this page already has it: a refresh in place changes nothing a test relies on.
     if (request.url.endsWith("/api/conversations")) return Response.json(S.conversations);
     if (/\/api\/assistant\/(apply|undo|revise)$/.test(request.url)) return new Promise((resolve) => (request.answer = resolve));

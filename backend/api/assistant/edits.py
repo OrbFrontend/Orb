@@ -1,4 +1,4 @@
-"""The assistant's reviewed edits: four tools that propose a change to existing text and write nothing.
+"""The assistant's reviewed edits: six tools that propose a change to existing text and write nothing.
 
 A field an earlier request already proposed an edit to, and the user has not applied, is edited on from that pending text: the
 new proposal replaces the earlier one on the user's card.
@@ -16,6 +16,7 @@ from pydantic import Field, StringConstraints, create_model
 from ...core.macros import resolve_inline
 from ...database import get_active_path, greeting_rerolls
 from ...features.assistant import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
+from .fragments import MOOD_TEXT_FIELDS, TEXT_CAPS, check_field_applies, fragment_text, fragment_text_problem
 from .proposals import Proposal, change_label, is_open, preview, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
@@ -27,8 +28,11 @@ from .targets import (
     chat_in_view,
     entry_field,
     entry_of,
+    fragment_field,
+    interactive_fragment_of,
     message_label,
     message_of,
+    mood_fragment_of,
     persona_of,
     quoted,
     world_field,
@@ -201,6 +205,27 @@ _MessageEdit = _edit_args(
     "_MessageEdit", conversation_id=_CHAT, message_id=(int, Field(ge=1, description="The message's id, from read_messages."))
 )
 
+_MoodFragmentEdit = _edit_args("_MoodFragmentEdit", fragment_id=(str, fragment_field()), field=(Literal[MOOD_TEXT_FIELDS], ...))
+
+_InteractiveFragmentEdit = _edit_args(
+    "_InteractiveFragmentEdit",
+    fragment_id=(str, fragment_field()),
+    field=(
+        Literal[
+            "label",
+            "description",
+            "injection_label",
+            "gate_question",
+            "question",
+            "situation",
+            "outcome_meaning",
+            "outcome_guidance",
+        ],
+        ...,
+    ),
+    outcome=(str, Field(default="", max_length=64, description="outcome_meaning and outcome_guidance: which outcome.")),
+)
+
 _GREETING_REROLLS = (
     "Message {id} is this chat's opening greeting, and it still holds random macros such as {{{{roll}}}} that roll again each "
     "time the chat is shown, until the user sends a first message. Its text changes on every view, so no preview of it could "
@@ -290,10 +315,12 @@ def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[A
         *,
         required: str = "",
         list_edit: Callable[[list[str]], list[str]] | None = None,
+        check: Callable[[str], str] | None = None,
     ) -> ToolOutput:
         """Propose the edit *args* make to field *name* of *target*; *required* names a field that may not be left empty.
 
-        A list field takes *list_edit*, which makes its new list from the stored one or the one already proposed.
+        A list field takes *list_edit*, which makes its new list from the stored one or the one already proposed. *check*
+        says why a new text cannot be stored, or nothing.
         """
         kind = target["kind"]
         key = proposal_key(target, name)
@@ -320,6 +347,8 @@ def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[A
             after = resolve_inline(after)
         if required and isinstance(after, str) and not after.strip():
             raise ToolFailure(f"{required} cannot be left empty. Nothing was proposed.")
+        if check is not None and isinstance(after, str) and (problem := check(after)):
+            raise ToolFailure(f"{problem} Nothing was proposed.")
         if after == base:
             raise ToolFailure("That leaves the text exactly as it is, so there is nothing to propose.")
         if held is not None and after == stored:
@@ -396,5 +425,47 @@ def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[A
         target = {"kind": "message", "conversation_id": cid, "message_id": message["id"]}
         label = f"{message_label(await get_active_path(cid), message['id'])} in {quoted(conv['title'])}"
         return propose(target, label, "content", message["content"] or "", args, reread, required="A message")
+
+    @tools.add(
+        "confirm", _MoodFragmentEdit, "Propose an edit to a mood fragment's label, description, prompt text or negative prompt."
+    )
+    async def edit_mood_fragment(args: Any) -> ToolOutput:
+        fragment = await mood_fragment_of(args.fragment_id)
+        reread = f'read_fragment with kind "mood", its fragment_id and field "{args.field}" reads it whole.'
+        target = {"kind": "mood_fragment", "fragment_id": fragment["id"]}
+        label = f"mood fragment {quoted(fragment['label'])}"
+        required = {"label": "A fragment's label", "prompt_text": "A mood's prompt text"}.get(args.field, "")
+        cap = TEXT_CAPS[args.field]
+
+        def check(text: str) -> str:
+            return f"That is {len(text):,} characters; a {args.field} may be at most {cap:,}." if len(text) > cap else ""
+
+        stored = str(fragment[args.field] or "")
+        return propose(target, label, args.field, stored, args, reread, required=required, check=check)
+
+    @tools.add(
+        "confirm",
+        _InteractiveFragmentEdit,
+        "Propose an edit to an interactive fragment's text: label, description, injection_label; a post_processing "
+        "fragment's gate_question; a decision's question, situation, or one outcome's meaning (what it means, for the "
+        "Judge) or guidance (what the story does on it).",
+    )
+    async def edit_interactive_fragment(args: Any) -> ToolOutput:
+        fragment = await interactive_fragment_of(args.fragment_id)
+        check_field_applies(fragment, args.field, args.outcome)
+        target: dict[str, Any] = {
+            "kind": "interactive_fragment",
+            "fragment_id": fragment["id"],
+            **({"outcome": args.outcome} if args.outcome else {}),
+        }
+        label = f"fragment {quoted(fragment['label'])}" + (f", outcome {quoted(args.outcome)}" if args.outcome else "")
+        outcome = f', outcome "{args.outcome}"' if args.outcome else ""
+        reread = f'read_fragment with kind "interactive", its fragment_id and field "{args.field}"{outcome} reads it whole.'
+        stored = fragment_text(fragment, args.field, args.outcome) or ""
+
+        def check(text: str) -> str:
+            return fragment_text_problem(fragment, args.field, args.outcome, text)
+
+        return propose(target, label, args.field, stored, args, reread, check=check)
 
     return tools
