@@ -21,10 +21,10 @@ from ...database import (
     update_settings,
     update_world,
 )
-from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet
+from ...features.assistant import AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
 from ..deps import validate_phrase_group
 from ..schemas import LorebookEntryUpdate, WorldUpdate
-from .targets import ID_CHARS, clip, entry_of, not_blank, persona_of, quoted, world_of
+from .targets import clip, entry_field, entry_of, not_blank, persona_of, quoted, world_field, world_of
 from .toggles import switch_summary
 
 _NAME_CHARS = 200
@@ -50,8 +50,8 @@ def _flag(key: str, value: Switch) -> dict[str, bool]:
 
 
 class _EntrySet(ToolArguments):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The entry's world, from list_worlds.")
-    entry_id: int = Field(ge=1, description="The entry's id, from list_lorebook_entries.")
+    world_id: str = world_field()
+    entry_id: int = entry_field()
     enabled: Switch = Field(default="unchanged", description=f"Whether the entry is used at all: {_SWITCH}")
     constant: Switch = Field(
         default="unchanged", description=f"Whether it is used in every chat with its world, keywords or not: {_SWITCH}"
@@ -63,8 +63,17 @@ class _EntrySet(ToolArguments):
     )
 
     clear_keywords: bool = Field(default=False, description="true to remove every keyword.")
+    secondary_keywords: list[_Keyword] = Field(
+        default_factory=list,
+        max_length=_KEYWORDS,
+        description="A complete new list of secondary keywords, replacing the old: the entry then comes up only when one of "
+        "its keywords and also one of these come up. Empty leaves them as they are.",
+    )
+    clear_secondary_keywords: bool = Field(
+        default=False, description="true to remove the secondary keywords, so its keywords alone bring it up."
+    )
 
-    _blank = field_validator("keywords")(not_blank)
+    _blank = field_validator("keywords", "secondary_keywords")(not_blank)
 
 
 class _PersonaSet(ToolArguments):
@@ -72,7 +81,7 @@ class _PersonaSet(ToolArguments):
 
 
 class _WorldSet(ToolArguments):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world (lorebook), from list_worlds.")
+    world_id: str = world_field()
     name: str = Field(default="", max_length=_NAME_CHARS, description="A new name; empty leaves the name as it is.")
     is_global: Switch = Field(
         default="unchanged", description=f"Whether every chat uses the world unless it turns it off: {_SWITCH}"
@@ -121,29 +130,44 @@ class _PhraseAdd(ToolArguments):
     _blank = field_validator("phrase", "variants")(not_blank)
 
 
-def build_setter_tools() -> list[AssistantTool]:
-    """The setters, in their stable order."""
+def build_setter_tools(view: ViewContext) -> list[AssistantTool]:
+    """The setters, in their stable order, bound to the request's view."""
     tools = ToolSet()
 
     @tools.add(
         "write",
         _EntrySet,
-        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords. "
+        "Turn a lore entry on or off, make it constant or keyword-triggered, or replace its keywords or secondary keywords. "
         "Turning an entry off is how to undo one added by mistake.",
         idempotent=True,
     )
-    async def set_lorebook_entry(args: _EntrySet) -> ToolOutput:
-        if args.keywords and args.clear_keywords:
+    async def set_lore_entry(args: _EntrySet) -> ToolOutput:
+        if (args.keywords and args.clear_keywords) or (args.secondary_keywords and args.clear_secondary_keywords):
             raise ToolFailure("Either name keywords or clear them, not both. Nothing was changed.")
-        world, entry = await entry_of(args.world_id, args.entry_id)
+        world, entry = await entry_of(args.world_id, args.entry_id, view)
+        secondary = list(dict.fromkeys(args.secondary_keywords))
         wanted: dict[str, Any] = {
             **_flag("enabled", args.enabled),
             **_flag("constant", args.constant),
             **({"keywords": list(dict.fromkeys(args.keywords))} if args.keywords or args.clear_keywords else {}),
+            # Selective is what makes secondary keywords count; the drawer sets the two together, as the importer does.
+            **(
+                {"secondary_keys": secondary, "selective": bool(secondary)}
+                if secondary or args.clear_secondary_keywords
+                else {}
+            ),
         }
         if not wanted:
-            raise ToolFailure("Name enabled, constant, keywords or clear_keywords; nothing was asked to change.")
-        stored = {"enabled": bool(entry["enabled"]), "constant": bool(entry["constant"]), "keywords": entry["keywords"] or []}
+            raise ToolFailure(
+                "Name enabled, constant, keywords, secondary_keywords or a clear flag; nothing was asked to change."
+            )
+        stored = {
+            "enabled": bool(entry["enabled"]),
+            "constant": bool(entry["constant"]),
+            "keywords": entry["keywords"] or [],
+            "secondary_keys": entry["secondary_keys"] or [],
+            "selective": bool(entry["selective"]),
+        }
         changes = {key: value for key, value in wanted.items() if stored[key] != value}
         if changes:
             # The entry route's own schema and writer: the entry and world revisions advance as for any edit.
@@ -158,6 +182,8 @@ def build_setter_tools() -> list[AssistantTool]:
         }
         if after["constant"] is False and not after["keywords"]:
             data["note"] = "It is keyword-triggered with no keywords, so nothing brings it into a chat."
+        elif after["constant"] and after["secondary_keys"]:
+            data["note"] = "It is constant, so it is always used and its keywords, secondary ones included, do not matter."
         label = f"lore entry {quoted(entry['name'])}"
         ids = {"world_id": world["id"], "entry_id": entry["id"]}
         if not changes:
@@ -166,6 +192,11 @@ def build_setter_tools() -> list[AssistantTool]:
             *([("on" if changes["enabled"] else "off")] if "enabled" in changes else []),
             *([("constant" if changes["constant"] else "keyword-triggered")] if "constant" in changes else []),
             *([f"keywords {json.dumps(changes['keywords'], ensure_ascii=False)}"] if "keywords" in changes else []),
+            *(
+                [f"secondary keywords {json.dumps(after['secondary_keys'], ensure_ascii=False)}"]
+                if "secondary_keys" in changes or "selective" in changes
+                else []
+            ),
         ]
         return ToolOutput(data, f"Set the {label}: {'; '.join(said)}.", ids, committed=({"kind": "lorebook_entry", **ids},))
 
@@ -176,7 +207,7 @@ def build_setter_tools() -> list[AssistantTool]:
         idempotent=True,
     )
     async def set_world(args: _WorldSet) -> ToolOutput:
-        world = await world_of(args.world_id)
+        world = await world_of(args.world_id, view)
         wanted: dict[str, Any] = {
             **({"name": args.name.strip()} if args.name.strip() else {}),
             **_flag("is_global", args.is_global),

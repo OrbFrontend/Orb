@@ -321,6 +321,21 @@ def _extra_block(extra_instructions: str) -> str:
     )
 
 
+# How much of a user's direction for one image reaches the composer.
+DIRECTION_CHARS = 1_000
+
+
+def _direction_block(direction: str) -> str:
+    text = bounded(direction, DIRECTION_CHARS)
+    return (
+        f"The user asked for this particular image, in their words: “{text}”. "
+        "Follow it for what the shot shows: its moment, framing, focus, pose, mood and lighting, even where the reply does not "
+        "show that. Keep each subject's identity and appearance from the story unless the direction changes it. "
+        if text
+        else ""
+    )
+
+
 def _skill_block(skills: Sequence[dict]) -> str:
     """Render only the selected full instruction bodies for the composer."""
     rows = [
@@ -407,6 +422,7 @@ def compose_ooc(
     profile_negative_prompt: str = "",
     prompter_reference: bool = False,
     prompter_reference_sent: bool = False,
+    direction: str = "",
 ) -> str:
     guide = _format_guide(prompt_format, pov, supports_negative=supports_negative)
     profile = _profile_instruction(subjects)
@@ -429,7 +445,10 @@ def compose_ooc(
         + "Use the final assistant reply as the current visible story facts and use earlier conversation only for stable "
         "visible continuity such as identity, the current outfit, and the setting. "
         + earlier_picture
-        + "Resolve conflicts in this order: current story facts, the explicit POV choice, and saved exclusions; selected "
+        + _direction_block(direction)
+        + "Resolve conflicts in this order: "
+        + ("the user's direction above, then " if bounded(direction, DIRECTION_CHARS) else "")
+        + "current story facts, the explicit POV choice, and saved exclusions; selected "
         "composition skills; style-specific extra instructions; then general composer guidance. " + skills + extra + guide + "]"
     )
 
@@ -487,11 +506,14 @@ def refine_ooc(
     supports_negative: bool = True,
     supports_seed: bool = True,
     prompter_reference: bool = False,
+    directed: bool = False,
 ) -> str:
     """The review request that rides beside a render, after its tool result.
 
     `turns_left` counts the renders still available after this review, so the model knows when a revision is its last chance.
     `prompter_reference` says the compose request carried the chat's earlier picture, so the review checks against it too.
+    `directed` says it carried the user's direction for this image: the review holds the render to that first, so a departure
+    from the reply the user asked for is never corrected away.
     """
     unwanted = "Revise `unwanted` by the same rules as before." if supports_negative else _LEAVE_UNWANTED_EMPTY
     reseed = _RESEED if supports_seed else _NO_SEED
@@ -501,9 +523,14 @@ def refine_ooc(
         if prompter_reference
         else " and against your prompt"
     )
+    against = (
+        "the user's direction for this image first, then the final visible instant of the assistant reply wherever the "
+        "direction leaves it open"
+        if directed
+        else "the final visible instant of the assistant reply"
+    )
     return (
-        f"[OOC: The image above is render {render}, made from your last prompt. Review it against the final visible "
-        f"instant of the assistant reply{earlier}. Check the number of persons, who is visible, pose and "
+        f"[OOC: The image above is render {render}, made from your last prompt. Review it against {against}{earlier}. Check the number of persons, who is visible, pose and "
         "action, anatomy such as hands and limbs, clothing, expression, interaction, spatial relationships, setting, POV, "
         "occlusion, lighting, and framing. Also check for things the image model added that contradict the scene. In `critique`, "
         "list only the visible problems, most important first. Set `done` to true when no problem is worth another "

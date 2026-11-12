@@ -55,6 +55,7 @@ from .targets import (
     message_of,
     persona_of,
     quoted,
+    world_field,
     world_of,
 )
 from .toggles import switch_summary
@@ -138,7 +139,7 @@ class _StateArgs(ToolArguments):
 
 
 class _EntriesArgs(_ListArgs):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world's id, from list_worlds.")
+    world_id: str = world_field()
     entry_id: int = Field(default=0, ge=0, description="One entry whose content to read whole, in pages, instead of a list.")
     text_offset: int = Field(default=0, ge=0, description=_TEXT_OFFSET)
 
@@ -151,11 +152,8 @@ class _PersonaArgs(_ListArgs):
 
 
 class _DocumentArgs(ToolArguments):
-    document_id: str = Field(default="", max_length=ID_CHARS, description="The document's id; empty lists documents.")
-    query: str = Field(default="", max_length=_QUERY_CHARS, description="When listing: text to match in titles.")
-    offset: int = Field(
-        default=0, ge=0, description="When reading: the character position to start from. When listing: rows to skip."
-    )
+    document_id: str = Field(default="", max_length=ID_CHARS, description="Empty: the document in view.")
+    offset: int = Field(default=0, ge=0, description="The character position to start from: the last page's next_offset.")
 
 
 def _size(value: object) -> int:
@@ -244,10 +242,10 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
     @tools.add(
         "read",
         NoArguments,
-        "What the user is looking at: the chat's title, kept branch, cast, worlds in effect and context size, "
-        "or the open document or character.",
+        "What the user is looking at: the chat's title, kept branch, cast, worlds in effect and context size; "
+        "the open document or character; and the world and entry open in the lorebook.",
     )
-    async def get_context(_args: NoArguments) -> ToolOutput:
+    async def read_context(_args: NoArguments) -> ToolOutput:
         data: dict[str, Any] = {"mode": view.mode}
         ids: dict[str, Any] = {}
         if view.document_id:
@@ -256,6 +254,13 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         if view.character_id:
             data["character"] = {"id": view.character_id, "name": clip(view.character_name, _QUERY_CHARS)}
             ids["character_id"] = view.character_id
+        if view.world_id:
+            lorebook: dict[str, Any] = {"world": {"id": view.world_id, "name": clip(view.world_name, _QUERY_CHARS)}}
+            ids["world_id"] = view.world_id
+            if view.entry_id:
+                lorebook["entry"] = {"id": view.entry_id, "name": clip(view.entry_name, _QUERY_CHARS)}
+                ids["entry_id"] = view.entry_id
+            data["lorebook"] = lorebook
         if view.conversation_id:
             conv = await chat_in_view("", view, changes=False)
             size = await estimate_context_size(conv)
@@ -296,7 +301,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         return _listed(_page(rows, args), "characters")
 
     @tools.add("read", _CharacterArgs, "Read one character's authored text. A group chat has several characters, so name one.")
-    async def get_character(args: _CharacterArgs) -> ToolOutput:
+    async def read_character(args: _CharacterArgs) -> ToolOutput:
         card = await character_of(args.character_id, view)
         card_id = card.get("id")
         if "alternate_greetings" in args.fields:
@@ -498,11 +503,11 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "List one world's entries with their text, or read one entry's content whole; query matches names, keywords "
         "and content.",
     )
-    async def list_lorebook_entries(args: _EntriesArgs) -> ToolOutput:
-        world = await world_of(args.world_id)
+    async def list_lore_entries(args: _EntriesArgs) -> ToolOutput:
+        world = await world_of(args.world_id, view)
         world_head = {"id": world["id"], "name": clip(world["name"], _QUERY_CHARS)}
         if args.entry_id:
-            _, entry = await entry_of(args.world_id, args.entry_id)
+            _, entry = await entry_of(world["id"], args.entry_id, view)
             head = {"world": world_head, "id": entry["id"], "name": clip(entry["name"], _WHOLE_NAME_CHARS)}
             data = _text_page(entry["content"] or "", args.text_offset, head, "content")
             return ToolOutput(data, f"Read lore entry {entry['id']}.", {"world_id": world["id"], "entry_id": entry["id"]})
@@ -514,6 +519,11 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                     "id": entry["id"],
                     "name": clip(entry["name"], _QUERY_CHARS),
                     "keywords": [clip(keyword, 60) for keyword in (entry["keywords"] or [])[:12]],
+                    **(
+                        {"secondary_keywords": [clip(keyword, 60) for keyword in entry["secondary_keys"][:12]]}
+                        if entry["selective"] and entry["secondary_keys"]
+                        else {}
+                    ),
                     "enabled": bool(entry["enabled"]),
                     "constant": bool(entry["constant"]),
                     "layer": entry["entry_layer"],
@@ -522,7 +532,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
                 },
                 entry["content"] or "",
             )
-            for entry in await get_lorebook_entries(args.world_id)
+            for entry in await get_lorebook_entries(world["id"])
             if _matches(args.query, entry["name"], entry["content"], *(entry["keywords"] or []))
         ]
         note = "Content ending with …[+N chars] was shortened; read it whole with the entry's entry_id."
@@ -537,7 +547,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         "List the worlds a chat uses and the lore entries in effect there: their enabled entries, with their text. It cannot "
         "say which entries a given reply drew on; nothing records that.",
     )
-    async def list_active_lore(args: _ChatListArgs) -> ToolOutput:
+    async def list_active_lore_entries(args: _ChatListArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=False)
         world_ids = await get_effective_world_ids(conv["id"])
         # What the prompt draws from: dynamic replacements and suppressions resolved, as the chat's own lore view shows it.
@@ -557,7 +567,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
             for entry in entries
             if _matches(args.query, entry["name"], entry["content"], *(entry["keywords"] or []))
         ]
-        note = "Content ending with …[+N chars] was shortened; list_lorebook_entries with its world_id and entry_id reads it whole."
+        note = "Content ending with …[+N chars] was shortened; list_lore_entries with its world_id and entry_id reads it whole."
         names = {world["id"]: world["name"] for world in await get_worlds()}
         listed = {
             "conversation_id": conv["id"],
@@ -593,22 +603,23 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         note = "A description ending with …[+N chars] was shortened; read it whole with its persona_id."
         return _listed(_noting(items, "description", args, note), "personas")
 
-    @tools.add(
-        "read",
-        _DocumentArgs,
-        "Without document_id, list documents; with one, read its saved text. Unsaved editor text is never included.",
-    )
+    @tools.add("read", _ListArgs, "List documents by title.")
+    async def list_documents(args: _ListArgs) -> ToolOutput:
+        rows = [
+            {"id": document["id"], "title": clip(document["title"], _QUERY_CHARS), "updated_at": document["updated_at"]}
+            for document in await get_documents()
+            if _matches(args.query, document["title"])
+        ]
+        return _listed(_page(rows, args), "documents")
+
+    @tools.add("read", _DocumentArgs, "Read a document's saved text, a page at a time. Unsaved editor text is never included.")
     async def read_document(args: _DocumentArgs) -> ToolOutput:
-        if not args.document_id:
-            rows = [
-                {"id": document["id"], "title": clip(document["title"], _QUERY_CHARS), "updated_at": document["updated_at"]}
-                for document in await get_documents()
-                if _matches(args.query, document["title"])
-            ]
-            return _listed(_page(rows, _ListArgs(limit=_MAX_LIST_ROWS, offset=args.offset)), "documents")
-        document = await get_document(args.document_id)
+        document_id = args.document_id or view.document_id
+        if not document_id:
+            raise ToolFailure("No document is in view. Name a document_id; list_documents shows the ids.")
+        document = await get_document(document_id)
         if document is None:
-            raise ToolFailure(f"No document has the id {args.document_id}.")
+            raise ToolFailure(f"No document has the id {document_id}. list_documents shows the ids.")
         content = document["content"] or ""
         head = {
             "id": document["id"],
@@ -625,7 +636,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         _StateArgs,
         "Read a chat's scene state: what each state fragment holds on the kept branch, as the Inspector's State tab shows it.",
     )
-    async def read_state(args: _StateArgs) -> ToolOutput:
+    async def read_chat_state(args: _StateArgs) -> ToolOutput:
         conv = await chat_in_view(args.conversation_id, view, changes=False)
         try:
             panel = await state_panel(conv["id"])
@@ -664,7 +675,7 @@ def build_read_tools(settings: Settings, view: ViewContext) -> list[AssistantToo
         return ToolOutput(data, summary, {"conversation_id": conv["id"]})
 
     @tools.add("read", NoArguments, "Pipeline switches and sampler values. No endpoints, models or credentials.")
-    async def get_settings_summary(_args: NoArguments) -> ToolOutput:
+    async def read_settings(_args: NoArguments) -> ToolOutput:
         # Read now: a toggle earlier in this request has changed what the request's own snapshot says.
         current = await get_settings()
         data = {

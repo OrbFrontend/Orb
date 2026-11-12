@@ -98,7 +98,7 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
         await set_workflow_enabled("tts", False)
         _script(
             monkeypatch,
-            _call("generate_image", {"message_id": kept}),
+            _call("generate_image", {"message_id": kept, "direction": "  From behind, at dusk. "}),
             _call("generate_speech", {"message_id": kept}),
             _reply("Done."),
         )
@@ -109,7 +109,8 @@ async def test_a_render_runs_inside_one_job_and_a_switched_off_workflow_refuses_
         _script(monkeypatch, _call("generate_speech", {"message_id": kept}), _reply("No."))
         [both] = _results(frames(await client.post_checked(RUN.replace("op-1", "op-2"), json=_body(chat))))
 
-    assert seen[0] == ({"action": "generate", "message_id": kept}, library["card"])
+    # The user's direction rides in the hook's own body, beside the reply it is made of.
+    assert seen[0] == ({"action": "generate", "message_id": kept, "direction": "From behind, at dusk."}, library["card"])
     assert seen[1] == [("assistant:op-1", kept)]
     assert "speech" not in seen, "the switched-off workflow never reached its hook"
     saved = await message_workflow_attachment_ids(kept, "image_gen")

@@ -43,6 +43,14 @@ def character_field() -> Any:
     return Field(default="", max_length=ID_CHARS, description="Empty: the character in view.")
 
 
+def world_field() -> Any:
+    return Field(default="", max_length=ID_CHARS, description="Empty: the world open in the lorebook. Ids: list_worlds.")
+
+
+def entry_field() -> Any:
+    return Field(default=0, ge=0, description="0: the entry selected in the lorebook. Ids: list_lore_entries.")
+
+
 def open_in_view(conv: ConversationRow, view: ViewContext) -> None:
     """Refuse a handoff the browser could not start: the chat's stream runs only in the chat open in the main view."""
     if view.mode == "document" or (view.conversation_id and conv["id"] != view.conversation_id):
@@ -110,19 +118,31 @@ async def message_of(cid: str, message_id: int) -> MessageRow:
     return message
 
 
-async def world_of(world_id: str) -> WorldRow:
-    world = await get_world(world_id)
+async def world_of(world_id: str, view: ViewContext) -> WorldRow:
+    """The world a tool names, else the one open in the lorebook drawer."""
+    wid = world_id or view.world_id
+    if not wid:
+        raise ToolFailure("No world is open in the lorebook. Name a world_id; list_worlds shows the ids.")
+    world = await get_world(wid)
     if world is None:
-        raise ToolFailure(f"No world has the id {world_id}. list_worlds shows the ids.")
+        raise ToolFailure(f"No world has the id {wid}. list_worlds shows the ids.")
     return world
 
 
-async def entry_of(world_id: str, entry_id: int) -> tuple[WorldRow, LorebookEntryRow]:
-    """A lore entry and the world it must belong to."""
-    world = await world_of(world_id)
-    entry = await get_lorebook_entry(entry_id)
-    if entry is None or entry["world_id"] != world["id"]:
-        raise ToolFailure(f"That world has no entry {entry_id}. list_lorebook_entries shows its entries.")
+async def entry_of(world_id: str, entry_id: int, view: ViewContext) -> tuple[WorldRow, LorebookEntryRow]:
+    """The lore entry a tool names, else the one selected in the lorebook drawer, and the world it belongs to.
+
+    An entry named without a world is found in its own world; a world named with it must be that one.
+    """
+    if not entry_id and not view.entry_id:
+        raise ToolFailure("No lore entry is selected in the lorebook. Name an entry_id; list_lore_entries shows the ids.")
+    eid = entry_id or view.entry_id
+    entry = await get_lorebook_entry(eid) if eid else None
+    if entry is None:
+        raise ToolFailure(f"No lore entry has the id {eid}. list_lore_entries shows the ids.")
+    world = await world_of(world_id or entry["world_id"], view)
+    if entry["world_id"] != world["id"]:
+        raise ToolFailure(f"That world has no entry {eid}. list_lore_entries shows its entries.")
     return world, entry
 
 

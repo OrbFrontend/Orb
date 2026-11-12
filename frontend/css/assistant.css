@@ -103,6 +103,16 @@
 .asst-edit:is(.asst-edit-stale, .asst-edit-missing) .asst-proposal-note { color: var(--red); }
 .asst-proposal:not(.asst-proposal-live) { border-color: var(--border); }
 .asst-proposal-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Each change carries its own controls; the card's own act on every change still pending. */
+.asst-edit + .asst-edit { padding-top: 6px; border-top: 1px dashed var(--border); }
+.asst-edit-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.asst-edit:is(.asst-edit-cancelled, .asst-edit-superseded, .asst-edit-historical) .asst-diff { opacity: .55; }
+.asst-edit-delete .asst-diff-label { color: var(--red); }
+.asst-delete-detail { color: var(--text-secondary); }
+.asst-edit-delete.asst-edit-pending .asst-edit-actions .btn-accent { background: var(--red); border-color: var(--red); }
+.asst-revise { width: 100%; box-sizing: border-box; min-height: 6lh; max-height: 50cqh; resize: vertical; padding: 6px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-deep);
+  color: var(--text-primary); font: inherit; font-size: 12px; }
 .asst-outcome-applied { color: var(--accent); }
 .asst-diff-list { margin: 0; padding-left: 16px; }
 .asst-diff-list li { margin-bottom: 2px; }

@@ -5,19 +5,39 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...core import scrub_log
-from ...database import data_version, get_character_card, get_conversation, get_document, get_settings, resolve_cast
+from ...database import (
+    data_version,
+    get_character_card,
+    get_conversation,
+    get_document,
+    get_lorebook_entry,
+    get_settings,
+    get_world,
+    resolve_cast,
+)
 from ...features.assistant import AssistantUnavailable, Continuation, HistoryItem, ViewContext, run_assistant
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
 from ...pipeline.events import FailureEvent
 from ...workflows.contracts import PublicEvent
-from ..assistant import MediaRun, apply_proposals, build_tools, keep_follow_up, take_follow_up
+from ..assistant import (
+    MediaRun,
+    apply_proposals,
+    build_tools,
+    keep_follow_up,
+    open_proposals,
+    pending_note,
+    revise_proposal,
+    take_follow_up,
+    undo_proposals,
+)
 from ..deps import CleanupStreamingResponse, sse_stream, stop_active_stream
-from ..schemas import AssistantApplyRequest, AssistantRunRequest, AssistantViewContext
+from ..schemas import AssistantApplyRequest, AssistantReviseRequest, AssistantRunRequest, AssistantViewContext
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +64,27 @@ async def _character_name(character_id: str, *, required: bool = True) -> str | 
 
 
 async def resolve_view(context: AssistantViewContext) -> ViewContext:
-    """Check the captured ids and how they relate; the browser's word for either is not taken."""
+    """Check the captured ids and how they relate; the browser's word for either is not taken.
+
+    The lorebook drawer's world and entry may accompany any view: the drawer opens over it.
+    """
+    view = await _resolve_page(context)
+    if context.world_id is None:
+        return view
+    world = await get_world(context.world_id)
+    if world is None:
+        raise HTTPException(status_code=404, detail="World not found")
+    view = replace(view, world_id=world["id"], world_name=world["name"])
+    if context.entry_id is None:
+        return view
+    entry = await get_lorebook_entry(context.entry_id)
+    if entry is None or entry["world_id"] != world["id"]:
+        raise HTTPException(status_code=404, detail="Lore entry not found in that world")
+    return replace(view, entry_id=entry["id"], entry_name=entry["name"])
+
+
+async def _resolve_page(context: AssistantViewContext) -> ViewContext:
+    """The page behind the drawer: a chat, a document, or the library with an optional character."""
     if context.mode == "document":
         if context.conversation_id or context.character_id or not context.document_id:
             raise _refuse("A document view names a document and nothing else")
@@ -101,6 +141,8 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
     # A media tool's render runs as a workflow job filed under this run, which the run's Stop cancels and waits for alone.
     progress: asyncio.Queue[str] = asyncio.Queue()
     media = MediaRun(job=f"assistant:{operation_id}", abort=abort_token, report=progress.put_nowait)
+    # Read at Send: what the user's card still holds pending, by the ids it names; the texts are the server's own.
+    held = open_proposals(data.pending)
 
     async def _gen() -> AsyncIterator[PublicEvent | FailureEvent]:
         try:
@@ -116,10 +158,11 @@ async def api_run_assistant(data: AssistantRunRequest, request: Request, operati
                 agent_client,
                 model,
                 settings=settings,
-                tools=build_tools(settings, view, media=media),
+                tools=build_tools(settings, view, media=media, held=held),
                 history=history,
                 request=latest.text.strip(),
                 view=view,
+                note=pending_note(held),
                 progress=progress,
                 resume=resume,
                 unchanged=unchanged,
@@ -157,3 +200,20 @@ async def api_apply_assistant_edits(data: AssistantApplyRequest):
     repeated Apply returns the first one's answer.
     """
     return {"results": await apply_proposals(data.proposal_ids)}
+
+
+@router.post("/api/assistant/undo")
+async def api_undo_assistant_edits(data: AssistantApplyRequest):
+    """Put back the stored text of each applied edit *proposal_ids* names, where it still holds what Apply wrote.
+
+    ``undone`` makes the edit pending again; ``stale``, the text changed since; ``refused``, a delete or an edit not applied;
+    ``missing``, ``busy`` and ``expired`` as for Apply.
+    """
+    return {"results": await undo_proposals(data.proposal_ids)}
+
+
+@router.post("/api/assistant/revise")
+async def api_revise_assistant_edit(data: AssistantReviseRequest):
+    """Replace what a pending text edit writes with the user's own *text*; answers its new preview (``revised``), or
+    ``refused`` or ``expired``."""
+    return await revise_proposal(data.proposal_id, data.text)

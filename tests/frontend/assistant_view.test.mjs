@@ -11,10 +11,13 @@ const {
   isSendKey,
   parseTranscript,
   pendingIds,
+  pendingProposalIds,
   runItems,
   serializeTranscript,
   settleRun,
   transcriptEntries,
+  undoVerdicts,
+  wireContext,
 } = await import("../../frontend/assistant_view.js");
 
 const chat = { mode: "chat", conversation_id: "c1", character_id: null, document_id: null, label: "Chat: Harbour" };
@@ -61,14 +64,14 @@ test("a run records steps and results, and only a terminal event counts as an en
     ["start", {}],
     ["progress", { label: "Thinking…" }],
     ["assistant_message", { text: "Looking her up.", final: false }],
-    ["tool_start", { call_id: "call1", tool: "get_character" }],
+    ["tool_start", { call_id: "call1", tool: "read_character" }],
   ]);
   assert.equal(run.status, "Thinking…");
   assert.match(transcriptHtml(run.items, String), /asst-tool-running/);
   // Reloading mid-run stores the waiting tool as unanswered rather than as running.
   assert.equal(parseTranscript(serializeTranscript(run.items))[1].text, NO_RESULT);
   feed(run, [
-    ["tool_result", { call_id: "call1", tool: "get_character", ok: true, summary: "Read character Mara.", ids: { character_id: "k1" } }],
+    ["tool_result", { call_id: "call1", tool: "read_character", ok: true, summary: "Read character Mara.", ids: { character_id: "k1" } }],
     ["assistant_message", { text: "Mara is a fence.", final: true }],
   ]);
   assert.equal(run.terminal, null);
@@ -76,7 +79,7 @@ test("a run records steps and results, and only a terminal event counts as an en
   settleRun(run);
   assert.equal(run.terminal, "reply");
   assert.deepEqual(run.items.slice(1), [
-    { kind: "tool", tool: "get_character", text: "Read character Mara.", ok: true, callId: "call1", note: "Looking her up.", ids: { character_id: "k1" } },
+    { kind: "tool", tool: "read_character", text: "Read character Mara.", ok: true, callId: "call1", note: "Looking her up.", ids: { character_id: "k1" } },
     { kind: "assistant", text: "Mara is a fence." },
   ]);
 
@@ -109,7 +112,7 @@ test("a run records steps and results, and only a terminal event counts as an en
 test("replay sends tool and outcome entries as plain records with each request's own view label", () => {
   const items = [
     { kind: "user", text: "Who is Mara?", context: chat },
-    { kind: "tool", tool: "get_character", text: "Read character Mara.", ok: true, ids: { character_id: "k1" } },
+    { kind: "tool", tool: "read_character", text: "Read character Mara.", ok: true, ids: { character_id: "k1" } },
     { kind: "tool", tool: "lookup", text: "", ok: false, running: true },
     { kind: "outcome", reason: "stopped", text: "Stopped." },
     { kind: "assistant", text: "A fence." },
@@ -117,7 +120,7 @@ test("replay sends tool and outcome entries as plain records with each request's
   ];
   assert.deepEqual(runItems(items), [
     { kind: "user", text: "Who is Mara?", view: "Chat: Harbour" },
-    { kind: "tool", tool: "get_character", text: "ok: Read character Mara." },
+    { kind: "tool", tool: "read_character", text: "ok: Read character Mara." },
     { kind: "outcome", text: "stopped: Stopped." },
     { kind: "assistant", text: "A fence." },
     { kind: "user", text: "y".repeat(8000), view: "Document: <Notes>" },
@@ -156,20 +159,20 @@ test("Enter sends, but not with Shift and not while an IME composition is being 
 test("a mutation names what to read again, and a failed result marks the run for reading everything again", () => {
   const lore = { kind: "lorebook_entry", world_id: "w1" };
   const run = newRun([{ kind: "user", text: "Add lore entry Ferry", context: chat }]);
-  feed(run, [["tool_start", { call_id: "call1", tool: "create_lorebook_entry" }]]);
+  feed(run, [["tool_start", { call_id: "call1", tool: "create_lore_entry" }]]);
   const committed = applyStreamEvent(
     run,
     "mutation",
-    JSON.stringify({ call_id: "call1", tool: "create_lorebook_entry", resources: [{ ...lore, entry_id: 7 }] }),
+    JSON.stringify({ call_id: "call1", tool: "create_lore_entry", resources: [{ ...lore, entry_id: 7 }] }),
   );
   assert.deepEqual(committed, [{ ...lore, entry_id: 7 }]);
   // A reload mid-tool finds a tool with no result, which says to check rather than redo; nothing names a target.
   const reloaded = parseTranscript(serializeTranscript(run.items));
-  assert.deepEqual(reloaded[1], { kind: "tool", tool: "create_lorebook_entry", text: NO_RESULT, ok: false });
+  assert.deepEqual(reloaded[1], { kind: "tool", tool: "create_lore_entry", text: NO_RESULT, ok: false });
   assert.equal(runItems(reloaded)[1].text, `failed: ${NO_RESULT}`);
   assert.equal(run.failed, undefined);
   feed(run, [
-    ["tool_result", { call_id: "call1", tool: "create_lorebook_entry", ok: true, summary: "Created.", ids: {} }],
+    ["tool_result", { call_id: "call1", tool: "create_lore_entry", ok: true, summary: "Created.", ids: {} }],
     ["tool_start", { call_id: "call2", tool: "generate_image" }],
     ["tool_result", { call_id: "call2", tool: "generate_image", ok: false, summary: "May have been saved.", ids: {} }],
   ]);
@@ -200,17 +203,17 @@ test("a run's proposed edits become one card at its end, however it ended, and a
   const card = run.card;
   assert.equal(run.items.at(-1), card, "after the run's own ending");
   assert.deepEqual(pendingIds(card), ["p1", "p2"], "the second preview of p1 replaced its entry");
-  const html = transcriptHtml(run.items, String, { active: card });
+  const html = transcriptHtml(run.items, String);
   assert.equal(html.includes("<img"), false);
   assert.match(html, /<del class="asst-del">Old line\. <\/del><ins class="asst-ins">New line\. <\/ins>/);
   assert.match(html, /2 proposed edits/);
   assert.match(html, /Description <span class="asst-diff-size">14 → 8 characters<\/span>/);
-  assert.equal(html.split('data-wf-action="assistant:apply"').length - 1, 1, "one Apply for the whole card");
+  assert.equal(html.split('data-wf-action="assistant:apply"').length - 1, 2, "one Apply per change");
+  assert.match(html, /data-wf-action="assistant:applyAll" data-index="3">Apply all 2</);
   // Grouped by what it edits: one heading per target.
   assert.equal(html.split('class="asst-proposal-target"').length - 1, 2);
-  // The same card not held by this page, or while work runs, has no live control.
-  assert.equal(transcriptHtml(run.items, String).includes("assistant:apply"), false);
-  assert.match(transcriptHtml(run.items, String, { active: card, busy: true }), /assistant:apply"[^>]* disabled/);
+  // While work runs its controls are disabled.
+  assert.match(transcriptHtml(run.items, String, { busy: true }), /assistant:apply" data-proposal="p1" disabled/);
 
   const reloaded = parseTranscript(serializeTranscript(run.items));
   assert.deepEqual(reloaded.at(-1), {
@@ -221,7 +224,7 @@ test("a run's proposed edits become one card at its end, however it ended, and a
     ],
     request: "Fix it",
   });
-  const inert = transcriptHtml(reloaded, String, { active: reloaded.at(-1) });
+  const inert = transcriptHtml(reloaded, String);
   assert.equal(inert.includes("assistant:apply"), false);
   assert.match(inert, /data-wf-action="assistant:askAgain" data-index="3"/);
   assert.match(inert, /14 → 8 characters/, "the lengths outlive the texts");
@@ -259,7 +262,7 @@ test("Apply's verdicts settle each edit on its own: busy stays pending, and a pa
   assert.equal(card.proposals[2].note, "That chat is generating right now.");
   assert.equal(card.note, "Applied 1; skipped 1: content of message 8.");
   assert.deepEqual(pendingIds(card), ["p3"], "only the busy one is sent again");
-  const html = transcriptHtml([card], String, { active: card });
+  const html = transcriptHtml([card], String);
   assert.match(html, /Not applied: the text changed after this preview\./);
   assert.match(html, /assistant:apply/);
   assert.deepEqual(
@@ -308,7 +311,7 @@ test("a list field's edit shows the items it removes and adds, escaped, and its 
     ["done", { reason: "reply", message: "" }],
   ]);
   settleRun(run);
-  const html = transcriptHtml(run.items, String, { active: run.card });
+  const html = transcriptHtml(run.items, String);
   assert.match(html, /<del class="asst-del">&lt;old&gt;<\/del>/);
   assert.match(html, /<ins class="asst-ins">Docks<\/ins>/);
   assert.match(html, /1 unchanged\./);
@@ -316,4 +319,64 @@ test("a list field's edit shows the items it removes and adds, escaped, and its 
   const reloaded = parseTranscript(serializeTranscript(run.items));
   assert.match(transcriptHtml(reloaded, String), /2 → 2 items/);
   assert.equal(JSON.stringify(reloaded).includes("Docks"), false, "a stored card keeps no list items");
+});
+
+test("a delete is a change of its own: no text to edit, no undo, and a warning that outlives a reload", () => {
+  const run = { ...newRun([{ kind: "user", text: "Delete Ashfall.", context: chat }]), request: "Delete Ashfall." };
+  const world = { kind: "world", world_id: "w1" };
+  const fields = [{ field: "delete", label: "Delete", before: "Its 3 entries go with it.", after: "" }];
+  feed(run, [
+    ["confirm", { tool: "delete_world", proposal: { proposal_id: "d1", action: "delete", label: "world <Ashfall>", target: world, fields } }],
+    ["done", { reason: "reply", message: "" }],
+  ]);
+  settleRun(run);
+  const html = transcriptHtml(run.items, String);
+  assert.match(html, /Proposed delete/);
+  assert.match(html, /cannot be undone/);
+  assert.match(html, /Its 3 entries go with it\./);
+  assert.match(html, /data-wf-action="assistant:apply" data-proposal="d1">Delete</);
+  assert.equal(html.includes("assistant:revise"), false, "a delete has no text to edit");
+  assert.ok(html.includes("world &lt;Ashfall&gt;") && !html.includes("<Ashfall>"));
+  applyVerdicts(run.card, [{ proposal_id: "d1", verdict: "applied", resources: [{ ...world, deleted: true }] }]);
+  assert.equal(transcriptHtml(run.items, String).includes("assistant:undo"), false, "a delete has no undo");
+  const reloaded = parseTranscript(serializeTranscript(run.items)).at(-1).proposals[0];
+  assert.deepEqual(
+    { action: reloaded.action, detail: reloaded.detail, status: reloaded.status },
+    { action: "delete", detail: "Its 3 entries go with it.", status: "applied" },
+  );
+  assert.match(runItems([run.card])[0].text, /^applied by the user: the deletion of world <Ashfall>$/);
+});
+
+test("a change made again in a later request replaces the earlier card's entry, and Undo makes an edit pending again", () => {
+  const run = newRun([{ kind: "user", text: "Fix it", context: chat }]);
+  feed(run, [confirm("p1", "message 7", "a", "b"), confirm("p2", "message 8", "c", "d")]);
+  settleRun(run);
+  assert.deepEqual(pendingProposalIds(run.items), ["p1", "p2"]);
+  const later = newRun(run.items);
+  feed(later, [["confirm", { tool: "edit_message", proposal: { ...confirm("p3", "message 7", "a", "bb")[1].proposal, replaces: "p1" } }]]);
+  settleRun(later);
+  assert.equal(run.card.proposals[0].status, "superseded");
+  assert.equal(run.card.proposals[0].proposalId, undefined, "a replaced entry is no longer live");
+  assert.deepEqual(pendingProposalIds(run.items), ["p2", "p3"]);
+
+  applyVerdicts(later.card, [{ proposal_id: "p3", verdict: "applied", resources: [] }]);
+  assert.match(transcriptHtml(run.items, String), /assistant:undo" data-proposal="p3"/);
+  const undone = undoVerdicts(later.card, [{ proposal_id: "p3", verdict: "undone", summary: "Undid it.", resources: [{ kind: "message" }] }]);
+  assert.deepEqual(undone, { resources: [{ kind: "message" }], summaries: ["Undid it."] });
+  assert.equal(later.card.proposals[0].status, "pending");
+  applyVerdicts(later.card, [{ proposal_id: "p3", verdict: "applied", resources: [] }]);
+  undoVerdicts(later.card, [{ proposal_id: "p3", verdict: "stale", message: "Changed." }]);
+  assert.equal(later.card.proposals[0].status, "applied");
+  assert.equal(later.card.proposals[0].proposalId, undefined, "a stale undo offers no second try");
+  assert.match(transcriptHtml(run.items, String), /Not undone: the text changed after the edit was applied\./);
+});
+
+test("the lorebook drawer's world and entry ride with the view, and only when the drawer had them", () => {
+  const lore = { ...chat, world_id: "w1", entry_id: 4, label: "Chat: Harbour · Lore entry: Tide tax" };
+  assert.deepEqual(wireContext(lore), { mode: "chat", conversation_id: "c1", world_id: "w1", entry_id: 4 });
+  const [stored] = parseTranscript(serializeTranscript([{ kind: "user", text: "Tighten it.", context: lore }]));
+  assert.deepEqual(stored.context, lore);
+  const forged = { ...chat, entry_id: 4 };
+  const [plain] = parseTranscript(serializeTranscript([{ kind: "user", text: "Hi", context: forged }]));
+  assert.deepEqual(plain.context, chat, "an entry without its world is dropped");
 });

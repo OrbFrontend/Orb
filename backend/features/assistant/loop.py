@@ -249,6 +249,7 @@ async def run_assistant(
     unchanged: bool = False,
     keep: Callable[[Continuation], None] | None = None,
     reasoning: bool = False,
+    note: str = "",
 ) -> AsyncIterator[AssistantEvent]:
     """Answer *request*, yielding progress and exactly one ``done`` unless the model or provider fails.
 
@@ -269,14 +270,17 @@ async def run_assistant(
 
     *resume* is the previous run's :class:`Continuation`. Made under this run's system prompt, tools and model, and with room
     left for a run, it takes the place of *history*, and the request says whether anything was committed since (*unchanged*).
-    A run that ends with a reply and proposed no edit hands its own to *keep*.
+    A run that ends with a reply hands its own to *keep*.
+
+    *note* is the caller's word about state the request should know of, such as changes earlier requests proposed that still
+    wait for the user; it follows the view note.
 
     *reasoning* turns thinking on for every call of the run. Its reasoning replays under the names it streamed, and the template
     is asked to keep it on earlier turns, so a follow-up renders what this run read. A run with thinking off sends no reasoning
     back, a resumed one's included.
     """
     by_name = {tool.name: tool for tool in tools}
-    latest = request_message(request, view)
+    latest = request_message(request, view, note=note)
     # Restrict the tool list when forced choice is unreliable.
     thinking = reasoning_cfg(reasoning, preserve=True)
     shared_tools = honors_forced_tool_choice(getattr(client, "base_url", ""), model, thinking)
@@ -304,7 +308,7 @@ async def run_assistant(
     resumed = False
     if resume is not None and resume.fingerprint == fingerprint:
         # The previous run's own messages, its results whole: the server's cache holds through them and nothing is read again.
-        followed = request_message(request, view, follow_up=unchanged)
+        followed = request_message(request, view, follow_up=unchanged, note=note)
         if _chars([*resume.messages, followed]) <= CONTEXT_BUDGET_CHARS - CONTEXT_SLACK_CHARS:
             latest, resumed = followed, True
             replay = [*resume.messages] if reasoning else [without_reasoning(message) for message in resume.messages]
@@ -325,7 +329,6 @@ async def run_assistant(
     committed: list[str] = []
     made: dict[str, ToolOutput] = {}
     last_call, same_calls = "", 0
-    proposed = False
 
     def fit() -> bool:
         """Bring the working context under its budget; the newest result and the latest request are never dropped.
@@ -437,8 +440,9 @@ async def run_assistant(
             else:
                 called = assistant_tool_call(response, STEP_TOOL_NAME, {"tool": name, "message": message}, call_id)
             if name == REPLY:
-                if keep is not None and not proposed:
-                    # A proposal is settled by Apply or Cancel after the run, so a context that names one would go stale.
+                if keep is not None:
+                    # A proposal it made is settled by Apply or Cancel after the run; the next request's note says which
+                    # are still pending, and the commit check says whether any was applied.
                     keep(Continuation((*replay, latest, *run, called, tool_result(call_id, _DELIVERED)), fingerprint))
                 yield {"type": "assistant_message", "text": message, "final": True}
                 yield done("reply")
@@ -525,7 +529,6 @@ async def run_assistant(
                 full_results.append((len(run) - 1, call_id, json.dumps(compact, ensure_ascii=False)))
                 yield result(call_id, name, output.summary, output)
                 if tool.behavior == "confirm" and output.proposal is not None:
-                    proposed = True
                     # Nothing was written. The user reviews it once this run ends, and their Apply commits it outside the run.
                     yield {"type": "confirm", "call_id": call_id, "tool": name, "proposal": dict(output.proposal)}
                 if tool.behavior == "handoff" and output.handoff is not None:

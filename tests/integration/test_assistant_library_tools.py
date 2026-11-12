@@ -46,18 +46,18 @@ async def test_entry_switches_set_a_state_and_active_lore_follows_what_the_chat_
     chat, world = library["chat"], library["world"]
     await client.put_checked(f"/api/conversations/{chat}/worlds/{world}", json={"enabled": True})
     tools = await _tools(mode="chat", conversation_id=chat)
-    active, _ = await _use(tools, "list_active_lore")
+    active, _ = await _use(tools, "list_active_lore_entries")
     assert [row["name"] for row in active["rows"]] == ["Tide tax"], "Inland is not in effect for this chat"
     assert [world["name"] for world in active["worlds_in_effect"]] == ["Harbour"]
     entry_id = active["rows"][0]["id"]
 
-    setter = tools["set_lorebook_entry"]
+    setter = tools["set_lore_entry"]
     off = await setter.run(setter.arguments(world_id=world, entry_id=entry_id, enabled="off", keywords=["tax", "toll"]))
     assert off.data["changed"] == ["enabled", "keywords"]
     assert off.committed == ({"kind": "lorebook_entry", "world_id": world, "entry_id": entry_id},)
     stored = await client.get_json(f"/api/worlds/{world}/entries/{entry_id}")
     assert (stored["enabled"], stored["keywords"]) == (0, ["tax", "toll"])
-    assert (await _use(tools, "list_active_lore"))[0]["rows"] == [], "a disabled entry is not in effect"
+    assert (await _use(tools, "list_active_lore_entries"))[0]["rows"] == [], "a disabled entry is not in effect"
     again = await setter.run(setter.arguments(world_id=world, entry_id=entry_id, enabled="off"))
     assert again.committed == () and again.data["changed"] == []
     with pytest.raises(ToolFailure, match="nothing was asked"):
@@ -144,7 +144,7 @@ async def test_continue_answers_only_an_unanswered_message_or_a_named_member_and
         await send.run(send.arguments(content="Hi", conversation_id=library["group"]))
 
     group = await _tools(mode="chat", conversation_id=library["group"])
-    cast = (await _use(group, "get_context"))[0]["chat"]["cast"]
+    cast = (await _use(group, "read_context"))[0]["chat"]["cast"]
     assert all(member.get("member_id") for member in cast)
     await add_message(library["group"], "assistant", "Mara speaks.", 0, advance_leaf=True)
     gcont = group["continue_chat"]
@@ -190,9 +190,9 @@ async def test_list_fields_are_proposed_whole_and_apply_compares_the_stored_list
     # Changed after the preview: Apply compares the list as stored, so it is stale.
     await client.put_checked(f"/api/characters/{library['card']}", json={"alternate_greetings": ["Changed."]})
     assert (await _apply(client, greetings["proposal_id"]))[0]["verdict"] == "stale"
-    read, _ = await _use(tools, "get_character", fields=["alternate_greetings"])
+    read, _ = await _use(tools, "read_character", fields=["alternate_greetings"])
     assert read["alternate_greetings"] == ["Changed."]
-    tags, _ = await _use(tools, "get_character", fields=["tags"])
+    tags, _ = await _use(tools, "read_character", fields=["tags"])
     assert tags["tags"] == ["Noir", "Harbour"] and "description" not in tags
 
     renamed = await _propose(tools, "edit_character", field="name", mode="replace_all", text="Mara Vell")

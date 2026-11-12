@@ -305,6 +305,32 @@ export async function selectConversation(id) {
   }
 }
 
+/** Let go of chat *id*, deleted on the server: if it is the one open, the chat view empties. */
+function closeDeletedConversation(id) {
+  if (S.activeConvId !== id) return;
+  const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
+  S.activeConvId = null;
+  notify("conversations");
+  S.messages = [];
+  $("chat-input").disabled = true;
+  $("send-btn").disabled = true;
+  if (wasGroup) {
+    S.groupCast = null;
+    S.pinnedSpeakerId = null;
+    S.consumedSpeakerId = null;
+    $("chat-title-text").textContent = "Select a character";
+    $("chat-avatar").textContent = CHAT_AVATAR_ICON;
+    renderGroupCast();
+  }
+  renderMessages();
+}
+
+/** A chat deleted elsewhere, by the assistant's Apply: closed if open, then gone from the chat list. */
+export async function forgetConversation(id) {
+  closeDeletedConversation(id);
+  await loadConversations();
+}
+
 function confirmDeleteConversation(id, msgCount, afterDelete) {
   const what = msgCount ? `this conversation and its ${plural(msgCount, "message")}` : "this conversation";
   showConfirmModal(
@@ -318,23 +344,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
     async () => {
       try {
         await api.del(`/conversations/${id}`);
-        if (S.activeConvId === id) {
-          const wasGroup = S.conversations.find((item) => item.id === id)?.kind === "group";
-          S.activeConvId = null;
-          notify("conversations");
-          S.messages = [];
-          $("chat-input").disabled = true;
-          $("send-btn").disabled = true;
-          if (wasGroup) {
-            S.groupCast = null;
-            S.pinnedSpeakerId = null;
-            S.consumedSpeakerId = null;
-            $("chat-title-text").textContent = "Select a character";
-            $("chat-avatar").textContent = CHAT_AVATAR_ICON;
-            renderGroupCast();
-          }
-          renderMessages();
-        }
+        closeDeletedConversation(id);
         await afterDelete();
       } catch (e) {
         toast(e.message, true);

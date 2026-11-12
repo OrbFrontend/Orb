@@ -114,7 +114,7 @@ async def _use(tools, name, **arguments):
 async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, library, monkeypatch):
     # An endpoint that sends no tool schemas (structured output, text completion) takes the two-call protocol.
     monkeypatch.setattr(LLMClient, "sends_tool_schemas", lambda self, messages, model, **kwargs: False)
-    script = [_step("get_context"), _step("read_messages"), _call("read_messages", {"count": 2}), _step("reply", "Two lines.")]
+    script = [_step("read_context"), _step("read_messages"), _call("read_messages", {"count": 2}), _step("reply", "Two lines.")]
     calls = []
 
     async def complete(self, **kwargs):
@@ -133,7 +133,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [data for event, data in events if event == "tool_result"] == [
         {
             "call_id": "step1",
-            "tool": "get_context",
+            "tool": "read_context",
             "ok": True,
             "summary": "Read the chat view.",
             "ids": {"character_id": library["card"], "conversation_id": library["chat"]},
@@ -154,7 +154,7 @@ async def test_a_run_streams_steps_and_results_then_one_terminal_event(client, l
     assert [tool["function"]["name"] for tool in calls[0]["tools"]][0] == "assistant_step"
     # Every tool and reply, the two media tools last.
     enum = calls[0]["tools"][0]["function"]["parameters"]["properties"]["tool"]["enum"]
-    assert len(enum) == 40 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
+    assert len(enum) == 49 and enum[-3:] == ["generate_image", "generate_speech", "reply"]
     assert [message["role"] for message in calls[0]["messages"]] == ["system", "user", "assistant", "user"]
     assert SECRET not in json.dumps(calls[-1]["messages"])
 
@@ -190,7 +190,7 @@ async def test_an_endpoint_sending_native_tools_names_the_tool_and_its_arguments
     ]
     # Every call may pick any tool or reply, tools that take no arguments included, and no step tool exists.
     names = [tool["function"]["name"] for tool in calls[0]["tools"]]
-    assert calls[0]["tool_choice"] == "required" and names[0] == "reply" and "get_context" in names
+    assert calls[0]["tool_choice"] == "required" and names[0] == "reply" and "read_context" in names
     assert "assistant_step" not in names and "assistant_step" not in calls[0]["messages"][0]["content"]
     # Each tool is described once, on the schema the call carries; the system prompt lists none.
     described = {tool["function"]["name"]: tool["function"]["description"] for tool in calls[0]["tools"]}
@@ -278,20 +278,20 @@ async def test_a_request_with_a_wrong_target_or_shape_never_reaches_the_model(cl
 async def test_a_group_view_infers_no_character_and_asks_for_one(client, library):
     tools = await _tools(mode="chat", conversation_id=library["group"])
     with pytest.raises(ToolFailure) as refused:
-        await _use(tools, "get_character")
+        await _use(tools, "read_character")
     assert library["card"] in str(refused.value) and library["other"] in str(refused.value)
-    data, _ = await _use(tools, "get_character", character_id=library["other"])
+    data, _ = await _use(tools, "read_character", character_id=library["other"])
     assert data["name"] == "Ivo"
-    context, _ = await _use(tools, "get_context")
+    context, _ = await _use(tools, "read_context")
     assert "character" not in context and [member["name"] for member in context["chat"]["cast"]] == ["Mara", "Ivo"]
     # A solo chat has one character, taken from the chat itself rather than from the browser.
     solo = await _tools(mode="chat", conversation_id=library["chat"])
-    assert (await _use(solo, "get_character"))[0]["id"] == library["card"]
+    assert (await _use(solo, "read_character"))[0]["id"] == library["card"]
 
 
 async def test_character_and_settings_projections_leave_out_everything_not_allowlisted(client, library):
     tools = await _tools(mode="library")
-    card, encoded = await _use(tools, "get_character", character_id=library["card"])
+    card, encoded = await _use(tools, "read_character", character_id=library["card"])
     assert card["description"] == "A harbour fence." and card["tags"] == ["Noir"]
     for forbidden in ("AVATARBYTES", "OVERRIDE", "EXTENSION", "system_prompt", "extensions", "workflow_state"):
         assert forbidden not in encoded
@@ -300,7 +300,7 @@ async def test_character_and_settings_projections_leave_out_everything_not_allow
     assert "AVATARBYTES" not in encoded and "display_scripts" not in encoded
 
     await client.put_checked("/api/settings", json={"enable_agent": False, "length_guard_enabled": True})
-    summary, encoded = await _use(await _tools(mode="library"), "get_settings_summary")
+    summary, encoded = await _use(await _tools(mode="library"), "read_settings")
     assert SECRET not in encoded and "endpoint" not in encoded and "model" not in encoded
     assert summary["switches"]["agent"] is False
     assert summary["switches"]["length_guard"] == {"stored": True, "effective": False}
@@ -344,14 +344,14 @@ async def test_messages_follow_the_kept_branch_while_sql_sees_every_branch_and_n
 
 async def test_entries_and_documents_are_read_from_the_target_named(client, library):
     tools = await _tools(mode="library")
-    entries, encoded = await _use(tools, "list_lorebook_entries", world_id=library["world"])
+    entries, encoded = await _use(tools, "list_lore_entries", world_id=library["world"])
     assert [row["name"] for row in entries["rows"]] == ["Tide tax"] and "Salt road" not in encoded
-    assert (await _use(tools, "list_lorebook_entries", world_id=library["world"], query="road"))[0]["rows"] == []
+    assert (await _use(tools, "list_lore_entries", world_id=library["world"], query="road"))[0]["rows"] == []
     with pytest.raises(ToolFailure):
-        await _use(tools, "list_lorebook_entries", world_id="missing")
+        await _use(tools, "list_lore_entries", world_id="missing")
     assert {row["name"] for row in (await _use(tools, "list_worlds"))[0]["rows"]} >= {"Harbour", "Inland"}
 
-    listed, _ = await _use(tools, "read_document")
+    listed, _ = await _use(tools, "list_documents")
     assert [row["id"] for row in listed["rows"]] == [library["document"]] and "content" not in listed["rows"][0]
     page, _ = await _use(tools, "read_document", document_id=library["document"])
     assert page["truncated"] is True and page["total_chars"] == 7200 and "unsaved" in page["note"]
@@ -393,13 +393,13 @@ async def test_long_text_is_measured_as_sent_so_every_result_stays_whole_json(cl
     )
     await db.commit()
     tools = await _tools(mode="library")
-    card, encoded = await _use(tools, "get_character", character_id=library["card"])
+    card, encoded = await _use(tools, "read_character", character_id=library["card"])
     assert json.loads(encoded)["alternate_greeting_count"] == 0
     assert card["creator_notes"].startswith("NOTES") and set(card["clipped"]) == set(card["field_chars"])
-    narrowed, _ = await _use(tools, "get_character", character_id=library["card"], fields=["creator_notes"])
+    narrowed, _ = await _use(tools, "read_character", character_id=library["card"], fields=["creator_notes"])
     assert set(narrowed["field_chars"]) == {"creator_notes"} and len(narrowed["creator_notes"]) > len(card["creator_notes"])
     with pytest.raises(ValidationError):
-        await _use(tools, "get_character", character_id=library["card"], fields=["avatar_b64"])
+        await _use(tools, "read_character", character_id=library["card"], fields=["avatar_b64"])
 
     await client.put_checked(f"/api/documents/{library['document']}", json={"content": dialogue * 2, "expected_revision": 1})
     page, encoded = await _use(tools, "read_document", document_id=library["document"])
@@ -416,7 +416,7 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     arguments = {"world_id": library["world"], "name": "Tide tax", "content": "Doubled in storms.", "keywords": ["storm"]}
     _script(
         monkeypatch,
-        _call("create_lorebook_entry", arguments),
+        _call("create_lore_entry", arguments),
         _reply("Added."),
     )
     events = frames(await client.post_checked(RUN, json=_body("Add lore that the tide tax doubles in storms.")))
@@ -424,8 +424,8 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     created = entries[-1]
     # Same name as an existing entry: a second entry, never an edit of the first.
     assert [entry["name"] for entry in entries] == ["Tide tax", "Tide tax"] and created["content"] == "Doubled in storms."
-    start = next(data for event, data in events if event == "tool_start" and data["tool"] == "create_lorebook_entry")
-    assert start == {"call_id": "call1", "tool": "create_lorebook_entry"}
+    start = next(data for event, data in events if event == "tool_start" and data["tool"] == "create_lore_entry")
+    assert start == {"call_id": "call1", "tool": "create_lore_entry"}
     names = [event for event, _ in events]
     assert names.index("mutation") + 1 == names.index("tool_result") and names[-1] == "done"
     assert dict(events)["mutation"]["resources"] == [
@@ -433,7 +433,7 @@ async def test_adding_lore_commits_one_new_entry_per_call_and_reports_it_after_t
     ]
     assert dict(events)["tool_result"]["ids"] == {"world_id": library["world"], "entry_id": created["id"]}
 
-    tool = (await _tools(mode="library"))["create_lorebook_entry"]
+    tool = (await _tools(mode="library"))["create_lore_entry"]
     for bad in (
         {**arguments, "content": "x" * 4001},
         {**arguments, "name": "  "},
@@ -454,8 +454,8 @@ async def test_a_change_runs_once_and_an_edit_is_proposed_once_per_request(clien
     edit = {"message_id": library["kept"], "mode": "find_replace", "find": "kept", "text": "well kept"}
     _script(
         monkeypatch,
-        _call("create_lorebook_entry", lore),
-        _call("create_lorebook_entry", lore),
+        _call("create_lore_entry", lore),
+        _call("create_lore_entry", lore),
         _call("edit_message", edit),
         _call("edit_message", edit),
         _reply("Done."),
@@ -485,7 +485,7 @@ async def test_stop_during_a_lore_commit_waits_for_it_and_still_reports_its_id(c
 
     monkeypatch.setattr(actions, "create_lorebook_entry", slow_create)
     arguments = {"world_id": library["world"], "name": "Ferry", "content": "Runs at dawn."}
-    _script(monkeypatch, _call("create_lorebook_entry", arguments), _reply("x"))
+    _script(monkeypatch, _call("create_lore_entry", arguments), _reply("x"))
     run = asyncio.create_task(client.post(RUN, json=_body("Add lore about the ferry.")))
     await asyncio.wait_for(writing.wait(), 5)
     stop = asyncio.create_task(client.post_json("/api/assistant/stop?operation_id=op-1"))
@@ -537,7 +537,7 @@ async def test_toggles_set_an_explicit_state_keep_other_keys_and_report_master_s
             toggle.arguments.model_validate(bad)
     assert "flip" not in json.dumps(toggle.parameters) and "editor" in toggle.parameters["properties"]["toggle"]["enum"]
 
-    summary = (await tools["get_settings_summary"].run(tools["get_settings_summary"].arguments())).data["switches"]
+    summary = (await tools["read_settings"].run(tools["read_settings"].arguments())).data["switches"]
     assert summary["editor_audit_checks"]["banned_phrases"] == {"stored": True, "effective": False}
 
 
@@ -649,7 +649,7 @@ async def test_an_edit_racing_the_apply_waits_for_it_and_is_not_overwritten(clie
         entry = (await get_lorebook_entries(library["world"]))[0]
         tools = await _tools(mode="library")
         arguments = {"world_id": library["world"], "entry_id": entry["id"], "field": "content"}
-        preview = await _propose(tools, "edit_lorebook_entry", **arguments, mode="find_replace", find="dusk", text="dawn")
+        preview = await _propose(tools, "edit_lore_entry", **arguments, mode="find_replace", find="dusk", text="dawn")
         module, url = worlds, f"/api/worlds/{library['world']}/entries/{entry['id']}"
         race, read = ("put", {"content": "Abolished."}), ("SELECT content FROM lorebook_entries WHERE id = ?", entry["id"])
     elif target == "persona":
@@ -843,13 +843,13 @@ async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_
         f"/api/characters/{library['card']}", json={"personality": personality, "description": description}
     )
     tools = await _tools(mode="library", character_id=library["card"])
-    seen, _ = await _use(tools, "get_character")
+    seen, _ = await _use(tools, "read_character")
     assert "personality" in seen["clipped"] and "text_offset" in seen["note"]
     edit = tools["edit_character"]
     with pytest.raises(ToolFailure, match="not part of the field"):
         await edit.run(edit.arguments(field="personality", mode="replace_all", text=seen["personality"]))
     # Named alone, a field shorter than one page reads whole, unclipped.
-    whole, _ = await _use(tools, "get_character", fields=["personality"])
+    whole, _ = await _use(tools, "read_character", fields=["personality"])
     assert whole["personality"] == personality and whole["next_offset"] is None
     # A field longer than an argument may carry cannot be rewritten whole; it reads in pages, and find_replace reaches its tail.
     with pytest.raises(ToolFailure, match="find_replace") as refused:
@@ -857,7 +857,7 @@ async def test_a_clipped_read_never_becomes_a_whole_field_rewrite_and_the_whole_
     assert "text_offset" in str(refused.value)
     pages, offset = [], 0
     while offset is not None:
-        page, _ = await _use(tools, "get_character", fields=["description"], text_offset=offset)
+        page, _ = await _use(tools, "read_character", fields=["description"], text_offset=offset)
         pages.append(page["description"])
         offset = page["next_offset"]
     assert "".join(pages) == description and len(pages) > 1

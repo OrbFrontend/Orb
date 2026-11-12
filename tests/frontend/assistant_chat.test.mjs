@@ -18,6 +18,8 @@ globalThis.localStorage = {
   },
 };
 
+// The wide layout; the document editor reads its breakpoint as it loads.
+window.matchMedia = () => ({ matches: false, addEventListener() {} });
 // The chat list repaints after an applied message edit; jsdom lays nothing out and has no scrolling.
 dom.window.HTMLElement.prototype.scrollTo ||= () => {};
 const { S } = await import("../../frontend/state.js");
@@ -42,7 +44,7 @@ beforeEach(() => {
     if (request.url.endsWith("/api/worlds") || request.url.endsWith("/api/user-personas")) return Response.json([]);
     // The chat list as this page already has it: a refresh in place changes nothing a test relies on.
     if (request.url.endsWith("/api/conversations")) return Response.json(S.conversations);
-    if (request.url.endsWith("/api/assistant/apply")) return new Promise((resolve) => (request.answer = resolve));
+    if (/\/api\/assistant\/(apply|undo|revise)$/.test(request.url)) return new Promise((resolve) => (request.answer = resolve));
     if (request.url.includes("/messages") || request.url.endsWith("/api/characters")) return Response.json([]);
     if (!request.url.includes("/assistant/run")) return Response.json({ ok: true, active: true, settled: true });
     const body = new ReadableStream({
@@ -84,7 +86,7 @@ test("a request keeps the view captured at Send, and Stop names that operation a
   assert.equal($("assistant-clear").disabled, true);
   assert.equal($("assistant-send").dataset.state, "stop");
   S.activeConvId = "chat-b";
-  emit(run, "tool_start", { call_id: "step1", tool: "get_context" });
+  emit(run, "tool_start", { call_id: "step1", tool: "read_context" });
   await settled();
   assert.equal($("assistant-scope").textContent, "Chat: Harbour", "the running request still names its own view");
   assert.match($("assistant-log").innerHTML, /asst-tool-running/);
@@ -144,13 +146,13 @@ test("a committed change is read again by id, and a run cut short reads everythi
   emit(run, "tool_result", { call_id: "call1", tool: "set_pipeline_toggle", ok: true, summary: "Turned Editor off.", ids: {} });
 
   // The lore write starts, and the connection ends before anything says whether it committed.
-  emit(run, "tool_start", { call_id: "call2", tool: "create_lorebook_entry" });
+  emit(run, "tool_start", { call_id: "call2", tool: "create_lore_entry" });
   await settled();
   const reads = (path) => requests.filter((request) => request.url.endsWith(path)).length;
   assert.equal(reads("/api/worlds"), 0);
   run.writer.close();
   await settled();
-  const lore = S.assistant.items.findLast((item) => item.tool === "create_lorebook_entry");
+  const lore = S.assistant.items.findLast((item) => item.tool === "create_lore_entry");
   assert.equal(lore.text, "No result was received; check before asking again.");
   for (const path of ["/api/worlds", "/api/characters", "/api/user-personas", "/api/conversations", "/chat-long/messages"])
     assert.equal(reads(path), 1, `${path} is read again once the run has settled`);
@@ -199,7 +201,7 @@ test("a reload mid-tool stores it as unanswered, and the next request carries it
     S.activeConvId = "chat-a";
     const run = await ask("Add lore entry Ferry");
     run.used = true;
-    emit(run, "tool_start", { call_id: "call1", tool: "create_lorebook_entry" });
+    emit(run, "tool_start", { call_id: "call1", tool: "create_lore_entry" });
     await settled();
     // The page closes here: what it stored already says the tool got no result.
     const { parseTranscript, runItems } = await import("../../frontend/assistant_view.js");
@@ -216,19 +218,22 @@ test("a reload mid-tool stores it as unanswered, and the next request carries it
   }
 });
 
-test("Apply sends the card's ids alone, settles each edit by its verdict, and sends only a busy one again", async () => {
+const control = (action, id) =>
+  document.querySelector(`#assistant-log [data-wf-action="assistant:${action}"]${id ? `[data-proposal="${id}"]` : ""}`);
+const posted = (path) => requests.filter((request) => request.url.endsWith(path));
+
+test("Apply all sends the card's ids alone, settles each change by its verdict, and a busy one is applied on its own", async () => {
   S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
   S.activeConvId = "chat-a";
   await propose("p1", confirmed("p2", message(8), "message 8"), confirmed("p3", { kind: "persona", persona_id: 3 }, "persona Wren"));
-  assert.ok(applyButton(), "the held card can be applied");
-  assert.equal(document.querySelectorAll('#assistant-log [data-wf-action="assistant:apply"]').length, 1, "one Apply");
+  assert.equal(document.querySelectorAll('#assistant-log [data-wf-action="assistant:apply"]').length, 3, "one Apply per change");
   assert.equal($("assistant-log").querySelector(".asst-diff b"), null, "the diff is escaped text");
-  applyButton().click();
+  control("applyAll").click();
   await settled();
-  let applies = requests.filter((request) => request.url.endsWith("/api/assistant/apply"));
+  let applies = posted("/api/assistant/apply");
   assert.equal(applies.length, 1);
   assert.deepEqual(applies[0].body, { proposal_ids: ["p1", "p2", "p3"] });
-  assert.equal(applyButton().disabled, true, "no second Apply while the first is in flight");
+  assert.equal(control("applyAll").disabled, true, "no second Apply while the first is in flight");
   const ops = [...S.operations.values()].filter((item) => item.kind === "assistant-apply");
   assert.deepEqual(ops.map((op) => op.target.conversationId), ["chat-a"], "chat edits in flight are chat work");
   applies[0].answer(
@@ -247,61 +252,122 @@ test("Apply sends the card's ids alone, settles each edit by its verdict, and se
   assert.equal(S.assistant.items.at(-1).text, "Applied the edit to message 7.");
   assert.match($("assistant-log").innerHTML, /That chat is generating right now\./);
   assert.match($("assistant-log").innerHTML, /Applied 1; skipped 1: content of persona Wren\./);
+  assert.ok(control("undo", "p1"), "an applied edit can be undone");
 
-  // The busy one is still pending, so Apply stays and sends it alone.
-  applyButton().click();
+  // The busy one is still pending, and its own Apply sends it alone.
+  assert.equal(control("applyAll"), null, "one change left needs no Apply all");
+  control("apply", "p2").click();
   await settled();
-  applies = requests.filter((request) => request.url.endsWith("/api/assistant/apply"));
+  applies = posted("/api/assistant/apply");
   assert.deepEqual(applies[1].body, { proposal_ids: ["p2"] });
   applies[1].answer(Response.json({ results: [{ proposal_id: "p2", verdict: "applied", resources: [message(8)] }] }));
   await settled();
   assert.equal(card.proposals[1].status, "applied");
-  assert.equal(applyButton(), null, "nothing is left to apply");
+  assert.equal(control("apply"), null, "nothing is left to apply");
   assert.equal(requests.filter((request) => request.url.includes("/assistant/run")).length, 1, "nothing continues by itself");
   $("assistant-clear").click();
 });
 
-test("a view change during Apply repaints nothing there, and a new request or Cancel closes the card", async () => {
+test("a later request keeps a card live and names what it holds, and a change made again replaces its entry", async () => {
   S.conversations = [
     { id: "chat-a", title: "Harbour", kind: "solo" },
     { id: "chat-b", title: "Campfire", kind: "solo" },
   ];
   S.activeConvId = "chat-a";
   await propose("p-view");
-  applyButton().click();
+  control("apply", "p-view").click();
   await settled();
   S.activeConvId = "chat-b";
-  const apply = requests.find((request) => request.url.endsWith("/api/assistant/apply"));
-  apply.answer(Response.json({ results: [{ proposal_id: "p-view", verdict: "stale", message: "Changed." }] }));
+  posted("/api/assistant/apply")[0].answer(
+    Response.json({ results: [{ proposal_id: "p-view", verdict: "stale", message: "Changed." }] }),
+  );
   await settled();
   assert.equal(requests.filter((request) => request.url.includes("/messages")).length, 0, "the chat now in view is untouched");
-  const card = S.assistant.items.find((item) => item.kind === "proposals");
-  assert.equal(card.proposals[0].status, "stale");
+  assert.equal(S.assistant.items.find((item) => item.kind === "proposals").proposals[0].status, "stale");
   // Ask again puts the request back for the reader to send; nothing is sent by itself.
   document.querySelector('[data-wf-action="assistant:askAgain"]').click();
   assert.equal($("assistant-input").value, "Fix the messages.");
   $("assistant-input").value = "";
 
-  // A new request closes a card still held.
+  // A new request leaves a pending card live, and tells the server which of its changes still wait.
   S.activeConvId = "chat-a";
-  await propose("p-old");
-  const next = await ask("Something else.");
+  await propose("p-old", confirmed("p-keep", message(8), "message 8"));
+  const next = await ask("Make it shorter.");
   next.used = true;
-  assert.equal(S.assistant.items.findLast((item) => item.kind === "proposals").proposals[0].status, "historical");
-  assert.equal(applyButton(), null);
+  assert.deepEqual(next.body.pending, ["p-old", "p-keep"]);
+  assert.ok(control("apply", "p-old"), "the earlier card can still be applied");
+  // The run edits the same field again: its new proposal replaces the earlier card's entry.
+  emit(next, "confirm", { ...confirmed("p-new"), proposal: { ...confirmed("p-new").proposal, replaces: "p-old" } });
   emit(next, "done", { reason: "reply", message: "" });
   next.writer.close();
   await settled();
+  const [older, newer] = S.assistant.items.filter((item) => item.kind === "proposals").slice(-2);
+  assert.deepEqual(older.proposals.map((entry) => entry.status), ["superseded", "pending"]);
+  assert.equal(control("apply", "p-old"), null, "a replaced change has no control");
+  assert.match($("assistant-log").innerHTML, /Replaced by a later proposal/);
+  assert.deepEqual(newer.proposals.map((entry) => entry.proposalId), ["p-new"]);
+  assert.deepEqual(
+    [...S.assistant.items.filter((item) => item.kind === "proposals").flatMap((card) => card.proposals)]
+      .filter((entry) => entry.status === "pending")
+      .map((entry) => entry.proposalId),
+    ["p-keep", "p-new"],
+  );
 
-  // Cancel settles every pending edit on the card and sends nothing.
+  // Discard settles one change and Cancel all every pending one of its card; neither sends anything.
+  const others = () => requests.filter((request) => !request.url.includes("/assistant/run")).length;
+  const before = others();
+  control("cancel", "p-keep").click();
+  assert.equal(older.proposals[1].status, "cancelled");
+  control("cancel", "p-new").click();
   await propose("p-cancel", confirmed("p-cancel-2", message(8)));
-  const before = requests.length;
-  document.querySelector('#assistant-log [data-wf-action="assistant:cancel"]').click();
+  control("cancelAll").click();
   assert.deepEqual(
     S.assistant.items.findLast((item) => item.kind === "proposals").proposals.map((entry) => entry.status),
     ["cancelled", "cancelled"],
   );
-  assert.equal(requests.length, before);
+  assert.equal(others(), before, "nothing but the run was sent");
+  $("assistant-clear").click();
+});
+
+test("an applied edit can be undone, and the reader's own text replaces what Apply writes", async () => {
+  S.conversations = [{ id: "chat-a", title: "Harbour", kind: "solo" }];
+  S.activeConvId = "chat-a";
+  await propose("p-u");
+  control("apply", "p-u").click();
+  await settled();
+  posted("/api/assistant/apply")[0].answer(
+    Response.json({ results: [{ proposal_id: "p-u", verdict: "applied", resources: [message(7)] }] }),
+  );
+  await settled();
+  control("undo", "p-u").click();
+  await settled();
+  const undo = posted("/api/assistant/undo")[0];
+  assert.deepEqual(undo.body, { proposal_ids: ["p-u"] });
+  undo.answer(
+    Response.json({ results: [{ proposal_id: "p-u", verdict: "undone", summary: "Undid the edit.", resources: [message(7)] }] }),
+  );
+  await settled();
+  const entry = S.assistant.items.find((item) => item.kind === "proposals").proposals[0];
+  assert.equal(entry.status, "pending", "undone is pending again");
+  assert.equal(S.assistant.items.at(-1).text, "Undid the edit.");
+  assert.ok(control("apply", "p-u"));
+
+  control("revise", "p-u").click();
+  const box = $("assistant-log").querySelector("textarea.asst-revise");
+  assert.equal(box.value, "New <b>line</b>.", "the box starts from the proposed text");
+  box.value = "Mine.";
+  box.dispatchEvent(new window.Event("input", { bubbles: true }));
+  control("reviseSave", "p-u").click();
+  await settled();
+  const revise = posted("/api/assistant/revise")[0];
+  assert.deepEqual(revise.body, { proposal_id: "p-u", text: "Mine." });
+  revise.answer(
+    Response.json({ proposal_id: "p-u", verdict: "revised", proposal: { fields: [{ field: "content", before: "Old <b>line</b>.", after: "Mine." }] } }),
+  );
+  await settled();
+  assert.equal(entry.after, "Mine.");
+  assert.equal($("assistant-log").querySelector("textarea.asst-revise"), null, "the box closes once saved");
+  assert.match($("assistant-log").innerHTML, /<ins class="asst-ins">Mine\.<\/ins>/);
   $("assistant-clear").click();
 });
 

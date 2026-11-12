@@ -1,23 +1,27 @@
 // The assistant's own right panel: one transcript kept in this browser for every view, one run at a time owned through
-// S.operations, and Apply for the edits its latest run proposed. A run and its card outlive a closed panel.
+// S.operations, and the cards of changes its runs proposed, each applied, discarded, edited or undone on its own. A card stays
+// live across later requests, which are told what it still holds. A run and its cards outlive a closed panel.
 import { registerActions } from "./actions.js";
 import { api } from "./api.js";
 import {
   applyStreamEvent,
   applyVerdicts,
+  findProposal,
   handoffOutcome,
   isSendKey,
   MAX_ITEM_CHARS,
   parseTranscript,
-  pendingIds,
+  pendingProposalIds,
+  reviseEntry,
   runItems,
   serializeTranscript,
   settleRun,
   transcriptEntries,
   trimTranscript,
+  undoVerdicts,
   wireContext,
 } from "./assistant_view.js";
-import { loadConversations, selectConversation } from "./chat_conversations.js";
+import { forgetConversation, loadConversations, resetChatUI, selectConversation } from "./chat_conversations.js";
 import { showBranchChange } from "./chat_messages.js";
 import {
   continueCapturedChat,
@@ -26,10 +30,11 @@ import {
   sendCapturedMessage,
 } from "./chat_stream.js";
 import { refreshConversationMessages } from "./chat_workflow.js";
+import { forgetDocument } from "./document.js";
 import { reconcileChildren } from "./dom_reconcile.js";
 import { sseError } from "./errors.js";
 import { loadCharacters } from "./library_sidebar.js";
-import { loadWorlds, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
+import { forgetWorld, loadWorlds, lorebookFocus, refreshChatWorlds, refreshWorld } from "./lorebooks.js";
 import { renderMessageHtml } from "./message_html.js";
 import { begin, beginStream, finish, settle, streamEvents } from "./operations.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel, watchUtilityPanel } from "./panels.js";
@@ -101,9 +106,20 @@ function persist() {
 const titled = (prefix, title) =>
   `${prefix}: ${title.length > LABEL_TITLE_CHARS ? `${title.slice(0, LABEL_TITLE_CHARS)}…` : title}`;
 
-/** The view a request sent now would be about. A group names no character: the cast has several. */
+/** The view a request sent now would be about, with the lorebook drawer's world and entry over it. */
 function captureContext() {
-  const none = { conversation_id: null, character_id: null, document_id: null };
+  const page = capturePage();
+  const lore = lorebookFocus();
+  if (!lore) return page;
+  const what = lore.entryId
+    ? titled("Lore entry", lore.entryName || "Untitled")
+    : titled("World", lore.worldName || "Untitled");
+  return { ...page, world_id: lore.worldId, entry_id: lore.entryId, label: `${page.label} · ${what}` };
+}
+
+/** The page behind any drawer. A group names no character: the cast has several. */
+function capturePage() {
+  const none = { conversation_id: null, character_id: null, document_id: null, world_id: null, entry_id: null };
   if (S.documentMode) {
     const doc = S.documents.find((item) => item.id === S.activeDocId);
     if (doc)
@@ -124,7 +140,7 @@ function captureContext() {
 /** The kind of view the empty log suggests requests for. */
 function shownView() {
   const context = captureContext();
-  return context.character_id ? "character" : context.mode;
+  return context.entry_id ? "entry" : context.world_id ? "world" : context.character_id ? "character" : context.mode;
 }
 
 function toEnd() {
@@ -139,10 +155,7 @@ function paintLog() {
   const view = shownView();
   suggestedFor = S.assistant.items.length ? null : view;
   // Keyed, so a stream event rebuilds only the rows it changed and a disclosure the reader opened stays open.
-  reconcileChildren(
-    log,
-    transcriptEntries(S.assistant.items, renderMessageHtml, { active: S.assistant.batch, busy, suggestFor: view }),
-  );
+  reconcileChildren(log, transcriptEntries(S.assistant.items, renderMessageHtml, { busy, suggestFor: view }));
   toEnd();
 }
 
@@ -151,12 +164,31 @@ const chatMessages = (r) => [
   `chat:${r.conversation_id}`,
   () => S.activeConvId === r.conversation_id && refreshConversationMessages(null, r.conversation_id),
 ];
+// A deleted resource is let go of as the app's own delete does: the chat, document or world in view closes.
 const REFRESHERS = {
   lorebook_entry: (r) => [`world:${r.world_id}`, () => refreshWorld(r.world_id)],
-  world: (r) => (r.world_id ? [`world:${r.world_id}`, () => refreshWorld(r.world_id)] : ["worlds", loadWorlds]),
-  character: () => ["characters", loadCharacters],
+  world: (r) =>
+    r.deleted
+      ? [`world-gone:${r.world_id}`, () => forgetWorld(r.world_id)]
+      : r.world_id
+        ? [`world:${r.world_id}`, () => refreshWorld(r.world_id)]
+        : ["worlds", loadWorlds],
+  character: (r) =>
+    r.deleted
+      ? [
+          "characters",
+          async () => {
+            if (S.activeCharId === r.character_id) resetChatUI();
+            await Promise.all([loadCharacters(), loadConversations()]);
+          },
+        ]
+      : ["characters", loadCharacters],
   persona: () => ["personas", loadPersonas],
-  conversation: () => ["conversations", loadConversations],
+  conversation: (r) =>
+    r.deleted
+      ? [`chat-gone:${r.conversation_id}`, () => forgetConversation(r.conversation_id)]
+      : ["conversations", loadConversations],
+  document: (r) => [`document-gone:${r.document_id}`, () => forgetDocument(r.document_id)],
   // A media job's artifacts arrive with the chat's messages, read again through the chat's own loader.
   message: chatMessages,
   media: chatMessages,
@@ -268,7 +300,7 @@ async function refreshSettings(keys) {
 /** Mark every button that opens the panel, through the root, so a button rendered later is marked too. */
 function paintLaunchers(busy) {
   const app = $("app");
-  const pending = S.assistant.batch ? pendingIds(S.assistant.batch).length : 0;
+  const pending = pendingProposalIds(S.assistant.items).length;
   // Written only when changed: these sit on the root, where a style change reaches the whole page.
   if (app.hasAttribute("data-asst-running") !== busy) app.toggleAttribute("data-asst-running", busy);
   if (app.hasAttribute("data-asst-pending") !== pending > 0) app.toggleAttribute("data-asst-pending", pending > 0);
@@ -287,14 +319,14 @@ function paintControls() {
   const send = $("assistant-send");
   if (!send) return;
   send.dataset.state = applying ? "applying" : busy ? (stopping ? "stopping" : "stop") : "send";
-  const label = applying ? "Applying the edit" : busy ? "Stop the assistant" : "Send to the assistant";
+  const label = applying ? "Saving the change" : busy ? "Stop the assistant" : "Send to the assistant";
   send.setAttribute("aria-label", label);
   send.title = applying ? label : busy ? "Stop" : "Send (Enter)";
   send.disabled = stopping || applying;
   send.classList.toggle("asst-stop", busy && !applying);
   // Clearing mid-run would drop the entries the run is still writing to.
   $("assistant-clear").disabled = busy || !S.assistant.items.length;
-  $("assistant-status").textContent = applying ? "Applying the edit…" : busy ? run?.status || "Working…" : "";
+  $("assistant-status").textContent = applying ? "Saving the change…" : busy ? run?.status || "Working…" : "";
   const context = busy && run ? run.context : captureContext();
   const scope = $("assistant-scope");
   scope.textContent = context.label;
@@ -325,12 +357,6 @@ function togglePanel() {
   if (!narrow()) $("assistant-input").focus();
 }
 
-/** A new request closes the held card: its edits still pending can no longer be applied. */
-function releaseCard() {
-  for (const entry of S.assistant.batch?.proposals || []) if (entry.status === "pending") entry.status = "historical";
-  S.assistant.batch = null;
-}
-
 /**
  * Stream one run over *body* and settle it. *context* is the view it is about and *request* the user's words, which a
  * card of proposed edits remembers for Ask again.
@@ -358,7 +384,6 @@ async function stream(body, context, request) {
   } finally {
     settleRun(current, { stopped: record.stream.stopping, failure });
     S.assistant.resume = current.resume || "";
-    if (current.card) S.assistant.batch = current.card;
     persist();
     paint();
     await settle(record);
@@ -389,7 +414,6 @@ async function send() {
   if (!requestSendPermission()) return;
   // Captured once, here: switching chats or documents while this runs changes the next request, not this one.
   const context = captureContext();
-  releaseCard();
   const items = S.assistant.items;
   items.push({ kind: "user", text, context });
   trimTranscript(items);
@@ -399,55 +423,161 @@ async function send() {
   const resume = S.assistant.resume;
   S.assistant.resume = "";
   const reasoning = $("assistant-think").checked;
-  await stream({ items: runItems(items), context: wireContext(context), resume, reasoning }, context, text);
+  // The changes earlier cards still hold, so this request can build on them; the server reads their texts itself.
+  const pending = pendingProposalIds(items);
+  await stream({ items: runItems(items), context: wireContext(context), resume, reasoning, pending }, context, text);
 }
 
 /**
- * Apply the held card's pending edits by their ids alone, each answered with its own verdict. A busy chat leaves its edit
- * pending to try again, as does an Apply that ends without verdicts, which also reads their targets again.
+ * Run one change request over proposals *entries* of *card* (`[{ entry }]`): Apply, Undo or a revision. Message changes are
+ * chat work while they commit, so the chat's delete dialog names them and the server makes a delete wait for them.
  */
-async function apply() {
-  const card = S.assistant.batch;
-  const ids = card ? pendingIds(card) : [];
-  if (!ids.length || activeOperation()) return;
+async function changing(entries, work) {
+  if (!entries.length || activeOperation()) return;
   if (!requestSendPermission()) return;
-  const pending = card.proposals.filter((entry) => entry.status === "pending");
-  // A chat edit is chat work while it commits: the chat's delete dialog names it, and the server makes a delete wait for it.
   const chats = new Set(
-    pending.flatMap((entry) => (entry.target?.kind === "message" ? [entry.target.conversation_id] : [])),
+    entries.flatMap(({ entry }) => (entry.target?.kind === "message" ? [entry.target.conversation_id] : [])),
   );
   const ops = chats.size
     ? [...chats].map((conversationId) => begin(APPLY_KIND, { conversationId }))
     : [begin(APPLY_KIND, {})];
-  delete card.note;
   paint();
-  let applied = null;
   try {
-    applied = applyVerdicts(card, (await api.post("/assistant/apply", { proposal_ids: ids }))?.results);
-  } catch {
-    card.note = "Apply did not finish. Try again; an edit already applied is not applied twice.";
+    await work();
   } finally {
     for (const op of ops) finish(op);
   }
-  if (!pendingIds(card).length) S.assistant.batch = null;
-  if (applied?.summaries.length) {
-    S.assistant.items.push({ kind: "outcome", reason: "applied", text: applied.summaries.join(" ") });
+  persist();
+  paint();
+}
+
+/** A card's live entries waiting for Apply, all of them or the one *el* names. */
+function pendingOf(el) {
+  if (el.dataset.proposal) {
+    const found = findProposal(S.assistant.items, el.dataset.proposal);
+    return found && found.entry.status === "pending" ? [found] : [];
+  }
+  const card = S.assistant.items[Number(el.dataset.index)];
+  if (card?.kind !== "proposals") return [];
+  return card.proposals
+    .filter((entry) => entry.proposalId && entry.status === "pending")
+    .map((entry) => ({ entry, card }));
+}
+
+/** Record what a change request settled: its summary in the transcript, and the resources it changed read again. */
+async function settled(outcome, fallback) {
+  if (outcome?.summaries.length) {
+    S.assistant.items.push({ kind: "outcome", reason: "applied", text: outcome.summaries.join(" ") });
     trimTranscript(S.assistant.items);
+  }
+  await refreshResources(outcome ? outcome.resources : fallback);
+}
+
+/**
+ * Apply pending changes by their ids alone, each answered with its own verdict. A busy chat leaves its change pending to try
+ * again, as does an Apply that ends without verdicts, which also reads their targets again.
+ */
+async function apply(el) {
+  const entries = pendingOf(el);
+  const card = entries[0]?.card;
+  let applied = null;
+  await changing(entries, async () => {
+    delete card.note;
+    try {
+      const results = (
+        await api.post("/assistant/apply", { proposal_ids: entries.map(({ entry }) => entry.proposalId) })
+      )?.results;
+      applied = applyVerdicts(card, results);
+    } catch {
+      card.note = "Apply did not finish. Try again; a change already applied is not applied twice.";
+    }
+  });
+  if (card)
+    await settled(
+      applied,
+      entries.flatMap(({ entry }) => (entry.target ? [entry.target] : [])),
+    );
+}
+
+/** Put back the text an applied edit replaced; it is pending again afterwards, to apply or discard. */
+async function undo(el) {
+  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  if (found?.entry.status !== "applied") return;
+  let undone = null;
+  await changing([found], async () => {
+    try {
+      undone = undoVerdicts(
+        found.card,
+        (await api.post("/assistant/undo", { proposal_ids: [found.entry.proposalId] }))?.results,
+      );
+    } catch {
+      found.entry.note = "Undo did not finish. Try again.";
+    }
+  });
+  await settled(undone, found.entry.target ? [found.entry.target] : []);
+}
+
+/** Discard pending changes, all of a card's or the one *el* names; nothing was written, so nothing is sent. */
+function cancel(el) {
+  if (activeOperation()) return;
+  for (const { entry } of pendingOf(el)) {
+    entry.status = "cancelled";
+    delete entry.editing;
+    delete entry.proposalId;
   }
   persist();
   paint();
-  await refreshResources(
-    applied ? applied.resources : pending.flatMap((entry) => (entry.target ? [entry.target] : [])),
-  );
 }
 
-function cancel() {
-  const card = S.assistant.batch;
-  if (!card || activeOperation()) return;
-  for (const entry of card.proposals) if (entry.status === "pending") entry.status = "cancelled";
-  S.assistant.batch = null;
-  persist();
+/** Open, keep or close the reader's own text for a pending edit, which Save then makes what Apply writes. */
+function reviseOpen(el) {
+  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  if (found?.entry.status !== "pending" || activeOperation()) return;
+  found.entry.editing = true;
+  found.entry.draft = found.entry.after;
   paint();
+  const boxes = $("assistant-log").querySelectorAll("textarea.asst-revise");
+  [...boxes].find((box) => box.dataset.proposal === found.entry.proposalId)?.focus();
+}
+
+function reviseDraft(el) {
+  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  // Kept off the repaint path: a repaint mid-typing would replace the box under the caret.
+  if (found) found.entry.draft = el.value;
+}
+
+function reviseClose(el) {
+  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  if (!found) return;
+  delete found.entry.editing;
+  delete found.entry.draft;
+  paint();
+}
+
+async function reviseSave(el) {
+  const found = findProposal(S.assistant.items, el.dataset.proposal || "");
+  if (found?.entry.status !== "pending") return;
+  const { entry } = found;
+  await changing([found], async () => {
+    try {
+      const result = await api.post("/assistant/revise", {
+        proposal_id: entry.proposalId,
+        text: entry.draft ?? entry.after,
+      });
+      if (result?.verdict === "revised") {
+        reviseEntry(entry, result.proposal);
+        entry.note = "Your text; Apply writes it.";
+        delete entry.editing;
+        delete entry.draft;
+      } else if (result?.verdict === "expired") {
+        entry.status = "expired";
+        delete entry.editing;
+        delete entry.proposalId;
+      } else entry.note = result?.message || "That text was not taken.";
+    } catch {
+      entry.note = "Saving your text did not finish. Try again.";
+    }
+  });
 }
 
 /** Grow the input with its text, up to the cap its stylesheet sets. */
@@ -468,7 +598,6 @@ function fillInput(text) {
 function clear() {
   if (activeOperation()) return;
   S.assistant.items.length = 0;
-  S.assistant.batch = null;
   S.assistant.resume = "";
   persist();
   paint();
@@ -478,7 +607,6 @@ export function initAssistant() {
   const panel = $(PANEL);
   if (!panel) return;
   S.assistant.items = parseTranscript(stored(LS_TRANSCRIPT));
-  S.assistant.batch = null;
   registerActions("assistant", {
     toggle: () => togglePanel(),
     clear: () => clear(),
@@ -489,8 +617,15 @@ export function initAssistant() {
       operation.stop();
       paintControls();
     },
-    apply: () => apply(),
-    cancel: () => cancel(),
+    apply: (el) => apply(el),
+    applyAll: (el) => apply(el),
+    cancel: (el) => cancel(el),
+    cancelAll: (el) => cancel(el),
+    undo: (el) => undo(el),
+    revise: (el) => reviseOpen(el),
+    reviseDraft: (el) => reviseDraft(el),
+    reviseSave: (el) => reviseSave(el),
+    reviseCancel: (el) => reviseClose(el),
     // A card's request goes back in the input, to send again for a fresh preview.
     askAgain: (el) => fillInput(S.assistant.items[Number(el.dataset.index)]?.request || ""),
     suggest: (el) => fillInput(el.dataset.text || ""),

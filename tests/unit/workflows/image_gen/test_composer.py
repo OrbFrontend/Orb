@@ -195,6 +195,25 @@ async def test_prompter_reference_requests_the_current_story_instead_of_a_captio
     assert "earlier chat picture only for details the story leaves unchanged" in review
 
 
+async def test_a_users_direction_outranks_the_reply_in_the_compose_and_in_every_review(monkeypatch):
+    calls: list[dict] = []
+    await _compose(
+        monkeypatch,
+        {"scene": "1girl, solo, from behind", "unwanted": None, "visible_subjects": []},
+        direction="From behind,\n at dusk.",
+        calls=calls,
+    )
+    request = calls[0]["tail_messages"][0]["content"]
+    assert "The user asked for this particular image, in their words: “From behind, at dusk.”." in request
+    assert "Resolve conflicts in this order: the user's direction above, then current story facts" in request
+    plain: list[dict] = []
+    await _compose(monkeypatch, {"scene": "1girl, solo", "unwanted": None, "visible_subjects": []}, calls=plain)
+    assert "The user asked" not in plain[0]["tail_messages"][0]["content"]
+    # A review of a directed image holds it to the direction first, so a departure the user asked for is never fixed away.
+    assert "against the user's direction for this image first" in prompts.refine_ooc(1, 1, directed=True)
+    assert "direction" not in prompts.refine_ooc(1, 1)
+
+
 async def test_composer_uses_its_own_visibility_without_a_valid_selector(monkeypatch):
     scene, _, mode = await _compose(
         monkeypatch,

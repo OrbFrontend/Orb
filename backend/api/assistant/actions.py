@@ -51,6 +51,7 @@ from .targets import (
     persona_of,
     quoted,
     reply_target,
+    world_field,
     world_of,
 )
 
@@ -76,7 +77,7 @@ _Keyword = Annotated[str, StringConstraints(min_length=1, max_length=_LORE_KEYWO
 
 
 class _LoreEntryArgs(ToolArguments):
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world (lorebook), from list_worlds.")
+    world_id: str = world_field()
     name: str = Field(min_length=1, max_length=_NAME_CHARS, description="The entry's title.")
     content: str = Field(
         min_length=1, max_length=_LORE_CONTENT_CHARS, description=f"The lore itself, at most {_LORE_CONTENT_CHARS} characters."
@@ -86,9 +87,14 @@ class _LoreEntryArgs(ToolArguments):
         max_length=_LORE_KEYWORDS,
         description="Words that bring the entry into a chat when they come up.",
     )
+    secondary_keywords: list[_Keyword] = Field(
+        default_factory=list,
+        max_length=_LORE_KEYWORDS,
+        description="Optional: the entry then comes up only when one of its keywords and also one of these come up.",
+    )
     constant: bool = Field(default=False, description="Include the entry in every chat that uses the world, keywords or not.")
 
-    _blank = field_validator("name", "content", "keywords")(not_blank)
+    _blank = field_validator("name", "content", "keywords", "secondary_keywords")(not_blank)
 
 
 class _CharacterCreate(ToolArguments):
@@ -121,7 +127,7 @@ class _PersonaCreate(ToolArguments):
 
 class _ChatWorld(ToolArguments):
     conversation_id: str = chat_field()
-    world_id: str = Field(min_length=1, max_length=ID_CHARS, description="The world, from list_worlds.")
+    world_id: str = world_field()
     attached: bool = Field(description="true to use the world in this chat, false to stop using it here.")
 
 
@@ -160,7 +166,7 @@ class _Continue(ToolArguments):
     speaker_member_id: str = Field(
         default="",
         max_length=ID_CHARS,
-        description="In a group chat: who speaks next, as a member_id from get_context's cast or a member's name. "
+        description="In a group chat: who speaks next, as a member_id from read_context's cast or a member's name. "
         "Empty in a solo chat.",
     )
 
@@ -212,11 +218,19 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "That chat is generating right now, so nothing was changed. Ask again once it has finished."
             ) from None
 
-    @tools.add("write", _LoreEntryArgs, "Add a new entry to a world (lorebook).", name="create_lorebook_entry")
+    @tools.add("write", _LoreEntryArgs, "Add a new entry to a world (lorebook).", name="create_lore_entry")
     async def add_lorebook_entry(args: _LoreEntryArgs) -> ToolOutput:
-        world = await world_of(args.world_id)
+        world = await world_of(args.world_id, view)
         # The entry route's own schema and writer: an authored entry with its defaults, and a world revision bump.
-        fields = LorebookEntryCreate(name=args.name, content=args.content, keywords=list(args.keywords), constant=args.constant)
+        secondary = list(dict.fromkeys(args.secondary_keywords))
+        fields = LorebookEntryCreate(
+            name=args.name,
+            content=args.content,
+            keywords=list(args.keywords),
+            constant=args.constant,
+            secondary_keys=secondary,
+            selective=bool(secondary),
+        )
         entry = await create_lorebook_entry(world["id"], fields.model_dump())
         world_name = clip(world["name"], _NAME_CHARS)
         data = {
@@ -226,6 +240,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
                 "id": entry["id"],
                 "name": clip(entry["name"], _NAME_CHARS),
                 "keywords": entry["keywords"] or [],
+                **({"secondary_keywords": entry["secondary_keys"]} if entry["secondary_keys"] else {}),
                 "constant": bool(entry["constant"]),
                 "enabled": bool(entry["enabled"]),
             },
@@ -295,7 +310,7 @@ def build_action_tools(view: ViewContext) -> list[AssistantTool]:
     async def set_chat_world(args: _ChatWorld) -> ToolOutput:
         cid = chat_id(args.conversation_id, view)
         async with admitted(cid) as conv:
-            world = await world_of(args.world_id)
+            world = await world_of(args.world_id, view)
             before = world["id"] in await get_effective_world_ids(cid)
             # Only a change is written: the chat's other world choices, and an explicit choice already in this state, stay.
             if before != args.attached:

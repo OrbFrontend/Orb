@@ -161,6 +161,11 @@ class ViewContext:
     character_name: str = ""
     document_id: str | None = None
     document_title: str = ""
+    # The world open in the lorebook drawer, and the entry selected there; either may accompany any mode.
+    world_id: str | None = None
+    world_name: str = ""
+    entry_id: int | None = None
+    entry_name: str = ""
 
 
 @dataclass(frozen=True)

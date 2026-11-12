@@ -332,18 +332,23 @@ async function deleteWorld(worldId) {
     async () => {
       try {
         await api.del(`/worlds/${worldId}`);
-        _worlds = _worlds.filter((w) => w.id !== worldId);
-        delete _entries[worldId];
-        for (const c of charactersView()) {
-          if (c.world_id === worldId) c.world_id = null;
-        }
-        if (_focusWorldId === worldId) _closeDrawer();
-        renderWorldsSidebar();
+        forgetWorld(worldId);
       } catch (_e) {
         toast("Failed to delete lorebook", true);
       }
     },
   );
+}
+
+/** Let go of World *worldId*, deleted on the server: gone from the sidebar, its drawer closed, its characters unlinked. */
+export function forgetWorld(worldId) {
+  _worlds = _worlds.filter((w) => w.id !== worldId);
+  delete _entries[worldId];
+  for (const c of charactersView()) {
+    if (c.world_id === worldId) c.world_id = null;
+  }
+  if (_focusWorldId === worldId) _closeDrawer();
+  renderWorldsSidebar();
 }
 
 function _guardDirty(proceed, message, confirmText) {
@@ -394,6 +399,22 @@ function _closeDrawer() {
 
 function _getWorld(worldId) {
   return _worlds.find((w) => w.id === worldId);
+}
+
+/**
+ * The world the drawer has open and the saved entry selected in it, which a request to the assistant is about; null while
+ * the drawer is closed. An entry is named only on the Entries tab, where the reader sees it.
+ */
+export function lorebookFocus() {
+  if (!_lorebookOpen || !_focusWorldId) return null;
+  const entry = _drawerTab === "entries" && _selectedEntryId != null ? _getEntry(_selectedEntryId) : null;
+  const saved = Number.isSafeInteger(entry?.id) && entry.id > 0;
+  return {
+    worldId: _focusWorldId,
+    worldName: _getWorld(_focusWorldId)?.name || "",
+    entryId: saved ? entry.id : null,
+    entryName: saved ? entry.name || "" : "",
+  };
 }
 
 function _mergeWorld(worldId, updated) {
@@ -921,6 +942,15 @@ export async function refreshWorld(worldId) {
   if (!_lorebookOpen || _focusWorldId !== worldId) return;
   const drawer = $("lorebook-drawer");
   const after = before ? _getEntry(_selectedEntryId) : null;
+  if (before && !after) {
+    // The open entry was deleted elsewhere: there is nothing left for the editor, or its Save, to work on.
+    _selectedEntryId = null;
+    _dirty = false;
+    _changedElsewhere = false;
+    _draft = _emptyDraft();
+    renderLorebookDrawer();
+    return;
+  }
   const changed = after && !_same(_draftFromEntry(before), _draftFromEntry(after));
   // Nothing unsaved: the editor takes the new text, so its next Save cannot send the old one back.
   if (changed && !_dirty) {

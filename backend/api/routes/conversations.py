@@ -20,7 +20,6 @@ from ...database import (
     copy_state_events,
     create_group_conversation,
     decision_evaluations_of,
-    delete_conversation,
     delete_group_family,
     fold_path_state,
     fork_conversation,
@@ -68,6 +67,7 @@ from ...prompting import (
 from ...workflows.contracts import PublicEvent
 from ..conversation_copy import checkpoint_conversation, checkpoint_title, copy_member_map
 from ..conversation_start import start_solo_chat
+from ..deletions import delete_chat
 from ..deps import (
     CleanupStreamingResponse,
     deleting_resources,
@@ -354,12 +354,8 @@ async def api_set_conversation_world(
 
 @router.delete("/api/conversations/{cid}")
 async def api_delete_conversation(cid: str):
-    async with deleting_resources([cid]):
-        if not await delete_conversation(cid):
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    # The cascade NULLed the source pointers of every changeset raised in this chat. Unreviewed proposals lose the evidence they
-    # were derived from and go stale; applied ones stay canon, carrying their denormalised labels.
-    await mark_orphaned_changesets_stale()
+    if not await delete_chat(cid):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     return {"ok": True}
 
 

@@ -9,8 +9,9 @@ const MAX_LABEL_CHARS = 200;
 const MAX_NOTE_CHARS = 500;
 const MAX_RESUME_CHARS = 64;
 const MAX_IDS_CHARS = 2000;
-// A run proposes at most one edit per tool run, so one card holds every edit a run can propose.
+// A run proposes at most one change per tool run, so one card holds every change a run can propose.
 const MAX_PROPOSALS = 12;
+const MAX_DETAIL_CHARS = 500;
 // Unchanged text shown on each side of a change; the whole new text stays one click away.
 const DIFF_CONTEXT = 120;
 const MODES = new Set(["chat", "document", "library"]);
@@ -19,11 +20,12 @@ const OUTCOMES = new Set(["stopped", "limit", "error", "interrupted", "applied",
 const NO_RESULT = "No result was received; check before asking again.";
 const INTERRUPTED = "The connection ended before the assistant finished.";
 const HANDOFF_TOOLS = new Set(["regenerate_reply", "rewrite_reply", "continue_chat", "send_as_user", "open_chat"]);
-// A proposed edit's states besides `pending`. Only a pending edit on the card this page holds can be applied; a stored
-// card's pending edits load as historical.
+// A proposed change's states besides `pending`. A change is live while this page holds its proposal id: a pending one can be
+// applied, and an applied edit undone. A stored card keeps no ids, so its pending changes load as historical.
 const PROPOSAL_NOTES = {
   applied: "Applied.",
   cancelled: "Cancelled; nothing was changed.",
+  superseded: "Replaced by a later proposal for the same change.",
   stale: "Not applied: the text changed after this preview.",
   missing: "Not applied: what it edits no longer exists.",
   expired: "Not applied: this proposal expired.",
@@ -33,6 +35,12 @@ const PROPOSAL_STATES = new Set(["pending", ...Object.keys(PROPOSAL_NOTES)]);
 // The verdicts Apply answers that settle an edit; `busy` leaves it pending, to try again.
 const VERDICTS = new Set(["applied", "stale", "missing", "expired"]);
 const ASK_AGAIN = new Set(["stale", "missing", "expired", "historical"]);
+// What Undo answers that leaves an applied edit as it is, and why; `undone` makes it pending again.
+const UNDO_NOTES = {
+  stale: "Not undone: the text changed after the edit was applied.",
+  missing: "Not undone: what it edited no longer exists.",
+  expired: "Not undone: this edit can no longer be undone here.",
+};
 
 const text = (value, cap) => (typeof value === "string" ? value.slice(0, cap) : "");
 const id = (value) => (typeof value === "string" && value && value.length <= 64 ? value : null);
@@ -46,6 +54,11 @@ function storedContext(value) {
     character_id: id(value.character_id),
     document_id: id(value.document_id),
     label: text(value.label, MAX_LABEL_CHARS),
+    // The lorebook drawer's focus, kept only when there was one, so a view without it reads as it always did.
+    ...(id(value.world_id) ? { world_id: id(value.world_id) } : {}),
+    ...(id(value.world_id) && Number.isSafeInteger(value.entry_id) && value.entry_id > 0
+      ? { entry_id: value.entry_id }
+      : {}),
   };
 }
 
@@ -72,6 +85,10 @@ function storedProposal(value) {
     status,
   };
   if (value.list === true) entry.list = true;
+  if (value.action === "delete") {
+    entry.action = "delete";
+    entry.detail = text(value.detail, MAX_DETAIL_CHARS);
+  }
   const target = storedIds(value.target);
   if (target) entry.target = target;
   return entry;
@@ -198,13 +215,17 @@ const PROPOSAL_RECORDS = {
   pending: "proposed, not applied",
   applied: "applied by the user",
   cancelled: "cancelled by the user; nothing changed",
+  superseded: "replaced by a later proposal",
   historical: "proposed, never applied",
   stale: "not applied: the text changed first",
   missing: "not applied: the target was gone",
   expired: "not applied: the proposal expired",
 };
 
-const edited = (entry) => `${entry.field ? `${entry.field.toLowerCase()} of ` : ""}${entry.label}`;
+const edited = (entry) =>
+  entry.action === "delete"
+    ? `deletion of ${entry.label}`
+    : `${entry.field ? `${entry.field.toLowerCase()} of ` : ""}${entry.label}`;
 
 /** The entries a run replays to the server. Tool and outcome entries go as text records; the server quotes them. */
 export function runItems(items) {
@@ -219,7 +240,7 @@ export function runItems(items) {
         out.push({
           kind: "tool",
           tool: entry.tool,
-          text: `${PROPOSAL_RECORDS[entry.status]}: edit to the ${edited(entry)}`,
+          text: `${PROPOSAL_RECORDS[entry.status]}: ${entry.action === "delete" ? "the" : "edit to the"} ${edited(entry)}`,
         });
     else if (item.kind === "outcome") out.push({ kind: "outcome", text: `${item.reason}: ${item.text}` });
   }
@@ -229,7 +250,8 @@ export function runItems(items) {
 /** The view fields the server checks; the label is the browser's own and is not sent as context. */
 export function wireContext(context) {
   const out = { mode: context.mode };
-  for (const key of ["conversation_id", "character_id", "document_id"]) if (context[key]) out[key] = context[key];
+  for (const key of ["conversation_id", "character_id", "document_id", "world_id", "entry_id"])
+    if (context[key]) out[key] = context[key];
   return out;
 }
 
@@ -266,7 +288,43 @@ function proposalEntry(tool, value) {
     status: "pending",
   };
   if (Array.isArray(field.before)) entry.list = true;
+  if (value.action === "delete") {
+    entry.action = "delete";
+    entry.detail = text(field.before, MAX_DETAIL_CHARS);
+    entry.beforeChars = entry.afterChars = 0;
+  }
+  if (typeof value.replaces === "string") entry.replaces = value.replaces;
   return entry;
+}
+
+/** Take a revised preview into its live *entry*: what Apply now writes. */
+export function reviseEntry(entry, value) {
+  const field = value?.fields?.[0];
+  if (!field || typeof field.after !== "string") return;
+  entry.after = field.after;
+  entry.afterChars = field.after.length;
+}
+
+/** Every live entry of every card in *items*, each with its card and that card's index. */
+function liveEntries(items) {
+  const out = [];
+  items.forEach((item, index) => {
+    if (item.kind !== "proposals") return;
+    for (const entry of item.proposals) if (entry.proposalId) out.push({ entry, card: item, index });
+  });
+  return out;
+}
+
+/** The ids of every change in *items* still waiting for Apply: what the next request is told of. */
+export function pendingProposalIds(items) {
+  return liveEntries(items)
+    .filter(({ entry }) => entry.status === "pending")
+    .map(({ entry }) => entry.proposalId);
+}
+
+/** The live entry *proposalId* names in *items*, with its card, or null. */
+export function findProposal(items, proposalId) {
+  return liveEntries(items).find(({ entry }) => entry.proposalId === proposalId) || null;
 }
 
 /**
@@ -305,6 +363,12 @@ export function applyStreamEvent(run, event, data, errorMessage) {
     if (d.ok !== true) run.failed = true;
   } else if (event === "confirm") {
     const entry = proposalEntry(d.tool, d.proposal);
+    // A change an earlier card still holds, made again on top of what it proposed: that card's entry gives way.
+    const replaced = entry?.replaces ? findProposal(run.items, entry.replaces) : null;
+    if (replaced && replaced.entry.status === "pending") {
+      replaced.entry.status = "superseded";
+      delete replaced.entry.proposalId;
+    }
     run.proposals ||= [];
     const index = entry ? run.proposals.findIndex((item) => item.proposalId === entry.proposalId) : -1;
     if (index >= 0) run.proposals[index] = entry;
@@ -388,6 +452,29 @@ export function applyVerdicts(card, results) {
   return out;
 }
 
+/**
+ * Record Undo's *results* on *card*'s applied edits. `undone` makes an edit pending again, to apply or cancel; any other
+ * verdict leaves it applied with its reason, and one that can no longer be undone loses its control. Returns what the undone
+ * ones changed and their summaries.
+ */
+export function undoVerdicts(card, results) {
+  const out = { resources: [], summaries: [] };
+  for (const result of Array.isArray(results) ? results : []) {
+    const entry = card.proposals.find((item) => item.status === "applied" && item.proposalId === result?.proposal_id);
+    if (!entry) continue;
+    if (result.verdict === "undone") {
+      entry.status = "pending";
+      entry.note = "Undone; the stored text is back. Apply it again or cancel it.";
+      out.resources.push(...(result.resources || []));
+      out.summaries.push(text(result.summary, MAX_NOTE_CHARS) || `Undid the edit to the ${edited(entry)}.`);
+    } else {
+      entry.note = UNDO_NOTES[result.verdict] || text(result.message, MAX_NOTE_CHARS) || "Not undone.";
+      if (result.verdict !== "busy") delete entry.proposalId;
+    }
+  }
+  return out;
+}
+
 function clipped(value, { head, tail }) {
   if (value.length <= head + tail + 1) return esc(value);
   return `${head ? esc(value.slice(0, head)) : ""}<span class="asst-gap">…</span>${tail ? esc(value.slice(-tail)) : ""}`;
@@ -465,20 +552,65 @@ function entryDiffHtml(entry) {
   return html;
 }
 
-function entryHtml(entry) {
+const button = (action, label, attrs, { accent = false, disabled = false } = {}) =>
+  `<button type="button" class="btn btn-xs${accent ? " btn-accent" : ""}" data-wf-action="assistant:${action}"${attrs}` +
+  `${disabled ? " disabled" : ""}>${label}</button>`;
+
+// The controls of one live entry: a pending change applies, is discarded or, for text, edited by hand first; an applied edit
+// can be undone. A delete has no text to edit and no undo.
+function entryControls(entry, busy) {
+  if (!entry.proposalId) return "";
+  const attrs = ` data-proposal="${escAttr(entry.proposalId)}"`;
+  const textEdit = entry.action !== "delete" && !entry.list;
+  let controls = "";
+  if (entry.status === "pending" && entry.editing) {
+    controls =
+      button("reviseSave", "Save text", attrs, { accent: true, disabled: busy }) +
+      button("reviseCancel", "Back", attrs);
+  } else if (entry.status === "pending") {
+    controls =
+      button("apply", entry.action === "delete" ? "Delete" : "Apply", attrs, { accent: true, disabled: busy }) +
+      (textEdit ? button("revise", "Edit", attrs, { disabled: busy }) : "") +
+      button("cancel", "Discard", attrs, { disabled: busy });
+  } else if (entry.status === "applied" && entry.action !== "delete") {
+    controls = button("undo", "Undo", attrs, { disabled: busy });
+  }
+  return controls ? `<div class="asst-edit-actions">${controls}</div>` : "";
+}
+
+function editorHtml(entry) {
+  return (
+    `<textarea class="asst-revise" data-wf-action="assistant:reviseDraft" data-wf-on="input" ` +
+    `data-proposal="${escAttr(entry.proposalId)}" aria-label="Your text for this edit" rows="6">${esc(entry.draft ?? entry.after)}</textarea>`
+  );
+}
+
+function entryHtml(entry, busy) {
+  const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
+  const noteHtml = note ? `<div class="asst-proposal-note">${esc(note)}</div>` : "";
+  if (entry.action === "delete") {
+    return (
+      `<div class="asst-edit asst-edit-delete asst-edit-${entry.status}">` +
+      `<div class="asst-diff-label">Delete <span class="asst-diff-size">cannot be undone</span></div>` +
+      (entry.detail ? `<div class="asst-delete-detail">${esc(entry.detail)}</div>` : "") +
+      noteHtml +
+      entryControls(entry, busy) +
+      "</div>"
+    );
+  }
   const unit = entry.list ? "items" : "characters";
   const size = `${entry.beforeChars.toLocaleString("en-US")} → ${entry.afterChars.toLocaleString("en-US")} ${unit}`;
-  const diff = entryDiffHtml(entry);
-  const note = entry.note || PROPOSAL_NOTES[entry.status] || "";
+  const body = entry.editing && entry.proposalId ? editorHtml(entry) : entryDiffHtml(entry);
   return (
     `<div class="asst-edit asst-edit-${entry.status}">` +
-    `<div class="asst-diff-label">${esc(entry.field || "Text")} <span class="asst-diff-size">${size}</span></div>${diff}` +
-    (note ? `<div class="asst-proposal-note">${esc(note)}</div>` : "") +
+    `<div class="asst-diff-label">${esc(entry.field || "Text")} <span class="asst-diff-size">${size}</span></div>${body}` +
+    noteHtml +
+    entryControls(entry, busy) +
     "</div>"
   );
 }
 
-function cardHtml(card, index, { active, busy }) {
+function cardHtml(card, index, { busy }) {
   const groups = new Map();
   for (const entry of card.proposals) {
     if (!PROPOSAL_STATES.has(entry.status)) continue;
@@ -489,23 +621,25 @@ function cardHtml(card, index, { active, busy }) {
   const body = [...groups.values()]
     .map(
       (entries) =>
-        `<div class="asst-proposal-target">${esc(entries[0].label || "an item")}</div>${entries.map(entryHtml).join("")}`,
+        `<div class="asst-proposal-target">${esc(entries[0].label || "an item")}</div>${entries.map((entry) => entryHtml(entry, busy)).join("")}`,
     )
     .join("");
-  const pending = card.proposals.some((entry) => entry.status === "pending");
-  const disabled = busy ? " disabled" : "";
-  let controls = "";
-  if (card === active && pending) {
-    controls =
-      `<button type="button" class="btn btn-accent btn-sm" data-wf-action="assistant:apply"${disabled}>Apply</button>` +
-      `<button type="button" class="btn btn-sm" data-wf-action="assistant:cancel"${disabled}>Cancel</button>`;
-  } else if (card.request && card.proposals.some((entry) => ASK_AGAIN.has(entry.status))) {
-    controls = `<button type="button" class="btn btn-sm" data-wf-action="assistant:askAgain" data-index="${escAttr(String(index))}">Ask again</button>`;
-  }
+  const live = card.proposals.filter((entry) => entry.proposalId && entry.status === "pending");
+  const attrs = ` data-index="${escAttr(String(index))}"`;
   const total = card.proposals.length;
+  let controls = "";
+  if (live.length > 1) {
+    controls =
+      button("applyAll", `Apply all ${live.length}`, attrs, { accent: true, disabled: busy }) +
+      button("cancelAll", "Cancel all", attrs, { disabled: busy });
+  } else if (!live.length && card.request && card.proposals.some((entry) => ASK_AGAIN.has(entry.status))) {
+    controls = button("askAgain", "Ask again", attrs);
+  }
+  const deletes = card.proposals.filter((entry) => entry.action === "delete").length;
+  const noun = deletes === total ? "delete" : deletes ? "change" : "edit";
   return (
-    `<div class="asst-proposal${pending && card === active ? " asst-proposal-live" : ""}" role="group" aria-label="Proposed edits">` +
-    `<div class="asst-proposal-head">${total === 1 ? "Proposed edit" : `${total} proposed edits`}</div>${body}` +
+    `<div class="asst-proposal${live.length ? " asst-proposal-live" : ""}" role="group" aria-label="Proposed changes">` +
+    `<div class="asst-proposal-head">${total === 1 ? `Proposed ${noun}` : `${total} proposed ${noun}s`}</div>${body}` +
     (card.note ? `<div class="asst-proposal-note">${esc(card.note)}</div>` : "") +
     (controls ? `<div class="asst-proposal-actions">${controls}</div>` : "") +
     "</div>"
@@ -524,6 +658,16 @@ const SUGGESTIONS = {
     "Summarise this character.",
     "Tighten this character's description.",
     "Write a persona that would make a good foil for this character.",
+  ],
+  entry: [
+    "Tighten this entry without losing any facts.",
+    "Suggest keywords that would bring this entry up.",
+    "Does this entry contradict anything else in its world?",
+  ],
+  world: [
+    "Which entries in this world have no keywords?",
+    "Summarise this world in a paragraph.",
+    "Add an entry for the world's capital.",
   ],
   document: [
     "Summarise this document.",
@@ -585,10 +729,10 @@ function proseHtml(item, renderProse) {
 /**
  * The log's rows as `[{ key, html }]`, each one element. User text, labels, tool lines, outcomes and proposed edits are
  * escaped; only an assistant reply goes through *renderProse*, inside `.msg-body`, where no element can name an action.
- * Apply and Cancel are drawn only on *active*, the one card this page holds, and are disabled while *busy*. An empty log
+ * A change's controls are drawn while this page holds its proposal, and are disabled while *busy*. An empty log
  * suggests requests for *suggestFor* (`chat`, `character`, `document` or `library`).
  */
-export function transcriptEntries(items, renderProse, { active = null, busy = false, suggestFor = "library" } = {}) {
+export function transcriptEntries(items, renderProse, { busy = false, suggestFor = "library" } = {}) {
   if (!items.length) return emptyEntries(suggestFor);
   let view = null;
   const rows = [];
@@ -615,7 +759,7 @@ export function transcriptEntries(items, renderProse, { active = null, busy = fa
           `<span class="asst-tool-text">${esc(result)}</span></div></div>`,
       );
     } else if (item.kind === "proposals") {
-      add(cardHtml(item, index, { active, busy }));
+      add(cardHtml(item, index, { busy }));
     } else if (item.kind === "outcome" && item.reason === "opened") {
       add(`<div class="asst-sep" role="separator">${esc(item.text)}</div>`);
     } else if (item.kind === "outcome" && OUTCOMES.has(item.reason)) {

@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..core.domain_types import AgentLane, CompletionMode, EndpointKind
-from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_TOOL_EXECUTIONS, MAX_VIEW_LABEL_CHARS
+from ..features.assistant import MAX_ITEM_CHARS, MAX_REPLAY_ITEMS, MAX_VIEW_LABEL_CHARS
 
 
 class _PartialUpdate(BaseModel):
@@ -946,6 +946,15 @@ class AssistantViewContext(BaseModel):
     conversation_id: str | None = Field(default=None, min_length=1, max_length=64)
     character_id: str | None = Field(default=None, min_length=1, max_length=64)
     document_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # The lorebook drawer's open world and selected entry, over whichever view is behind it.
+    world_id: str | None = Field(default=None, min_length=1, max_length=64)
+    entry_id: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def entry_needs_its_world(self) -> AssistantViewContext:
+        if self.entry_id is not None and self.world_id is None:
+            raise ValueError("A lore entry is named with its world")
+        return self
 
 
 class AssistantTranscriptItem(BaseModel):
@@ -976,6 +985,9 @@ class AssistantRunRequest(BaseModel):
     # The token the previous reply's ``done`` carried: that run's context, held by the server, then stands in for the replay.
     resume: str = Field(default="", max_length=64)
     reasoning: bool = False
+    # The proposals earlier requests made that the user's card still holds pending: the request is told of them, and a further
+    # edit or delete of the same thing replaces one. Ids only; the texts are the server's.
+    pending: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
     def ends_with_a_request(self) -> AssistantRunRequest:
@@ -990,5 +1002,14 @@ class AssistantApplyRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # One run proposes at most one edit per tool run.
-    proposal_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(min_length=1, max_length=MAX_TOOL_EXECUTIONS)
+    # As many as the server holds at once.
+    proposal_ids: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(min_length=1, max_length=32)
+
+
+class AssistantReviseRequest(BaseModel):
+    """The user's own text for one pending edit, which Apply then writes in place of the proposed one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(max_length=200_000)

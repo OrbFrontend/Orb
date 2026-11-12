@@ -455,15 +455,20 @@ function deleteDocument(id) {
           if (S.docStreaming) throw new Error("Document generation has not settled yet");
         }
         await api.del(`/documents/${id}`);
-        S.documents = S.documents.filter((d) => d.id !== id);
-        if (S.activeDocId === id) clearEditor();
-        renderDocuments();
+        forgetDocument(id);
         toast("Deleted");
       } catch (e) {
         toast(e.message, true);
       }
     },
   );
+}
+
+/** Let go of document *id*, deleted on the server: gone from the list, and the editor cleared if it is the one open. */
+export function forgetDocument(id) {
+  S.documents = S.documents.filter((d) => d.id !== id);
+  if (S.activeDocId === id) clearEditor();
+  renderDocuments();
 }
 
 function scheduleSave() {

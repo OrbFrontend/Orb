@@ -17,14 +17,15 @@ browser stores and refreshes what changed.
 | `backend/features/assistant/` | The facade, contracts, the model loop and its prompt. It receives tool callables and imports no API, pipeline, workflow or peer feature code. |
 | `backend/api/assistant/` | The tools over the existing readers and writers, and Apply. `__init__.py` holds `build_tools`, which assembles every tool for one run. |
 | `backend/api/assistant/targets.py` | Bounded ids and labels, and the checks that resolve a tool's chat, character or reply from its arguments and the view |
-| `backend/api/assistant/reads.py` | The thirteen read tools, their projections and paging |
+| `backend/api/assistant/reads.py` | The fourteen read tools, their projections and paging |
 | `backend/api/assistant/toggles.py` | The switch table, `set_pipeline_toggle`, and the switch summary |
 | `backend/api/assistant/setters.py` | A lore entry's switches and keywords, a world's name and flags, the Length Guard's limits, the active persona, the phrase bank |
-| `backend/api/assistant/edits.py`, `proposals.py` | The four edit tools; the proposal store and Apply |
+| `backend/api/assistant/edits.py`, `deletes.py`, `proposals.py` | The four edit tools; the eight delete tools; the proposal store, Apply, Undo and Revise |
 | `backend/api/assistant/actions.py`, `media.py` | Creates, chat starts and settings, chat actions and handoffs; the media tools |
 | `backend/api/conversation_start.py` | The solo-chat writer the conversation route and `start_chat` share |
+| `backend/api/deletions.py` | The chat, message and document deletes their routes and Apply share, with their fences |
 | `backend/api/workflow_dispatch.py` | On-demand workflow dispatch, shared with the trigger route |
-| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop` and `/apply`, and the view check |
+| `backend/api/routes/assistant.py` | `POST /api/assistant/run`, `/stop`, `/apply`, `/undo` and `/revise`, and the view check |
 | `frontend/assistant_view.js` (layer 1) | Transcript validation, replay, stream-event handling, Apply verdicts and markup; no DOM lookups or requests |
 | `frontend/assistant_chat.js` (layer 5) | The panel, its run, Stop, Apply, handoffs and refreshes |
 
@@ -35,7 +36,9 @@ tools are not in `prompting/tool_catalog.py` and never reach a turn.
 
 ```text
 POST /api/assistant/run?operation_id=<id>
-  { items: [... , {kind: "user", text}], context: {mode, conversation_id?, character_id?, document_id?}, resume? }
+  { items: [... , {kind: "user", text}],
+    context: {mode, conversation_id?, character_id?, document_id?, world_id?, entry_id?},
+    resume?, reasoning?, pending? }
 ```
 
 `items` is the browser's transcript, at most 100 entries of at most 8,000
@@ -44,6 +47,17 @@ The server checks every id and how they relate before the model is called: a
 chat view names its chat, a document view names its document and nothing else,
 a character must be the chat's own or a member of the group. A group view never
 infers a character; tools that need one ask for it.
+
+The lorebook drawer opens over any of these views, so its open world and the
+saved entry selected on its Entries tab ride with whichever view is behind it
+(`world_id`, `entry_id`); an entry is named only with its own world. The view
+note names both, `read_context` reports them, and every tool that takes a
+`world_id` or an `entry_id` uses them when the argument is left empty. An entry
+named without a world is found in its own world.
+
+`pending` names the proposals earlier requests made that the user's cards still
+hold. The server keeps those still held and not applied, and ignores the rest;
+see [Across requests](#across-requests).
 
 The run streams through `sse_stream` under the reserved key `assistant:run`,
 which no conversation id can spell. That makes one run at a time server-wide; a
@@ -134,7 +148,7 @@ an oversized one becomes an error result rather than a cut value.
 
 ### Follow-ups
 
-A run that ends with a reply and proposed no edit is held by the server, whole:
+A run that ends with a reply is held by the server, whole:
 its working context as the reply was made, that reply's call, and a result
 closing it. Its `done` carries a `resume` token, and the browser sends that
 token with the next request. The server holds one, and every run takes it,
@@ -142,7 +156,9 @@ matched or not, so a request from another tab or after Clear replays its own
 transcript. When the token matches, the held context was made under the same
 system prompt, tools, model and endpoint, and it leaves a quarter of the budget for the
 run, it stands in for the replayed history: the model sees its earlier results
-whole and the server's cache holds through them. After an hour the transcript
+whole and the server's cache holds through them. A run that proposed is held
+too: the next request's pending note says which of its proposals still wait,
+and an Apply in between is a commit like any other. After an hour the transcript
 replays instead. A follow-up with thinking off sends none of the held
 reasoning back; with thinking on, it sends all of it. Reasoning never enters
 the browser's transcript, so a replay carries none.
@@ -165,13 +181,16 @@ native tool messages.
 ## Tools
 
 Every tool has a name, a description, a flat argument model, a behaviour class
-and a callable. The prompt marks each class.
+and a callable. The prompt marks each class. Names are a verb and what it acts
+on: `read_` one thing, `list_` several, `set_` an explicit state, `create_`,
+`edit_` (proposed) and `delete_` (proposed). A lore entry is `lore_entry`
+throughout.
 
 | Class | Tools | Behaviour |
 |---|---|---|
-| read | `get_context`, `list_characters`, `get_character`, `query_library`, `read_messages`, `list_worlds`, `list_lorebook_entries`, `list_active_lore`, `list_personas`, `read_document`, `read_state`, `get_settings_summary`, `list_banned_phrases` | Runs at once; changes nothing. |
-| write | `set_pipeline_toggle`, `set_lorebook_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_lorebook_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
-| confirm | `edit_character`, `edit_lorebook_entry`, `edit_persona`, `edit_message` | Stores a proposal and carries on; the user's Apply commits it after the run. |
+| read | `read_context`, `list_characters`, `read_character`, `query_library`, `read_messages`, `list_worlds`, `list_lore_entries`, `list_active_lore_entries`, `list_personas`, `list_documents`, `read_document`, `read_chat_state`, `read_settings`, `list_banned_phrases` | Runs at once; changes nothing. |
+| write | `set_pipeline_toggle`, `set_lore_entry`, `set_world`, `set_length_guard`, `set_active_persona`, `add_banned_phrase`, `create_lore_entry`, `create_character`, `create_world`, `create_persona`, `set_chat_world`, `checkpoint_chat`, `switch_branch`, `start_chat`, `set_chat`, `generate_image`, `generate_speech` | Commits at once. |
+| confirm | `edit_character`, `edit_lore_entry`, `edit_persona`, `edit_message`, `delete_character`, `delete_chat`, `delete_message`, `delete_world`, `delete_lore_entry`, `delete_persona`, `delete_banned_phrase`, `delete_document` | Stores a proposal and carries on; the user's Apply commits it after the run. |
 | handoff | `regenerate_reply`, `rewrite_reply`, `continue_chat`, `send_as_user`, `open_chat` | Checks a target and ends the run; the chat's own stream, or for `open_chat` the browser, does the work. |
 
 Reads project explicit allowlists, never whole rows: no avatars, extensions,
@@ -187,9 +206,9 @@ names the next one as `earlier_from`), or those containing `query`; it never
 searches a branch the user left. Each message carries its `number`, the `#N`
 the chat window shows, and every summary naming a message uses it rather than
 the id; `number` reads one message by its `#N`, so a request that names one
-never pages to find its id. `list_active_lore` lists the entries in effect
+never pages to find its id. `list_active_lore_entries` lists the entries in effect
 for a chat, overlays resolved as the prompt resolves them; nothing records which
-of them a given reply drew on. `get_character` reads the alternate greetings
+of them a given reply drew on. `read_character` reads the alternate greetings
 only whole, since an edit replaces the list whole; a list too long to send is
 refused rather than cut.
 
@@ -212,7 +231,9 @@ the conversation route's own solo-chat writer, greeting and alternate greetings
 included, and opens nothing. A setter's flag is `on`, `off` or `unchanged`, so
 it can never flip a state it did not read. `set_length_guard` keeps the Length
 Guard's own bounds (50 to 4,000 words, 1 to 20 paragraphs) in its argument model
-and never switches the guard; `add_banned_phrase` adds a literal group and does
+and never switches the guard; `set_lore_entry` sets secondary keywords together
+with the entry's Selective flag, as the drawer does, so they always count or are
+cleared together; `add_banned_phrase` adds a literal group and does
 not add a phrase the bank already holds, and both results say when the switch
 that applies them is off. Chat mutations take
 the chat's lane through `idle_chat_admission`, which refuses a chat being
@@ -225,12 +246,12 @@ writes only its own key, and workflow toggles go through `set_workflow_toggle`,
 the route's own path with its runtime callbacks. `editor` maps to the Output
 Auditor (on) or the Output Auditor and Length Guard (off). The result reports
 stored and effective state, and a master switch that blocks it is reported, not
-changed. `get_settings_summary` reports every switch under the name
+changed. `read_settings` reports every switch under the name
 `set_pipeline_toggle` takes for it.
 
-## Reviewed edits
+## Reviewed changes
 
-An edit tool reads and validates its target and writes nothing. Text edits are
+An edit or delete tool reads and validates its target and writes nothing. Text edits are
 `replace_all`, `find_replace`, where `find` must occur exactly once, or
 `replace_every`, which replaces each occurrence. A `find` that matches only
 once its JSON string escapes are decoded is taken as that text, since a read
@@ -257,12 +278,44 @@ otherwise apply twice, and a small model would repeat it until the run's budget
 ran out. The prompt tells the model never
 to run a step that depends on an edit it proposed; the loop does not enforce it.
 
+### Across requests
+
+A card stays open to Apply after its run, and the next request names its
+pending proposals (`pending`). Their texts are the server's own: the request
+carries a note listing each, with its pending text clipped like a read, so the
+model can build on it, and the note says that anything not listed was applied,
+cancelled or expired. A further edit to a field one of them holds is made on its
+pending text into a new proposal that `replaces` it; the server forgets the
+replaced one, and the browser marks its entry superseded. Where the stored text
+has moved since that preview, which could then never apply, the new edit starts
+from the stored text instead and its result says so.
+
+### Deletes
+
+A delete is never a write the run makes: it cannot be undone, so it is a
+proposal the user applies. Its preview says what goes with it: a character's
+chats (kept unless `delete_chats`, which deletes its solo chats and every group
+it is in), a chat's messages, a message's other versions at that point and
+everything after them on every branch, a world's entries, whether a persona is
+the active one, a phrase group's variants, a document's saved length. The prompt
+allows a delete only when the latest request asks for that thing to go, and
+points at turning a lore entry off instead. A delete already pending for the same
+target is refused; one with a different choice (`delete_chats`) replaces it.
+
+Apply deletes through the app's own path and fences: the chat and message
+deletes in `backend/api/deletions.py`, which their routes share, a lore entry
+through the lorebook feature so a Dynamic World records it, a character through
+the card's guarded delete. A chat or message delete is `busy` while that chat is
+generating, where the chat list's own delete would stop the reply first. A
+persona delete also clears the active persona when it named that one, as the
+persona list does.
+
 ### The proposal store
 
 Proposals live in process memory, at most 32, each for 15 minutes from its last
 change; a restart forgets them. Eviction takes proposals not yet applied first.
-A proposal holds its canonical target, the one field it changes, and the exact
-before and after texts. Message macros resolve once, when the proposal is made,
+A proposal holds its canonical target, the one field it changes (or that it
+deletes the target), and the exact before and after texts. Message macros resolve once, when the proposal is made,
 so Apply commits the text the preview showed.
 
 ```text
@@ -277,7 +330,25 @@ the chat's lane; cards keep their chats in step; lore entries keep their
 revision. The verdicts are `applied`, `stale` (the text changed after the
 preview), `missing` (the target is gone), `busy` (the chat is generating or
 being deleted; the one verdict worth retrying) and `expired` (unknown to the
-server). One stale proposal never stops the rest.
+server). One stale proposal never stops the rest. An applied delete's resource
+carries `deleted: true`.
+
+```text
+POST /api/assistant/undo    {proposal_ids: [...]}   → 200 {results: [{proposal_id, verdict, summary?, message?, resources?}]}
+POST /api/assistant/revise  {proposal_id, text}      → 200 {proposal_id, verdict, proposal?, message?}
+```
+
+Undo writes an applied edit's `before` back where the field still holds its
+`after`, compared in one transaction as Apply is, and makes the proposal pending
+again: `undone`, or `stale` when the text moved on, `refused` for a delete or an
+edit not applied, and `missing`, `busy` or `expired` as for Apply. It lasts as
+long as the proposal: 15 minutes from the Apply, in this process.
+
+Revise is the one place the browser sends text: the user's own replacement for
+what a pending text edit writes, never a target. It answers the new preview
+(`revised`), or `refused` (applied, a list field, a delete, an empty required
+field, or the stored text unchanged) or `expired`. A message's macros resolve as
+they do when proposed.
 
 The result is kept the moment the guarded write returns, and a repeated Apply
 returns it (`repeated: true`) without comparing again; concurrent Applies wait
@@ -291,7 +362,7 @@ Apply; the browser's refresh shows the new text.
 `regenerate_reply` and `rewrite_reply` check that the reply is on the chat's
 kept branch and the chat is idle. `continue_chat` checks that the chat is idle
 and names its last message: an unanswered user message is answered, and in a
-group a member named by `speaker_member_id` (a member id from `get_context`'s
+group a member named by `speaker_member_id` (a member id from `read_context`'s
 cast, or a name only one member has) takes a turn; a solo chat whose last message is a reply has nothing to continue,
 since its character never replies twice in a row. `send_as_user` takes the
 user's next message, written by the model, and checks that the chat is idle
@@ -320,11 +391,21 @@ a chat's kept branch. They are listed whenever their workflow (`image_gen`,
 off: the refusal names the switch that is off, the workflow's own or the
 `workflows` master, and says the assistant can turn it on if asked.
 
+`generate_image` takes an optional `direction`: what the user wants this image
+to show, beside the reply it is made of. The image workflow's composer follows
+it over the reply on the moment, framing, focus, pose, mood and lighting, keeping
+each subject's identity from the story, and each review of a render holds the
+render to the direction first, so a departure the user asked for is never
+corrected back toward the reply. The render records it in its metadata. Without
+one the image is composed from the reply alone, as the reply's image button
+does; a Regenerate from the image composes from the reply again.
+
 A media tool runs the workflow's hook through `run_on_demand`, the same
 dispatch, enablement gate, workflow-state and character-state locks, character
 resolution, context and failure mapping as
 `POST /conversations/{cid}/workflows/{wid}/trigger`. The body is the plug-in's
-own on-demand contract (`{action, message_id}`), and the result is read from
+own on-demand contract (`{action, message_id}`, and for an image an optional
+`direction`), and the result is read from
 what the hook returns: `attachment_id` or `error`, or a stream of
 `phase_status`, `<wid>_render`, `<wid>_error` and `<wid>_done` events. Nothing
 imports a plug-in.
@@ -359,7 +440,7 @@ render.
 | `tool_start` | `{call_id, tool}` | A tool is about to run. |
 | `mutation` | `{call_id, tool, resources}` | A write committed these resources. |
 | `tool_result` | `{call_id, tool, ok, summary, ids}` | Its outcome, paired by `call_id`. |
-| `confirm` | `{call_id, tool, proposal}` | A proposal's preview; a later one with the same `proposal_id` replaces it. |
+| `confirm` | `{call_id, tool, proposal}` | A proposal's preview (`action` is `edit` or `delete`); a later one with the same `proposal_id` replaces it, and one naming an earlier request's proposal in `replaces` supersedes that one. |
 | `handoff` | `{call_id, tool, handoff}` | The checked chat target to start. |
 | `done` | `{reason, message, resume?}` | Terminal: `reply`, `stopped`, `limit` or `handoff`. An early end names the changes already committed. `resume` names the held context of a reply (see [Follow-ups](#follow-ups)). |
 | `error` | Failure | Terminal: an unusable model reply, a request that cannot fit, or a provider failure. |
@@ -381,8 +462,8 @@ it, and so does a handoff that starts, since the chat writes its reply under the
 panel. Opening it focuses the input on the wide layout only, where no keyboard
 rises.
 
-A run and its card outlive a closed panel. Every control that opens it marks a
-run in progress and counts the edits waiting for Apply; the marks are painted
+A run and its cards outlive a closed panel. Every control that opens it marks a
+run in progress and counts the changes waiting for Apply; the marks are painted
 from attributes on `#app`, so a control rendered later shows them too.
 
 The transcript lives in `localStorage` under `orb-assistant-transcript`, at most
@@ -398,22 +479,33 @@ follow-up token, which lives in memory and is dropped by Clear. A tool
 still waiting when the page closes, or when the run ends, reads "No result was
 received; check before asking again."
 
-The edits a run proposed become one card at the end of the run, however it
-ended: proposing wrote nothing, so showing them is safe. The card groups the
-edits by what they change, shows each field's diff and lengths, and has one
-Apply and one Cancel. A diff is shown whole, its unchanged text shortened to the
-context around each change; in a panel wide enough it is two columns, the text
-now and the text proposed. A list field shows the items it removes and adds and
-how many it keeps. Apply sends the ids still pending and marks each edit with
-its verdict; a `busy` edit stays pending, so Apply stays and sends only those,
-and a partly stale card says which were skipped. An Apply that ends without
-verdicts leaves the card pending with a note to try again. Only the card of the
-latest run can be applied: a new request closes it, and a reloaded card is
-historical. A card with an edit not applied offers Ask again, which puts the
-request back in the input.
+The changes a run proposed become one card at the end of the run, however it
+ended: proposing wrote nothing, so showing them is safe. The card groups them by
+what they change and shows each field's diff and lengths, or for a delete what
+goes with it and that it cannot be undone. A diff is shown whole, its unchanged
+text shortened to the context around each change; in a panel wide enough it is
+two columns, the text now and the text proposed. A list field shows the items it
+removes and adds and how many it keeps.
+
+Each change has its own controls while this page holds its proposal id: a
+pending one has Apply (Delete, for a delete) and Discard, and a text edit has
+Edit, which opens the proposed text in a box; Save sends it to `/revise` and the
+diff then shows the user's own text. An applied edit has Undo, which makes it
+pending again. A card with more than one pending change also has Apply all and
+Cancel all. Apply sends the ids it names and marks each change with its verdict;
+a `busy` change stays pending, and a partly stale card says which were skipped.
+An Apply that ends without verdicts leaves the changes pending with a note to try
+again. Discard and Cancel send nothing.
+
+A card stays live across later requests: each request sends the ids of every
+pending change on every card (`pending`), and a `confirm` naming one in
+`replaces` marks that entry superseded. A reloaded card keeps no ids, so its
+changes are historical. A card with a change not applied and none left pending
+offers Ask again, which puts the request back in the input.
 
 The composer is one box: the input grows with its text, the view label the
-next request is about sits under it beside the Think box, and the corner
+next request is about (with the lorebook drawer's world or entry after it, while
+the drawer is open) sits under it beside the Think box, and the corner
 button sends, or stops while a run goes. Think applies from the next request. An empty transcript offers a few requests suited to the view;
 picking one fills the input and sends nothing. Each request captures its view at Send; changing
 view affects the next request, not a running one. The transcript shows a separator where the view changes,
@@ -426,7 +518,11 @@ Committed resources are read again by id through the loaders that own them,
 as each `mutation` arrives and after an Apply: worlds and entries, the settings
 keys a toggle wrote (through the settings store's queue), characters, personas,
 the chat list, a chat's worlds, a branch change, and a message or media job's
-chat. A chat repaints only while it is the one in view and its view token
+chat. A deleted chat, document, world or character is let go of as the app's
+own delete does, through helpers its module exports (`forgetConversation`,
+`forgetDocument`, `forgetWorld`): the chat view empties, the editor clears or the
+drawer closes when it is the one open, and an entry deleted while selected in the
+drawer leaves its editor. A chat repaints only while it is the one in view and its view token
 unchanged; nothing opens a chat or moves focus. A lore entry open in the drawer
 takes a change made elsewhere field by field. When a run ends any way other than
 `reply` or `handoff`, or any tool result in it came back failed, the browser

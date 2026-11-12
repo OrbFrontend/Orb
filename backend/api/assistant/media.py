@@ -5,7 +5,8 @@ assistant's Stop cancels that job alone) and under the message it renders (so de
 settles it). A lazy event stream the hook returns is consumed inside that same job until it settles. A
 result names the attachments that job reported saving; a job that started and saved nothing is not a success.
 
-The hooks are reached through the contract the frontend uses over HTTP: an ``action`` and a ``message_id`` in the body, then
+The hooks are reached through the contract the frontend uses over HTTP: an ``action`` and a ``message_id`` in the body (and for
+an image, an optional ``direction``), then
 either a JSON result with ``attachment_id`` or ``error``, or a stream of ``<workflow>_render`` / ``<workflow>_error`` /
 ``<workflow>_done`` events beside ``phase_status`` labels. Nothing here imports a plug-in.
 """
@@ -64,7 +65,12 @@ class _Medium:
     verb: str
     starting: str
     description: str
+    # Takes the user's own direction for what to make, beside the reply it is made of.
+    directed: bool = False
 
+
+# The longest direction an image request carries; the image workflow bounds it again.
+_DIRECTION_CHARS = 1000
 
 _MEDIA = (
     _Medium(
@@ -75,8 +81,11 @@ _MEDIA = (
         "an image",
         "illustrated",
         "Composing the image prompt…",
-        "Make an image of one saved reply in a chat with the Image Generation workflow, as the reply's image button does, and "
-        "save it on that message. It takes no direction: the prompt comes from the reply. It takes a while, often minutes.",
+        "Make an image of one saved reply in a chat with the Image Generation workflow and save it on that message. With "
+        "direction, the image follows what the user asked for (moment, framing, focus, pose, mood, lighting), the reply "
+        "supplying the scene and who is in it; without, it is composed from the reply alone, as the reply's image button does. "
+        "It takes a while, often minutes.",
+        directed=True,
     ),
     _Medium(
         "generate_speech",
@@ -95,6 +104,14 @@ _MEDIA = (
 class _MediaArgs(ToolArguments):
     conversation_id: str = chat_field()
     message_id: int = Field(ge=1, description="The saved reply to make it of, from read_messages.")
+
+
+class _ImageArgs(_MediaArgs):
+    direction: str = Field(
+        default="",
+        max_length=_DIRECTION_CHARS,
+        description="What the user wants this image to show, in their words or a faithful paraphrase; empty: from the reply alone.",
+    )
 
 
 @dataclass
@@ -161,10 +178,13 @@ async def _consume(stream: WorkflowEventStream, medium: _Medium, outcome: _Outco
                 await close()
 
 
-async def _produce(cid: str, medium: _Medium, mid: int, outcome: _Outcome, report: Callable[[str], None]) -> None:
-    """The job: the hook through the shared dispatch, and its stream if it returns one."""
+async def _produce(
+    cid: str, medium: _Medium, body: Mapping[str, Any], outcome: _Outcome, report: Callable[[str], None]
+) -> None:
+    """The job: the hook through the shared dispatch with *body*, and its stream if it returns one."""
+    mid = body["message_id"]
     try:
-        result = await run_on_demand(cid, medium.workflow_id, {"action": medium.action, "message_id": mid})
+        result = await run_on_demand(cid, medium.workflow_id, dict(body))
         if isinstance(result, WorkflowEventStream):
             await _consume(result, medium, outcome, report)
             return
@@ -188,7 +208,14 @@ def build_media_tools(view: ViewContext, run: MediaRun | None) -> list[Assistant
     if run is None:
         return []
     return [
-        AssistantTool(m.tool, m.description, _MediaArgs, "write", partial(_make, view, run, m), reports_progress=True)
+        AssistantTool(
+            m.tool,
+            m.description,
+            _ImageArgs if m.directed else _MediaArgs,
+            "write",
+            partial(_make, view, run, m),
+            reports_progress=True,
+        )
         for m in _MEDIA
         if get_workflow(m.workflow_id) is not None and get_subscription(m.workflow_id, HookType.ON_DEMAND)
     ]
@@ -231,11 +258,13 @@ async def _make(view: ViewContext, run: MediaRun, medium: _Medium, args: _MediaA
             "set_pipeline_toggle if they ask."
         )
 
+    direction = args.direction.strip() if isinstance(args, _ImageArgs) else ""
+    body: dict[str, Any] = {"action": medium.action, "message_id": mid, **({"direction": direction} if direction else {})}
     before = set(await message_workflow_attachment_ids(mid, medium.workflow_id))
     outcome = _Outcome()
     run.report(medium.starting)
     try:
-        task = start_workflow_job(cid, _produce(cid, medium, mid, outcome, run.report), job=run.job, message_id=mid)
+        task = start_workflow_job(cid, _produce(cid, medium, body, outcome, run.report), job=run.job, message_id=mid)
     except HTTPException:
         raise ToolFailure("That chat or message is being deleted, so nothing was made.") from None
     stopped = await _waited(task, run.abort)

@@ -560,15 +560,15 @@ def requests() -> list[Request]:
             "read",
             library,
             "Is the Director turned on?",
-            {"get_settings_summary"},
-            _all(_ran("get_settings_summary"), _matches(r"\b(yes|on|enabled)\b")),
+            {"read_settings"},
+            _all(_ran("read_settings"), _matches(r"\b(yes|on|enabled)\b")),
         ),
         r(
             "read_count",
             "read",
             chat,
             "How many messages are in this chat?",
-            {"query_library", "read_messages", "get_context"},
+            {"query_library", "read_messages", "read_context"},
             _matches(r"\b(8|eight)\b"),
         ),
         r(
@@ -576,11 +576,11 @@ def requests() -> list[Request]:
             "read",
             chat,
             "Which world does this chat use?",
-            {"get_context", "query_library", "list_active_lore"},
+            {"read_context", "query_library", "list_active_lore_entries"},
             _says("Harbour"),
         ),
-        r("read_personality", "read", chat, "What is Mara's personality?", {"get_character"}, _says("patient")),
-        r("read_group", "read", group, "Who is in this group chat?", {"get_context", "query_library"}, _says("Mara", "Ivo")),
+        r("read_personality", "read", chat, "What is Mara's personality?", {"read_character"}, _says("patient")),
+        r("read_group", "read", group, "Who is in this group chat?", {"read_context", "query_library"}, _says("Mara", "Ivo")),
         r(
             "read_earlier",
             "read",
@@ -594,16 +594,16 @@ def requests() -> list[Request]:
             "read",
             chat,
             "Which lore entries are in effect in this chat?",
-            {"list_active_lore", "get_context"},
+            {"list_active_lore_entries", "read_context"},
             _says("Tide tax", "Lighthouse"),
         ),
         r(
-            "read_state",
+            "read_chat_state",
             "read",
             chat,
             "What does this chat's inventory state hold?",
-            {"read_state"},
-            _all(_ran("read_state"), _says("compass")),
+            {"read_chat_state"},
+            _all(_ran("read_chat_state"), _says("compass")),
         ),
         # Small writes
         r(
@@ -611,7 +611,7 @@ def requests() -> list[Request]:
             "write",
             library,
             "Turn the Director off.",
-            {"set_pipeline_toggle", "get_settings_summary"},
+            {"set_pipeline_toggle", "read_settings"},
             _db(_director_off),
         ),
         r(
@@ -619,7 +619,7 @@ def requests() -> list[Request]:
             "write",
             library,
             "Switch off secondary workflows.",
-            {"set_pipeline_toggle", "get_settings_summary"},
+            {"set_pipeline_toggle", "read_settings"},
             _db(_workflows_off),
         ),
         r(
@@ -659,7 +659,7 @@ def requests() -> list[Request]:
             "write",
             chat,
             "Use the Inland world in this chat too.",
-            {"list_worlds", "get_context", "query_library"},
+            {"list_worlds", "read_context", "query_library"},
             _db(_inland_attached),
         ),
         r(
@@ -675,7 +675,7 @@ def requests() -> list[Request]:
             "write",
             library,
             "Turn off the Lighthouse lore entry in the Harbour world.",
-            {"list_worlds", "query_library", "list_lorebook_entries"},
+            {"list_worlds", "query_library", "list_lore_entries"},
             _db(_lighthouse_off),
         ),
         r(
@@ -692,7 +692,7 @@ def requests() -> list[Request]:
             "write",
             library,
             "Limit replies to 150 words.",
-            {"set_length_guard", "get_settings_summary"},
+            {"set_length_guard", "read_settings"},
             _db(_length_150),
         ),
         r(
@@ -733,7 +733,7 @@ def requests() -> list[Request]:
             "edit",
             chat,
             "Set Mara's scenario to: A rain-soaked night at the fish market.",
-            {"edit_character", "get_character"},
+            {"edit_character", "read_character"},
             _proposed("character", "scenario", lambda b, a, o: a.strip() == "A rain-soaked night at the fish market."),
         ),
         r(
@@ -741,7 +741,7 @@ def requests() -> list[Request]:
             "edit",
             chat,
             "Add the tag Harbour to Mara's card.",
-            {"get_character", "edit_character"},
+            {"read_character", "edit_character"},
             _proposed("character", "tags", _tagged),
         ),
         r(
@@ -766,7 +766,7 @@ def requests() -> list[Request]:
             "edit3",
             {"mode": "library", "character_id": "ivo"},
             'In Ivo\'s description, replace every "Customs House" with "Tollhouse".',
-            {"get_character"},
+            {"read_character"},
             _proposed("character", "description", _tollhouse),
         ),
         # A field near 8,000 characters
@@ -775,7 +775,7 @@ def requests() -> list[Request]:
             "edit_long",
             {"mode": "library", "character_id": "kestrel"},
             "In Kestrel's description, change Port Vell to Port Sable.",
-            {"get_character", "edit_character"},
+            {"read_character", "edit_character"},
             _proposed("character", "description", _port_sable),
         ),
         r(
@@ -783,7 +783,7 @@ def requests() -> list[Request]:
             "edit_long",
             {"mode": "library", "character_id": "kestrel"},
             "Remove the last paragraph of Kestrel's description.",
-            {"get_character"},
+            {"read_character"},
             _proposed("character", "description", _last_paragraph_gone),
         ),
         # Media and handoffs
@@ -832,7 +832,7 @@ def requests() -> list[Request]:
             "handoff",
             group,
             "Let Ivo take the next turn in this group.",
-            {"get_context", "continue_chat"},
+            {"read_context", "continue_chat"},
             _ivo_speaks,
         ),
     ]

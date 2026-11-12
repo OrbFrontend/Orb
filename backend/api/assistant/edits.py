@@ -1,10 +1,14 @@
-"""The assistant's reviewed edits: four tools that propose a change to existing text and write nothing."""
+"""The assistant's reviewed edits: four tools that propose a change to existing text and write nothing.
+
+A field an earlier request already proposed an edit to, and the user has not applied, is edited on from that pending text: the
+new proposal replaces the earlier one on the user's card.
+"""
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, StringConstraints, create_model
@@ -12,21 +16,22 @@ from pydantic import Field, StringConstraints, create_model
 from ...core.macros import resolve_inline
 from ...database import get_active_path, greeting_rerolls
 from ...features.assistant import MAX_ITEM_CHARS, AssistantTool, ToolArguments, ToolFailure, ToolOutput, ToolSet, ViewContext
-from .proposals import FIELD_LABELS, PROPOSAL_TTL_SECS, Proposal, is_open, revise, store
+from .proposals import Proposal, change_label, is_open, preview, revise, store
 from .targets import (
     CHARACTER_LIST_FIELDS,
-    ID_CHARS,
     CharacterField,
     CharacterListField,
     character_field,
     character_of,
     chat_field,
     chat_in_view,
+    entry_field,
     entry_of,
     message_label,
     message_of,
     persona_of,
     quoted,
+    world_field,
 )
 
 # What one argument may carry, and the longest field a whole-field rewrite may replace. Longer text is refused, never cut: a
@@ -91,29 +96,26 @@ def _edited(before: str, args: Any, reread: str) -> str:
 
 
 _FRESH = (
-    "Nothing has changed yet. The user reviews every edit proposed in this request once it ends, then applies or cancels them; "
-    "until then every read shows the stored text."
+    "Nothing has changed yet. The user reviews every change proposed in this request once it ends, then applies or cancels "
+    "each; until then every read shows the stored text."
 )
 
 _STACKED = (
-    "Added on top of the edit already proposed for this field in this request: the one proposal now holds both. Nothing has "
-    "changed yet; every read still shows the stored text until the user applies."
+    "Added on top of the edit already proposed for this field: the one proposal now holds both. Nothing has changed yet; every "
+    "read still shows the stored text until the user applies."
+)
+
+_STALE_EARLIER = (
+    "An earlier request proposed an edit to this field, but the stored text has changed since, so that preview could never "
+    "apply. This edit starts from the stored text and replaces it. Nothing has changed yet."
 )
 
 
-def _preview(proposal: Proposal, *, stacked: bool) -> ToolOutput:
+def _preview(proposal: Proposal, note: str) -> ToolOutput:
     """The tool's result for *proposal* as it now stands, and the preview the browser shows with Apply and Cancel."""
     before, after, name = proposal.before, proposal.after, proposal.name
     listed = isinstance(after, list)
     key, unit = ("items", "items") if listed else ("chars", "characters")
-    preview = {
-        "proposal_id": proposal.id,
-        "kind": proposal.kind,
-        "target": dict(proposal.target),
-        "label": proposal.label,
-        "fields": [{"field": name, "label": FIELD_LABELS[name], "before": before, "after": after}],
-        "expires_in_s": PROPOSAL_TTL_SECS,
-    }
     data = {
         "proposed": True,
         "applied": False,
@@ -122,14 +124,14 @@ def _preview(proposal: Proposal, *, stacked: bool) -> ToolOutput:
         "field": name,
         f"before_{key}": len(before),
         f"after_{key}": len(after),
-        "note": _STACKED if stacked else _FRESH,
+        "note": note,
     }
-    what = f"{FIELD_LABELS[name].lower()} of {proposal.label}"
     return ToolOutput(
         data,
-        f"Proposed an edit to the {what} ({len(before):,} → {len(after):,} {unit}); nothing changes until it is applied.",
+        f"Proposed an edit to {change_label(proposal)} ({len(before):,} → {len(after):,} {unit}); nothing changes until it "
+        "is applied.",
         {"proposal_id": proposal.id, **{key: value for key, value in proposal.target.items() if key != "kind"}},
-        proposal=preview,
+        proposal=preview(proposal),
     )
 
 
@@ -184,8 +186,8 @@ _CharacterEdit = _edit_args(
 
 _EntryEdit = _edit_args(
     "_EntryEdit",
-    world_id=(str, Field(min_length=1, max_length=ID_CHARS, description="The entry's world, from list_worlds.")),
-    entry_id=(int, Field(ge=1, description="The entry's id, from list_lorebook_entries.")),
+    world_id=(str, world_field()),
+    entry_id=(int, entry_field()),
     field=(Literal["name", "content"], ...),
 )
 
@@ -207,8 +209,8 @@ _GREETING_REROLLS = (
 )
 
 _UNDONE = (
-    "That returns the field to its stored text, undoing the edit already proposed for it in this request. Nothing changed: "
-    "that earlier edit is still proposed. If the user no longer wants it, tell them to Cancel."
+    "That returns the field to its stored text, undoing the edit already proposed for it. Nothing changed: that edit is still "
+    "proposed. If the user no longer wants it, tell them to Cancel it on the card."
 )
 
 _ON_PENDING = (
@@ -248,7 +250,7 @@ def _items(args: Any) -> list[str]:
     if any(not item for item in items):
         raise ToolFailure("An item is blank. Nothing was proposed.")
     if any(_CLIP_MARK.search(item) for item in items):
-        reread = 'get_character with fields ["alternate_greetings"] reads them whole.'
+        reread = 'read_character with fields ["alternate_greetings"] reads them whole.'
         raise ToolFailure(
             "An item contains a marker like …[+N chars], which a read puts where it shortened text. "
             f"{reread} Then send the items' real text. Nothing was proposed."
@@ -260,16 +262,23 @@ def _items(args: Any) -> list[str]:
     return items
 
 
-def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
-    """The four edit tools, bound to the request's view.
+def proposal_key(target: Mapping[str, Any], name: str) -> str:
+    """The one slot a target's field (or its delete) holds among the proposals a request knows of."""
+    return json.dumps([dict(target), name], sort_keys=True)
+
+
+def build_edit_tools(view: ViewContext, held: Sequence[Proposal] = ()) -> list[AssistantTool]:
+    """The four edit tools, bound to the request's view and to *held*, the pending edits earlier requests proposed.
 
     The run holds one proposal per target and field: a later edit to a field it already proposed an edit to is made on that
     proposal's pending text and updates the same proposal, so its preview always compares the stored text with the result of
-    every edit the request made to it.
+    every edit the request made to it. A field with a held edit is edited on from that edit's pending text, into a new proposal
+    that replaces it.
     """
 
     tools = ToolSet()
-    pending: dict[str, Proposal] = {}
+    pending: dict[str, Proposal] = {proposal_key(item.target, item.name): item for item in held if item.action == "edit"}
+    earlier = {item.id for item in held}
 
     def propose(
         target: dict[str, Any],
@@ -287,12 +296,18 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
         A list field takes *list_edit*, which makes its new list from the stored one or the one already proposed.
         """
         kind = target["kind"]
-        key = json.dumps([target, name], sort_keys=True)
+        key = proposal_key(target, name)
         held = pending.get(key)
         if held is not None and not is_open(held):
-            # Expired or forgotten meanwhile: this edit starts a new proposal from the stored text.
+            # Applied, expired or forgotten meanwhile: this edit starts a new proposal from the stored text.
             held = None
-        base = stored if held is None else held.after
+        inherited = held is not None and held.id in earlier
+        note = _STACKED if held is not None else _FRESH
+        if inherited and held is not None and held.before != stored:
+            # The stored text moved under an earlier request's preview, which can never apply: start from what is stored.
+            base, note = stored, _STALE_EARLIER
+        else:
+            base = stored if held is None else held.after
         if list_edit is not None:
             assert isinstance(base, list)
             after: str | list[str] = list_edit(base)
@@ -307,13 +322,13 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
             raise ToolFailure(f"{required} cannot be left empty. Nothing was proposed.")
         if after == base:
             raise ToolFailure("That leaves the text exactly as it is, so there is nothing to propose.")
-        if held is None:
-            pending[key] = store(kind, target, label, name, stored, after)
-            return _preview(pending[key], stacked=False)
-        if after == held.before:
+        if held is not None and after == stored:
             raise ToolFailure(_UNDONE)
+        if held is None or inherited:
+            pending[key] = store(kind, target, label, name, stored, after, replaces=held)
+            return _preview(pending[key], note)
         revise(held, after)
-        return _preview(held, stacked=True)
+        return _preview(held, note)
 
     @tools.add(
         "confirm",
@@ -341,17 +356,15 @@ def build_edit_tools(view: ViewContext) -> list[AssistantTool]:
                 "replace_all, find_replace or replace_every. Nothing was proposed."
             )
         if args.field == "name":
-            reread = "get_character shows the name."
+            reread = "read_character shows the name."
             return propose(target, label, "name", str(card.get("name") or ""), args, reread, required="A character's name")
-        reread = f'get_character with fields ["{args.field}"] reads it whole, one page per text_offset.'
+        reread = f'read_character with fields ["{args.field}"] reads it whole, one page per text_offset.'
         return propose(target, label, args.field, str(card.get(args.field) or ""), args, reread)
 
     @tools.add("confirm", _EntryEdit, "Propose an edit to a lore entry's name or content.")
-    async def edit_lorebook_entry(args: Any) -> ToolOutput:
-        world, entry = await entry_of(args.world_id, args.entry_id)
-        reread = (
-            "list_lorebook_entries with entry_id reads the entry whole: its name, and its content one page per text_offset."
-        )
+    async def edit_lore_entry(args: Any) -> ToolOutput:
+        world, entry = await entry_of(args.world_id, args.entry_id, view)
+        reread = "list_lore_entries with entry_id reads the entry whole: its name, and its content one page per text_offset."
         target = {"kind": "lorebook_entry", "world_id": world["id"], "entry_id": entry["id"]}
         label = f"lore entry {quoted(entry['name'])} in {quoted(world['name'])}"
         required = "An entry's name" if args.field == "name" else ""

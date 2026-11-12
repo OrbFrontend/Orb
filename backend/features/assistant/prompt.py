@@ -55,9 +55,11 @@ _WRITES = (
     "- You can make only the scoped changes these tools allow. For any other change, say that you cannot do that."
 )
 _PROPOSALS = (
-    "\n- A tool marked [proposes] changes nothing. It proposes an edit to existing text; once this request ends the user "
-    "reviews every edit it proposed and applies or cancels them. "
-    "Say that you proposed the edit, never that it was made.\n"
+    "\n- A tool marked [proposes] changes nothing. It proposes an edit to existing text, or deleting something; once this "
+    "request ends the user reviews each proposal on a card and applies or cancels it. "
+    "Say that you proposed it, never that it was made.\n"
+    "- Propose deleting something only when the user's latest request asks for that thing to be deleted. To stop using a lore "
+    "entry, turning it off is enough.\n"
     "- A proposed edit is not applied during this request: reads still show the stored text. Never run a step that depends "
     "on it (regenerating a reply after proposing an edit to its message, for example); say what is waiting on Apply instead. "
     "Several edits to one field build on each other in one proposal."
@@ -164,6 +166,10 @@ def view_note(view: ViewContext) -> str:
         lines.append("character: none selected; a group has several, so name one explicitly")
     if view.document_id:
         lines.append(f"document: {_label(view.document_title)} (document_id {view.document_id})")
+    if view.world_id:
+        lines.append(f"open in the lorebook: world {_label(view.world_name)} (world_id {view.world_id})")
+    if view.entry_id:
+        lines.append(f"selected lore entry: {_label(view.entry_name)} (entry_id {view.entry_id})")
     return "[View when this was sent]\n" + "\n".join(lines)
 
 
@@ -177,13 +183,14 @@ _CHANGED = (
 )
 
 
-def request_message(text: str, view: ViewContext, *, follow_up: bool | None = None) -> ChatMessage:
-    """The latest request, with its captured view after the user's own words.
+def request_message(text: str, view: ViewContext, *, follow_up: bool | None = None, note: str = "") -> ChatMessage:
+    """The latest request, with its captured view after the user's own words, then *note*, the caller's own.
 
     *follow_up* marks a request that extends the previous run's own context: ``True`` when nothing has been committed since.
     """
-    note = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else _CHANGED}"
-    return {"role": "user", "content": f"{text}\n\n{view_note(view)}{note}"}
+    changed = "" if follow_up is None else f"\n\n{_UNCHANGED if follow_up else _CHANGED}"
+    extra = f"\n\n{note}" if note else ""
+    return {"role": "user", "content": f"{text}\n\n{view_note(view)}{changed}{extra}"}
 
 
 def history_messages(items: Sequence[HistoryItem]) -> list[ChatMessage]:
